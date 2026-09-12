@@ -3,10 +3,22 @@
 package handler
 
 import (
+	"context"
+	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -40,5 +52,158 @@ func TestCursorPublicModelsFallsBackWithoutMapping(t *testing.T) {
 	require.Equal(t, service.DefaultCursorModelIDs(), modelIDsForTest(response.Data))
 	for _, model := range response.Data {
 		require.Equal(t, "cursor", model.OwnedBy)
+	}
+}
+
+type cursorRouteSessionCache struct{ service.CursorSessionCache }
+
+func (cursorRouteSessionCache) Get(context.Context, string) (cursor.Session, error) {
+	return cursor.Session{Token: "synthetic-session", ExpiresAt: time.Now().Add(time.Hour)}, nil
+}
+
+type cursorRouteUsageRepo struct {
+	service.UsageLogRepository
+	logs  []*service.UsageLog
+	mutex sync.Mutex
+}
+
+func (repo *cursorRouteUsageRepo) CreateBestEffort(_ context.Context, usage *service.UsageLog) error {
+	repo.mutex.Lock()
+	defer repo.mutex.Unlock()
+	repo.logs = append(repo.logs, usage)
+	return nil
+}
+func (repo *cursorRouteUsageRepo) Create(ctx context.Context, usage *service.UsageLog) (bool, error) {
+	return true, repo.CreateBestEffort(ctx, usage)
+}
+
+func TestCursorRoutes(t *testing.T) {
+	for _, scenario := range []struct {
+		name, path                      string
+		stream, preFailure, interrupted bool
+	}{
+		{name: "chat_non_stream", path: EndpointChatCompletions},
+		{name: "chat_stream_once", path: EndpointChatCompletions, stream: true},
+		{name: "before_output_failover", path: EndpointChatCompletions, stream: true, preFailure: true},
+		{name: "after_output_partial_usage_once", path: EndpointChatCompletions, stream: true, interrupted: true},
+		{name: "messages_unsupported", path: EndpointMessages},
+		{name: "responses_unsupported", path: EndpointResponses},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			var attempts atomic.Int32
+			var machinesMu sync.Mutex
+			var machines []string
+			// Synthetic fixtures reused from the wire driver's HTTP/2 tests.
+			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				if request.URL.Path != cursor.RunEndpoint {
+					_, _ = writer.Write([]byte{0x0a, 7, 'd', 'e', 'f', 'a', 'u', 'l', 't'})
+					return
+				}
+				var frameHeader [5]byte
+				if _, err := io.ReadFull(request.Body, frameHeader[:]); err != nil {
+					return
+				}
+				if _, err := io.CopyN(io.Discard, request.Body, int64(binary.BigEndian.Uint32(frameHeader[1:]))); err != nil {
+					return
+				}
+				machinesMu.Lock()
+				machines = append(machines, request.Header.Get("X-Cursor-Checksum"))
+				machinesMu.Unlock()
+				attempt := attempts.Add(1)
+				if scenario.preFailure && attempt == 1 {
+					writer.WriteHeader(503)
+					writer.(http.Flusher).Flush()
+					return
+				}
+				fixtures := []string{"0a090a070a0568656c6c6f", "0a067204080c1005"}
+				if scenario.interrupted {
+					fixtures = []string{"0a090a070a0568656c6c6f", "0a0442020803"}
+				}
+				for _, fixture := range fixtures {
+					payload, _ := hex.DecodeString(fixture)
+					header := make([]byte, 5)
+					binary.BigEndian.PutUint32(header[1:], uint32(len(payload)))
+					_, _ = writer.Write(append(header, payload...))
+					writer.(http.Flusher).Flush()
+				}
+				if scenario.interrupted {
+					_, _ = writer.Write([]byte{0, 0, 0, 0, 2, 1})
+					writer.(http.Flusher).Flush()
+				}
+			}))
+			server.EnableHTTP2 = true
+			server.StartTLS()
+			defer server.Close()
+			groupID := int64(81)
+			group := &service.Group{ID: groupID, Hydrated: true, Platform: service.PlatformCursor, Status: service.StatusActive}
+			accounts := []*service.Account{}
+			for _, accountID := range []int64{1, 2} {
+				accounts = append(accounts, &service.Account{ID: accountID, Platform: service.PlatformCursor, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: int(accountID), Credentials: map[string]any{"api_key": "synthetic-key", "machine_id": fmt.Sprint(accountID)}, AccountGroups: []service.AccountGroup{{AccountID: accountID, GroupID: groupID}}})
+			}
+			handler, cleanup := newTestGatewayHandler(t, group, accounts)
+			defer cleanup()
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			repo := &cursorRouteUsageRepo{}
+			snapshot := service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: accounts}, nil, nil, nil, nil)
+			handler.gatewayService = service.NewGatewayService(nil, &fakeGroupRepo{group: group}, repo, nil, nil, nil, nil, nil, cfg, snapshot, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			handler.cursorGatewayService = service.NewCursorGatewayWithClientForTest(cursorRouteSessionCache{}, &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL})
+			pool := newUsageRecordTestPool(t)
+			defer pool.Stop()
+			handler.usageRecordWorkerPool = pool
+			apiKey := &service.APIKey{ID: 82, UserID: 83, GroupID: &groupID, Group: group, Status: service.StatusActive, User: &service.User{ID: 83, Concurrency: 10, Balance: 100}}
+			router := gin.New()
+			router.Use(func(requestContext *gin.Context) {
+				requestContext.Set(string(middleware2.ContextKeyAPIKey), apiKey)
+				requestContext.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 83, Concurrency: 10})
+				requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), ctxkey.Group, group))
+				requestContext.Next()
+			})
+			router.POST(EndpointChatCompletions, handler.ChatCompletions)
+			router.POST(EndpointMessages, handler.Messages)
+			router.POST(EndpointResponses, handler.Responses)
+			body := fmt.Sprintf(`{"model":"default","stream":%t,"stream_options":{"include_usage":true},"messages":[{"role":"user","content":"hi"}],"input":"hi","max_tokens":10}`, scenario.stream)
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, request)
+			pool.Stop()
+			if scenario.path != EndpointChatCompletions {
+				require.Equal(t, 400, recorder.Code)
+				require.Contains(t, recorder.Body.String(), "Cursor M1 supports /v1/chat/completions")
+				require.Zero(t, attempts.Load())
+				require.Empty(t, repo.logs)
+				return
+			}
+			require.Equal(t, 200, recorder.Code, recorder.Body.String())
+			require.Contains(t, recorder.Body.String(), "hello")
+			require.Equal(t, uint64(1), pool.Stats().SubmittedTasks)
+			require.Len(t, repo.logs, 1)
+			expectedAttempts := int32(1)
+			expectedAccount := int64(1)
+			if scenario.preFailure {
+				expectedAttempts = 2
+				expectedAccount = 2
+			}
+			require.Equal(t, expectedAttempts, attempts.Load())
+			require.Equal(t, expectedAccount, repo.logs[0].AccountID)
+			machinesMu.Lock()
+			defer machinesMu.Unlock()
+			require.Contains(t, machines[0], "1/")
+			if scenario.preFailure {
+				require.Contains(t, machines[1], "2/")
+			}
+			if scenario.interrupted {
+				require.NotContains(t, recorder.Body.String(), "[DONE]")
+				require.Contains(t, recorder.Body.String(), "Cursor stream interrupted")
+				require.Equal(t, 3, repo.logs[0].OutputTokens)
+				require.Equal(t, 1, repo.logs[0].InputTokens)
+			} else {
+				require.Equal(t, 12, repo.logs[0].InputTokens)
+				require.Equal(t, 5, repo.logs[0].OutputTokens)
+				if scenario.stream {
+					require.Equal(t, 1, strings.Count(recorder.Body.String(), "[DONE]"))
+				}
+			}
+		})
 	}
 }
