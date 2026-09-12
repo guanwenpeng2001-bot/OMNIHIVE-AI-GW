@@ -838,6 +838,9 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 	refreshWindow time.Duration,
 	gate refreshAttemptGate,
 ) error {
+	if account.IsCursor() && (s.refreshAPI == nil || executor == nil) {
+		return &providerConfigurationRefreshError{err: errors.New("Cursor refresh requires the unified refresh API")}
+	}
 	var lastErr error
 	maxRetries := s.maxRetries()
 
@@ -958,6 +961,10 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 				s.postRefreshStateSyncWithCleanup(ctx, account)
 			}
 			return ctxErr
+		}
+		// Cursor failure state is already conditionally persisted by the unified API.
+		if account.IsCursor() {
+			return err
 		}
 		if errors.Is(err, errRefreshSkipped) {
 			return errRefreshSkipped
@@ -1177,7 +1184,7 @@ func (s *TokenRefreshService) postRefreshActions(ctx context.Context, account *A
 		}
 	}
 	// 刷新成功后清除临时不可调度状态（处理 OAuth 401 恢复场景）
-	if account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
+	if !account.IsCursor() && account.TempUnschedulableUntil != nil && time.Now().Before(*account.TempUnschedulableUntil) {
 		if clearErr := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); clearErr != nil {
 			slog.Warn("token_refresh.clear_temp_unschedulable_failed",
 				"account_id", account.ID,

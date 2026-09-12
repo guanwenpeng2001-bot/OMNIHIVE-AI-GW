@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http/httptest"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
@@ -50,6 +51,46 @@ func (repo *cursorOAuthMemoryRepo) SetTempUnschedulable(_ context.Context, _ int
 	defer repo.mu.Unlock()
 	repo.account.TempUnschedulableUntil = &until
 	repo.account.TempUnschedulableReason = message
+	return nil
+}
+
+func (repo *cursorOAuthMemoryRepo) UpdateCursorOAuthCredentialsIfUnchanged(_ context.Context, _ int64, expected, credentials map[string]any) (bool, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if !reflect.DeepEqual(repo.account.Credentials, expected) {
+		return false, nil
+	}
+	repo.account.Credentials = shallowCopyMap(credentials)
+	repo.writes = append(repo.writes, shallowCopyMap(credentials))
+	return true, nil
+}
+func (repo *cursorOAuthMemoryRepo) SetCursorOAuthRefreshFailureIfUnchanged(_ context.Context, _ int64, expected map[string]any, permanent bool, until time.Time) (bool, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if !reflect.DeepEqual(repo.account.Credentials, expected) {
+		return false, nil
+	}
+	if permanent {
+		repo.account.Status = StatusError
+		repo.account.ErrorMessage = "Cursor reauth required: token refresh rejected"
+	} else {
+		repo.account.TempUnschedulableUntil = &until
+		repo.account.TempUnschedulableReason = "Cursor token refresh temporarily unavailable"
+	}
+	return true, nil
+}
+func (repo *cursorOAuthMemoryRepo) Update(_ context.Context, account *Account) error {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	repo.account = snapshotOAuthRefreshAccount(account)
+	return nil
+}
+
+func (repo *cursorOAuthMemoryRepo) ClearTempUnschedulable(context.Context, int64) error {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	repo.account.TempUnschedulableUntil = nil
+	repo.account.TempUnschedulableReason = ""
 	return nil
 }
 
