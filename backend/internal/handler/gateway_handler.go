@@ -1177,6 +1177,10 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	// Fallback to default models
+	if platform == service.PlatformCursor {
+		writeModelsList(c, platform, service.DefaultCursorModelIDs())
+		return
+	}
 	if platform == service.PlatformOpenAI {
 		writeModelsListResponse(c, openai.DefaultModels)
 		return
@@ -1299,6 +1303,14 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
+	if platform == service.PlatformCursor {
+		models := make([]openai.Model, 0, len(modelIDs))
+		for _, modelID := range modelIDs {
+			models = append(models, openai.Model{ID: modelID, Object: "model", Type: "model", DisplayName: modelID, OwnedBy: "cursor"})
+		}
+		writeModelsListResponse(c, models)
+		return
+	}
 	if platform == service.PlatformOpenAI {
 		writeOpenAIModelsList(c, modelIDs)
 		return
