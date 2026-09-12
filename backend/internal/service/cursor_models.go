@@ -61,10 +61,7 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 	if err != nil {
 		return nil, err
 	}
-	models, err := gateway.native.AvailableModels(ctx, gateway.credentials(ctx, account, token))
-	if err != nil {
-		return nil, err
-	}
+	models := gateway.picker(ctx, account, gateway.credentials(ctx, account, token))
 	ids := make([]string, 0, len(models))
 	for _, model := range models {
 		ids = append(ids, model.ID)

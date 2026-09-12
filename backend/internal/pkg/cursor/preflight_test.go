@@ -17,12 +17,14 @@ func TestRunPreflightFailover(t *testing.T) {
 	for _, scenario := range []string{"gating", "gating_after_heartbeat", "connect", "already_text", "already_thinking"} {
 		t.Run(scenario, func(t *testing.T) {
 			var attempts atomic.Int32
+			hosts := make(chan string, 2)
 			server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				_, err := readFrame(request.Body)
 				if err != nil {
 					return
 				}
 				attempt := attempts.Add(1)
+				hosts <- request.Host
 				writer.Header().Set("Content-Type", "application/connect+proto")
 				write := func(payload message) { _, _ = writer.Write(encodeFrame(payload)); writer.(http.Flusher).Flush() }
 				textFrame := func(kind uint64, text string) message {
@@ -65,7 +67,11 @@ func TestRunPreflightFailover(t *testing.T) {
 			server.EnableHTTP2 = true
 			server.StartTLS()
 			defer server.Close()
-			client := &Client{HTTPClient: server.Client(), RunHosts: []string{server.URL, server.URL}}
+			backup := httptest.NewUnstartedServer(server.Config.Handler)
+			backup.EnableHTTP2 = true
+			backup.StartTLS()
+			defer backup.Close()
+			client := &Client{HTTPClient: server.Client(), RunHosts: []string{server.URL, backup.URL}}
 			var output strings.Builder
 			usage, err := client.Run(context.Background(), Credentials{}, []ChatMessage{{Role: "user", Content: "hi"}}, "default", func(event StreamEvent) error { output.WriteString(event.Text); return nil })
 			if strings.HasPrefix(scenario, "already_") {
@@ -78,6 +84,8 @@ func TestRunPreflightFailover(t *testing.T) {
 				require.Equal(t, "hello", output.String())
 				require.Equal(t, 5, usage.OutputTokens)
 				require.False(t, usage.Estimated)
+				require.Equal(t, strings.TrimPrefix(server.URL, "https://"), <-hosts)
+				require.Equal(t, strings.TrimPrefix(backup.URL, "https://"), <-hosts)
 			}
 		})
 	}

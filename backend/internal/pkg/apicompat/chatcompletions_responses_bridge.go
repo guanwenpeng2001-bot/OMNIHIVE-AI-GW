@@ -1500,6 +1500,9 @@ func ChatUsageToResponsesUsage(usage *ChatUsage) *ResponsesUsage {
 			out.CacheCreationInputTokens = usage.PromptTokensDetails.CacheCreationTokens
 		}
 	}
+	if usage.CompletionTokensDetails != nil {
+		out.OutputTokensDetails = &ResponsesOutputTokensDetails{ReasoningTokens: usage.CompletionTokensDetails.ReasoningTokens}
+	}
 	return out
 }
 

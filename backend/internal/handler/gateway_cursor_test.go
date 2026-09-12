@@ -86,8 +86,10 @@ func TestCursorRoutes(t *testing.T) {
 		{name: "chat_stream_once", path: EndpointChatCompletions, stream: true},
 		{name: "before_output_failover", path: EndpointChatCompletions, stream: true, preFailure: true},
 		{name: "after_output_partial_usage_once", path: EndpointChatCompletions, stream: true, interrupted: true},
-		{name: "messages_unsupported", path: EndpointMessages},
-		{name: "responses_unsupported", path: EndpointResponses},
+		{name: "messages_non_stream", path: EndpointMessages},
+		{name: "messages_stream", path: EndpointMessages, stream: true},
+		{name: "responses_non_stream", path: EndpointResponses},
+		{name: "responses_stream", path: EndpointResponses, stream: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var attempts atomic.Int32
@@ -115,7 +117,7 @@ func TestCursorRoutes(t *testing.T) {
 					writer.(http.Flusher).Flush()
 					return
 				}
-				fixtures := []string{"0a090a070a0568656c6c6f", "0a067204080c1005"}
+				fixtures := []string{"0a0722050a03776879", "0a060a040a026865", "0a070a050a036c6c6f", "0a0442020863", "0a0c720a080c1005180620022803"}
 				if scenario.interrupted {
 					fixtures = []string{"0a090a070a0568656c6c6f", "0a0442020803"}
 				}
@@ -167,15 +169,11 @@ func TestCursorRoutes(t *testing.T) {
 			request.Header.Set("Content-Type", "application/json")
 			router.ServeHTTP(recorder, request)
 			pool.Stop()
-			if scenario.path != EndpointChatCompletions {
-				require.Equal(t, 400, recorder.Code)
-				require.Contains(t, recorder.Body.String(), "Cursor M1 supports /v1/chat/completions")
-				require.Zero(t, attempts.Load())
-				require.Empty(t, repo.logs)
-				return
-			}
+
 			require.Equal(t, 200, recorder.Code, recorder.Body.String())
-			require.Contains(t, recorder.Body.String(), "hello")
+			if !scenario.stream || scenario.interrupted {
+				require.Contains(t, recorder.Body.String(), "hello")
+			}
 			require.Equal(t, uint64(1), pool.Stats().SubmittedTasks)
 			require.Len(t, repo.logs, 1)
 			expectedAttempts := int32(1)
@@ -200,8 +198,92 @@ func TestCursorRoutes(t *testing.T) {
 			} else {
 				require.Equal(t, 12, repo.logs[0].InputTokens)
 				require.Equal(t, 5, repo.logs[0].OutputTokens)
+				require.Equal(t, 6, repo.logs[0].CacheReadTokens)
+				require.Equal(t, 2, repo.logs[0].CacheCreationTokens)
 				if scenario.stream {
-					require.Equal(t, 1, strings.Count(recorder.Body.String(), "[DONE]"))
+					var eventTypes []string
+					var textDeltas, thinkingDeltas strings.Builder
+					var finalUsage map[string]any
+					for _, line := range strings.Split(recorder.Body.String(), "\n") {
+						if !strings.HasPrefix(line, "data: ") || line == "data: [DONE]" {
+							continue
+						}
+						var event map[string]any
+						require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+						if kind, ok := event["type"].(string); ok {
+							eventTypes = append(eventTypes, kind)
+						}
+						if usage, ok := event["usage"].(map[string]any); ok {
+							finalUsage = usage
+						}
+						switch scenario.path {
+						case EndpointMessages:
+							if delta, ok := event["delta"].(map[string]any); ok {
+								if value, ok := delta["text"].(string); ok {
+									textDeltas.WriteString(value)
+								}
+								if value, ok := delta["thinking"].(string); ok {
+									thinkingDeltas.WriteString(value)
+								}
+							}
+						case EndpointResponses:
+							if event["type"] == "response.output_text.delta" {
+								textDeltas.WriteString(event["delta"].(string))
+							}
+							if event["type"] == "response.reasoning_summary_text.delta" {
+								thinkingDeltas.WriteString(event["delta"].(string))
+							}
+							if event["type"] == "response.completed" {
+								finalUsage = event["response"].(map[string]any)["usage"].(map[string]any)
+							}
+						default:
+							for _, choice := range event["choices"].([]any) {
+								delta := choice.(map[string]any)["delta"].(map[string]any)
+								if value, ok := delta["content"].(string); ok {
+									textDeltas.WriteString(value)
+								}
+								if value, ok := delta["reasoning_content"].(string); ok {
+									thinkingDeltas.WriteString(value)
+								}
+							}
+						}
+					}
+					require.Equal(t, "hello", textDeltas.String())
+					require.Equal(t, "why", thinkingDeltas.String())
+					require.Equal(t, false, finalUsage["estimated"])
+					switch scenario.path {
+					case EndpointMessages:
+						require.Equal(t, []string{"message_start", "content_block_start", "content_block_delta", "content_block_stop", "content_block_start", "content_block_delta", "content_block_delta", "content_block_stop", "message_delta", "message_stop"}, eventTypes)
+						require.Equal(t, float64(12), finalUsage["input_tokens"])
+						require.Equal(t, float64(5), finalUsage["output_tokens"])
+						require.Equal(t, float64(6), finalUsage["cache_read_input_tokens"])
+						require.Equal(t, float64(2), finalUsage["cache_creation_input_tokens"])
+					case EndpointResponses:
+						require.Equal(t, "response.created", eventTypes[0])
+						require.Equal(t, "response.completed", eventTypes[len(eventTypes)-1])
+						require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: response.completed"))
+						require.Equal(t, float64(20), finalUsage["input_tokens"])
+						require.Equal(t, float64(5), finalUsage["output_tokens"])
+						require.Equal(t, float64(3), finalUsage["output_tokens_details"].(map[string]any)["reasoning_tokens"])
+					default:
+						require.Equal(t, 1, strings.Count(recorder.Body.String(), "[DONE]"))
+						require.Equal(t, float64(20), finalUsage["prompt_tokens"])
+					}
+				} else {
+					var response map[string]any
+					require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+					usage := response["usage"].(map[string]any)
+					require.Equal(t, false, usage["estimated"])
+					if scenario.path == EndpointMessages {
+						require.Equal(t, "message", response["type"])
+						require.Equal(t, "end_turn", response["stop_reason"])
+						require.Equal(t, float64(5), usage["output_tokens"])
+					}
+					if scenario.path == EndpointResponses {
+						require.Equal(t, "response", response["object"])
+						require.Equal(t, "completed", response["status"])
+						require.Equal(t, float64(3), usage["output_tokens_details"].(map[string]any)["reasoning_tokens"])
+					}
 				}
 			}
 		})
