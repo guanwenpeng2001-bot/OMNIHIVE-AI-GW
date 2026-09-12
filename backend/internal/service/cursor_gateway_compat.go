@@ -37,7 +37,7 @@ func (gateway *CursorGatewayService) forwardProtocol(ctx context.Context, reques
 	}
 	encoded, model, err := cursorNormalizeRequest(body, protocol)
 	if err != nil {
-		requestContext.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
 		return nil, err
 	}
 	output := newCursorOutput(requestContext, protocol, model)
@@ -66,8 +66,13 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 			enabled := request.Thinking.Type == "enabled" || request.Thinking.Type == "adaptive"
 			thinking = &enabled
 		}
-		if err == nil && request.OutputConfig != nil {
-			chat.ReasoningEffort = request.OutputConfig.Effort
+		if err == nil {
+			// The shared bridge defaults effort to medium; Cursor must only use
+			// an effort explicitly supplied by the caller for variant selection.
+			chat.ReasoningEffort = ""
+			if request.OutputConfig != nil {
+				chat.ReasoningEffort = request.OutputConfig.Effort
+			}
 		}
 	case APIProtocolResponses:
 		var request apicompat.ResponsesRequest
@@ -112,6 +117,14 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 	_ = json.Unmarshal(body, &extras)
 	encoded, err := json.Marshal(gin.H{"model": chat.Model, "messages": messages, "stream": chat.Stream, "reasoning_effort": chat.ReasoningEffort, "cursor_thinking": thinking, "fast": extras["fast"], "stream_options": gin.H{"include_usage": true}})
 	return encoded, chat.Model, err
+}
+
+func cursorErrorPayload(protocol string, detail any) gin.H {
+	payload := gin.H{"error": detail}
+	if protocol == APIProtocolAnthropic {
+		payload["type"] = "error"
+	}
+	return payload
 }
 
 func (output *cursorOutput) event(eventType string, payload any, estimated *bool) error {
@@ -160,7 +173,15 @@ func (output *cursorOutput) chunk(payload any) error {
 	}
 	_ = json.Unmarshal(encoded, &envelope)
 	if len(envelope.Error) > 0 {
-		return output.event("error", payload, nil)
+		if output.protocol == APIProtocolAnthropic {
+			payload = cursorErrorPayload(output.protocol, envelope.Error)
+		}
+		err := output.event("error", payload, nil)
+		if err == nil && output.protocol == APIProtocolAnthropic {
+			// The Messages handler must not append a second terminal error.
+			MarkResponseCommitted(output.context)
+		}
+		return err
 	}
 	var chunk apicompat.ChatCompletionsChunk
 	if err = json.Unmarshal(encoded, &chunk); err != nil {
