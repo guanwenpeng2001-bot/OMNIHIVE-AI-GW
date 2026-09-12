@@ -63,6 +63,8 @@ func TestCursorRunUsageBoundaries(t *testing.T) {
 		wantError bool
 	}{
 		{"empty_turn_ended", "0a027200", TokenUsage{OutputTokens: 3, Estimated: true}, false},
+		{"zero_turn_ended", "0a06720408001000", TokenUsage{OutputTokens: 3, Estimated: true}, false},
+		{"extension_only_turn_ended", "0a0472023001", TokenUsage{OutputTokens: 3, Estimated: true}, false},
 		{"authoritative_turn_ended", "0a0c720a080c1005180320042802", TokenUsage{InputTokens: 12, OutputTokens: 5, CacheReadTokens: 3, CacheWriteTokens: 4, ReasoningTokens: 2}, false},
 		{"error_trailer_after_delta", "", TokenUsage{OutputTokens: 3, Estimated: true}, true},
 	} {

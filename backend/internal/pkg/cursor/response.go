@@ -68,7 +68,7 @@ func parseEvents(payload []byte) ([]StreamEvent, error) {
 			events = append(events, StreamEvent{Type: "token_delta", Usage: TokenUsage{OutputTokens: int(findField(details, deltaTokens).integer)}})
 		case interactionTurnEnded:
 			usage := TokenUsage{InputTokens: int(findField(details, usageInput).integer), OutputTokens: int(findField(details, usageOutput).integer), CacheReadTokens: int(findField(details, usageCacheRead).integer), CacheWriteTokens: int(findField(details, usageCacheWrite).integer), ReasoningTokens: int(findField(details, usageReasoning).integer)}
-			usage.Estimated = len(details) == 0
+			usage.Estimated = usage.InputTokens == 0 && usage.OutputTokens == 0 && usage.CacheReadTokens == 0 && usage.CacheWriteTokens == 0 && usage.ReasoningTokens == 0
 			events = append(events, StreamEvent{Type: "turn_ended", Usage: usage})
 		}
 	}

@@ -21,6 +21,8 @@ const RunEndpoint = "/agent.v1.AgentService/Run"
 type Client struct {
 	HTTPClient *http.Client
 	BaseURL    string
+	// RunHosts optionally overrides native failover hosts; BaseURL remains the single-host override.
+	RunHosts []string
 }
 
 func NewClient() *Client {
@@ -56,7 +58,9 @@ func (client *Client) Run(ctx context.Context, credentials Credentials, messages
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	hosts := []string{client.BaseURL}
-	if client.BaseURL == "" {
+	if len(client.RunHosts) > 0 {
+		hosts = client.RunHosts
+	} else if client.BaseURL == "" {
 		hosts = []string{"https://agentn.global.api5.cursor.sh", "https://agentn.api5.cursor.sh", "https://agentn-gcpp-eucentral.api5.cursor.sh"}
 	}
 	emitted := false
@@ -129,6 +133,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	blobs := make(map[string][]byte)
 	storedBytes := 0
 	usage := TokenUsage{Estimated: true}
+	outputStarted := false
 	for {
 		frame, err := readFrame(response.Body)
 		if err != nil {
@@ -136,6 +141,13 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 				return usage, nil
 			}
 			return usage, err
+		}
+		// Every frame before the first assistant token is a preflight frame:
+		// heartbeats and KV exchanges may precede a rejection. Inspect the entire
+		// frame before emitting any of its events so a later gating field in the
+		// same frame cannot leak earlier text to the downstream client.
+		if !outputStarted && isRejectedCursorStream(frame.payload) {
+			return usage, fmt.Errorf("cursor: upstream rejected stream; update client version or retry another host")
 		}
 		if frame.flags&2 != 0 {
 			return usage, trailerError(frame.payload)
@@ -164,10 +176,25 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 				}
 				return usage, nil
 			case "text", "thinking":
+				if event.Text != "" {
+					outputStarted = true
+				}
 				if err := emit(event); err != nil {
 					return usage, err
 				}
 			}
 		}
 	}
+}
+
+// Recognize only platform gating diagnostics, before any assistant output.
+// Never return the payload: upstream diagnostics can include private context.
+func isRejectedCursorStream(payload []byte) bool {
+	text := strings.ToLower(string(payload))
+	for _, marker := range []string{"error_deprecated", "request type deprecated", "outdated version of cursor", "update required", "error_gpt_4_vision_preview_rate_limit"} {
+		if strings.Contains(text, marker) {
+			return true
+		}
+	}
+	return false
 }
