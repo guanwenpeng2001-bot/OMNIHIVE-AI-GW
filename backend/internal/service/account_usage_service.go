@@ -10,6 +10,7 @@ import (
 	"log/slog"
 	"math/rand/v2"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -26,7 +27,25 @@ import (
 )
 
 // CursorMonthlyUsage preserves unknown limits rather than inventing utilization.
+type CursorPlanUsage struct {
+	TotalSpend       *float64 `json:"totalSpend,omitempty"`
+	Limit            *float64 `json:"limit,omitempty"`
+	AutoPercentUsed  *float64 `json:"autoPercentUsed,omitempty"`
+	APIPercentUsed   *float64 `json:"apiPercentUsed,omitempty"`
+	TotalPercentUsed *float64 `json:"totalPercentUsed,omitempty"`
+}
+
+type CursorLimitStatus struct {
+	IsInSlowPool bool   `json:"isInSlowPool"`
+	Stage        string `json:"stage,omitempty"`
+	TrayLabel    string `json:"trayLabel,omitempty"`
+}
+
 type CursorMonthlyUsage struct {
+	PlanUsage        *CursorPlanUsage   `json:"plan_usage,omitempty"`
+	LimitStatus      *CursorLimitStatus `json:"limit_status,omitempty"`
+	DashboardPartial bool               `json:"dashboard_partial,omitempty"`
+
 	StartOfMonth *time.Time                  `json:"start_of_month"`
 	ResetsAt     *time.Time                  `json:"resets_at"`
 	Models       map[string]CursorModelUsage `json:"models"`
@@ -108,6 +127,18 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	if cached := cachedUsage(); cached != nil {
 		return cached
 	}
+	if !force && account.Extra != nil {
+		if stamp, ok := account.Extra["cursor_usage_updated_at"].(string); ok {
+			if updated, err := time.Parse(time.RFC3339, stamp); err == nil && time.Since(updated) >= 0 && time.Since(updated) < apiCacheTTL {
+				if raw, err := json.Marshal(account.Extra["cursor_usage_snapshot"]); err == nil {
+					var monthly *CursorMonthlyUsage
+					if json.Unmarshal(raw, &monthly) == nil && monthly != nil {
+						return &UsageInfo{Source: "passive", UpdatedAt: &updated, CursorMonthly: monthly}
+					}
+				}
+			}
+		}
+	}
 	pending := s.cache.cursorFlight.DoChan(key, func() (any, error) {
 		if cached := cachedUsage(); cached != nil {
 			return cached, nil
@@ -131,6 +162,10 @@ func (s *AccountUsageService) fetchCursorUsage(ctx context.Context, account *Acc
 	if err != nil {
 		return &UsageInfo{ErrorCode: "unauthenticated", Error: "Cursor session unavailable"}
 	}
+	return s.fetchCursorUsageWithToken(ctx, account, token)
+}
+
+func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token string) *UsageInfo {
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api2.cursor.sh/auth/usage", nil)
 	if err != nil {
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage request unavailable"}
@@ -155,8 +190,86 @@ func (s *AccountUsageService) fetchCursorUsage(ctx context.Context, account *Acc
 	if err != nil {
 		return &UsageInfo{ErrorCode: "invalid_response", Error: "Invalid Cursor usage response"}
 	}
+	return &UsageInfo{CursorMonthly: monthly}
+}
+
+func (s *AccountUsageService) fetchCursorUsageWithToken(ctx context.Context, account *Account, token string) *UsageInfo {
+	// Dashboard values are independent of legacy /auth/usage counters.
+	var period struct {
+		BillingCycleStart string           `json:"billingCycleStart"`
+		BillingCycleEnd   string           `json:"billingCycleEnd"`
+		PlanUsage         *CursorPlanUsage `json:"planUsage"`
+	}
+	var limits struct {
+		Status *CursorLimitStatus `json:"usageLimitPolicyStatus"`
+	}
+	var legacy *UsageInfo
+	var periodErr, limitsErr error
+	var group errgroup.Group
+	group.Go(func() error { legacy = s.fetchCursorLegacyUsage(ctx, token); return nil })
+	group.Go(func() error {
+		periodErr = s.fetchCursorDashboard(ctx, token, "GetCurrentPeriodUsage", &period)
+		return nil
+	})
+	group.Go(func() error {
+		limitsErr = s.fetchCursorDashboard(ctx, token, "GetUsageLimitStatusAndActiveGrants", &limits)
+		return nil
+	})
+	_ = group.Wait()
+	monthly := legacy.CursorMonthly
+	if monthly == nil {
+		if periodErr != nil {
+			return legacy
+		}
+		monthly = &CursorMonthlyUsage{Models: make(map[string]CursorModelUsage)}
+	}
+	if periodErr == nil {
+		monthly.PlanUsage = period.PlanUsage
+		monthly.StartOfMonth, monthly.ResetsAt = nil, nil
+		if value, err := strconv.ParseInt(period.BillingCycleStart, 10, 64); err == nil && value > 0 {
+			start := time.UnixMilli(value).UTC()
+			monthly.StartOfMonth = &start
+		}
+		if value, err := strconv.ParseInt(period.BillingCycleEnd, 10, 64); err == nil && value > 0 {
+			end := time.UnixMilli(value).UTC()
+			monthly.ResetsAt = &end
+		}
+	} else {
+		monthly.DashboardPartial = true
+	}
+	if limitsErr == nil {
+		monthly.LimitStatus = limits.Status
+	} else {
+		monthly.DashboardPartial = true
+	}
 	now := time.Now()
+	if s.accountRepo != nil {
+		// UpdateExtra merges the snapshot without replacing unrelated account settings.
+		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"cursor_usage_snapshot": monthly, "cursor_usage_updated_at": now.Format(time.RFC3339)}); err != nil {
+			slog.Warn("Cursor usage snapshot persistence failed", "account_id", account.ID)
+		}
+	}
 	return &UsageInfo{Source: "active", UpdatedAt: &now, CursorMonthly: monthly}
+}
+
+// fetchCursorDashboard reads Connect unary JSON, never native Run/NAL frames.
+func (s *AccountUsageService) fetchCursorDashboard(ctx context.Context, token, method string, target any) error {
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://api2.cursor.sh/aiserver.v1.DashboardService/"+method, strings.NewReader("{}"))
+	if err != nil {
+		return err
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("Connect-Protocol-Version", "1")
+	response, err := s.cursorUsageClient.Do(request)
+	if err != nil {
+		return err
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("Cursor dashboard HTTP %d", response.StatusCode)
+	}
+	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(target)
 }
 
 type UsageLogRepository interface {
