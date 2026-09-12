@@ -28,10 +28,11 @@ func TestCursorRefreshVerifiedContract(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(t, "POST", r.Method)
 				require.Equal(t, "/oauth/token", r.URL.Path)
-				require.Equal(t, "Bearer synthetic-refresh", r.Header.Get("Authorization"))
+				require.Empty(t, r.Header.Get("Authorization"))
+				require.Equal(t, "application/json", r.Header.Get("Content-Type"))
 				body, err := io.ReadAll(r.Body)
 				require.NoError(t, err)
-				require.JSONEq(t, `{}`, string(body))
+				require.JSONEq(t, `{"grant_type":"refresh_token","refresh_token":"synthetic-refresh"}`, string(body))
 				payload := map[string]any{"access_token": access, "id_token": "unused", "shouldLogout": false}
 				if rotate {
 					payload["refresh_token"] = "rotated-synthetic-refresh"
@@ -62,6 +63,12 @@ func TestCursorRefreshFailureClassificationAndRedaction(t *testing.T) {
 	}{
 		{401, `secret echoed by upstream`, true}, {400, `{"error":"invalid_grant","detail":"secret"}`, true},
 		{200, `{"shouldLogout":true}`, true}, {503, `secret`, false}, {200, `{"access_token":"secret"}`, false},
+		{403, `secret echoed by upstream`, true},
+		{200, `{"access_token":"","id_token":"","shouldLogout":true}`, true},
+		{200, `{"access_token":"","shouldLogout":false}`, false},
+		{200, `{"access_token":""}`, false},
+		{200, `{}`, false},
+		{200, `secret malformed JSON`, false},
 	} {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(test.status)
@@ -77,6 +84,17 @@ func TestCursorRefreshFailureClassificationAndRedaction(t *testing.T) {
 		}
 		server.Close()
 	}
+}
+
+func TestCursorRefreshTransportFailure(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("unexpected request to closed server")
+	}))
+	server.Close()
+	_, err := RefreshToken(context.Background(), server.Client(), server.URL, "secret")
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrReauthRequired)
+	require.NotContains(t, err.Error(), "secret")
 }
 
 func TestCursorPKCEGenerationAndPollingContract(t *testing.T) {
