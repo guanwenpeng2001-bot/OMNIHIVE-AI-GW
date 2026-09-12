@@ -82,6 +82,9 @@ func (a *Account) IsHeaderOverrideEligible() bool {
 		return a.Type == AccountTypeAPIKey
 	case PlatformGrok:
 		return a.Type == AccountTypeAPIKey || a.Type == AccountTypeOAuth
+	case PlatformCursor:
+		// Native Cursor headers participate in the protocol handshake.
+		return a.Type == AccountTypeUpstream
 	default:
 		return false
 	}

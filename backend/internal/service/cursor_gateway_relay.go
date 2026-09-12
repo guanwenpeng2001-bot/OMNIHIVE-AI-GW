@@ -141,9 +141,16 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
+	account.ApplyHeaderOverrides(request.Header)
+	// Protocol headers take precedence over account configuration.
+	request.Header.Set("Accept", "application/json")
+	if metadata.Stream {
+		request.Header.Set("Accept", "text/event-stream")
+	}
 	request.Header.Set("Authorization", "Bearer "+account.GetCredential("api_key"))
 	request.Header.Set("Content-Type", "application/json")
 	if upstream == APIProtocolAnthropic {
+		deleteHeaderAllForms(request.Header, "anthropic-version")
 		request.Header.Set("anthropic-version", "2023-06-01")
 	}
 	response, err := gateway.relayClient.Do(request)
