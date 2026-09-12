@@ -105,7 +105,8 @@
         v-if="canSyncUpstream"
         type="button"
         @click="syncUpstreamModels"
-        :disabled="isSyncingUpstream"
+        :disabled="isSyncingUpstream || (!accountId && !syncCredentials)"
+        :title="!accountId && !syncCredentials ? t('admin.accounts.cursor.syncAfterSave') : undefined"
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
       >
         {{ isSyncingUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
@@ -145,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -214,6 +215,7 @@ const upstreamSyncPlatforms = new Set([
   'opencode_go'
 ])
 const canSyncUpstream = computed(() => {
+  if (normalizedPlatforms.value.includes('cursor')) return true
   if (props.accountId) {
     if (normalizedPlatforms.value.length === 0) return true
     return normalizedPlatforms.value.some(platform => upstreamSyncPlatforms.has(platform.toLowerCase()))
@@ -224,7 +226,23 @@ const canSyncUpstream = computed(() => {
   return false
 })
 
+// Keep live Cursor picker IDs in the dropdown as well as in the selected chips.
+const cursorCatalog = ref<string[]>([])
+watch(() => [props.accountId, props.platform] as const, async ([accountId, platform], _, onCleanup) => {
+  cursorCatalog.value = []
+  if (!accountId || platform !== 'cursor') return
+  let stale = false
+  onCleanup(() => { stale = true })
+  try {
+    const models = await accountsAPI.getAvailableModels(accountId)
+    if (!stale) cursorCatalog.value = models.map(model => model.id)
+  } catch { /* The calibrated static catalog remains available. */ }
+}, { immediate: true })
+
 const availableOptions = computed(() => {
+  if (normalizedPlatforms.value.length === 1 && normalizedPlatforms.value[0] === 'cursor') {
+    return [...new Set([...getModelsByPlatform('cursor'), ...cursorCatalog.value])].map(value => ({ value, label: value }))
+  }
   if (normalizedPlatforms.value.length === 0) {
     return allModels
   }
@@ -286,7 +304,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
+    for (const model of (platform === 'cursor' && cursorCatalog.value.length ? cursorCatalog.value : getModelsByPlatform(platform))) {
       if (!newModels.includes(model)) {
         newModels.push(model)
       }
@@ -311,6 +329,7 @@ const syncUpstreamModels = async () => {
     }
 
     const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
+    if (normalizedPlatforms.value.includes('cursor')) cursorCatalog.value = upstreamModels
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
       return

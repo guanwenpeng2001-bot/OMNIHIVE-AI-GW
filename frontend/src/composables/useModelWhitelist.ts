@@ -1,3 +1,6 @@
+// Picker IDs from backend/internal/pkg/cursor/models.go; native variants resolve on the server.
+export const cursorModels = ['default', 'grok-4.6', 'composer-2.5', 'claude-opus-5', 'claude-opus-4-8', 'gpt-5.6-sol', 'gpt-5.5', 'claude-fable-5-1', 'claude-fable-5', 'grok-4.5', 'gemini-3.8-flash', 'gemini-3.7-flash', 'muse-spark-1.3', 'gpt-5.6-terra', 'claude-sonnet-5', 'claude-sonnet-4-6', 'gpt-5.3-codex', 'claude-opus-4-7', 'gpt-5.4', 'claude-opus-4-6', 'claude-opus-4-5', 'gpt-5.2', 'gpt-5.6-luna', 'gemini-3.6-flash', 'gemini-3.1-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'claude-haiku-4-5', 'claude-sonnet-4-5', 'gpt-5.1', 'gemini-3-flash', 'gemini-3.5-flash', 'claude-sonnet-4', 'gpt-5-mini', 'gemini-2.5-flash', 'kimi-k3', 'kimi-k2.7-code', 'glm-5.2']
+
 // =====================
 // 模型列表（硬编码，与 new-api 一致）
 // =====================
@@ -453,7 +456,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'yi': return yiModels
     case 'moonshot':
     case 'kimi': return moonshotModels
-    case 'cursor': return ['default', 'claude-sonnet-4-6', 'grok-4.6']
+    case 'cursor': return cursorModels
     case 'opencode_go': return [
       'grok-4.6', 'gpt-5.6-luna',
       'glm-5.3-flash', 'glm-5.3', 'glm-5.2', 'glm-5.1',
@@ -478,6 +481,18 @@ export function getModelsByPlatform(platform: string): string[] {
 
 // 按平台获取预设映射
 export function getPresetMappingsByPlatform(platform: string) {
+  if (platform === 'cursor') {
+    const color = 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
+    const families = ['claude', 'gpt', 'gemini', 'grok', 'kimi', 'glm', 'composer', 'muse']
+    return [
+      { label: 'default', from: 'default', to: 'default', color },
+      ...families.flatMap(family => {
+        const target = cursorModels.find(model => model.startsWith(`${family}-`))
+        return target ? [{ label: `${family}-* → ${target}`, from: `${family}-*`, to: target, color }] : []
+      }),
+      ...cursorModels.filter(model => model !== 'default').map(model => ({ label: model, from: model, to: model, color }))
+    ]
+  }
   if (platform === 'openai') return openaiPresetMappings
   if (platform === 'gemini') return geminiPresetMappings
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings

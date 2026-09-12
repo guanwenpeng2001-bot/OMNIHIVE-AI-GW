@@ -2,6 +2,17 @@ export default {
     accounts: {
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',
       cursor: {
+        syncAfterSave: 'Enter an official key to sync. For Auto mode, save or authorize the account first, then edit it to sync upstream models.',
+        month: 'Mo',
+        autoModels: 'Cursor models',
+        apiModels: 'Other models',
+        totalUsage: 'Plan usage',
+        resetDate: 'Resets {date} ({days} days left)',
+        slowPool: 'In slow pool',
+        rawUsage: 'Request / token details',
+        dashboardPartial: 'Plan usage unavailable; some data may be missing',
+
+        nativeSettingsHint: 'Native mode uses fixed upstream endpoints and protocol headers. Custom upstream URLs and header overrides are unavailable; set the client version above.',
         monthlyUsage: 'Monthly usage', unlimited: 'No limit', noUsage: 'No monthly usage data', usageFailed: 'Monthly usage query failed. Retry to refresh.', requests: 'Requests', totalRequests: 'Total requests', tokens: 'Tokens', periodUnknown: 'Billing period unavailable',
     auto: 'Auto (Token import)',
     autoHint: 'Import both tokens and two 64-character hexadecimal machine IDs, or use browser authorization below.',

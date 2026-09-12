@@ -68,6 +68,7 @@ export interface HeaderOverrideRow {
 
 /** 请求头覆写资格（与后端 IsHeaderOverrideEligible 保持一致） */
 export function isHeaderOverrideCapable(platform: string, type: string): boolean {
+  if (platform === 'cursor') return type === 'upstream'
   if (
     platform === 'anthropic' ||
     platform === 'openai' ||

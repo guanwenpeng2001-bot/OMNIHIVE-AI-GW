@@ -8,7 +8,8 @@ const {
   showInfo,
   showWarning,
   syncUpstreamModels,
-  syncUpstreamModelsPreview
+  syncUpstreamModelsPreview,
+  getAvailableModels
 } = vi.hoisted(() => ({
   copyToClipboard: vi.fn().mockResolvedValue(true),
   showError: vi.fn(),
@@ -16,7 +17,8 @@ const {
   showInfo: vi.fn(),
   showWarning: vi.fn(),
   syncUpstreamModels: vi.fn(),
-  syncUpstreamModelsPreview: vi.fn()
+  syncUpstreamModelsPreview: vi.fn(),
+  getAvailableModels: vi.fn().mockResolvedValue([])
 }))
 
 vi.mock('vue-i18n', async () => {
@@ -41,7 +43,8 @@ vi.mock('@/stores/app', () => ({
 vi.mock('@/api/admin/accounts', () => ({
   accountsAPI: {
     syncUpstreamModels,
-    syncUpstreamModelsPreview
+    syncUpstreamModelsPreview,
+  getAvailableModels
   }
 }))
 
@@ -81,6 +84,19 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 }
 
 describe('ModelWhitelistSelector', () => {
+  it('offers the Cursor fallback and live picker IDs and fills the live catalog', async () => {
+    getAvailableModels.mockResolvedValueOnce([{ id: 'cursor-future-model', display_name: 'Future' }])
+    const wrapper = mountSelector({ platform: 'cursor', accountId: 42 })
+    await flushPromises()
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    expect(findModelRow(wrapper, 'composer-2.5').exists()).toBe(true)
+    expect(findModelRow(wrapper, 'cursor-future-model').exists()).toBe(true)
+    const fill = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.fillRelatedModels')!
+    await fill.trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(['cursor-future-model'])
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     copyToClipboard.mockClear()
     showError.mockReset()

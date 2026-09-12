@@ -236,7 +236,7 @@
         </div>
       </div>
       <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto'" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: {}, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto'" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject(modelRestrictionMode, allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -2259,9 +2259,9 @@
         </div>
       </div>
 
-      <!-- Grok OAuth Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
+      <!-- Grok OAuth / Cursor relay Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
-        v-if="form.platform === 'grok' && isOAuthFlow"
+        v-if="(form.platform === 'grok' && isOAuthFlow) || (form.platform === 'cursor' && cursorKeyMode === 'relay')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="mb-3 flex items-center justify-between">
@@ -2305,7 +2305,7 @@
 
       <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="(form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow"
+        v-if="((form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow) || form.platform === 'cursor'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -4347,7 +4347,7 @@ const syncPreviewCredentials = computed(() => {
   )
   return {
     platform: form.platform,
-    type: form.type,
+    type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : 'apikey') : form.type,
     base_url: baseUrl || undefined,
     api_key: apiKeyValue.value,
     ...(modelMapping ? { model_mapping: modelMapping } : {})
@@ -5644,6 +5644,11 @@ const handleSubmit = async () => {
     const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
     const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
+    if (cursorKeyMode.value === 'relay') {
+      const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
+      if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
+      applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
+    }
     await createAccountAndFinish('cursor', cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
     return
   }

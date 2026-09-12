@@ -336,6 +336,10 @@ describe('EditAccountModal', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
     expect(wrapper.get<HTMLInputElement>('[data-testid="cursor-access_token"]').element.value).toBe('')
+    const selector = wrapper.findComponent(ModelWhitelistSelectorStub)
+    expect(selector.exists()).toBe(true)
+    selector.vm.$emit('update:modelValue', ['default', 'gpt-5.5'])
+    await flushPromises()
     await wrapper.get('form').trigger('submit.prevent'); await flushPromises()
     const payload = updateAccountMock.mock.calls[0]?.[1]
     expect(payload.credentials.machine_id).toBe('a'.repeat(64))
@@ -344,6 +348,7 @@ describe('EditAccountModal', () => {
     expect(payload.credentials).not.toHaveProperty('refresh_token')
     expect(payload.credentials).not.toHaveProperty('api_key')
     expect(payload.concurrency).toBe(1)
+    expect(payload.credentials.model_mapping).toEqual({ default: 'default', 'gpt-5.5': 'gpt-5.5' })
     wrapper.unmount()
   })
 

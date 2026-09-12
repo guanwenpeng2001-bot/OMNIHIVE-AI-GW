@@ -2,6 +2,17 @@ export default {
     accounts: {
       noGroupWarning: '未选择分组；账号需要加入分组后才能参与该分组的请求调度。',
       cursor: {
+        syncAfterSave: '填写官方 Key 后可同步；Auto 模式请先保存或完成授权，再编辑账号同步上游模型。',
+        month: '月',
+        autoModels: 'Cursor 模型',
+        apiModels: '其他模型',
+        totalUsage: '计划用量',
+        resetDate: '重置 {date}（还剩 {days} 天）',
+        slowPool: '已进入慢速池',
+        rawUsage: '请求 / Token 明细',
+        dashboardPartial: '计划用量暂不可用，部分数据可能缺失',
+
+        nativeSettingsHint: '原生模式使用固定的上游地址和协议请求头，不支持自定义上游地址或请求头覆写；客户端版本可在上方设置。',
         monthlyUsage: '月用量', unlimited: '未设上限', noUsage: '暂无月用量数据', usageFailed: '月用量查询失败，请重试', requests: '请求', totalRequests: '总请求', tokens: 'Token', periodUnknown: '计费周期未知',
     auto: 'Auto（Token 导入）',
     autoHint: '导入两个 Token 和两个 64 位十六进制机器码，或使用下方浏览器授权。',
