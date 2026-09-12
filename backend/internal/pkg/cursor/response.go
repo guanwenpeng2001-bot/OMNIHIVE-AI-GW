@@ -6,7 +6,6 @@ const (
 	interactionText      = 1
 	interactionThinking  = 4
 	interactionTokens    = 8
-	interactionHeartbeat = 13
 	interactionTurnEnded = 14
 	deltaText            = 1
 	deltaNotice          = 2
@@ -71,7 +70,6 @@ func parseEvents(payload []byte) ([]StreamEvent, error) {
 			usage := TokenUsage{InputTokens: int(findField(details, usageInput).integer), OutputTokens: int(findField(details, usageOutput).integer), CacheReadTokens: int(findField(details, usageCacheRead).integer), CacheWriteTokens: int(findField(details, usageCacheWrite).integer), ReasoningTokens: int(findField(details, usageReasoning).integer)}
 			usage.Estimated = len(details) == 0
 			events = append(events, StreamEvent{Type: "turn_ended", Usage: usage})
-		case interactionHeartbeat:
 		}
 	}
 	return events, nil
