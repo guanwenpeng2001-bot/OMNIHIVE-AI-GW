@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -223,4 +224,27 @@ func TestMCPReplyWriteFailureDoesNotFailover(t *testing.T) {
 	_, err := client.Run(context.Background(), Credentials{}, nil, "default", func(StreamEvent) error { t.Fatal("unacknowledged call emitted"); return nil })
 	require.ErrorIs(t, err, errToolReply)
 	require.Equal(t, 1, attempts)
+}
+
+func TestCursorToolCallIDNormalizationAndWireIdentity(t *testing.T) {
+	raw := "call-12345678-1234-1234-1234-123456789012-0\nfc_" + strings.Repeat("a", 40)
+	id := NormalizeToolCallID(raw)
+	require.Len(t, id, 55)
+	require.Regexp(t, `^[A-Za-z0-9_-]+$`, id)
+	require.Equal(t, id, NormalizeToolCallID(raw))
+	require.NotEqual(t, id, NormalizeToolCallID(strings.ReplaceAll(raw, "\n", "")))
+	require.Equal(t, "call-1", NormalizeToolCallID("call-1"))
+	for _, input := range []string{"\x00\r\n\t\x7f\u0085", strings.Repeat("x", 1000), "", "cursor_call_reserved"} {
+		require.Len(t, NormalizeToolCallID(input), 55)
+		require.Regexp(t, `^[A-Za-z0-9_-]+$`, NormalizeToolCallID(input))
+	}
+	call, err := parseToolCall(mcpFixture(1, raw, nil))
+	require.NoError(t, err)
+	require.Equal(t, raw, call.CallID)
+	require.Equal(t, "exec-"+raw, call.ExecID)
+	reply, err := fields(encodeToolReply(*call, ToolResult{}, "deferred_to_client"))
+	require.NoError(t, err)
+	exec, err := fields(findField(reply, 2).data)
+	require.NoError(t, err)
+	require.Equal(t, "exec-"+raw, string(findField(exec, 15).data))
 }

@@ -84,14 +84,11 @@ func (service *AccountTestService) testCursorAccountConnection(requestContext *g
 		}
 	} else {
 		// Share the native account lock with gateway requests, including probes.
-		lockValue, _ := gateway.locks.LoadOrStore(account.ID, make(chan struct{}, 1))
-		lock := lockValue.(chan struct{})
-		select {
-		case lock <- struct{}{}:
-			defer func() { <-lock }()
-		case <-ctx.Done():
+		release, err := gateway.acquireNativeSlot(ctx, account)
+		if err != nil {
 			return service.sendErrorAndEnd(requestContext, "Cursor probe canceled")
 		}
+		defer release()
 		token, err := gateway.sessions.GetSessionToken(ctx, account, "")
 		if err != nil {
 			return service.sendErrorAndEnd(requestContext, "Cursor exchange/authentication probe failed")

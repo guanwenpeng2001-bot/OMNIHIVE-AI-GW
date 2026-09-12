@@ -66,6 +66,28 @@ func cursorMCPRequest(protocol string, stream, second bool) []byte {
 }
 
 func TestCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T) {
+	testCursorMCPGatewayThreeProtocolsHTTP2(t, false)
+}
+
+func TestCursorMCPNormalizedIDsThreeProtocolsHTTP2(t *testing.T) {
+	testCursorMCPGatewayThreeProtocolsHTTP2(t, true)
+}
+
+func testCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T, opaqueIDs bool) {
+	callID := func(i int) string {
+		id := fmt.Sprintf("call-%d", i)
+		if opaqueIDs {
+			id += "-12345678-1234-1234-1234-123456789012-0\nfc_" + strings.Repeat("a", 40)
+		}
+		return id
+	}
+	publicID := func(i int) string {
+		id := callID(i)
+		if opaqueIDs {
+			return cursor.NormalizeToolCallID(id + "\x00exec-" + id)
+		}
+		return id
+	}
 	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
 		for _, stream := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/%t", protocol, stream), func(t *testing.T) {
@@ -84,7 +106,7 @@ func TestCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T) {
 					write := func(b []byte) { _, _ = w.Write(cursorMCPFrame(b)); w.(http.Flusher).Flush() }
 					if calls.Add(1) == 1 {
 						for i := 1; i <= 2; i++ {
-							id := fmt.Sprintf("call-%d", i)
+							id := callID(i)
 							args := cursorMCPBytes(1, []byte("weather"))
 							entry := append(cursorMCPBytes(1, []byte("city")), cursorMCPBytes(2, cursorMCPBytes(3, []byte("Paris")))...)
 							args = append(args, cursorMCPBytes(2, entry)...)
@@ -109,7 +131,13 @@ func TestCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T) {
 						}
 						write(cursorMCPBytes(1, cursorMCPBytes(1, cursorMCPBytes(1, []byte("HIDDEN_AFTER_TOOL")))))
 					} else {
-						if !strings.Contains(string(first), `"tool_call_id":"call-1"`) || !strings.Contains(string(first), "sunny") {
+						rawID, _ := json.Marshal(callID(1))
+						rawExecID, _ := json.Marshal("exec-" + callID(1))
+						if opaqueIDs && (!strings.Contains(string(first), `"cursor_exec_id":`+string(rawExecID)) || !strings.Contains(string(first), `"id":`+string(rawID))) {
+							failures <- fmt.Errorf("missing original execution identity: %q", first)
+							return
+						}
+						if !strings.Contains(string(first), `"tool_call_id":`+string(rawID)) || !strings.Contains(string(first), "sunny") {
 							failures <- fmt.Errorf("missing tool history: %q", first)
 							return
 						}
@@ -129,7 +157,11 @@ func TestCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T) {
 				for _, second := range []bool{false, true} {
 					writer := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(writer)
-					result, err := callCursorProtocol(gateway, c, account, cursorMCPRequest(protocol, stream, second), protocol)
+					request := cursorMCPRequest(protocol, stream, second)
+					if second {
+						request = []byte(strings.ReplaceAll(string(request), "call-1", publicID(1)))
+					}
+					result, err := callCursorProtocol(gateway, c, account, request, protocol)
 					require.NoError(t, err)
 					require.NoError(t, <-failures)
 					require.Equal(t, 12, result.Usage.InputTokens)
@@ -140,8 +172,13 @@ func TestCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T) {
 						require.Contains(t, body, "Forecast ready")
 						continue
 					}
-					require.Contains(t, body, "call-1")
-					require.Contains(t, body, "call-2")
+					require.Contains(t, body, publicID(1))
+					require.Contains(t, body, publicID(2))
+					if opaqueIDs {
+						require.NotContains(t, body, `\nfc_`)
+						require.NotContains(t, body, "cursor_exec_id")
+						require.Len(t, publicID(1), 55)
+					}
 					require.Contains(t, body, "Paris")
 					switch protocol {
 					case APIProtocolAnthropic:

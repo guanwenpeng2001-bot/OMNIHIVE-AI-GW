@@ -289,3 +289,28 @@ func TestCursorRoutes(t *testing.T) {
 		})
 	}
 }
+
+func TestCursorCompositeModelsIncludeMappedAndDefaultCatalog(t *testing.T) {
+	require.Subset(t, defaultModelIDsForPlatform(service.PlatformComposite), service.DefaultCursorModelIDs())
+	for _, mapped := range []bool{false, true} {
+		t.Run(fmt.Sprint(mapped), func(t *testing.T) {
+			groupID := int64(82)
+			account := service.Account{ID: 1, Platform: service.PlatformCursor}
+			expected := service.DefaultCursorModelIDs()
+			if mapped {
+				account.Credentials = map[string]any{"model_mapping": map[string]any{"cursor-custom": "default"}}
+				expected = []string{"cursor-custom"}
+			}
+			h := newGatewayModelsHandlerForTest(&gatewayModelsAccountRepoStub{byGroup: map[int64][]service.Account{groupID: {account}}})
+			writer := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(writer)
+			c.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{ID: groupID, Platform: service.PlatformComposite}})
+			h.Models(c)
+			require.Equal(t, http.StatusOK, writer.Code)
+			var response gatewayModelsResponseForTest
+			require.NoError(t, json.Unmarshal(writer.Body.Bytes(), &response))
+			require.ElementsMatch(t, expected, modelIDsForTest(response.Data))
+		})
+	}
+}

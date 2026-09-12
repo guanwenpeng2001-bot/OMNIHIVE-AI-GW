@@ -29,9 +29,53 @@ type CursorGatewayService struct {
 	settings    SettingRepository
 	relayClient *http.Client
 	locks       sync.Map
+	toolMu      sync.Mutex
+	toolIDs     map[string]cursor.ToolCall
+	toolIDOrder []string
 	catalogMu   sync.Mutex
 	catalog     map[string]cursorCatalogEntry
 }
+
+// Native calls also include direct account probes, which bypass the scheduler.
+// Keep one counter per account so changing the configured limit never creates
+// a second semaphore while calls are still running. Like the former locks,
+// these entries live for the lifetime of the gateway.
+type cursorNativeSlots struct {
+	mu      sync.Mutex
+	active  int
+	changed chan struct{}
+}
+
+func (gateway *CursorGatewayService) acquireNativeSlot(ctx context.Context, account *Account) (func(), error) {
+	value, _ := gateway.locks.LoadOrStore(account.ID, &cursorNativeSlots{changed: make(chan struct{})})
+	slots := value.(*cursorNativeSlots)
+	for {
+		slots.mu.Lock()
+		if err := ctx.Err(); err != nil {
+			slots.mu.Unlock()
+			return nil, err
+		}
+		if slots.active < max(1, account.Concurrency) {
+			slots.active++
+			slots.mu.Unlock()
+			return func() {
+				slots.mu.Lock()
+				slots.active--
+				close(slots.changed)
+				slots.changed = make(chan struct{})
+				slots.mu.Unlock()
+			}, nil
+		}
+		changed := slots.changed
+		slots.mu.Unlock()
+		select {
+		case <-changed:
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
+}
+
 type cursorCatalogEntry struct {
 	models  []cursor.AvailableModel
 	expires time.Time
@@ -153,13 +197,14 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		request.Thinking = &enabled
 	}
 	// Also guard direct callers (account probes) that do not pass the scheduler.
-	lockValue, _ := gateway.locks.LoadOrStore(account.ID, make(chan struct{}, 1))
-	lock := lockValue.(chan struct{})
-	select {
-	case lock <- struct{}{}:
-		defer func() { <-lock }()
-	case <-ctx.Done():
-		return nil, ctx.Err()
+	release, err := gateway.acquireNativeSlot(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	if err := gateway.restoreToolIDs(request.Messages); err != nil {
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
+		return nil, err
 	}
 	started := time.Now()
 	token, err := gateway.sessions.GetSessionToken(ctx, account, "")
@@ -211,7 +256,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 				return fmt.Errorf("cursor: upstream requested undeclared tool")
 			}
 			seenCalls[call.CallID] = true
-			toolCalls = append(toolCalls, gin.H{"id": call.CallID, "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
+			toolCalls = append(toolCalls, gin.H{"id": gateway.publicToolID(*call), "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
 		} else if event.Type == "thinking" {
 			thinking.WriteString(event.Text)
 		} else {
