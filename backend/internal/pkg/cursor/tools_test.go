@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -182,4 +183,44 @@ func TestMCPHistoryRetainsCallIdentity(t *testing.T) {
 	require.Contains(t, string(encoded), `"tool_call_id":"call-1"`)
 	require.Contains(t, string(encoded), `"id":"call-1"`)
 	require.Contains(t, string(encoded), "sunny")
+}
+
+func TestMCPMalformedExecRejected(t *testing.T) {
+	for _, payload := range [][]byte{
+		{0x10, 0x01}, // exec must be bytes
+		cursorMalformedMCPIdentity(1<<32, "exec"),
+		cursorMalformedMCPIdentity(0, ""),
+	} {
+		_, err := parseEvents(payload)
+		require.Error(t, err)
+	}
+}
+
+func cursorMalformedMCPIdentity(id uint64, execID string) message {
+	var args, exec, server message
+	args.text(3, "call")
+	exec.number(1, id)
+	exec.text(15, execID)
+	exec.bytes(11, args)
+	server.bytes(2, exec)
+	return server
+}
+
+type mcpRoundTripper func(*http.Request) (*http.Response, error)
+
+func (f mcpRoundTripper) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestMCPReplyWriteFailureDoesNotFailover(t *testing.T) {
+	attempts := 0
+	client := &Client{RunHosts: []string{"https://first.invalid", "https://second.invalid"}, HTTPClient: &http.Client{Transport: mcpRoundTripper(func(r *http.Request) (*http.Response, error) {
+		attempts++
+		if _, err := readFrame(r.Body); err != nil {
+			return nil, err
+		}
+		_ = r.Body.Close()
+		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(bytes.NewReader(encodeFrame(mcpFixture(1, "call", nil))))}, nil
+	})}}
+	_, err := client.Run(context.Background(), Credentials{}, nil, "default", func(StreamEvent) error { t.Fatal("unacknowledged call emitted"); return nil })
+	require.ErrorIs(t, err, errToolReply)
+	require.Equal(t, 1, attempts)
 }

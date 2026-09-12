@@ -19,16 +19,15 @@ func TestCursorCacheAndReasoningUsageNotDoubleCounted(t *testing.T) {
 	require.Equal(t, gin.H{"reasoning_tokens": 2}, usage["completion_tokens_details"])
 }
 
-// Tool wire numbering is unverified. Test the supported M1 rejection boundary
-// rather than inventing a native tool interaction fixture.
-func TestCursorToolsRejectedBeforeNativeRun(t *testing.T) {
+// Built-in IDE tools remain outside the MCP bridge.
+func TestCursorUnsupportedToolsRejectedBeforeNativeRun(t *testing.T) {
 	gateway, account, exchanges := cursorTestGateway()
 	recorder := httptest.NewRecorder()
 	requestContext, _ := gin.CreateTestContext(recorder)
-	result, err := gateway.ForwardAsChatCompletions(context.Background(), requestContext, account, []byte(`{"model":"default","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"function","function":{"name":"test"}}]}`))
+	result, err := gateway.ForwardAsChatCompletions(context.Background(), requestContext, account, []byte(`{"model":"default","messages":[{"role":"user","content":"hi"}],"tools":[{"type":"web_search"}]}`))
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.Equal(t, 400, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "does not support tools")
+	require.Contains(t, recorder.Body.String(), "requires unique function tools")
 	require.Zero(t, exchanges.Load())
 }

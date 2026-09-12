@@ -12,6 +12,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -109,14 +110,33 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		Reasoning       struct {
 			Effort string `json:"effort"`
 		} `json:"reasoning"`
-		Tools         json.RawMessage `json:"tools"`
+		Tools         []apicompat.ChatTool `json:"tools"`
 		StreamOptions struct {
 			IncludeUsage bool `json:"include_usage"`
 		} `json:"stream_options"`
 	}
-	if err := json.Unmarshal(body, &request); err != nil || request.Model == "" || len(request.Messages) == 0 || (len(request.Tools) > 0 && string(request.Tools) != "[]" && string(request.Tools) != "null") {
-		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires text messages and does not support tools"}))
+	if err := json.Unmarshal(body, &request); err != nil || request.Model == "" || len(request.Messages) == 0 {
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires valid text messages and function tools"}))
 		return nil, fmt.Errorf("cursor: invalid Chat request")
+	}
+	var definitions []cursor.ToolDefinition
+	names := make(map[string]bool)
+	for _, tool := range request.Tools {
+		if tool.Type != "function" || tool.Function == nil || tool.Function.Name == "" || names[tool.Function.Name] {
+			requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires unique function tools"}))
+			return nil, fmt.Errorf("cursor: invalid tools")
+		}
+		schema := tool.Function.Parameters
+		if len(schema) == 0 {
+			schema = json.RawMessage(`{"type":"object","properties":{}}`)
+		}
+		var object map[string]any
+		if json.Unmarshal(schema, &object) != nil || object == nil {
+			requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires an object tool schema"}))
+			return nil, fmt.Errorf("cursor: invalid tool schema")
+		}
+		names[tool.Function.Name] = true
+		definitions = append(definitions, cursor.ToolDefinition{Name: tool.Function.Name, Description: tool.Function.Description, Server: "api", InputSchema: schema})
 	}
 	if request.Thinking == nil && len(request.ThinkingConfig) > 0 && string(request.ThinkingConfig) != "null" {
 		var enabled bool
@@ -163,17 +183,36 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		completionID = "resp_" + uuid.NewString()
 	}
 	var text, thinking strings.Builder
+	var toolCalls []gin.H
+	seenCalls := make(map[string]bool)
 	var firstToken *int
 	emitted := false
+	// Standard API clients execute tools after this response closes. The native
+	// driver acknowledges deferred_to_client immediately and drains to turn_ended.
+	// Keep every tool call, but hide text generated in response to that deferral.
 	writeEvent := func(event cursor.StreamEvent) error {
-		if event.Text == "" {
+		if event.ToolCall == nil && (event.Text == "" || len(toolCalls) > 0) {
 			return nil
 		}
 		if firstToken == nil {
 			elapsed := int(time.Since(started).Milliseconds())
 			firstToken = &elapsed
 		}
-		if event.Type == "thinking" {
+		if event.ToolCall != nil {
+			call := event.ToolCall
+			if seenCalls[call.CallID] {
+				return nil
+			}
+			name := call.ToolName
+			if name == "" {
+				name = strings.TrimPrefix(call.Name, "api-")
+			}
+			if !names[name] {
+				return fmt.Errorf("cursor: upstream requested undeclared tool")
+			}
+			seenCalls[call.CallID] = true
+			toolCalls = append(toolCalls, gin.H{"id": call.CallID, "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
+		} else if event.Type == "thinking" {
 			thinking.WriteString(event.Text)
 		} else {
 			text.WriteString(event.Text)
@@ -190,21 +229,37 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		if event.Type == "thinking" {
 			delta = gin.H{"reasoning_content": event.Text}
 		}
+		if event.ToolCall != nil {
+			call := toolCalls[len(toolCalls)-1]
+			delta = gin.H{"tool_calls": []any{gin.H{"index": len(toolCalls) - 1, "id": call["id"], "type": "function", "function": call["function"]}}}
+		}
 		return output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": delta, "finish_reason": nil}}})
 	}
-	usage, err := gateway.native.Run(ctx, credentials, request.Messages, model, writeEvent)
-	if err != nil && !emitted && text.Len() == 0 && thinking.Len() == 0 && cursorAuthFailure(err) {
+	run := func() (cursor.TokenUsage, error) {
+		if len(definitions) == 0 {
+			return gateway.native.Run(ctx, credentials, request.Messages, model, writeEvent)
+		}
+		driver, ok := gateway.native.(interface {
+			RunWithTools(context.Context, cursor.Credentials, []cursor.ChatMessage, string, cursor.ToolOptions, func(cursor.StreamEvent) error) (cursor.TokenUsage, error)
+		})
+		if !ok {
+			return cursor.TokenUsage{}, fmt.Errorf("cursor: native tool driver unavailable")
+		}
+		return driver.RunWithTools(ctx, credentials, request.Messages, model, cursor.ToolOptions{Definitions: definitions}, writeEvent)
+	}
+	usage, err := run()
+	if err != nil && !emitted && text.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && cursorAuthFailure(err) {
 		token, refreshErr := gateway.sessions.GetSessionToken(ctx, account, token)
 		if refreshErr != nil {
 			return nil, cursorFailover(refreshErr)
 		}
 		credentials.AccessToken = token
-		usage, err = gateway.native.Run(ctx, credentials, request.Messages, model, writeEvent)
+		usage, err = run()
 	}
 	if err != nil && !emitted {
 		return nil, cursorFailover(err)
 	}
-	if text.Len() == 0 && thinking.Len() == 0 && usage.Estimated && err == nil {
+	if text.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && usage.Estimated && err == nil {
 		return nil, cursorFailover(fmt.Errorf("cursor: empty response"))
 	}
 	if usage.OutputTokens == 0 && usage.ReasoningTokens > 0 {
@@ -223,6 +278,10 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	}
 	result := &ForwardResult{RequestID: completionID, Model: request.Model, UpstreamModel: model, Stream: request.Stream, Duration: time.Since(started), FirstTokenMs: firstToken, Usage: ClaudeUsage{InputTokens: usage.InputTokens, OutputTokens: usage.OutputTokens, CacheReadInputTokens: usage.CacheReadTokens, CacheCreationInputTokens: usage.CacheWriteTokens}}
 	chatUsage := cursorChatUsage(usage)
+	finishReason := "stop"
+	if len(toolCalls) > 0 {
+		finishReason = "tool_calls"
+	}
 	if request.Stream {
 		if !emitted {
 			requestContext.Header("Content-Type", "text/event-stream")
@@ -231,7 +290,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 			_ = output.chunk(gin.H{"error": gin.H{"type": "upstream_error", "message": "Cursor stream interrupted"}})
 			return result, err
 		}
-		if writeErr := output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": gin.H{}, "finish_reason": "stop"}}}); writeErr != nil {
+		if writeErr := output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": gin.H{}, "finish_reason": finishReason}}}); writeErr != nil {
 			result.ClientDisconnect = true
 			return result, writeErr
 		}
@@ -244,13 +303,16 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		err = output.finish(usage.Estimated)
 	} else {
 		message := gin.H{"role": "assistant", "content": text.String()}
+		if len(toolCalls) > 0 {
+			message["tool_calls"] = toolCalls
+		}
 		if thinking.Len() > 0 {
 			message["reasoning_content"] = thinking.String()
 		}
 		if usage.Estimated {
 			requestContext.Header("X-Sub2API-Usage-Source", "estimated_missing_turn_ended")
 		}
-		err = output.response(gin.H{"id": completionID, "object": "chat.completion", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "message": message, "finish_reason": "stop"}}, "usage": chatUsage})
+		err = output.response(gin.H{"id": completionID, "object": "chat.completion", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "message": message, "finish_reason": finishReason}}, "usage": chatUsage})
 	}
 	return result, err
 }

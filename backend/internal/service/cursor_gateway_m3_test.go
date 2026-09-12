@@ -229,7 +229,7 @@ func TestCursorNativeRequestVariantsAndRejections(t *testing.T) {
 				var rejected map[string]any
 				require.NoError(t, json.Unmarshal(cursorProtocolRequest(protocol, false), &rejected))
 				if failure == "tools" {
-					rejected["tools"] = []any{map[string]any{"type": "function", "name": "synthetic_tool", "input_schema": map[string]any{"type": "object"}, "function": map[string]any{"name": "synthetic_tool", "parameters": map[string]any{"type": "object"}}}}
+					rejected["tools"] = []any{map[string]any{"type": "function", "name": "", "input_schema": map[string]any{"type": "object"}, "function": map[string]any{"name": "", "parameters": map[string]any{"type": "object"}}}}
 				} else {
 					rejected["model"] = "unknown-no-default-fallback"
 				}
