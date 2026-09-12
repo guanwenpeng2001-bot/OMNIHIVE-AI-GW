@@ -1,4 +1,15 @@
 {
+  "default": {
+    "pricing_basis": "operator_plan_alias",
+    "description": "Operator-configurable Cursor default plan/alias rate in USD; not the actual price of the upstream model selected by Cursor. Override with pricing.override_file.",
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.0000003,
+    "cache_creation_input_token_cost": 0.00000375,
+    "supports_prompt_caching": true
+  },
   "claude-3-7-sonnet-20250219": {
     "cache_creation_input_token_cost": 3.75e-06,
     "cache_creation_input_token_cost_above_1hr": 6e-06,
