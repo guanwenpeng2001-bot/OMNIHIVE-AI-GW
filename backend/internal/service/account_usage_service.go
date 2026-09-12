@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"log/slog"
 	"math/rand/v2"
@@ -23,6 +24,140 @@ import (
 	"golang.org/x/sync/errgroup"
 	"golang.org/x/sync/singleflight"
 )
+
+// CursorMonthlyUsage preserves unknown limits rather than inventing utilization.
+type CursorMonthlyUsage struct {
+	StartOfMonth *time.Time                  `json:"start_of_month"`
+	ResetsAt     *time.Time                  `json:"resets_at"`
+	Models       map[string]CursorModelUsage `json:"models"`
+}
+
+type CursorModelUsage struct {
+	NumRequests      int64  `json:"numRequests"`
+	NumRequestsTotal int64  `json:"numRequestsTotal"`
+	NumTokens        int64  `json:"numTokens"`
+	MaxTokenUsage    *int64 `json:"maxTokenUsage"`
+	MaxRequestUsage  *int64 `json:"maxRequestUsage"`
+}
+
+func parseCursorMonthlyUsage(reader io.Reader) (*CursorMonthlyUsage, error) {
+	var fields map[string]json.RawMessage
+	if err := json.NewDecoder(io.LimitReader(reader, 1<<20)).Decode(&fields); err != nil {
+		return nil, err
+	}
+	usage := &CursorMonthlyUsage{Models: make(map[string]CursorModelUsage)}
+	if raw := fields["startOfMonth"]; len(raw) > 0 && string(raw) != "null" {
+		var start time.Time
+		if err := json.Unmarshal(raw, &start); err != nil {
+			return nil, err
+		}
+		usage.StartOfMonth = &start
+		// Clamp month-end billing anchors while preserving the original time.
+		nextMonth := time.Date(start.Year(), start.Month()+1, 1, start.Hour(), start.Minute(), start.Second(), start.Nanosecond(), start.Location())
+		lastDay := nextMonth.AddDate(0, 1, -1).Day()
+		end := nextMonth.AddDate(0, 0, min(start.Day(), lastDay)-1)
+		usage.ResetsAt = &end
+	}
+	for model, raw := range fields {
+		if model == "startOfMonth" {
+			continue
+		}
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &entry); err != nil || entry == nil {
+			continue
+		}
+		if _, requests := entry["numRequests"]; !requests {
+			if _, tokens := entry["numTokens"]; !tokens {
+				continue
+			}
+		}
+		var counters CursorModelUsage
+		if err := json.Unmarshal(raw, &counters); err != nil {
+			return nil, err
+		}
+		if counters.NumRequests < 0 || counters.NumRequestsTotal < 0 || counters.NumTokens < 0 ||
+			(counters.MaxTokenUsage != nil && *counters.MaxTokenUsage < 0) || (counters.MaxRequestUsage != nil && *counters.MaxRequestUsage < 0) {
+			return nil, fmt.Errorf("invalid Cursor usage counters")
+		}
+		usage.Models[model] = counters
+	}
+	return usage, nil
+}
+
+func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Account, force bool) *UsageInfo {
+	if !account.IsCursorNative() || s.cursorSessions == nil {
+		return &UsageInfo{ErrorCode: "unsupported", Error: "Cursor usage requires a native session provider"}
+	}
+	key := cursorSessionKey(account)
+	if force {
+		s.cache.cursorCache.Delete(key)
+	}
+	cachedUsage := func() *UsageInfo {
+		if cached, ok := s.cache.cursorCache.Load(key); ok {
+			entry := cached.(*antigravityUsageCache)
+			ttl := apiCacheTTL
+			if entry.usageInfo.ErrorCode != "" {
+				ttl = apiErrorCacheTTL
+			}
+			if time.Since(entry.timestamp) < ttl {
+				return entry.usageInfo
+			}
+		}
+		return nil
+	}
+	if cached := cachedUsage(); cached != nil {
+		return cached
+	}
+	pending := s.cache.cursorFlight.DoChan(key, func() (any, error) {
+		if cached := cachedUsage(); cached != nil {
+			return cached, nil
+		}
+		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
+		defer cancel()
+		info := s.fetchCursorUsage(fetchCtx, account)
+		s.cache.cursorCache.Store(key, &antigravityUsageCache{usageInfo: info, timestamp: time.Now()})
+		return info, nil
+	})
+	select {
+	case <-ctx.Done():
+		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query cancelled"}
+	case result := <-pending:
+		return result.Val.(*UsageInfo)
+	}
+}
+
+func (s *AccountUsageService) fetchCursorUsage(ctx context.Context, account *Account) *UsageInfo {
+	token, err := s.cursorSessions.GetSessionToken(ctx, account, "")
+	if err != nil {
+		return &UsageInfo{ErrorCode: "unauthenticated", Error: "Cursor session unavailable"}
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api2.cursor.sh/auth/usage", nil)
+	if err != nil {
+		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage request unavailable"}
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	response, err := s.cursorUsageClient.Do(request)
+	if err != nil {
+		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		code := "upstream_error"
+		if response.StatusCode == http.StatusUnauthorized {
+			code = "unauthenticated"
+		}
+		if response.StatusCode == http.StatusTooManyRequests {
+			code = "rate_limited"
+		}
+		return &UsageInfo{ErrorCode: code, Error: fmt.Sprintf("Cursor usage HTTP %d", response.StatusCode)}
+	}
+	monthly, err := parseCursorMonthlyUsage(response.Body)
+	if err != nil {
+		return &UsageInfo{ErrorCode: "invalid_response", Error: "Invalid Cursor usage response"}
+	}
+	now := time.Now()
+	return &UsageInfo{Source: "active", UpdatedAt: &now, CursorMonthly: monthly}
+}
 
 type UsageLogRepository interface {
 	// Create creates a usage log and returns whether it was actually inserted.
@@ -117,6 +252,8 @@ const (
 
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
+	cursorCache       sync.Map
+	cursorFlight      singleflight.Group
 	apiCache          sync.Map           // accountID -> *apiUsageCache
 	windowStatsCache  sync.Map           // accountID -> *windowStatsCache
 	antigravityCache  sync.Map           // accountID -> *antigravityUsageCache
@@ -181,18 +318,19 @@ type AICredit struct {
 
 // UsageInfo 账号使用量信息
 type UsageInfo struct {
-	Source             string         `json:"source,omitempty"`               // "passive" or "active"
-	UpdatedAt          *time.Time     `json:"updated_at,omitempty"`           // 更新时间
-	FiveHour           *UsageProgress `json:"five_hour"`                      // 5小时窗口
-	SevenDay           *UsageProgress `json:"seven_day,omitempty"`            // 7天窗口
-	SevenDaySonnet     *UsageProgress `json:"seven_day_sonnet,omitempty"`     // 7天Sonnet窗口
-	SevenDayFable      *UsageProgress `json:"seven_day_fable,omitempty"`      // 7天Fable窗口（响应头 7d_oi）
-	GeminiSharedDaily  *UsageProgress `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
-	GeminiProDaily     *UsageProgress `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
-	GeminiFlashDaily   *UsageProgress `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
-	GeminiSharedMinute *UsageProgress `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
-	GeminiProMinute    *UsageProgress `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
-	GeminiFlashMinute  *UsageProgress `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
+	CursorMonthly      *CursorMonthlyUsage `json:"cursor_monthly,omitempty"`
+	Source             string              `json:"source,omitempty"`               // "passive" or "active"
+	UpdatedAt          *time.Time          `json:"updated_at,omitempty"`           // 更新时间
+	FiveHour           *UsageProgress      `json:"five_hour"`                      // 5小时窗口
+	SevenDay           *UsageProgress      `json:"seven_day,omitempty"`            // 7天窗口
+	SevenDaySonnet     *UsageProgress      `json:"seven_day_sonnet,omitempty"`     // 7天Sonnet窗口
+	SevenDayFable      *UsageProgress      `json:"seven_day_fable,omitempty"`      // 7天Fable窗口（响应头 7d_oi）
+	GeminiSharedDaily  *UsageProgress      `json:"gemini_shared_daily,omitempty"`  // Gemini shared pool RPD (Google One / Code Assist)
+	GeminiProDaily     *UsageProgress      `json:"gemini_pro_daily,omitempty"`     // Gemini Pro 日配额
+	GeminiFlashDaily   *UsageProgress      `json:"gemini_flash_daily,omitempty"`   // Gemini Flash 日配额
+	GeminiSharedMinute *UsageProgress      `json:"gemini_shared_minute,omitempty"` // Gemini shared pool RPM (Google One / Code Assist)
+	GeminiProMinute    *UsageProgress      `json:"gemini_pro_minute,omitempty"`    // Gemini Pro RPM
+	GeminiFlashMinute  *UsageProgress      `json:"gemini_flash_minute,omitempty"`  // Gemini Flash RPM
 
 	// Antigravity 多模型配额
 	AntigravityQuota map[string]*AntigravityModelQuota `json:"antigravity_quota,omitempty"`
@@ -290,6 +428,10 @@ type ClaudeUsageFetcher interface {
 
 // AccountUsageService 账号使用量查询服务
 type AccountUsageService struct {
+	cursorSessions    *CursorSessionProvider
+	cursorUsageClient interface {
+		Do(*http.Request) (*http.Response, error)
+	}
 	accountRepo             AccountRepository
 	usageLogRepo            UsageLogRepository
 	usageFetcher            ClaudeUsageFetcher
@@ -320,6 +462,7 @@ func NewAccountUsageService(
 	tlsFPProfileService *TLSFingerprintProfileService,
 ) *AccountUsageService {
 	return &AccountUsageService{
+		cursorUsageClient:       &http.Client{Timeout: 15 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }},
 		accountRepo:             accountRepo,
 		usageLogRepo:            usageLogRepo,
 		usageFetcher:            usageFetcher,
@@ -352,9 +495,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	accountID := account.ID
 
 	if account.Platform == PlatformCursor {
-		// Future Cursor usage must use its own provider and monthly window; never
-		// fall through to the Anthropic OAuth usage fetcher.
-		return &UsageInfo{ErrorCode: "unsupported", Error: "Usage queries are not supported for Cursor yet"}, nil
+		return s.getCursorUsage(ctx, account, forceProbe), nil
 	}
 
 	// Dedicated UI load-test accounts must remain fully interactive without ever
