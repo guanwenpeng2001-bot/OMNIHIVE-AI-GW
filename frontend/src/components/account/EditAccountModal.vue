@@ -736,7 +736,7 @@
 
       <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
       <div
-        v-if="(account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth'"
+        v-if="((account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth') || account.platform === 'cursor'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
@@ -5378,7 +5378,16 @@ const handleSubmit = async () => {
 
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
-      updatePayload.credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      delete cursorCredentials.model_mapping
+      if (mapping) cursorCredentials.model_mapping = mapping
+      if (cursorKeyMode.value === 'relay') {
+        const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
+        if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
+        applyHeaderOverride(cursorCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
+      }
+      updatePayload.credentials = cursorCredentials
       delete updatePayload.upstream_billing_probe_enabled
       delete updatePayload.upstream_billing_rate_sync_enabled
     }

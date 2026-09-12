@@ -1376,6 +1376,10 @@ export interface GrokBillingSummary {
 }
 
 export interface CursorMonthlyUsage {
+  plan_usage?: { totalSpend?: number; limit?: number; autoPercentUsed?: number; apiPercentUsed?: number; totalPercentUsed?: number }
+  limit_status?: { isInSlowPool: boolean; stage?: string; trayLabel?: string }
+  dashboard_partial?: boolean
+
   start_of_month: string | null
   resets_at: string | null
   models: Record<string, {

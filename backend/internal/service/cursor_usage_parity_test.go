@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -55,11 +56,16 @@ func TestCursorMonthlyFetchCacheAndErrorsParity(t *testing.T) {
 			sessions.exchange = func(context.Context, string) (cursor.Session, error) {
 				return cursor.Session{Token: "test-session", ExpiresAt: time.Now().Add(time.Hour)}, nil
 			}
-			calls := 0
+			var calls atomic.Int32
 			service := &AccountUsageService{cache: NewUsageCache(), cursorSessions: sessions, cursorUsageClient: cursorUsageParityClient(func(request *http.Request) (*http.Response, error) {
-				calls++
-				require.Equal(t, "https://api2.cursor.sh/auth/usage", request.URL.String())
-				require.Equal(t, http.MethodGet, request.Method)
+				calls.Add(1)
+				if request.URL.Path == "/auth/usage" {
+					require.Equal(t, http.MethodGet, request.Method)
+				} else {
+					require.Contains(t, []string{"/aiserver.v1.DashboardService/GetCurrentPeriodUsage", "/aiserver.v1.DashboardService/GetUsageLimitStatusAndActiveGrants"}, request.URL.Path)
+					require.Equal(t, http.MethodPost, request.Method)
+					require.Equal(t, "1", request.Header.Get("Connect-Protocol-Version"))
+				}
 				require.Equal(t, "Bearer test-session", request.Header.Get("Authorization"))
 				if scenario.network {
 					return nil, errors.New("network failure with sensitive details")
@@ -75,10 +81,56 @@ func TestCursorMonthlyFetchCacheAndErrorsParity(t *testing.T) {
 					require.EqualValues(t, 4, usage.CursorMonthly.Models["gpt-4"].NumTokens)
 				}
 			}
-			require.Equal(t, 1, calls)
+			require.EqualValues(t, 3, calls.Load())
 			_, err := service.GetUsageForAccount(context.Background(), account, true)
 			require.NoError(t, err)
-			require.Equal(t, 2, calls)
+			require.EqualValues(t, 6, calls.Load())
+		})
+	}
+}
+
+func TestCursorOfficialUsageAndPartialFailures(t *testing.T) {
+	for _, scenario := range []struct {
+		name                                     string
+		legacyStatus, periodStatus, limitsStatus int
+		periodBody                               string
+	}{
+		{"official", 200, 200, 200, `{"billingCycleStart":"1787936472000","billingCycleEnd":"1790614872000","planUsage":{"totalSpend":49512,"limit":2000,"autoPercentUsed":0,"apiPercentUsed":100,"totalPercentUsed":100}}`},
+		{"missing fields", 200, 200, 200, `{}`},
+		{"period unauthorized", 200, 401, 200, `{}`},
+		{"limits unavailable", 200, 200, 503, `{}`},
+		{"legacy unavailable", 503, 200, 200, `{"billingCycleEnd":"1790614872000","planUsage":{"apiPercentUsed":100}}`},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			service := &AccountUsageService{cursorUsageClient: cursorUsageParityClient(func(request *http.Request) (*http.Response, error) {
+				status, body := scenario.legacyStatus, `{"gpt-4":{"numRequests":2,"numTokens":70,"maxRequestUsage":null,"maxTokenUsage":null}}`
+				switch request.URL.Path {
+				case "/aiserver.v1.DashboardService/GetCurrentPeriodUsage":
+					status, body = scenario.periodStatus, scenario.periodBody
+				case "/aiserver.v1.DashboardService/GetUsageLimitStatusAndActiveGrants":
+					status, body = scenario.limitsStatus, `{"usageLimitPolicyStatus":{"isInSlowPool":true,"stage":"LIMIT_HIT_STAGE_SLOW_POOL"}}`
+				}
+				return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+			})}
+			result := service.fetchCursorUsageWithToken(context.Background(), &Account{ID: 1}, "test-session")
+			require.Empty(t, result.ErrorCode)
+			require.NotNil(t, result.CursorMonthly)
+			usage := result.CursorMonthly
+			require.Equal(t, scenario.periodStatus != 200 || scenario.limitsStatus != 200, usage.DashboardPartial)
+			if scenario.legacyStatus == 200 {
+				require.EqualValues(t, 70, usage.Models["gpt-4"].NumTokens)
+				require.Nil(t, usage.Models["gpt-4"].MaxTokenUsage)
+			}
+			if scenario.name == "official" {
+				require.Equal(t, time.UnixMilli(1790614872000).UTC(), *usage.ResetsAt)
+				require.EqualValues(t, 0, *usage.PlanUsage.AutoPercentUsed)
+				require.EqualValues(t, 100, *usage.PlanUsage.APIPercentUsed)
+				require.True(t, usage.LimitStatus.IsInSlowPool)
+			}
+			if scenario.name == "missing fields" {
+				require.Nil(t, usage.PlanUsage)
+				require.Nil(t, usage.ResetsAt)
+			}
 		})
 	}
 }

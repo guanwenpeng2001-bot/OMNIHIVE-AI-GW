@@ -11,8 +11,7 @@ const { t } = useI18n()
 </script>
 
 <template>
-  <fieldset class="space-y-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
-    <legend class="px-2 text-sm font-medium">Cursor</legend>
+  <fieldset class="space-y-4">
     <label class="block">
       <span class="input-label">{{ t('admin.accounts.cursor.keyMode') }}</span>
       <select v-model="mode" class="input" :disabled="editing" data-testid="cursor-key-mode">
@@ -42,5 +41,6 @@ const { t } = useI18n()
       <input v-model="clientVersion" class="input" :placeholder="t('admin.accounts.cursor.globalDefault')" />
       <span class="input-hint">{{ t('admin.accounts.cursor.nativeHint') }}</span>
     </label>
+    <p v-if="mode !== 'relay'" class="input-hint" data-testid="cursor-native-settings-hint">{{ t('admin.accounts.cursor.nativeSettingsHint') }}</p>
   </fieldset>
 </template>
