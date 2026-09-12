@@ -351,7 +351,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
-	if platform == PlatformCursor && accountType != AccountTypeUpstream {
+	if platform == PlatformCursor && concurrency < 1 {
 		return 1
 	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
@@ -1046,8 +1046,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		if !target.IsCursor() {
 			continue
 		}
-		if target.IsCursorNative() && input.Concurrency != nil && *input.Concurrency != 1 {
-			return nil, infraerrors.BadRequest("INVALID_CURSOR_CONCURRENCY", "Cursor native concurrency must be 1")
+		if input.Concurrency != nil && *input.Concurrency < 1 {
+			return nil, infraerrors.BadRequest("INVALID_CURSOR_CONCURRENCY", "Cursor concurrency must be at least 1")
 		}
 		candidate := *target
 		candidate.Credentials = maps.Clone(target.Credentials)

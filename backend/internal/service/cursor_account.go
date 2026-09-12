@@ -50,7 +50,9 @@ func NormalizeCursorAccount(account *Account) error {
 			// Unknown expiry must enter the refresh window, including edited tokens.
 			delete(account.Credentials, "expires_at")
 		}
-		account.Concurrency = 1
+		if account.Concurrency < 1 {
+			account.Concurrency = 1
+		}
 		return nil
 	}
 	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeUpstream {
@@ -106,6 +108,8 @@ func NormalizeCursorAccount(account *Account) error {
 			return invalid("Cursor machine IDs must be 64 hexadecimal characters")
 		}
 	}
-	account.Concurrency = 1
+	if account.Concurrency < 1 {
+		account.Concurrency = 1
+	}
 	return nil
 }

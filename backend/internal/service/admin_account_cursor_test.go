@@ -11,7 +11,7 @@ import (
 func TestCursorAccountNativeIdentityAndConcurrency(t *testing.T) {
 	account := &Account{Platform: PlatformCursor, Type: AccountTypeAPIKey, Concurrency: 10, Credentials: map[string]any{"api_key": "crsr_test"}}
 	require.NoError(t, NormalizeCursorAccount(account))
-	require.Equal(t, 1, account.Concurrency)
+	require.Equal(t, 10, account.Concurrency)
 	machineID := account.GetCredential("machine_id")
 	require.Len(t, machineID, 64)
 	require.NotEqual(t, machineID, account.GetCredential("mac_machine_id"))
@@ -32,6 +32,6 @@ func TestCursorAccountRelayAndInvalidModes(t *testing.T) {
 	}
 	account.Type = AccountTypeOAuth
 	require.Error(t, NormalizeCursorAccount(account))
-	require.Equal(t, 1, normalizeAccountConcurrency(PlatformCursor, AccountTypeAPIKey, 99))
+	require.Equal(t, 99, normalizeAccountConcurrency(PlatformCursor, AccountTypeAPIKey, 99))
 	require.Equal(t, 99, normalizeAccountConcurrency(PlatformCursor, AccountTypeUpstream, 99))
 }
