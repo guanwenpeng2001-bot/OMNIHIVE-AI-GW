@@ -128,26 +128,26 @@ func TestCursorNativeConcurrencyCancelResizeAndAccounts(t *testing.T) {
 func TestCursorToolIdentityMappingStableDistinctAndBounded(t *testing.T) {
 	gateway := NewCursorGatewayService(nil, nil)
 	first := cursor.ToolCall{CallID: "call-raw\nfc_1", ExecID: "exec-original\n1"}
-	id := gateway.publicToolID(first)
-	require.Equal(t, id, gateway.publicToolID(first))
+	id := gateway.publicToolID(context.Background(), first)
+	require.Equal(t, id, gateway.publicToolID(context.Background(), first))
 	require.Len(t, gateway.toolIDs, 1)
 	second := first
 	second.ExecID = "exec-original\n2"
-	require.NotEqual(t, id, gateway.publicToolID(second))
+	require.NotEqual(t, id, gateway.publicToolID(context.Background(), second))
 	messages := []cursor.ChatMessage{{Role: "tool", Content: "result", ToolCallID: id, ToolExecID: "untrusted"}}
-	require.NoError(t, gateway.restoreToolIDs(messages))
+	require.NoError(t, gateway.restoreToolIDs(context.Background(), messages))
 	require.Equal(t, first.CallID, messages[0].ToolCallID)
 	require.Equal(t, first.ExecID, messages[0].ToolExecID)
 	require.Empty(t, gateway.toolIDs[id].Arguments)
 	for i := range cursorToolIDLimit {
-		gateway.publicToolID(cursor.ToolCall{CallID: fmt.Sprintf("call\n%d", i), ExecID: fmt.Sprintf("exec-%d", i)})
+		gateway.publicToolID(context.Background(), cursor.ToolCall{CallID: fmt.Sprintf("call\n%d", i), ExecID: fmt.Sprintf("exec-%d", i)})
 	}
 	require.Len(t, gateway.toolIDs, cursorToolIDLimit)
 	require.Len(t, gateway.toolIDOrder, cursorToolIDLimit)
-	require.ErrorContains(t, gateway.restoreToolIDs([]cursor.ChatMessage{{Role: "tool", ToolCallID: id}}), "identity expired")
+	require.ErrorContains(t, gateway.restoreToolIDs(context.Background(), []cursor.ChatMessage{{Role: "tool", ToolCallID: id}}), "identity expired")
 	// Plain legacy IDs remain valid, and clients cannot inject execution metadata.
 	plain := []cursor.ChatMessage{{Role: "tool", ToolCallID: "call-legacy", ToolExecID: "untrusted"}}
-	require.NoError(t, gateway.restoreToolIDs(plain))
+	require.NoError(t, gateway.restoreToolIDs(context.Background(), plain))
 	require.Equal(t, "call-legacy", plain[0].ToolCallID)
 	require.Empty(t, plain[0].ToolExecID)
 }
