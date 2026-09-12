@@ -110,24 +110,82 @@ func TestCursorUnknownWireFieldsPreserveKnownFields(t *testing.T) {
 
 // Cursor 当前服务端对 Run 的 system 字段返回 invalid_argument
 // "unknown option '--system-prompt'"（2026-09-12 真机验证），所以请求里必须
-// 保持 field 8 空缺，system/developer 内容折进对话的 prepend 条目。
-func TestCursorRunRequestOmitsSystemFieldAndFoldsPrompt(t *testing.T) {
-	client, runID := encodeRun([]ChatMessage{
-		{Role: "system", Content: "be terse"},
-		{Role: "developer", Content: "prefer json"},
-		{Role: "user", Content: "hello"},
-	}, "default")
-	require.NotEmpty(t, runID)
+// 保持 field 8 空缺，system/developer 内容折进对话的 prepend 条目，并且
+// 指令角色不能成为"当前动作"。
+func TestCursorRunRequestFoldsInstructionsIntoPrepends(t *testing.T) {
+	cases := []struct {
+		name     string
+		messages []ChatMessage
+		prepends []string
+		action   string
+	}{
+		{
+			name: "system and developer before the user turn",
+			messages: []ChatMessage{
+				{Role: "system", Content: "be terse"},
+				{Role: "developer", Content: "prefer json"},
+				{Role: "user", Content: "hello"},
+			},
+			prepends: []string{"system: be terse", "developer: prefer json"},
+			action:   "hello",
+		},
+		{
+			name:     "trailing instruction keeps the user turn as the action",
+			messages: []ChatMessage{{Role: "user", Content: "hello"}, {Role: "system", Content: "be terse"}},
+			prepends: []string{"system: be terse"},
+			action:   "hello",
+		},
+		{
+			name:     "instruction only leaves an empty action",
+			messages: []ChatMessage{{Role: "system", Content: "be terse"}},
+			prepends: []string{"system: be terse"},
+			action:   "",
+		},
+		{
+			name:     "empty instruction content is skipped",
+			messages: []ChatMessage{{Role: "system", Content: ""}, {Role: "user", Content: "hello"}},
+			prepends: nil,
+			action:   "hello",
+		},
+		{
+			name: "multi turn history keeps user text unprefixed",
+			messages: []ChatMessage{
+				{Role: "user", Content: "first"},
+				{Role: "assistant", Content: "second"},
+				{Role: "user", Content: "third"},
+			},
+			prepends: []string{"first", "assistant: second"},
+			action:   "third",
+		},
+	}
+	for _, scenario := range cases {
+		t.Run(scenario.name, func(t *testing.T) {
+			client, runID := encodeRun(scenario.messages, "default")
+			require.NotEmpty(t, runID)
 
+			runFields := runFieldsOf(t, client)
+			require.Zero(t, findField(runFields, 8).number, "system field must stay unset")
+
+			prepends, action := userActionParts(t, runFields)
+			require.Equal(t, scenario.prepends, prepends)
+			require.Equal(t, scenario.action, action)
+		})
+	}
+}
+
+func runFieldsOf(t *testing.T, client message) []fieldValue {
+	t.Helper()
 	decoded, err := fields(client)
 	require.NoError(t, err)
 	run := findField(decoded, clientRun)
 	require.Equal(t, uint64(wireBytes), run.wire)
-
 	runFields, err := fields(run.data)
 	require.NoError(t, err)
-	require.Zero(t, findField(runFields, 8).number, "system field must stay unset")
+	return runFields
+}
 
+func userActionParts(t *testing.T, runFields []fieldValue) ([]string, string) {
+	t.Helper()
 	action := findField(runFields, runAction)
 	require.Equal(t, uint64(wireBytes), action.wire)
 	actionFields, err := fields(action.data)
@@ -152,6 +210,5 @@ func TestCursorRunRequestOmitsSystemFieldAndFoldsPrompt(t *testing.T) {
 		}
 		actionText = text
 	}
-	require.Equal(t, []string{"system: be terse", "developer: prefer json"}, prepends)
-	require.Equal(t, "hello", actionText)
+	return prepends, actionText
 }

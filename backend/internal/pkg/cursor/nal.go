@@ -56,27 +56,42 @@ func encodeUserMessage(text string) message {
 	return encoded
 }
 
+// isInstructionRole 标记只承载指令、不参与"当前动作"选择的消息角色。
+func isInstructionRole(role string) bool {
+	return role == "system" || role == "developer"
+}
+
 // encodeRun 把对话编码为 AgentService Run 请求。
 // Cursor 当前服务端拒绝 Run 的 system 字段（field 8）：填入任何值都会返回
 // invalid_argument "unknown option '--system-prompt'"（2026-09-12 真机验证），
-// 因此 system/developer 消息按既有 "role: text" 约定折进对话，不再单独发送。
+// 因此 system/developer 消息按既有 "role: text" 约定折进对话的 prepend 条目。
+// 指令角色不参与"最后一条 = 当前动作"的选择：没有可动作消息时动作文本为空。
 func encodeRun(messages []ChatMessage, model string) (message, string) {
-	conversation := messages
+	actionIndex := -1
+	for index, item := range messages {
+		if !isInstructionRole(item.Role) {
+			actionIndex = index
+		}
+	}
 	var userAction, environment, requestContext message
 	environment.text(environmentTimezone, "UTC")
 	requestContext.bytes(contextEnvironment, environment)
 	userAction.bytes(userActionContext, requestContext)
-	for index, item := range conversation {
+	for index, item := range messages {
+		if index == actionIndex || (isInstructionRole(item.Role) && item.Content == "") {
+			continue
+		}
 		text := item.Content
 		if item.Role != "user" {
 			text = item.Role + ": " + text
 		}
-		if index == len(conversation)-1 {
-			userAction.bytes(userActionMessage, encodeUserMessage(text))
-		} else {
-			userAction.bytes(userActionPrepend, encodeUserMessage(text))
-		}
+		userAction.bytes(userActionPrepend, encodeUserMessage(text))
 	}
+	actionText := ""
+	if actionIndex >= 0 {
+		actionText = messages[actionIndex].Content
+	}
+	userAction.bytes(userActionMessage, encodeUserMessage(actionText))
 	var action, state, modelDetails, run, client message
 	action.bytes(actionUserMessage, userAction)
 	state.number(stateMode, askMode)
