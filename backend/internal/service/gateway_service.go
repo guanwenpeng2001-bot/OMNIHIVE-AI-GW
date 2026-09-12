@@ -1244,6 +1244,11 @@ func (s *GatewayService) hashContent(content string) string {
 
 // GetAccessToken 获取账号凭证
 func (s *GatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
+	// Cursor credentials belong exclusively to the Cursor relay. Reject them here
+	// so an incorrect platform dispatch cannot send them to Anthropic.
+	if account.Platform == PlatformCursor {
+		return "", "", errors.New("cursor credentials cannot be used by the Anthropic gateway")
+	}
 	switch account.Type {
 	case AccountTypeOAuth, AccountTypeSetupToken:
 		// Both oauth and setup-token use OAuth token flow

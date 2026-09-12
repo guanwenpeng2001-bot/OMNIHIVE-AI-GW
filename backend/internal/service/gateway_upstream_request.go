@@ -19,6 +19,11 @@ import (
 )
 
 func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, reqStream bool, mimicClaudeCode bool) (*http.Request, []byte, error) {
+	// Cursor tokens must never reach the default Anthropic target, including
+	// callers that bypass the gateway credential accessor.
+	if account.Platform == PlatformCursor {
+		return nil, nil, fmt.Errorf("cursor accounts cannot use the Anthropic gateway")
+	}
 	body = stripDeferredToolCacheControl(body)
 	if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
 		req, err := s.buildUpstreamRequestAnthropicVertex(ctx, c, account, body, token, modelID, reqStream)

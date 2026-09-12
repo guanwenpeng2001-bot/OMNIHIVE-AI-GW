@@ -218,6 +218,11 @@ func EstimateGrokCountTokens(body []byte) (int, error) {
 	return estimateAnthropicCountTokensLocally(body)
 }
 
+// EstimateLocalCountTokens reuses the local estimator without upstream credentials.
+func EstimateLocalCountTokens(body []byte) (int, error) {
+	return estimateAnthropicCountTokensLocally(body)
+}
+
 // estimateAnthropicCountTokensLocally 走 Anthropic→Responses→tiktoken 链本地估算
 // count_tokens，不发任何上游请求（上游无兼容端点的平台使用）。
 func estimateAnthropicCountTokensLocally(body []byte) (int, error) {

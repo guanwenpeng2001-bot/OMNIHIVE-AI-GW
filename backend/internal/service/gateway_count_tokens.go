@@ -376,6 +376,10 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 	body []byte,
 	token string,
 ) (*http.Request, error) {
+	// Also reject callers that supply a token directly, bypassing GetAccessToken.
+	if account.Platform == PlatformCursor {
+		return nil, errors.New("cursor accounts cannot use Anthropic count_tokens")
+	}
 	body = stripDeferredToolCacheControl(body)
 	targetURL := claudeAPICountTokensURL
 	baseURL := account.GetBaseURL()
@@ -442,6 +446,9 @@ func (s *GatewayService) buildCountTokensRequestAnthropicAPIKeyPassthrough(
 
 // buildCountTokensRequest 构建 count_tokens 上游请求
 func (s *GatewayService) buildCountTokensRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, mimicClaudeCode bool) (*http.Request, []byte, error) {
+	if account.Platform == PlatformCursor {
+		return nil, nil, errors.New("cursor accounts cannot use Anthropic count_tokens")
+	}
 	body = stripDeferredToolCacheControl(body)
 	// 确定目标 URL
 	targetURL := claudeAPICountTokensURL

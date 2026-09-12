@@ -351,6 +351,12 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	}
 	accountID := account.ID
 
+	if account.Platform == PlatformCursor {
+		// Future Cursor usage must use its own provider and monthly window; never
+		// fall through to the Anthropic OAuth usage fetcher.
+		return &UsageInfo{ErrorCode: "unsupported", Error: "Usage queries are not supported for Cursor yet"}, nil
+	}
+
 	// Dedicated UI load-test accounts must remain fully interactive without ever
 	// contacting Anthropic with synthetic credentials. Reuse the same persisted
 	// passive snapshot that the account table loads on mount.
@@ -1563,6 +1569,10 @@ func (s *AccountUsageService) GetAccountUsageStats(ctx context.Context, accountI
 // 如果账号开启了 TLS 指纹，则使用 TLS 指纹伪装
 // 如果有缓存的 Fingerprint，则使用缓存的 User-Agent 等信息
 func (s *AccountUsageService) fetchOAuthUsageRaw(ctx context.Context, account *Account) (*ClaudeUsageResponse, error) {
+	// Defense in depth: OAuth type alone does not make a Cursor token an Anthropic token.
+	if account.Platform == PlatformCursor {
+		return nil, fmt.Errorf("cursor accounts cannot use Anthropic usage")
+	}
 	accessToken := account.GetCredential("access_token")
 	if accessToken == "" {
 		return nil, fmt.Errorf("no access token available")
