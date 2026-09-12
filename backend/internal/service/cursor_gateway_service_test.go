@@ -22,11 +22,11 @@ import (
 )
 
 type cursorDriverStub struct {
-	run func(context.Context, cursor.Credentials, func(cursor.StreamEvent) error) (cursor.TokenUsage, error)
+	run func(context.Context, cursor.Credentials, []cursor.ChatMessage, string, func(cursor.StreamEvent) error) (cursor.TokenUsage, error)
 }
 
-func (driver cursorDriverStub) Run(ctx context.Context, credentials cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
-	return driver.run(ctx, credentials, emit)
+func (driver cursorDriverStub) Run(ctx context.Context, credentials cursor.Credentials, messages []cursor.ChatMessage, model string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+	return driver.run(ctx, credentials, messages, model, emit)
 }
 func (driver cursorDriverStub) AvailableModels(context.Context, cursor.Credentials) ([]cursor.AvailableModel, error) {
 	return nil, errors.New("picker unavailable")
@@ -46,7 +46,7 @@ func TestCursorGatewayChatRetryUsageAndStream(t *testing.T) {
 	for _, stream := range []bool{false, true} {
 		t.Run(fmt.Sprint(stream), func(t *testing.T) {
 			gateway, account, exchanges := cursorTestGateway()
-			gateway.native = cursorDriverStub{run: func(_ context.Context, credentials cursor.Credentials, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+			gateway.native = cursorDriverStub{run: func(_ context.Context, credentials cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
 				if credentials.AccessToken == "session-1" {
 					return cursor.TokenUsage{}, &cursor.HTTPError{Status: 401}
 				}
@@ -75,7 +75,7 @@ func TestCursorGatewayFailoverOnlyBeforeOutput(t *testing.T) {
 	for _, emitContent := range []bool{false, true} {
 		t.Run(fmt.Sprint(emitContent), func(t *testing.T) {
 			gateway, account, exchanges := cursorTestGateway()
-			gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+			gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
 				if emitContent {
 					_ = emit(cursor.StreamEvent{Type: "text", Text: "partial"})
 				}
@@ -103,7 +103,7 @@ func TestCursorGatewayFailoverOnlyBeforeOutput(t *testing.T) {
 func TestCursorGatewayNativeConcurrentCallsSerialize(t *testing.T) {
 	gateway, account, _ := cursorTestGateway()
 	var active, peak atomic.Int32
-	gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+	gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
 		count := active.Add(1)
 		defer active.Add(-1)
 		for previous := peak.Load(); count > previous; previous = peak.Load() {
@@ -208,7 +208,7 @@ func TestCursorRelayStreamUsage(t *testing.T) {
 
 func TestCursorMissingTurnEndedMarksEstimates(t *testing.T) {
 	gateway, account, _ := cursorTestGateway()
-	gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+	gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
 		_ = emit(cursor.StreamEvent{Type: "text", Text: "hello"})
 		return cursor.TokenUsage{Estimated: true}, nil
 	}}

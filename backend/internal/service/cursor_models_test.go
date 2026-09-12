@@ -23,11 +23,15 @@ func (driver cursorProbeDriver) AvailableModels(context.Context, cursor.Credenti
 func TestCursorAccountProbeRequiresMinimalRun(t *testing.T) {
 	for _, scenario := range []string{"success", "exchange", "picker", "run", "empty"} {
 		t.Run(scenario, func(t *testing.T) {
-			gateway, account, _ := cursorTestGateway()
+			gateway, account, exchanges := cursorTestGateway()
 			calls := 0
+			var runModel string
+			var runMessages []cursor.ChatMessage
 			driver := cursorProbeDriver{}
-			driver.run = func(_ context.Context, _ cursor.Credentials, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+			driver.run = func(_ context.Context, _ cursor.Credentials, messages []cursor.ChatMessage, model string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
 				calls++
+				runModel = model
+				runMessages = append([]cursor.ChatMessage(nil), messages...)
 				if scenario == "run" {
 					return cursor.TokenUsage{}, errors.New("private-upstream-body")
 				}
@@ -52,6 +56,11 @@ func TestCursorAccountProbeRequiresMinimalRun(t *testing.T) {
 			if scenario == "success" {
 				require.NoError(t, err)
 				require.Contains(t, recorder.Body.String(), `"success":true`)
+				require.Equal(t, "live-run", runModel)
+				require.Len(t, runMessages, 1)
+				require.Equal(t, "user", runMessages[0].Role)
+				require.NotEmpty(t, runMessages[0].Content)
+				require.Equal(t, int32(1), exchanges.Load())
 			} else {
 				require.Error(t, err)
 				require.NotContains(t, recorder.Body.String(), `"success":true`)
