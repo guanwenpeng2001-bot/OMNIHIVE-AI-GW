@@ -244,6 +244,7 @@ func ProvideAccountUsageService(
 }
 
 func ProvideAccountTestService(
+	cursorGatewayService *CursorGatewayService,
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
 	claudeTokenProvider *ClaudeTokenProvider,
@@ -267,6 +268,7 @@ func ProvideAccountTestService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	service.cursorGatewayService = cursorGatewayService
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
@@ -820,6 +822,8 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	NewCursorSessionProvider,
+	NewCursorGatewayService,
 	// Core services
 	ProvideAuthService,
 	NewPasskeyService,

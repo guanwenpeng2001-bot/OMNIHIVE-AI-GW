@@ -1,0 +1,173 @@
+package cursor
+
+import (
+	"context"
+	"crypto/tls"
+	"errors"
+	"fmt"
+	"io"
+	"net"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	utls "github.com/refraction-networking/utls"
+	"golang.org/x/net/http2"
+)
+
+const RunEndpoint = "/agent.v1.AgentService/Run"
+
+type Client struct {
+	HTTPClient *http.Client
+	BaseURL    string
+}
+
+func NewClient() *Client {
+	transport := &http2.Transport{DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
+		dialer := net.Dialer{Timeout: 15 * time.Second}
+		connection, err := dialer.DialContext(ctx, network, address)
+		if err != nil {
+			return nil, err
+		}
+		host, _, err := net.SplitHostPort(address)
+		if err != nil {
+			connection.Close()
+			return nil, err
+		}
+		secured := utls.UClient(connection, &utls.Config{ServerName: host}, utls.HelloChrome_Auto)
+		if err := secured.HandshakeContext(ctx); err != nil {
+			connection.Close()
+			return nil, err
+		}
+		if secured.ConnectionState().NegotiatedProtocol != "h2" {
+			connection.Close()
+			return nil, fmt.Errorf("cursor: HTTP/2 negotiation failed")
+		}
+		return secured, nil
+	}}
+	return &Client{HTTPClient: &http.Client{Transport: transport, Timeout: 5 * time.Minute, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, BaseURL: ""}
+}
+
+// Run owns the duplex request body and heartbeat lifetime. A single writer
+// serializes frames; pipe closure never waits on its mutex, so cancellation can
+// interrupt blocked writes. The callback only receives typed assistant events.
+func (client *Client) Run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, emit func(StreamEvent) error) (TokenUsage, error) {
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	hosts := []string{client.BaseURL}
+	if client.BaseURL == "" {
+		hosts = []string{"https://agentn.global.api5.cursor.sh", "https://agentn.api5.cursor.sh", "https://agentn-gcpp-eucentral.api5.cursor.sh"}
+	}
+	emitted := false
+	forward := func(event StreamEvent) error { emitted = emitted || event.Text != ""; return emit(event) }
+	var usage TokenUsage
+	var err error
+	for _, host := range hosts {
+		attempt := *client
+		attempt.BaseURL = host
+		usage, err = attempt.run(ctx, credentials, messages, model, forward)
+		var upstream *HTTPError
+		var connect *ConnectError
+		authentication := (errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403)) || (errors.As(err, &connect) && connect.Authentication())
+		if err == nil || emitted || authentication || ctx.Err() != nil {
+			return usage, err
+		}
+	}
+	return usage, err
+}
+
+func (client *Client) run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, emit func(StreamEvent) error) (TokenUsage, error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	reader, writer := io.Pipe()
+	defer reader.Close()
+	defer writer.Close()
+	stop := context.AfterFunc(ctx, func() { writer.CloseWithError(ctx.Err()); reader.CloseWithError(ctx.Err()) })
+	defer stop()
+	payload, runID := encodeRun(messages, model)
+	var writeMu sync.Mutex
+	write := func(payload []byte) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		_, err := writer.Write(encodeFrame(payload))
+		return err
+	}
+	go func() {
+		if err := write(payload); err != nil {
+			writer.CloseWithError(err)
+			return
+		}
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				var heartbeat message
+				heartbeat.bytes(clientHeartbeat, nil)
+				if err := write(heartbeat); err != nil {
+					return
+				}
+			}
+		}
+	}()
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(client.BaseURL, "/")+RunEndpoint, reader)
+	if err != nil {
+		return TokenUsage{}, fmt.Errorf("cursor: invalid Run endpoint")
+	}
+	request.Header = headers(credentials, runID)
+	response, err := client.HTTPClient.Do(request)
+	if err != nil {
+		return TokenUsage{}, fmt.Errorf("cursor: Run transport failed")
+	}
+	defer response.Body.Close()
+	if response.StatusCode != http.StatusOK {
+		return TokenUsage{}, &HTTPError{Status: response.StatusCode}
+	}
+	blobs := make(map[string][]byte)
+	storedBytes := 0
+	usage := TokenUsage{Estimated: true}
+	for {
+		frame, err := readFrame(response.Body)
+		if err != nil {
+			if err == io.EOF {
+				return usage, nil
+			}
+			return usage, err
+		}
+		if frame.flags&2 != 0 {
+			return usage, trailerError(frame.payload)
+		}
+		reply, handled, err := replyKV(frame.payload, blobs, &storedBytes)
+		if err != nil {
+			return usage, err
+		}
+		if handled {
+			if err := write(reply); err != nil {
+				return usage, err
+			}
+			continue
+		}
+		events, err := parseEvents(frame.payload)
+		if err != nil {
+			return usage, err
+		}
+		for _, event := range events {
+			switch event.Type {
+			case "token_delta":
+				usage.OutputTokens += event.Usage.OutputTokens
+			case "turn_ended":
+				if !event.Usage.Estimated {
+					usage = event.Usage
+				}
+				return usage, nil
+			case "text", "thinking":
+				if err := emit(event); err != nil {
+					return usage, err
+				}
+			}
+		}
+	}
+}

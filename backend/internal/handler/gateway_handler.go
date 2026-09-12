@@ -39,6 +39,7 @@ var gatewayCompatibilityMetricsLogCounter atomic.Uint64
 
 // GatewayHandler handles API gateway requests
 type GatewayHandler struct {
+	cursorGatewayService      *service.CursorGatewayService
 	gatewayService            *service.GatewayService
 	openAIGatewayService      *service.OpenAIGatewayService
 	geminiCompatService       *service.GeminiMessagesCompatService
@@ -894,7 +895,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			if account.Platform == service.PlatformAntigravity && account.Type != service.AccountTypeAPIKey {
 				result, err = h.antigravityGatewayService.Forward(requestCtx, c, account, attemptBody, hasBoundSession)
 			} else {
-				result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+				if account.IsCursor() {
+					result, err = h.cursorGatewayService.ForwardAsAnthropic(requestCtx, c, account, attemptBody)
+				} else {
+					result, err = h.gatewayService.Forward(requestCtx, c, account, attemptParsedReq)
+				}
 			}
 
 			// 兜底释放串行锁（正常情况已通过回调提前释放）
@@ -1451,6 +1456,8 @@ func defaultModelIDsForPlatform(platform string) []string {
 		return claude.DefaultModelIDs()
 	case service.PlatformGrok:
 		return xai.DefaultModelIDs()
+	case service.PlatformCursor:
+		return service.DefaultCursorModelIDs()
 	case service.PlatformOpenCodeGo:
 		return service.DefaultOpenCodeGoModelIDs()
 	case service.PlatformComposite:

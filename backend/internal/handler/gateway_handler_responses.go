@@ -274,7 +274,11 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
 			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		} else {
-			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			if account.IsCursor() {
+				result, err = h.cursorGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody)
+			} else {
+				result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+			}
 		}
 
 		if accountReleaseFunc != nil {

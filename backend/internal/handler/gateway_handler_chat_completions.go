@@ -287,7 +287,16 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
 			result, err = h.antigravityGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
 		} else {
-			result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			if account.IsCursor() {
+				if account.Type == service.AccountTypeUpstream {
+					setActualUpstreamEndpoint(c, EndpointChatCompletions)
+				} else {
+					setActualUpstreamEndpoint(c, "/agent.v1.AgentService/Run")
+				}
+				result, err = h.cursorGatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody)
+			} else {
+				result, err = h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, parsedReq)
+			}
 		}
 
 		if accountReleaseFunc != nil {

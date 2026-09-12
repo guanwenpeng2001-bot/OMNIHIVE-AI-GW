@@ -2778,6 +2778,26 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if account.IsCursor() {
+		ids := service.DefaultCursorModelIDs()
+		if h.accountTestService != nil {
+			if live, err := h.accountTestService.FetchUpstreamSupportedModels(c.Request.Context(), account); err == nil && len(live) > 0 {
+				ids = live
+			}
+		}
+		if mapping := account.GetModelMapping(); len(mapping) > 0 {
+			ids = nil
+			for model := range mapping {
+				ids = append(ids, model)
+			}
+		}
+		models := make([]map[string]string, 0, len(ids))
+		for _, id := range ids {
+			models = append(models, map[string]string{"id": id, "display_name": id})
+		}
+		response.Success(c, models)
+		return
+	}
 	// Handle OpenAI accounts
 	if account.IsOpenAI() {
 		// Prefer the shared, account-keyed upstream catalog. If discovery fails,

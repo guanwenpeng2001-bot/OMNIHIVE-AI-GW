@@ -724,6 +724,10 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
+	if account.IsCursor() {
+		models, err := s.cursorGatewayService.AvailableModels(ctx, account)
+		return models, nil, err
+	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, nil, err

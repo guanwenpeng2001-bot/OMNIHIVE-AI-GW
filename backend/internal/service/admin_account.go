@@ -272,6 +272,10 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account credentials: %w", err)
 	}
+	if source.IsCursorNative() {
+		delete(credentials, "machine_id")
+		delete(credentials, "mac_machine_id")
+	}
 	extra, err := duplicateAccountExtra(source.Extra)
 	if err != nil {
 		return nil, fmt.Errorf("clone account extra configuration: %w", err)
@@ -602,6 +606,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, err
 		}
 	}
+	previousCursorSessionKey := ""
+	if account.IsCursorNative() {
+		previousCursorSessionKey = cursorSessionKey(account)
+	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
 	// 安全/身份不变量(影子账号):通用更新路径被 edit/re-auth/refresh/batch 共用,
@@ -885,6 +893,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if previousCursorSessionKey != "" && len(input.Credentials) > 0 && s.cursorSessions != nil {
+		if err := s.cursorSessions.Delete(ctx, previousCursorSessionKey); err != nil {
+			slog.WarnContext(ctx, "Cursor session invalidation failed", "account_id", account.ID)
+		}
+	}
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
@@ -1171,6 +1184,15 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		return nil, err
 	}
 
+	if len(input.Credentials) > 0 && s.cursorSessions != nil {
+		for _, target := range cachedTargets {
+			if target.IsCursorNative() {
+				if err := s.cursorSessions.Delete(ctx, cursorSessionKey(target)); err != nil {
+					slog.WarnContext(ctx, "Cursor session invalidation failed", "account_id", target.ID)
+				}
+			}
+		}
+	}
 	// 将 proxy 变更传播到每个目标账号的 spark 影子账号
 	if repoUpdates.ProxyID != nil {
 		var effectiveProxyID *int64

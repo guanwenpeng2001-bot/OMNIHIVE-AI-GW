@@ -93,6 +93,7 @@ func ProvideAdminHandlers(
 }
 
 func ProvideGatewayHandler(
+	cursorGatewayService *service.CursorGatewayService,
 	gatewayService *service.GatewayService,
 	openAIGatewayService *service.OpenAIGatewayService,
 	geminiCompatService *service.GeminiMessagesCompatService,
@@ -114,6 +115,7 @@ func ProvideGatewayHandler(
 		userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool,
 		errorPassthroughService, contentModerationService, userMsgQueueService, cfg, settingService)
 	h.securityAuditCoordinator = coordinator
+	h.cursorGatewayService = cursorGatewayService
 	return h
 }
 
