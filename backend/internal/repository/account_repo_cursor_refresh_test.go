@@ -28,6 +28,9 @@ func TestCursorRefreshCASUsesFullCredentialsAndAtomicOutbox(t *testing.T) {
 				require.Len(t, exec.execQueries, 1)
 				query := normalizeSQLWhitespace(exec.execQueries[0])
 				require.Contains(t, query, "WITH updated AS")
+				if mutation == "reauth" {
+					require.Contains(t, query, "status = 'error', error_message = $5, schedulable = false")
+				}
 				require.Contains(t, query, "WHERE id = $1 AND deleted_at IS NULL AND platform = $2 AND type = $3 AND credentials = $4::jsonb")
 				require.Contains(t, query, "INSERT INTO scheduler_outbox")
 				require.Contains(t, query, "FROM updated")

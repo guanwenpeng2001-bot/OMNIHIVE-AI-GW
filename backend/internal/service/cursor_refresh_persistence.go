@@ -13,6 +13,12 @@ type CursorOAuthRefreshRepository interface {
 	SetCursorOAuthRefreshFailureIfUnchanged(context.Context, int64, map[string]any, bool, time.Time) (bool, error)
 }
 
+// CursorAccountRecoveryRepository commits reauthorization and targeted refresh-state
+// recovery in one transaction, including any explicit billing settings.
+type CursorAccountRecoveryRepository interface {
+	UpdateWithCursorRefreshRecovery(context.Context, *Account, *bool, *bool, *float64) error
+}
+
 func (api *OAuthRefreshAPI) persistCursorRefresh(ctx context.Context, attempted *Account, credentials map[string]any) (*OAuthRefreshResult, error) {
 	repo, ok := api.accountRepo.(CursorOAuthRefreshRepository)
 	if !ok {

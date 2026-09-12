@@ -883,7 +883,17 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		// AdminAccountRepository.
 		updater, _ = s.accountRepo.(AccountBillingSettingsRepository)
 	}
-	if updater != nil {
+	if cursorRefreshStateRecovered {
+		recovery, ok := s.accountRepo.(CursorAccountRecoveryRepository)
+		if !ok {
+			return nil, errors.New("Cursor account recovery repository is not configured")
+		}
+		if err := recovery.UpdateWithCursorRefreshRecovery(ctx, account, requestedProbeEnabledUpdate, requestedRateSyncEnabledUpdate, input.RateMultiplier); err != nil {
+			return nil, err
+		}
+		billingSettingsAppliedAtomically = true
+	}
+	if !billingSettingsAppliedAtomically && updater != nil {
 		if err := updater.UpdateWithAccountBillingSettings(
 			ctx,
 			account,

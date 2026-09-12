@@ -437,7 +437,7 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
-	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier)
+	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier, false)
 }
 
 // UpdateWithAccountBillingSettings applies an admin account edit while
@@ -450,7 +450,14 @@ func (r *accountRepository) UpdateWithAccountBillingSettings(
 	rateSyncEnabled *bool,
 	rateMultiplier *float64,
 ) error {
-	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier)
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, false)
+}
+
+// UpdateWithCursorRefreshRecovery commits targeted runtime recovery with credentials.
+func (r *accountRepository) UpdateWithCursorRefreshRecovery(
+	ctx context.Context, account *service.Account, probeEnabled, rateSyncEnabled *bool, rateMultiplier *float64,
+) error {
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, true)
 }
 
 func (r *accountRepository) updateAccount(
@@ -459,6 +466,7 @@ func (r *accountRepository) updateAccount(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
+	recoverCursorRefresh bool,
 ) error {
 	if account == nil {
 		return nil
@@ -490,6 +498,7 @@ func (r *accountRepository) updateAccount(
 		explicitProbeEnabled,
 		explicitRateSyncEnabled,
 		explicitRateMultiplier,
+		recoverCursorRefresh,
 	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
@@ -519,6 +528,7 @@ func (r *accountRepository) updateLockedAccount(
 	explicitProbeEnabled *bool,
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
+	recoverCursorRefresh bool,
 ) (*dbent.Account, error) {
 	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
@@ -545,13 +555,15 @@ func (r *accountRepository) updateLockedAccount(
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
-	if account.IsCursor() {
-		// Persist targeted cooldown recovery in the same mutation as credentials.
-		if account.TempUnschedulableUntil != nil {
-			builder.SetTempUnschedulableUntil(*account.TempUnschedulableUntil)
-			builder.SetTempUnschedulableReason(account.TempUnschedulableReason)
-		} else {
-			builder.ClearTempUnschedulableUntil().ClearTempUnschedulableReason()
+	if recoverCursorRefresh && account.IsCursor() {
+		// Use the locked DB reason, never the stale admin snapshot. This clear,
+		// credentials update and outbox publication share the account transaction.
+		if _, err := client.ExecContext(ctx, `UPDATE accounts
+            SET temp_unschedulable_until = NULL, temp_unschedulable_reason = NULL
+            WHERE id = $1 AND platform = $2 AND
+                (temp_unschedulable_reason LIKE 'Cursor token refresh%'
+                 OR temp_unschedulable_reason LIKE 'token refresh retry exhausted%')`, account.ID, service.PlatformCursor); err != nil {
+			return nil, err
 		}
 	}
 

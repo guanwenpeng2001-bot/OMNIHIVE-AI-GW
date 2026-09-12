@@ -10,6 +10,7 @@ import (
 )
 
 var _ service.CursorOAuthRefreshRepository = (*accountRepository)(nil)
+var _ service.CursorAccountRecoveryRepository = (*accountRepository)(nil)
 
 func (r *accountRepository) UpdateCursorOAuthCredentialsIfUnchanged(ctx context.Context, id int64, expected, credentials map[string]any) (bool, error) {
 	replacement, err := json.Marshal(normalizeJSONMap(credentials))
@@ -22,7 +23,7 @@ func (r *accountRepository) UpdateCursorOAuthCredentialsIfUnchanged(ctx context.
 func (r *accountRepository) SetCursorOAuthRefreshFailureIfUnchanged(ctx context.Context, id int64, expected map[string]any, permanent bool, until time.Time) (bool, error) {
 	if permanent {
 		return r.mutateCursorOAuthIfUnchanged(ctx, id, expected,
-			"status = 'error', error_message = $5", "Cursor reauth required: token refresh rejected")
+			"status = 'error', error_message = $5, schedulable = false", "Cursor reauth required: token refresh rejected")
 	}
 	return r.mutateCursorOAuthIfUnchanged(ctx, id, expected,
 		"temp_unschedulable_until = $5, temp_unschedulable_reason = 'Cursor token refresh temporarily unavailable'", until)

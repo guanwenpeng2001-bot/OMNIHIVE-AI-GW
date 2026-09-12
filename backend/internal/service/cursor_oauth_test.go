@@ -22,9 +22,10 @@ import (
 
 type cursorOAuthMemoryRepo struct {
 	AccountRepository
-	mu      sync.Mutex
-	account *Account
-	writes  []map[string]any
+	mu          sync.Mutex
+	account     *Account
+	writes      []map[string]any
+	updateCalls int
 }
 
 func (repo *cursorOAuthMemoryRepo) GetByID(context.Context, int64) (*Account, error) {
@@ -73,6 +74,7 @@ func (repo *cursorOAuthMemoryRepo) SetCursorOAuthRefreshFailureIfUnchanged(_ con
 	if permanent {
 		repo.account.Status = StatusError
 		repo.account.ErrorMessage = "Cursor reauth required: token refresh rejected"
+		repo.account.Schedulable = false
 	} else {
 		repo.account.TempUnschedulableUntil = &until
 		repo.account.TempUnschedulableReason = "Cursor token refresh temporarily unavailable"
@@ -83,7 +85,12 @@ func (repo *cursorOAuthMemoryRepo) Update(_ context.Context, account *Account) e
 	repo.mu.Lock()
 	defer repo.mu.Unlock()
 	repo.account = snapshotOAuthRefreshAccount(account)
+	repo.updateCalls++
 	return nil
+}
+
+func (repo *cursorOAuthMemoryRepo) UpdateWithCursorRefreshRecovery(ctx context.Context, account *Account, _, _ *bool, _ *float64) error {
+	return repo.Update(ctx, account)
 }
 
 func (repo *cursorOAuthMemoryRepo) ClearTempUnschedulable(context.Context, int64) error {
@@ -205,6 +212,7 @@ func TestCursorAutoRefreshFailureStopsHotLoop(t *testing.T) {
 			if permanent {
 				require.Equal(t, StatusError, repo.account.Status)
 				require.Contains(t, repo.account.ErrorMessage, "reauth")
+				require.False(t, repo.account.Schedulable)
 			} else {
 				require.Equal(t, StatusActive, repo.account.Status)
 				require.True(t, repo.account.TempUnschedulableUntil.After(time.Now()))
@@ -347,7 +355,7 @@ func TestCursorAutoImportRecoversRefreshFailureAndInvalidatesSession(t *testing.
 	cache := newCursorMemoryCache()
 	oldKey := cursorSessionKey(account)
 	require.NoError(t, cache.Set(context.Background(), oldKey, cursor.Session{Token: "synthetic-old-cached", ExpiresAt: time.Now().Add(time.Hour)}))
-	repo := &updateAccountCredsRepoStub{account: account}
+	repo := &cursorOAuthMemoryRepo{account: account}
 	service := &adminServiceImpl{accountRepo: repo, cursorSessions: cache}
 	credentials := shallowCopyMap(account.Credentials)
 	credentials["access_token"] = "synthetic-imported-access"

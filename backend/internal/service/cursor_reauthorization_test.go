@@ -30,6 +30,10 @@ func (repo *cursorReauthorizationRepo) Update(ctx context.Context, account *Acco
 	repo.committed = err == nil
 	return err
 }
+func (repo *cursorReauthorizationRepo) UpdateWithCursorRefreshRecovery(ctx context.Context, account *Account, _, _ *bool, _ *float64) error {
+	return repo.Update(ctx, account)
+}
+
 func (repo *cursorReauthorizationRepo) ClearError(context.Context, int64) error {
 	return errors.New("generic cleanup must not run")
 }
@@ -82,6 +86,7 @@ func TestCursorAuthorizationEditPersistsTargetedRecoveryAtomically(t *testing.T)
 			require.Equal(t, account.Extra, current.Extra)
 			if cursorError {
 				require.Equal(t, StatusActive, current.Status)
+				require.True(t, current.Schedulable)
 				require.Empty(t, current.ErrorMessage)
 				require.Nil(t, current.TempUnschedulableUntil)
 			} else {
