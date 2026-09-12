@@ -1830,7 +1830,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini', 'grok', 'composite', 'cursor'].includes(
               createForm.platform,
             )
           "
@@ -1858,7 +1858,7 @@
           </div>
 
           <!-- require_privacy_set toggle -->
-          <div class="flex items-center justify-between">
+          <div v-if="['openai', 'antigravity', 'anthropic', 'gemini'].includes(createForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.privacySetOnly") }}</label
@@ -3479,7 +3479,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini'].includes(
+            ['openai', 'antigravity', 'anthropic', 'gemini', 'grok', 'composite', 'cursor'].includes(
               editForm.platform,
             )
           "
@@ -3507,7 +3507,7 @@
           </div>
 
           <!-- require_privacy_set toggle -->
-          <div class="flex items-center justify-between">
+          <div v-if="['openai', 'antigravity', 'anthropic', 'gemini'].includes(editForm.platform)" class="flex items-center justify-between">
             <div>
               <label class="text-sm text-gray-600 dark:text-gray-400"
                 >{{ t("admin.groups.accountFilters.privacySetOnly") }}</label
@@ -4614,7 +4614,7 @@ const platformFilterOptions = computed(() => [
 ]);
 
 const compositeRoutePlatformOptions = computed(() => [
-  ...CONCRETE_PLATFORM_OPTIONS.filter(option => option.value !== 'cursor'),
+  ...CONCRETE_PLATFORM_OPTIONS,
 ]);
 
 const compositeRouteEndpointOptions = computed(() => [

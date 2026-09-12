@@ -100,6 +100,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   zhipu: 'Zhipu GLM',
   deepseek: 'DeepSeek',
   minimax: 'MiniMax',
+  cursor: 'Cursor',
 }
 
 function platformLabel(platform: string): string {

@@ -336,6 +336,14 @@
       <div v-else class="text-xs text-gray-400">-</div>
     </template>
 
+    <CursorUsageWindow
+      v-else-if="account.platform === 'cursor' && account.type !== 'upstream'"
+      :monthly="usageInfo?.cursor_monthly"
+      :loading="loading || activeQueryLoading"
+      :error="error || usageInfo?.error_code || usageInfo?.error"
+      @refresh="loadUsage({ source: 'active', bypassCache: true })"
+    />
+
     <!-- Grok OAuth accounts: passive xAI quota headers + local Sub2API usage -->
     <template v-else-if="account.platform === 'grok' && account.type === 'oauth'">
       <div v-if="loading" class="space-y-1.5">
@@ -655,6 +663,7 @@ import { buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { enqueueUsageRequest } from '@/utils/usageLoadQueue'
 import { formatCompactNumber } from '@/utils/format'
 import UsageProgressBar from './UsageProgressBar.vue'
+import CursorUsageWindow from './CursorUsageWindow.vue'
 import AccountQuotaInfo from './AccountQuotaInfo.vue'
 import OpenAIQuotaResetCell from './OpenAIQuotaResetCell.vue'
 import GrokQuotaProbeCell from './GrokQuotaProbeCell.vue'
@@ -721,6 +730,7 @@ let visibilityObserver: IntersectionObserver | null = null
 
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
+  if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
   // CN providers: apikey 账号也有滚动用量窗口（coding plan）或余额（payg），
@@ -738,6 +748,7 @@ const showUsageWindows = computed(() => {
 })
 
 const shouldFetchUsage = computed(() => {
+  if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   if (props.account.platform === 'anthropic') {
     return props.account.type === 'oauth' || props.account.type === 'setup-token'
   }

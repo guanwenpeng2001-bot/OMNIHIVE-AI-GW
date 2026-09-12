@@ -5,12 +5,8 @@ import { describe, expect, it } from 'vitest'
 describe('Composite channel platform options', () => {
   it('includes the CN concrete providers for pricing and model mapping', () => {
     const source = readFileSync(resolve('src/views/admin/ChannelsView.vue'), 'utf8')
-    const declaration = source.match(/const compositePlatforms:[^=]+=[^\n]+/)?.[0]
+    expect(source).toContain('CONCRETE_PLATFORM_OPTIONS.map(option => option.value)')
+    expect(source).toContain('const compositePlatforms = platformOrder')
 
-    expect(declaration).toContain("'kimi'")
-    expect(declaration).toContain("'zhipu'")
-    expect(declaration).toContain("'deepseek'")
-    expect(declaration).toContain("'minimax'")
-    expect(declaration).toContain("'opencode_go'")
   })
 })

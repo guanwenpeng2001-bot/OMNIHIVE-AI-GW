@@ -229,7 +229,7 @@
             OpenCode
           </button>
           <button type="button" data-testid="cursor-platform"
-            @click="form.platform = 'cursor'; accountCategory = 'apikey'; form.concurrency = 1"
+            @click="form.platform = 'cursor'; accountCategory = 'apikey'"
             :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'cursor' ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon platform="cursor" size="sm" />Cursor
           </button>
@@ -3021,7 +3021,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" :disabled="form.platform === 'cursor' && cursorKeyMode !== 'relay'" type="number" min="1" class="input"
+          <input data-testid="account-concurrency" v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3534,6 +3534,7 @@
           :groups="groups"
           :platform="form.platform"
           :mixed-scheduling="mixedScheduling"
+          warn-when-empty
           data-tour="account-form-groups"
         />
       </div>
@@ -4845,7 +4846,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
-    if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey'; form.concurrency = 1 }
+    if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
     // Reset base URL based on platform
     if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -5643,7 +5644,6 @@ const handleSubmit = async () => {
     const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
     const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
-    if (cursorKeyMode.value !== 'relay') form.concurrency = 1
     await createAccountAndFinish('cursor', cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
     return
   }

@@ -23,6 +23,15 @@ const mountSelector = (modelValue: number[] = []) => mount(GroupSelector, {
 describe('GroupSelector simple-mode binding policy', () => {
   beforeEach(() => { authState.isSimpleMode = false })
 
+  it('warns about an empty account group selection without requiring it', async () => {
+    const wrapper = mountSelector()
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+    await wrapper.setProps({ warnWhenEmpty: true, platform: 'cursor' })
+    expect(wrapper.text()).toContain('admin.accounts.noGroupWarning')
+    await wrapper.setProps({ modelValue: [2] })
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
+  })
+
   it('hides composite groups in simple mode and preserves basic groups', () => {
     authState.isSimpleMode = true
     const wrapper = mountSelector()

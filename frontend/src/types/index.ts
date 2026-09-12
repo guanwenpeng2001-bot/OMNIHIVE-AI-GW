@@ -1375,7 +1375,21 @@ export interface GrokBillingSummary {
   failed_windows?: string[]
 }
 
+export interface CursorMonthlyUsage {
+  start_of_month: string | null
+  resets_at: string | null
+  models: Record<string, {
+    numRequests: number
+    numRequestsTotal: number
+    numTokens: number
+    maxTokenUsage: number | null
+    maxRequestUsage: number | null
+  }>
+}
+
 export interface AccountUsageInfo {
+  cursor_monthly?: CursorMonthlyUsage
+
   source?: 'passive' | 'active'
   updated_at: string | null
   five_hour: UsageProgress | null

@@ -4,6 +4,7 @@
       {{ t('admin.users.groups') }}
       <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
     </label>
+    <p v-if="warnWhenEmpty && modelValue.length === 0" role="status" class="mb-2 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.noGroupWarning') }}</p>
     <div
       v-if="isSearchable"
       class="flex items-center gap-2 rounded-t-lg border border-b-0 border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
@@ -72,6 +73,7 @@ interface Props {
   groups: (Group & { account_count?: number })[]
   platform?: GroupPlatform // Optional platform filter
   mixedScheduling?: boolean // For antigravity accounts: allow anthropic/gemini groups
+  warnWhenEmpty?: boolean
   searchable?: boolean | 'auto'
 }
 
