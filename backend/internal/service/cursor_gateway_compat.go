@@ -5,11 +5,92 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
 )
+
+// Only rewritten IDs need storage. Bound retained identities without a cleanup
+// goroutine; expired/evicted history is rejected rather than silently injected
+// under the wrong execution ID. The cache is shared across protocol adapters.
+const cursorToolIDLimit = 4096
+
+func (gateway *CursorGatewayService) publicToolID(call cursor.ToolCall) string {
+	id := cursor.NormalizeToolCallID(call.CallID)
+	if id == call.CallID {
+		return id
+	}
+	// The same call label can occur in different executions; retain both
+	// identities in the digest so concurrent turns cannot overwrite each other.
+	id = cursor.NormalizeToolCallID(call.CallID + "\x00" + call.ExecID)
+	gateway.toolMu.Lock()
+	defer gateway.toolMu.Unlock()
+	if gateway.toolIDs == nil {
+		gateway.toolIDs = make(map[string]cursor.ToolCall)
+	}
+	if _, exists := gateway.toolIDs[id]; !exists {
+		if len(gateway.toolIDOrder) == cursorToolIDLimit {
+			delete(gateway.toolIDs, gateway.toolIDOrder[0])
+			gateway.toolIDOrder = gateway.toolIDOrder[1:]
+		}
+		gateway.toolIDOrder = append(gateway.toolIDOrder, id)
+	}
+	// Arguments can be large and are already supplied in the client's history.
+	gateway.toolIDs[id] = cursor.ToolCall{CallID: call.CallID, ExecID: call.ExecID}
+	return id
+}
+
+func (gateway *CursorGatewayService) restoreToolIDs(messages []cursor.ChatMessage) error {
+	gateway.toolMu.Lock()
+	defer gateway.toolMu.Unlock()
+	resolve := func(id string) (cursor.ToolCall, error) {
+		if call, ok := gateway.toolIDs[id]; ok {
+			return call, nil
+		}
+		if strings.HasPrefix(id, "cursor_call_") {
+			return cursor.ToolCall{}, fmt.Errorf("cursor: tool call identity expired; start a new tool turn")
+		}
+		return cursor.ToolCall{CallID: id}, nil
+	}
+	for i := range messages {
+		item := &messages[i]
+		// Never trust an inbound value for gateway-owned execution metadata.
+		item.ToolExecID = ""
+		if item.ToolCallID != "" {
+			call, err := resolve(item.ToolCallID)
+			if err != nil {
+				return err
+			}
+			item.ToolCallID, item.ToolExecID = call.CallID, call.ExecID
+		}
+		if len(item.ToolCalls) == 0 {
+			continue
+		}
+		var calls []map[string]json.RawMessage
+		if err := json.Unmarshal(item.ToolCalls, &calls); err != nil {
+			return fmt.Errorf("cursor: invalid tool call history")
+		}
+		for _, entry := range calls {
+			delete(entry, "cursor_exec_id")
+			var id string
+			if err := json.Unmarshal(entry["id"], &id); err != nil {
+				return fmt.Errorf("cursor: invalid tool call identity")
+			}
+			call, err := resolve(id)
+			if err != nil {
+				return err
+			}
+			entry["id"], _ = json.Marshal(call.CallID)
+			if call.ExecID != "" {
+				entry["cursor_exec_id"], _ = json.Marshal(call.ExecID)
+			}
+		}
+		item.ToolCalls, _ = json.Marshal(calls)
+	}
+	return nil
+}
 
 // cursorOutput adapts the shared Chat event stream without taking ownership of
 // session refresh, account serialization or the single ForwardResult bill.

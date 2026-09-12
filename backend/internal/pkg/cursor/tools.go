@@ -2,12 +2,32 @@ package cursor
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+// NormalizeToolCallID preserves ordinary API IDs and hashes opaque Cursor IDs
+// into a stable, bounded ASCII identifier. The gateway retains the original
+// ToolCall separately; wire replies must always use its unmodified ExecID.
+func NormalizeToolCallID(id string) string {
+	valid := len(id) > 0 && len(id) <= 64 && !strings.HasPrefix(id, "cursor_call_")
+	for _, c := range id {
+		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+			valid = false
+		}
+	}
+	if valid {
+		return id
+	}
+	digest := sha256.Sum256([]byte(id))
+	return "cursor_call_" + base64.RawURLEncoding.EncodeToString(digest[:])
+}
 
 // ToolDefinition is a custom MCP tool. Name is the downstream API name;
 // Server identifies the MCP provider (the gateway uses "api").

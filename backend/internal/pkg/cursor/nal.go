@@ -49,6 +49,9 @@ type ChatMessage struct {
 	Content    string          `json:"content"`
 	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
 	ToolCallID string          `json:"tool_call_id,omitempty"`
+	// ToolExecID is internal history metadata, restored by the gateway from the
+	// client-visible ID. Native execution acknowledgements retain the same ID.
+	ToolExecID string `json:"cursor_exec_id,omitempty"`
 }
 
 func encodeUserMessage(text string) message {
