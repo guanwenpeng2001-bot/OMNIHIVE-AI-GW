@@ -1,6 +1,15 @@
 export default {
     accounts: {
-      cursor: {"keyMode": "Key 子模式", "official": "Cursor 官方 Key", "relay": "上游反代 Key", "keepKey": "留空保留现有 Key", "clientVersion": "账号客户端版本覆盖", "globalDefault": "使用全局默认值", "nativeHint": "服务端生成稳定机器指纹；原生并发固定为 1。", "relayHint": "Adaptive 模式将 Chat Completions 同构转发到此地址。", "m1Hint": "M1 支持文本 Chat Completions；Auto 登录将在 M2 提供。"},
+      cursor: {
+    auto: 'Auto（Token 导入）',
+    autoHint: '导入两个 Token 和两个 64 位十六进制机器码，或使用下方浏览器授权。',
+    machineFormat: '64 位十六进制字符',
+    browserAuthorize: '浏览器授权',
+    browserHint: '先填写账号设置，再打开授权链接登录；成功后自动保存账号。授权有效期为 10 分钟。',
+    copyUrl: '复制授权链接',
+    copied: '已复制',
+    authStatus: { waiting: '等待浏览器授权…', success: '授权成功，账号已保存。', failed: '授权或保存失败，请检查账号设置后重试。', timeout: '授权超时，请重新开始。', cancelled: '已取消授权。' },
+"keyMode": "Key 子模式", "official": "Cursor 官方 Key", "relay": "上游反代 Key", "keepKey": "留空保留现有 Key", "clientVersion": "账号客户端版本覆盖", "globalDefault": "使用全局默认值", "nativeHint": "服务端生成稳定机器指纹；原生并发固定为 1。", "relayHint": "Adaptive 模式将 Chat Completions 同构转发到此地址。", "m1Hint": "M1 支持文本 Chat Completions；Auto 登录将在 M2 提供。"},
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

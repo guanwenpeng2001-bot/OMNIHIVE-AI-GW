@@ -214,6 +214,21 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('creates Cursor auto with tokens and required machine IDs', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor auto')
+    await wrapper.get('[data-testid="cursor-key-mode"]').setValue('auto')
+    for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
+      await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', concurrency: 1, credentials: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) } })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('api_key')
+    wrapper.unmount()
+  })
+
   it.each(['official', 'relay'] as const)('creates Cursor %s keys with the correct credentials and concurrency', async mode => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="cursor-platform"]').trigger('click')

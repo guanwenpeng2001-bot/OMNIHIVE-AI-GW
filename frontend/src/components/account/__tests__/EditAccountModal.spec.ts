@@ -330,6 +330,23 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('edits Cursor auto without echoing stored tokens or changing machine IDs', async () => {
+    const account = { ...buildAccount(), platform: 'cursor', type: 'oauth', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '' } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="cursor-access_token"]').element.value).toBe('')
+    await wrapper.get('form').trigger('submit.prevent'); await flushPromises()
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.credentials.machine_id).toBe('a'.repeat(64))
+    expect(payload.credentials.mac_machine_id).toBe('b'.repeat(64))
+    expect(payload.credentials).not.toHaveProperty('access_token')
+    expect(payload.credentials).not.toHaveProperty('refresh_token')
+    expect(payload.credentials).not.toHaveProperty('api_key')
+    expect(payload.concurrency).toBe(1)
+    wrapper.unmount()
+  })
+
   it('keeps Cursor native identity and omits the key when left blank', async () => {
     const account = { ...buildAccount(), platform: 'cursor', type: 'apikey', credentials_status: { has_api_key: true }, credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17' } } as any
     updateAccountMock.mockReset().mockResolvedValue(account)

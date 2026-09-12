@@ -235,7 +235,8 @@
           </button>
         </div>
       </div>
-      <CursorKeyFields v-if="form.platform === 'cursor'" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
+      <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto'" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: {}, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -3020,7 +3021,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" :disabled="form.platform === 'cursor' && cursorKeyMode === 'official'" type="number" min="1" class="input"
+          <input v-model.number="form.concurrency" :disabled="form.platform === 'cursor' && cursorKeyMode !== 'relay'" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3892,6 +3893,7 @@
 
 <script setup lang="ts">
 import CursorKeyFields from './CursorKeyFields.vue'
+import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -4722,7 +4724,9 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
-const cursorKeyMode = ref<'official' | 'relay'>('official')
+const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
+const cursorAutoCredentials = ref<Record<string, string>>({})
+const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const form = reactive({
   name: '',
@@ -5303,6 +5307,10 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  cursorAutoCredentials.value = {}
+  cursorKeyMode.value = 'official'
+  cursorClientVersion.value = ''
+  cursorAuthorizing.value = false
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5630,12 +5638,13 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 
 const handleSubmit = async () => {
   if (form.platform === 'cursor') {
-    if (!form.name.trim() || !apiKeyValue.value.trim()) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
-    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value })
+    if (cursorAuthorizing.value) return
+    if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
+    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
     const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
-    if (cursorKeyMode.value === 'official') form.concurrency = 1
-    await createAccountAndFinish('cursor', cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
+    if (cursorKeyMode.value !== 'relay') form.concurrency = 1
+    await createAccountAndFinish('cursor', cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
     return
   }
   // For OAuth-based type, handle OAuth flow (goes to step 2)

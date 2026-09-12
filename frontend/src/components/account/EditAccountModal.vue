@@ -26,7 +26,8 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
-      <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
+      <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
+      <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @success="handleCursorAuthorized" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
@@ -3021,6 +3022,7 @@
 
 <script setup lang="ts">
 import CursorKeyFields from './CursorKeyFields.vue'
+import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3185,8 +3187,15 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
-const cursorKeyMode = ref<'official' | 'relay'>('official')
+const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
+const cursorAutoCredentials = ref<Record<string, string>>({})
+const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
+const handleCursorAuthorized = async (accountId: number) => {
+  const account = await adminAPI.accounts.getById(accountId)
+  emit('updated', account)
+  handleClose()
+}
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -3957,7 +3966,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
-  cursorKeyMode.value = newAccount.type === 'upstream' ? 'relay' : 'official'
+  cursorKeyMode.value = newAccount.type === 'oauth' ? 'auto' : newAccount.type === 'upstream' ? 'relay' : 'official'
+  cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
   form.concurrency = newAccount.platform === 'cursor' && newAccount.type !== 'upstream' ? 1 : newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
@@ -4893,6 +4903,8 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  cursorAutoCredentials.value = {}
+  cursorAuthorizing.value = false
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -5365,8 +5377,9 @@ const handleSubmit = async () => {
     }
 
     if (props.account.platform === 'cursor') {
-      updatePayload.credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
-      if (cursorKeyMode.value === 'official') updatePayload.concurrency = 1
+      if (cursorAuthorizing.value) return
+      updatePayload.credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      if (cursorKeyMode.value !== 'relay') updatePayload.concurrency = 1
       delete updatePayload.upstream_billing_probe_enabled
       delete updatePayload.upstream_billing_rate_sync_enabled
     }

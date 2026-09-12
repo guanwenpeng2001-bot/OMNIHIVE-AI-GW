@@ -1,14 +1,15 @@
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
 export function buildCursorCredentials(input: {
-  mode: 'official' | 'relay'
+  mode: 'official' | 'relay' | 'auto'
   apiKey: string
   baseUrl?: string
   clientVersion?: string
   existing?: Record<string, unknown>
+  autoCredentials?: Record<string, string>
 }): Record<string, unknown> {
   const credentials: Record<string, unknown> = {}
-  if (input.apiKey.trim()) credentials.api_key = input.apiKey.trim()
+  if (input.mode !== 'auto' && input.apiKey.trim()) credentials.api_key = input.apiKey.trim()
   if (input.existing?.model_mapping) credentials.model_mapping = input.existing.model_mapping
   if (input.mode === 'relay') {
     credentials.base_url = input.baseUrl?.trim() || ''
@@ -17,6 +18,12 @@ export function buildCursorCredentials(input: {
     credentials.client_version = input.clientVersion?.trim() || ''
     for (const field of ['machine_id', 'mac_machine_id']) {
       if (input.existing?.[field]) credentials[field] = input.existing[field]
+    }
+    if (input.mode === 'auto') {
+      for (const field of ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id']) {
+        const value = input.autoCredentials?.[field]?.trim()
+        if (value) credentials[field] = value
+      }
     }
   }
   return credentials
