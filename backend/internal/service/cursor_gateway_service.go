@@ -115,7 +115,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		} `json:"stream_options"`
 	}
 	if err := json.Unmarshal(body, &request); err != nil || request.Model == "" || len(request.Messages) == 0 || (len(request.Tools) > 0 && string(request.Tools) != "[]" && string(request.Tools) != "null") {
-		requestContext.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "Cursor requires text messages and does not support tools"}})
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires text messages and does not support tools"}))
 		return nil, fmt.Errorf("cursor: invalid Chat request")
 	}
 	if request.Thinking == nil && len(request.ThinkingConfig) > 0 && string(request.ThinkingConfig) != "null" {
@@ -125,7 +125,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 				Type string `json:"type"`
 			}
 			if json.Unmarshal(request.ThinkingConfig, &thinking) != nil || (thinking.Type != "enabled" && thinking.Type != "adaptive" && thinking.Type != "disabled") {
-				requestContext.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": "cursor: invalid thinking option"}})
+				requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "cursor: invalid thinking option"}))
 				return nil, fmt.Errorf("cursor: invalid thinking option")
 			}
 			enabled = thinking.Type != "disabled"
@@ -153,7 +153,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	}
 	model, err := cursor.ResolveModelVariant(account.GetMappedModel(request.Model), cursor.RunOptions{Effort: effort, Fast: request.Fast, Thinking: request.Thinking}, gateway.picker(ctx, account, credentials))
 	if err != nil {
-		requestContext.JSON(http.StatusBadRequest, gin.H{"error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
 		return nil, err
 	}
 	completionID := "chatcmpl-" + uuid.NewString()

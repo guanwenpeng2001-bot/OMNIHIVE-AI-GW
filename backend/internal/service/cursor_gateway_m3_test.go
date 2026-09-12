@@ -239,6 +239,14 @@ func TestCursorNativeRequestVariantsAndRejections(t *testing.T) {
 				_, err = callCursorProtocol(gateway, requestContext, account, encoded, protocol)
 				require.Error(t, err)
 				require.Equal(t, 400, recorder.Code)
+				var envelope map[string]any
+				require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+				require.Equal(t, "invalid_request_error", envelope["error"].(map[string]any)["type"])
+				if protocol == APIProtocolAnthropic {
+					require.Equal(t, "error", envelope["type"])
+				} else {
+					require.NotContains(t, envelope, "type")
+				}
 				require.Equal(t, 1, runCalls)
 				if failure == "model" {
 					require.Contains(t, recorder.Body.String(), "unknown model")
@@ -303,5 +311,90 @@ func TestCursorRelayPreservesEstimatedAcrossConversion(t *testing.T) {
 		_, err := callCursorProtocol(gateway, requestContext, account, cursorProtocolRequest(protocol, false), protocol)
 		require.NoError(t, err)
 		require.Contains(t, recorder.Body.String(), `"estimated":true`)
+	}
+}
+
+func TestCursorMessagesExplicitVariantOptions(t *testing.T) {
+	for _, test := range []struct {
+		name, options, model string
+	}{
+		{"unspecified", "", "claude-opus-5-medium"},
+		{"empty_output_config", `,"output_config":{}`, "claude-opus-5-medium"},
+		{"explicit_effort", `,"output_config":{"effort":"high"}`, "claude-opus-5-thinking-high"},
+		{"thinking_enabled", `,"thinking":{"type":"enabled"}`, "claude-opus-5-thinking-medium"},
+		{"thinking_adaptive", `,"thinking":{"type":"adaptive"}`, "claude-opus-5-thinking-medium"},
+		{"thinking_disabled_overrides_effort", `,"thinking":{"type":"disabled"},"output_config":{"effort":"high"}`, "claude-opus-5-high"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			gateway, account, _ := cursorTestGateway()
+			calls := 0
+			gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, _ []cursor.ChatMessage, model string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+				calls++
+				require.Equal(t, test.model, model)
+				require.NoError(t, emit(cursor.StreamEvent{Type: "text", Text: "hello"}))
+				return cursor.TokenUsage{InputTokens: 1, OutputTokens: 1}, nil
+			}}
+			requestContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+			body := []byte(`{"model":"claude-opus-5","max_tokens":100,"messages":[{"role":"user","content":"hi"}]` + test.options + `}`)
+			result, err := gateway.ForwardAsAnthropic(context.Background(), requestContext, account, body)
+			require.NoError(t, err)
+			require.Equal(t, test.model, result.UpstreamModel)
+			require.Equal(t, 1, calls)
+		})
+	}
+}
+
+func TestCursorNativeInterruptedProtocolErrors(t *testing.T) {
+	for _, protocol := range []string{APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses} {
+		t.Run(protocol, func(t *testing.T) {
+			gateway, account, exchanges := cursorTestGateway()
+			calls := 0
+			gateway.native = cursorDriverStub{run: func(_ context.Context, _ cursor.Credentials, _ []cursor.ChatMessage, _ string, emit func(cursor.StreamEvent) error) (cursor.TokenUsage, error) {
+				calls++
+				require.NoError(t, emit(cursor.StreamEvent{Type: "text", Text: "partial"}))
+				return cursor.TokenUsage{InputTokens: 12, OutputTokens: 3, CacheReadTokens: 6, CacheWriteTokens: 2}, fmt.Errorf("private-upstream-detail synthetic-secret")
+			}}
+			recorder := httptest.NewRecorder()
+			requestContext, _ := gin.CreateTestContext(recorder)
+			result, err := callCursorProtocol(gateway, requestContext, account, cursorProtocolRequest(protocol, true), protocol)
+			require.Error(t, err)
+			var failover *UpstreamFailoverError
+			require.NotErrorAs(t, err, &failover)
+			require.NotNil(t, result)
+			require.Equal(t, ClaudeUsage{InputTokens: 12, OutputTokens: 3, CacheReadInputTokens: 6, CacheCreationInputTokens: 2}, result.Usage)
+			require.Equal(t, 1, calls)
+			require.Equal(t, int32(1), exchanges.Load())
+			body := recorder.Body.String()
+			require.Contains(t, body, "partial")
+			require.NotContains(t, body, "private-upstream-detail")
+			require.NotContains(t, body, "synthetic-secret")
+			for _, terminal := range []string{"message_stop", "response.completed", "[DONE]"} {
+				require.NotContains(t, body, terminal)
+			}
+			errors := 0
+			for _, line := range strings.Split(body, "\n") {
+				if !strings.HasPrefix(line, "data: ") {
+					continue
+				}
+				var event map[string]any
+				require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+				if detail, ok := event["error"]; ok {
+					errors++
+					require.Equal(t, map[string]any{"type": "upstream_error", "message": "Cursor stream interrupted"}, detail)
+					if protocol == APIProtocolAnthropic {
+						require.Equal(t, "error", event["type"])
+					} else {
+						require.NotContains(t, event, "type")
+					}
+				}
+			}
+			require.Equal(t, 1, errors)
+			if protocol == APIProtocolAnthropic {
+				require.True(t, IsResponseCommitted(requestContext))
+			}
+			if protocol != APIProtocolChatCompletions {
+				require.Equal(t, 1, strings.Count(body, "event: error\n"))
+			}
+		})
 	}
 }
