@@ -347,6 +347,9 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 }
 
 func normalizeAccountConcurrency(platform, accountType string, concurrency int) int {
+	if platform == PlatformCursor && accountType != AccountTypeUpstream {
+		return 1
+	}
 	if platform == PlatformGrok && accountType == AccountTypeOAuth {
 		if concurrency <= 0 {
 			return 1
@@ -431,6 +434,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Priority:    input.Priority,
 		Status:      StatusActive,
 		Schedulable: true,
+	}
+	if err := NormalizeCursorAccount(account); err != nil {
+		return nil, err
 	}
 	if input.ProbeEnabled != nil && *input.ProbeEnabled {
 		if !isUpstreamBillingProbeAccount(account) {
@@ -837,6 +843,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if err := NormalizeCursorAccount(account); err != nil {
+		return nil, err
+	}
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
@@ -972,12 +981,31 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if input.Concurrency != nil || len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
 		}
 		cachedTargets = loaded
+	}
+	for _, target := range cachedTargets {
+		if !target.IsCursor() {
+			continue
+		}
+		if target.IsCursorNative() && input.Concurrency != nil && *input.Concurrency != 1 {
+			return nil, infraerrors.BadRequest("INVALID_CURSOR_CONCURRENCY", "Cursor native concurrency must be 1")
+		}
+		candidate := *target
+		candidate.Credentials = maps.Clone(target.Credentials)
+		if candidate.Credentials == nil {
+			candidate.Credentials = make(map[string]any)
+		}
+		for key, value := range input.Credentials {
+			candidate.Credentials[key] = value
+		}
+		if err := NormalizeCursorAccount(&candidate); err != nil {
+			return nil, err
+		}
 	}
 	targetsByID := make(map[int64]*Account, len(cachedTargets))
 	for _, account := range cachedTargets {
