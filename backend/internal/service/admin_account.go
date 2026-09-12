@@ -608,6 +608,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	}
 	previousCursorSessionKey := ""
 	cursorReauthorized := false
+	cursorRefreshStateRecovered := false
 	if account.IsCursorNative() {
 		previousCursorSessionKey = cursorSessionKey(account)
 		if account.Type == AccountTypeOAuth {
@@ -862,6 +863,18 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err := NormalizeCursorAccount(account); err != nil {
 		return nil, err
 	}
+	if cursorReauthorized {
+		// Persist targeted recovery with the new credentials, never as a
+		// fallible cleanup after the authorization has already committed.
+		if account.Status == StatusError && (strings.Contains(account.ErrorMessage, "Cursor reauth") || strings.HasPrefix(account.ErrorMessage, "Token refresh failed")) {
+			account.Status, account.ErrorMessage, account.Schedulable = StatusActive, "", true
+			cursorRefreshStateRecovered = true
+		}
+		if strings.HasPrefix(account.TempUnschedulableReason, "Cursor token refresh") || strings.HasPrefix(account.TempUnschedulableReason, "token refresh retry exhausted") {
+			account.TempUnschedulableUntil, account.TempUnschedulableReason = nil, ""
+			cursorRefreshStateRecovered = true
+		}
+	}
 	billingSettingsAppliedAtomically := false
 	updater := s.accountBillingRepo
 	if updater == nil {
@@ -906,23 +919,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			slog.WarnContext(ctx, "Cursor session invalidation failed", "account_id", account.ID)
 		}
 	}
-	if cursorReauthorized {
-		// A new import or browser login recovers refresh failures. Preserve
-		// unrelated manual inactive/error state and all account configuration.
-		if account.Status == StatusError && (strings.Contains(account.ErrorMessage, "Cursor reauth") || strings.HasPrefix(account.ErrorMessage, "Token refresh failed")) {
-			if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
-				return nil, err
-			}
-			account.Status, account.ErrorMessage = StatusActive, ""
-		}
-		if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
-			return nil, err
-		}
-		account.TempUnschedulableUntil, account.TempUnschedulableReason = nil, ""
-		if s.runtimeBlocker != nil {
-			s.runtimeBlocker.ClearAccountSchedulingBlock(account.ID)
-		}
+	if cursorRefreshStateRecovered && s.runtimeBlocker != nil {
+		s.runtimeBlocker.ClearAccountSchedulingBlock(account.ID)
 	}
+
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
@@ -936,6 +936,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
 			return nil, err
 		}
+	}
+
+	// Credentials-only Cursor reauthorization already has the persisted account.
+	// A redundant read must not turn a committed PKCE login into a failed session.
+	if cursorReauthorized && input.ProxyID == nil && input.GroupIDs == nil {
+		return account, nil
 	}
 
 	// 重新查询以确保返回完整数据（包括正确的 Proxy 关联对象）

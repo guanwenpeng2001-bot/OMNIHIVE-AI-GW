@@ -46,9 +46,6 @@ func (handler *AccountHandler) StartCursorAuthorization(ctx *gin.Context) {
 			if err != nil {
 				return 0, err
 			}
-			if _, err = handler.adminService.ClearAccountError(persistCtx, account.ID); err != nil {
-				return 0, err
-			}
 			return account.ID, nil
 		}
 		settings := request.Account

@@ -545,6 +545,16 @@ func (r *accountRepository) updateLockedAccount(
 		SetSchedulable(schedulable).
 		SetAutoPauseOnExpired(account.AutoPauseOnExpired)
 
+	if account.IsCursor() {
+		// Persist targeted cooldown recovery in the same mutation as credentials.
+		if account.TempUnschedulableUntil != nil {
+			builder.SetTempUnschedulableUntil(*account.TempUnschedulableUntil)
+			builder.SetTempUnschedulableReason(account.TempUnschedulableReason)
+		} else {
+			builder.ClearTempUnschedulableUntil().ClearTempUnschedulableReason()
+		}
+	}
+
 	if explicitRateMultiplier != nil {
 		builder.SetRateMultiplier(*explicitRateMultiplier)
 	}

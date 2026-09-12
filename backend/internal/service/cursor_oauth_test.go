@@ -343,6 +343,7 @@ func TestCursorAutoImportRecoversRefreshFailureAndInvalidatesSession(t *testing.
 	account.ErrorMessage = "Cursor reauth required: token refresh rejected"
 	until := time.Now().Add(time.Hour)
 	account.TempUnschedulableUntil = &until
+	account.TempUnschedulableReason = "Cursor token refresh temporarily unavailable"
 	cache := newCursorMemoryCache()
 	oldKey := cursorSessionKey(account)
 	require.NoError(t, cache.Set(context.Background(), oldKey, cursor.Session{Token: "synthetic-old-cached", ExpiresAt: time.Now().Add(time.Hour)}))
