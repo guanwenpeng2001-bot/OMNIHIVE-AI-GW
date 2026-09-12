@@ -58,8 +58,10 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 		if json.Unmarshal(body, &request) != nil {
 			return nil, "", fmt.Errorf("cursor: malformed Messages request")
 		}
-		if len(request.Tools) > 0 {
-			return nil, "", fmt.Errorf("cursor: tools are not supported")
+		for _, tool := range request.Tools {
+			if (tool.Type != "" && tool.Type != "custom") || tool.Name == "" {
+				return nil, "", fmt.Errorf("cursor: only custom function tools are supported")
+			}
 		}
 		chat, err = apicompat.AnthropicToChatCompletionsRequest(&request)
 		if request.Thinking != nil {
@@ -80,8 +82,13 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 			return nil, "", fmt.Errorf("cursor: malformed Responses request")
 		}
 		tools, toolErr := apicompat.EffectiveResponsesTools(&request)
-		if toolErr != nil || len(tools) > 0 {
+		if toolErr != nil {
 			return nil, "", fmt.Errorf("cursor: tools are not supported")
+		}
+		for _, tool := range tools {
+			if tool.Type != "function" || tool.Name == "" {
+				return nil, "", fmt.Errorf("cursor: only function tools are supported")
+			}
 		}
 		chat, err = apicompat.ResponsesToChatCompletionsRequest(&request)
 	default:
@@ -92,11 +99,8 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 	}
 	messages := make([]cursor.ChatMessage, 0, len(chat.Messages))
 	for _, item := range chat.Messages {
-		if len(item.ToolCalls) > 0 || item.Role == "tool" {
-			return nil, "", fmt.Errorf("cursor: tools are not supported")
-		}
 		var content string
-		if json.Unmarshal(item.Content, &content) != nil {
+		if len(item.Content) > 0 && json.Unmarshal(item.Content, &content) != nil {
 			var parts []struct {
 				Type string `json:"type"`
 				Text string `json:"text"`
@@ -111,11 +115,15 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 				content += part.Text
 			}
 		}
-		messages = append(messages, cursor.ChatMessage{Role: item.Role, Content: content})
+		var calls json.RawMessage
+		if len(item.ToolCalls) > 0 {
+			calls, _ = json.Marshal(item.ToolCalls)
+		}
+		messages = append(messages, cursor.ChatMessage{Role: item.Role, Content: content, ToolCalls: calls, ToolCallID: item.ToolCallID})
 	}
 	var extras map[string]json.RawMessage
 	_ = json.Unmarshal(body, &extras)
-	encoded, err := json.Marshal(gin.H{"model": chat.Model, "messages": messages, "stream": chat.Stream, "reasoning_effort": chat.ReasoningEffort, "cursor_thinking": thinking, "fast": extras["fast"], "stream_options": gin.H{"include_usage": true}})
+	encoded, err := json.Marshal(gin.H{"model": chat.Model, "tools": chat.Tools, "messages": messages, "stream": chat.Stream, "reasoning_effort": chat.ReasoningEffort, "cursor_thinking": thinking, "fast": extras["fast"], "stream_options": gin.H{"include_usage": true}})
 	return encoded, chat.Model, err
 }
 

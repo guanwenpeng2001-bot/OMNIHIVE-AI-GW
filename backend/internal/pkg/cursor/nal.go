@@ -1,6 +1,7 @@
 package cursor
 
 import (
+	"encoding/json"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -44,8 +45,10 @@ const (
 )
 
 type ChatMessage struct {
-	Role    string `json:"role"`
-	Content string `json:"content"`
+	Role       string          `json:"role"`
+	Content    string          `json:"content"`
+	ToolCalls  json.RawMessage `json:"tool_calls,omitempty"`
+	ToolCallID string          `json:"tool_call_id,omitempty"`
 }
 
 func encodeUserMessage(text string) message {
@@ -66,7 +69,7 @@ func isInstructionRole(role string) bool {
 // invalid_argument "unknown option '--system-prompt'"（2026-09-12 真机验证），
 // 因此 system/developer 消息按既有 "role: text" 约定折进对话的 prepend 条目。
 // 指令角色不参与"最后一条 = 当前动作"的选择：没有可动作消息时动作文本为空。
-func encodeRun(messages []ChatMessage, model string) (message, string) {
+func encodeRun(messages []ChatMessage, model string, tools ...ToolDefinition) (message, string) {
 	actionIndex := -1
 	for index, item := range messages {
 		if !isInstructionRole(item.Role) {
@@ -81,7 +84,7 @@ func encodeRun(messages []ChatMessage, model string) (message, string) {
 		if index == actionIndex || (isInstructionRole(item.Role) && item.Content == "") {
 			continue
 		}
-		text := item.Content
+		text := item.historyText()
 		if item.Role != "user" {
 			text = item.Role + ": " + text
 		}
@@ -89,7 +92,7 @@ func encodeRun(messages []ChatMessage, model string) (message, string) {
 	}
 	actionText := ""
 	if actionIndex >= 0 {
-		actionText = messages[actionIndex].Content
+		actionText = messages[actionIndex].historyText()
 	}
 	userAction.bytes(userActionMessage, encodeUserMessage(actionText))
 	var action, state, modelDetails, run, client message
@@ -99,7 +102,7 @@ func encodeRun(messages []ChatMessage, model string) (message, string) {
 	run.bytes(runState, state)
 	run.bytes(runAction, action)
 	run.bytes(runModel, modelDetails)
-	run.bytes(runTools, nil)
+	run.bytes(runTools, encodeTools(tools))
 	run.text(runConversationID, uuid.NewString())
 	run.bytes(runRequestedModel, modelDetails)
 	runID := uuid.NewString()
@@ -159,4 +162,14 @@ func replyKV(payload []byte, blobs map[string][]byte, storedBytes *int) ([]byte,
 	var client message
 	client.bytes(clientKV, result)
 	return client, true, nil
+}
+
+// Tool history remains structured JSON with the exact call ID. It is folded
+// into the existing user/prepend envelope, without inventing a Run state schema.
+func (item ChatMessage) historyText() string {
+	if len(item.ToolCalls) == 0 && item.ToolCallID == "" {
+		return item.Content
+	}
+	encoded, _ := json.Marshal(item)
+	return string(encoded)
 }

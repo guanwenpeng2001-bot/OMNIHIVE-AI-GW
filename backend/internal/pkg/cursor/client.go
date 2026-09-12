@@ -16,6 +16,8 @@ import (
 	"golang.org/x/net/http2"
 )
 
+var errToolReply = errors.New("cursor: MCP reply failed")
+
 const RunEndpoint = "/agent.v1.AgentService/Run"
 
 type Client struct {
@@ -55,6 +57,10 @@ func NewClient() *Client {
 // serializes frames; pipe closure never waits on its mutex, so cancellation can
 // interrupt blocked writes. The callback only receives typed assistant events.
 func (client *Client) Run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, emit func(StreamEvent) error) (TokenUsage, error) {
+	return client.RunWithTools(ctx, credentials, messages, model, ToolOptions{}, emit)
+}
+
+func (client *Client) RunWithTools(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, options ToolOptions, emit func(StreamEvent) error) (TokenUsage, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 	defer cancel()
 	hosts := []string{client.BaseURL}
@@ -64,24 +70,27 @@ func (client *Client) Run(ctx context.Context, credentials Credentials, messages
 		hosts = []string{"https://agentn.global.api5.cursor.sh", "https://agentn.api5.cursor.sh", "https://agentn-gcpp-eucentral.api5.cursor.sh"}
 	}
 	emitted := false
-	forward := func(event StreamEvent) error { emitted = emitted || event.Text != ""; return emit(event) }
+	forward := func(event StreamEvent) error {
+		emitted = emitted || event.Text != "" || event.ToolCall != nil
+		return emit(event)
+	}
 	var usage TokenUsage
 	var err error
 	for _, host := range hosts {
 		attempt := *client
 		attempt.BaseURL = host
-		usage, err = attempt.run(ctx, credentials, messages, model, forward)
+		usage, err = attempt.run(ctx, credentials, messages, model, options, forward)
 		var upstream *HTTPError
 		var connect *ConnectError
 		authentication := (errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403)) || (errors.As(err, &connect) && connect.Authentication())
-		if err == nil || emitted || authentication || ctx.Err() != nil {
+		if err == nil || emitted || errors.Is(err, errToolReply) || authentication || ctx.Err() != nil {
 			return usage, err
 		}
 	}
 	return usage, err
 }
 
-func (client *Client) run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, emit func(StreamEvent) error) (TokenUsage, error) {
+func (client *Client) run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, options ToolOptions, emit func(StreamEvent) error) (TokenUsage, error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	reader, writer := io.Pipe()
@@ -89,7 +98,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	defer writer.Close()
 	stop := context.AfterFunc(ctx, func() { writer.CloseWithError(ctx.Err()); reader.CloseWithError(ctx.Err()) })
 	defer stop()
-	payload, runID := encodeRun(messages, model)
+	payload, runID := encodeRun(messages, model, options.Definitions...)
 	var writeMu sync.Mutex
 	write := func(payload []byte) error {
 		writeMu.Lock()
@@ -134,10 +143,14 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	storedBytes := 0
 	usage := TokenUsage{Estimated: true}
 	outputStarted := false
+	toolStarted := false
 	for {
 		frame, err := readFrame(response.Body)
 		if err != nil {
 			if err == io.EOF {
+				if toolStarted {
+					return usage, fmt.Errorf("cursor: MCP stream ended before turn_ended")
+				}
 				return usage, nil
 			}
 			return usage, err
@@ -150,7 +163,11 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 			return usage, fmt.Errorf("cursor: upstream rejected stream; update client version or retry another host")
 		}
 		if frame.flags&2 != 0 {
-			return usage, trailerError(frame.payload)
+			err := trailerError(frame.payload)
+			if err == nil && toolStarted {
+				err = fmt.Errorf("cursor: MCP stream ended before turn_ended")
+			}
+			return usage, err
 		}
 		reply, handled, err := replyKV(frame.payload, blobs, &storedBytes)
 		if err != nil {
@@ -158,6 +175,29 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		}
 		if handled {
 			if err := write(reply); err != nil {
+				return usage, err
+			}
+			continue
+		}
+		call, err := parseToolCall(frame.payload)
+		if err != nil {
+			return usage, err
+		}
+		if call != nil {
+			toolStarted = true
+			outputStarted = true
+			result, failure := ToolResult{}, "deferred_to_client"
+			if options.Execute != nil {
+				result, err = options.Execute(ctx, *call)
+				failure = ""
+				if err != nil {
+					failure = "tool_execution_failed"
+				}
+			}
+			if err := write(encodeToolReply(*call, result, failure)); err != nil {
+				return usage, fmt.Errorf("%w: %w", errToolReply, err)
+			}
+			if err := emit(StreamEvent{Type: "tool_call", ToolCall: call}); err != nil {
 				return usage, err
 			}
 			continue

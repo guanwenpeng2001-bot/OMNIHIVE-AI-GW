@@ -43,6 +43,8 @@ func headersAt(credentials Credentials, runID string, now time.Time, requestID s
 	if architecture == "amd64" {
 		architecture = "x64"
 	}
+	// recon-tools §5: retain the live-verified MCP allowlist. Discovery/auth/
+	// resource tools would advertise exec handlers this bridge does not implement.
 	values := map[string]string{
 		"Authorization":                "Bearer " + credentials.AccessToken,
 		"Content-Type":                 "application/connect+proto",

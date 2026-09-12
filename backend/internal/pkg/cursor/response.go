@@ -24,9 +24,17 @@ type TokenUsage struct {
 type StreamEvent struct {
 	Type, Text string
 	Usage      TokenUsage
+	ToolCall   *ToolCall
 }
 
 func parseEvents(payload []byte) ([]StreamEvent, error) {
+	call, err := parseToolCall(payload)
+	if err != nil {
+		return nil, err
+	}
+	if call != nil {
+		return []StreamEvent{{Type: "tool_call", ToolCall: call}}, nil
+	}
 	decoded, err := fields(payload)
 	if err != nil {
 		return nil, err
