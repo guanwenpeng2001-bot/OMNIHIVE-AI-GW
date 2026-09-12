@@ -42,6 +42,12 @@ func parseEvents(payload []byte) ([]StreamEvent, error) {
 	}
 	var events []StreamEvent
 	for _, update := range updates {
+		// Extensions need not contain protobuf messages. Only decode known payloads.
+		switch update.number {
+		case interactionText, interactionThinking, interactionTokens, interactionTurnEnded:
+		default:
+			continue
+		}
 		if update.wire != wireBytes {
 			return nil, fmt.Errorf("cursor: malformed interaction")
 		}

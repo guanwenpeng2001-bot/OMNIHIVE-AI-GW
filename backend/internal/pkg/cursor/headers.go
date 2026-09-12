@@ -28,6 +28,10 @@ func Checksum(machineID, macMachineID string, now time.Time) string {
 }
 
 func headers(credentials Credentials, runID string) http.Header {
+	return headersAt(credentials, runID, time.Now(), uuid.NewString())
+}
+
+func headersAt(credentials Credentials, runID string, now time.Time, requestID string) http.Header {
 	version := credentials.ClientVersion
 	if version == "" {
 		version = DefaultClientVersion
@@ -39,7 +43,6 @@ func headers(credentials Credentials, runID string) http.Header {
 	if architecture == "amd64" {
 		architecture = "x64"
 	}
-	requestID := uuid.NewString()
 	values := map[string]string{
 		"Authorization":                "Bearer " + credentials.AccessToken,
 		"Content-Type":                 "application/connect+proto",
@@ -47,7 +50,7 @@ func headers(credentials Credentials, runID string) http.Header {
 		"Connect-Accept-Encoding":      "gzip",
 		"User-Agent":                   "connect-es/1.6.1",
 		"X-Client-Key":                 fmt.Sprintf("%x", sha256.Sum256([]byte(credentials.AccessToken))),
-		"X-Cursor-Checksum":            Checksum(credentials.MachineID, credentials.MacMachineID, time.Now()),
+		"X-Cursor-Checksum":            Checksum(credentials.MachineID, credentials.MacMachineID, now),
 		"X-Cursor-Client-Version":      version,
 		"X-Cursor-Client-Type":         "cli",
 		"X-Cursor-Client-Layout":       "unifiedAgent",
