@@ -1,3 +1,4 @@
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 /**
  * Admin Users API endpoints
  * Handles user management for administrators
@@ -330,7 +331,7 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok'
+export type PlatformQuotaPlatform = (typeof CONCRETE_PLATFORM_OPTIONS)[number]['value']
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {

@@ -1662,7 +1662,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" :disabled="account.platform === 'cursor' && account.type !== 'upstream'" type="number" min="1" class="input"
+          <input v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3969,7 +3969,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   cursorKeyMode.value = newAccount.type === 'oauth' ? 'auto' : newAccount.type === 'upstream' ? 'relay' : 'official'
   cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
-  form.concurrency = newAccount.platform === 'cursor' && newAccount.type !== 'upstream' ? 1 : newAccount.concurrency
+  form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
@@ -5379,7 +5379,6 @@ const handleSubmit = async () => {
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
       updatePayload.credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
-      if (cursorKeyMode.value !== 'relay') updatePayload.concurrency = 1
       delete updatePayload.upstream_billing_probe_enabled
       delete updatePayload.upstream_billing_rate_sync_enabled
     }

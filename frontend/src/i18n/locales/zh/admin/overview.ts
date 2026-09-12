@@ -916,6 +916,7 @@ export default {
         zhipu: 'Zhipu GLM',
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
+        cursor: 'Cursor',
         opencode_go: 'OpenCode',
         composite: 'Composite',
       },

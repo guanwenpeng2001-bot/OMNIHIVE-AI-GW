@@ -1,3 +1,4 @@
+import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
 /**
  * Centralized platform color definitions.
  *
@@ -242,19 +243,7 @@ const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
 // ── Public API ──────────────────────────────────────────────────────
 
 function isPlatform(p: string): p is Platform {
-  return (
-    p === 'anthropic' ||
-    p === 'openai' ||
-    p === 'antigravity' ||
-    p === 'gemini' ||
-    p === 'grok' ||
-    p === 'kimi' ||
-    p === 'zhipu' ||
-    p === 'deepseek' ||
-    p === 'minimax' ||
-    p === 'opencode_go' ||
-    p === 'composite'
-  )
+  return GROUP_PLATFORM_OPTIONS.some(option => option.value === p)
 }
 
 export function platformBadgeClass(p: string): string {
@@ -310,18 +299,5 @@ export function platformGradientSubtextClass(p: string): string {
 }
 
 export function platformLabel(p: string): string {
-  switch (p) {
-    case 'anthropic': return 'Anthropic'
-    case 'openai': return 'OpenAI'
-    case 'antigravity': return 'Antigravity'
-    case 'gemini': return 'Gemini'
-    case 'grok': return 'Grok'
-    case 'kimi': return 'Kimi'
-    case 'zhipu': return 'Zhipu GLM'
-    case 'deepseek': return 'DeepSeek'
-    case 'minimax': return 'MiniMax'
-    case 'opencode_go': return 'OpenCode'
-    case 'composite': return 'Composite'
-    default: return p || 'API'
-  }
+  return GROUP_PLATFORM_OPTIONS.find(option => option.value === p)?.label ?? (p || 'API')
 }

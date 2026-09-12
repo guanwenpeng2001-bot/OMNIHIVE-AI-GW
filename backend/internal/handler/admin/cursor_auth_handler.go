@@ -54,7 +54,7 @@ func (handler *AccountHandler) StartCursorAuthorization(ctx *gin.Context) {
 		}
 		account, err := handler.adminService.CreateAccount(persistCtx, &service.CreateAccountInput{
 			Name: settings.Name, Notes: settings.Notes, Platform: service.PlatformCursor, Type: service.AccountTypeOAuth,
-			Credentials: credentials, Extra: settings.Extra, ProxyID: settings.ProxyID, Concurrency: 1,
+			Credentials: credentials, Extra: settings.Extra, ProxyID: settings.ProxyID, Concurrency: settings.Concurrency,
 			Priority: settings.Priority, RateMultiplier: settings.RateMultiplier, LoadFactor: settings.LoadFactor,
 			GroupIDs: settings.GroupIDs, ExpiresAt: settings.ExpiresAt, AutoPauseOnExpired: settings.AutoPauseOnExpired,
 		})

@@ -627,6 +627,7 @@
 </template>
 
 <script setup lang="ts">
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -763,9 +764,9 @@ const form = reactive({
 let abortController: AbortController | null = null
 
 // ── Platform config ──
-const platformOrder: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go']
+const platformOrder: GroupPlatform[] = CONCRETE_PLATFORM_OPTIONS.map(option => option.value)
 // Composite pricing/mapping may target every concrete schedulable provider.
-const compositePlatforms: GroupPlatform[] = ['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go']
+const compositePlatforms = platformOrder
 
 // ── Helpers ──
 function formatDate(value: string): string {

@@ -112,7 +112,7 @@ func TestCursorAutoImportValidation(t *testing.T) {
 	account := cursorAutoTestAccount()
 	account.Concurrency = 8
 	require.NoError(t, NormalizeCursorAccount(account))
-	require.Equal(t, 1, account.Concurrency)
+	require.Equal(t, 8, account.Concurrency)
 	for _, field := range []string{"access_token", "refresh_token", "machine_id", "mac_machine_id"} {
 		t.Run("missing_"+field, func(t *testing.T) {
 			account := cursorAutoTestAccount()

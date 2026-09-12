@@ -213,6 +213,7 @@ func ProvideOpenAIQuotaAutoResetService(
 }
 
 func ProvideAccountUsageService(
+	cursorSessions *CursorSessionProvider,
 	accountRepo AccountRepository,
 	usageLogRepo UsageLogRepository,
 	usageFetcher ClaudeUsageFetcher,
@@ -240,6 +241,7 @@ func ProvideAccountUsageService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	service.cursorSessions = cursorSessions
 	return service
 }
 

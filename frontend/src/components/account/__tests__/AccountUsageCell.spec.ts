@@ -20,6 +20,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
+	  locale: { value: 'en' },
       t: (key: string) => key
     })
   }
@@ -89,6 +90,31 @@ const cnUsageCellStubs = {
 }
 
 describe('AccountUsageCell', () => {
+
+  it.each(['oauth', 'apikey'] as const)('queries Cursor monthly usage for %s accounts', async (type) => {
+    getUsage.mockResolvedValue({ cursor_monthly: { start_of_month: null, resets_at: null, models: { 'gpt-4': { numRequests: 2, numRequestsTotal: 3, numTokens: 70, maxTokenUsage: null, maxRequestUsage: null } } } })
+    const account = makeAccount({ id: type === 'oauth' ? 97001 : 97002, platform: 'cursor', type })
+    const wrapper = mount(AccountUsageCell, { props: { account } })
+    await flushPromises()
+    expect(getUsage).toHaveBeenCalledWith(account.id)
+    expect(wrapper.find('[data-test="cursor-monthly"]').text()).toContain('gpt-4')
+    expect(wrapper.text()).toContain('admin.accounts.cursor.unlimited')
+    await wrapper.find('[data-test="cursor-monthly"] button').trigger('click')
+    await flushPromises()
+    expect(getUsage).toHaveBeenLastCalledWith(account.id, 'active', true)
+    wrapper.unmount()
+  })
+
+  it('shows Cursor query failure and recovers through refresh', async () => {
+    getUsage.mockResolvedValueOnce({ error_code: 'unauthenticated', error: 'HTTP 401' }).mockResolvedValueOnce({ cursor_monthly: { start_of_month: null, resets_at: null, models: {} } })
+    const wrapper = mount(AccountUsageCell, { props: { account: makeAccount({ id: 97003, platform: 'cursor', type: 'apikey' }) } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.cursor.usageFailed')
+    await wrapper.find('[data-test="cursor-monthly"] button').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.cursor.noUsage')
+    wrapper.unmount()
+  })
   beforeEach(() => {
     getUsage.mockReset()
     Object.defineProperty(window, 'matchMedia', {
