@@ -29,45 +29,20 @@ type AvailableModel struct {
 	LegacySlugs, Aliases []string
 }
 
+// FallbackModels combines the calibrated picker IDs with known run variants.
+// New IDs without captured variants retain their explicit picker ID.
 func FallbackModels() []AvailableModel {
-	return []AvailableModel{{ID: "default", RunSlug: "default"}, {ID: "claude-sonnet-4-6", RunSlug: "claude-4.6-sonnet-medium"}, {ID: "grok-4.6", RunSlug: "cursor-grok-4.6-medium"}}
+	ids := strings.Fields("default grok-4.6 composer-2.5 claude-opus-5 claude-opus-4-8 gpt-5.6-sol gpt-5.5 claude-fable-5-1 claude-fable-5 grok-4.5 gemini-3.8-flash gemini-3.7-flash muse-spark-1.3 gpt-5.6-terra claude-sonnet-5 claude-sonnet-4-6 gpt-5.3-codex claude-opus-4-7 gpt-5.4 claude-opus-4-6 claude-opus-4-5 gpt-5.2 gpt-5.6-luna gemini-3.6-flash gemini-3.1-pro gpt-5.4-mini gpt-5.4-nano claude-haiku-4-5 claude-sonnet-4-5 gpt-5.1 gemini-3-flash gemini-3.5-flash claude-sonnet-4 gpt-5-mini gemini-2.5-flash kimi-k3 kimi-k2.7-code glm-5.2")
+	snapshot := defaultRunSlugTable()
+	models := make([]AvailableModel, 0, len(ids))
+	for _, id := range ids {
+		models = append(models, AvailableModel{ID: id, RunSlug: id, LegacySlugs: snapshot[id]})
+	}
+	return models
 }
 
-// ResolveModel treats a supplied live picker as authoritative. Unknown names
-// never silently collapse to the default model.
 func ResolveModel(requested, effort string, catalog []AvailableModel) (string, error) {
-	if len(catalog) == 0 {
-		catalog = FallbackModels()
-	}
-	for _, model := range catalog {
-		matches := requested == model.ID || requested == model.RunSlug
-		for _, alias := range model.Aliases {
-			matches = matches || requested == alias
-		}
-		for _, slug := range model.LegacySlugs {
-			if requested == slug {
-				return slug, nil
-			}
-		}
-		if !matches {
-			continue
-		}
-		if effort != "" {
-			for _, slug := range model.LegacySlugs {
-				if strings.HasSuffix(slug, "-"+effort) {
-					return slug, nil
-				}
-			}
-		}
-		if len(model.LegacySlugs) > 0 {
-			return model.LegacySlugs[0], nil
-		}
-		if model.RunSlug != "" {
-			return model.RunSlug, nil
-		}
-		return model.ID, nil
-	}
-	return "", fmt.Errorf("cursor: unknown model %q", requested)
+	return ResolveModelVariant(requested, RunOptions{Effort: effort}, catalog)
 }
 
 func (client *Client) AvailableModels(ctx context.Context, credentials Credentials) ([]AvailableModel, error) {
