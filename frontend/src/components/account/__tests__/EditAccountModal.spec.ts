@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
-import { mount } from '@vue/test-utils'
+import { mount, flushPromises } from '@vue/test-utils'
 
 const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
@@ -329,6 +329,24 @@ describe('EditAccountModal', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('keeps Cursor native identity and omits the key when left blank', async () => {
+    const account = { ...buildAccount(), platform: 'cursor', type: 'apikey', credentials_status: { has_api_key: true }, credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17' } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get('[data-testid="cursor-key-mode"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get<HTMLInputElement>('[data-testid="cursor-api-key"]').element.value).toBe('')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload.concurrency).toBe(1)
+    expect(payload.credentials.machine_id).toBe('a'.repeat(64))
+    expect(payload.credentials).not.toHaveProperty('api_key')
+    expect(payload.credentials).not.toHaveProperty('base_url')
+    wrapper.unmount()
+  })
+
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })

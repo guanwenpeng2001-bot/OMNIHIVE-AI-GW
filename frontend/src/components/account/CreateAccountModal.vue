@@ -228,9 +228,14 @@
             <PlatformIcon platform="opencode_go" size="sm" />
             OpenCode
           </button>
+          <button type="button" data-testid="cursor-platform"
+            @click="form.platform = 'cursor'; accountCategory = 'apikey'; form.concurrency = 1"
+            :class="['flex flex-1 items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === 'cursor' ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-600 dark:text-white' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            <PlatformIcon platform="cursor" size="sm" />Cursor
+          </button>
         </div>
       </div>
-
+      <CursorKeyFields v-if="form.platform === 'cursor'" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -1358,7 +1363,7 @@
       </div>
 
       <!-- API Key input (only for apikey type, excluding Antigravity which has its own fields) -->
-      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity'" class="space-y-4">
+      <div v-if="form.type === 'apikey' && form.platform !== 'antigravity' && form.platform !== 'cursor'" class="space-y-4">
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -3015,7 +3020,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
+          <input v-model.number="form.concurrency" :disabled="form.platform === 'cursor' && cursorKeyMode === 'official'" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3886,6 +3891,8 @@
 </template>
 
 <script setup lang="ts">
+import CursorKeyFields from './CursorKeyFields.vue'
+import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -4715,6 +4722,8 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
+const cursorKeyMode = ref<'official' | 'relay'>('official')
+const cursorClientVersion = ref('')
 const form = reactive({
   name: '',
   notes: '',
@@ -4732,6 +4741,7 @@ const form = reactive({
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
+  if (form.platform === 'cursor') return false
   // Antigravity upstream 类型不需要 OAuth 流程
   if (form.platform === 'antigravity' && antigravityAccountType.value === 'upstream') {
     return false
@@ -4831,6 +4841,7 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey'; form.concurrency = 1 }
     // Reset base URL based on platform
     if (isCNProviderPlatform(newPlatform) || newPlatform === 'opencode_go') {
       const mode = newPlatform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -5618,6 +5629,15 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'cursor') {
+    if (!form.name.trim() || !apiKeyValue.value.trim()) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
+    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value })
+    const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    if (mapping) credentials.model_mapping = mapping
+    if (cursorKeyMode.value === 'official') form.concurrency = 1
+    await createAccountAndFinish('cursor', cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {
@@ -6002,7 +6022,7 @@ const createAccountAndFinish = async (
     expires_at: form.expires_at,
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
-    upstream_billing_probe_enabled: type === 'apikey' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    upstream_billing_probe_enabled: type === 'apikey' && platform !== 'cursor' ? upstreamBillingAutoProbeEnabled.value : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

@@ -214,6 +214,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it.each(['official', 'relay'] as const)('creates Cursor %s keys with the correct credentials and concurrency', async mode => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor account')
+    await wrapper.get('[data-testid="cursor-key-mode"]').setValue(mode)
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('crsr_test')
+    if (mode === 'relay') await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'cursor', type: mode === 'official' ? 'apikey' : 'upstream', concurrency: 1 })
+    expect(payload.credentials.api_key).toBe('crsr_test')
+    if (mode === 'official') expect(payload.credentials).not.toHaveProperty('base_url')
+    else expect(payload.credentials).toMatchObject({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
+    expect(payload.upstream_billing_probe_enabled).toBeUndefined()
+    wrapper.unmount()
+  })
+
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))

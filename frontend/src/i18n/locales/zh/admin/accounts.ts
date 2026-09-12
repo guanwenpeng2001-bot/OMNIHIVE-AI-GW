@@ -1,5 +1,6 @@
 export default {
     accounts: {
+      cursor: {"keyMode": "Key 子模式", "official": "Cursor 官方 Key", "relay": "上游反代 Key", "keepKey": "留空保留现有 Key", "clientVersion": "账号客户端版本覆盖", "globalDefault": "使用全局默认值", "nativeHint": "服务端生成稳定机器指纹；原生并发固定为 1。", "relayHint": "Adaptive 模式将 Chat Completions 同构转发到此地址。", "m1Hint": "M1 支持文本 Chat Completions；Auto 登录将在 M2 提供。"},
       title: '账号管理',
       description: '管理 AI 平台账号和 Cookie',
       createAccount: '添加账号',

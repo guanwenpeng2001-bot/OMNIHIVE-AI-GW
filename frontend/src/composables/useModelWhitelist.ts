@@ -453,6 +453,7 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'yi': return yiModels
     case 'moonshot':
     case 'kimi': return moonshotModels
+    case 'cursor': return ['default', 'claude-sonnet-4-6', 'grok-4.6']
     case 'opencode_go': return [
       'grok-4.6', 'gpt-5.6-luna',
       'glm-5.3-flash', 'glm-5.3', 'glm-5.2', 'glm-5.1',

@@ -5657,6 +5657,10 @@
                 />
               </div>
 
+              <label class="block">
+                <span class="input-label">Cursor — {{ t('admin.accounts.cursor.clientVersion') }}</span>
+                <input v-model="form.cursor_client_version" class="input max-w-xs font-mono text-sm" placeholder="3.16.17" />
+              </label>
               <!-- Antigravity UA 版本 -->
               <div>
                 <label
@@ -9834,6 +9838,7 @@ const form = reactive<SettingsForm>({
   enable_anthropic_cache_ttl_1h_injection: false,
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
+  cursor_client_version: "",
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
   openai_codex_client_version: "",
@@ -11438,6 +11443,7 @@ async function saveSettings() {
       rewrite_message_cache_control: form.rewrite_message_cache_control,
       enable_client_dateline_normalization:
         form.enable_client_dateline_normalization,
+      cursor_client_version: form.cursor_client_version?.trim() || "",
       antigravity_user_agent_version:
         form.antigravity_user_agent_version?.trim() || "",
       openai_codex_user_agent:

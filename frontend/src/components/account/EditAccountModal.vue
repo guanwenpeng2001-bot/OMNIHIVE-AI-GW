@@ -26,8 +26,9 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
       <!-- API Key fields (only for apikey type) -->
-      <div v-if="account.type === 'apikey'" class="space-y-4">
+      <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
@@ -1660,7 +1661,7 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
+          <input v-model.number="form.concurrency" :disabled="account.platform === 'cursor' && account.type !== 'upstream'" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
@@ -3019,6 +3020,8 @@
 </template>
 
 <script setup lang="ts">
+import CursorKeyFields from './CursorKeyFields.vue'
+import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -3182,6 +3185,8 @@ interface TempUnschedRuleForm {
 const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
+const cursorKeyMode = ref<'official' | 'relay'>('official')
+const cursorClientVersion = ref('')
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -3952,7 +3957,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
-  form.concurrency = newAccount.concurrency
+  cursorKeyMode.value = newAccount.type === 'upstream' ? 'relay' : 'official'
+  cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
+  form.concurrency = newAccount.platform === 'cursor' && newAccount.type !== 'upstream' ? 1 : newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
@@ -5357,6 +5364,12 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
+    if (props.account.platform === 'cursor') {
+      updatePayload.credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      if (cursorKeyMode.value === 'official') updatePayload.concurrency = 1
+      delete updatePayload.upstream_billing_probe_enabled
+      delete updatePayload.upstream_billing_rate_sync_enabled
+    }
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
     if (props.account.platform === 'antigravity') {
       const currentExtra = (props.account.extra as Record<string, unknown>) || {}

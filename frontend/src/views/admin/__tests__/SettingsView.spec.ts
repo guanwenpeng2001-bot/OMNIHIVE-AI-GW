@@ -474,6 +474,7 @@ const baseSettingsResponse = {
   enable_anthropic_cache_ttl_1h_injection: false,
   rewrite_message_cache_control: false,
   enable_client_dateline_normalization: true,
+  cursor_client_version: "",
   antigravity_user_agent_version: "",
   openai_codex_user_agent: "",
   payment_enabled: true,

@@ -1,5 +1,27 @@
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
+export function buildCursorCredentials(input: {
+  mode: 'official' | 'relay'
+  apiKey: string
+  baseUrl?: string
+  clientVersion?: string
+  existing?: Record<string, unknown>
+}): Record<string, unknown> {
+  const credentials: Record<string, unknown> = {}
+  if (input.apiKey.trim()) credentials.api_key = input.apiKey.trim()
+  if (input.existing?.model_mapping) credentials.model_mapping = input.existing.model_mapping
+  if (input.mode === 'relay') {
+    credentials.base_url = input.baseUrl?.trim() || ''
+    credentials.api_protocol = 'adaptive'
+  } else {
+    credentials.client_version = input.clientVersion?.trim() || ''
+    for (const field of ['machine_id', 'mac_machine_id']) {
+      if (input.existing?.[field]) credentials[field] = input.existing[field]
+    }
+  }
+  return credentials
+}
+
 export function applyInterceptWarmup(
   credentials: Record<string, unknown>,
   enabled: boolean,
