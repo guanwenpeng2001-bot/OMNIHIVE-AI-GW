@@ -20,37 +20,23 @@ func ensureSimpleModeDefaultGroups(ctx context.Context, client *dbent.Client) er
 		return err
 	}
 
-	requiredByPlatform := map[string]int{
-		service.PlatformAnthropic:   1,
-		service.PlatformOpenAI:      1,
-		service.PlatformGemini:      1,
-		service.PlatformAntigravity: 2,
-		service.PlatformGrok:        1,
+	for _, platform := range service.ConcretePlatforms() {
+		if err := createGroupIfNotExists(ctx, client, platform+"-default", platform); err != nil {
+			return err
+		}
 	}
 
-	for platform, minCount := range requiredByPlatform {
-		count, err := client.Group.Query().
-			Where(group.PlatformEQ(platform), group.DeletedAtIsNil()).
-			Count(ctx)
-		if err != nil {
-			return fmt.Errorf("count groups for platform %s: %w", platform, err)
-		}
-
-		if platform == service.PlatformAntigravity {
-			if count < minCount {
-				for i := count; i < minCount; i++ {
-					name := fmt.Sprintf("%s-default-%d", platform, i+1)
-					if err := createGroupIfNotExists(ctx, client, name, platform); err != nil {
-						return err
-					}
-				}
-			}
-			continue
-		}
-
-		// Non-antigravity platforms: ensure <platform>-default exists.
-		name := platform + "-default"
-		if err := createGroupIfNotExists(ctx, client, name, platform); err != nil {
+	// Keep Antigravity's historical two-group minimum as well as its canonical
+	// default. Existing numbered or operator-managed groups count toward it.
+	count, err := client.Group.Query().
+		Where(group.PlatformEQ(service.PlatformAntigravity), group.DeletedAtIsNil()).
+		Count(ctx)
+	if err != nil {
+		return fmt.Errorf("count groups for platform %s: %w", service.PlatformAntigravity, err)
+	}
+	for i := count; i < 2; i++ {
+		name := fmt.Sprintf("%s-default-%d", service.PlatformAntigravity, i+1)
+		if err := createGroupIfNotExists(ctx, client, name, service.PlatformAntigravity); err != nil {
 			return err
 		}
 	}

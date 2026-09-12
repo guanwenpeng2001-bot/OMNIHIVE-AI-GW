@@ -22,17 +22,27 @@ func TestEnsureSimpleModeDefaultGroups_CreatesMissingDefaults(t *testing.T) {
 
 	require.NoError(t, ensureSimpleModeDefaultGroups(seedCtx, client))
 
-	assertGroupExists := func(name string) {
-		exists, err := client.Group.Query().Where(group.NameEQ(name), group.DeletedAtIsNil()).Exist(seedCtx)
+	before, err := client.Group.Query().Where(group.DeletedAtIsNil()).Count(seedCtx)
+	require.NoError(t, err)
+	require.NoError(t, ensureSimpleModeDefaultGroups(seedCtx, client))
+	after, err := client.Group.Query().Where(group.DeletedAtIsNil()).Count(seedCtx)
+	require.NoError(t, err)
+	require.Equal(t, before, after, "repeated startup must not create duplicates")
+	for _, platform := range service.ConcretePlatforms() {
+		g, err := client.Group.Query().Where(group.NameEQ(platform+"-default"), group.DeletedAtIsNil()).Only(seedCtx)
 		require.NoError(t, err)
-		require.True(t, exists, "expected group %s to exist", name)
+		require.Equal(t, platform, g.Platform)
+		require.Equal(t, service.StatusActive, g.Status)
+		require.Equal(t, service.SubscriptionTypeStandard, g.SubscriptionType)
+		require.Equal(t, 1.0, g.RateMultiplier)
+		require.False(t, g.IsExclusive)
 	}
-
-	assertGroupExists(service.PlatformAnthropic + "-default")
-	assertGroupExists(service.PlatformOpenAI + "-default")
-	assertGroupExists(service.PlatformGemini + "-default")
-	assertGroupExists(service.PlatformAntigravity + "-default-1")
-	assertGroupExists(service.PlatformAntigravity + "-default-2")
+	count, err := client.Group.Query().Where(group.PlatformEQ(service.PlatformAntigravity), group.DeletedAtIsNil()).Count(seedCtx)
+	require.NoError(t, err)
+	require.Equal(t, 2, count)
+	count, err = client.Group.Query().Where(group.PlatformEQ(service.PlatformComposite), group.DeletedAtIsNil()).Count(seedCtx)
+	require.NoError(t, err)
+	require.Zero(t, count)
 
 	grokDefault, err := client.Group.Query().
 		Where(group.NameEQ(service.PlatformGrok+"-default"), group.DeletedAtIsNil()).
@@ -159,7 +169,7 @@ func TestEnsureSimpleModeDefaultGroups_IgnoresSoftDeletedGroups(t *testing.T) {
 	require.Equal(t, 1, count)
 }
 
-func TestEnsureSimpleModeDefaultGroups_AntigravityNeedsTwoGroupsOnlyByCount(t *testing.T) {
+func TestEnsureSimpleModeDefaultGroups_AntigravityKeepsCustomGroupsAndEnsuresDefault(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
 	client := tx.Client()
@@ -174,5 +184,8 @@ func TestEnsureSimpleModeDefaultGroups_AntigravityNeedsTwoGroupsOnlyByCount(t *t
 
 	count, err := client.Group.Query().Where(group.PlatformEQ(service.PlatformAntigravity), group.DeletedAtIsNil()).Count(seedCtx)
 	require.NoError(t, err)
-	require.GreaterOrEqual(t, count, 2)
+	require.Equal(t, 3, count)
+	exists, err := client.Group.Query().Where(group.NameEQ(service.PlatformAntigravity+"-default"), group.DeletedAtIsNil()).Exist(seedCtx)
+	require.NoError(t, err)
+	require.True(t, exists)
 }
