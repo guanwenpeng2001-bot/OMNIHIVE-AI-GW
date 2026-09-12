@@ -367,7 +367,7 @@ func isPlatformPricingMatch(groupPlatform, pricingPlatform string) bool {
 // fallback used before a request target has been resolved.
 func matchingPlatforms(groupPlatform string) []string {
 	if groupPlatform == PlatformComposite {
-		return []string{PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformAntigravity, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor}
+		return concretePlatformSlice()
 	}
 	return []string{groupPlatform}
 }
@@ -1169,4 +1169,9 @@ type UpdateChannelInput struct {
 	FeaturesConfig             map[string]any
 	ApplyPricingToAccountStats *bool
 	AccountStatsPricingRules   *[]AccountStatsPricingRule
+}
+
+func concretePlatformSlice() []string {
+	platforms := ConcretePlatforms()
+	return platforms[:]
 }
