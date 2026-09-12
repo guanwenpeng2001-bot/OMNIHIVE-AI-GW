@@ -76,9 +76,46 @@ func (service *AccountTestService) testCursorAccountConnection(requestContext *g
 	requestContext.Header("Content-Type", "text/event-stream")
 	requestContext.Header("Cache-Control", "no-cache")
 	service.sendEvent(requestContext, TestEvent{Type: "test_start", Model: "Cursor model catalog"})
-	_, err := service.cursorGatewayService.AvailableModels(requestContext.Request.Context(), account)
-	if err != nil {
-		return service.sendErrorAndEnd(requestContext, "Cursor authentication/model probe failed")
+	gateway := service.cursorGatewayService
+	ctx := requestContext.Request.Context()
+	if gateway == nil {
+		return service.sendErrorAndEnd(requestContext, "Cursor service unavailable")
+	}
+	if account.Type == AccountTypeUpstream {
+		if _, err := gateway.AvailableModels(ctx, account); err != nil {
+			return service.sendErrorAndEnd(requestContext, "Cursor relay model probe failed")
+		}
+	} else {
+		// Share the native account lock with gateway requests, including probes.
+		lockValue, _ := gateway.locks.LoadOrStore(account.ID, make(chan struct{}, 1))
+		lock := lockValue.(chan struct{})
+		select {
+		case lock <- struct{}{}:
+			defer func() { <-lock }()
+		case <-ctx.Done():
+			return service.sendErrorAndEnd(requestContext, "Cursor probe canceled")
+		}
+		token, err := gateway.sessions.GetSessionToken(ctx, account, "")
+		if err != nil {
+			return service.sendErrorAndEnd(requestContext, "Cursor exchange/authentication probe failed")
+		}
+		credentials := gateway.credentials(ctx, account, token)
+		models, err := gateway.native.AvailableModels(ctx, credentials)
+		if err != nil || len(models) == 0 {
+			return service.sendErrorAndEnd(requestContext, "Cursor picker probe failed")
+		}
+		model, err := cursor.ResolveModel(models[0].ID, "", models)
+		if err != nil {
+			return service.sendErrorAndEnd(requestContext, "Cursor picker model resolution failed")
+		}
+		textReceived := false
+		_, err = gateway.native.Run(ctx, credentials, []cursor.ChatMessage{{Role: "user", Content: "Reply with OK."}}, model, func(event cursor.StreamEvent) error {
+			textReceived = textReceived || (event.Type == "text" && event.Text != "")
+			return nil
+		})
+		if err != nil || !textReceived {
+			return service.sendErrorAndEnd(requestContext, "Cursor Run/protocol probe failed")
+		}
 	}
 	service.sendEvent(requestContext, TestEvent{Type: "test_complete", Success: true})
 	return nil
