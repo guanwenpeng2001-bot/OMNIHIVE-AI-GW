@@ -107,3 +107,51 @@ func TestCursorUnknownWireFieldsPreserveKnownFields(t *testing.T) {
 	_, err = readFrame(bytes.NewReader([]byte{0, 0, 0, 0, 1}))
 	require.ErrorIs(t, err, io.EOF)
 }
+
+// Cursor 当前服务端对 Run 的 system 字段返回 invalid_argument
+// "unknown option '--system-prompt'"（2026-09-12 真机验证），所以请求里必须
+// 保持 field 8 空缺，system/developer 内容折进对话的 prepend 条目。
+func TestCursorRunRequestOmitsSystemFieldAndFoldsPrompt(t *testing.T) {
+	client, runID := encodeRun([]ChatMessage{
+		{Role: "system", Content: "be terse"},
+		{Role: "developer", Content: "prefer json"},
+		{Role: "user", Content: "hello"},
+	}, "default")
+	require.NotEmpty(t, runID)
+
+	decoded, err := fields(client)
+	require.NoError(t, err)
+	run := findField(decoded, clientRun)
+	require.Equal(t, uint64(wireBytes), run.wire)
+
+	runFields, err := fields(run.data)
+	require.NoError(t, err)
+	require.Zero(t, findField(runFields, 8).number, "system field must stay unset")
+
+	action := findField(runFields, runAction)
+	require.Equal(t, uint64(wireBytes), action.wire)
+	actionFields, err := fields(action.data)
+	require.NoError(t, err)
+	userAction := findField(actionFields, actionUserMessage)
+	require.Equal(t, uint64(wireBytes), userAction.wire)
+	userActionFields, err := fields(userAction.data)
+	require.NoError(t, err)
+
+	var prepends []string
+	var actionText string
+	for _, field := range userActionFields {
+		if field.number != userActionPrepend && field.number != userActionMessage {
+			continue
+		}
+		entryFields, err := fields(field.data)
+		require.NoError(t, err)
+		text := string(findField(entryFields, userMessageText).data)
+		if field.number == userActionPrepend {
+			prepends = append(prepends, text)
+			continue
+		}
+		actionText = text
+	}
+	require.Equal(t, []string{"system: be terse", "developer: prefer json"}, prepends)
+	require.Equal(t, "hello", actionText)
+}

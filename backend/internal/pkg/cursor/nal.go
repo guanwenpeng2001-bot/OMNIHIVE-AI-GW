@@ -2,7 +2,6 @@ package cursor
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/google/uuid"
 )
@@ -20,7 +19,6 @@ const (
 	runModel            = 3
 	runTools            = 4
 	runConversationID   = 5
-	runSystem           = 8
 	runRequestedModel   = 9
 	runIdentifier       = 25
 	stateMode           = 10
@@ -58,16 +56,12 @@ func encodeUserMessage(text string) message {
 	return encoded
 }
 
+// encodeRun 把对话编码为 AgentService Run 请求。
+// Cursor 当前服务端拒绝 Run 的 system 字段（field 8）：填入任何值都会返回
+// invalid_argument "unknown option '--system-prompt'"（2026-09-12 真机验证），
+// 因此 system/developer 消息按既有 "role: text" 约定折进对话，不再单独发送。
 func encodeRun(messages []ChatMessage, model string) (message, string) {
-	var systemParts []string
-	var conversation []ChatMessage
-	for _, item := range messages {
-		if item.Role == "system" || item.Role == "developer" {
-			systemParts = append(systemParts, item.Content)
-		} else {
-			conversation = append(conversation, item)
-		}
-	}
+	conversation := messages
 	var userAction, environment, requestContext message
 	environment.text(environmentTimezone, "UTC")
 	requestContext.bytes(contextEnvironment, environment)
@@ -92,7 +86,6 @@ func encodeRun(messages []ChatMessage, model string) (message, string) {
 	run.bytes(runModel, modelDetails)
 	run.bytes(runTools, nil)
 	run.text(runConversationID, uuid.NewString())
-	run.text(runSystem, strings.Join(systemParts, "\n\n"))
 	run.bytes(runRequestedModel, modelDetails)
 	runID := uuid.NewString()
 	run.text(runIdentifier, runID)
