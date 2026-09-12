@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
+	"github.com/alicebob/miniredis/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/protobuf/encoding/protowire"
@@ -73,7 +74,15 @@ func TestCursorMCPNormalizedIDsThreeProtocolsHTTP2(t *testing.T) {
 	testCursorMCPGatewayThreeProtocolsHTTP2(t, true)
 }
 
-func testCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T, opaqueIDs bool) {
+func TestCursorMCPRedisRestartThreeProtocolsHTTP2(t *testing.T) {
+	testCursorMCPGatewayThreeProtocolsHTTP2(t, true, "restart")
+}
+
+func TestCursorMCPRedisUnavailableThreeProtocolsHTTP2(t *testing.T) {
+	testCursorMCPGatewayThreeProtocolsHTTP2(t, true, "unavailable")
+}
+
+func testCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T, opaqueIDs bool, persistence ...string) {
 	callID := func(i int) string {
 		id := fmt.Sprintf("call-%d", i)
 		if opaqueIDs {
@@ -152,9 +161,24 @@ func testCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T, opaqueIDs bool) {
 				server.StartTLS()
 				defer server.Close()
 				gateway, account, _ := cursorTestGateway()
+				var store cursor.ToolIdentityStore
+				if len(persistence) > 0 {
+					redisServer := miniredis.RunT(t)
+					store = cursor.NewRedisToolIdentityStore(cursorIdentityRedisClient(t, redisServer))
+					if persistence[0] == "unavailable" {
+						redisServer.SetError("ERR synthetic unavailable")
+					}
+					gateway.toolStore = store
+				}
 				gateway.native = &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL}
 				gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.FallbackModels(), expires: time.Now().Add(time.Hour)}}
 				for _, second := range []bool{false, true} {
+					if second && len(persistence) > 0 && persistence[0] == "restart" {
+						gateway, account, _ = cursorTestGateway()
+						gateway.toolStore = store
+						gateway.native = &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL}
+						gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.FallbackModels(), expires: time.Now().Add(time.Hour)}}
+					}
 					writer := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(writer)
 					request := cursorMCPRequest(protocol, stream, second)

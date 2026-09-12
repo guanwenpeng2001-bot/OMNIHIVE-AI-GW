@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
@@ -17,7 +19,7 @@ import (
 // under the wrong execution ID. The cache is shared across protocol adapters.
 const cursorToolIDLimit = 4096
 
-func (gateway *CursorGatewayService) publicToolID(call cursor.ToolCall) string {
+func (gateway *CursorGatewayService) publicToolID(ctx context.Context, call cursor.ToolCall) string {
 	id := cursor.NormalizeToolCallID(call.CallID)
 	if id == call.CallID {
 		return id
@@ -25,31 +27,66 @@ func (gateway *CursorGatewayService) publicToolID(call cursor.ToolCall) string {
 	// The same call label can occur in different executions; retain both
 	// identities in the digest so concurrent turns cannot overwrite each other.
 	id = cursor.NormalizeToolCallID(call.CallID + "\x00" + call.ExecID)
+	identity := cursor.ToolIdentity{CallID: call.CallID, ExecID: call.ExecID, ExpiresAt: time.Now().Add(cursor.ToolIdentityTTL)}
+	gateway.cacheToolIdentity(id, identity)
+	if gateway.toolStore != nil {
+		storeCtx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		if err := gateway.toolStore.Put(storeCtx, id, identity); err != nil {
+			gateway.warnToolStore()
+		}
+	}
+	return id
+}
+
+func (gateway *CursorGatewayService) warnToolStore() {
+	gateway.toolStoreWarning.Do(func() {
+		// Never log identifiers, Redis addresses, or errors containing credentials.
+		slog.Warn("cursor: tool identity Redis unavailable; using process-local cache")
+	})
+}
+
+func (gateway *CursorGatewayService) cacheToolIdentity(id string, identity cursor.ToolIdentity) {
 	gateway.toolMu.Lock()
 	defer gateway.toolMu.Unlock()
 	if gateway.toolIDs == nil {
 		gateway.toolIDs = make(map[string]cursor.ToolCall)
+		gateway.toolIDExpires = make(map[string]time.Time)
 	}
 	if _, exists := gateway.toolIDs[id]; !exists {
 		if len(gateway.toolIDOrder) == cursorToolIDLimit {
 			delete(gateway.toolIDs, gateway.toolIDOrder[0])
+			delete(gateway.toolIDExpires, gateway.toolIDOrder[0])
 			gateway.toolIDOrder = gateway.toolIDOrder[1:]
 		}
 		gateway.toolIDOrder = append(gateway.toolIDOrder, id)
 	}
 	// Arguments can be large and are already supplied in the client's history.
-	gateway.toolIDs[id] = cursor.ToolCall{CallID: call.CallID, ExecID: call.ExecID}
-	return id
+	gateway.toolIDs[id] = cursor.ToolCall{CallID: identity.CallID, ExecID: identity.ExecID}
+	gateway.toolIDExpires[id] = identity.ExpiresAt
 }
 
-func (gateway *CursorGatewayService) restoreToolIDs(messages []cursor.ChatMessage) error {
-	gateway.toolMu.Lock()
-	defer gateway.toolMu.Unlock()
+func (gateway *CursorGatewayService) restoreToolIDs(ctx context.Context, messages []cursor.ChatMessage) error {
 	resolve := func(id string) (cursor.ToolCall, error) {
-		if call, ok := gateway.toolIDs[id]; ok {
+		gateway.toolMu.Lock()
+		call, ok := gateway.toolIDs[id]
+		valid := ok && time.Now().Before(gateway.toolIDExpires[id])
+		gateway.toolMu.Unlock()
+		if valid {
 			return call, nil
 		}
 		if strings.HasPrefix(id, "cursor_call_") {
+			if gateway.toolStore != nil {
+				storeCtx, cancel := context.WithTimeout(ctx, time.Second)
+				identity, found, err := gateway.toolStore.Get(storeCtx, id)
+				cancel()
+				if err != nil {
+					gateway.warnToolStore()
+				} else if found {
+					gateway.cacheToolIdentity(id, identity)
+					return cursor.ToolCall{CallID: identity.CallID, ExecID: identity.ExecID}, nil
+				}
+			}
 			return cursor.ToolCall{}, fmt.Errorf("cursor: tool call identity expired; start a new tool turn")
 		}
 		return cursor.ToolCall{CallID: id}, nil

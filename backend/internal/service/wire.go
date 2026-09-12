@@ -10,12 +10,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/google/wire"
 	"github.com/redis/go-redis/v9"
 	"go.uber.org/zap"
 )
+
+func ProvideCursorGatewayService(sessions *CursorSessionProvider, settings SettingRepository, redisClient *redis.Client) *CursorGatewayService {
+	gateway := NewCursorGatewayService(sessions, settings)
+	if redisClient != nil {
+		gateway.toolStore = cursor.NewRedisToolIdentityStore(redisClient)
+	}
+	return gateway
+}
 
 func ProvideGrokOAuthService(proxyRepo ProxyRepository, oauthClient GrokOAuthClient, cfg *config.Config, redisClient *redis.Client) *GrokOAuthService {
 	svc := NewGrokOAuthService(proxyRepo, oauthClient, cfg)
@@ -825,7 +834,7 @@ func ProvideAPIKeyService(
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
 	ProvideCursorSessionProvider,
-	NewCursorGatewayService,
+	ProvideCursorGatewayService,
 	// Core services
 	ProvideAuthService,
 	NewPasskeyService,

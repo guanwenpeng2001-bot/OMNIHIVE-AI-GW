@@ -5,12 +5,71 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/redis/go-redis/v9"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/types/known/structpb"
 )
+
+// ToolIdentityTTL allows a client 45 minutes to finish a deferred tool turn,
+// while bounding retention of opaque upstream execution identifiers.
+const ToolIdentityTTL = 45 * time.Minute
+
+const toolIdentityKeyPrefix = "cursor:tool-identity:v1:"
+
+// ToolIdentity contains only the metadata needed to restore a rewritten ID.
+type ToolIdentity struct {
+	CallID    string    `json:"call_id"`
+	ExecID    string    `json:"exec_id"`
+	ExpiresAt time.Time `json:"expires_at"`
+}
+
+type ToolIdentityStore interface {
+	Put(context.Context, string, ToolIdentity) error
+	Get(context.Context, string) (ToolIdentity, bool, error)
+}
+
+type redisToolIdentityStore struct{ client *redis.Client }
+
+// NewRedisToolIdentityStore reuses the application's Redis client. The global
+// namespace matches IDs hashed from both CallID and ExecID, including failover.
+func NewRedisToolIdentityStore(client *redis.Client) ToolIdentityStore {
+	return &redisToolIdentityStore{client: client}
+}
+
+func (store *redisToolIdentityStore) Put(ctx context.Context, id string, identity ToolIdentity) error {
+	data, err := json.Marshal(identity)
+	if err != nil {
+		return err
+	}
+	ttl := time.Until(identity.ExpiresAt)
+	if ttl <= 0 {
+		return nil
+	}
+	return store.client.Set(ctx, toolIdentityKeyPrefix+id, data, ttl).Err()
+}
+
+func (store *redisToolIdentityStore) Get(ctx context.Context, id string) (ToolIdentity, bool, error) {
+	var identity ToolIdentity
+	data, err := store.client.Get(ctx, toolIdentityKeyPrefix+id).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return identity, false, nil
+	}
+	if err != nil {
+		return identity, false, err
+	}
+	if err := json.Unmarshal(data, &identity); err != nil {
+		return identity, false, err
+	}
+	if identity.CallID == "" || identity.ExecID == "" || NormalizeToolCallID(identity.CallID+"\x00"+identity.ExecID) != id {
+		return ToolIdentity{}, false, fmt.Errorf("cursor: invalid stored tool identity")
+	}
+	return identity, time.Now().Before(identity.ExpiresAt), nil
+}
 
 // NormalizeToolCallID preserves ordinary API IDs and hashes opaque Cursor IDs
 // into a stable, bounded ASCII identifier. The gateway retains the original

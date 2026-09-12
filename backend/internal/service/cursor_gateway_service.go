@@ -24,16 +24,19 @@ type cursorNativeDriver interface {
 }
 
 type CursorGatewayService struct {
-	sessions    *CursorSessionProvider
-	native      cursorNativeDriver
-	settings    SettingRepository
-	relayClient *http.Client
-	locks       sync.Map
-	toolMu      sync.Mutex
-	toolIDs     map[string]cursor.ToolCall
-	toolIDOrder []string
-	catalogMu   sync.Mutex
-	catalog     map[string]cursorCatalogEntry
+	sessions         *CursorSessionProvider
+	native           cursorNativeDriver
+	settings         SettingRepository
+	relayClient      *http.Client
+	locks            sync.Map
+	toolMu           sync.Mutex
+	toolIDs          map[string]cursor.ToolCall
+	toolIDExpires    map[string]time.Time
+	toolIDOrder      []string
+	toolStore        cursor.ToolIdentityStore
+	toolStoreWarning sync.Once
+	catalogMu        sync.Mutex
+	catalog          map[string]cursorCatalogEntry
 }
 
 // Native calls also include direct account probes, which bypass the scheduler.
@@ -202,7 +205,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		return nil, err
 	}
 	defer release()
-	if err := gateway.restoreToolIDs(request.Messages); err != nil {
+	if err := gateway.restoreToolIDs(ctx, request.Messages); err != nil {
 		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
 		return nil, err
 	}
@@ -256,7 +259,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 				return fmt.Errorf("cursor: upstream requested undeclared tool")
 			}
 			seenCalls[call.CallID] = true
-			toolCalls = append(toolCalls, gin.H{"id": gateway.publicToolID(*call), "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
+			toolCalls = append(toolCalls, gin.H{"id": gateway.publicToolID(ctx, *call), "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
 		} else if event.Type == "thinking" {
 			thinking.WriteString(event.Text)
 		} else {
