@@ -48,6 +48,8 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	cursorAuthService       *service.CursorAuthService
+	cursorSessions          *service.CursorSessionProvider
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService
@@ -95,6 +97,7 @@ func NewAccountHandler(
 	tokenCacheInvalidator service.TokenCacheInvalidator,
 ) *AccountHandler {
 	return &AccountHandler{
+		cursorAuthService:       service.NewCursorAuthService(),
 		adminService:            adminService,
 		oauthService:            oauthService,
 		openaiOAuthService:      openaiOAuthService,
@@ -1384,6 +1387,16 @@ func (h *AccountHandler) PreviewFromCRS(c *gin.Context) {
 func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *service.Account) (*service.Account, string, error) {
 	if !account.IsOAuth() {
 		return nil, "", infraerrors.BadRequest("NOT_OAUTH", "cannot refresh non-OAuth account")
+	}
+	if account.IsCursor() {
+		if h.cursorSessions == nil {
+			return nil, "", errors.New("Cursor session service unavailable")
+		}
+		if _, err := h.cursorSessions.GetSessionToken(ctx, account, account.GetCredential("access_token")); err != nil {
+			return nil, "", err
+		}
+		updated, err := h.adminService.GetAccount(ctx, account.ID)
+		return updated, "", err
 	}
 	// spark 影子凭据由母账号管理、自身恒空,刷新无意义且会先打上游;在调用上游前早拒
 	// (覆盖单账号与批量两入口;批量侧将其计为 failed 并附说明)(外审第6轮)。

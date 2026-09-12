@@ -358,6 +358,9 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
+		accounts.POST("/cursor/auth", h.Admin.Account.StartCursorAuthorization)
+		accounts.POST("/cursor/auth/:session", h.Admin.Account.PollCursorAuthorization)
+		accounts.DELETE("/cursor/auth/:session", h.Admin.Account.CancelCursorAuthorization)
 		accounts.GET("/upstream-billing-rates", h.Admin.Account.GetUpstreamBillingRates)
 		accounts.GET("/upstream-billing-probe/settings", h.Admin.Account.GetUpstreamBillingProbeSettings)
 		accounts.PUT("/upstream-billing-probe/settings", h.Admin.Account.UpdateUpstreamBillingProbeSettings)

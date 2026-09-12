@@ -607,8 +607,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	previousCursorSessionKey := ""
+	cursorReauthorized := false
 	if account.IsCursorNative() {
 		previousCursorSessionKey = cursorSessionKey(account)
+		if account.Type == AccountTypeOAuth {
+			for _, field := range []string{"access_token", "refresh_token"} {
+				if token, ok := input.Credentials[field].(string); ok && strings.TrimSpace(token) != "" && token != account.GetCredential(field) {
+					cursorReauthorized = true
+				}
+			}
+		}
 	}
 	previousProbeIdentity := upstreamBillingProbeIdentity(account)
 	previousOllamaUsageIdentity := ollamaCloudUsageIdentity(account)
@@ -896,6 +904,23 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if previousCursorSessionKey != "" && len(input.Credentials) > 0 && s.cursorSessions != nil {
 		if err := s.cursorSessions.Delete(ctx, previousCursorSessionKey); err != nil {
 			slog.WarnContext(ctx, "Cursor session invalidation failed", "account_id", account.ID)
+		}
+	}
+	if cursorReauthorized {
+		// A new import or browser login recovers refresh failures. Preserve
+		// unrelated manual inactive/error state and all account configuration.
+		if account.Status == StatusError && (strings.Contains(account.ErrorMessage, "Cursor reauth") || strings.HasPrefix(account.ErrorMessage, "Token refresh failed")) {
+			if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
+				return nil, err
+			}
+			account.Status, account.ErrorMessage = StatusActive, ""
+		}
+		if err := s.accountRepo.ClearTempUnschedulable(ctx, account.ID); err != nil {
+			return nil, err
+		}
+		account.TempUnschedulableUntil, account.TempUnschedulableReason = nil, ""
+		if s.runtimeBlocker != nil {
+			s.runtimeBlocker.ClearAccountSchedulingBlock(account.ID)
 		}
 	}
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。

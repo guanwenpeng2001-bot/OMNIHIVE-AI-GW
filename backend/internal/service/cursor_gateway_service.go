@@ -88,7 +88,7 @@ func (gateway *CursorGatewayService) ForwardAsChatCompletions(ctx context.Contex
 	if account.Type == AccountTypeUpstream {
 		return gateway.forwardRelayChat(ctx, requestContext, account, body)
 	}
-	if account.Type != AccountTypeAPIKey {
+	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth {
 		return nil, cursorFailover(errors.New("unsupported account"))
 	}
 	var request struct {

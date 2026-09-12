@@ -4,7 +4,10 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"net/url"
+	"strconv"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -24,8 +27,34 @@ func NormalizeCursorAccount(account *Account) error {
 		return nil
 	}
 	invalid := func(message string) error { return infraerrors.BadRequest("INVALID_CURSOR_ACCOUNT", message) }
+	if account.Type == AccountTypeOAuth {
+		for _, key := range []string{"api_key", "base_url", "api_protocol", "api_base_urls", "cached_access_token", "cached_expires_at"} {
+			if _, present := account.Credentials[key]; present {
+				return invalid("Cursor auto accounts cannot contain relay/key fields: " + key)
+			}
+		}
+		for _, key := range []string{"access_token", "refresh_token", "machine_id", "mac_machine_id"} {
+			if strings.TrimSpace(account.GetCredential(key)) == "" {
+				return invalid("Cursor auto requires " + key)
+			}
+		}
+		for _, key := range []string{"machine_id", "mac_machine_id"} {
+			decoded, err := hex.DecodeString(account.GetCredential(key))
+			if err != nil || len(decoded) != 32 {
+				return invalid("Cursor " + key + " must be 64 hexadecimal characters")
+			}
+		}
+		if expiry, err := cursor.TokenExpiry(account.GetCredential("access_token")); err == nil {
+			account.Credentials["expires_at"] = strconv.FormatInt(expiry.Unix(), 10)
+		} else {
+			// Unknown expiry must enter the refresh window, including edited tokens.
+			delete(account.Credentials, "expires_at")
+		}
+		account.Concurrency = 1
+		return nil
+	}
 	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeUpstream {
-		return invalid("Cursor M1 supports official API keys and upstream keys; auto authentication is not available yet")
+		return invalid("Cursor supports auto, official API keys and upstream keys")
 	}
 	if strings.TrimSpace(account.GetCredential("api_key")) == "" {
 		return invalid("Cursor API key is required")

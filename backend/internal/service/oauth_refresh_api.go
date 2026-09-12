@@ -231,6 +231,9 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		}
 		return &OAuthRefreshResult{Account: freshAccount}, nil
 	}
+	if freshAccount.IsCursor() && freshAccount.Type == AccountTypeOAuth && freshAccount.TempUnschedulableUntil != nil && time.Now().Before(*freshAccount.TempUnschedulableUntil) {
+		return nil, errors.New("cursor: OAuth refresh cooling down")
+	}
 	if requestPath && freshAccount.Platform == PlatformGrok {
 		if eligibilityErr := grokOAuthRequestAccountEligibilityError(freshAccount); eligibilityErr != nil {
 			return nil, withGrokCredentialFailureSnapshot(eligibilityErr, freshAccount)
@@ -257,6 +260,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	attemptedAccount := snapshotOAuthRefreshAccount(freshAccount)
 	newCredentials, refreshErr := executor.Refresh(ctx, freshAccount)
 	if ctxErr := ctx.Err(); ctxErr != nil {
+		api.recordCursorRefreshFailure(ctx, freshAccount, ctxErr)
 		// A provider implementation may ignore cancellation and return late
 		// credentials. Never persist them after the attempt/cycle boundary.
 		return nil, ctxErr
@@ -281,6 +285,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			}
 		}
 		// Preserve the exact account snapshot used by the failed upstream call.
+		api.recordCursorRefreshFailure(ctx, freshAccount, refreshErr)
 		// Callers can then conditionally mutate only that credential version and
 		// avoid quarantining a concurrently reauthorized account.
 		result := &OAuthRefreshResult{Account: attemptedAccount}
@@ -370,6 +375,21 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		NewCredentials: newCredentials,
 		Account:        freshAccount,
 	}, nil
+}
+
+func (api *OAuthRefreshAPI) recordCursorRefreshFailure(ctx context.Context, account *Account, refreshErr error) {
+	if !account.IsCursor() {
+		return
+	}
+	// Persist failure after race recovery, while still holding the refresh lock.
+	// Waiting requests see the cooldown/error on their locked DB reread.
+	cleanupCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if isNonRetryableRefreshError(refreshErr) {
+		_ = api.accountRepo.SetError(cleanupCtx, account.ID, "Cursor reauth required: token refresh rejected")
+	} else {
+		_ = api.accountRepo.SetTempUnschedulable(cleanupCtx, account.ID, time.Now().Add(tokenRefreshTempUnschedDuration), "Cursor token refresh temporarily unavailable")
+	}
 }
 
 func (api *OAuthRefreshAPI) releaseRefreshLock(parent context.Context, cacheKey string) {
