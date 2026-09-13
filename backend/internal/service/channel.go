@@ -87,6 +87,9 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
+	// NativePricingSource isolates an imported account-native group card from
+	// unrelated provider fallbacks. Native sync stores these in group JSON only.
+	NativePricingSource          string              `json:"native_pricing_source,omitempty"`
 	ID                           int64               `json:"id,omitempty"`
 	ChannelID                    int64               `json:"channel_id,omitempty"`
 	Platform                     string              `json:"platform"` // 所属平台（anthropic/openai/gemini/...）

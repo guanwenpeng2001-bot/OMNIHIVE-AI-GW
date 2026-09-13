@@ -79,7 +79,7 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 			groupPricing = &stripped
 		}
 		resolved := r.resolveConfiguredPricing(groupPricing, input.Model, PricingSourceGroup)
-		resolved.longContextPricingEnabled = longContextPricingEnabled
+		resolved.longContextPricingEnabled = longContextPricingEnabled && groupPricing.NativePricingSource != QianwenPricingSource
 		return resolved
 	}
 
@@ -137,7 +137,9 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 		r.applyRequestTierOverrides(config, resolved)
 		return resolved
 	}
-	resolved.BasePricing, _ = r.resolveBasePricing(model)
+	if config.NativePricingSource != QianwenPricingSource {
+		resolved.BasePricing, _ = r.resolveBasePricing(model)
+	}
 	resolved.SupportsCacheBreakdown = resolved.BasePricing != nil && resolved.BasePricing.SupportsCacheBreakdown
 	r.applyTokenOverrides(config, resolved)
 	return resolved
