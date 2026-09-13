@@ -61,6 +61,11 @@ func qianwenNativeAuditBody(body []byte) []byte {
 		return true
 	})
 	if len(messages) == 0 {
+		if text, ok := service.QianwenNativeAudioAuditText(body); ok {
+			messages = append(messages, gin.H{"role": "user", "content": text})
+		}
+	}
+	if len(messages) == 0 {
 		messages = append(messages, gin.H{"role": "user", "content": gjson.GetBytes(body, "input.prompt").String()})
 	}
 	encoded, _ := json.Marshal(gin.H{"model": gjson.GetBytes(body, "model").String(), "messages": messages})
