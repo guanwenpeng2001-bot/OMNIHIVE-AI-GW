@@ -856,7 +856,7 @@ export default {
       syncUpstreamModelsMetadataIncomplete:
         'Model IDs were synced, but no capability metadata could be updated.',
       syncUpstreamModelsMetadataPartial:
-        'Some model capabilities were updated; remaining models are still incomplete.',
+        'Models synced, with capability information added for some models.',
       clearAllModels: 'Clear all models',
       customModelName: 'Custom model name',
       enterCustomModelName: 'Enter custom model name',
