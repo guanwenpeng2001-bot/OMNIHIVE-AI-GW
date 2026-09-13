@@ -251,6 +251,14 @@ func (s *OpenAIGatewayService) shouldFailoverUpstreamError(statusCode int) bool 
 }
 
 func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Account, statusCode int, upstreamMsg string, upstreamBody []byte) bool {
+	if account.IsCommandCode() {
+		if commandCodePlanError(statusCode, upstreamBody) != "" {
+			return false
+		}
+		if isCommandCodeTransientRouteError(statusCode, upstreamBody) {
+			return true
+		}
+	}
 	// cyber_policy is request-scoped even when an intermediary wraps the
 	// provider response in a retryable 5xx status. Never punish or rotate the
 	// selected credential for it.
@@ -832,6 +840,12 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 			return nil, fmt.Errorf("upstream error: %d (passthrough rule matched)", resp.StatusCode)
 		}
 		return nil, fmt.Errorf("upstream error: %d (passthrough rule matched) message=%s", resp.StatusCode, upstreamMsg)
+	}
+
+	if account.IsCommandCode() && commandCodePlanError(resp.StatusCode, body) != "" {
+		MarkResponseCommitted(c)
+		writeError(c, resp.StatusCode, "permission_error", upstreamMsg)
+		return nil, fmt.Errorf("commandcode plan restriction: %s", upstreamMsg)
 	}
 
 	// Check custom error codes — if the account does not handle this status,

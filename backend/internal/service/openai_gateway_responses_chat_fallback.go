@@ -119,6 +119,9 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		if foErr := s.failoverOpenAIUpstreamHTTPError(ctx, c, account, resp, respBody, upstreamMsg, upstreamModel); foErr != nil {
 			return nil, foErr
 		}
+		if account.IsCommandCode() {
+			return s.handleCompatErrorResponse(resp, c, account, writeResponsesError, billingModel)
+		}
 		return s.handleErrorResponse(ctx, resp, c, account, chatBody, billingModel)
 	}
 
