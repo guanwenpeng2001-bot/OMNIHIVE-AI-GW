@@ -26,6 +26,12 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
+      <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
+        <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
+        <Select v-model="editGeminiTier" :options="geminiTierOptions" />
+        <p class="input-hint">{{ t('admin.accounts.gemini.tier.hint') }}</p>
+      </div>
       <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @success="handleCursorAuthorized" />
       <!-- API Key fields (only for apikey type) -->
@@ -37,7 +43,11 @@
             type="text"
             class="input"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'qianwen'
+                ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+                : account.platform === 'commandcode'
+                  ? 'https://api.commandcode.ai/provider/v1'
+                  : account.platform === 'openai'
                 ? 'https://api.openai.com'
                 : account.platform === 'gemini'
                   ? 'https://generativelanguage.googleapis.com'
@@ -1183,12 +1193,7 @@
         <!-- Shared: Region -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockRegion') }}</label>
-          <input
-            v-model="editBedrockRegion"
-            type="text"
-            class="input"
-            placeholder="us-east-1"
-          />
+          <BedrockRegionSelect v-model="editBedrockRegion" />
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
@@ -3045,6 +3050,8 @@
 </template>
 
 <script setup lang="ts">
+import QianwenPricingPanel from './QianwenPricingPanel.vue'
+import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
@@ -3400,6 +3407,12 @@ function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol
 const editBedrockAccessKeyId = ref('')
 const editBedrockSecretAccessKey = ref('')
 const editBedrockSessionToken = ref('')
+const editGeminiTier = ref('')
+const geminiTierOptions = computed(() => {
+  const type = props.account?.type === 'apikey' ? 'ai_studio' : props.account?.credentials?.oauth_type
+  const tiers = type === 'google_one' ? [['google_one_free', 'googleOne.free'], ['google_ai_pro', 'googleOne.pro'], ['google_ai_ultra', 'googleOne.ultra']] : type === 'ai_studio' ? [['aistudio_free', 'aiStudio.free'], ['aistudio_paid', 'aiStudio.paid']] : [['gcp_standard', 'gcp.standard'], ['gcp_enterprise', 'gcp.enterprise']]
+  return tiers.map(([value, label]) => ({ value, label: t(`admin.accounts.gemini.tier.${label}`) }))
+})
 const editBedrockRegion = ref('')
 const editBedrockForceGlobal = ref(false)
 const editBedrockApiKeyValue = ref('')
@@ -4039,6 +4052,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load intercept warmup requests setting (applies to all account types)
   const credentials = newAccount.credentials as Record<string, unknown> | undefined
   interceptWarmupRequests.value = credentials?.intercept_warmup_requests === true
+  editGeminiTier.value = String(newAccount.credentials?.tier_id || geminiTierOptions.value[0]?.value || '')
   autoPauseOnExpired.value = newAccount.auto_pause_on_expired === true
   editVertexProjectId.value = ''
   editVertexClientEmail.value = ''
@@ -5430,6 +5444,10 @@ const handleSubmit = async () => {
       updatePayload.credentials = newCredentials
     }
 
+    if (props.account.platform === 'gemini' && props.account.type !== 'service_account') {
+      const credentials = (updatePayload.credentials as Record<string, unknown>) || props.account.credentials || {}
+      updatePayload.credentials = { ...credentials, tier_id: editGeminiTier.value }
+    }
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
       const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })

@@ -1,5 +1,21 @@
 export default {
     accounts: {
+      createAdvancedScope: "这些覆盖项适用于普通创建及手工 OAuth/Token 录入。Codex 会话、Agent Identity、PAT 导入使用独立导入接口，请在导入后的账号编辑中设置覆盖项。",
+      qianwenPricing: {
+        "title": "同步千问原生定价",
+        "hint": "仅北京区域人民币价。必须填写运营批准的 USD/CNY 汇率（1 人民币兑换的美元，是 CNY/USD 的倒数）、依据与生效时间。预览会保存账号来源快照；应用会重新抓取，仅写入只绑定当前账号的千问分组。",
+        "rate": "汇率（1 CNY 对应 USD）— 必填",
+        "source": "汇率来源 / 审批依据 — 必填",
+        "effective": "汇率生效时间（本地时间）— 必填",
+        "group": "目标单账号千问分组 ID（应用时必填）",
+        "preview": "预览价格",
+        "apply": "应用到分组",
+        "ready": "成功",
+        "unsupported": "不支持",
+        "failed": "定价同步失败",
+        "counts": "可导入：{imported}；实际写入：{written}；分组：{group}",
+        "details": "来源、汇率、逐模型价格与原因"
+},
       newPlatforms: {
         "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",

@@ -854,7 +854,7 @@
         </div>
 
         <!-- Tier selection (used as fallback when auto-detection is unavailable/fails) -->
-        <div v-if="accountCategory !== 'service_account'" class="mt-4">
+        <div v-if="accountCategory !== 'service_account' && accountCategory !== 'apikey'" class="mt-4">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
           <div class="mt-2">
             <select
@@ -889,6 +889,49 @@
         </div>
       </div>
 
+      <div v-if="['openai', 'anthropic', 'grok'].includes(form.platform)" class="space-y-3 border-t pt-4">
+        <label class="input-label">{{ t('admin.accounts.accountSchedulingThresholdOverride') }}
+          <input v-model.number="createSchedulingThreshold" type="number" min="1" max="100" step="1" class="input" data-testid="create-scheduling-threshold" />
+        </label>
+        <p class="input-hint">{{ t('admin.accounts.accountSchedulingThresholdOverrideHint') }}</p>
+      </div>
+      <div v-if="form.platform === 'grok' && accountCategory === 'oauth-based'" class="space-y-3">
+        <label class="flex items-center gap-2"><input v-model="createGrokToolCache" type="checkbox" />{{ t('admin.accounts.grokClientToolCache.title') }}</label>
+        <p class="input-hint">{{ t('admin.accounts.grokClientToolCache.hint') }}</p>
+      </div>
+      <div v-if="form.platform === 'openai'" class="space-y-3 border-t pt-4">
+        <p class="input-hint">{{ t('admin.accounts.createAdvancedScope') }}</p>
+        <label class="input-label">{{ t('admin.accounts.openai.codexImageTool') }}</label>
+        <Select v-model="createImageTool" :options="createImageToolOptions" />
+        <p class="input-hint">{{ t('admin.accounts.openai.codexImageToolDesc') }}</p>
+        <div v-if="accountCategory === 'oauth-based'" class="space-y-3">
+          <label class="input-label">{{ t('admin.accounts.openai.planType') }}
+            <input v-model="createPlanType" class="input" />
+          </label>
+          <p class="input-hint">{{ t('admin.accounts.openai.planTypeDesc') }}</p>
+          <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
+            {{ t(`admin.accounts.autoPause${window}Threshold`) }}
+            <input v-model.number="createPauseThresholds[window]" type="number" min="1" max="100" class="input" />
+          </label>
+          <label class="flex items-center gap-2"><input v-model="createAutoReset" type="checkbox" />{{ t('admin.accounts.autoResetCredit.title') }}</label>
+          <div v-if="createAutoReset">
+            <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
+              {{ t(`admin.accounts.autoResetCredit.threshold${window}`) }}
+              <input v-model.number="createResetThresholds[window]" type="number" min="1" max="100" class="input" />
+            </label>
+          </div>
+        </div>
+      </div>
+      <div v-if="accountCategory === 'service_account'" class="space-y-3">
+        <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
+        <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" />
+        <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
+          <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
+          <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
+          <button type="button" class="btn btn-secondary" @click="modelMappings.splice(index, 1)">{{ t('common.delete') }}</button>
+        </div>
+        <button type="button" class="btn btn-secondary" @click="modelMappings.push({ from: '', to: '' })">{{ t('common.add') }}</button>
+      </div>
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -1769,41 +1812,7 @@
         <!-- Shared: Region -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockRegion') }}</label>
-          <select v-model="bedrockRegion" class="input">
-            <optgroup label="US">
-              <option value="us-east-1">us-east-1 (N. Virginia)</option>
-              <option value="us-east-2">us-east-2 (Ohio)</option>
-              <option value="us-west-1">us-west-1 (N. California)</option>
-              <option value="us-west-2">us-west-2 (Oregon)</option>
-              <option value="us-gov-east-1">us-gov-east-1 (GovCloud US-East)</option>
-              <option value="us-gov-west-1">us-gov-west-1 (GovCloud US-West)</option>
-            </optgroup>
-            <optgroup label="Europe">
-              <option value="eu-west-1">eu-west-1 (Ireland)</option>
-              <option value="eu-west-2">eu-west-2 (London)</option>
-              <option value="eu-west-3">eu-west-3 (Paris)</option>
-              <option value="eu-central-1">eu-central-1 (Frankfurt)</option>
-              <option value="eu-central-2">eu-central-2 (Zurich)</option>
-              <option value="eu-south-1">eu-south-1 (Milan)</option>
-              <option value="eu-south-2">eu-south-2 (Spain)</option>
-              <option value="eu-north-1">eu-north-1 (Stockholm)</option>
-            </optgroup>
-            <optgroup label="Asia Pacific">
-              <option value="ap-northeast-1">ap-northeast-1 (Tokyo)</option>
-              <option value="ap-northeast-2">ap-northeast-2 (Seoul)</option>
-              <option value="ap-northeast-3">ap-northeast-3 (Osaka)</option>
-              <option value="ap-south-1">ap-south-1 (Mumbai)</option>
-              <option value="ap-south-2">ap-south-2 (Hyderabad)</option>
-              <option value="ap-southeast-1">ap-southeast-1 (Singapore)</option>
-              <option value="ap-southeast-2">ap-southeast-2 (Sydney)</option>
-            </optgroup>
-            <optgroup label="Canada">
-              <option value="ca-central-1">ca-central-1 (Canada)</option>
-            </optgroup>
-            <optgroup label="South America">
-              <option value="sa-east-1">sa-east-1 (São Paulo)</option>
-            </optgroup>
-          </select>
+          <BedrockRegionSelect v-model="bedrockRegion" />
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
@@ -3738,6 +3747,7 @@
 </template>
 
 <script setup lang="ts">
+import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
@@ -5120,10 +5130,64 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
   }
 }
 
+const createSchedulingThreshold = ref<number | null>(null)
+const createGrokToolCache = ref(true)
+const createImageTool = ref('inherit')
+const createPlanType = ref('')
+const createPauseThresholds = reactive<Record<'5h' | '7d', number | null>>({ '5h': null, '7d': null })
+const createAutoReset = ref(false)
+const createResetThresholds = reactive({ '5h': 100, '7d': 100 })
+const createImageToolOptions = computed(() => ['inherit', 'enabled', 'disabled', 'block'].map(value => ({ value, label: t(`admin.accounts.openai.codexImageTool${value[0]!.toUpperCase()}${value.slice(1)}`) })))
+watch(() => props.show, (show) => {
+  if (!show) return
+  createSchedulingThreshold.value = null
+  createGrokToolCache.value = true
+  createImageTool.value = 'inherit'
+  createPlanType.value = ''
+  createPauseThresholds['5h'] = createPauseThresholds['7d'] = null
+  createAutoReset.value = false
+  createResetThresholds['5h'] = createResetThresholds['7d'] = 100
+})
+const createWithOptions = (payload: CreateAccountRequest) => {
+  const credentials = { ...payload.credentials }
+  const extra = { ...payload.extra }
+  if (['openai', 'anthropic', 'grok'].includes(payload.platform) && createSchedulingThreshold.value != null && String(createSchedulingThreshold.value).trim() !== '') {
+    const threshold = Number(createSchedulingThreshold.value)
+    if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) throw new Error(t('admin.accounts.accountSchedulingThresholdOverrideHint'))
+    credentials.account_scheduling_threshold = threshold
+  }
+  if (payload.platform === 'grok' && payload.type === 'oauth') extra.grok_client_tool_cache_enabled = createGrokToolCache.value
+  if (payload.type === 'service_account') {
+    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
+    if (mapping) credentials.model_mapping = mapping
+  }
+  if (payload.platform === 'openai') {
+    if (createImageTool.value === 'block') extra.codex_image_generation_explicit_tool_policy = 'strip'
+    else if (createImageTool.value !== 'inherit') extra.codex_image_generation_bridge = createImageTool.value === 'enabled'
+    if (payload.type === 'oauth') {
+      if (createPlanType.value.trim()) credentials.plan_type = createPlanType.value.trim()
+      for (const window of ['5h', '7d'] as const) {
+        const pause = createPauseThresholds[window]
+        if (pause != null && String(pause).trim() !== '' && pause !== 0) {
+          if (!Number.isFinite(Number(pause)) || Number(pause) < 1 || Number(pause) > 100) throw new Error(t(`admin.accounts.autoPause${window}Threshold`))
+          extra[`auto_pause_${window}_threshold`] = Number(pause) / 100
+        }
+        if (createAutoReset.value) {
+          const reset = Number(createResetThresholds[window])
+          if (!Number.isFinite(reset) || reset < 1 || reset > 100) throw new Error(t(`admin.accounts.autoResetCredit.threshold${window}`))
+          extra[`auto_reset_credit_${window}_threshold`] = reset / 100
+        }
+      }
+      if (createAutoReset.value) extra.auto_reset_credit_enabled = true
+    }
+  }
+  return adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+}
+
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
-    const account = await adminAPI.accounts.create(withAntigravityConfirmFlag(payload))
+    const account = await createWithOptions(withAntigravityConfirmFlag(payload))
     const modelMapping = payload.credentials.model_mapping
     const hasConcreteMappedTarget = payload.type === 'apikey' &&
       typeof modelMapping === 'object' &&
@@ -5955,7 +6019,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           return
         }
 
-        await adminAPI.accounts.create({
+        await createWithOptions({
           name: accountName,
           notes: form.notes,
           platform: 'grok',
@@ -6132,7 +6196,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           return
         }
 
-        await adminAPI.accounts.create({
+        await createWithOptions({
           name: accountName,
           notes: form.notes,
           platform: 'grok',
@@ -6231,7 +6295,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     }
 
     if (shouldCreateOpenAI) {
-      await adminAPI.accounts.create({
+      await createWithOptions({
         name: form.name,
         notes: form.notes,
         platform: 'openai',
@@ -6512,7 +6576,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         const accountName = refreshTokens.length > 1 ? `${baseName} #${i + 1}` : baseName
 
         if (shouldCreateOpenAI) {
-          await adminAPI.accounts.create({
+          await createWithOptions({
             name: accountName,
             notes: form.notes,
             platform: 'openai',
@@ -6627,7 +6691,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
         })
-        await adminAPI.accounts.create(createPayload)
+        await createWithOptions(createPayload)
         successCount++
       } catch (error: any) {
         failedCount++
@@ -6992,7 +7056,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials.temp_unschedulable_rules = tempUnschedPayload
         }
 
-        await adminAPI.accounts.create({
+        await createWithOptions({
           name: accountName,
           notes: form.notes,
           platform: form.platform,

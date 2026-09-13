@@ -330,6 +330,24 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it.each([['apikey', 'ai_studio', 'aistudio_free', 'aistudio_paid'], ['oauth', 'google_one', 'google_one_free', 'google_ai_ultra'], ['oauth', 'code_assist', 'gcp_standard', 'gcp_enterprise']])('loads and saves Gemini %s %s tier', async (type, oauthType, initial, selected) => {
+    const account = { ...buildAccount(), platform: 'gemini', type, credentials: { tier_id: initial, oauth_type: oauthType, api_key: 'key', access_token: 'token', model_mapping: { 'gemini-2.5-flash': 'gemini-2.5-flash' } } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const vm = wrapper.vm as unknown as { editGeminiTier: string; allowedModels: string[]; modelMappings: unknown[] }
+    expect(vm.editGeminiTier).toBe(initial)
+    vm.editGeminiTier = selected
+    vm.allowedModels = []
+    vm.modelMappings = []
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1].credentials.tier_id).toBe(selected)
+    expect(updateAccountMock.mock.calls[0]?.[1].credentials.oauth_type).toBe(oauthType)
+    if (type === 'apikey') expect(updateAccountMock.mock.calls[0]?.[1].credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
+
   it('edits Cursor auto without echoing stored tokens or changing machine IDs', async () => {
     const account = { ...buildAccount(), platform: 'cursor', type: 'oauth', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '' } } as any
     updateAccountMock.mockReset().mockResolvedValue(account)
