@@ -96,6 +96,12 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"220_clear_non_grok_video_generation_config.sql": newMigrationChecksumCompatibilityRule("85e320b9ec64f2d3fcd8cf705b2b4e76a7b49f7a57140c14bff97f32691c818b", "3da48c8fdffe6390325f43d08b8e353e0a365df43d44a78dbbe655d0deb18402"),
 	"219_group_search_price_per_1k.sql":              newMigrationChecksumCompatibilityRule("e86786ebcc3b14206fd2d321380a4e50e80cdadbfcf4962c639255e6a14008db", "df6ffd71b97e30ec2c8fe7b95e15783042dea58c553e32701ee7c42a5619af80"),
 	"218_group_audio_voice_pricing.sql":              newMigrationChecksumCompatibilityRule("40ee9f3a2af0e0a5e99dabc878fd0fe98be1011f26bcfcefcac7197f7081f0e7", "c2a5e5b4ffd6968ad1c10593289fbc11192cdea19fec3ed9bce3a84eff9a8351"),
+	// 239/241/242 曾以 CRLF 工作副本被应用到开发库，而 .gitattributes 规定迁移文件为 LF，
+	// 于是任何按 LF 检出的工作树启动时都会因 checksum 不同而失败。两套行尾哈希都放行，
+	// 内容本身从未改动；后续新迁移一律以 LF 提交。
+	"239_cursor_platform.sql":       newMigrationChecksumCompatibilityRule("f09d165d7e7dc48ad527044cf7a75dcb8e9825abf3874e6c1bd3ddf306700efb", "2ede2e367f74f76c5fab995c8581d013e20a20a2f3905088c2583d7d3a64358e"),
+	"241_qianwen_platform.sql":      newMigrationChecksumCompatibilityRule("ddadd7caa501da4d1a7676640abc937694b60ab44febcd9a1e0e345be6f9a238", "946961344a6c4fbe57171c959e84c1668bacd38aaf6977ab34ce99a183ff4898"),
+	"242_command_code_platform.sql": newMigrationChecksumCompatibilityRule("0a61c13f776bdb6cdf8e87618f4030265b08e434f5f7a3e055e2c83e150ff42a", "ba9f6c0cf820b82a47fb7212e184b0243bf15848afc47fcb636d28dfa5377d7b"),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。
