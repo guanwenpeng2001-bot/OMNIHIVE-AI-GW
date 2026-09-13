@@ -34,3 +34,11 @@ func TestQianwenNativePathsRegistered(t *testing.T) {
 		require.NotEqual(t, 404, w.Code)
 	}
 }
+
+func TestQianwenNativeKnowledgeSearchFailsClosed(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformQianwen)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/indices/knowledge/search", strings.NewReader(`{"agent_id":"aid-test","query":"hello"}`)))
+	require.Equal(t, 404, w.Code)
+	require.Contains(t, w.Body.String(), "Unsupported DashScope operation")
+}
