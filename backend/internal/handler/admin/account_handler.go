@@ -3021,22 +3021,7 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 
 	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), account)
 	if err != nil {
-		var syncErr *service.UpstreamModelSyncError
-		if errors.As(err, &syncErr) {
-			switch syncErr.Kind {
-			case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported:
-				response.BadRequest(c, syncErr.SafeMessage())
-			case service.UpstreamModelSyncErrorInternal:
-				response.InternalError(c, syncErr.SafeMessage())
-			default:
-				slog.Warn("sync_upstream_models_failed", "account_id", accountID, "kind", syncErr.Kind)
-				response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
-			}
-			return
-		}
-
-		slog.Warn("sync_upstream_models_failed", "account_id", accountID)
-		response.Error(c, http.StatusBadGateway, "Failed to sync upstream models from upstream")
+		writeUpstreamModelSyncError(c, err)
 		return
 	}
 
@@ -3050,7 +3035,8 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		Platform     string            `json:"platform" binding:"required"`
 		Type         string            `json:"type" binding:"required"`
 		BaseURL      string            `json:"base_url"`
-		APIKey       string            `json:"api_key" binding:"required"`
+		APIKey       string            `json:"api_key"`
+		Credentials  map[string]any    `json:"credentials"`
 		ModelMapping map[string]string `json:"model_mapping"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -3062,14 +3048,27 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		modelMapping[sourceModel] = upstreamModel
 	}
 
+	// Only connection fields are accepted: previews must not resolve saved
+	// credential shadows or acquire another account's persistence identity.
+	credentials := make(map[string]any)
+	for _, key := range []string{"api_key", "base_url", "access_token", "expires_at", "machine_id", "mac_machine_id", "client_version", "account_mode", "api_protocol", "api_base_urls", "model_mapping"} {
+		if value, ok := req.Credentials[key]; ok {
+			credentials[key] = value
+		}
+	}
+	if req.APIKey != "" {
+		credentials["api_key"] = req.APIKey
+	}
+	if req.BaseURL != "" {
+		credentials["base_url"] = req.BaseURL
+	}
+	if req.ModelMapping != nil {
+		credentials["model_mapping"] = modelMapping
+	}
 	tempAccount := &service.Account{
-		Platform: req.Platform,
-		Type:     req.Type,
-		Credentials: map[string]any{
-			"api_key":       req.APIKey,
-			"base_url":      req.BaseURL,
-			"model_mapping": modelMapping,
-		},
+		Platform:    req.Platform,
+		Type:        req.Type,
+		Credentials: credentials,
 	}
 
 	if h.accountTestService == nil {
@@ -3079,26 +3078,30 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 
 	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), tempAccount)
 	if err != nil {
-		var syncErr *service.UpstreamModelSyncError
-		if errors.As(err, &syncErr) {
-			switch syncErr.Kind {
-			case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported:
-				response.BadRequest(c, syncErr.SafeMessage())
-			case service.UpstreamModelSyncErrorInternal:
-				response.InternalError(c, syncErr.SafeMessage())
-			default:
-				slog.Warn("sync_upstream_models_preview_failed", "platform", req.Platform, "kind", syncErr.Kind)
-				response.Error(c, http.StatusBadGateway, syncErr.SafeMessage())
-			}
-			return
-		}
-
-		slog.Warn("sync_upstream_models_preview_failed", "platform", req.Platform)
-		response.Error(c, http.StatusBadGateway, "Failed to sync upstream models from upstream")
+		writeUpstreamModelSyncError(c, err)
 		return
 	}
 
 	response.Success(c, catalog)
+}
+
+func writeUpstreamModelSyncError(c *gin.Context, err error) {
+	status, kind, message := http.StatusBadGateway, service.UpstreamModelSyncErrorUpstream, "Failed to sync upstream models from upstream"
+	var syncErr *service.UpstreamModelSyncError
+	if errors.As(err, &syncErr) {
+		kind, message = syncErr.Kind, syncErr.SafeMessage()
+		switch kind {
+		case service.UpstreamModelSyncErrorConfiguration, service.UpstreamModelSyncErrorUnsupported, service.UpstreamModelSyncErrorCredentials:
+			status = http.StatusBadRequest
+		case service.UpstreamModelSyncErrorInternal:
+			status = http.StatusInternalServerError
+		}
+		if syncErr.StatusCode == http.StatusUnauthorized || syncErr.StatusCode == http.StatusForbidden {
+			status, kind = http.StatusBadRequest, service.UpstreamModelSyncErrorCredentials
+			message = "Upstream rejected the account credentials"
+		}
+	}
+	response.ErrorWithDetails(c, status, message, "upstream_model_sync_"+string(kind), nil)
 }
 
 // SetPrivacy handles setting privacy for a single OpenAI/Antigravity OAuth account

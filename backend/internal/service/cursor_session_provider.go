@@ -55,6 +55,15 @@ func cursorSessionKey(account *Account) string {
 // another caller's already-refreshed token can be reused without another exchange.
 func (provider *CursorSessionProvider) GetSessionToken(ctx context.Context, account *Account, rejectedToken string) (string, error) {
 	if account.IsCursor() && account.Type == AccountTypeOAuth {
+		// Unsaved previews cannot enter the durable account refresh API.
+		if account.ID == 0 {
+			token := account.GetCredential("access_token")
+			expiry := account.GetCredentialAsTime("expires_at")
+			if token == "" || token == rejectedToken || (expiry != nil && !time.Now().Before(*expiry)) {
+				return "", &cursor.HTTPError{Status: http.StatusUnauthorized}
+			}
+			return token, nil
+		}
 		return provider.getOAuthSessionToken(ctx, account, rejectedToken)
 	}
 	if !account.IsCursor() || account.Type != AccountTypeAPIKey {

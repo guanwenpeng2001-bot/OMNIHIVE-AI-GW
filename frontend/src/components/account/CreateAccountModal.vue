@@ -4221,7 +4221,7 @@ function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol
 }
 
 const syncPreviewCredentials = computed(() => {
-  if (!apiKeyValue.value) return undefined
+  if (!apiKeyValue.value && !(form.platform === 'cursor' && cursorKeyMode.value === 'auto' && cursorAutoCredentials.value.access_token)) return undefined
   const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
     ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
     : apiKeyBaseUrl.value.trim()
@@ -4232,9 +4232,16 @@ const syncPreviewCredentials = computed(() => {
   )
   return {
     platform: form.platform,
-    type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : 'apikey') : form.type,
+    type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : cursorKeyMode.value === 'auto' ? 'oauth' : 'apikey') : form.type,
     base_url: baseUrl || undefined,
-    api_key: apiKeyValue.value,
+    api_key: form.platform === 'cursor' && cursorKeyMode.value === 'auto' ? undefined : apiKeyValue.value,
+    credentials: form.platform === 'cursor'
+      ? buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
+      : isMultiProtocolPlatform.value ? {
+        account_mode: currentOpenCodeOrCNMode(),
+        api_protocol: apiProtocol.value,
+        ...(apiProtocol.value === 'adaptive' ? { api_base_urls: { ...adaptiveBaseUrls.value, chat_completions: baseUrl } } : {})
+      } : undefined,
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })

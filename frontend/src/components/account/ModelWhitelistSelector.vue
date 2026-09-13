@@ -163,12 +163,7 @@ const props = defineProps<{
   platform?: string
   platforms?: string[]
   accountId?: number
-  syncCredentials?: {
-    platform: string
-    type: string
-    base_url?: string
-    api_key: string
-  }
+  syncCredentials?: SyncUpstreamPreviewParams
 }>()
 
 const emit = defineEmits<{
@@ -372,8 +367,16 @@ const syncUpstreamModels = async () => {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
     }
   } catch (error) {
-    const message = error instanceof Error ? error.message : t('admin.accounts.syncUpstreamModelsFailed')
-    appStore.showError(t('admin.accounts.syncUpstreamModelsError', { message }))
+    const reason = error && typeof error === 'object' && 'reason' in error ? String(error.reason) : ''
+    const keys: Record<string, string> = {
+      upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
+      upstream_model_sync_credentials: 'syncUpstreamModelsCredentials',
+      upstream_model_sync_unsupported: 'syncUpstreamModelsUnsupported',
+      upstream_model_sync_upstream: 'syncUpstreamModelsUnavailable',
+      upstream_model_sync_internal: 'syncUpstreamModelsFailed'
+    }
+    const message = t(`admin.accounts.${keys[reason] || 'syncUpstreamModelsFailed'}`)
+    appStore.showError(message)
   } finally {
     isSyncingUpstream.value = false
   }
