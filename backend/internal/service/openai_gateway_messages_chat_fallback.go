@@ -108,10 +108,29 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		zap.Bool("stream", clientStream),
 	)
 
+	var thinking *bool
+	if account.Platform == PlatformQianwen {
+		chatBody, thinking, err = prepareQianwenThinking(body, chatBody, upstreamModel, "enable_thinking")
+		if err == nil {
+			err = s.validateQianwenThinkingMode(ctx, c, upstreamModel, thinking)
+		}
+		if err != nil {
+			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
+
 	// 3. Build and send upstream request via the shared CC pipeline
 	apiKey, targetURL, err := s.resolveCCFallbackTarget(account)
 	if err != nil {
 		return nil, err
+	}
+	if account.IsCommandCode() {
+		chatBody, err = normalizeCommandCodeReasoning(chatBody, upstreamModel)
+		if err != nil {
+			return nil, err
+		}
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, "", "", "")
 	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
@@ -131,10 +150,16 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 	}
 
 	// 5. Convert response
+	var result *OpenAIForwardResult
 	if clientStream {
-		return s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+		result, err = s.streamChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	} else {
+		result, err = s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
-	return s.bufferChatCompletionsAsAnthropic(c, resp, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
+	if result != nil {
+		result.ThinkingEnabled = thinking
+	}
+	return result, err
 }
 
 func (s *OpenAIGatewayService) bufferChatCompletionsAsAnthropic(

@@ -1,11 +1,35 @@
 package service
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
+
+var ErrQianwenThinkingUndetermined = errors.New("enable_thinking is required for this conditional rate card: no documented default")
+
+// Validate before upstream consumption. An unknown mode is a request condition
+// error, not a missing price that usage recording may silently replace with zero.
+func (s *OpenAIGatewayService) validateQianwenThinkingMode(ctx context.Context, c *gin.Context, model string, mode *bool) error {
+	if mode != nil || s.resolver == nil || c == nil {
+		return nil
+	}
+	v, _ := c.Get("api_key")
+	key, ok := v.(*APIKey)
+	if !ok || key.Group == nil {
+		return nil
+	}
+	resolved := s.resolver.Resolve(WithResolvedTargetPlatform(ctx, PlatformQianwen), PricingInput{Model: model, Group: key.Group, GroupID: key.GroupID})
+	if resolved.channelPricing != nil && resolved.channelPricing.ThinkingPricing != nil {
+		return ErrQianwenThinkingUndetermined
+	}
+	return nil
+}
 
 // QianwenModePricing is a complete independent rate card, in USD/token.
 // Batch and explicit cache creation remain unsupported native conditions.
@@ -23,6 +47,50 @@ func qianwenExplicitThinking(body []byte, path string) *bool {
 	}
 	b := v.Bool()
 	return &b
+}
+
+// Defaults documented by DashScope, checked 2026-09-13:
+// https://help.aliyun.com/zh/model-studio/deep-thinking
+// Keep this bounded to known conditional-price families; never guess for new IDs.
+func qianwenDefaultThinking(model string) *bool {
+	switch model {
+	case "qwen3-14b", "qwen3-235b-a22b", "qwen3-30b-a3b", "qwen3-32b", "qwen3-8b":
+		v := true
+		return &v
+	}
+	for _, family := range []string{"qwen-turbo", "qwen-plus", "qwen-flash"} {
+		if model == family || strings.HasPrefix(model, family+"-") {
+			v := false
+			return &v
+		}
+	}
+	return nil
+}
+
+// Preserve the same effective mode in the wire request and billing result.
+func prepareQianwenThinking(source, outbound []byte, model, path string) ([]byte, *bool, error) {
+	mode := qianwenExplicitThinking(source, path)
+	if v := gjson.GetBytes(source, path); v.Exists() && mode == nil {
+		return nil, nil, fmt.Errorf("enable_thinking must be a boolean")
+	}
+	if mode == nil && path == "enable_thinking" {
+		switch gjson.GetBytes(source, "thinking.type").String() {
+		case "enabled", "adaptive":
+			v := true
+			mode = &v
+		case "disabled":
+			v := false
+			mode = &v
+		}
+	}
+	if mode == nil {
+		mode = qianwenDefaultThinking(model)
+	}
+	if mode == nil {
+		return outbound, nil, nil
+	}
+	updated, err := sjson.SetBytes(outbound, path, *mode)
+	return updated, mode, err
 }
 
 func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
@@ -63,7 +131,10 @@ func resolveQianwenThinkingPricing(resolved *ResolvedPricing, input CostInput) (
 		return resolved, nil
 	}
 	if input.ThinkingEnabled == nil {
-		return nil, fmt.Errorf("explicit enable_thinking required for conditional price of %s: %w", input.Model, ErrModelPricingUnavailable)
+		input.ThinkingEnabled = qianwenDefaultThinking(input.Model)
+	}
+	if input.ThinkingEnabled == nil {
+		return nil, fmt.Errorf("%s: %w", input.Model, ErrQianwenThinkingUndetermined)
 	}
 	if !*input.ThinkingEnabled {
 		return resolved, nil

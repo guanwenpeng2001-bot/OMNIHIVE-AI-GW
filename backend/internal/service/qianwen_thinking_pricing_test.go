@@ -51,7 +51,8 @@ func TestQianwenThinkingBillingModesAndTiers(t *testing.T) {
 			}
 		}
 		_, err := bs.CalculateCostUnified(CostInput{Model: m.Model, Group: group, Resolver: resolver, Resolved: resolved, RateMultiplier: 1})
-		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+		require.ErrorIs(t, err, ErrQianwenThinkingUndetermined)
+		require.False(t, isUsagePricingUnavailableError(err))
 		after, _ := json.Marshal(group)
 		require.Equal(t, string(original), string(after))
 	}

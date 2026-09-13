@@ -183,6 +183,25 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if customUA == "" && account.IsGrokOAuth() {
 		customUA = defaultGrokUpstreamUserAgent()
 	}
+	if account.Platform == PlatformQianwen {
+		var thinkingErr error
+		var thinking *bool
+		upstreamBody, thinking, thinkingErr = prepareQianwenThinking(body, upstreamBody, upstreamModel, "enable_thinking")
+		if thinkingErr == nil {
+			thinkingErr = s.validateQianwenThinkingMode(ctx, c, upstreamModel, thinking)
+		}
+		if thinkingErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", thinkingErr.Error())
+			return nil, thinkingErr
+		}
+	}
+	if account.IsCommandCode() {
+		upstreamBody, err = normalizeCommandCodeReasoning(upstreamBody, upstreamModel)
+		if err != nil {
+			return nil, err
+		}
+		reasoningEffort = extractOpenAIReasoningEffortFromBody(upstreamBody, "", "", "")
+	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
