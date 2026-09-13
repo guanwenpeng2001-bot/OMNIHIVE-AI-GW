@@ -50,7 +50,7 @@ func TestQianwenModelPaginationPreservesCanonicalIDs(t *testing.T) {
 	ids, body, err := s.fetchUpstreamModelList(context.Background(), a)
 	require.NoError(t, err)
 	require.Equal(t, []string{"MiniMax-M2.5", "Vendor/Model"}, ids)
-	require.Equal(t, DefaultQianwenBaseURL+"/models", u.requests[0].URL.String())
+	require.Equal(t, DefaultQianwenDashScopeBaseURL+"/models?page_no=1&page_size=100&service_site=asia-pacific-china", u.requests[0].URL.String())
 	require.Equal(t, "model-id-0", u.requests[1].URL.Query().Get("after"))
 	require.Equal(t, "Bearer sk-sp-test", u.requests[1].Header.Get("Authorization"))
 	require.Equal(t, "Vendor/Model", gjson.GetBytes(body, "data.1.id").String())
@@ -193,4 +193,40 @@ func TestQianwenMilestoneProfitCapabilities(t *testing.T) {
 	}
 	require.Error(t, ValidateProfitControlConfig(PlatformComposite, true, .2, .1))
 	require.True(t, groupSupportsOAuthOnlyFilter(PlatformCursor))
+}
+
+func TestQianwenNativeModelPages(t *testing.T) {
+	u := &httpUpstreamRecorder{responses: []*http.Response{
+		qianwenModelPage(`{"success":true,"output":{"total":4,"page_no":1,"models":[{"model":"ZHIPU/GLM-5.3-Flash","prices":[{"range_name":"Default"}]},{"model":"wanx-3d"}]}}`, 200),
+		qianwenModelPage(`{"success":true,"output":{"total":4,"page_no":2,"models":[{"model":"wanx-3d"},{"model":"qwen-realtime"}]}}`, 200),
+	}}
+	s := &AccountTestService{httpUpstream: u, cfg: upstreamModelSyncTestConfig()}
+	ids, body, err := s.fetchUpstreamModelList(context.Background(), qianwenTestAccount())
+	require.NoError(t, err)
+	require.Equal(t, []string{"ZHIPU/GLM-5.3-Flash", "qwen-realtime", "wanx-3d"}, ids)
+	require.Equal(t, "2", u.requests[1].URL.Query().Get("page_no"))
+	require.Equal(t, "100", u.requests[1].URL.Query().Get("page_size"))
+	require.Equal(t, "asia-pacific-china", u.requests[1].URL.Query().Get("service_site"))
+	require.Empty(t, u.requests[1].URL.Query().Get("after"))
+	require.Len(t, gjson.GetBytes(body, "data").Array(), 3)
+	require.Equal(t, "Default", gjson.GetBytes(body, "data.0.prices.0.range_name").String())
+}
+
+func TestQianwenNativeModelPagesRejectPartial(t *testing.T) {
+	for _, body := range []string{
+		`{"success":true,"output":{"total":3,"page_no":2,"models":[{"model":"b"}]}}`,
+		`{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"b"}]}}`,
+		`{"success":false,"output":{"total":2,"page_no":2,"models":[{"model":"b"}]}}`,
+		`{"success":true,"output":{"total":2,"page_no":2,"models":[]}}`,
+		`{"success":true,"output":{"total":2,"page_no":2,"models":[{"model":""}]}}`,
+	} {
+		u := &httpUpstreamRecorder{responses: []*http.Response{
+			qianwenModelPage(`{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"a"}]}}`, 200),
+			qianwenModelPage(body, 200),
+		}}
+		s := &AccountTestService{httpUpstream: u, cfg: upstreamModelSyncTestConfig()}
+		ids, _, err := s.fetchUpstreamModelList(context.Background(), qianwenTestAccount())
+		require.Error(t, err)
+		require.Nil(t, ids)
+	}
 }

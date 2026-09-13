@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -19,6 +20,8 @@ func (s *AccountTestService) fetchQianwenModelPages(req *http.Request, account *
 func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Request) (*http.Response, error)) ([]string, []byte, error) {
 	var entries []json.RawMessage
 	seen := map[string]bool{}
+	seenModels := map[string]bool{}
+	nativeTotal, nativeCount := -1, 0
 	var total int64
 	for pageNumber := 0; pageNumber < 100; pageNumber++ {
 		resp, err := do(req)
@@ -41,11 +44,62 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 			Data    []json.RawMessage `json:"data"`
 			LastID  string            `json:"last_id"`
 			HasMore bool              `json:"has_more"`
+			Success *bool             `json:"success"`
+			Output  *struct {
+				Total  *int              `json:"total"`
+				Page   int               `json:"page_no"`
+				Models []json.RawMessage `json:"models"`
+			} `json:"output"`
 		}
 		if err := json.Unmarshal(body, &page); err != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid Qianwen model list JSON", err)
 		}
-		entries = append(entries, page.Data...)
+		if nativeTotal >= 0 && page.Output == nil {
+			return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model pagination schema changed", nil)
+		}
+		if page.Output != nil {
+			p := page.Output
+			if page.Success == nil || !*page.Success || p.Total == nil || *p.Total < 0 || p.Page != pageNumber+1 {
+				return nil, nil, newUpstreamModelSyncUpstreamError("Invalid Qianwen native model page", nil)
+			}
+			if nativeTotal == -1 {
+				nativeTotal = *p.Total
+			}
+			if nativeTotal != *p.Total {
+				return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model catalog changed during pagination; retry sync", nil)
+			}
+			page.Data = p.Models
+			nativeCount += len(p.Models)
+			if nativeCount > nativeTotal {
+				return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model page exceeds catalog total", nil)
+			}
+			page.HasMore = nativeCount < nativeTotal
+		}
+		for _, raw := range page.Data {
+			var entry map[string]json.RawMessage
+			if json.Unmarshal(raw, &entry) != nil {
+				return nil, nil, newUpstreamModelSyncUpstreamError("Invalid Qianwen model entry", nil)
+			}
+			var id string
+			field := "id"
+			if page.Output != nil {
+				field = "model"
+			}
+			if json.Unmarshal(entry[field], &id) != nil || strings.TrimSpace(id) == "" {
+				return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model ID missing", nil)
+			}
+			id = strings.TrimSpace(id)
+			if seenModels[id] {
+				continue
+			}
+			seenModels[id] = true
+			entry["id"], _ = json.Marshal(id)
+			normalized, _ := json.Marshal(entry)
+			entries = append(entries, normalized)
+		}
+		if page.Success != nil && !*page.Success {
+			return nil, nil, newUpstreamModelSyncUpstreamError("Unsuccessful Qianwen model list response", nil)
+		}
 		if !page.HasMore {
 			merged, err := json.Marshal(struct {
 				Data []json.RawMessage `json:"data"`
@@ -59,13 +113,18 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 			}
 			return models, merged, nil
 		}
-		if len(page.Data) == 0 || strings.TrimSpace(page.LastID) == "" || seen[page.LastID] {
+		if len(page.Data) == 0 || (page.Output == nil && (strings.TrimSpace(page.LastID) == "" || seen[page.LastID])) {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model pagination did not advance", nil)
 		}
 		seen[page.LastID] = true
 		next := req.Clone(req.Context())
 		query := next.URL.Query()
-		query.Set("after", page.LastID)
+		if page.Output == nil {
+			query.Set("after", page.LastID)
+		}
+		if query.Has("page_no") {
+			query.Set("page_no", strconv.Itoa(pageNumber+2))
+		}
 		next.URL.RawQuery = query.Encode()
 		req = next
 	}
