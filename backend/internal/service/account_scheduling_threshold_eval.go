@@ -58,6 +58,8 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 		winner = pickLatestResetSchedulingCandidate(anthropicThresholdCandidates(account), threshold, now)
 	case PlatformGrok:
 		winner = pickLatestResetSchedulingCandidate(grokThresholdCandidates(account), threshold, now)
+	case PlatformCursor:
+		winner = pickLatestResetSchedulingCandidate(cursorThresholdCandidates(account), threshold, now)
 	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo:
 		winner = pickLatestResetSchedulingCandidate(cnProviderThresholdCandidates(account, decision.Platform), threshold, now)
 	default:
@@ -364,6 +366,31 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 		candidates = append(candidates, cnThresholdCandidate(account.Extra, provider, "monthly"))
 	}
 	return candidates
+}
+
+// Cursor uses the persisted official dashboard total, never legacy model counters
+// or Auto/API sub-pools. Missing or partial dashboard data must fail open.
+func cursorThresholdCandidates(account *Account) []*accountSchedulingThresholdCandidate {
+	if account == nil || !account.IsCursorNative() {
+		return nil
+	}
+	raw, err := json.Marshal(account.Extra["cursor_usage_snapshot"])
+	if err != nil {
+		return nil
+	}
+	var monthly *CursorMonthlyUsage
+	if json.Unmarshal(raw, &monthly) != nil || monthly == nil || monthly.DashboardPartial ||
+		monthly.PlanUsage == nil || monthly.PlanUsage.TotalPercentUsed == nil {
+		return nil
+	}
+	percent := *monthly.PlanUsage.TotalPercentUsed
+	if math.IsNaN(percent) || math.IsInf(percent, 0) || percent < 0 {
+		return nil
+	}
+	return []*accountSchedulingThresholdCandidate{{
+		window: "monthly", scope: PlatformCursor,
+		usedPercent: percent, until: cloneTimePtr(monthly.ResetsAt),
+	}}
 }
 
 func cnThresholdCandidate(extra map[string]any, provider, window string) *accountSchedulingThresholdCandidate {
