@@ -148,6 +148,13 @@ export default {
         opencode_go: 'OpenCode',
       },
       cnProviders: {
+        commandCodeAlpha: 'Upstream alpha API; may change at any time.',
+        commandCodeLocal: 'Local cumulative usage below; upstream windows are unavailable.',
+        commandCodeUnsupported: 'Upstream alpha usage unsupported or temporarily unavailable.',
+        monthlyCredits: 'Monthly credits remaining',
+        purchasedCredits: 'Purchased credits remaining',
+        freeCredits: 'Free credits remaining',
+
         accountMode: {
           title: 'Account Type',
           payg: 'Pay-as-you-go',
