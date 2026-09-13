@@ -788,7 +788,7 @@ export default {
         windowMonthly: 'monthly',
         cellNotConfigured: 'Not configured',
         cellColumnTooltip: 'Only platforms with a limit are shown',
-        subscriptionWarning: 'This user has an active subscription. Platform quotas only apply to balance (standard) mode requests; subscription mode requests are not subject to these limits.',
+        subscriptionWarning: 'Subscription groups are exempt from user×platform USD quotas when the request uses a subscription group and passes its active subscription eligibility checks. Subscription limits still apply. Balance (standard) requests continue to check and accrue daily/weekly/monthly platform USD quotas; owning a subscription alone does not exempt balance requests.',
         invalidNumber: 'The following fields contain invalid numbers. Please fix them before saving: {fields}',
       }
     },

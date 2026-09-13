@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <p role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
     <MonitorHero
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"

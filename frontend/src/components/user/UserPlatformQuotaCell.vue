@@ -9,7 +9,7 @@
       :key="row.platform"
       class="flex items-center gap-2 whitespace-nowrap"
     >
-      <span class="w-20 shrink-0 font-mono text-gray-700 dark:text-gray-300">{{ row.platform }}</span>
+      <span :title="row.platform" class="min-w-20 shrink-0 text-gray-700 dark:text-gray-300">{{ platformLabel(row.platform) }}</span>
       <span class="text-gray-500 dark:text-gray-400">
         {{ t('admin.users.platformQuota.windowDaily') }}
         <span class="text-gray-900 dark:text-white">{{ fmtUsd(row.daily_usage_usd) }}/{{ fmtLimit(row.daily_limit_usd) }}</span>
@@ -27,6 +27,7 @@
 </template>
 
 <script setup lang="ts">
+import { platformLabel } from '@/utils/platformColors'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'

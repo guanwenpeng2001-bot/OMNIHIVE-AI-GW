@@ -7,7 +7,6 @@
   >
     <div v-if="user" class="space-y-4">
       <div
-        v-if="hasActiveSubscription"
         class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-700 dark:border-amber-500/30 dark:bg-amber-500/10 dark:text-amber-200"
       >
         {{ t('admin.users.platformQuota.subscriptionWarning') }}
@@ -29,7 +28,7 @@
           </thead>
           <tbody>
             <tr v-for="row in quotas" :key="row.platform" class="border-b border-gray-100 dark:border-dark-800">
-              <td class="px-3 py-2 font-mono text-gray-900 dark:text-white">{{ row.platform }}</td>
+              <td :title="row.platform" class="px-3 py-2 text-gray-900 dark:text-white">{{ platformLabel(row.platform) }}</td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <input
@@ -115,8 +114,9 @@
 </template>
 
 <script setup lang="ts">
+import { platformLabel } from '@/utils/platformColors'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
@@ -141,9 +141,6 @@ interface QuotaRow {
   monthly_usage_usd: number
 }
 
-const hasActiveSubscription = computed(() =>
-  props.user?.subscriptions?.some((s) => s.status === 'active') ?? false
-)
 
 const loading = ref(false)
 const submitting = ref(false)
