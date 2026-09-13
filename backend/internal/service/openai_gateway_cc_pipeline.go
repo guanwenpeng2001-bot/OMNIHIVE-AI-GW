@@ -92,12 +92,12 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 		if commandCodePlanError(resp.StatusCode, respBody) != "" {
 			return nil
 		}
-		if isCommandCodeTransientRouteError(resp.StatusCode, respBody) {
+		if isCommandCodeTransientUpstreamError(resp.StatusCode, respBody) {
 			failure := s.newOpenAIAccountFailoverError(account, http.StatusBadGateway, resp.Header, respBody, upstreamMsg, false, true)
 			failure.RequestScopedTransient = true
 			failure.Scope = GatewayFailureScopeRequest
 			failure.ClientStatusCode = http.StatusBadGateway
-			failure.ClientMessage = "Command Code upstream routing is temporarily unavailable; please retry"
+			failure.ClientMessage = "Command Code upstream is temporarily unavailable; please retry"
 			return failure
 		}
 	}

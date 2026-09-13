@@ -87,6 +87,12 @@ func commandCodePlanError(status int, body []byte) string {
 	}
 	return ""
 }
-func isCommandCodeTransientRouteError(status int, body []byte) bool {
+func isCommandCodeTransientUpstreamError(status int, body []byte) bool {
+	if status == http.StatusForbidden {
+		text := strings.ToLower(string(body))
+		return strings.Contains(text, "site owner has blocked access") ||
+			strings.Contains(text, "blocked access based on your browser") ||
+			(strings.Contains(text, "browser") && strings.Contains(text, "signature") && (strings.Contains(text, "blocked") || strings.Contains(text, "forbidden")))
+	}
 	return status == http.StatusNotFound && strings.Contains(strings.ToLower(string(body)), "is not a registered api route")
 }

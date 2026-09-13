@@ -77,7 +77,7 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 			if readErr != nil {
 				return s.sendErrorAndEnd(c, "Failed to read Command Code error")
 			}
-			if attempt == 0 && isCommandCodeTransientRouteError(resp.StatusCode, responseBody) {
+			if attempt == 0 && isCommandCodeTransientUpstreamError(resp.StatusCode, responseBody) {
 				continue
 			}
 			if code := commandCodePlanError(resp.StatusCode, responseBody); code != "" {

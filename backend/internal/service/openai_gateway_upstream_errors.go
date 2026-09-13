@@ -255,7 +255,7 @@ func (s *OpenAIGatewayService) shouldFailoverOpenAIUpstreamResponse(account *Acc
 		if commandCodePlanError(statusCode, upstreamBody) != "" {
 			return false
 		}
-		if isCommandCodeTransientRouteError(statusCode, upstreamBody) {
+		if isCommandCodeTransientUpstreamError(statusCode, upstreamBody) {
 			return true
 		}
 	}

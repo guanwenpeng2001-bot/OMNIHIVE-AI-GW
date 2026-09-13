@@ -96,6 +96,10 @@ func (s *OpenAIGatewayService) handleOpenAIAccountUpstreamError(ctx context.Cont
 	if account != nil && account.Platform == PlatformGrok && isGrokContentPolicyRejection(statusCode, responseBody) {
 		return false
 	}
+	// Plan restrictions and edge blocks do not describe credential health.
+	if account.IsCommandCode() && (commandCodePlanError(statusCode, responseBody) != "" || isCommandCodeTransientUpstreamError(statusCode, responseBody)) {
+		return false
+	}
 	// Any non-2xx upstream HTTP response means the model request was actually sent.
 	if s != nil {
 		scheduleOllamaCloudUsageActivity(s.deferredService, account)
