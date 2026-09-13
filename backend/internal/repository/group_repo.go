@@ -77,12 +77,33 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
-	if err := createGroupRecord(ctx, r.client, groupIn); err != nil {
+	if groupIn == nil {
+		return errors.New("group is nil")
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
-		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group create failed: group=%d err=%v", groupIn.ID, err)
+	txClient := r.client
+	if tx != nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
 	}
+
+	// Publish generated fields only after the owned transaction commits.
+	created := *groupIn
+	if err := createGroupRecord(ctx, txClient, &created); err != nil {
+		return err
+	}
+	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventGroupChanged, nil, &created.ID, nil); err != nil {
+		return fmt.Errorf("enqueue group create: %w", err)
+	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	*groupIn = created
 	return nil
 }
 
@@ -278,11 +299,23 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	if groupIn == nil {
+		return errors.New("group is nil")
+	}
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
-	builder := r.client.Group.UpdateOneID(groupIn.ID).
+	tx, err := r.client.Tx(ctx)
+	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+		return err
+	}
+	txClient := r.client
+	if tx != nil {
+		defer func() { _ = tx.Rollback() }()
+		txClient = tx.Client()
+	}
+	builder := txClient.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
@@ -435,10 +468,15 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	if err != nil {
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
-	groupIn.UpdatedAt = updated.UpdatedAt
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
-		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
+	if err := enqueueSchedulerOutbox(ctx, txClient, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+		return fmt.Errorf("enqueue group update: %w", err)
 	}
+	if tx != nil {
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	groupIn.UpdatedAt = updated.UpdatedAt
 	return nil
 }
 
