@@ -37,6 +37,7 @@ func TestQianwenNativeRealtimeRejectsBeforeHandshakeAndAdmission(t *testing.T) {
 				require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 				require.Equal(t, "unsupported_operation_error", response.Error.Type)
 				require.Contains(t, response.Error.Message, "per-response text/audio usage billing")
+				require.Contains(t, response.Error.Message, "audio_realtime_price_per_min cannot enable DashScope")
 				_, selected := c.Get(opsAccountIDKey)
 				require.False(t, selected)
 			})
