@@ -1,7 +1,6 @@
 import importlib.util,json,pathlib,subprocess,unittest
 P=pathlib.Path(__file__).resolve().parent
 spec=importlib.util.spec_from_file_location('rollback',P/'prepare-price-rollback.py');m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m)
-source=P.parents[1]/'main-work'
 # Locate the sibling checkout explicitly; nothing in it is modified.
 source=P.parent.parent.parent/'main-work'/'.pi/archive'
 read=lambda p:json.loads(p.read_text(encoding='utf-8-sig'))

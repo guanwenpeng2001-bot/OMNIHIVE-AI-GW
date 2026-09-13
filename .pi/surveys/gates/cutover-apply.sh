@@ -39,7 +39,7 @@ if [ "$APPLY" = "1" ]; then
         OR (SELECT count(*) FROM group_platform_backup_$TS) <> 2 THEN
         RAISE EXCEPTION 'Backup row count mismatch; refusing cutover';
       END IF;
-    END \$backup\$;
+    END; \$backup\$;
     COMMIT;" >/dev/null
   echo "备份表后缀：$TS"
 else
