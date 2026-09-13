@@ -11,8 +11,8 @@ import (
 
 // SyncQianwenPricing fetches an account-native price snapshot. By default it is
 // a preview. An explicit group_id applies supported cards through UpdateGroup,
-// including its validation and auth-cache invalidation. Only a single-account
-// Qianwen group is eligible, so another region/account cannot inherit its price.
+// including its validation and auth-cache invalidation. Composite groups are
+// eligible when their Qianwen account pool contains only this source account.
 func (h *AccountHandler) SyncQianwenPricing(c *gin.Context) {
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil || id <= 0 {
@@ -34,20 +34,28 @@ func (h *AccountHandler) SyncQianwenPricing(c *gin.Context) {
 		return
 	}
 	var group *service.Group
+	var routes []service.CompositeModelRoute
 	if req.GroupID != nil {
 		group, err = h.adminService.GetGroup(ctx, *req.GroupID)
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
-		accounts, total, err := h.adminService.ListAccounts(ctx, 1, 2, "", "", "", "", group.ID, "", "id", "asc")
+		accounts, total, err := h.adminService.ListAccounts(ctx, 1, 2, service.PlatformQianwen, "", "", "", group.ID, "", "id", "asc")
 		if err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
-		if group.Platform != service.PlatformQianwen || total != 1 || len(accounts) != 1 || accounts[0].ID != id {
-			response.ErrorFrom(c, infraerrors.BadRequest("UNSUPPORTED_PRICING_GROUP", "target must be a Qianwen group bound only to this account"))
+		if (group.Platform != service.PlatformQianwen && group.Platform != service.PlatformComposite) || total != 1 || len(accounts) != 1 || accounts[0].ID != id {
+			response.ErrorFrom(c, infraerrors.BadRequest("UNSUPPORTED_PRICING_GROUP", "target must have this account as its only Qianwen pricing source"))
 			return
+		}
+		if group.Platform == service.PlatformComposite {
+			routes, err = h.adminService.ListCompositeRoutes(ctx, group.ID)
+			if err != nil {
+				response.ErrorFrom(c, err)
+				return
+			}
 		}
 	}
 	result, err := h.accountTestService.FetchQianwenPricing(ctx, account, req.QianwenPricingOptions)
@@ -62,12 +70,20 @@ func (h *AccountHandler) SyncQianwenPricing(c *gin.Context) {
 	}
 	written := 0
 	if group != nil && result.Status == "ready" {
-		cards := mergeQianwenPricing(group.ModelPricing, result)
+		applicable := *result
+		if group.Platform == service.PlatformComposite {
+			applicable.Models = routedQianwenPrices(result.Models, routes)
+		}
+		cards := mergeQianwenPricing(group.ModelPricing, &applicable)
 		if _, err := h.adminService.UpdateGroup(ctx, group.ID, &service.UpdateGroupInput{ModelPricing: &cards}); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
-		written = result.Imported
+		for _, card := range cards {
+			if card.Platform == service.PlatformQianwen && card.NativePricingSource == service.QianwenPricingSource {
+				written += len(card.Models)
+			}
+		}
 	}
 	response.Success(c, gin.H{"result": result, "written": written, "group_id": req.GroupID})
 }
@@ -77,6 +93,23 @@ func mergeQianwenPricing(existing []service.ChannelModelPricing, result *service
 	cards := []service.ChannelModelPricing{}
 	for _, m := range result.Models {
 		if m.Pricing != nil {
+			manual := false
+			for _, card := range existing {
+				if card.Platform != "" && card.Platform != service.PlatformQianwen {
+					continue
+				}
+				if card.NativePricingSource == service.QianwenPricingSource {
+					continue
+				}
+				for _, model := range card.Models {
+					if model == m.Model {
+						manual = true
+					}
+				}
+			}
+			if manual {
+				continue
+			}
 			cards = append(cards, *m.Pricing)
 			matched[m.Model] = true
 		}
@@ -87,7 +120,7 @@ func mergeQianwenPricing(existing []service.ChannelModelPricing, result *service
 		copy := card.Clone()
 		copy.Models = nil
 		for _, model := range card.Models {
-			if !matched[model] {
+			if !matched[model] || card.Platform != service.PlatformQianwen || card.NativePricingSource != service.QianwenPricingSource {
 				copy.Models = append(copy.Models, model)
 			}
 		}
@@ -96,4 +129,26 @@ func mergeQianwenPricing(existing []service.ChannelModelPricing, result *service
 		}
 	}
 	return cards
+}
+
+// Import native IDs actually routed to this provider; never copy another
+// provider's similarly named route or an operator's public alias price.
+func routedQianwenPrices(models []service.QianwenPricingModelResult, routes []service.CompositeModelRoute) []service.QianwenPricingModelResult {
+	wanted := map[string]bool{}
+	for _, route := range routes {
+		if route.Enabled && route.TargetPlatform == service.PlatformQianwen && route.MatchType == "exact" {
+			model := route.UpstreamModel
+			if model == "" {
+				model = route.PublicModel
+			}
+			wanted[model] = true
+		}
+	}
+	var selected []service.QianwenPricingModelResult
+	for _, model := range models {
+		if wanted[model.Model] {
+			selected = append(selected, model)
+		}
+	}
+	return selected
 }

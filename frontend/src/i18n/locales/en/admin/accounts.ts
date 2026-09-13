@@ -3,11 +3,11 @@ export default {
       createAdvancedScope: "These overrides apply to standard account creation and manual OAuth/token entry. Codex session, Agent Identity and PAT import use dedicated import APIs; configure overrides by editing the imported account.",
       qianwenPricing: {
         "title": "Sync Qianwen native pricing",
-        "hint": "Beijing CNY pricing only. Enter an operations-approved USD per CNY exchange rate (the inverse of CNY per USD), its approval/source and effective time. Preview saves an account source snapshot; apply fetches again and writes supported prices only to a Qianwen group bound solely to this account.",
+        "hint": "Beijing CNY pricing only. Enter an operations-approved USD per CNY exchange rate (the inverse of CNY per USD), its approval/source and effective time. Preview saves an account source snapshot; apply fetches again. The target may be a Qianwen or composite group with this account as its only Qianwen account. Composite groups import prices for active exact Qianwen routes, preserving manual operator prices.",
         "rate": "Exchange rate (USD for 1 CNY) — required",
         "source": "FX source / approval reference — required",
         "effective": "FX effective time (local time) — required",
-        "group": "Target single-account Qianwen group ID (required to apply)",
+        "group": "Target Qianwen or composite group ID (required to apply)",
         "preview": "Preview prices",
         "apply": "Apply to group",
         "ready": "Success",
