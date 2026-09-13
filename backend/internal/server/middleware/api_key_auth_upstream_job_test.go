@@ -13,7 +13,12 @@ func TestUpstreamJobReadSkipsOnlyBillingEnforcement(t *testing.T) {
 		require.True(t, isUpstreamJobRead("GET", path))
 		require.False(t, isUpstreamJobRead("POST", path))
 	}
-	require.False(t, isUpstreamJobRead("GET", "/compatible-mode/v1/files"))
+	require.True(t, isUpstreamJobRead("GET", "/compatible-mode/v1/files"))
+	require.True(t, isUpstreamJobRead("GET", "/compatible-mode/v1/batches"))
+	require.True(t, isUpstreamJobRead("DELETE", "/compatible-mode/v1/files/owned"))
+	require.True(t, isUpstreamJobRead("POST", "/compatible-mode/v1/batches/owned/cancel"))
+	require.False(t, isUpstreamJobRead("POST", "/compatible-mode/v1/batches"))
+	require.False(t, isUpstreamJobRead("POST", "/compatible-mode/v1/files"))
 	require.False(t, isUpstreamJobRead("GET", "/compatible-mode/v1/files-unrelated/file"))
 	require.False(t, isUpstreamJobRead("POST", "/api/v1/tasks/job-id"))
 	require.False(t, isUpstreamJobRead("GET", "/api/v1/services/aigc/video-generation/video-synthesis"))

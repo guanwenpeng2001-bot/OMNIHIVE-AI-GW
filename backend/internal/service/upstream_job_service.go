@@ -39,30 +39,31 @@ type UpstreamJobBilling struct {
 }
 
 type UpstreamJob struct {
-	SubmissionKey      string             `json:"submission_key"`
-	ID                 int64              `json:"id"`
-	PublicRequestID    string             `json:"public_request_id"`
-	RequestFingerprint string             `json:"request_fingerprint"`
-	Platform           string             `json:"platform"`
-	Family             string             `json:"family"`
-	AccountID          int64              `json:"account_id"`
-	UserID             int64              `json:"user_id"`
-	APIKeyID           int64              `json:"api_key_id"`
-	GroupID            *int64             `json:"group_id"`
-	UpstreamTaskID     string             `json:"upstream_task_id"`
-	Status             string             `json:"status"`
-	AttemptCount       int                `json:"attempt_count"`
-	LastPolledAt       *time.Time         `json:"last_polled_at"`
-	NextPollAt         time.Time          `json:"next_poll_at"`
-	SubmittedAt        time.Time          `json:"submitted_at"`
-	FinishedAt         *time.Time         `json:"finished_at"`
-	ExpiresAt          time.Time          `json:"expires_at"`
-	ResultRef          string             `json:"result_ref"`
-	UsageJSON          json.RawMessage    `json:"usage_json"`
-	ChargedUsageLogID  *int64             `json:"charged_usage_log_id"`
-	ErrorCode          string             `json:"error_code"`
-	ErrorMessage       string             `json:"error_message"`
-	Billing            UpstreamJobBilling `json:"billing_snapshot"`
+	ResourceState      UpstreamResourceState `json:"resource_state"`
+	SubmissionKey      string                `json:"submission_key"`
+	ID                 int64                 `json:"id"`
+	PublicRequestID    string                `json:"public_request_id"`
+	RequestFingerprint string                `json:"request_fingerprint"`
+	Platform           string                `json:"platform"`
+	Family             string                `json:"family"`
+	AccountID          int64                 `json:"account_id"`
+	UserID             int64                 `json:"user_id"`
+	APIKeyID           int64                 `json:"api_key_id"`
+	GroupID            *int64                `json:"group_id"`
+	UpstreamTaskID     string                `json:"upstream_task_id"`
+	Status             string                `json:"status"`
+	AttemptCount       int                   `json:"attempt_count"`
+	LastPolledAt       *time.Time            `json:"last_polled_at"`
+	NextPollAt         time.Time             `json:"next_poll_at"`
+	SubmittedAt        time.Time             `json:"submitted_at"`
+	FinishedAt         *time.Time            `json:"finished_at"`
+	ExpiresAt          time.Time             `json:"expires_at"`
+	ResultRef          string                `json:"result_ref"`
+	UsageJSON          json.RawMessage       `json:"usage_json"`
+	ChargedUsageLogID  *int64                `json:"charged_usage_log_id"`
+	ErrorCode          string                `json:"error_code"`
+	ErrorMessage       string                `json:"error_message"`
+	Billing            UpstreamJobBilling    `json:"billing_snapshot"`
 }
 
 func (j *UpstreamJob) Terminal() bool {
@@ -83,6 +84,7 @@ type UpstreamJobRepository interface {
 }
 
 type UpstreamJobUpdate struct {
+	ProviderStatus                                     string
 	TaskID, Status, ResultRef, ErrorCode, ErrorMessage string
 	Usage                                              json.RawMessage
 }
@@ -157,6 +159,9 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	claim.SubmittedAt = s.now().UTC()
 	claim.NextPollAt = claim.SubmittedAt
 	claim.ExpiresAt = claim.SubmittedAt.Add(24 * time.Hour)
+	if job.Family == "batch" {
+		claim.ExpiresAt = claim.SubmittedAt.Add(25 * time.Hour)
+	}
 	existing, created, err := s.repo.Create(ctx, &claim)
 	if err != nil || !created {
 		return existing, err
@@ -286,6 +291,9 @@ func (s *UpstreamJobService) settle(ctx context.Context, j *UpstreamJob, tx Upst
 }
 
 func (s *UpstreamJobService) advance(ctx context.Context, j *UpstreamJob, tx UpstreamJobTx, u UpstreamJobUpdate) error {
+	if j.Family == "batch" && u.ProviderStatus != "" {
+		j.ResourceState.ProviderStatus = u.ProviderStatus
+	}
 	if len(u.Usage) > 0 {
 		j.UsageJSON = append(json.RawMessage(nil), u.Usage...)
 	}

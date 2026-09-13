@@ -87,7 +87,11 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 	if len(j.UsageJSON) > 0 {
 		usage = string(j.UsageJSON)
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12 WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage)
+	resourceState, err := json.Marshal(j.ResourceState)
+	if err != nil {
+		return nil, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12,resource_state=$13 WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage, string(resourceState))
 	if err != nil {
 		return nil, err
 	}

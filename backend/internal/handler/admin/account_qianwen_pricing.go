@@ -120,6 +120,9 @@ func mergeQianwenPricing(existing []service.ChannelModelPricing, result *service
 		copy := card.Clone()
 		copy.Models = nil
 		for _, model := range card.Models {
+			if card.Platform == service.PlatformQianwen && service.IsRetiredQianwenModel(model) {
+				continue
+			}
 			if !matched[model] || card.Platform != service.PlatformQianwen || card.NativePricingSource != service.QianwenPricingSource {
 				copy.Models = append(copy.Models, model)
 			}

@@ -23,13 +23,18 @@ import (
 const QianwenFileLimit = 1 << 20
 const QianwenBatchTestModel = "batch-test-model"
 
-// Only the documented free diagnostic model is admitted until file-batch price
-// cards exist. Synchronous Batch Chat prices must never price file jobs.
+// File batch tariffs are distinct from synchronous Batch Chat prices.
 type QianwenFileBatchSnapshot struct {
-	SHA256         string   `json:"sha256,omitempty"`
-	Bytes          int      `json:"bytes,omitempty"`
-	CustomIDHashes []string `json:"custom_id_hashes"`
-	InputFileID    string   `json:"input_file_id,omitempty"`
+	Model          string                 `json:"model,omitempty"`
+	Endpoint       string                 `json:"endpoint,omitempty"`
+	InputPrice     float64                `json:"input_price,omitempty"`
+	OutputPrice    float64                `json:"output_price,omitempty"`
+	PriceVersion   string                 `json:"price_version,omitempty"`
+	FX             *QianwenPricingOptions `json:"fx,omitempty"`
+	SHA256         string                 `json:"sha256,omitempty"`
+	Bytes          int                    `json:"bytes,omitempty"`
+	CustomIDHashes []string               `json:"custom_id_hashes"`
+	InputFileID    string                 `json:"input_file_id,omitempty"`
 }
 
 func fileBatchHash(value []byte) string {
@@ -41,7 +46,7 @@ func fileBatchHash(value []byte) string {
 // to idempotency. Persist only hashes so prompts/custom IDs stay out of the DB.
 func ValidateQianwenBatchFile(raw []byte) ([]byte, *QianwenFileBatchSnapshot, error) {
 	if len(raw) == 0 || len(raw) > QianwenFileLimit || !utf8.Valid(raw) {
-		return nil, nil, errors.New("batch test files must be UTF-8 JSONL up to 1 MiB")
+		return nil, nil, errors.New("batch files must be UTF-8 JSONL up to 1 MiB")
 	}
 	var normalized bytes.Buffer
 	snapshot := &QianwenFileBatchSnapshot{}
@@ -56,9 +61,45 @@ func ValidateQianwenBatchFile(raw []byte) ([]byte, *QianwenFileBatchSnapshot, er
 		if !row.IsObject() || id.Type != gjson.String || id.String() == "" || len(id.String()) > 256 || seen[id.String()] || len(seen) >= 100 {
 			return nil, nil, errors.New("batch requires 1-100 unique custom_id values")
 		}
-		if row.Get("method").String() != "POST" || row.Get("url").String() != "/v1/chat/ds-test" || row.Get("body.model").String() != QianwenBatchTestModel || row.Get("body.stream").Bool() || !row.Get("body.messages").IsArray() {
-			return nil, nil, errors.New("only non-streaming batch-test-model at /v1/chat/ds-test is supported; paid file-batch tariffs are unavailable")
+		model, endpoint := row.Get("body.model").String(), row.Get("url").String()
+		_, _, paid := qianwenFileBatchTariff(model)
+		if row.Get("method").String() != "POST" || row.Get("body.stream").Bool() || !row.Get("body.messages").IsArray() || !((model == QianwenBatchTestModel && endpoint == "/v1/chat/ds-test") || (paid && endpoint == "/v1/chat/completions")) {
+			return nil, nil, errors.New("only non-streaming diagnostic or explicitly priced text file batches are supported")
 		}
+		if snapshot.Model != "" && (snapshot.Model != model || snapshot.Endpoint != endpoint) {
+			return nil, nil, errors.New("all batch rows must use one model and endpoint")
+		}
+		if paid {
+			body := row.Get("body")
+			unknown := false
+			body.ForEach(func(k, v gjson.Result) bool {
+				switch k.String() {
+				case "model", "messages", "max_tokens", "temperature", "top_p", "seed", "stop", "stream", "enable_thinking":
+				default:
+					unknown = true
+				}
+				return true
+			})
+			thinking := body.Get("enable_thinking")
+			if unknown || (thinking.Exists() && thinking.Type != gjson.False) {
+				return nil, nil, errors.New("paid batches require non-thinking text requests with supported parameters")
+			}
+			messages := body.Get("messages").Array()
+			if len(messages) == 0 {
+				return nil, nil, errors.New("messages must not be empty")
+			}
+			for _, message := range messages {
+				if message.Get("content").Type != gjson.String {
+					return nil, nil, errors.New("paid file batches currently require plain text messages")
+				}
+				// Qwen-Long interprets fileid:// in system messages as a provider
+				// file reference. Raw account-level IDs must not bypass tenant ownership.
+				if strings.Contains(strings.ToLower(message.Get("content").String()), "fileid://") {
+					return nil, nil, errors.New("provider file references are not supported in batch messages")
+				}
+			}
+		}
+		snapshot.Model, snapshot.Endpoint = model, endpoint
 		seen[id.String()] = true
 		snapshot.CustomIDHashes = append(snapshot.CustomIDHashes, fileBatchHash([]byte(id.String())))
 		normalized.Write(canonical)
@@ -76,7 +117,7 @@ func QianwenJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
 	if j.Family != "files" && j.Family != "batch" {
 		return QianwenVideoJobCharge(j)
 	}
-	if j.Platform != PlatformQianwen || j.Billing.Model != QianwenBatchTestModel || (j.Billing.FileBatch == nil || len(j.Billing.FileBatch.CustomIDHashes) == 0) {
+	if j.Platform != PlatformQianwen || j.Billing.FileBatch == nil || j.Billing.Model != j.Billing.FileBatch.BatchModel() || len(j.Billing.FileBatch.CustomIDHashes) == 0 {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	var input, output int
@@ -86,16 +127,22 @@ func QianwenJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
 		}
 	} else {
 		usage := gjson.ParseBytes(j.UsageJSON)
-		if j.ResultRef == "" || usage.Get("validated_items").Int() != int64(len(j.Billing.FileBatch.CustomIDHashes)) || !usage.Get("free_test_model").Bool() {
+		for _, name := range []string{"validated_items", "prompt_tokens", "completion_tokens"} {
+			v := usage.Get(name)
+			if v.Type != gjson.Number || v.Float() != float64(v.Int()) || v.Int() < 0 || v.Int() > 100000000 {
+				return nil, nil, ErrUpstreamJobUnsupportedUsage
+			}
+		}
+		if usage.Get("validated_items").Int() < 0 || usage.Get("validated_items").Int() > int64(len(j.Billing.FileBatch.CustomIDHashes)) || !usage.Get("validated_batch").Bool() || (usage.Get("validated_items").Int() > 0 && j.ResultRef == "") {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
 		input = int(usage.Get("prompt_tokens").Int())
 		output = int(usage.Get("completion_tokens").Int())
+		if usage.Get("validated_items").Int() == 0 && input+output != 0 {
+			return nil, nil, ErrUpstreamJobUnsupportedUsage
+		}
 	}
-	mode, source, version := "file_batch", "dashscope_free_test_model", "file-batch-test-v1"
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, GroupID: j.GroupID, RequestID: j.PublicRequestID, Model: j.Billing.Model, RequestedModel: j.Billing.RequestedModel, InputTokens: input, OutputTokens: output, RateMultiplier: 1, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
-	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: j.Billing.Model}
-	return log, cmd, nil
+	return chargeQianwenFileBatch(j, input, output)
 }
 
 func (s *OpenAIGatewayService) QianwenResourceAccount(ctx context.Context, j *UpstreamJob, submit bool) (*Account, error) {
@@ -184,7 +231,7 @@ func (s *OpenAIGatewayService) SubmitQianwenFile(ctx context.Context, a *Account
 	return UpstreamJobUpdate{TaskID: id, Status: "succeeded", ResultRef: id}, nil
 }
 func (s *OpenAIGatewayService) SubmitQianwenBatch(ctx context.Context, a *Account, file *UpstreamJob) (UpstreamJobUpdate, error) {
-	rawBody, _ := json.Marshal(map[string]string{"input_file_id": file.UpstreamTaskID, "endpoint": "/v1/chat/ds-test", "completion_window": "24h"})
+	rawBody, _ := json.Marshal(map[string]string{"input_file_id": file.UpstreamTaskID, "endpoint": file.Billing.FileBatch.BatchEndpoint(), "completion_window": "24h"})
 	raw, status, err := s.qianwenResourceRequest(ctx, a, http.MethodPost, "/batches", "application/json", rawBody)
 	if err != nil {
 		return UpstreamJobUpdate{}, err
@@ -203,7 +250,7 @@ func parseQianwenBatch(raw []byte) (UpstreamJobUpdate, error) {
 	if !json.Valid(raw) {
 		return UpstreamJobUpdate{}, errors.New("invalid batch JSON")
 	}
-	u := UpstreamJobUpdate{TaskID: gjson.GetBytes(raw, "id").String(), ResultRef: gjson.GetBytes(raw, "output_file_id").String()}
+	u := UpstreamJobUpdate{TaskID: gjson.GetBytes(raw, "id").String(), ResultRef: gjson.GetBytes(raw, "output_file_id").String(), ProviderStatus: gjson.GetBytes(raw, "status").String()}
 	if u.TaskID == "" {
 		return u, errors.New("missing batch identity")
 	}
@@ -214,12 +261,13 @@ func parseQianwenBatch(raw []byte) (UpstreamJobUpdate, error) {
 		u.Status = "running"
 	case "completed":
 		u.Status = "succeeded"
-	case "failed", "cancelled":
+	case "failed":
 		u.Status = "failed"
 		u.ErrorCode = "upstream_failed"
 		u.ErrorMessage = "DashScope batch failed or was cancelled"
-	case "expired":
-		u.Status = "expired"
+	case "expired", "cancelled":
+		// Successful rows still incur charges; terminal evidence is validated below.
+		u.Status = "succeeded"
 	default:
 		u.Status = "unsupported"
 	}
@@ -245,20 +293,28 @@ func (s *OpenAIGatewayService) PollQianwenJob(ctx context.Context, j *UpstreamJo
 		return u, err
 	}
 	counts := gjson.GetBytes(raw, "request_counts")
-	if j.Billing.FileBatch == nil || counts.Get("failed").Int() != 0 || counts.Get("completed").Int() != int64(len(j.Billing.FileBatch.CustomIDHashes)) || counts.Get("total").Int() != counts.Get("completed").Int() || u.ResultRef == "" {
+	validCounts := j.Billing.FileBatch != nil
+	for _, name := range []string{"failed", "completed", "total"} {
+		v := counts.Get(name)
+		validCounts = validCounts && v.Type == gjson.Number && v.Float() == float64(v.Int()) && v.Int() >= 0 && v.Int() <= 100
+	}
+	if !validCounts || counts.Get("total").Int() != int64(len(j.Billing.FileBatch.CustomIDHashes)) || counts.Get("completed").Int()+counts.Get("failed").Int() > counts.Get("total").Int() || (u.ProviderStatus == "completed" && counts.Get("completed").Int()+counts.Get("failed").Int() != counts.Get("total").Int()) || (counts.Get("completed").Int() > 0 && u.ResultRef == "") {
 		u.Status = "failed"
 		u.ErrorCode = "unsupported_usage"
 		u.ErrorMessage = "Incomplete batch results cannot be settled"
 		return u, nil
 	}
-	result, status, err := s.qianwenResourceRequest(ctx, a, http.MethodGet, "/files/"+url.PathEscape(u.ResultRef)+"/content", "application/json", nil)
+	var result []byte
+	if u.ResultRef != "" {
+		result, status, err = s.qianwenResourceRequest(ctx, a, http.MethodGet, "/files/"+url.PathEscape(u.ResultRef)+"/content", "application/json", nil)
+	}
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}
 	if status < 200 || status >= 300 {
 		return resourceFailure(status), nil
 	}
-	u.Usage, err = validateQianwenBatchResult(j, result)
+	u.Usage, err = validateQianwenBatchItems(j, result, int(counts.Get("completed").Int()))
 	if err != nil {
 		u.Status = "failed"
 		u.ErrorCode = "unsupported_usage"
@@ -268,7 +324,14 @@ func (s *OpenAIGatewayService) PollQianwenJob(ctx context.Context, j *UpstreamJo
 	return u, nil
 }
 func validateQianwenBatchResult(j *UpstreamJob, raw []byte) (json.RawMessage, error) {
-	if j.Billing.FileBatch == nil || j.Billing.Model != QianwenBatchTestModel || !utf8.Valid(raw) {
+	if j.Billing.FileBatch == nil {
+		return nil, ErrUpstreamJobUnsupportedUsage
+	}
+	return validateQianwenBatchItems(j, raw, len(j.Billing.FileBatch.CustomIDHashes))
+}
+
+func validateQianwenBatchItems(j *UpstreamJob, raw []byte, completed int) (json.RawMessage, error) {
+	if j.Billing.FileBatch == nil || j.Billing.Model != j.Billing.FileBatch.BatchModel() || !utf8.Valid(raw) || completed < 0 || completed > len(j.Billing.FileBatch.CustomIDHashes) {
 		return nil, ErrUpstreamJobUnsupportedUsage
 	}
 	expected := map[string]bool{}
@@ -276,19 +339,38 @@ func validateQianwenBatchResult(j *UpstreamJob, raw []byte) (json.RawMessage, er
 		expected[id] = true
 	}
 	var input, output int64
-	for _, line := range bytes.Split(bytes.TrimSpace(raw), []byte("\n")) {
+	validated := 0
+	lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+	if len(bytes.TrimSpace(raw)) == 0 && completed == 0 {
+		lines = nil
+	}
+	for _, line := range lines {
 		if !json.Valid(line) {
 			return nil, ErrUpstreamJobUnsupportedUsage
 		}
 		row := gjson.ParseBytes(line)
 		hash := fileBatchHash([]byte(row.Get("custom_id").String()))
-		if !expected[hash] || row.Get("response.status_code").Int() != 200 || row.Get("response.body.model").String() != QianwenBatchTestModel || (row.Get("error").Exists() && row.Get("error").Type != gjson.Null) {
+		if !expected[hash] || row.Get("response.status_code").Int() != 200 || row.Get("response.body.model").String() != j.Billing.Model || (row.Get("error").Exists() && row.Get("error").Type != gjson.Null) {
 			return nil, ErrUpstreamJobUnsupportedUsage
 		}
 		delete(expected, hash)
+		validated++
 		usage := row.Get("response.body.usage")
 		unknown := false
 		usage.ForEach(func(k, v gjson.Result) bool {
+			if k.String() == "prompt_tokens_details" || k.String() == "completion_tokens_details" {
+				if !v.IsObject() {
+					unknown = true
+					return true
+				}
+				v.ForEach(func(dk, dv gjson.Result) bool {
+					if (dk.String() != "cached_tokens" && dk.String() != "reasoning_tokens") || dv.Type != gjson.Number || dv.Float() != 0 {
+						unknown = true
+					}
+					return true
+				})
+				return true
+			}
 			if k.String() != "prompt_tokens" && k.String() != "completion_tokens" && k.String() != "total_tokens" {
 				unknown = true
 			}
@@ -309,15 +391,15 @@ func validateQianwenBatchResult(j *UpstreamJob, raw []byte) (json.RawMessage, er
 		input += usage.Get("prompt_tokens").Int()
 		output += usage.Get("completion_tokens").Int()
 	}
-	if len(expected) != 0 {
+	if validated != completed {
 		return nil, ErrUpstreamJobUnsupportedUsage
 	}
-	return json.Marshal(map[string]any{"free_test_model": true, "validated_items": len(j.Billing.FileBatch.CustomIDHashes), "prompt_tokens": input, "completion_tokens": output, "result_sha256": fileBatchHash(raw)})
+	return json.Marshal(map[string]any{"free_test_model": j.Billing.Model == QianwenBatchTestModel, "validated_batch": true, "validated_items": validated, "prompt_tokens": input, "completion_tokens": output, "result_sha256": fileBatchHash(raw)})
 }
 func (s *OpenAIGatewayService) QianwenResourceContent(ctx context.Context, j *UpstreamJob) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
-	if j.Status != "succeeded" || (j.Family != "files" && j.Family != "batch") {
+	if j.Status != "succeeded" || j.ResultRef == "" || j.ResourceState.Deleted || (j.Family == "batch" && j.ResourceState.OutputDeleted) || (j.Family != "files" && j.Family != "batch") {
 		return nil, errors.New("resource content unavailable")
 	}
 	a, err := s.QianwenResourceAccount(ctx, j, false)
