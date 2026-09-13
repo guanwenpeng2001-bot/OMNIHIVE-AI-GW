@@ -371,6 +371,15 @@ func RegisterGatewayRoutes(
 		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic, handler)
 	}
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
+	// Native DashScope uses the same authenticated, allowlisted composite route
+	// chain. Unknown families are explicitly rejected by the native handler.
+	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
+		rootRoute(method, "/api/v1/services/*nativePath", bodyLimit, h.OpenAIGateway.QianwenNative)
+		for _, prefix := range []string{"/api/v1/tasks", "/api/v1/apps", "/api/v1/files", "/api/v1/batches", "/api/v1/realtime"} {
+			rootRoute(method, prefix, bodyLimit, h.OpenAIGateway.QianwenNative)
+			rootRoute(method, prefix+"/*nativePath", bodyLimit, h.OpenAIGateway.QianwenNative)
+		}
+	}
 	rootRoute(http.MethodPost, "/responses/*subpath", bodyLimit, guardResponsesSubpath(responsesHandler))
 	rootRoute(http.MethodPost, "/alpha/search", textBodyLimit, h.OpenAIGateway.AlphaSearch)
 	rootRoute(http.MethodGet, "/responses", bodyLimit, func(c *gin.Context) {
