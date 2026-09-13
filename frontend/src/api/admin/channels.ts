@@ -38,7 +38,21 @@ export interface ChannelTimePricing {
   periods: ChannelTimePricingPeriod[]
 }
 
+export interface ConditionalModelPricing {
+  input_price: number | null
+  output_price: number | null
+  cache_read_price: number | null
+  cache_write_price?: number | null
+  intervals?: PricingInterval[]
+  explicit_cache_pricing?: ConditionalModelPricing | null
+  batch_chat_pricing?: ConditionalModelPricing | null
+}
+
 export interface ChannelModelPricing {
+  native_pricing_source?: string
+  thinking_pricing?: ConditionalModelPricing | null
+  explicit_cache_pricing?: ConditionalModelPricing | null
+  batch_chat_pricing?: ConditionalModelPricing | null
   id?: number
   platform: string
   models: string[]
