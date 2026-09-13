@@ -27,10 +27,21 @@ func QianwenVideoBillingSnapshot(group *Group, account *Account, key *APIKey, bo
 	if !json.Valid(body) || !strings.HasPrefix(mapped, "wan2.") {
 		return UpstreamJobBilling{}, fmt.Errorf("unsupported video model")
 	}
-	resolution, ok := LookupVideoBillingResolution(gjson.GetBytes(body, "parameters.resolution").String())
-	if !ok { // text-to-video uses parameters.size; never silently default a tier.
+	var resolution string
+	var ok bool
+	if strings.Contains(mapped, "-t2v") {
+		// DashScope ignores resolution for text-to-video and defaults size to
+		// 1080P. Pricing that ignored field admits a job we cannot safely settle.
+		if gjson.GetBytes(body, "parameters.resolution").Exists() {
+			return UpstreamJobBilling{}, fmt.Errorf("text-to-video requires parameters.size, not parameters.resolution")
+		}
 		resolution = videoUsageResolution(gjson.GetBytes(body, "parameters.size").String())
 		ok = resolution != ""
+	} else {
+		if gjson.GetBytes(body, "parameters.size").Exists() {
+			return UpstreamJobBilling{}, fmt.Errorf("this video model requires parameters.resolution, not parameters.size")
+		}
+		resolution, ok = LookupVideoBillingResolution(gjson.GetBytes(body, "parameters.resolution").String())
 	}
 	if group == nil || !ok {
 		return UpstreamJobBilling{}, ErrUpstreamJobTariff
@@ -61,6 +72,17 @@ func QianwenVideoBillingSnapshot(group *Group, account *Account, key *APIKey, bo
 	return b, nil
 }
 func videoUsageResolution(size string) string {
+	// Official Wan text-to-video tiers include square and 4:3 sizes whose
+	// shorter edge is not the tier name. Keep these explicit, not estimated.
+	// https://help.aliyun.com/en/model-studio/legacy-wan-text-to-video-api-reference
+	switch size {
+	case "624*624":
+		return "480p"
+	case "960*960", "1088*832", "832*1088":
+		return "720p"
+	case "1440*1440", "1632*1248", "1248*1632":
+		return "1080p"
+	}
 	parts := strings.Split(size, "*")
 	if len(parts) != 2 {
 		return ""

@@ -62,7 +62,7 @@ func TestQianwenVideoOfficialUsageAndTariff(t *testing.T) {
 func TestQianwenVideoPricingNeverUsesGrokDefaults(t *testing.T) {
 	defaultPrice := 0.5
 	group := &Group{RateMultiplier: 1, VideoPrice720P: &defaultPrice}
-	body := []byte(`{"model":"wan2.6-t2v","parameters":{"resolution":"720P"}}`)
+	body := []byte(`{"model":"wan2.6-t2v","parameters":{"size":"1280*720"}}`)
 	_, err := QianwenVideoBillingSnapshot(group, nil, nil, body, nil)
 	require.ErrorIs(t, err, ErrUpstreamJobTariff)
 	group.VideoModelPrices = map[string]map[string]float64{"wan2.6-t2v": {"720p": 0.1}}
@@ -74,4 +74,46 @@ func TestQianwenVideoPricingNeverUsesGrokDefaults(t *testing.T) {
 	group.VideoModelPrices["wan2.6-t2v"]["720p"] = 0
 	_, err = QianwenVideoBillingSnapshot(group, nil, nil, body, nil)
 	require.ErrorIs(t, err, ErrUpstreamJobTariff)
+}
+
+// A resolution field on t2v is ignored upstream: the observed output was 1080P
+// while the admission snapshot was 720p. Reject this before spending upstream.
+func TestQianwenVideoAdmissionUsesModelSpecificResolution(t *testing.T) {
+	group := &Group{RateMultiplier: 1, VideoModelPrices: map[string]map[string]float64{
+		"wan2.6-t2v": {"720p": 0.08571428571428572, "1080p": 0.14285714285714285},
+		"wan2.6-i2v": {"720p": 0.08571428571428572, "1080p": 0.14285714285714285},
+	}}
+	for _, body := range []string{
+		`{"model":"wan2.6-t2v","parameters":{"resolution":"720P"}}`,
+		`{"model":"wan2.6-t2v","parameters":{"resolution":"720P","size":"1920*1080"}}`,
+		`{"model":"wan2.6-i2v","parameters":{"size":"1280*720"}}`,
+		`{"model":"wan2.6-i2v","parameters":{"resolution":"1080P","size":"1280*720"}}`,
+	} {
+		_, err := QianwenVideoBillingSnapshot(group, nil, nil, []byte(body), nil)
+		require.Error(t, err)
+	}
+	for _, tc := range []struct{ body, tier string }{
+		{`{"model":"wan2.6-t2v","input":{"prompt":"A cat"},"parameters":{"size":"1280*720","duration":5}}`, "720p"},
+		{`{"model":"wan2.6-i2v","input":{"img_url":"https://example.com/cat.png","prompt":"A cat"},"parameters":{"resolution":"1080P","duration":5}}`, "1080p"},
+		{`{"model":"wan2.6-t2v","parameters":{"size":"960*960"}}`, "720p"},
+		{`{"model":"wan2.6-t2v","parameters":{"size":"1632*1248"}}`, "1080p"},
+	} {
+		b, err := QianwenVideoBillingSnapshot(group, nil, nil, []byte(tc.body), nil)
+		require.NoError(t, err)
+		require.Equal(t, tc.tier, b.Resolution)
+	}
+}
+
+func TestQianwenVideoOfficialAspectRatioBilling(t *testing.T) {
+	for _, size := range []string{"1280*720", "720*1280", "960*960", "1088*832", "832*1088"} {
+		j := &UpstreamJob{Platform: PlatformQianwen, Family: "video", ResultRef: "https://example.com/video.mp4", Billing: UpstreamJobBilling{Model: "wan2.6-t2v", Resolution: "720p", UnitPrice: 0.08571428571428572, RateMultiplier: 1, AccountRateMultiplier: 1}}
+		j.UsageJSON = json.RawMessage(`{"video_count":1,"duration":5,"SR":720,"size":"` + size + `"}`)
+		log, cmd, err := QianwenVideoJobCharge(j)
+		require.NoError(t, err, size)
+		require.InDelta(t, 0.42857143, log.TotalCost, 1e-8)
+		require.Equal(t, log.TotalCost, cmd.BalanceCost)
+		j.Billing.Resolution = "1080p"
+		_, _, err = QianwenVideoJobCharge(j)
+		require.ErrorIs(t, err, ErrUpstreamJobUnsupportedUsage)
+	}
 }
