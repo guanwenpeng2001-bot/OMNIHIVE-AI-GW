@@ -229,7 +229,7 @@ func invalidateProxyProbeSnapshots(ctx context.Context, exec sqlExecutor, proxyI
 				- 'ollama_cloud_usage_snapshot',
 			updated_at = NOW()
 		WHERE proxy_id = $1
-			AND type = 'apikey'
+			AND (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
 			AND (
 				(extra ? 'upstream_billing_probe'
 					AND extra -> 'upstream_billing_probe' <> 'null'::jsonb)

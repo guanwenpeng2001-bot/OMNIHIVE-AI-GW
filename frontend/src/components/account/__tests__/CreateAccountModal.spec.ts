@@ -251,7 +251,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(payload.credentials.model_mapping).toEqual({ 'composer-2.5': 'composer-2.5' })
     if (mode === 'official') expect(payload.credentials).not.toHaveProperty('base_url')
     else expect(payload.credentials).toMatchObject({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
-    expect(payload.upstream_billing_probe_enabled).toBeUndefined()
+    expect(payload.upstream_billing_probe_enabled).toBe(mode === 'relay' ? true : undefined)
     wrapper.unmount()
   })
 
@@ -779,4 +779,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createOpenAICodexPATMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
   })
+  it('creates a Cursor relay with an explicit probe preference and initial probe', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Cursor')
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('cursor relay')
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('relay-key')
+    await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    expect(wrapper.get('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(true)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', upstream_billing_probe_enabled: true })
+    expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+  })
+
 })

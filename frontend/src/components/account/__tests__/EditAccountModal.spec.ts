@@ -1823,4 +1823,19 @@ describe('EditAccountModal OpenAI 自动使用重置卡', () => {
     expect(updateAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
   })
+  it('enables billing rate synchronization for a Cursor relay', async () => {
+    const account = buildAccount()
+    account.platform = 'cursor'
+    account.type = 'upstream'
+    account.credentials = { api_key: 'relay-key', base_url: 'https://relay.example/v1', api_protocol: 'adaptive' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="upstream-billing-rate-sync"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]).toMatchObject({ upstream_billing_probe_enabled: true, upstream_billing_rate_sync_enabled: true })
+    expect(updateAccountMock.mock.calls[0]?.[1]?.rate_multiplier).toBeUndefined()
+  })
+
 })

@@ -6,6 +6,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
+	"strings"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/gin-gonic/gin"
@@ -69,18 +72,44 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 	return ids, nil
 }
 
-func (service *AccountTestService) testCursorAccountConnection(requestContext *gin.Context, account *Account) error {
+func (service *AccountTestService) testCursorAccountConnection(requestContext *gin.Context, account *Account, modelID, mode string) error {
 	requestContext.Header("Content-Type", "text/event-stream")
 	requestContext.Header("Cache-Control", "no-cache")
-	service.sendEvent(requestContext, TestEvent{Type: "test_start", Model: "Cursor model catalog"})
+	mode = strings.ToLower(strings.TrimSpace(mode))
+	if mode != "" && mode != AccountTestModeDefault && mode != "text" {
+		return service.sendErrorAndEnd(requestContext, "Cursor test mode unsupported: use default or text")
+	}
+	modelID = strings.TrimSpace(modelID)
+	service.sendEvent(requestContext, TestEvent{Type: "test_start", Model: modelID})
 	gateway := service.cursorGatewayService
-	ctx := requestContext.Request.Context()
+	ctx, cancel := context.WithTimeout(requestContext.Request.Context(), 60*time.Second)
+	defer cancel()
 	if gateway == nil {
 		return service.sendErrorAndEnd(requestContext, "Cursor service unavailable")
 	}
 	if account.Type == AccountTypeUpstream {
-		if _, err := gateway.AvailableModels(ctx, account); err != nil {
-			return service.sendErrorAndEnd(requestContext, "Cursor relay model probe failed")
+		if modelID == "" {
+			models, err := gateway.AvailableModels(ctx, account)
+			if err != nil {
+				return service.sendErrorAndEnd(requestContext, "Cursor relay model probe failed")
+			}
+			modelID = models[0]
+		}
+		// Exercise the same mapping, protocol conversion and headers as live traffic.
+		body, _ := json.Marshal(map[string]any{"model": modelID, "messages": []map[string]string{{"role": "user", "content": "Reply with OK."}}, "stream": false, "max_tokens": 1024})
+		recorder := httptest.NewRecorder()
+		probeContext, _ := gin.CreateTestContext(recorder)
+		probeContext.Request = requestContext.Request.WithContext(ctx)
+		_, err := gateway.forwardRelayChat(ctx, probeContext, account, body)
+		var response struct {
+			Choices []struct {
+				Message struct {
+					Content string `json:"content"`
+				} `json:"message"`
+			} `json:"choices"`
+		}
+		if err != nil || json.Unmarshal(recorder.Body.Bytes(), &response) != nil || len(response.Choices) == 0 || strings.TrimSpace(response.Choices[0].Message.Content) == "" {
+			return service.sendErrorAndEnd(requestContext, "Cursor relay conversation probe failed")
 		}
 	} else {
 		// Share the native account lock with gateway requests, including probes.
@@ -98,7 +127,10 @@ func (service *AccountTestService) testCursorAccountConnection(requestContext *g
 		if err != nil || len(models) == 0 {
 			return service.sendErrorAndEnd(requestContext, "Cursor picker probe failed")
 		}
-		model, err := cursor.ResolveModel(models[0].ID, "", models)
+		if modelID == "" {
+			modelID = models[0].ID
+		}
+		model, err := cursor.ResolveModel(account.GetMappedModel(modelID), "", models)
 		if err != nil {
 			return service.sendErrorAndEnd(requestContext, "Cursor picker model resolution failed")
 		}

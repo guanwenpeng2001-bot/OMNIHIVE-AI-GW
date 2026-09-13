@@ -15,9 +15,13 @@ import (
 type cursorProbeDriver struct {
 	cursorDriverStub
 	pickerError error
+	models      []cursor.AvailableModel
 }
 
 func (driver cursorProbeDriver) AvailableModels(context.Context, cursor.Credentials) ([]cursor.AvailableModel, error) {
+	if driver.models != nil {
+		return driver.models, driver.pickerError
+	}
 	return []cursor.AvailableModel{{ID: "live", RunSlug: "live-run"}}, driver.pickerError
 }
 func TestCursorAccountProbeRequiresMinimalRun(t *testing.T) {
@@ -52,7 +56,7 @@ func TestCursorAccountProbeRequiresMinimalRun(t *testing.T) {
 			recorder := httptest.NewRecorder()
 			requestContext, _ := gin.CreateTestContext(recorder)
 			requestContext.Request = httptest.NewRequest("POST", "/test", nil)
-			err := (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(requestContext, account)
+			err := (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(requestContext, account, "", "")
 			if scenario == "success" {
 				require.NoError(t, err)
 				require.Contains(t, recorder.Body.String(), `"success":true`)

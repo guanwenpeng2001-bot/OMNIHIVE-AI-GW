@@ -241,6 +241,15 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	capabilityIDs := capabilitySyncModelIDs(enrichIDs)
 
 	source := "upstream"
+	if account != nil && account.IsCursor() {
+		for id, fallback := range builtinCursorModelMetadata(enrichIDs) {
+			merged, changed := mergeUpstreamModelMetadata(catalog.Metadata[id], fallback)
+			catalog.Metadata[id] = merged
+			if changed {
+				source = "cursor-builtin"
+			}
+		}
+	}
 	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
 		if registryMetadata, registryErr := s.fetchModelsDevMetadata(ctx, account, enrichIDs); registryErr == nil {
 			for modelID, fallback := range registryMetadata {

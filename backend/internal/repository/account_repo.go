@@ -858,7 +858,7 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 					- 'ollama_cloud_usage_snapshot'
 				-- 上游倍率探测已放宽到全部 API-key 平台：凭证变化即视为探测
 				-- 身份变化，丢弃 stale 快照。
-				WHEN type = 'apikey'
+				WHEN (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
 					AND credentials IS DISTINCT FROM $1::jsonb
 				THEN COALESCE(extra, '{}'::jsonb) - 'upstream_billing_probe'
 				ELSE extra
@@ -3563,7 +3563,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 			FROM accounts
 			WHERE deleted_at IS NULL
 				AND status = 'active'
-				AND type = 'apikey'
+				AND (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb
 		), parsed AS MATERIALIZED (
 			SELECT

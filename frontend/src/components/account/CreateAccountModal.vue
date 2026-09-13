@@ -80,6 +80,13 @@
       </div>
       <NewPlatformNotice :platform="form.platform" :api-key="apiKeyValue" />
       <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
+      <div v-if="form.platform === 'cursor' && cursorKeyMode === 'relay'" class="flex items-center justify-between gap-4">
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.autoProbeHint') }}</p>
+        </div>
+        <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
+      </div>
       <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto'" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject(modelRestrictionMode, allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
@@ -5145,7 +5152,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       }
     }
     if (
-      payload.type === 'apikey' &&
+      (payload.type === 'apikey' || (payload.platform === 'cursor' && payload.type === 'upstream')) &&
       payload.upstream_billing_probe_enabled === true
     ) {
       try {
@@ -5904,7 +5911,7 @@ const createAccountAndFinish = async (
     expires_at: form.expires_at,
     // 上游倍率探测对全部 API-key 平台开放（antigravity upstream 走本 helper）；
     // 非 apikey 类型（bedrock/oauth）不传，后端不动作。
-    upstream_billing_probe_enabled: type === 'apikey' && platform !== 'cursor' ? upstreamBillingAutoProbeEnabled.value : undefined,
+    upstream_billing_probe_enabled: ((type === 'apikey' && platform !== 'cursor') || (platform === 'cursor' && type === 'upstream')) ? upstreamBillingAutoProbeEnabled.value : undefined,
     auto_pause_on_expired: autoPauseOnExpired.value
   })
 }

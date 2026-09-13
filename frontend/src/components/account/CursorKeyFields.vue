@@ -44,6 +44,7 @@ const { t } = useI18n()
         </button>
       </div>
     </div>
+    <p class="input-hint" data-testid="cursor-protocol-hint">{{ t(mode === 'relay' ? 'admin.accounts.cursor.relayProtocolHint' : 'admin.accounts.cursor.nativeProtocolHint') }}</p>
     <div v-if="mode === 'auto'" class="space-y-3">
       <p class="input-hint">{{ t('admin.accounts.cursor.autoHint') }}</p>
       <label v-for="field in ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id']" :key="field" class="block">
