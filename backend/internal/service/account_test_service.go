@@ -378,7 +378,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.IsCursor() {
-		return s.testCursorAccountConnection(c, account)
+		return s.testCursorAccountConnection(c, account, modelID, mode)
 	}
 	if account.IsGemini() {
 		return s.testGeminiAccountConnection(c, account, modelID, prompt)

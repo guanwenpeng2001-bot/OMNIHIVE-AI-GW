@@ -286,7 +286,7 @@ func TestCursorAutoSharesNativeDriverPickerProbeAnd401Retry(t *testing.T) {
 	probeRecorder := httptest.NewRecorder()
 	probeContext, _ := gin.CreateTestContext(probeRecorder)
 	probeContext.Request = httptest.NewRequest("POST", "/test", nil)
-	require.NoError(t, (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(probeContext, account))
+	require.NoError(t, (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(probeContext, account, "", ""))
 	require.Contains(t, probeRecorder.Body.String(), `"success":true`)
 	require.Equal(t, 3, runs)
 	require.Equal(t, 1, refreshes)

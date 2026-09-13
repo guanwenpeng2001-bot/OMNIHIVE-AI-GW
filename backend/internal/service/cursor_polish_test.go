@@ -49,7 +49,7 @@ func TestCursorNativeConcurrencyConfiguredPeakAndProbe(t *testing.T) {
 						go func() {
 							c, _ := gin.CreateTestContext(httptest.NewRecorder())
 							c.Request = httptest.NewRequest("POST", "/test", nil)
-							failures <- (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(c, account)
+							failures <- (&AccountTestService{cursorGatewayService: gateway}).testCursorAccountConnection(c, account, "", "")
 							completed.Add(1)
 						}()
 						synctest.Wait()
