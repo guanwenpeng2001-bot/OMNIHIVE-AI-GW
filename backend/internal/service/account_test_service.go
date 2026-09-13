@@ -392,6 +392,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
+	if account.IsCommandCode() {
+		return s.testCommandCodeAccountConnection(c, account, modelID, prompt)
+	}
 	if account.IsOpenCodeGo() {
 		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}

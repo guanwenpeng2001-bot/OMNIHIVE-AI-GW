@@ -88,6 +88,19 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 	upstreamMsg string,
 	upstreamModel string,
 ) *UpstreamFailoverError {
+	if account.IsCommandCode() {
+		if commandCodePlanError(resp.StatusCode, respBody) != "" {
+			return nil
+		}
+		if isCommandCodeTransientRouteError(resp.StatusCode, respBody) {
+			failure := s.newOpenAIAccountFailoverError(account, http.StatusBadGateway, resp.Header, respBody, upstreamMsg, false, true)
+			failure.RequestScopedTransient = true
+			failure.Scope = GatewayFailureScopeRequest
+			failure.ClientStatusCode = http.StatusBadGateway
+			failure.ClientMessage = "Command Code upstream routing is temporarily unavailable; please retry"
+			return failure
+		}
+	}
 	shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody)
 	tempUnscheduled := false
 	if c != nil && account != nil && account.Platform != PlatformGrok && !shouldFailover && !IsResponseCommitted(c) && s.rateLimitService != nil {
@@ -194,7 +207,7 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	SetActualOpenAIUpstreamEndpoint(c, "/v1/chat/completions")
 	upstreamReq = upstreamReq.WithContext(WithHTTPUpstreamProfile(upstreamReq.Context(), HTTPUpstreamProfileOpenAI))
 	upstreamReq.Header.Set("Content-Type", "application/json")
-	upstreamReq.Header.Set("Authorization", "Bearer "+bearerToken)
+	setModelProviderChatAuthHeader(upstreamReq.Header, account, bearerToken)
 	if stream {
 		upstreamReq.Header.Set("Accept", "text/event-stream")
 	} else {
