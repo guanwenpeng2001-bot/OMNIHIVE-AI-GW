@@ -11,6 +11,9 @@ import (
 
 // QianwenNative exposes conversations and synchronous Qwen image generation/editing.
 func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
+	if h.rejectQianwenNativeResource(c) {
+		return
+	}
 	operation, ok := service.QianwenNativeOperationForPath(c.Request.URL.Path)
 	if !ok || c.Request.Method != http.MethodPost {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
