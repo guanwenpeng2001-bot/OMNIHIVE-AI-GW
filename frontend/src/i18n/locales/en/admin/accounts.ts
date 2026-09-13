@@ -1,5 +1,16 @@
 export default {
     accounts: {
+      newPlatforms: {
+        "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
+        "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
+        "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
+        "commandcodeNote": "Model sync is public and does not validate a key: run an inference test. HTTP 403 MODEL_NOT_IN_PLAN or upgrade_required means a plan/API permission restriction, not an invalid key. No OAuth or upstream quota/limit lookup is available.",
+        "cursorDescription": "Cursor supports Chat, Responses and Messages through the gateway. The native agent protocol has tool limitations; select a model available to the account.",
+        "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
+        "localUsage": "Only local request/token/cost statistics are available; these are not upstream remaining balance. Pricing catalog sync is unsupported until a provider mapping is verified.",
+        "pricingUnsupported": "Pricing catalog sync unsupported",
+        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic."
+},
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',
       cursor: {
         syncAfterSave: 'Enter an official key to sync. For Auto mode, save or authorize the account first, then edit it to sync upstream models.',

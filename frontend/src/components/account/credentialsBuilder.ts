@@ -76,6 +76,8 @@ export function isHeaderOverrideCapable(platform: string, type: string): boolean
     platform === 'zhipu' ||
     platform === 'deepseek' ||
     platform === 'minimax' ||
+    platform === 'qianwen' ||
+    platform === 'commandcode' ||
     platform === 'opencode_go'
   ) {
     return type === 'apikey'
@@ -290,19 +292,19 @@ export const GROK_BASE_URL_PRESETS: GrokBaseUrlPreset[] = [
 
 export type CnAccountMode = 'payg' | 'coding'
 export type OpenCodeAccountMode = 'zen' | 'go'
-export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax'
+export type CnProviderPlatform = 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'qianwen'
 
 /** deepseek / kimi / minimax 支持原生 responses；adaptive 会按入站协议选择原生端点。 */
 export type CnApiProtocol = 'adaptive' | 'chat_completions' | 'anthropic' | 'responses'
 export type CnNativeApiProtocol = Exclude<CnApiProtocol, 'adaptive'>
 
 export function isCNProviderPlatform(platform: string): platform is CnProviderPlatform {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax'
+  return platform === 'qianwen' || platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax'
 }
 
 /** DeepSeek、Kimi 与 MiniMax 提供原生 Responses 端点。 */
 export function cnSupportsNativeResponses(platform: string): boolean {
-  return platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
+  return platform === 'qianwen' || platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
 }
 
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
@@ -313,6 +315,11 @@ export const OPENCODE_ZEN_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen'
 export function isOpenCodeGoPlatform(platform: string): boolean {
   return platform === 'opencode_go'
 }
+
+export const DEFAULT_COMMANDCODE_PROTOCOL_RULES: OpenCodeGoProtocolRule[] = [
+  { pattern: 'claude-*', protocol: 'anthropic' },
+  { pattern: 'anthropic/claude-*', protocol: 'anthropic' }
+]
 
 export const OPENCODE_GO_PROTOCOL_RULES_KEY = 'protocol_rules'
 
@@ -387,8 +394,8 @@ export function applyOpenCodeGoProtocolRules(
   }
 }
 
-export function isMultiProtocolApiKeyPlatform(platform: string): boolean {
-  return platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go'
+export function isMultiProtocolApiKeyPlatform(platform: string): platform is CnProviderPlatform | 'opencode_go' | 'commandcode' {
+  return platform === 'commandcode' || platform === 'qianwen' || platform === 'kimi' || platform === 'zhipu' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go'
 }
 
 export interface CnBaseUrlPreset {
@@ -401,6 +408,11 @@ export interface CnBaseUrlPreset {
 
 /** 各供应商按账号类型 × API 协议分档的快捷端点（点击快速填充，输入框仍可自由填写）。 */
 export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> = {
+  qianwen: [
+    { mode: 'payg', protocol: 'chat_completions', label: 'DashScope Chat', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+    { mode: 'payg', protocol: 'responses', label: 'DashScope Responses', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
+    { mode: 'payg', protocol: 'anthropic', label: 'DashScope Messages', url: 'https://dashscope.aliyuncs.com/apps/anthropic' }
+  ],
   kimi: [
     { mode: 'payg', protocol: 'chat_completions', label: 'Moonshot', url: 'https://api.moonshot.cn/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'Moonshot Anthropic', url: 'https://api.moonshot.cn/anthropic' },
@@ -444,6 +456,10 @@ export function defaultCNBaseUrl(
 ): string {
   if (protocol === 'anthropic') {
     switch (platform) {
+      case 'commandcode':
+        return 'https://api.commandcode.ai/provider/v1'
+      case 'qianwen':
+        return 'https://dashscope.aliyuncs.com/apps/anthropic'
       case 'kimi':
         return mode === 'coding' ? 'https://api.kimi.com/coding' : 'https://api.moonshot.cn/anthropic'
       case 'zhipu':
@@ -460,6 +476,10 @@ export function defaultCNBaseUrl(
   }
   // responses：Kimi / DeepSeek / MiniMax 的 base 与 chat_completions 相同（端点路径差异由后端处理）。
   switch (platform) {
+    case 'commandcode':
+      return 'https://api.commandcode.ai/provider/v1'
+    case 'qianwen':
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     case 'kimi':
       return mode === 'coding' ? 'https://api.kimi.com/coding/v1' : 'https://api.moonshot.cn/v1'
     case 'zhipu':
@@ -479,7 +499,7 @@ export function defaultCNBaseUrl(
 
 /** 返回自适应模式下需要配置的原生协议及其默认端点。 */
 export function defaultCNAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go',
+  platform: CnProviderPlatform | 'opencode_go' | 'commandcode',
   mode: CnAccountMode | OpenCodeAccountMode
 ): Record<CnNativeApiProtocol, string> {
   return {

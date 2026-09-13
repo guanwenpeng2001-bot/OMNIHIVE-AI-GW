@@ -485,6 +485,22 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it.each(['qianwen', 'commandcode'] as const)('round-trips %s custom endpoints, headers and rules', async (platform) => {
+    const account = buildAccount()
+    account.platform = platform
+    const api_base_urls = { chat_completions: 'https://relay.example/chat', anthropic: 'https://relay.example/messages', ...(platform === 'qianwen' ? { responses: 'https://relay.example/responses' } : {}) }
+    account.credentials = { api_key: 'sk-sp-test-only', account_mode: 'payg', api_protocol: 'adaptive', base_url: api_base_urls.chat_completions, api_base_urls, protocol_rules: [{ pattern: 'anthropic/claude-*', protocol: 'anthropic' }], header_override_enabled: true, header_overrides: { 'x-relay-id': 'm4' } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-token-plan-warning"]').exists()).toBe(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject(account.credentials)
+  })
+
   it('preserves OpenCode Zen account type and endpoints on submit', async () => {
     const account = buildAccount()
     account.platform = 'opencode_go'

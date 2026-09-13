@@ -254,6 +254,7 @@ const perplexityModels = [
 
 // 所有模型（去重）
 const allModelsList: string[] = [
+  'qwen-flash', 'qwen3.7-max', 'gpt-5.6-luna', 'Qwen/Qwen3.7-Max', 'claude-sonnet-5',
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
@@ -457,6 +458,8 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'moonshot':
     case 'kimi': return moonshotModels
     case 'cursor': return cursorModels
+    case 'qianwen': return ['qwen-flash', 'qwen3.7-max', 'deepseek-v3', 'deepseek-r1', 'glm-5', 'kimi-k2.5', 'kimi-k3', 'MiniMax-M2.5']
+    case 'commandcode': return ['gpt-5.6-luna', 'Qwen/Qwen3.7-Max', 'claude-sonnet-5']
     case 'opencode_go': return [
       'grok-4.6', 'gpt-5.6-luna',
       'glm-5.3-flash', 'glm-5.3', 'glm-5.2', 'glm-5.1',

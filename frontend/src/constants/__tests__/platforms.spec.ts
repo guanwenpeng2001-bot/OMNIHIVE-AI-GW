@@ -12,6 +12,8 @@ const concretePlatforms = [
   'deepseek',
   'minimax',
   'opencode_go',
+  'qianwen',
+  'commandcode',
   'cursor'
 ]
 

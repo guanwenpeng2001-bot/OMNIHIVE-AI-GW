@@ -10,7 +10,7 @@
         {{ t('admin.accounts.opencodeGo.protocolRules.restoreDefaults') }}
       </button>
     </div>
-    <p class="input-hint mb-2">{{ t('admin.accounts.opencodeGo.protocolRules.hint') }}</p>
+    <p class="input-hint mb-2">{{ t(platform === 'commandcode' ? 'admin.accounts.newPlatforms.commandcodeDescription' : 'admin.accounts.opencodeGo.protocolRules.hint') }}</p>
     <div v-if="rows.length > 0" class="mb-2 space-y-2">
       <div
         v-for="(row, index) in rows"
@@ -32,7 +32,7 @@
           <option value="chat_completions">
             {{ t('admin.accounts.cnProviders.apiProtocol.chatCompletions') }}
           </option>
-          <option value="responses">
+          <option v-if="platform !== 'commandcode'" value="responses">
             {{ t('admin.accounts.cnProviders.apiProtocol.responses') }}
           </option>
           <option value="anthropic">
@@ -73,6 +73,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { createStableObjectKeyResolver } from '@/utils/stableObjectKey'
 import {
   cloneOpenCodeGoProtocolRules,
+  DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   defaultOpenCodeProtocolRules,
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
@@ -80,9 +81,11 @@ import {
 
 const props = withDefaults(defineProps<{
   rows: OpenCodeGoProtocolRule[]
+  platform?: string
   plan?: OpenCodeAccountMode
 }>(), {
-  plan: 'go'
+  plan: 'go',
+  platform: 'opencode_go'
 })
 
 const emit = defineEmits<{
@@ -101,6 +104,6 @@ const removeRow = (index: number) => {
 }
 
 const restoreDefaults = () => {
-  emit('update:rows', cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(props.plan)))
+  emit('update:rows', cloneOpenCodeGoProtocolRules(props.platform === 'commandcode' ? DEFAULT_COMMANDCODE_PROTOCOL_RULES : defaultOpenCodeProtocolRules(props.plan)))
 }
 </script>

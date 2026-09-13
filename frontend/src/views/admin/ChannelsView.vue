@@ -425,11 +425,13 @@
                   <button
                     type="button"
                     @click="syncLatestModels(sIdx)"
+                    v-if="platformSupportsPricingSync(section.platform)"
                     :disabled="syncingPlatform === section.platform"
                     class="text-xs text-gray-500 hover:text-primary-600 disabled:opacity-50"
                   >
                     {{ syncingPlatform === section.platform ? t('admin.channels.form.syncingModels') : t('admin.channels.form.syncLatestModels') }}
                   </button>
+                  <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.newPlatforms.pricingUnsupported') }}</span>
                   <button type="button" @click="addPricingEntry(sIdx)" class="text-xs text-primary-600 hover:text-primary-700">
                     + {{ t('common.add', 'Add') }}
                   </button>
@@ -627,7 +629,7 @@
 </template>
 
 <script setup lang="ts">
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, platformSupportsPricingSync } from '@/constants/platforms'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -879,7 +881,7 @@ const syncingPlatform = ref<string | null>(null)
 
 async function syncLatestModels(sectionIdx: number) {
   const platform = form.platforms[sectionIdx].platform
-  if (syncingPlatform.value) return
+  if (syncingPlatform.value || !platformSupportsPricingSync(platform)) return
   syncingPlatform.value = platform
   try {
     const result = await adminAPI.channels.syncPricingModels(platform)
