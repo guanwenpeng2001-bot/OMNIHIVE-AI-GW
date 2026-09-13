@@ -195,6 +195,26 @@ describe('admin UsersView', () => {
     vi.useRealTimers()
   })
 
+  it.each(['grok', 'kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'cursor', 'qianwen', 'commandcode'])('restores and applies %s usage sorting', async (platform) => {
+    localStorage.setItem('user-column-settings-version', '4')
+    localStorage.setItem('user-hidden-columns', JSON.stringify([]))
+    localStorage.setItem('admin-users-usage-sort', JSON.stringify({ key: `usage_${platform}`, metric: 'total', order: 'desc' }))
+    listUsers.mockResolvedValue({ items: [createAdminUser({ id: 1 }), createAdminUser({ id: 2 })], total: 2, page: 1, page_size: 20, pages: 1 })
+    getBatchUsersUsage.mockResolvedValue({ stats: {
+      1: { user_id: 1, today_actual_cost: 1, total_actual_cost: 1, by_platform: [{ platform, today_actual_cost: 1, total_actual_cost: 1 }] },
+      2: { user_id: 2, today_actual_cost: 9, total_actual_cost: 9, by_platform: [{ platform, today_actual_cost: 9, total_actual_cost: 9 }] }
+    } })
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { sortedUsers: AdminUser[]; loadUsageStats: () => Promise<void> }
+    // Usage loads on the ordinary list path; allow its queued request to complete.
+    await new Promise(resolve => setTimeout(resolve, 350))
+    await flushPromises()
+    expect(wrapper.get('[data-test="columns"]').text()).toContain(`usage_${platform}`)
+    expect(vm.sortedUsers.map(user => user.id)).toEqual([2, 1])
+    wrapper.unmount()
+  })
+
   it('cancels bulk deletion without deleting or clearing selected users', async () => {
     const wrapper = mountBulkDeleteView()
     await flushPromises()

@@ -557,6 +557,33 @@
             />
           </template>
 
+          <template #cell-usage_grok="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'grok')" />
+          </template>
+          <template #cell-usage_kimi="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'kimi')" />
+          </template>
+          <template #cell-usage_zhipu="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'zhipu')" />
+          </template>
+          <template #cell-usage_deepseek="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'deepseek')" />
+          </template>
+          <template #cell-usage_minimax="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'minimax')" />
+          </template>
+          <template #cell-usage_opencode_go="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'opencode_go')" />
+          </template>
+          <template #cell-usage_cursor="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'cursor')" />
+          </template>
+          <template #cell-usage_qianwen="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'qianwen')" />
+          </template>
+          <template #cell-usage_commandcode="{ row }">
+            <PlatformCostCell :usage="getPlatformUsage(row.id, 'commandcode')" />
+          </template>
           <template #cell-usage_anthropic="{ row }">
             <PlatformCostCell :usage="getPlatformUsage(row.id, 'anthropic')" />
           </template>
@@ -897,6 +924,15 @@ const allColumns = computed<Column[]>(() => [
   { key: 'usage_openai', label: t('admin.users.columns.usageOpenAI'), sortable: false },
   { key: 'usage_gemini', label: t('admin.users.columns.usageGemini'), sortable: false },
   { key: 'usage_antigravity', label: t('admin.users.columns.usageAntigravity'), sortable: false },
+  { key: 'usage_grok', label: t('admin.users.columns.usageGrok'), sortable: false },
+  { key: 'usage_kimi', label: t('admin.users.columns.usageKimi'), sortable: false },
+  { key: 'usage_zhipu', label: t('admin.users.columns.usageZhipu'), sortable: false },
+  { key: 'usage_deepseek', label: t('admin.users.columns.usageDeepSeek'), sortable: false },
+  { key: 'usage_minimax', label: t('admin.users.columns.usageMiniMax'), sortable: false },
+  { key: 'usage_opencode_go', label: t('admin.users.columns.usageOpenCodeGo'), sortable: false },
+  { key: 'usage_cursor', label: t('admin.users.columns.usageCursor'), sortable: false },
+  { key: 'usage_qianwen', label: t('admin.users.columns.usageQianwen'), sortable: false },
+  { key: 'usage_commandcode', label: t('admin.users.columns.usageCommandCode'), sortable: false },
   { key: 'concurrency', label: t('admin.users.columns.concurrency'), sortable: true },
   { key: 'status', label: t('admin.users.columns.status'), sortable: true },
   { key: 'last_active_at', label: t('admin.users.columns.lastActive'), sortable: true },
@@ -917,7 +953,7 @@ const hiddenColumns = reactive<Set<string>>(new Set())
 // Default hidden columns (columns hidden by default on first load)
 const DEFAULT_HIDDEN_COLUMNS = [
   'notes', 'groups', 'subscriptions', 'usage', 'concurrency',
-  'usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity',
+  'usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity', 'usage_grok', 'usage_kimi', 'usage_zhipu', 'usage_deepseek', 'usage_minimax', 'usage_opencode_go', 'usage_cursor', 'usage_qianwen', 'usage_commandcode',
   'balance_platform_quota'
 ]
 const REMOVED_COLUMNS = new Set(['last_login_at'])
@@ -931,10 +967,11 @@ const HIDDEN_COLUMNS_KEY = 'user-hidden-columns'
 // 并在 VERSION_NEW_HIDDEN_COLUMNS 中登记该版本新增的 key。
 // 这样老用户升级后这些新列会被自动隐藏一次，而不会影响他们对其它老列的偏好。
 const COLUMN_SETTINGS_VERSION_KEY = 'user-column-settings-version'
-const COLUMN_SETTINGS_VERSION = 3
+const COLUMN_SETTINGS_VERSION = 4
 const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
   2: ['usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity'],
-  3: ['balance_platform_quota']
+  3: ['balance_platform_quota'],
+  4: ['usage_grok', 'usage_kimi', 'usage_zhipu', 'usage_deepseek', 'usage_minimax', 'usage_opencode_go', 'usage_cursor', 'usage_qianwen', 'usage_commandcode']
 }
 
 // Load saved column settings
@@ -1014,13 +1051,22 @@ const isColumnVisible = (key: string) => !hiddenColumns.has(key)
 // 列 key → 平台名（'usage' 主列汇总所有平台时为 null）
 // 显式数组取代 Object.keys()：保证迭代顺序（决定列头排序按钮渲染顺序）
 // 不会因 JS 引擎差异或 USAGE_COLUMN_PLATFORMS 属性顺序调整而静默变化。
-const USAGE_COLUMN_KEYS: readonly string[] = ['usage', 'usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity']
+const USAGE_COLUMN_KEYS: readonly string[] = ['usage', 'usage_anthropic', 'usage_openai', 'usage_gemini', 'usage_antigravity', 'usage_grok', 'usage_kimi', 'usage_zhipu', 'usage_deepseek', 'usage_minimax', 'usage_opencode_go', 'usage_cursor', 'usage_qianwen', 'usage_commandcode']
 const USAGE_COLUMN_PLATFORMS: Record<string, string | null> = {
   usage: null,
   usage_anthropic: 'anthropic',
   usage_openai: 'openai',
   usage_gemini: 'gemini',
-  usage_antigravity: 'antigravity'
+  usage_antigravity: 'antigravity',
+  usage_grok: 'grok',
+  usage_kimi: 'kimi',
+  usage_zhipu: 'zhipu',
+  usage_deepseek: 'deepseek',
+  usage_minimax: 'minimax',
+  usage_opencode_go: 'opencode_go',
+  usage_cursor: 'cursor',
+  usage_qianwen: 'qianwen',
+  usage_commandcode: 'commandcode'
 }
 const PLATFORM_USAGE_COLUMNS = USAGE_COLUMN_KEYS.filter((k) => k !== 'usage')
 const hasVisibleUsageColumn = computed(

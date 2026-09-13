@@ -101,6 +101,7 @@ const PLATFORM_LABELS: Record<string, string> = {
   deepseek: 'DeepSeek',
   minimax: 'MiniMax',
   cursor: 'Cursor',
+  opencode_go: 'OpenCode',
 }
 
 function platformLabel(platform: string): string {

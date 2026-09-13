@@ -256,7 +256,8 @@ const availableOptions = computed(() => {
     }
   }
 
-  return allModels.filter(model => allowedModels.has(model.value))
+  if (normalizedPlatforms.value.includes('cursor')) cursorCatalog.value.forEach(model => allowedModels.add(model))
+  return [...allowedModels].map(value => ({ value, label: value }))
 })
 
 const filteredModels = computed(() => {
