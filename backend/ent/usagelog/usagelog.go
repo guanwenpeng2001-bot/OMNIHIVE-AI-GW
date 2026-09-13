@@ -44,6 +44,12 @@ const (
 	FieldGroupID = "group_id"
 	// FieldSubscriptionID holds the string denoting the subscription_id field in the database.
 	FieldSubscriptionID = "subscription_id"
+	// FieldThinkingEnabled holds the string denoting the thinking_enabled field in the database.
+	FieldThinkingEnabled = "thinking_enabled"
+	// FieldPriceSource holds the string denoting the price_source field in the database.
+	FieldPriceSource = "price_source"
+	// FieldPriceCardVersion holds the string denoting the price_card_version field in the database.
+	FieldPriceCardVersion = "price_card_version"
 	// FieldInputTokens holds the string denoting the input_tokens field in the database.
 	FieldInputTokens = "input_tokens"
 	// FieldOutputTokens holds the string denoting the output_tokens field in the database.
@@ -175,6 +181,9 @@ var Columns = []string{
 	FieldBillingMode,
 	FieldGroupID,
 	FieldSubscriptionID,
+	FieldThinkingEnabled,
+	FieldPriceSource,
+	FieldPriceCardVersion,
 	FieldInputTokens,
 	FieldOutputTokens,
 	FieldCacheCreationTokens,
@@ -373,6 +382,21 @@ func ByGroupID(opts ...sql.OrderTermOption) OrderOption {
 // BySubscriptionID orders the results by the subscription_id field.
 func BySubscriptionID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldSubscriptionID, opts...).ToFunc()
+}
+
+// ByThinkingEnabled orders the results by the thinking_enabled field.
+func ByThinkingEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldThinkingEnabled, opts...).ToFunc()
+}
+
+// ByPriceSource orders the results by the price_source field.
+func ByPriceSource(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPriceSource, opts...).ToFunc()
+}
+
+// ByPriceCardVersion orders the results by the price_card_version field.
+func ByPriceCardVersion(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPriceCardVersion, opts...).ToFunc()
 }
 
 // ByInputTokens orders the results by the input_tokens field.

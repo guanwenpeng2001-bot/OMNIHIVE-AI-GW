@@ -272,6 +272,9 @@ func (s *ErrorPassthroughService) setLocalCache(rules []*model.ErrorPassthroughR
 
 	// 按优先级排序
 	sort.Slice(cached, func(i, j int) bool {
+		if cached[i].Priority == cached[j].Priority {
+			return cached[i].ID < cached[j].ID
+		}
 		return cached[i].Priority < cached[j].Priority
 	})
 

@@ -142,6 +142,8 @@ func reasoningEffortValuesForPlatform(platform string) []string {
 		return openAIReasoningEffortValues
 	case PlatformAnthropic:
 		return anthropicReasoningEffortValues
+	case PlatformQianwen, PlatformCommandCode:
+		return []string{"low", "high"}
 	default:
 		return nil
 	}
@@ -484,7 +486,7 @@ func sanitizeGroupReasoningEffortPolicy(group *Group) {
 	if mappingsErr != nil {
 		mappings = []ReasoningEffortMapping{}
 	}
-	if overLimit == "" || (group.Platform != PlatformAnthropic && group.Platform != PlatformOpenAI && group.Platform != PlatformComposite) {
+	if overLimit == "" || len(reasoningEffortValuesForPlatform(group.Platform)) == 0 {
 		overLimit = ReasoningEffortOverLimitDowngrade
 	}
 	group.MaxReasoningEffort = maxEffort

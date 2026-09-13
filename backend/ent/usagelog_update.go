@@ -309,6 +309,66 @@ func (_u *UsageLogUpdate) ClearSubscriptionID() *UsageLogUpdate {
 	return _u
 }
 
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (_u *UsageLogUpdate) SetThinkingEnabled(v bool) *UsageLogUpdate {
+	_u.mutation.SetThinkingEnabled(v)
+	return _u
+}
+
+// SetNillableThinkingEnabled sets the "thinking_enabled" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableThinkingEnabled(v *bool) *UsageLogUpdate {
+	if v != nil {
+		_u.SetThinkingEnabled(*v)
+	}
+	return _u
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (_u *UsageLogUpdate) ClearThinkingEnabled() *UsageLogUpdate {
+	_u.mutation.ClearThinkingEnabled()
+	return _u
+}
+
+// SetPriceSource sets the "price_source" field.
+func (_u *UsageLogUpdate) SetPriceSource(v string) *UsageLogUpdate {
+	_u.mutation.SetPriceSource(v)
+	return _u
+}
+
+// SetNillablePriceSource sets the "price_source" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillablePriceSource(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetPriceSource(*v)
+	}
+	return _u
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (_u *UsageLogUpdate) ClearPriceSource() *UsageLogUpdate {
+	_u.mutation.ClearPriceSource()
+	return _u
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (_u *UsageLogUpdate) SetPriceCardVersion(v string) *UsageLogUpdate {
+	_u.mutation.SetPriceCardVersion(v)
+	return _u
+}
+
+// SetNillablePriceCardVersion sets the "price_card_version" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillablePriceCardVersion(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetPriceCardVersion(*v)
+	}
+	return _u
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (_u *UsageLogUpdate) ClearPriceCardVersion() *UsageLogUpdate {
+	_u.mutation.ClearPriceCardVersion()
+	return _u
+}
+
 // SetInputTokens sets the "input_tokens" field.
 func (_u *UsageLogUpdate) SetInputTokens(v int) *UsageLogUpdate {
 	_u.mutation.ResetInputTokens()
@@ -1192,6 +1252,24 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.BillingModeCleared() {
 		_spec.ClearField(usagelog.FieldBillingMode, field.TypeString)
 	}
+	if value, ok := _u.mutation.ThinkingEnabled(); ok {
+		_spec.SetField(usagelog.FieldThinkingEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.ThinkingEnabledCleared() {
+		_spec.ClearField(usagelog.FieldThinkingEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.PriceSource(); ok {
+		_spec.SetField(usagelog.FieldPriceSource, field.TypeString, value)
+	}
+	if _u.mutation.PriceSourceCleared() {
+		_spec.ClearField(usagelog.FieldPriceSource, field.TypeString)
+	}
+	if value, ok := _u.mutation.PriceCardVersion(); ok {
+		_spec.SetField(usagelog.FieldPriceCardVersion, field.TypeString, value)
+	}
+	if _u.mutation.PriceCardVersionCleared() {
+		_spec.ClearField(usagelog.FieldPriceCardVersion, field.TypeString)
+	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
 	}
@@ -1820,6 +1898,66 @@ func (_u *UsageLogUpdateOne) SetNillableSubscriptionID(v *int64) *UsageLogUpdate
 // ClearSubscriptionID clears the value of the "subscription_id" field.
 func (_u *UsageLogUpdateOne) ClearSubscriptionID() *UsageLogUpdateOne {
 	_u.mutation.ClearSubscriptionID()
+	return _u
+}
+
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (_u *UsageLogUpdateOne) SetThinkingEnabled(v bool) *UsageLogUpdateOne {
+	_u.mutation.SetThinkingEnabled(v)
+	return _u
+}
+
+// SetNillableThinkingEnabled sets the "thinking_enabled" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableThinkingEnabled(v *bool) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetThinkingEnabled(*v)
+	}
+	return _u
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (_u *UsageLogUpdateOne) ClearThinkingEnabled() *UsageLogUpdateOne {
+	_u.mutation.ClearThinkingEnabled()
+	return _u
+}
+
+// SetPriceSource sets the "price_source" field.
+func (_u *UsageLogUpdateOne) SetPriceSource(v string) *UsageLogUpdateOne {
+	_u.mutation.SetPriceSource(v)
+	return _u
+}
+
+// SetNillablePriceSource sets the "price_source" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillablePriceSource(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetPriceSource(*v)
+	}
+	return _u
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (_u *UsageLogUpdateOne) ClearPriceSource() *UsageLogUpdateOne {
+	_u.mutation.ClearPriceSource()
+	return _u
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (_u *UsageLogUpdateOne) SetPriceCardVersion(v string) *UsageLogUpdateOne {
+	_u.mutation.SetPriceCardVersion(v)
+	return _u
+}
+
+// SetNillablePriceCardVersion sets the "price_card_version" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillablePriceCardVersion(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetPriceCardVersion(*v)
+	}
+	return _u
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (_u *UsageLogUpdateOne) ClearPriceCardVersion() *UsageLogUpdateOne {
+	_u.mutation.ClearPriceCardVersion()
 	return _u
 }
 
@@ -2735,6 +2873,24 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.BillingModeCleared() {
 		_spec.ClearField(usagelog.FieldBillingMode, field.TypeString)
+	}
+	if value, ok := _u.mutation.ThinkingEnabled(); ok {
+		_spec.SetField(usagelog.FieldThinkingEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.ThinkingEnabledCleared() {
+		_spec.ClearField(usagelog.FieldThinkingEnabled, field.TypeBool)
+	}
+	if value, ok := _u.mutation.PriceSource(); ok {
+		_spec.SetField(usagelog.FieldPriceSource, field.TypeString, value)
+	}
+	if _u.mutation.PriceSourceCleared() {
+		_spec.ClearField(usagelog.FieldPriceSource, field.TypeString)
+	}
+	if value, ok := _u.mutation.PriceCardVersion(); ok {
+		_spec.SetField(usagelog.FieldPriceCardVersion, field.TypeString, value)
+	}
+	if _u.mutation.PriceCardVersionCleared() {
+		_spec.ClearField(usagelog.FieldPriceCardVersion, field.TypeString)
 	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)

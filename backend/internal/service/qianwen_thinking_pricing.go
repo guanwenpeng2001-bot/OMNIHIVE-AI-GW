@@ -16,7 +16,7 @@ var ErrQianwenThinkingUndetermined = errors.New("enable_thinking is required for
 // Validate before upstream consumption. An unknown mode is a request condition
 // error, not a missing price that usage recording may silently replace with zero.
 func (s *OpenAIGatewayService) validateQianwenThinkingMode(ctx context.Context, c *gin.Context, model string, mode *bool) error {
-	if mode != nil || s.resolver == nil || c == nil {
+	if s.resolver == nil || c == nil {
 		return nil
 	}
 	v, _ := c.Get("api_key")
@@ -25,7 +25,13 @@ func (s *OpenAIGatewayService) validateQianwenThinkingMode(ctx context.Context, 
 		return nil
 	}
 	resolved := s.resolver.Resolve(WithResolvedTargetPlatform(ctx, PlatformQianwen), PricingInput{Model: model, Group: key.Group, GroupID: key.GroupID})
-	if resolved.channelPricing != nil && resolved.channelPricing.ThinkingPricing != nil {
+
+	// Qianwen account-native IDs must have an identified configured card. A
+	// similarly named global provider price is not evidence of DashScope pricing.
+	if resolved == nil || (resolved.Source != PricingSourceGroup && resolved.Source != PricingSourceChannel) {
+		return fmt.Errorf("%w: no verified Qianwen price for %s", ErrUnverifiedModelPrice, model)
+	}
+	if mode == nil && resolved.channelPricing != nil && resolved.channelPricing.ThinkingPricing != nil {
 		return ErrQianwenThinkingUndetermined
 	}
 	return nil

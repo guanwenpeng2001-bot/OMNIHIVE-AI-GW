@@ -197,6 +197,48 @@ func (_c *UsageLogCreate) SetNillableSubscriptionID(v *int64) *UsageLogCreate {
 	return _c
 }
 
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (_c *UsageLogCreate) SetThinkingEnabled(v bool) *UsageLogCreate {
+	_c.mutation.SetThinkingEnabled(v)
+	return _c
+}
+
+// SetNillableThinkingEnabled sets the "thinking_enabled" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillableThinkingEnabled(v *bool) *UsageLogCreate {
+	if v != nil {
+		_c.SetThinkingEnabled(*v)
+	}
+	return _c
+}
+
+// SetPriceSource sets the "price_source" field.
+func (_c *UsageLogCreate) SetPriceSource(v string) *UsageLogCreate {
+	_c.mutation.SetPriceSource(v)
+	return _c
+}
+
+// SetNillablePriceSource sets the "price_source" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillablePriceSource(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetPriceSource(*v)
+	}
+	return _c
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (_c *UsageLogCreate) SetPriceCardVersion(v string) *UsageLogCreate {
+	_c.mutation.SetPriceCardVersion(v)
+	return _c
+}
+
+// SetNillablePriceCardVersion sets the "price_card_version" field if the given value is not nil.
+func (_c *UsageLogCreate) SetNillablePriceCardVersion(v *string) *UsageLogCreate {
+	if v != nil {
+		_c.SetPriceCardVersion(*v)
+	}
+	return _c
+}
+
 // SetInputTokens sets the "input_tokens" field.
 func (_c *UsageLogCreate) SetInputTokens(v int) *UsageLogCreate {
 	_c.mutation.SetInputTokens(v)
@@ -1007,6 +1049,18 @@ func (_c *UsageLogCreate) createSpec() (*UsageLog, *sqlgraph.CreateSpec) {
 		_spec.SetField(usagelog.FieldBillingMode, field.TypeString, value)
 		_node.BillingMode = &value
 	}
+	if value, ok := _c.mutation.ThinkingEnabled(); ok {
+		_spec.SetField(usagelog.FieldThinkingEnabled, field.TypeBool, value)
+		_node.ThinkingEnabled = &value
+	}
+	if value, ok := _c.mutation.PriceSource(); ok {
+		_spec.SetField(usagelog.FieldPriceSource, field.TypeString, value)
+		_node.PriceSource = &value
+	}
+	if value, ok := _c.mutation.PriceCardVersion(); ok {
+		_spec.SetField(usagelog.FieldPriceCardVersion, field.TypeString, value)
+		_node.PriceCardVersion = &value
+	}
 	if value, ok := _c.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
 		_node.InputTokens = value
@@ -1515,6 +1569,60 @@ func (u *UsageLogUpsert) UpdateSubscriptionID() *UsageLogUpsert {
 // ClearSubscriptionID clears the value of the "subscription_id" field.
 func (u *UsageLogUpsert) ClearSubscriptionID() *UsageLogUpsert {
 	u.SetNull(usagelog.FieldSubscriptionID)
+	return u
+}
+
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (u *UsageLogUpsert) SetThinkingEnabled(v bool) *UsageLogUpsert {
+	u.Set(usagelog.FieldThinkingEnabled, v)
+	return u
+}
+
+// UpdateThinkingEnabled sets the "thinking_enabled" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdateThinkingEnabled() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldThinkingEnabled)
+	return u
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (u *UsageLogUpsert) ClearThinkingEnabled() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldThinkingEnabled)
+	return u
+}
+
+// SetPriceSource sets the "price_source" field.
+func (u *UsageLogUpsert) SetPriceSource(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldPriceSource, v)
+	return u
+}
+
+// UpdatePriceSource sets the "price_source" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdatePriceSource() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldPriceSource)
+	return u
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (u *UsageLogUpsert) ClearPriceSource() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldPriceSource)
+	return u
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (u *UsageLogUpsert) SetPriceCardVersion(v string) *UsageLogUpsert {
+	u.Set(usagelog.FieldPriceCardVersion, v)
+	return u
+}
+
+// UpdatePriceCardVersion sets the "price_card_version" field to the value that was provided on create.
+func (u *UsageLogUpsert) UpdatePriceCardVersion() *UsageLogUpsert {
+	u.SetExcluded(usagelog.FieldPriceCardVersion)
+	return u
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (u *UsageLogUpsert) ClearPriceCardVersion() *UsageLogUpsert {
+	u.SetNull(usagelog.FieldPriceCardVersion)
 	return u
 }
 
@@ -2411,6 +2519,69 @@ func (u *UsageLogUpsertOne) UpdateSubscriptionID() *UsageLogUpsertOne {
 func (u *UsageLogUpsertOne) ClearSubscriptionID() *UsageLogUpsertOne {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearSubscriptionID()
+	})
+}
+
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (u *UsageLogUpsertOne) SetThinkingEnabled(v bool) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetThinkingEnabled(v)
+	})
+}
+
+// UpdateThinkingEnabled sets the "thinking_enabled" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdateThinkingEnabled() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateThinkingEnabled()
+	})
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (u *UsageLogUpsertOne) ClearThinkingEnabled() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearThinkingEnabled()
+	})
+}
+
+// SetPriceSource sets the "price_source" field.
+func (u *UsageLogUpsertOne) SetPriceSource(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPriceSource(v)
+	})
+}
+
+// UpdatePriceSource sets the "price_source" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdatePriceSource() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePriceSource()
+	})
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (u *UsageLogUpsertOne) ClearPriceSource() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPriceSource()
+	})
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (u *UsageLogUpsertOne) SetPriceCardVersion(v string) *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPriceCardVersion(v)
+	})
+}
+
+// UpdatePriceCardVersion sets the "price_card_version" field to the value that was provided on create.
+func (u *UsageLogUpsertOne) UpdatePriceCardVersion() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePriceCardVersion()
+	})
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (u *UsageLogUpsertOne) ClearPriceCardVersion() *UsageLogUpsertOne {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPriceCardVersion()
 	})
 }
 
@@ -3567,6 +3738,69 @@ func (u *UsageLogUpsertBulk) UpdateSubscriptionID() *UsageLogUpsertBulk {
 func (u *UsageLogUpsertBulk) ClearSubscriptionID() *UsageLogUpsertBulk {
 	return u.Update(func(s *UsageLogUpsert) {
 		s.ClearSubscriptionID()
+	})
+}
+
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (u *UsageLogUpsertBulk) SetThinkingEnabled(v bool) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetThinkingEnabled(v)
+	})
+}
+
+// UpdateThinkingEnabled sets the "thinking_enabled" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdateThinkingEnabled() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdateThinkingEnabled()
+	})
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (u *UsageLogUpsertBulk) ClearThinkingEnabled() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearThinkingEnabled()
+	})
+}
+
+// SetPriceSource sets the "price_source" field.
+func (u *UsageLogUpsertBulk) SetPriceSource(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPriceSource(v)
+	})
+}
+
+// UpdatePriceSource sets the "price_source" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdatePriceSource() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePriceSource()
+	})
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (u *UsageLogUpsertBulk) ClearPriceSource() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPriceSource()
+	})
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (u *UsageLogUpsertBulk) SetPriceCardVersion(v string) *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.SetPriceCardVersion(v)
+	})
+}
+
+// UpdatePriceCardVersion sets the "price_card_version" field to the value that was provided on create.
+func (u *UsageLogUpsertBulk) UpdatePriceCardVersion() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.UpdatePriceCardVersion()
+	})
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (u *UsageLogUpsertBulk) ClearPriceCardVersion() *UsageLogUpsertBulk {
+	return u.Update(func(s *UsageLogUpsert) {
+		s.ClearPriceCardVersion()
 	})
 }
 

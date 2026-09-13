@@ -139,6 +139,9 @@ type UsageLog struct {
 	// RequestedReasoningEffort is the client-requested effort before mapping.
 	// Nil means historical rows, or that no explicit/suffix-derived effort was observed.
 	RequestedReasoningEffort *string
+	ThinkingEnabled          *bool
+	PriceSource              *string
+	PriceCardVersion         *string
 	// InboundEndpoint is the client-facing API endpoint path, e.g. /v1/chat/completions.
 	InboundEndpoint *string
 	// UpstreamEndpoint is the normalized upstream endpoint path, e.g. /v1/responses.

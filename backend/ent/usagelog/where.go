@@ -130,6 +130,21 @@ func SubscriptionID(v int64) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldSubscriptionID, v))
 }
 
+// ThinkingEnabled applies equality check predicate on the "thinking_enabled" field. It's identical to ThinkingEnabledEQ.
+func ThinkingEnabled(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldThinkingEnabled, v))
+}
+
+// PriceSource applies equality check predicate on the "price_source" field. It's identical to PriceSourceEQ.
+func PriceSource(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldPriceSource, v))
+}
+
+// PriceCardVersion applies equality check predicate on the "price_card_version" field. It's identical to PriceCardVersionEQ.
+func PriceCardVersion(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldPriceCardVersion, v))
+}
+
 // InputTokens applies equality check predicate on the "input_tokens" field. It's identical to InputTokensEQ.
 func InputTokens(v int) predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldEQ(FieldInputTokens, v))
@@ -1053,6 +1068,176 @@ func SubscriptionIDIsNil() predicate.UsageLog {
 // SubscriptionIDNotNil applies the NotNil predicate on the "subscription_id" field.
 func SubscriptionIDNotNil() predicate.UsageLog {
 	return predicate.UsageLog(sql.FieldNotNull(FieldSubscriptionID))
+}
+
+// ThinkingEnabledEQ applies the EQ predicate on the "thinking_enabled" field.
+func ThinkingEnabledEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldThinkingEnabled, v))
+}
+
+// ThinkingEnabledNEQ applies the NEQ predicate on the "thinking_enabled" field.
+func ThinkingEnabledNEQ(v bool) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldThinkingEnabled, v))
+}
+
+// ThinkingEnabledIsNil applies the IsNil predicate on the "thinking_enabled" field.
+func ThinkingEnabledIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldThinkingEnabled))
+}
+
+// ThinkingEnabledNotNil applies the NotNil predicate on the "thinking_enabled" field.
+func ThinkingEnabledNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldThinkingEnabled))
+}
+
+// PriceSourceEQ applies the EQ predicate on the "price_source" field.
+func PriceSourceEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldPriceSource, v))
+}
+
+// PriceSourceNEQ applies the NEQ predicate on the "price_source" field.
+func PriceSourceNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldPriceSource, v))
+}
+
+// PriceSourceIn applies the In predicate on the "price_source" field.
+func PriceSourceIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldPriceSource, vs...))
+}
+
+// PriceSourceNotIn applies the NotIn predicate on the "price_source" field.
+func PriceSourceNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldPriceSource, vs...))
+}
+
+// PriceSourceGT applies the GT predicate on the "price_source" field.
+func PriceSourceGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldPriceSource, v))
+}
+
+// PriceSourceGTE applies the GTE predicate on the "price_source" field.
+func PriceSourceGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldPriceSource, v))
+}
+
+// PriceSourceLT applies the LT predicate on the "price_source" field.
+func PriceSourceLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldPriceSource, v))
+}
+
+// PriceSourceLTE applies the LTE predicate on the "price_source" field.
+func PriceSourceLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldPriceSource, v))
+}
+
+// PriceSourceContains applies the Contains predicate on the "price_source" field.
+func PriceSourceContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldPriceSource, v))
+}
+
+// PriceSourceHasPrefix applies the HasPrefix predicate on the "price_source" field.
+func PriceSourceHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldPriceSource, v))
+}
+
+// PriceSourceHasSuffix applies the HasSuffix predicate on the "price_source" field.
+func PriceSourceHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldPriceSource, v))
+}
+
+// PriceSourceIsNil applies the IsNil predicate on the "price_source" field.
+func PriceSourceIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldPriceSource))
+}
+
+// PriceSourceNotNil applies the NotNil predicate on the "price_source" field.
+func PriceSourceNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldPriceSource))
+}
+
+// PriceSourceEqualFold applies the EqualFold predicate on the "price_source" field.
+func PriceSourceEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldPriceSource, v))
+}
+
+// PriceSourceContainsFold applies the ContainsFold predicate on the "price_source" field.
+func PriceSourceContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldPriceSource, v))
+}
+
+// PriceCardVersionEQ applies the EQ predicate on the "price_card_version" field.
+func PriceCardVersionEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEQ(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionNEQ applies the NEQ predicate on the "price_card_version" field.
+func PriceCardVersionNEQ(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNEQ(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionIn applies the In predicate on the "price_card_version" field.
+func PriceCardVersionIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIn(FieldPriceCardVersion, vs...))
+}
+
+// PriceCardVersionNotIn applies the NotIn predicate on the "price_card_version" field.
+func PriceCardVersionNotIn(vs ...string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotIn(FieldPriceCardVersion, vs...))
+}
+
+// PriceCardVersionGT applies the GT predicate on the "price_card_version" field.
+func PriceCardVersionGT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGT(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionGTE applies the GTE predicate on the "price_card_version" field.
+func PriceCardVersionGTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldGTE(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionLT applies the LT predicate on the "price_card_version" field.
+func PriceCardVersionLT(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLT(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionLTE applies the LTE predicate on the "price_card_version" field.
+func PriceCardVersionLTE(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldLTE(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionContains applies the Contains predicate on the "price_card_version" field.
+func PriceCardVersionContains(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContains(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionHasPrefix applies the HasPrefix predicate on the "price_card_version" field.
+func PriceCardVersionHasPrefix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasPrefix(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionHasSuffix applies the HasSuffix predicate on the "price_card_version" field.
+func PriceCardVersionHasSuffix(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldHasSuffix(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionIsNil applies the IsNil predicate on the "price_card_version" field.
+func PriceCardVersionIsNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldIsNull(FieldPriceCardVersion))
+}
+
+// PriceCardVersionNotNil applies the NotNil predicate on the "price_card_version" field.
+func PriceCardVersionNotNil() predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldNotNull(FieldPriceCardVersion))
+}
+
+// PriceCardVersionEqualFold applies the EqualFold predicate on the "price_card_version" field.
+func PriceCardVersionEqualFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldEqualFold(FieldPriceCardVersion, v))
+}
+
+// PriceCardVersionContainsFold applies the ContainsFold predicate on the "price_card_version" field.
+func PriceCardVersionContainsFold(v string) predicate.UsageLog {
+	return predicate.UsageLog(sql.FieldContainsFold(FieldPriceCardVersion, v))
 }
 
 // InputTokensEQ applies the EQ predicate on the "input_tokens" field.

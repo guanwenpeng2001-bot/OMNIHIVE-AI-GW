@@ -638,3 +638,9 @@ func TestDuplicateChannelMonitorQuotaModeReencryptsEmptyKey(t *testing.T) {
 	require.Len(t, repo.created, 1)
 	require.Equal(t, "NEW:", repo.created[0].APIKey, "empty key must be re-encrypted, not dropped")
 }
+
+func TestMonitorQuotaCapabilityOpenCodeSubscriptionOnly(t *testing.T) {
+	require.NoError(t, monitorAccountQuotaCapability(&Account{Platform: PlatformOpenCodeGo, Credentials: map[string]any{"account_mode": AccountModeGo}}))
+	require.ErrorIs(t, monitorAccountQuotaCapability(&Account{Platform: PlatformOpenCodeGo, Credentials: map[string]any{"account_mode": AccountModeZen}}), ErrChannelMonitorAccountNotSupportable)
+	require.ErrorIs(t, monitorAccountQuotaCapability(&Account{Platform: PlatformCommandCode, Type: AccountTypeOAuth}), ErrChannelMonitorAccountNotSupportable)
+}

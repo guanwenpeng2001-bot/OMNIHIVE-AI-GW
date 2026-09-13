@@ -81,7 +81,7 @@ func monitorCheckModeUsesQuota(checkMode string) bool {
 //	antigravity（无 adapter）|  N    |  Y    |  N
 func validateCheckMode(provider, checkMode string) error {
 	checkMode = defaultCheckMode(checkMode)
-	if (provider == MonitorProviderQianwen || provider == MonitorProviderCommandCode || provider == MonitorProviderMiniMax || provider == MonitorProviderOpenCodeGo) && checkMode != MonitorCheckModeProbe {
+	if provider == MonitorProviderQianwen && checkMode != MonitorCheckModeProbe {
 		return ErrChannelMonitorInvalidCheckMode
 	}
 	switch checkMode {
@@ -232,7 +232,15 @@ func normalizeMonitorPrimaryModel(provider, checkMode, model string) string {
 //   - gemini/grok/antigravity：本地统计/值通道降级，不会永久 error，放行
 func monitorAccountQuotaCapability(account *Account) error {
 	switch account.Platform {
+	case PlatformCommandCode:
+		if account.Type != AccountTypeAPIKey {
+			return ErrChannelMonitorAccountNotSupportable
+		}
+		return nil
 	case PlatformOpenCodeGo:
+		if !account.IsOpenCodeGoPlan() {
+			return ErrChannelMonitorAccountNotSupportable
+		}
 		return nil
 	case PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax:
 		if account.IsCodingPlan() {

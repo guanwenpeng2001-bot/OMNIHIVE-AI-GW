@@ -745,3 +745,27 @@ func TestDeriveQuotaCheckResult_StatusMatrix(t *testing.T) {
 	res = deriveQuotaCheckResult(nil, "quota", now)
 	require.Equal(t, MonitorStatusError, res.Status)
 }
+
+func TestQuotaFetcher_AdditionalAccountQuotaSources(t *testing.T) {
+	for _, platform := range []string{PlatformCommandCode, PlatformOpenCodeGo} {
+		t.Run(platform, func(t *testing.T) {
+			fetcher, usage, quota, balance, accounts := newQuotaFetcherTestSetup(t)
+			accounts.accounts[20] = &Account{ID: 20, Platform: platform, Type: AccountTypeAPIKey}
+			quota.result = &CNProviderQuotaProbeResult{Success: true, Tiers: []CNQuotaTier{{Window: "5h", UsedPercent: 91}}}
+			snapshot := fetcher.Fetch(context.Background(), 20)
+			require.True(t, snapshot.Success)
+			require.Equal(t, MonitorStatusDegraded, deriveQuotaCheckResult(snapshot, "quota", time.Now()).Status)
+			require.Equal(t, 1, quota.calls)
+			require.Zero(t, usage.getCalls())
+			require.Zero(t, balance.calls)
+		})
+	}
+}
+func TestQuotaFetcher_CommandCodeUnsupportedIsNotCredentialFailure(t *testing.T) {
+	fetcher, _, quota, _, accounts := newQuotaFetcherTestSetup(t)
+	accounts.accounts[20] = &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey}
+	quota.result = &CNProviderQuotaProbeResult{Unsupported: true, StatusCode: 403, Error: "alpha usage unsupported"}
+	snapshot := fetcher.Fetch(context.Background(), 20)
+	require.False(t, snapshot.CredentialInvalid)
+	require.Equal(t, MonitorStatusError, deriveQuotaCheckResult(snapshot, "quota", time.Now()).Status)
+}

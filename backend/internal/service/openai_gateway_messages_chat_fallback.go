@@ -110,12 +110,13 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 
 	var thinking *bool
 	if account.Platform == PlatformQianwen {
-		chatBody, thinking, err = prepareQianwenThinking(body, chatBody, upstreamModel, "enable_thinking")
+		chatBody, thinking, err = prepareQianwenThinkingWithPolicy(ctx, c, body, chatBody, upstreamModel, "enable_thinking")
 		if err == nil {
 			err = s.validateQianwenThinkingMode(ctx, c, upstreamModel, thinking)
 		}
 		if err != nil {
-			writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			status, kind := nativePolicyErrorResponse(err)
+			writeAnthropicError(c, status, kind, err.Error())
 			return nil, err
 		}
 	}
@@ -126,8 +127,10 @@ func (s *OpenAIGatewayService) forwardAnthropicViaRawChatCompletions(
 		return nil, err
 	}
 	if account.IsCommandCode() {
-		chatBody, err = normalizeCommandCodeReasoning(chatBody, upstreamModel)
+		chatBody, err = normalizeCommandCodeReasoningWithPolicy(c, chatBody, upstreamModel)
 		if err != nil {
+			status, kind := nativePolicyErrorResponse(err)
+			writeAnthropicError(c, status, kind, err.Error())
 			return nil, err
 		}
 		reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, "", "", "")
