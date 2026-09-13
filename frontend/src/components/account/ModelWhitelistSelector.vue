@@ -212,7 +212,9 @@ const upstreamSyncPlatforms = new Set([
   'zhipu',
   'deepseek',
   'minimax',
-  'opencode_go'
+  'opencode_go',
+  'qianwen',
+  'commandcode'
 ])
 const canSyncUpstream = computed(() => {
   if (normalizedPlatforms.value.includes('cursor')) return true

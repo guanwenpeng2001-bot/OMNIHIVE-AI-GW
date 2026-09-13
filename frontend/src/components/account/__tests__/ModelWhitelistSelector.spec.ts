@@ -253,4 +253,17 @@ describe('ModelWhitelistSelector', () => {
     expect(syncButton).toBeDefined()
     expect(syncButton?.exists()).toBe(true)
   })
+
+  it.each(['qianwen', 'commandcode'])(
+    'shows the upstream sync button for %s accounts',
+    (platform) => {
+      const wrapper = mountSelector({ platform, accountId: 19 })
+      const syncButton = wrapper
+        .findAll('button')
+        .find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+
+      expect(syncButton?.exists()).toBe(true)
+      wrapper.unmount()
+    }
+  )
 })
