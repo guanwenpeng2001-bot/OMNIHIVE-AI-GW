@@ -20,6 +20,9 @@ func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
 	if h.rejectQianwenNative3D(c) {
 		return
 	}
+	if h.rejectQianwenNativeResource(c) {
+		return
+	}
 	operation, ok := service.QianwenNativeOperationForPath(c.Request.URL.Path)
 	if !ok || c.Request.Method != http.MethodPost {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)

@@ -376,7 +376,7 @@ func RegisterGatewayRoutes(
 	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
 		rootRoute(method, "/api/v1/services/*nativePath", bodyLimit, h.OpenAIGateway.QianwenNative)
 		rootRoute(method, "/api-ws/v1/*nativePath", bodyLimit, h.OpenAIGateway.QianwenNative)
-		for _, prefix := range []string{"/api/v1/tasks", "/api/v1/apps", "/api/v1/files", "/api/v1/batches", "/api/v1/realtime", "/api/v1/indices"} {
+		for _, prefix := range []string{"/api/v1/tasks", "/api/v1/apps", "/api/v1/files", "/api/v1/batches", "/api/v1/realtime", "/api/v1/indices", "/compatible-mode/v1/files", "/compatible-mode/v1/batches"} {
 			rootRoute(method, prefix, bodyLimit, h.OpenAIGateway.QianwenNative)
 			rootRoute(method, prefix+"/*nativePath", bodyLimit, h.OpenAIGateway.QianwenNative)
 		}
