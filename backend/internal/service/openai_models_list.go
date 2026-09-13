@@ -50,6 +50,19 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 		standardModelsList: true,
 	}
 	response, err := s.fetchCachedOpenAIModels(ctx, request, func(fetchCtx context.Context, etag string) (*OpenAIModelsResponse, error) {
+		if credentialAccount.Platform == PlatformQianwen {
+			_, body, err := fetchQianwenModelPages(req.Clone(fetchCtx), resolveModelsListReadLimit(s.cfg), func(pageReq *http.Request) (*http.Response, error) {
+				return s.doOpenAIUpstream(pageReq, request.proxyURL, credentialAccount)
+			})
+			if err != nil {
+				return nil, err
+			}
+			body, err = standardOpenAIModelsBody(body, false)
+			if err != nil {
+				return nil, invalidOpenAIModelsList(err)
+			}
+			return &OpenAIModelsResponse{Body: body, ETag: codexModelsManifestBodyETag(body)}, nil
+		}
 		response, err := s.fetchOpenAIModelsUpstream(fetchCtx, request, etag)
 		if err != nil || response.NotModified {
 			return response, err

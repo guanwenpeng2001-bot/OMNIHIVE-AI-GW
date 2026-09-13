@@ -1375,6 +1375,8 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultZhipuPayGBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
+	case PlatformQianwen:
+		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
 	case PlatformOpenCodeGo:
@@ -1422,7 +1424,7 @@ func (a *Account) GetAPIProtocol() string {
 	case APIProtocolChatCompletions:
 		return APIProtocolChatCompletions
 	}
-	if a.IsOpenCodeGo() {
+	if a.IsOpenCodeGo() || a.Platform == PlatformQianwen {
 		return APIProtocolAdaptive
 	}
 	return APIProtocolChatCompletions
@@ -1436,7 +1438,7 @@ func (a *Account) SupportsNativeCNResponses() bool {
 		return false
 	}
 	switch a.Platform {
-	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo:
+	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo, PlatformQianwen:
 		return true
 	default:
 		return false
@@ -1469,6 +1471,14 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return ""
 	}
+	if a.Platform == PlatformQianwen && protocol == APIProtocolResponses && a.IsAdaptiveAPIProtocol() {
+		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
+			if base, ok := baseURLs[protocol].(string); ok && strings.TrimSpace(base) != "" {
+				return strings.TrimSpace(base)
+			}
+		}
+		return a.GetCNProtocolBaseURL(APIProtocolChatCompletions)
+	}
 	if a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[protocol].(string); ok && strings.TrimSpace(baseURL) != "" {
@@ -1497,6 +1507,8 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultZhipuAnthropicBaseURL
 		case PlatformDeepseek:
 			return DefaultDeepseekAnthropicBaseURL
+		case PlatformQianwen:
+			return DefaultQianwenAnthropicBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxAnthropicBaseURL
 		case PlatformOpenCodeGo:
@@ -1516,6 +1528,8 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultZhipuPayGBaseURL
 		case PlatformDeepseek:
 			return DefaultDeepseekBaseURL
+		case PlatformQianwen:
+			return DefaultQianwenBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxBaseURL
 		case PlatformOpenCodeGo:
@@ -1556,6 +1570,8 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return DefaultZhipuAnthropicBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekAnthropicBaseURL
+	case PlatformQianwen:
+		return DefaultQianwenAnthropicBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
 	case PlatformOpenCodeGo:
@@ -1571,6 +1587,13 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 // 端点，不能拿来拼 OpenAI 路径，此时返回该供应商 × 模式的 Chat Completions
 // 默认 base（模型同步等协议族共用路径仍可用）。
 func (a *Account) GetOpenAIFormatBaseURL() string {
+	if a != nil && a.Platform == PlatformQianwen {
+		if bases, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
+			if base, ok := bases[APIProtocolChatCompletions].(string); ok && strings.TrimSpace(base) != "" {
+				return strings.TrimSpace(base)
+			}
+		}
+	}
 	if a == nil || !a.IsAnthropicProtocol() {
 		return a.GetOpenAIBaseURL()
 	}
@@ -1587,6 +1610,8 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 		return DefaultZhipuPayGBaseURL
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
+	case PlatformQianwen:
+		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
 	case PlatformOpenCodeGo:
