@@ -493,4 +493,3 @@ func (s *AccountService) GetCredential(ctx context.Context, id int64, key string
 
 	return account.GetCredential(key), nil
 }
-
