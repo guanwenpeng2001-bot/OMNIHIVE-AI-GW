@@ -1,7 +1,6 @@
 package service
 
 import (
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -68,10 +67,7 @@ func normalizeOpenCodeGoModelID(model string) string {
 
 // OpenCodeGoProtocolRule is one model-pattern → native protocol mapping.
 // Pattern is an exact ID or a suffix glob (foo* / *). First match wins.
-type OpenCodeGoProtocolRule struct {
-	Pattern  string `json:"pattern"`
-	Protocol string `json:"protocol"`
-}
+type OpenCodeGoProtocolRule = ModelProtocolRule
 
 // DefaultOpenCodeGoProtocolRules is the built-in adaptive routing table for Go.
 func DefaultOpenCodeGoProtocolRules() []OpenCodeGoProtocolRule {
@@ -113,30 +109,10 @@ func isNativeOpenCodeGoProtocol(protocol string) bool {
 }
 
 func openCodeGoPatternMatches(pattern, model string) bool {
-	pattern = strings.ToLower(strings.TrimSpace(pattern))
-	model = normalizeOpenCodeGoModelID(model)
-	if pattern == "" || model == "" {
-		return false
-	}
-	if pattern == "*" {
-		return true
-	}
-	if strings.HasSuffix(pattern, "*") {
-		return strings.HasPrefix(model, strings.TrimSuffix(pattern, "*"))
-	}
-	return model == pattern
+	return modelProtocolPatternMatches(pattern, normalizeOpenCodeGoModelID(model))
 }
-
 func matchOpenCodeGoProtocolRules(model string, rules []OpenCodeGoProtocolRule) string {
-	for _, rule := range rules {
-		if !isNativeOpenCodeGoProtocol(rule.Protocol) {
-			continue
-		}
-		if openCodeGoPatternMatches(rule.Pattern, model) {
-			return rule.Protocol
-		}
-	}
-	return APIProtocolChatCompletions
+	return matchModelProtocolRules(normalizeOpenCodeGoModelID(model), rules)
 }
 
 // OpenCodeGoModelProtocol 返回内置默认表下模型对应的原生上游协议。
@@ -162,65 +138,11 @@ func (a *Account) openCodeGoProtocolRules() ([]OpenCodeGoProtocolRule, bool) {
 }
 
 func parseOpenCodeGoProtocolRules(raw any) ([]OpenCodeGoProtocolRule, error) {
-	items, err := openCodeGoProtocolRuleItems(raw)
-	if err != nil {
-		return nil, err
-	}
-	if len(items) > maxOpenCodeGoProtocolRules {
-		return nil, fmt.Errorf("protocol_rules supports at most %d entries", maxOpenCodeGoProtocolRules)
-	}
-	rules := make([]OpenCodeGoProtocolRule, 0, len(items))
-	for i, item := range items {
-		entry, ok := item.(map[string]any)
-		if !ok {
-			return nil, fmt.Errorf("protocol_rules[%d] must be an object", i)
-		}
-		pattern, _ := entry["pattern"].(string)
-		protocol, _ := entry["protocol"].(string)
-		pattern, err := normalizeOpenCodeGoProtocolPattern(pattern)
-		if err != nil {
-			return nil, fmt.Errorf("protocol_rules[%d]: %w", i, err)
-		}
-		protocol = strings.TrimSpace(protocol)
-		if !isNativeOpenCodeGoProtocol(protocol) {
-			return nil, fmt.Errorf("protocol_rules[%d]: protocol must be chat_completions, anthropic, or responses", i)
-		}
-		rules = append(rules, OpenCodeGoProtocolRule{Pattern: pattern, Protocol: protocol})
-	}
-	return rules, nil
+	return parseModelProtocolRules(raw)
 }
-
-func openCodeGoProtocolRuleItems(raw any) ([]any, error) {
-	switch items := raw.(type) {
-	case []any:
-		return items, nil
-	case []map[string]any:
-		out := make([]any, 0, len(items))
-		for _, item := range items {
-			out = append(out, item)
-		}
-		return out, nil
-	default:
-		return nil, fmt.Errorf("protocol_rules must be an array")
-	}
-}
-
+func openCodeGoProtocolRuleItems(raw any) ([]any, error) { return modelProtocolRuleItems(raw) }
 func normalizeOpenCodeGoProtocolPattern(pattern string) (string, error) {
-	pattern = strings.ToLower(strings.TrimSpace(pattern))
-	if pattern == "" {
-		return "", fmt.Errorf("pattern is required")
-	}
-	if len(pattern) > maxOpenCodeGoProtocolPatternLength {
-		return "", fmt.Errorf("pattern is too long")
-	}
-	if strings.ContainsAny(pattern, " \t") {
-		return "", fmt.Errorf("pattern must not contain whitespace")
-	}
-	star := strings.Count(pattern, "*")
-	if star > 1 || (star == 1 && !strings.HasSuffix(pattern, "*")) {
-		return "", fmt.Errorf("pattern may use a single trailing * wildcard")
-	}
-	return pattern, nil
+	return normalizeModelProtocolPattern(pattern)
 }
 
 // NormalizeOpenCodeGoProtocolRulesCredentials 校验并原地规范化 credentials.protocol_rules。
