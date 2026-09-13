@@ -1106,64 +1106,35 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 		dailyUsage := entry.DailyUsageUSD
 		weeklyUsage := entry.WeeklyUsageUSD
 		monthlyUsage := entry.MonthlyUsageUSD
-		// 若窗口已更新（DB 已重置但 cache 尚未失效）,将对应 usage 清零再做比较,
-		// 同时记录新窗口起点用于后续刷新 cache entry。
-		// 本次请求用本地清零值继续判断;DB 层 IncrementUsageWithReset 已有窗口自愈能力,
-		// 持久化数据始终正确。
-		windowExpired := false
-		newDailyStart := entry.DailyWindowStart
-		newWeeklyStart := entry.WeeklyWindowStart
-		newMonthlyStart := entry.MonthlyWindowStart
-		if quotaWindowExpired(entry.DailyWindowStart, timezone.StartOfDay(now)) {
-			dailyUsage = 0
-			windowExpired = true
-			dayStart := timezone.StartOfDay(now)
-			newDailyStart = &dayStart
-		}
-		if quotaWindowExpired(entry.WeeklyWindowStart, timezone.StartOfWeek(now)) {
-			weeklyUsage = 0
-			windowExpired = true
-			weekStart := timezone.StartOfWeek(now)
-			newWeeklyStart = &weekStart
-		}
-		if monthlyQuotaWindowExpired(entry.MonthlyWindowStart, now) {
-			monthlyUsage = 0
-			windowExpired = true
-			monthStart := now
-			newMonthlyStart = &monthStart
-		}
-		// 检测到任意窗口过期：用 reset 后的 entry 覆盖 Redis（而非 Delete）。
-		// 旧实现 Delete 后,期间到达的 IncrUserPlatformQuotaUsage 调用让 Lua 看到
-		// EXISTS=0 直接 return 0,并发请求的 cost 永久丢失,直到下次 cache MISS 回填。
-		// 改为 SetCache 原子覆盖:key 不断链,Lua INCR 可在新窗口 entry 上正确累加。
-		// 超时 50ms:覆盖正常路径与可接受抖动;Redis 异常时 hot path 不阻塞超过此值。
-		// 用 context.Background()+短超时,避免请求 ctx 取消导致刷新丢失。
-		// 显式 setCancel()(而非 defer):缩短 context 生命周期,避免 defer 延迟到函数返回。
-		// isSentinel 判定「该 entry 无任何 limit」(DB 无行时回填的短 TTL sentinel),跨窗口命中时跳过 refresh:
-		// refresh 会把短 TTL 误升级为 86400s;其 enforcement(下方 limit!=nil 比较)因 limit 全 nil 永远放行,
-		// 跳过 refresh 不改变结果。
+		// A zero-cost increment atomically advances expired windows using the
+		// current Redis hash. Real consumption uses the same reset+increment script.
 		isSentinel := entry.DailyLimitUSD == nil && entry.WeeklyLimitUSD == nil && entry.MonthlyLimitUSD == nil
-		if windowExpired && s.cache != nil && !isSentinel {
-			refreshed := &UserPlatformQuotaCacheEntry{
-				DailyUsageUSD:      dailyUsage,
-				WeeklyUsageUSD:     weeklyUsage,
-				MonthlyUsageUSD:    monthlyUsage,
-				SchemaVersion:      UserPlatformQuotaCacheSchemaV1,
-				DailyLimitUSD:      entry.DailyLimitUSD,
-				WeeklyLimitUSD:     entry.WeeklyLimitUSD,
-				MonthlyLimitUSD:    entry.MonthlyLimitUSD,
-				DailyWindowStart:   newDailyStart,
-				WeeklyWindowStart:  newWeeklyStart,
-				MonthlyWindowStart: newMonthlyStart,
-			}
+		if !isSentinel && (quotaWindowExpired(entry.DailyWindowStart, timezone.StartOfDay(now)) ||
+			quotaWindowExpired(entry.WeeklyWindowStart, timezone.StartOfWeek(now)) || monthlyQuotaWindowExpired(entry.MonthlyWindowStart, now)) {
 			ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
-			setCtx, setCancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-			if setErr := s.cache.SetUserPlatformQuotaCache(setCtx, userID, platform, refreshed, ttl); setErr != nil {
-				logger.LegacyPrintf("service.billing_cache",
-					"Warning: refresh expired user platform quota cache failed user=%d platform=%s: %v",
-					userID, platform, setErr)
+			refreshCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+			err := s.cache.IncrUserPlatformQuotaUsageCache(refreshCtx, userID, platform, 0, ttl, s.cfg.Database.UserPlatformQuotaFlusherEnabled)
+			if err == nil {
+				var refreshed *UserPlatformQuotaCacheEntry
+				refreshed, _, err = s.cache.GetUserPlatformQuotaCache(refreshCtx, userID, platform)
+				if refreshed != nil && refreshed.SchemaVersion == UserPlatformQuotaCacheSchemaV1 {
+					entry = refreshed
+				}
 			}
-			setCancel()
+			cancel()
+			if err != nil {
+				logger.LegacyPrintf("service.billing_cache", "ALERT: refresh user platform quota cache failed user=%d platform=%s: %v", userID, platform, err)
+			}
+			dailyUsage, weeklyUsage, monthlyUsage = entry.DailyUsageUSD, entry.WeeklyUsageUSD, entry.MonthlyUsageUSD
+			if quotaWindowExpired(entry.DailyWindowStart, timezone.StartOfDay(now)) {
+				dailyUsage = 0
+			}
+			if quotaWindowExpired(entry.WeeklyWindowStart, timezone.StartOfWeek(now)) {
+				weeklyUsage = 0
+			}
+			if monthlyQuotaWindowExpired(entry.MonthlyWindowStart, now) {
+				monthlyUsage = 0
+			}
 		}
 		if entry.DailyLimitUSD != nil && dailyUsage >= *entry.DailyLimitUSD {
 			return withWindowResetsMetadata(ErrUserPlatformDailyQuotaExhausted, nextDailyReset(now))

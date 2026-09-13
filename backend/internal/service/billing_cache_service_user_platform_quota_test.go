@@ -345,9 +345,9 @@ func TestCheckUserPlatformQuotaEligibility_WindowExpiredInCache(t *testing.T) {
 }
 
 // TestCheckUserPlatformQuotaEligibility_WindowExpiredRefreshesCache 验证:
-// V1 HIT 路径检测到窗口过期时,用 reset 后的 entry 同步覆盖 Redis(而非 Delete):
+// V1 HIT 路径检测到窗口过期时,原子刷新当前 Redis 窗口:
 //  1. 当前请求以本地清零值判断 → 放行
-//  2. cache entry 被替换为新 entry: usage 清零 + window_start 更新到当前窗口
+//  2. cache entry 过期 usage 清零 + window_start 更新到当前窗口
 //     limit 保留;这样并发 IncrUserPlatformQuotaUsage 的 Lua INCR 可正确累加到新窗口。
 func TestCheckUserPlatformQuotaEligibility_WindowExpiredRefreshesCache(t *testing.T) {
 	daily := 5.0
@@ -373,7 +373,7 @@ func TestCheckUserPlatformQuotaEligibility_WindowExpiredRefreshesCache(t *testin
 	// 验证 cache entry 已被刷新:usage 清零、limit 保留、window_start 更新到当前窗口
 	refreshed := cache.getEntry()
 	if refreshed == nil {
-		t.Fatal("窗口过期后 cache entry 不应为 nil(应被 SetCache 覆盖,而非 Delete)")
+		t.Fatal("窗口过期后 cache entry 不应为 nil(应被原子刷新,而非 Delete)")
 	}
 	if refreshed.DailyUsageUSD != 0 {
 		t.Errorf("刷新后 DailyUsageUSD = %v, want 0", refreshed.DailyUsageUSD)
@@ -829,4 +829,37 @@ func TestHasUserPlatformQuotaLimit(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Simulate the atomic repository refresh, without replacing a whole stale entry.
+func (f *fakeFullCache) IncrUserPlatformQuotaUsageCache(_ context.Context, _ int64, _ string, cost float64, _ time.Duration, _ bool) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.entry == nil {
+		return nil
+	}
+	e := *f.entry
+	now := time.Now()
+	day, week := timezone.StartOfDay(now), timezone.StartOfWeek(now)
+	if quotaWindowExpired(e.DailyWindowStart, day) {
+		e.DailyUsageUSD = 0
+		e.DailyWindowStart = &day
+	}
+	if quotaWindowExpired(e.WeeklyWindowStart, week) {
+		e.WeeklyUsageUSD = 0
+		e.WeeklyWindowStart = &week
+	}
+	if monthlyQuotaWindowExpired(e.MonthlyWindowStart, now) {
+		e.MonthlyUsageUSD = 0
+		e.MonthlyWindowStart = &now
+	}
+	e.DailyUsageUSD += cost
+	e.WeeklyUsageUSD += cost
+	e.MonthlyUsageUSD += cost
+	e.Version++
+	f.entry = &e
+	return nil
+}
+func (f *fakeZeroQuotaCache) IncrUserPlatformQuotaUsageCache(context.Context, int64, string, float64, time.Duration, bool) error {
+	return nil
 }

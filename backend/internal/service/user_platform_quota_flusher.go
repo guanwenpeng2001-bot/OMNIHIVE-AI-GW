@@ -31,8 +31,8 @@ type FlusherMetrics struct {
 	FlushBatchSizeTotal atomic.Int64
 	FlushLatencyMsMax   atomic.Int64
 	DirtyReaddTotal     atomic.Int64
-	// DirtyLostTotal：Readd 失败导致脏 key 丢失——已 SPOP+主操作失败+Readd 也失败；
-	// Redis 仍权威，活跃 key 下次 SADD 自愈。
+	// DirtyLostTotal counts missing snapshots and failed dirty-set requeues.
+	// A missing hash has no recoverable usage snapshot; operators must reconcile it.
 	DirtyLostTotal        atomic.Int64
 	FlushFKViolationTotal atomic.Int64
 }
@@ -148,6 +148,8 @@ func (s *UserPlatformQuotaUsageFlusher) flushOneBatch(parentCtx context.Context)
 	for i, key := range keys {
 		e := entries[i]
 		if e == nil {
+			s.metrics.DirtyLostTotal.Add(1)
+			logger.LegacyPrintf("quota_flusher", "[QuotaFlusher] ALERT: dirty quota snapshot missing user=%d platform=%s; usage cannot be persisted", key.UserID, key.Platform)
 			continue
 		}
 		if e.DailyWindowStart == nil || e.WeeklyWindowStart == nil || e.MonthlyWindowStart == nil {
