@@ -357,7 +357,13 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
-    expect(wrapper.get('[data-testid="cursor-key-mode"]').attributes('disabled')).toBeDefined()
+    const modeButtons = wrapper.get('[data-testid="cursor-key-mode"]').findAll('button')
+    expect(modeButtons).toHaveLength(3)
+    for (const button of modeButtons) {
+      expect(button.attributes('disabled')).toBeDefined()
+      await button.trigger('click')
+    }
+    expect(wrapper.get('[data-testid="cursor-key-mode-official"]').attributes('aria-pressed')).toBe('true')
     expect(wrapper.get<HTMLInputElement>('[data-testid="cursor-api-key"]').element.value).toBe('')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
@@ -698,6 +704,26 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it('switches account mode through described cards and saves the selection', async () => {
+    const account = buildAccount()
+    account.platform = 'zhipu'
+    account.credentials = { api_key: 'sk-glm', account_mode: 'payg', api_protocol: 'chat_completions' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const cards = wrapper.get('[data-testid="edit-accountMode"]').findAll('button')
+    expect(cards).toHaveLength(2)
+    expect(cards[0].attributes('aria-pressed')).toBe('true')
+    expect(cards[1].text()).toContain('admin.accounts.cnProviders.accountMode.codingDesc')
+    await cards[1].trigger('click')
+    expect(cards[1].attributes('aria-pressed')).toBe('true')
+    expect(cards[0].attributes('aria-pressed')).toBe('false')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.account_mode).toBe('coding')
+    wrapper.unmount()
+  })
+
   it('carries a fixed Chat relay into Adaptive when the user switches protocols', async () => {
     const account = buildAccount()
     account.platform = 'zhipu'
@@ -715,7 +741,9 @@ describe('EditAccountModal', () => {
       .findAll('button')
       .find(button => button.text().includes('admin.accounts.cnProviders.apiProtocol.adaptive'))
     expect(adaptiveButton).toBeDefined()
+    expect(adaptiveButton!.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptiveDesc')
     await adaptiveButton!.trigger('click')
+    expect(adaptiveButton!.attributes('aria-pressed')).toBe('true')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)

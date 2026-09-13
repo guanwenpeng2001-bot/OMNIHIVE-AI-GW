@@ -219,7 +219,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
     await wrapper.get('[data-testid="account-concurrency"]').setValue(7)
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor auto')
-    await wrapper.get('[data-testid="cursor-key-mode"]').setValue('auto')
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
     for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
       await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
     }
@@ -235,7 +235,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
     await wrapper.get('[data-testid="account-concurrency"]').setValue(7)
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor account')
-    await wrapper.get('[data-testid="cursor-key-mode"]').setValue(mode)
+    await wrapper.get(`[data-testid="cursor-key-mode-${mode}"]`).trigger('click')
     await wrapper.get('[data-testid="cursor-api-key"]').setValue('crsr_test')
     const selector = wrapper.findComponent(ModelWhitelistSelectorStub)
     expect(selector.exists()).toBe(true)
