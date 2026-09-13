@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 )
 
 const qianwenNativeMaxFrame = 8 << 20
+const qianwenNativeImageTimeout = 3 * time.Minute
 
 // observeQianwenNative preserves cumulative usage (also for incremental text).
 // Missing usage in a later frame never erases tokens already observed.
@@ -47,9 +49,24 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	if err != nil {
 		return nil, err
 	}
-	body, thinking, err := prepareQianwenThinkingWithPolicy(ctx, c, body, body, account.GetMappedModel(model), "parameters.enable_thinking")
-	if err == nil {
-		err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
+	if err := ValidateQianwenNativeOperation(operation, account.GetMappedModel(model), body, stream); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	image := IsQianwenNativeImageModel(account.GetMappedModel(model))
+	if image {
+		// Bound the whole synchronous operation, including reading a stalled body,
+		// so a live client cannot hold its user/account slots indefinitely.
+		var imageCancel context.CancelFunc
+		ctx, imageCancel = context.WithTimeout(ctx, qianwenNativeImageTimeout)
+		defer imageCancel()
+	}
+	var thinking *bool
+	if !image {
+		body, thinking, err = prepareQianwenThinkingWithPolicy(ctx, c, body, body, account.GetMappedModel(model), "parameters.enable_thinking")
+		if err == nil {
+			err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
+		}
 	}
 	if err == nil {
 		err = s.validateQianwenRequestConditions(ctx, c, account.GetMappedModel(model), body, "", thinking)
@@ -79,6 +96,9 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	result.QianwenExplicitCache, _ = qianwenCacheMode(body)
 	defer func() { result.Duration = time.Since(started); result.ClientDisconnect = clientCtx.Err() != nil }()
 	if !stream || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		if image && (resp.StatusCode != http.StatusOK || strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")) {
+			return nil, fmt.Errorf("unexpected DashScope image response status or stream")
+		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))
 		if err != nil {
 			return nil, err
@@ -88,6 +108,11 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		}
 		if err := observeQianwenNative(data, result); err != nil {
 			return nil, err
+		}
+		if image {
+			if err := observeQianwenNativeImage(data, body, result); err != nil {
+				return nil, err
+			}
 		}
 		c.Data(resp.StatusCode, "application/json", data)
 		return result, nil

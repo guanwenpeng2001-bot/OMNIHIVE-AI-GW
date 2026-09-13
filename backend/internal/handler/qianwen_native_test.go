@@ -47,3 +47,30 @@ func TestQianwenNativeConflictingModelsRejectedBeforeAdmission(t *testing.T) {
 	_, selected := c.Get(opsAccountIDKey)
 	require.False(t, selected)
 }
+
+func TestQianwenNativeImageRejectedBeforeAdmission(t *testing.T) {
+	for _, tc := range []struct{ name, path, model, header, value string }{
+		{"async", service.QianwenNativeMultimodalPath, "qwen-image-plus", "X-DashScope-Async", "enable"},
+		{"sse", service.QianwenNativeMultimodalPath, "qwen-image-edit-plus", "X-DashScope-SSE", "enable"},
+		{"text path", service.QianwenNativeTextPath, "qwen-image-plus", "", ""},
+		{"new usage units", service.QianwenNativeMultimodalPath, "qwen-image-3.0", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newOpenAIImageChatRejectionHandler(t)
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("POST", tc.path, strings.NewReader(`{"model":"`+tc.model+`","input":{"messages":[{"content":[{"text":"Draw a cat"}]}]}}`))
+			if tc.header != "" {
+				c.Request.Header.Set(tc.header, tc.value)
+			}
+			setImageChatTestAuth(c)
+			key, _ := middleware.GetAPIKeyFromContext(c)
+			key.Group = &service.Group{Platform: service.PlatformQianwen}
+			h.QianwenNative(c)
+			require.Equal(t, 400, w.Code)
+			require.Contains(t, w.Body.String(), "invalid_request_error")
+			_, selected := c.Get(opsAccountIDKey)
+			require.False(t, selected)
+		})
+	}
+}
