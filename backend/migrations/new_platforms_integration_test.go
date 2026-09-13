@@ -116,6 +116,25 @@ func TestNewPlatformMigrations(t *testing.T) {
 					}
 				}
 			}
+			// 244 only expands monitor CHECKs and supports direct reapplication.
+			untouched := []string{definition("user_platform_quotas_platform_check"), definition("composite_model_routes_target_platform_check")}
+			apply("244_channel_monitor_minimax_opencode.sql")
+			apply("244_channel_monitor_minimax_opencode.sql")
+			require.Equal(t, untouched[0], definition("user_platform_quotas_platform_check"))
+			require.Equal(t, untouched[1], definition("composite_model_routes_target_platform_check"))
+			if !fresh {
+				for _, table := range []string{"channel_monitors", "channel_monitor_request_templates"} {
+					for _, provider := range []string{"minimax", "opencode_go"} {
+						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
+						require.NoError(t, err)
+					}
+					for _, provider := range []string{"cursor", "bogus", "composite"} {
+						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
+						require.Error(t, err)
+					}
+				}
+			}
+
 			for _, constraint := range []string{"user_platform_quotas_platform_check", "composite_model_routes_target_platform_check"} {
 				value := definition(constraint)
 				for _, platform := range []string{"anthropic", "openai", "gemini", "antigravity", "grok", "kimi", "zhipu", "deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode"} {
@@ -125,10 +144,10 @@ func TestNewPlatformMigrations(t *testing.T) {
 			}
 			for _, constraint := range monitorConstraints {
 				value := definition(constraint)
-				for _, platform := range []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"} {
+				for _, platform := range []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode", "minimax", "opencode_go"} {
 					require.Contains(t, value, "'"+platform+"'")
 				}
-				for _, platform := range []string{"cursor", "minimax", "opencode_go"} {
+				for _, platform := range []string{"cursor"} {
 					require.NotContains(t, value, "'"+platform+"'")
 				}
 			}

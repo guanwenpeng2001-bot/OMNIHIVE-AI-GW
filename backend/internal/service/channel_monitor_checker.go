@@ -176,6 +176,7 @@ var providerAdapters = map[string]providerAdapter{
 	MonitorProviderZhipu:       providerZhipuChatAdapter,
 	MonitorProviderDeepseek:    providerDeepseekChatAdapter,
 	MonitorProviderQianwen:     providerOpenAIChatAdapter,
+	MonitorProviderOpenCodeGo:  providerOpenAIChatAdapter,
 	MonitorProviderCommandCode: newCommandCodeMonitorAdapter(),
 	MonitorProviderMiniMax:     providerMiniMaxChatAdapter,
 	MonitorProviderAnthropic: {
@@ -471,6 +472,7 @@ var bodyMergeKeyDenyList = map[string]map[string]bool{
 	MonitorProviderZhipu:       {"model": true, "messages": true, "stream": true},
 	MonitorProviderDeepseek:    {"model": true, "messages": true, "stream": true},
 	MonitorProviderQianwen:     {"model": true, "messages": true, "stream": true},
+	MonitorProviderOpenCodeGo:  {"model": true, "messages": true, "stream": true},
 	MonitorProviderCommandCode: {"model": true, "messages": true, "stream": true},
 	MonitorProviderMiniMax:     {"model": true, "messages": true, "stream": true},
 }
@@ -494,7 +496,7 @@ func bodyMergeDenyKey(provider, apiMode string) string {
 func isOpenAICompatibleChatProvider(provider string) bool {
 	switch provider {
 	case MonitorProviderOpenAI, MonitorProviderGrok,
-		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderQianwen, MonitorProviderCommandCode:
+		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek, MonitorProviderMiniMax, MonitorProviderOpenCodeGo, MonitorProviderQianwen, MonitorProviderCommandCode:
 		return true
 	default:
 		return false

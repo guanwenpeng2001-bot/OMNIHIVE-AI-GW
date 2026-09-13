@@ -15,6 +15,8 @@ import (
 func TestMonitorQianwenCommandCodeProbe(t *testing.T) {
 	swapMonitorHTTPClient(t)
 	for _, tc := range []struct{ provider, path, model, auth string }{
+		{MonitorProviderMiniMax, "/v1", "MiniMax-M2.5", "Bearer test-key"},
+		{MonitorProviderOpenCodeGo, "/zen/v1", "minimax-m2.5", "Bearer test-key"},
 		{MonitorProviderQianwen, "/compatible-mode/v1", "qwen-flash", "Bearer test-key"},
 		{MonitorProviderCommandCode, "/provider/v1", DefaultCommandCodeTestModel, ""},
 	} {
@@ -24,7 +26,7 @@ func TestMonitorQianwenCommandCodeProbe(t *testing.T) {
 			require.ErrorIs(t, validateCheckMode(tc.provider, MonitorCheckModeQuota), ErrChannelMonitorInvalidCheckMode)
 			require.ErrorIs(t, validateCheckMode(tc.provider, MonitorCheckModeQuotaProbe), ErrChannelMonitorInvalidCheckMode)
 			require.Error(t, validateAPIMode(tc.provider, MonitorAPIModeResponses))
-			require.Equal(t, tc.model, normalizeMonitorPrimaryModel(tc.provider, MonitorCheckModeProbe, ""))
+			require.Equal(t, tc.model, normalizeMonitorPrimaryModel(tc.provider, MonitorCheckModeProbe, tc.model))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				require.Equal(t, http.MethodPost, r.Method)
 				require.Equal(t, tc.path+"/chat/completions", r.URL.Path)
