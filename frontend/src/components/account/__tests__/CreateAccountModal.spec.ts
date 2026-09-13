@@ -257,6 +257,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
       await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
     }
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
+      platform: 'cursor', type: 'oauth', credentials: { access_token: 'synthetic-access', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) }
+    })
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', concurrency: 7, credentials: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) } })
@@ -705,7 +708,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       platform: 'kimi',
       type: 'apikey',
       base_url: 'https://relay.example.com/v1',
-      api_key: 'sk-relay'
+      api_key: 'sk-relay',
+      credentials: { api_protocol: 'adaptive', account_mode: 'payg', api_base_urls: { chat_completions: 'https://relay.example.com/v1' } }
     })
   })
 

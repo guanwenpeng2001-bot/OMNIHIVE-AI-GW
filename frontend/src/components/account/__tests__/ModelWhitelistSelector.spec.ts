@@ -278,4 +278,18 @@ describe('ModelWhitelistSelector', () => {
       wrapper.unmount()
     }
   )
+  it.each([
+    ['credentials', 'syncUpstreamModelsCredentials'],
+    ['configuration', 'syncUpstreamModelsConfiguration'],
+    ['unsupported', 'syncUpstreamModelsUnsupported'],
+    ['upstream', 'syncUpstreamModelsUnavailable']
+  ])('shows the localized %s preview failure', async (reason, key) => {
+    syncUpstreamModelsPreview.mockRejectedValue({ status: 502, reason: `upstream_model_sync_${reason}`, message: 'private details' })
+    const wrapper = mountSelector({ syncCredentials: { platform: 'qianwen', type: 'apikey', api_key: 'test' } })
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')?.trigger('click')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith(`admin.accounts.${key}`)
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  })
+
 })

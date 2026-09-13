@@ -851,6 +851,10 @@ export default {
       syncUpstreamModelsSuccess: 'Synced {count} new model(s) from upstream ({total} upstream total)',
       syncUpstreamModelsNoChanges: 'All {count} upstream model(s) are already in the whitelist',
       syncUpstreamModelsEmpty: 'Upstream returned no models to sync',
+      syncUpstreamModelsConfiguration: 'Check the account credentials and connection settings.',
+      syncUpstreamModelsCredentials: 'Upstream rejected the credentials. Check the key or sign in again.',
+      syncUpstreamModelsUnsupported: 'This account type does not support upstream model sync.',
+      syncUpstreamModelsUnavailable: 'Upstream is unavailable or returned an invalid model list. Try again later.',
       syncUpstreamModelsFailed: 'Failed to sync upstream models',
       syncUpstreamModelsError: 'Failed to sync upstream models: {message}',
       syncUpstreamModelsMetadataIncomplete:
