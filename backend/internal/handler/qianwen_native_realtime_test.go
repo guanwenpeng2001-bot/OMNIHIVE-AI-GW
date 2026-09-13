@@ -3,17 +3,33 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
-	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
+	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestQianwenRealtimeAuditsEveryTurnDespiteHTTPCache(t *testing.T) {
+	engine := &turnCountingEngine{mode: securityaudit.ModeBlocking, decisions: []*securityaudit.PromptDecision{
+		{Kind: securityaudit.DecisionAllow, AllowNextStage: true},
+		{Kind: securityaudit.DecisionBlock, AllowNextStage: false},
+	}}
+	h := &OpenAIGatewayHandler{securityAuditCoordinator: securityaudit.NewCoordinator(nil, engine)}
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest(http.MethodGet, "/api-ws/v1/realtime", nil)
+	c.Set(securityAuditCompletedContextKey, true)
+	require.NoError(t, h.auditQianwenRealtimeTurn(context.Background(), c, nil, nil, middleware.AuthSubject{UserID: 7}, "qwen3-tts-flash-realtime", "same text", 1))
+	require.Error(t, h.auditQianwenRealtimeTurn(context.Background(), c, nil, nil, middleware.AuthSubject{UserID: 7}, "qwen3-tts-flash-realtime", "same text", 2))
+	require.Equal(t, int64(2), engine.evaluates.Load())
+}
 
 func TestQianwenRealtimeAuthenticationAndHandshakeAdmission(t *testing.T) {
 	for _, tt := range []struct {

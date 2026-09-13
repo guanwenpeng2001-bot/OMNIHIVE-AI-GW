@@ -12,6 +12,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	ws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
@@ -156,14 +157,15 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	defer conn.CloseNow()
 	reqLog := requestLogger(c, "handler.qianwen_realtime")
 	receipts := map[string]bool{}
+	turn := 0
 	err = service.RelayQianwenRealtime(ctx, conn, upstream, service.QianwenRealtimeCallbacks{
 		BeforeCommit: func(turnCtx context.Context, text string) error {
 			if err := eligible(turnCtx); err != nil {
 				return errors.New("Realtime billing eligibility rejected")
 			}
-			audit, _ := json.Marshal(gin.H{"model": model, "messages": []any{gin.H{"role": "user", "content": text}}})
-			if decision := h.checkSecurityAudit(c, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit); decision != nil && !decision.AllowNextStage {
-				return errors.New("Realtime content rejected by security audit")
+			turn++
+			if err := h.auditQianwenRealtimeTurn(turnCtx, c, reqLog, key, subject, model, text, turn); err != nil {
+				return err
 			}
 			if err := h.upstreamJobs.MarkQianwenRealtimePending(turnCtx, session.PublicRequestID); err != nil {
 				return err
@@ -195,4 +197,22 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	if err != nil {
 		_ = conn.Close(ws.StatusPolicyViolation, "Realtime session ended; inspect session and turn receipts")
 	}
+}
+
+func (h *OpenAIGatewayHandler) auditQianwenRealtimeTurn(ctx context.Context, c *gin.Context, reqLog *zap.Logger, key *service.APIKey, subject middleware2.AuthSubject, model, text string, turn int) error {
+	// HTTP audit completion is request-scoped; a realtime request contains many
+	// turns. Use the established WS stage and bind moderation to the relay's
+	// deadline without mutating the original Gin request context.
+	auditContext := c.Copy()
+	auditContext.Request = c.Request.WithContext(ctx)
+	auditContext.Set(securityAuditWSTurnContextKey, turn)
+	stage := "subsequent_turn"
+	if turn == 1 {
+		stage = "first_turn"
+	}
+	audit, _ := json.Marshal(gin.H{"model": model, "messages": []any{gin.H{"role": "user", "content": text}}})
+	if decision := h.checkSecurityAuditStage(auditContext, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit, stage); decision != nil && !decision.AllowNextStage {
+		return errors.New("Realtime content rejected by security audit")
+	}
+	return nil
 }
