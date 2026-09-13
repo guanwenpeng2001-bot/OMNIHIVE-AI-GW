@@ -6,6 +6,7 @@ import (
 	"context"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -13,7 +14,7 @@ import (
 )
 
 func TestQianwenNativeImageForwardAndCharge(t *testing.T) {
-	for _, model := range []string{"qwen-image-plus", "qwen-image-edit-plus"} {
+	for _, model := range []string{"qwen-image-2.0", "qwen-image-edit-plus"} {
 		t.Run(model, func(t *testing.T) {
 			response := `{"request_id":"image-native","output":{"choices":[{"message":{"content":[{"image":"https://example.com/1.png"},{"image":"https://example.com/2.png"}]},"finish_reason":"stop"}]},"usage":{"image_count":2,"width":1328,"height":1328}}`
 			upstream := &httpUpstreamRecorder{resp: qianwenModelPage(response, 200)}
@@ -36,6 +37,9 @@ func TestQianwenNativeImageForwardAndCharge(t *testing.T) {
 			require.Equal(t, "https://example.com/input.png", gjson.GetBytes(upstream.bodies[0], "input.messages.0.content.1.image").String())
 			require.Empty(t, upstream.requests[0].Header.Get("X-DashScope-Async"))
 			require.Empty(t, upstream.requests[0].Header.Get("X-DashScope-SSE"))
+			deadline, bounded := upstream.requests[0].Context().Deadline()
+			require.True(t, bounded)
+			require.LessOrEqual(t, time.Until(deadline), qianwenNativeImageTimeout)
 
 			repo := &openAIRecordUsageLogRepoStub{inserted: true}
 			billing := newOpenAIRecordUsageServiceForTest(repo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)

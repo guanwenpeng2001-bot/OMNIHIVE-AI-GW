@@ -15,6 +15,7 @@ import (
 )
 
 const qianwenNativeMaxFrame = 8 << 20
+const qianwenNativeImageTimeout = 3 * time.Minute
 
 // observeQianwenNative preserves cumulative usage (also for incremental text).
 // Missing usage in a later frame never erases tokens already observed.
@@ -52,6 +53,13 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		return nil, err
 	}
 	image := IsQianwenNativeImageModel(account.GetMappedModel(model))
+	if image {
+		// Bound the whole synchronous operation, including reading a stalled body,
+		// so a live client cannot hold its user/account slots indefinitely.
+		var imageCancel context.CancelFunc
+		ctx, imageCancel = context.WithTimeout(ctx, qianwenNativeImageTimeout)
+		defer imageCancel()
+	}
 	var thinking *bool
 	if !image {
 		body, thinking, err = prepareQianwenThinking(body, body, account.GetMappedModel(model), "parameters.enable_thinking")
