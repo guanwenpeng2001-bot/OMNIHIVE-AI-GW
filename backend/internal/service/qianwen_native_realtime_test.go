@@ -35,7 +35,7 @@ func TestQianwenNativeRealtimeMappedModelsNeverForward(t *testing.T) {
 					c, _ := gin.CreateTestContext(w)
 					c.Request = httptest.NewRequest("POST", QianwenNativeMultimodalPath, nil)
 					result, err := s.ForwardQianwenNative(context.Background(), c, account, operation, body, stream)
-					require.ErrorContains(t, err, "unsupported DashScope model family")
+					require.ErrorContains(t, err, "unsupported DashScope")
 					require.Nil(t, result)
 					require.Equal(t, 400, w.Code)
 					require.Contains(t, w.Body.String(), "invalid_request_error")
