@@ -121,6 +121,7 @@ func ProvideGatewayHandler(
 
 func ProvideOpenAIGatewayHandler(
 	gatewayService *service.OpenAIGatewayService,
+	upstreamJobs *service.UpstreamJobService,
 	pluginManager *service.PluginManager,
 	concurrencyService *service.ConcurrencyService,
 	billingCacheService *service.BillingCacheService,
@@ -138,6 +139,7 @@ func ProvideOpenAIGatewayHandler(
 		usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, cfg)
 	h.securityAuditCoordinator = coordinator
 	h.grokMediaEligibilityProber = grokQuotaService
+	h.upstreamJobs = upstreamJobs
 	return h
 }
 

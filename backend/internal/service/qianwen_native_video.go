@@ -12,8 +12,6 @@ import (
 // In particular, the adjacent 3d-generation endpoint is a different family.
 const QianwenNativeVideoPath = "/api/v1/services/aigc/video-generation/video-synthesis"
 
-const QianwenNativeVideoUnsupported = "Unsupported DashScope operation: asynchronous video generation/editing requires durable task ownership, restart-safe polling and idempotent terminal billing with an explicit model/resolution tariff"
-
 // rejectQianwenNativeAsyncResponse prevents an accepted but unowned job from
 // being returned as a successful synchronous conversation with zero token usage.
 // This check also covers a configured text alias unexpectedly returning a video

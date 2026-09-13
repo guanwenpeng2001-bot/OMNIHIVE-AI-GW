@@ -11,7 +11,7 @@ import (
 
 // QianwenNative exposes conversations and synchronous Qwen image generation/editing.
 func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
-	if h.rejectQianwenNativeVideo(c) {
+	if h.handleQianwenNativeVideo(c) {
 		return
 	}
 	if h.rejectQianwenNativeRealtime(c) {

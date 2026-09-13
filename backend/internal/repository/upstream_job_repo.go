@@ -1,0 +1,121 @@
+package repository
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+)
+
+type upstreamJobRepository struct{ db *sql.DB }
+
+func NewUpstreamJobRepository(db *sql.DB) service.UpstreamJobRepository {
+	return &upstreamJobRepository{db: db}
+}
+
+func scanUpstreamJob(row interface{ Scan(...any) error }) (*service.UpstreamJob, error) {
+	var raw []byte
+	if err := row.Scan(&raw); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, service.ErrUpstreamJobNotFound
+		}
+		return nil, err
+	}
+	var j service.UpstreamJob
+	if err := json.Unmarshal(raw, &j); err != nil {
+		return nil, err
+	}
+	return &j, nil
+}
+
+func (r *upstreamJobRepository) Create(ctx context.Context, j *service.UpstreamJob) (*service.UpstreamJob, bool, error) {
+	snapshot, err := json.Marshal(j.Billing)
+	if err != nil {
+		return nil, false, err
+	}
+	row := r.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS j
+ (public_request_id,request_fingerprint,platform,family,account_id,user_id,api_key_id,group_id,submitted_at,next_poll_at,expires_at,billing_snapshot,submission_key)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12)
+ ON CONFLICT DO NOTHING RETURNING row_to_json(j)`, j.PublicRequestID, j.RequestFingerprint, j.Platform, j.Family, j.AccountID, j.UserID, j.APIKeyID, j.GroupID, j.SubmittedAt, j.ExpiresAt, string(snapshot), j.SubmissionKey)
+	created, err := scanUpstreamJob(row)
+	if errors.Is(err, service.ErrUpstreamJobNotFound) {
+		existing, err := scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE submission_key=$1`, j.SubmissionKey))
+		return existing, false, err
+	}
+	return created, err == nil, err
+}
+
+func (r *upstreamJobRepository) Get(ctx context.Context, id string, userID, keyID int64) (*service.UpstreamJob, error) {
+	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
+}
+func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	if limit <= 0 || limit > 100 {
+		limit = 20
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT public_request_id FROM upstream_jobs WHERE status IN ('submitted','running') AND next_poll_at<=$1 AND upstream_task_id<>'' ORDER BY next_poll_at,id LIMIT $2`, now, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn func(*service.UpstreamJob, service.UpstreamJobTx) error) (*service.UpstreamJob, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback()
+	j, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE public_request_id=$1 FOR UPDATE`, id))
+	if err != nil {
+		return nil, err
+	}
+	if err = fn(j, &upstreamJobTx{tx: tx}); err != nil {
+		return nil, err
+	}
+	var usage any
+	if len(j.UsageJSON) > 0 {
+		usage = string(j.UsageJSON)
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12 WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage)
+	if err != nil {
+		return nil, err
+	}
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return j, nil
+}
+func (r *upstreamJobRepository) Expire(ctx context.Context, now time.Time) (int64, error) {
+	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET status='expired',finished_at=$1,error_code='expired',error_message='Task expired' WHERE status IN ('submitted','running') AND expires_at<=$1`, now)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
+type upstreamJobTx struct{ tx *sql.Tx }
+
+func (t *upstreamJobTx) Charge(ctx context.Context, log *service.UsageLog, cmd *service.UsageBillingCommand) error {
+	// Reuse the canonical insert shape and billing effects on THIS transaction.
+	// Job lock + anchor guard the whole operation; no best-effort worker is used.
+	inserted, err := (&usageLogRepository{}).createSingle(ctx, t.tx, log)
+	if err != nil {
+		return err
+	}
+	if !inserted {
+		return errors.New("unexpected existing usage log for unsettled job")
+	}
+	cmd.Normalize()
+	return (&usageBillingRepository{}).applyUsageBillingEffects(ctx, t.tx, cmd, &service.UsageBillingApplyResult{Applied: true})
+}
