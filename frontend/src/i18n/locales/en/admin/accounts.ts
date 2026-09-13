@@ -1,5 +1,21 @@
 export default {
     accounts: {
+      createAdvancedScope: "These overrides apply to standard account creation and manual OAuth/token entry. Codex session, Agent Identity and PAT import use dedicated import APIs; configure overrides by editing the imported account.",
+      qianwenPricing: {
+        "title": "Sync Qianwen native pricing",
+        "hint": "Beijing CNY pricing only. Enter an operations-approved USD per CNY exchange rate (the inverse of CNY per USD), its approval/source and effective time. Preview saves an account source snapshot; apply fetches again and writes supported prices only to a Qianwen group bound solely to this account.",
+        "rate": "Exchange rate (USD for 1 CNY) — required",
+        "source": "FX source / approval reference — required",
+        "effective": "FX effective time (local time) — required",
+        "group": "Target single-account Qianwen group ID (required to apply)",
+        "preview": "Preview prices",
+        "apply": "Apply to group",
+        "ready": "Success",
+        "unsupported": "Unsupported",
+        "failed": "Pricing sync failed",
+        "counts": "Supported: {imported}; actually written: {written}; group: {group}",
+        "details": "Source, FX and per-model prices / reasons"
+},
       newPlatforms: {
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",

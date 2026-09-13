@@ -255,6 +255,7 @@ const perplexityModels = [
 // 所有模型（去重）
 const allModelsList: string[] = [
   'qwen-flash', 'qwen3.7-max', 'gpt-5.6-luna', 'Qwen/Qwen3.7-Max', 'claude-sonnet-5',
+  ...cursorModels,
   ...openaiModels,
   ...claudeModels,
   ...geminiModels,
@@ -276,7 +277,7 @@ const allModelsList: string[] = [
 ]
 
 // 转换为下拉选项格式
-export const allModels = allModelsList.map(m => ({ value: m, label: m }))
+export const allModels = [...new Set(allModelsList)].map(m => ({ value: m, label: m }))
 
 // =====================
 // 预设映射

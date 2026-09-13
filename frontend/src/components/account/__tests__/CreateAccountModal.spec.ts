@@ -214,6 +214,36 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('persists a create-time scheduling override and image-tool policy on API keys', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Configured account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="create-scheduling-threshold"]').setValue(72)
+    const vm = wrapper.vm as unknown as { createImageTool: string }
+    vm.createImageTool = 'block'
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ credentials: { account_scheduling_threshold: 72 }, extra: { codex_image_generation_explicit_tool_policy: 'strip' } })
+    wrapper.unmount()
+  })
+
+  it('shows only one AI Studio tier selector and saves its chosen value', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Gemini')
+    await selectButtonByText(wrapper, 'admin.accounts.gemini.accountType.apiKeyTitle')
+    const tierSelects = wrapper.findAll('select').filter(select => select.find('option[value="aistudio_free"]').exists())
+    expect(tierSelects).toHaveLength(1)
+    await tierSelects[0]!.setValue('aistudio_paid')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Gemini paid')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0].credentials.tier_id).toBe('aistudio_paid')
+    wrapper.unmount()
+  })
+
   it('creates Cursor auto with tokens and required machine IDs', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="cursor-platform"]').trigger('click')

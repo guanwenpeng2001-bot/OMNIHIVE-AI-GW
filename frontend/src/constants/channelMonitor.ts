@@ -32,7 +32,7 @@ export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com'
 export const DEFAULT_MINIMAX_ENDPOINT = 'https://api.minimaxi.com'
 export const DEFAULT_OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
 
-export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE]
+export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE, PROVIDER_MINIMAX, PROVIDER_OPENCODE_GO]
 export const DEFAULT_QIANWEN_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
 export const DEFAULT_COMMANDCODE_ENDPOINT = 'https://api.commandcode.ai/provider/v1'
 export const PROVIDER_DEFAULT_MODELS: Partial<Record<Provider, string>> = { qianwen: 'qwen-flash', commandcode: 'gpt-5.6-luna' }

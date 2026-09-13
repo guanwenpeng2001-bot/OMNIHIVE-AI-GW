@@ -84,6 +84,16 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 }
 
 describe('ModelWhitelistSelector', () => {
+  it('keeps Cursor-exclusive models when platforms are mixed', async () => {
+    const wrapper = mountSelector({ platform: undefined, platforms: ['cursor', 'openai'] })
+    await wrapper.get('div.cursor-pointer').trigger('click')
+    expect(findModelRow(wrapper, 'default').exists()).toBe(true)
+    expect(findModelRow(wrapper, 'muse-spark-1.3').exists()).toBe(true)
+    await findModelRow(wrapper, 'default').get('[data-testid="select-model"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toContain('default')
+    wrapper.unmount()
+  })
+
   it('offers the Cursor fallback and live picker IDs and fills the live catalog', async () => {
     getAvailableModels.mockResolvedValueOnce([{ id: 'cursor-future-model', display_name: 'Future' }])
     const wrapper = mountSelector({ platform: 'cursor', accountId: 42 })
