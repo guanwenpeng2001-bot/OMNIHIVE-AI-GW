@@ -575,3 +575,48 @@ func TestSyncPreviewErrorReasons(t *testing.T) {
 		})
 	}
 }
+
+func TestSyncQianwenNativeCatalogPersistsMapping(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
+		ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "secret", "model_mapping": map[string]any{"qwen-plus": "custom-target", "alias": "qwen-plus"}},
+	}}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":3,"page_no":1,"models":[{"model":"qwen-plus"},{"model":"ZHIPU/GLM-5.3-Flash"},{"model":"wanx-3d"}]}}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
+	}}
+	router := setupSyncUpstreamModelsRouter(svc, upstream)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, 1, svc.updateAccountCalls)
+	require.Equal(t, map[string]any{"qwen-plus": "custom-target", "alias": "qwen-plus", "ZHIPU/GLM-5.3-Flash": "ZHIPU/GLM-5.3-Flash", "wanx-3d": "wanx-3d"}, svc.lastUpdateAccountInput.Credentials["model_mapping"])
+	require.Equal(t, "secret", svc.lastUpdateAccountInput.Credentials["api_key"])
+	require.NotContains(t, w.Body.String(), "secret")
+}
+
+func TestSyncQianwenCatalogDoesNotPersistIncompletePages(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "secret"}}}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"first"}]}}`))},
+		{StatusCode: 503, Body: io.NopCloser(strings.NewReader(`private upstream body`))},
+	}}
+	w := httptest.NewRecorder()
+	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	require.Equal(t, 502, w.Code, w.Body.String())
+	require.Zero(t, svc.updateAccountCalls)
+	require.NotContains(t, w.Body.String(), "private upstream body")
+}
+
+func TestSyncQianwenCatalogPersistenceFailure(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "secret"}}}
+	svc.updateAccountErr = io.ErrClosedPipe
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"qwen-plus"}]}}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
+	}}
+	w := httptest.NewRecorder()
+	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	require.Equal(t, 500, w.Code, w.Body.String())
+	require.Equal(t, 1, svc.updateAccountCalls)
+}
