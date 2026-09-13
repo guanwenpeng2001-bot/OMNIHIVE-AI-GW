@@ -333,6 +333,10 @@ const codexManifestContext = computed(() => {
 // Reset tabs when platform changes
 const defaultClientTab = computed(() => {
   switch (props.platform) {
+    case 'qianwen':
+    case 'commandcode':
+    case 'cursor':
+      return 'codex'
     case 'openai':
       return 'codex'
     case 'grok':
@@ -468,6 +472,9 @@ const clientTabs = computed((): TabConfig[] => {
         { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'opencode', label: t('keys.useKeyModal.cliTabs.opencode'), icon: TerminalIcon }
       ]
+    case 'qianwen':
+    case 'commandcode':
+    case 'cursor':
     case 'deepseek':
     case 'minimax':
     case 'composite':
@@ -514,6 +521,9 @@ const currentTabs = computed(() => {
 })
 
 const platformDescription = computed(() => {
+  if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
+    return t(`admin.accounts.newPlatforms.${props.platform}Description`)
+  }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -558,6 +568,9 @@ const platformDescription = computed(() => {
 })
 
 const platformNote = computed(() => {
+  if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
+    return t(`admin.accounts.newPlatforms.${props.platform}Note`)
+  }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
     props.platform !== 'grok' &&
@@ -614,7 +627,7 @@ const platformNote = computed(() => {
   }
 })
 
-const showPlatformNote = computed(() => activeClientTab.value !== 'opencode')
+const showPlatformNote = computed(() => activeClientTab.value !== 'opencode' || ['qianwen', 'commandcode', 'cursor'].includes(props.platform || ''))
 
 function resetCodexModelManifest() {
   codexModelManifestController?.abort()
@@ -1237,6 +1250,9 @@ function generateRoutedCodexFiles(
     deepseek: 'deepseek-v4-pro',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
+    qianwen: 'qwen-flash',
+    commandcode: 'gpt-5.6-luna',
+    cursor: 'default',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''
@@ -1252,6 +1268,8 @@ function generateRoutedCodexFiles(
     deepseek: 'DeepSeek',
     minimax: 'MiniMax',
     opencode_go: 'OpenCode',
+    qianwen: '千问AI',
+    commandcode: 'Command Code',
     cursor: 'Cursor',
     composite: 'Composite'
   }

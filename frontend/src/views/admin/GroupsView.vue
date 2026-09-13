@@ -1830,7 +1830,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'grok', 'composite', 'cursor'].includes(
+            platformSupportsOAuth(
               createForm.platform,
             )
           "
@@ -3479,7 +3479,7 @@
         <!-- 账号过滤控制 (OpenAI/Antigravity/Anthropic/Gemini) -->
         <div
           v-if="
-            ['openai', 'antigravity', 'anthropic', 'gemini', 'grok', 'composite', 'cursor'].includes(
+            platformSupportsOAuth(
               editForm.platform,
             )
           "
@@ -4285,6 +4285,7 @@ import type {
 import {
   CONCRETE_PLATFORM_OPTIONS,
   GROUP_PLATFORM_OPTIONS,
+  platformSupportsOAuth,
 } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
@@ -6686,7 +6687,7 @@ watch(
       newVal,
     );
     createReasoningEffortPolicyRef.value?.resetValidation();
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!platformSupportsOAuth(newVal)) {
       createForm.require_oauth_only = false;
       createForm.require_privacy_set = false;
     }
@@ -6743,7 +6744,7 @@ watch(
       newVal,
     );
     editReasoningEffortPolicyRef.value?.resetValidation();
-    if (!["openai", "antigravity", "anthropic", "gemini"].includes(newVal)) {
+    if (!platformSupportsOAuth(newVal)) {
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
     }
