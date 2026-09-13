@@ -41,8 +41,13 @@ func isQianwenNativeAudioFamily(model string) bool {
 }
 
 func canonicalQianwenAudioBody(body []byte) []byte {
+	if !json.Valid(body) {
+		return body
+	}
 	var value any
-	if json.Unmarshal(body, &value) != nil {
+	decoder := json.NewDecoder(strings.NewReader(string(body)))
+	decoder.UseNumber()
+	if decoder.Decode(&value) != nil {
 		return body
 	}
 	canonical, _ := json.Marshal(value)

@@ -92,6 +92,7 @@ func TestQianwenNativeAudioFailClosed(t *testing.T) {
 		strings.Replace(audioASRRequest, `"audio"`, `"image"`, 1),
 		strings.Replace(audioASRRequest, `"user"`, `"assistant"`, 1),
 		`{"model":"qwen3-tts-flash","input":{"text":"ok","voice":"Cherry"},"input":{"text":"","voice":"Cherry"}}`,
+		`{"model":"qwen3-tts-flash","unknown":1e400,"input":{"text":"ok","voice":"Cherry"},"input":{"text":"","voice":"Cherry"}}`,
 	} {
 		_, err := ParseQianwenNativeBody([]byte(body))
 		require.Error(t, err, body)
@@ -128,6 +129,7 @@ func TestQianwenNativeAudioMissingPriceNeverCallsUpstream(t *testing.T) {
 func TestQianwenNativeAudioInvalidResponses(t *testing.T) {
 	for _, tc := range []struct{ model, body string }{
 		{"qwen3-tts-flash", `not-json`},
+		{"qwen3-tts-flash", audioTTSResponse + `garbage`},
 		{"qwen3-tts-flash", `{"code":"InvalidParameter"}`},
 		{"qwen3-tts-flash", `{"output":{"task_id":"unowned","task_status":"PENDING"}}`},
 		{"qwen3-tts-flash", strings.Replace(audioTTSResponse, `"characters":3`, `"characters":0`, 1)},
