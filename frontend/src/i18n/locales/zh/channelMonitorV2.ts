@@ -1,6 +1,7 @@
 /** Channel Monitor V2 (user + admin passive monitor UI) */
 export default {
   channelMonitorV2: {
+    cursorProbeUnsupported: 'Cursor 不支持监控探针（需原生协议），可用账号页用量窗口查看。',
     title: '渠道监控',
     updating: '正在更新数据',
     updatedTo: '更新至 {time}',

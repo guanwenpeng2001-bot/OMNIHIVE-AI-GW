@@ -755,6 +755,21 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('enables the billing probe for Cursor upstream relays and submits the setting', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['cursor'], selectedTypes: ['upstream'] })
+    await wrapper.get('#bulk-edit-upstream-billing-auto-probe-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { upstream_billing_probe_enabled: true })
+    wrapper.unmount()
+  })
+
+  it.each(['oauth', 'cursor', 'unknown'])('excludes unsupported Cursor identity %s', (type) => {
+    const wrapper = mountModal({ selectedPlatforms: ['cursor'], selectedTypes: [type] })
+    expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it.each([['cursor'], ['openai', 'cursor']])('hides billing probe controls for Cursor selection %j', (...selectedPlatforms) => {
     const wrapper = mountModal({ selectedPlatforms, selectedTypes: ['apikey'] })
     expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
