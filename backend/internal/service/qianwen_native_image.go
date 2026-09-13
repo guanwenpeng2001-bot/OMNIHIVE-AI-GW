@@ -13,6 +13,8 @@ func IsQianwenNativeImageModel(model string) bool {
 	switch model {
 	case "qwen-image", "qwen-image-plus", "qwen-image-max", "qwen-image-max-2025-12-30",
 		"qwen-image-plus-2026-01-09", "qwen-image-2.0", "qwen-image-2.0-pro",
+		"qwen-image-2.0-2026-03-03", "qwen-image-2.0-pro-2026-03-03",
+		"qwen-image-2.0-pro-2026-04-22", "qwen-image-2.0-pro-2026-06-22",
 		"qwen-image-edit", "qwen-image-edit-plus", "qwen-image-edit-max",
 		"qwen-image-edit-plus-2025-12-15", "qwen-image-edit-plus-2025-10-30",
 		"qwen-image-edit-max-2026-01-16":
@@ -25,6 +27,9 @@ func IsQianwenNativeImageModel(model string) bool {
 func ValidateQianwenNativeOperation(operation QianwenNativeOperation, model string, body []byte, stream bool) error {
 	if !IsQianwenNativeImageModel(model) {
 		if strings.HasPrefix(model, "qwen-image") || strings.HasPrefix(model, "wan") ||
+			strings.HasPrefix(model, "z-image") || strings.HasPrefix(model, "tripo") ||
+			strings.HasPrefix(model, "cosyvoice") || strings.HasPrefix(model, "fun-") ||
+			strings.HasPrefix(model, "qwen-voice") ||
 			strings.Contains(model, "tts") || strings.Contains(model, "omni") ||
 			strings.Contains(model, "audio") || strings.Contains(model, "realtime") {
 			return fmt.Errorf("unsupported DashScope model family: %s", model)

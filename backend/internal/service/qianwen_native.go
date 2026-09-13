@@ -78,9 +78,9 @@ func ParseQianwenNativeBody(body []byte) (string, error) {
 	return payload.Model, nil
 }
 
-// BuildQianwenNativeRequest implements the verified DashScope conversation
-// endpoints. Other native families deliberately fail closed: video/image jobs,
-// speech, realtime and agents require their own lifecycle and billing adapters.
+// BuildQianwenNativeRequest implements conversations and synchronous Qwen images.
+// Other native families fail closed: asynchronous jobs, speech, realtime and
+// agents require their own lifecycle and billing adapters.
 // The gateway caller owns scheduling, response streaming and usage accounting.
 func (s *OpenAIGatewayService) BuildQianwenNativeRequest(ctx context.Context, account *Account, operation QianwenNativeOperation, body []byte, stream bool) (*http.Request, error) {
 	if s == nil || account == nil || account.Platform != PlatformQianwen || account.Type != AccountTypeAPIKey {
