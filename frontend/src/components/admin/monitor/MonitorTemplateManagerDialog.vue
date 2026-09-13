@@ -253,6 +253,8 @@ import {
   PROVIDER_KIMI,
   PROVIDER_ZHIPU,
   PROVIDER_DEEPSEEK,
+  PROVIDER_QIANWEN,
+  PROVIDER_COMMANDCODE,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   PROVIDERS,
@@ -280,6 +282,8 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
   { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
   { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
   { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
+  { value: PROVIDER_QIANWEN, label: t('monitorCommon.providers.qianwen') },
+  { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
   { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
 ])

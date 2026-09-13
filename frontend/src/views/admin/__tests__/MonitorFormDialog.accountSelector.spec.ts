@@ -373,4 +373,19 @@ describe('MonitorFormDialog linked account selector', () => {
       account_id: null,
     }))
   })
+  it.each([
+    ['qianwen', 'qwen-flash', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
+    ['commandcode', 'gpt-5.6-luna', 'https://api.commandcode.ai/provider/v1'],
+  ])('prefills %s inference and disables quota modes', async (provider, model, endpoint) => {
+    const wrapper = mountDialog()
+    await wrapper.get('[data-testid="monitor-check-mode-quota"]').trigger('click')
+    await wrapper.get(`[data-testid="monitor-provider-${provider}"]`).trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="monitor-primary-model"]').element as HTMLInputElement).value).toBe(model)
+    expect(wrapper.findAll('input').some(input => (input.element as HTMLInputElement).value === endpoint)).toBe(true)
+    for (const mode of ['quota', 'quota_probe']) {
+      expect(wrapper.get(`[data-testid="monitor-check-mode-${mode}"]`).attributes('disabled')).toBeDefined()
+    }
+  })
+
 })

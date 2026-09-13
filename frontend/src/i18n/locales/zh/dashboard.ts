@@ -478,6 +478,8 @@ export default {
       kimi: 'Kimi',
       zhipu: '智谱 GLM',
       deepseek: 'DeepSeek',
+      qianwen: '千问AI',
+      commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
       opencode_go: 'OpenCode'

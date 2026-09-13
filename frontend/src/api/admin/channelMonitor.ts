@@ -14,6 +14,8 @@ export type Provider =
   | 'kimi'
   | 'zhipu'
   | 'deepseek'
+  | 'qianwen'
+  | 'commandcode'
   | 'minimax'
   | 'opencode_go'
 export type MonitorStatus = 'operational' | 'degraded' | 'failed' | 'error'

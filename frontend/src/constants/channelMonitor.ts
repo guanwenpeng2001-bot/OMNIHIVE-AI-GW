@@ -17,6 +17,8 @@ export const PROVIDER_ANTIGRAVITY: Provider = 'antigravity'
 export const PROVIDER_KIMI: Provider = 'kimi'
 export const PROVIDER_ZHIPU: Provider = 'zhipu'
 export const PROVIDER_DEEPSEEK: Provider = 'deepseek'
+export const PROVIDER_QIANWEN: Provider = 'qianwen'
+export const PROVIDER_COMMANDCODE: Provider = 'commandcode'
 export const PROVIDER_MINIMAX: Provider = 'minimax'
 export const PROVIDER_OPENCODE_GO: Provider = 'opencode_go'
 
@@ -29,6 +31,11 @@ export const DEFAULT_ZHIPU_ENDPOINT = 'https://open.bigmodel.cn'
 export const DEFAULT_DEEPSEEK_ENDPOINT = 'https://api.deepseek.com'
 export const DEFAULT_MINIMAX_ENDPOINT = 'https://api.minimaxi.com'
 export const DEFAULT_OPENCODE_GO_ENDPOINT = 'https://opencode.ai/zen/go/v1'
+
+export const PROBE_ONLY_PROVIDERS: readonly Provider[] = [PROVIDER_QIANWEN, PROVIDER_COMMANDCODE]
+export const DEFAULT_QIANWEN_ENDPOINT = 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+export const DEFAULT_COMMANDCODE_ENDPOINT = 'https://api.commandcode.ai/provider/v1'
+export const PROVIDER_DEFAULT_MODELS: Partial<Record<Provider, string>> = { qianwen: 'qwen-flash', commandcode: 'gpt-5.6-luna' }
 
 export const CHECK_MODE_PROBE: CheckMode = 'probe'
 export const CHECK_MODE_QUOTA: CheckMode = 'quota'
@@ -46,6 +53,8 @@ export const PROVIDERS: readonly Provider[] = [
   PROVIDER_KIMI,
   PROVIDER_ZHIPU,
   PROVIDER_DEEPSEEK,
+  PROVIDER_QIANWEN,
+  PROVIDER_COMMANDCODE,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
 ]
