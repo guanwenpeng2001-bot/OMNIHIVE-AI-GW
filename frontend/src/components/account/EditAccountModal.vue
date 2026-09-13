@@ -133,44 +133,62 @@
         <!-- Account Mode Selection (CN providers) -->
         <div v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode', 'qianwen'].includes(account.platform)">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-          <div class="mt-2 flex flex-wrap gap-2">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode">
             <button
               v-for="opt in cnAccountModeOptions"
               :key="opt.value"
               type="button"
+              :aria-pressed="editAccountMode === opt.value"
               :class="[
-                'rounded-lg border-2 px-3 py-1.5 text-xs transition-all',
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editAccountMode === opt.value
-                  ? 'border-primary-500 bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                  : 'border-gray-200 text-gray-700 hover:border-gray-400 dark:border-dark-600 dark:text-gray-300 dark:hover:border-gray-600'
+                  ? cnAccentActiveClass
+                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
               ]"
               @click="editAccountMode = opt.value"
             >
-              {{ t(`admin.accounts.cnProviders.accountMode.${opt.labelKey}`) }}
+              <div :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                editAccountMode === opt.value ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]">
+                <Icon :name="opt.value === 'payg' ? 'creditCard' : 'bolt'" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cnProviders.accountMode.${opt.labelKey}`) }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cnProviders.accountMode.${opt.labelKey}Desc`) }}</span>
+              </div>
             </button>
           </div>
-          <p class="input-hint">{{ t(`admin.accounts.cnProviders.accountMode.${editAccountMode}Desc`) }}</p>
         </div>
         <!-- API Protocol Selection (CN providers / OpenCode) -->
         <div v-if="isCNApiKeyAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
-          <div class="mt-2 flex flex-wrap gap-2">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="edit-apiProtocol">
             <button
               v-for="opt in cnProtocolOptions"
               :key="opt.value"
               type="button"
+              :aria-pressed="editApiProtocol === opt.value"
               :class="[
-                'rounded-lg border-2 px-3 py-1.5 text-xs transition-all',
+                'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editApiProtocol === opt.value
-                  ? 'border-primary-500 bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                  : 'border-gray-200 text-gray-700 hover:border-gray-400 dark:border-dark-600 dark:text-gray-300 dark:hover:border-gray-600'
+                  ? cnAccentActiveClass
+                  : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
               ]"
               @click="editApiProtocol = opt.value"
             >
-              {{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}`) }}
+              <div :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                editApiProtocol === opt.value ? cnAccentIconClass : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]">
+                <Icon :name="opt.value === 'adaptive' ? 'swap' : opt.value === 'anthropic' ? 'sparkles' : opt.value === 'responses' ? 'terminal' : 'chat'" size="sm" />
+              </div>
+              <div>
+                <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}`) }}</span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}Desc`) }}</span>
+              </div>
             </button>
           </div>
-          <p class="input-hint">{{ t(`admin.accounts.cnProviders.apiProtocol.${cnProtocolDescKey}Desc`) }}</p>
         </div>
         <NewPlatformNotice :platform="account.platform" :api-key="editApiKey || String(account.credentials?.api_key || '')" />
         <OpenCodeGoProtocolRulesEditor
@@ -3248,6 +3266,38 @@ const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 // 存储版 base_url（可能是用户自定义/中转地址）覆盖为官方预设并在下次保存时持久化。
 // nextTick 后解除，此后用户主动切换模式/协议仍正常联动重置。
 const syncingForm = ref(false)
+const cnAccentActiveClass = computed(() => {
+  switch (props.account?.platform) {
+    case 'kimi':
+      return 'border-pink-500 bg-pink-50 dark:bg-pink-900/20'
+    case 'zhipu':
+      return 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
+    case 'deepseek':
+      return 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
+    case 'minimax':
+      return 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
+    case 'opencode_go':
+      return 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+    default:
+      return 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+  }
+})
+const cnAccentIconClass = computed(() => {
+  switch (props.account?.platform) {
+    case 'kimi':
+      return 'bg-pink-500 text-white'
+    case 'zhipu':
+      return 'bg-indigo-500 text-white'
+    case 'deepseek':
+      return 'bg-teal-500 text-white'
+    case 'minimax':
+      return 'bg-rose-500 text-white'
+    case 'opencode_go':
+      return 'bg-amber-500 text-white'
+    default:
+      return 'bg-primary-500 text-white'
+  }
+})
 const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'payg' | 'coding' }>>(
   () => {
     // DeepSeek 无 coding 套餐（与创建弹窗一致），仅保留按量付费。
@@ -3340,9 +3390,6 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
     editOpenCodeGoProtocolRules.value = cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(mode))
   }
 })
-const cnProtocolDescKey = computed(
-  () => cnProtocolOptions.value.find(o => o.value === editApiProtocol.value)?.labelKey ?? 'chatCompletions'
-)
 // 点击预设端点：回填 base url 与对应模式/协议。
 function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
   editAccountMode.value = preset.mode

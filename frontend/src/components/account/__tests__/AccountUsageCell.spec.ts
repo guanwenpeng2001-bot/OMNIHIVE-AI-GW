@@ -91,6 +91,27 @@ const cnUsageCellStubs = {
 
 describe('AccountUsageCell', () => {
 
+  it.each(['commandcode', 'qianwen'] as const)('explains local-only usage for %s with and without traffic', async (platform) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform, type: 'apikey' }) }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toBe('admin.accounts.usageWindow.noUpstreamUsageApi')
+    expect(wrapper.text()).not.toBe('-')
+    expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)
+    expect(getUsage).not.toHaveBeenCalled()
+    await wrapper.setProps({ todayStats: { requests: 12, tokens: 1200, cost: 2.5, user_cost: 3 } })
+    expect(wrapper.text()).toContain('12 req')
+    expect(wrapper.text()).toContain('A $2.50')
+    expect(wrapper.text()).toContain('U $3.00')
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    await wrapper.setProps({ todayStats: null, todayStatsLoading: true })
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    await wrapper.setProps({ account: makeAccount({ platform: 'openai', type: 'apikey' }), todayStatsLoading: false })
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it.each(['oauth', 'apikey'] as const)('queries Cursor monthly usage for %s accounts', async (type) => {
     getUsage.mockResolvedValue({ cursor_monthly: { start_of_month: null, resets_at: null, models: { 'gpt-4': { numRequests: 2, numRequestsTotal: 3, numTokens: 70, maxTokenUsage: null, maxRequestUsage: null } } } })
     const account = makeAccount({ id: type === 'oauth' ? 97001 : 97002, platform: 'cursor', type })

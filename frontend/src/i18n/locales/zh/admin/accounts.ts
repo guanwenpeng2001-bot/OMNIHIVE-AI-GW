@@ -26,6 +26,9 @@ export default {
         nativeSettingsHint: '原生模式使用固定的上游地址和协议请求头，不支持自定义上游地址或请求头覆写；客户端版本可在上方设置。',
         monthlyUsage: '月用量', unlimited: '未设上限', noUsage: '暂无月用量数据', usageFailed: '月用量查询失败，请重试', requests: '请求', totalRequests: '总请求', tokens: 'Token', periodUnknown: '计费周期未知',
     auto: 'Auto（Token 导入）',
+    autoDesc: '导入 Token 或通过浏览器授权，使用 Cursor 原生接入。',
+    officialDesc: '使用 Cursor 官方 API Key 进行原生接入。',
+    relayDesc: '将 Chat Completions 转发到配置的上游中转。',
     autoHint: '导入两个 Token 和两个 64 位十六进制机器码，或使用下方浏览器授权。',
     machineFormat: '64 位十六进制字符',
     browserAuthorize: '浏览器授权',
@@ -504,6 +507,7 @@ export default {
         }
       },
       usageWindow: {
+        noUpstreamUsageApi: '仅统计今日在本站累计的请求、Token 与成本；该平台上游未提供公开的额度/用量接口。',
         statsTitle: '5小时窗口用量统计',
         statsTitleDaily: '每日用量统计',
         geminiProDaily: 'Pro',

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
+import Icon from '@/components/icons/Icon.vue'
 
 defineProps<{ editing?: boolean }>()
 const mode = defineModel<'official' | 'relay' | 'auto'>('mode', { required: true })
@@ -12,14 +13,37 @@ const { t } = useI18n()
 
 <template>
   <fieldset class="space-y-4">
-    <label class="block">
-      <span class="input-label">{{ t('admin.accounts.cursor.keyMode') }}</span>
-      <select v-model="mode" class="input" :disabled="editing" data-testid="cursor-key-mode">
-        <option value="auto">{{ t('admin.accounts.cursor.auto') }}</option>
-        <option value="official">{{ t('admin.accounts.cursor.official') }}</option>
-        <option value="relay">{{ t('admin.accounts.cursor.relay') }}</option>
-      </select>
-    </label>
+    <div>
+      <span id="cursor-key-mode-label" class="input-label">{{ t('admin.accounts.cursor.keyMode') }}</span>
+      <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="group" aria-labelledby="cursor-key-mode-label" data-testid="cursor-key-mode">
+        <button
+          v-for="option in (['auto', 'official', 'relay'] as const)"
+          :key="option"
+          type="button"
+          :data-testid="`cursor-key-mode-${option}`"
+          :disabled="editing"
+          :aria-pressed="mode === option"
+          :class="[
+            'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50',
+            mode === option
+              ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+              : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+          ]"
+          @click="mode = option"
+        >
+          <div :class="[
+            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+            mode === option ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+          ]">
+            <Icon :name="option === 'auto' ? 'bolt' : option === 'official' ? 'key' : 'swap'" size="sm" />
+          </div>
+          <div>
+            <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cursor.${option}`) }}</span>
+            <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cursor.${option}Desc`) }}</span>
+          </div>
+        </button>
+      </div>
+    </div>
     <div v-if="mode === 'auto'" class="space-y-3">
       <p class="input-hint">{{ t('admin.accounts.cursor.autoHint') }}</p>
       <label v-for="field in ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id']" :key="field" class="block">

@@ -26,6 +26,9 @@ export default {
         nativeSettingsHint: 'Native mode uses fixed upstream endpoints and protocol headers. Custom upstream URLs and header overrides are unavailable; set the client version above.',
         monthlyUsage: 'Monthly usage', unlimited: 'No limit', noUsage: 'No monthly usage data', usageFailed: 'Monthly usage query failed. Retry to refresh.', requests: 'Requests', totalRequests: 'Total requests', tokens: 'Tokens', periodUnknown: 'Billing period unavailable',
     auto: 'Auto (Token import)',
+    autoDesc: 'Import tokens or authorize in a browser for native Cursor access.',
+    officialDesc: 'Use an official Cursor API key for native access.',
+    relayDesc: 'Forward Chat Completions to a configured upstream relay.',
     autoHint: 'Import both tokens and two 64-character hexadecimal machine IDs, or use browser authorization below.',
     machineFormat: '64 hexadecimal characters',
     browserAuthorize: 'Browser authorization',
@@ -1583,6 +1586,7 @@ export default {
         noData: 'No usage data available for this account'
       },
       usageWindow: {
+        noUpstreamUsageApi: 'Today’s local requests, tokens and cost only. This provider does not offer a public quota/usage API.',
         statsTitle: '5-Hour Window Usage Statistics',
         statsTitleDaily: 'Daily Usage Statistics',
         geminiProDaily: 'Pro',

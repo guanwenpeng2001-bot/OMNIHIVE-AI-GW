@@ -589,6 +589,11 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
+      <p
+        v-if="hasNoUpstreamUsageApi"
+        data-testid="local-usage-explanation"
+        class="max-w-[240px] whitespace-normal text-[10px] leading-relaxed text-gray-500 dark:text-gray-400"
+      >{{ t('admin.accounts.usageWindow.noUpstreamUsageApi') }}</p>
       <!-- Today stats row (requests, tokens, cost, user_cost) -->
       <div
         v-if="todayStats"
@@ -647,7 +652,7 @@
 
       <!-- No data at all -->
       <div
-        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible"
+        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible && !hasNoUpstreamUsageApi"
         class="text-xs text-gray-400"
       >-</div>
     </div>
@@ -727,6 +732,9 @@ const pendingAutoLoadSource = ref<'passive' | 'active' | undefined>(undefined)
 let desktopViewportMediaQuery: MediaQueryList | null = null
 let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = null
 let visibilityObserver: IntersectionObserver | null = null
+
+// These providers expose no public upstream quota/usage endpoint.
+const hasNoUpstreamUsageApi = computed(() => ['commandcode', 'qianwen'].includes(props.account.platform))
 
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
