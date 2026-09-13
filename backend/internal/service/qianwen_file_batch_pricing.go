@@ -3,6 +3,7 @@ package service
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -95,6 +96,11 @@ func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (*UsageLog, *Usag
 	}
 	actual := QuantizeUsageBillingAmount(total * multiplier)
 	accountCost := QuantizeUsageBillingAmount(total * b.AccountRateMultiplier)
+	for _, cost := range []float64{inputCost, outputCost, total, actual, accountCost} {
+		if cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+			return nil, nil, ErrUpstreamJobUnsupportedUsage
+		}
+	}
 	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, GroupID: j.GroupID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, InputTokens: input, OutputTokens: output, InputCost: inputCost, OutputCost: outputCost, TotalCost: total, ActualCost: actual, RateMultiplier: multiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &accountCost, SubscriptionID: b.SubscriptionID, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, BalanceCost: actual}
 	if b.SubscriptionID != nil {

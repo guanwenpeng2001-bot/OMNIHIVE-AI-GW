@@ -100,6 +100,7 @@ func TestQianwenBatchProductionRejectsUnpricedDimensions(t *testing.T) {
 		strings.ReplaceAll(paidBatchLine, `"enable_thinking":false`, `"stream":true`),
 		strings.ReplaceAll(paidBatchLine, "qwen-long", "qwen-plus"),
 		strings.ReplaceAll(paidBatchLine, `"content":"Hello"`, `"content":[{"type":"image_url"}]`),
+		strings.ReplaceAll(paidBatchLine, `"content":"Hello"`, `"content":"fileid://foreign-provider-file"`),
 		paidBatchLine + "\n" + strings.ReplaceAll(strings.ReplaceAll(paidBatchLine, "one", "two"), "qwen-long", "qwen-long-latest"),
 	} {
 		_, _, err := ValidateQianwenBatchFile([]byte(line))

@@ -92,6 +92,11 @@ func ValidateQianwenBatchFile(raw []byte) ([]byte, *QianwenFileBatchSnapshot, er
 				if message.Get("content").Type != gjson.String {
 					return nil, nil, errors.New("paid file batches currently require plain text messages")
 				}
+				// Qwen-Long interprets fileid:// in system messages as a provider
+				// file reference. Raw account-level IDs must not bypass tenant ownership.
+				if strings.Contains(strings.ToLower(message.Get("content").String()), "fileid://") {
+					return nil, nil, errors.New("provider file references are not supported in batch messages")
+				}
 			}
 		}
 		snapshot.Model, snapshot.Endpoint = model, endpoint
