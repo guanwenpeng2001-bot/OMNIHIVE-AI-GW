@@ -19,10 +19,10 @@ import (
 )
 
 func (s *GatewayService) buildUpstreamRequest(ctx context.Context, c *gin.Context, account *Account, body []byte, token, tokenType, modelID string, reqStream bool, mimicClaudeCode bool) (*http.Request, []byte, error) {
-	// Cursor tokens must never reach the default Anthropic target, including
-	// callers that bypass the gateway credential accessor.
-	if account.Platform == PlatformCursor {
-		return nil, nil, fmt.Errorf("cursor accounts cannot use the Anthropic gateway")
+	// Gemini and Cursor credentials must never reach an Anthropic target,
+	// including callers that bypass ingress routing or credential accessors.
+	if account.Platform == PlatformGemini || account.Platform == PlatformCursor {
+		return nil, nil, fmt.Errorf("%s accounts cannot use the Anthropic gateway", account.Platform)
 	}
 	body = stripDeferredToolCacheControl(body)
 	if account.Platform == PlatformAnthropic && account.Type == AccountTypeServiceAccount {
