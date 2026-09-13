@@ -99,11 +99,11 @@ func TestQianwenNativeVideoUnavailableBeforeAdmission(t *testing.T) {
 	}
 }
 
-func TestQianwenNativeVideoGateDoesNotClaimOtherFamilies(t *testing.T) {
+func TestQianwenNativeAsyncDoesNotClaimOtherFamilies(t *testing.T) {
 	h := &OpenAIGatewayHandler{}
-	for _, path := range []string{service.QianwenNativeMultimodalPath, "/api/v1/tasks/job", "/api/v1/services/aigc/video-generation/3d-generation"} {
+	for _, path := range []string{service.QianwenNativeMultimodalPath, "/api/v1/tasks/job"} {
 		c, _ := gin.CreateTestContext(httptest.NewRecorder())
 		c.Request = httptest.NewRequest("POST", path, nil)
-		require.False(t, h.handleQianwenNativeVideo(c))
+		require.False(t, h.handleQianwenNativeAsyncJobs(c))
 	}
 }

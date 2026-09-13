@@ -43,10 +43,12 @@ func TestQianwenNative3DRejectsSubmissionAndRetriesBeforeAdmission(t *testing.T)
 			c.Request.Header.Set("X-DashScope-Async", "enable")
 			c.Request.Header.Set("Idempotency-Key", "same-submission")
 			h.QianwenNative(c)
-			require.Equal(t, 404, w.Code)
+			if method == "POST" {
+				require.Equal(t, 503, w.Code)
+			} else {
+				require.Equal(t, 404, w.Code)
+			}
 			require.Contains(t, w.Body.String(), "unsupported_operation_error")
-			require.Contains(t, w.Body.String(), "qianwen_3d_unsupported")
-			require.Contains(t, w.Body.String(), "specification-based 3D billing")
 			_, selected := c.Get(opsAccountIDKey)
 			require.False(t, selected)
 		}

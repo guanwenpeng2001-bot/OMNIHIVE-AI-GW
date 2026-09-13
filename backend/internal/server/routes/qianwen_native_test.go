@@ -18,7 +18,7 @@ func TestQianwenNativeUnsupportedFamilies(t *testing.T) {
 		require.Equal(t, 404, w.Code)
 		require.Contains(t, w.Body.String(), "Unsupported DashScope operation")
 	}
-	for _, path := range []string{"/api/v1/tasks/task-id", "/api/v1/apps/app-id/completion", "/api/v1/files", "/api/v1/files/file-id", "/api/v1/batches", "/api/v1/realtime", "/api-ws/v1/realtime", "/api-ws/v1/inference", "/api/v1/services/aigc/video-generation/3d-generation", "/api/v1/services/audio/asr/transcription", "/api/v1/services/aigc/text2image/image-synthesis"} {
+	for _, path := range []string{"/api/v1/tasks/task-id", "/api/v1/apps/app-id/completion", "/api/v1/files", "/api/v1/files/file-id", "/api/v1/batches", "/api/v1/realtime", "/api-ws/v1/realtime", "/api-ws/v1/inference", "/api/v1/services/aigc/text2image/image-synthesis"} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{"model":"qwen-plus"}`)))
 		require.Equal(t, 404, w.Code)
@@ -41,4 +41,14 @@ func TestQianwenNativeKnowledgeSearchFailsClosed(t *testing.T) {
 	router.ServeHTTP(w, httptest.NewRequest("POST", "/api/v1/indices/knowledge/search", strings.NewReader(`{"agent_id":"aid-test","query":"hello"}`)))
 	require.Equal(t, 404, w.Code)
 	require.Contains(t, w.Body.String(), "Unsupported DashScope operation")
+}
+
+func TestQianwenNativeAsyncPathsRegistered(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformQianwen)
+	for _, path := range []string{service.QianwenNative3DPath, service.QianwenNativeASRPath} {
+		w := httptest.NewRecorder()
+		router.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{"model":"qwen-plus"}`)))
+		require.Equal(t, 503, w.Code)
+		require.Contains(t, w.Body.String(), "Persistent async jobs unavailable")
+	}
 }
