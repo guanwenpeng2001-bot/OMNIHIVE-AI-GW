@@ -3894,10 +3894,7 @@ const defaultBaseUrl = computed(() => {
   // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
   // 不能落到 anthropic 默认值（会被当 CC base 拼出错误端点）。
   if (
-    props.account?.platform === 'kimi' ||
-    props.account?.platform === 'zhipu' ||
-    props.account?.platform === 'deepseek' ||
-    props.account?.platform === 'opencode_go'
+    props.account && isMultiProtocolApiKeyPlatform(props.account.platform)
   ) {
     return defaultCNBaseUrl(props.account.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
   }
@@ -4684,7 +4681,7 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
 
 
 function supportsAccountSchedulingThresholdOverridePlatform(platform: Account['platform'] | undefined) {
-  return platform === 'openai' || platform === 'anthropic' || platform === 'grok'
+  return platform === 'openai' || platform === 'anthropic' || platform === 'grok' || platform === 'cursor'
 }
 
 function normalizeAccountSchedulingThresholdOverride(value: unknown): number | null {
@@ -5441,6 +5438,11 @@ const handleSubmit = async () => {
         if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
         applyHeaderOverride(cursorCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
       }
+      // Cursor rebuilds credentials instead of spreading them; retain an unchanged override.
+      if (accountSchedulingThresholdOverrideEnabled.value) {
+        cursorCredentials[ACCOUNT_SCHEDULING_THRESHOLD_CREDENTIAL_KEY] = clampAccountSchedulingThresholdOverride(accountSchedulingThresholdOverrideValue.value)
+      }
+      applyAccountSchedulingThresholdOverridePatch(cursorCredentials, (props.account.credentials || {}) as Record<string, unknown>)
       updatePayload.credentials = cursorCredentials
       delete updatePayload.upstream_billing_probe_enabled
       delete updatePayload.upstream_billing_rate_sync_enabled

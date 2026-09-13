@@ -755,6 +755,12 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it.each([['cursor'], ['openai', 'cursor']])('hides billing probe controls for Cursor selection %j', (...selectedPlatforms) => {
+    const wrapper = mountModal({ selectedPlatforms, selectedTypes: ['apikey'] })
+    expect(wrapper.find('#bulk-edit-upstream-billing-auto-probe-enabled').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('OpenAI API Key 批量编辑可统一关闭上游倍率自动探测', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
