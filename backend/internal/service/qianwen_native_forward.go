@@ -23,6 +23,9 @@ func observeQianwenNative(body []byte, result *OpenAIForwardResult) error {
 	if !gjson.ValidBytes(body) {
 		return fmt.Errorf("invalid DashScope response JSON")
 	}
+	if err := rejectQianwenNativeAsyncResponse(body); err != nil {
+		return err
+	}
 	if id := gjson.GetBytes(body, "request_id").String(); id != "" {
 		result.RequestID = id
 	}
