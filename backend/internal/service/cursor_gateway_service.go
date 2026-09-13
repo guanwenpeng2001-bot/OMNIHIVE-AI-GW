@@ -142,7 +142,8 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		return nil, cursorFailover(errors.New("unavailable"))
 	}
 
-	if strings.EqualFold(account.GetMappedModel(gjson.GetBytes(body, "model").String()), "echo-model") {
+	requestedModel := gjson.GetBytes(body, "model").String()
+	if strings.EqualFold(account.GetMappedModel(requestedModel), "echo-model") && !cursorHasConfiguredEchoPrice(requestContext, requestedModel) {
 		err := fmt.Errorf("model_pricing_unavailable: no verified Cursor price for echo-model")
 		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "model_pricing_unavailable", "message": err.Error()}))
 		return nil, err
@@ -370,6 +371,15 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		err = output.response(gin.H{"id": completionID, "object": "chat.completion", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "message": message, "finish_reason": finishReason}}, "usage": chatUsage})
 	}
 	return result, err
+}
+
+// Echo has no published Cursor tariff. An explicitly configured operator sale
+// is sufficient; check the requested billing name, including account aliases.
+func cursorHasConfiguredEchoPrice(c *gin.Context, model string) bool {
+	card := matchGroupModelPricing(nativeReasoningGroup(c, PlatformCursor), model, PlatformCursor)
+	return card != nil && (card.BillingMode == "" || card.BillingMode == BillingModeToken) &&
+		card.InputPrice != nil && positiveFinite(*card.InputPrice) &&
+		card.OutputPrice != nil && positiveFinite(*card.OutputPrice)
 }
 
 func cursorWriteSSE(requestContext *gin.Context, payload any) error {
