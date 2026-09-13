@@ -41,6 +41,101 @@ jobs:
         working-directory: backend
         run: make test-integration
 
+  postgres:
+    name: PostgreSQL / ${{ matrix.test }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - test: TestUpstreamJobPostgres
+            package: ./internal/repository
+            tag: unit
+            required-subtests: concurrent_submit_poll_settle_restart,failure_replay_expiry_and_unsupported,rollback_usage_balance_and_anchor_together,poll_backoff_and_crashed_claim_expiry
+          - test: TestNewPlatformMigrations
+            package: ./migrations
+            tag: integration
+            required-subtests: fresh=false,fresh=true
+          # These use the existing repository Testcontainers harness (PG + Redis).
+          - test: TestGroupConfigurationOutboxAtomicity
+            package: ./internal/repository
+            tag: integration
+            required-subtests: create_failure_rolls_back_group_and_notification,update_failure_preserves_persisted_configuration
+          - test: TestGroupConfigurationOutboxCallerTransaction
+            package: ./internal/repository
+            tag: integration
+            required-subtests: commit=false,commit=true
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: job_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d job_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Run required PostgreSQL test
+        working-directory: backend
+        env:
+          UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          NEW_PLATFORMS_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
+          REQUIRED_TEST: ${{ matrix.test }}
+          TEST_PACKAGE: ${{ matrix.package }}
+          TEST_TAG: ${{ matrix.tag }}
+        shell: bash
+        run: |
+          set -o pipefail
+          go test -mod=readonly -tags="$TEST_TAG" -json "$TEST_PACKAGE" -run "^${REQUIRED_TEST}$" -count=1 | tee postgres-test.json
+      - name: Require actual PostgreSQL test passes
+        if: always()
+        working-directory: backend
+        env:
+          REQUIRED_TEST: ${{ matrix.test }}
+          REQUIRED_SUBTESTS: ${{ matrix.required-subtests }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          required_test = os.environ["REQUIRED_TEST"]
+          required = {required_test} | {
+              f"{required_test}/{subtest}"
+              for subtest in os.environ["REQUIRED_SUBTESTS"].split(",")
+          }
+          events = [json.loads(line) for line in Path("postgres-test.json").read_text().splitlines()]
+          passed = set()
+          started = set()
+          for event in events:
+              name = event.get("Test", "")
+              if name != required_test and not name.startswith(required_test + "/"):
+                  continue
+              action = event["Action"]
+              if action in {"skip", "fail"}:
+                  raise SystemExit(f"Required PostgreSQL test {action}: {name}")
+              if action == "run":
+                  started.add(name)
+              if action == "pass":
+                  passed.add(name)
+          missing = (required | started) - (started & passed)
+          if missing:
+              raise SystemExit(f"Missing executed PASS events: {sorted(missing)}")
+          print(f"Verified executed PASS events: {sorted(passed)}")
+          PY
+
   frontend:
     runs-on: ubuntu-latest
     steps:

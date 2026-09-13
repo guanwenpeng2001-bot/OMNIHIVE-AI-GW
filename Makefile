@@ -12,6 +12,21 @@ FRONTEND_CRITICAL_VITEST := \
 	src/views/user/__tests__/ChannelStatusView.mode.spec.ts \
 	src/components/user/profile/__tests__/ProfileInfoCard.spec.ts \
 	src/views/admin/__tests__/SettingsView.spec.ts \
+	src/components/account/__tests__/QianwenPricingPanel.spec.ts \
+	src/components/account/__tests__/CursorKeyFields.protocol.spec.ts \
+	src/components/account/__tests__/credentialsBuilder.spec.ts \
+	src/components/account/__tests__/credentialsBuilder.cnAdaptive.spec.ts \
+	src/constants/__tests__/platforms.spec.ts \
+	src/views/admin/__tests__/GroupsView.duplicate.spec.ts \
+	src/views/admin/__tests__/GroupsView.compositePlatforms.spec.ts \
+	src/views/admin/__tests__/GroupsView.columnSettings.spec.ts \
+	src/views/admin/__tests__/GroupsView.codexManifest.spec.ts \
+	src/views/admin/__tests__/GroupsView.pricingPayload.spec.ts \
+	src/views/admin/__tests__/groupsVideoModelPricing.spec.ts \
+	src/views/admin/__tests__/groupsImagePricing.spec.ts \
+	src/utils/__tests__/intervalPrices.spec.ts \
+	src/components/admin/channel/__tests__/PricingEntryCard.timePricing.spec.ts \
+	src/components/admin/channel/__tests__/TimePricingSection.spec.ts \
 	src/features/channel-monitor-v2/__tests__/designSystem.structure.spec.ts \
 	src/features/channel-monitor-v2/__tests__/monitorFormat.spec.ts \
 	src/features/channel-monitor-v2/__tests__/monitorZoom.spec.ts

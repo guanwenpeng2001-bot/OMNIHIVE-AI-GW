@@ -10,8 +10,7 @@ generate:
 	go generate ./ent
 	go generate ./cmd/server
 
-test:
-	go test ./...
+test: test-unit
 	golangci-lint run ./...
 
 test-unit:
