@@ -1,7 +1,11 @@
 # DashScope realtime: bounded gateway proposal
 
-Status: **design only; realtime is not enabled**. This is the section C fallback,
-not a claim that a WebSocket adapter or billing integration has shipped.
+Status: **historical proposal**. The bounded Qwen3-TTS relay and durable per-turn
+character billing are now implemented; see [the implementation and operating
+contract](DASHSCOPE_REALTIME_RELAY.md). The proposal below includes broader
+rollout requirements, including spending escrow and provider-side recovery,
+which are not all implemented. An already-running older binary retains its
+feature gate until an authorized deployment applies the migration and code.
 
 ## Why the current relay cannot be reused safely
 

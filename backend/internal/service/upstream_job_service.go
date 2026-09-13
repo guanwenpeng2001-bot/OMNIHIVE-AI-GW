@@ -21,16 +21,17 @@ var ErrUpstreamJobTariff = errors.New("explicit video model/resolution tariff is
 // UpstreamJobBilling is an immutable admission-time price/ownership snapshot.
 // Never persist credentials or the client's potentially sensitive input body.
 type UpstreamJobBilling struct {
-	Model                 string  `json:"model"`
-	RequestedModel        string  `json:"requested_model"`
-	Resolution            string  `json:"resolution"`
-	UnitPrice             float64 `json:"unit_price"`
-	RateMultiplier        float64 `json:"rate_multiplier"`
-	AccountRateMultiplier float64 `json:"account_rate_multiplier"`
-	SubscriptionID        *int64  `json:"subscription_id,omitempty"`
-	KeyQuota              bool    `json:"key_quota"`
-	KeyRateLimit          bool    `json:"key_rate_limit"`
-	AccountQuota          bool    `json:"account_quota"`
+	Realtime              *QianwenRealtimeSnapshot `json:"realtime,omitempty"`
+	Model                 string                   `json:"model"`
+	RequestedModel        string                   `json:"requested_model"`
+	Resolution            string                   `json:"resolution"`
+	UnitPrice             float64                  `json:"unit_price"`
+	RateMultiplier        float64                  `json:"rate_multiplier"`
+	AccountRateMultiplier float64                  `json:"account_rate_multiplier"`
+	SubscriptionID        *int64                   `json:"subscription_id,omitempty"`
+	KeyQuota              bool                     `json:"key_quota"`
+	KeyRateLimit          bool                     `json:"key_rate_limit"`
+	AccountQuota          bool                     `json:"account_quota"`
 
 	// Async contains the immutable official tariff and FX provenance.
 	Async *QianwenAsyncSnapshot `json:"async,omitempty"`
@@ -198,6 +199,14 @@ func (s *UpstreamJobService) Get(ctx context.Context, id string, userID, keyID i
 // Bounded network calls hold one row lock, never a global worker lock.
 func (s *UpstreamJobService) Poll(ctx context.Context, id string) (*UpstreamJob, error) {
 	return s.locked(ctx, id, func(j *UpstreamJob, tx UpstreamJobTx) error {
+		// Realtime receipts are already durable; retry billing without replaying
+		// generation or querying a provider endpoint that does not exist.
+		if j.Family == "realtime_turn" {
+			if j.Terminal() || j.UpstreamTaskID == "" || len(j.UsageJSON) == 0 || j.ErrorCode == "usage_conflict" {
+				return nil
+			}
+			return s.settle(ctx, j, tx)
+		}
 		now := s.now().UTC()
 		if j.Terminal() {
 			return nil

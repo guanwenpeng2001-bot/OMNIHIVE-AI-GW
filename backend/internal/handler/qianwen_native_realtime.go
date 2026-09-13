@@ -8,14 +8,14 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// rejectQianwenNativeRealtime runs inside the existing authenticated native
-// ingress, before admission or an upstream handshake. HTTP/SSE accounting cannot
-// settle response.done audio/text usage, deduplicate turns, or settle a dropped
-// session. Do not upgrade until those capabilities share the gateway lifecycle.
-// The bounded implementation and release criteria are specified in
-// docs/DASHSCOPE_REALTIME_MVP.md. A per-minute group price cannot enable this API.
+// The native authenticated ingress handles the bounded TTS subset and retains
+// the structured gate for all other realtime families and transports.
 func (h *OpenAIGatewayHandler) rejectQianwenNativeRealtime(c *gin.Context) bool {
 	path := c.Request.URL.Path
+	if path == "/api-ws/v1/realtime" && c.Request.Method == http.MethodGet && service.IsQianwenRealtimeModel(c.Query("model")) {
+		h.qianwenRealtime(c)
+		return true
+	}
 	for _, prefix := range []string{"/api-ws/v1/realtime", "/api/v1/realtime", "/api/v1/services/aigc/realtime"} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)

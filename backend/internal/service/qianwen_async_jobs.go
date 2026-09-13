@@ -317,6 +317,9 @@ func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) 
 }
 
 func QianwenAsyncJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
+	if j.Family == "realtime_turn" {
+		return QianwenRealtimeCharge(j)
+	}
 	if j.Family != "3d" && j.Family != "asr" {
 		return QianwenJobCharge(j)
 	}
