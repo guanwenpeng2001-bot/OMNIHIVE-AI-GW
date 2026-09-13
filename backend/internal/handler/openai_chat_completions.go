@@ -99,9 +99,13 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
 	if native != "" {
-		_, err := service.ParseQianwenNativeBody(body)
+		nativeModel, err := service.ParseQianwenNativeBody(body)
 		if err != nil {
 			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		if nativeModel != reqModel {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Conflicting DashScope model fields")
 			return
 		}
 		reqStream = strings.EqualFold(strings.TrimSpace(c.GetHeader("X-DashScope-SSE")), "enable")

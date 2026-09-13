@@ -22,6 +22,12 @@ func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
 
 // Only the audit view uses Chat-shaped content. Forwarding retains native JSON.
 func qianwenNativeAuditBody(body []byte) []byte {
+	// Match encoding/json and upstream last-key semantics when clients send
+	// duplicate input/content members; the routing model is checked separately.
+	var canonical any
+	if json.Unmarshal(body, &canonical) == nil {
+		body, _ = json.Marshal(canonical)
+	}
 	var messages []any
 	gjson.GetBytes(body, "input.messages").ForEach(func(_, message gjson.Result) bool {
 		content := message.Get("content")
