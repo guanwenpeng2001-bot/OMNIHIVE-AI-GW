@@ -33,12 +33,26 @@ func TestQianwenNativeVideoMissingTariffNeverAdmits(t *testing.T) {
 	for range 2 {
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)
-		c.Request = httptest.NewRequest("POST", service.QianwenNativeVideoPath, strings.NewReader(`{"model":"wan2.6-t2v","parameters":{"resolution":"720P"}}`))
+		c.Request = httptest.NewRequest("POST", service.QianwenNativeVideoPath, strings.NewReader(`{"model":"wan2.6-t2v","parameters":{"size":"1280*720"}}`))
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 1, UserID: 1, Group: &service.Group{Platform: service.PlatformQianwen, RateMultiplier: 1}})
 		h.QianwenNative(c)
 		require.Equal(t, 422, w.Code)
 		require.Contains(t, w.Body.String(), "tariff")
 	}
+}
+
+func TestQianwenNativeVideoWrongResolutionFieldNeverAdmits(t *testing.T) {
+	h := &OpenAIGatewayHandler{upstreamJobs: service.NewUpstreamJobService(nil, nil, nil)}
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("POST", service.QianwenNativeVideoPath, strings.NewReader(`{"model":"wan2.6-t2v","parameters":{"resolution":"720P"}}`))
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 1, UserID: 1, Group: &service.Group{
+		Platform: service.PlatformQianwen, RateMultiplier: 1,
+		VideoModelPrices: map[string]map[string]float64{"wan2.6-t2v": {"720p": 0.08571428571428572}},
+	}})
+	h.QianwenNative(c)
+	require.Equal(t, 422, w.Code)
+	require.Contains(t, w.Body.String(), "parameters.size")
 }
 
 func TestQianwenNativeVideoReadOwnershipAndPublicResult(t *testing.T) {
