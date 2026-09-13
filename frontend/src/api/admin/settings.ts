@@ -34,6 +34,7 @@ export type DefaultPlatformQuotasMap = Partial<Record<PlatformType, PlatformQuot
 export const PLATFORMS: PlatformType[] = CONCRETE_PLATFORM_OPTIONS.map(option => option.value)
 
 export type SchedulingThresholdPlatformType =
+  | "cursor"
   | "openai"
   | "anthropic"
   | "grok"
@@ -47,6 +48,7 @@ export type AccountSchedulingThresholdsMap = Record<SchedulingThresholdPlatformT
 // 与后端 AllowedSchedulingThresholdPlatforms 保持一致（deepseek 为余额型，
 // 走余额检测而非用量阈值；minimax Coding/Token Plan 与 OpenCode GO 有滚动窗口）。
 export const SCHEDULING_THRESHOLD_PLATFORMS: SchedulingThresholdPlatformType[] = [
+  "cursor",
   "openai",
   "anthropic",
   "grok",

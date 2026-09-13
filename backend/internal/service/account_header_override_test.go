@@ -80,6 +80,32 @@ func TestIsHeaderOverrideEnabled(t *testing.T) {
 	}).IsHeaderOverrideEnabled())
 }
 
+func TestHeaderOverridesQianwenAndCommandCode(t *testing.T) {
+	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
+		for _, accountType := range []string{AccountTypeAPIKey, AccountTypeOAuth, AccountTypeUpstream} {
+			t.Run(platform+"/"+accountType, func(t *testing.T) {
+				account := headerOverrideTestAccount(platform, accountType, map[string]any{
+					credKeyHeaderOverrideEnabled: true,
+					credKeyHeaderOverrides:       map[string]any{"User-Agent": "relay-client", "Authorization": "bad", "x-api-key": "bad"},
+				})
+				req, err := http.NewRequest(http.MethodPost, "https://relay.example/v1/chat/completions", nil)
+				require.NoError(t, err)
+				req.Header.Set("Authorization", "Bearer original")
+				req.Header.Set("x-api-key", "original")
+				account.ApplyHeaderOverrides(req.Header)
+				require.Equal(t, accountType == AccountTypeAPIKey, account.IsHeaderOverrideEnabled())
+				if accountType == AccountTypeAPIKey {
+					require.Equal(t, "relay-client", req.Header.Get("User-Agent"))
+				} else {
+					require.Empty(t, req.Header.Get("User-Agent"))
+				}
+				require.Equal(t, "Bearer original", req.Header.Get("Authorization"))
+				require.Equal(t, "original", req.Header.Get("x-api-key"))
+			})
+		}
+	}
+}
+
 func TestGetHeaderOverrides(t *testing.T) {
 	acc := headerOverrideTestAccount(PlatformOpenAI, AccountTypeAPIKey, map[string]any{
 		credKeyHeaderOverrideEnabled: true,

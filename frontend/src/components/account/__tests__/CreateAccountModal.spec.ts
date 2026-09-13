@@ -501,6 +501,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     const payload = createAccountMock.mock.calls[0][0]
+    expect(payload.upstream_billing_probe_enabled).toBe(true)
+    expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+    expect(wrapper.find('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(true)
     expect(payload).toMatchObject({ platform, type: 'apikey', credentials: { account_mode: 'payg', api_protocol: 'adaptive', api_key: 'sk-sp-test-only' } })
     if (platform === 'qianwen') {
       expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://dashscope.aliyuncs.com/compatible-mode/v1', responses: 'https://dashscope.aliyuncs.com/compatible-mode/v1', anthropic: 'https://dashscope.aliyuncs.com/apps/anthropic' })

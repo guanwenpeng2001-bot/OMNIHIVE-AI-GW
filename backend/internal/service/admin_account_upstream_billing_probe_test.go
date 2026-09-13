@@ -749,3 +749,27 @@ func TestBulkUpdateAccountsKeepsProbeSnapshotForUnrelatedCredentials(t *testing.
 	require.Len(t, repo.bulkUpdates, 1)
 	require.NotContains(t, repo.bulkUpdates[0].Extra, UpstreamBillingProbeExtraKey)
 }
+
+func TestNewPlatformBillingProbeCreateAndUpdate(t *testing.T) {
+	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
+		t.Run(platform, func(t *testing.T) {
+			enabled := true
+			repo := &upstreamBillingProbeAccountRepo{}
+			svc := &adminServiceImpl{accountRepo: repo}
+			created, err := svc.CreateAccount(context.Background(), &CreateAccountInput{
+				Name: "relay", Platform: platform, Type: AccountTypeAPIKey,
+				Credentials:  map[string]any{"api_key": "sk-test", "base_url": "https://relay.example/v1"},
+				ProbeEnabled: &enabled, SkipDefaultGroupBind: true,
+			})
+			require.NoError(t, err)
+			require.Equal(t, true, created.Extra[UpstreamBillingProbeEnabledExtraKey])
+			disabled := false
+			updated, err := svc.UpdateAccount(context.Background(), created.ID, &UpdateAccountInput{ProbeEnabled: &disabled})
+			require.NoError(t, err)
+			require.Equal(t, false, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
+			updated, err = svc.UpdateAccount(context.Background(), created.ID, &UpdateAccountInput{ProbeEnabled: &enabled})
+			require.NoError(t, err)
+			require.Equal(t, true, updated.Extra[UpstreamBillingProbeEnabledExtraKey])
+		})
+	}
+}

@@ -147,6 +147,7 @@ var AllowedQuotaPlatforms = []string{
 // openai/anthropic/grok 有原生用量窗口；kimi/zhipu/minimax 的 Coding Plan 同样暴露
 // 5h/weekly 滚动窗口，纳入阈值评估。deepseek 为余额型，走余额检测而非阈值。
 var AllowedSchedulingThresholdPlatforms = []string{
+	PlatformCursor,
 	PlatformOpenAI,
 	PlatformAnthropic,
 	PlatformGrok,

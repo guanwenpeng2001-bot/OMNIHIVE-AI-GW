@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -16,7 +17,7 @@ import (
 func TestUpstreamBillingProbeIdentityCoversAllAPIKeyPlatforms(t *testing.T) {
 	for _, platform := range []string{
 		PlatformOpenAI, PlatformGrok, PlatformAnthropic, PlatformGemini, PlatformAntigravity,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo,
+		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode,
 	} {
 		require.True(t, IsUpstreamBillingProbeIdentity(platform, AccountTypeAPIKey), platform)
 		require.True(t, isUpstreamBillingProbeAccount(&Account{Platform: platform, Type: AccountTypeAPIKey}), platform)
@@ -146,6 +147,13 @@ func TestUpstreamBillingProbeOfficialAPIBaseURLIsUnsupportedWithoutRequest(t *te
 		platform string
 		baseURL  string
 	}{
+		{PlatformQianwen, DefaultQianwenBaseURL},
+		{PlatformQianwen, "https://aliyuncs.com"},
+		{PlatformQianwen, "https://dashscope-intl.aliyuncs.com/compatible-mode/v1"},
+		{PlatformQianwen, "https://platform.qianwenai.com"},
+		{PlatformCommandCode, DefaultCommandCodeBaseURL},
+		{PlatformCommandCode, "https://commandcode.ai"},
+		{PlatformCommandCode, "HTTPS://API.COMMANDCODE.AI.:443/provider/v1"},
 		{PlatformAnthropic, "https://api.anthropic.com"},
 		{PlatformAnthropic, "https://api.anthropic.com:443"},
 		{PlatformAnthropic, "https://api.anthropic.com./"},
@@ -275,4 +283,36 @@ func TestUpstreamBillingProbeSetAccountEnabledAcceptsGrokAPIKey(t *testing.T) {
 
 	err := svc.SetAccountEnabled(context.Background(), grokOAuth.ID, true)
 	require.ErrorIs(t, err, ErrUpstreamBillingProbeAccountInvalid)
+}
+
+func TestUpstreamBillingProbeNewPlatformRelays(t *testing.T) {
+	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
+		for _, adaptive := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/adaptive=%v", platform, adaptive), func(t *testing.T) {
+				account := &Account{ID: 501, Platform: platform, Type: AccountTypeAPIKey, Status: StatusActive,
+					Credentials: map[string]any{"api_key": "sk-relay", "base_url": "https://relay.example/v1"}}
+				if adaptive {
+					account.Credentials["base_url"] = DefaultCommandCodeBaseURL
+					account.Credentials["api_protocol"] = APIProtocolAdaptive
+					account.Credentials["api_base_urls"] = map[string]any{APIProtocolChatCompletions: "https://relay.example/v1"}
+				}
+				repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{account.ID: account}}
+				upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: upstreamBillingProbeValidBody()}}
+				svc := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+				require.NoError(t, svc.SetAccountEnabled(context.Background(), account.ID, true))
+				snapshot, err := svc.ProbeAccount(context.Background(), account.ID)
+				require.NoError(t, err)
+				require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
+				require.Equal(t, "https://relay.example/v1/sub2api/billing", upstream.lastReq.URL.String())
+				require.Equal(t, "Bearer sk-relay", upstream.lastReq.Header.Get("Authorization"))
+				require.Equal(t, UpstreamBillingProbeStatusOK, decodeUpstreamBillingProbeSnapshot(account.Extra).Status)
+			})
+		}
+		for _, accountType := range []string{AccountTypeOAuth, AccountTypeUpstream} {
+			require.False(t, IsUpstreamBillingProbeIdentity(platform, accountType))
+		}
+	}
+	for _, host := range []string{"https://notcommandcode.ai", "https://commandcode.ai.relay.example", "https://aliyuncs.com.relay.example", "https://qianwenai.com.relay.example"} {
+		require.False(t, upstreamBillingProbeTargetIsOfficialAPI(host))
+	}
 }

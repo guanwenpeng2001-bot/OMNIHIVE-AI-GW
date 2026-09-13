@@ -1176,11 +1176,11 @@ describe('EditAccountModal', () => {
     )
   })
 
-  it('exposes the upstream billing auto-probe toggle for non-OpenAI API-key accounts', async () => {
+  it.each(['grok', 'qianwen', 'commandcode'] as const)('exposes the upstream billing auto-probe toggle for %s API-key accounts', async (platform) => {
     // 探测已放宽到全部 API-key 平台：grok 账号同样能开启并保存。
     const account = buildAccount()
-    account.platform = 'grok'
-    account.name = 'grok-relay'
+    account.platform = platform
+    account.name = `${platform}-relay`
     account.credentials = { api_key: 'sk-grok', base_url: 'https://relay.example/v1' }
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
