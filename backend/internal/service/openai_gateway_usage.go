@@ -622,6 +622,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 				serviceTier,
 				optionalStringValue(result.ReasoningEffort),
 				longContextBillingGate,
+				result.ThinkingEnabled,
 			)
 			if err == nil {
 				tokenCost = cost
@@ -716,7 +717,12 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 	serviceTier string,
 	reasoningEffort string,
 	longContextBillingGate *bool,
+	thinkingEnabled ...*bool,
 ) (*CostBreakdown, error) {
+	var thinking *bool
+	if len(thinkingEnabled) > 0 {
+		thinking = thinkingEnabled[0]
+	}
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		return s.billingService.CalculateCostUnified(CostInput{
@@ -724,6 +730,7 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageTokenCost(
 			Tokens: tokens, RequestCount: 1, RateMultiplier: multiplier, PricingAt: pricingAt,
 			ServiceTier: serviceTier, ReasoningEffort: reasoningEffort, Resolver: s.resolver,
 			LongContextBillingEnabled: longContextBillingGate,
+			ThinkingEnabled:           thinking,
 		})
 	}
 	breakdown, err := s.billingService.calculateCostWithServiceTierPolicy(

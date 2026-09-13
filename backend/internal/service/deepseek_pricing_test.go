@@ -290,7 +290,7 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		})
 	}
 
-	// 半开边界钉死：2026-09-14 03:59:59 仍 Pro 价，04:00:00 整起 Flash 新价。
+	// 已撤回的停服边界前后均保持 Pro 价。
 	proBefore, err := bs.getModelPricingAt("deepseek-v4-pro", time.Date(2026, 9, 14, 3, 59, 59, 0, time.UTC))
 	require.NoError(t, err)
 	require.InDelta(t, 6.6e-7, proBefore.InputPricePerToken, 1e-15)
@@ -298,9 +298,9 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 	require.InDelta(t, 2.2e-8, proBefore.CacheReadPricePerToken, 1e-15)
 	proAtCutoff, err := bs.getModelPricingAt("deepseek-v4-pro", time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC))
 	require.NoError(t, err)
-	require.InDelta(t, 1.5e-7, proAtCutoff.InputPricePerToken, 1e-15)
-	require.InDelta(t, 6e-7, proAtCutoff.OutputPricePerToken, 1e-15)
-	require.InDelta(t, 3e-9, proAtCutoff.CacheReadPricePerToken, 1e-15)
+	require.InDelta(t, 6.6e-7, proAtCutoff.InputPricePerToken, 1e-15)
+	require.InDelta(t, 1.98e-6, proAtCutoff.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 2.2e-8, proAtCutoff.CacheReadPricePerToken, 1e-15)
 
 	// 版本化名称（不在 JSON / fallbackPrices 精确表中）：按子串归档计价。
 	// flash-0731 归 flash 档，三档价与切换无关，GetModelPricing 断言稳定。
@@ -381,7 +381,7 @@ func TestDeepseekPricingFileMatchesOfficialRates(t *testing.T) {
 
 // ---------------------------------------------------------------------------
 // 2026-09-10 官方降价：deepseek-flash（V4.1-Flash 新名）与旧名同价；
-// 2026-09-14 04:00 UTC 起 deepseek-v4-pro 按上游路由改按 Flash 价计费
+// 2026-09-13 更新：deepseek-v4-pro 继续独立计费
 // ---------------------------------------------------------------------------
 
 func TestCalculateCostUnified_DeepseekFlashAndLegacyFlashShareNewRates(t *testing.T) {
@@ -405,41 +405,18 @@ func TestCalculateCostUnified_DeepseekFlashAndLegacyFlashShareNewRates(t *testin
 	}
 }
 
-func TestCalculateCostUnified_DeepseekProRoutesToFlashAtCutoff(t *testing.T) {
+// The current official page explicitly keeps Pro service and rates after Sep 14.
+// Source: https://api-docs.deepseek.com/quick_start/pricing/ (2026-09-13)
+func TestCalculateCostUnified_DeepseekProContinuesAfterSeptember14(t *testing.T) {
 	bs := newTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
-
 	tokens := UsageTokens{InputTokens: 1000, OutputTokens: 500, CacheReadTokens: 1000}
-	proTotal := 1000*6.6e-7 + 500*1.98e-6 + 1000*2.2e-8 // 切换前 Pro 价
-	flashTotal := 1000*1.5e-7 + 500*6e-7 + 1000*3e-9    // 切换后 Flash 价
-
-	// 切换时点之前（2026-09-13 周日，北京周末全天低谷）：仍按 Pro 价。
-	before, err := bs.CalculateCostUnified(CostInput{
-		Ctx: context.Background(), Model: "deepseek-v4-pro", Tokens: tokens,
-		RateMultiplier: 1.0, Resolver: resolver,
-		PricingAt: time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC),
-	})
-	require.NoError(t, err)
-	require.InDelta(t, proTotal, before.TotalCost, 1e-10,
-		"deepseek-v4-pro must use Pro rates before the 2026-09-14 04:00 UTC cutoff")
-
-	// 到达切换时点（2026-09-14 04:00 UTC 整，周一低谷窗口边界外）：按 Flash 价。
-	after, err := bs.CalculateCostUnified(CostInput{
-		Ctx: context.Background(), Model: "deepseek-v4-pro", Tokens: tokens,
-		RateMultiplier: 1.0, Resolver: resolver,
-		PricingAt: time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC),
-	})
-	require.NoError(t, err)
-	require.InDelta(t, flashTotal, after.TotalCost, 1e-10,
-		"deepseek-v4-pro must use Flash rates at/after the 2026-09-14 04:00 UTC cutoff")
-
-	// 版本化名称同口径：切换后 deepseek-v4-pro-0813 也按 Flash 价。
-	versioned, err := bs.CalculateCostUnified(CostInput{
-		Ctx: context.Background(), Model: "deepseek-v4-pro-0813", Tokens: tokens,
-		RateMultiplier: 1.0, Resolver: resolver,
-		PricingAt: time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC),
-	})
-	require.NoError(t, err)
-	require.InDelta(t, flashTotal, versioned.TotalCost, 1e-10,
-		"versioned pro names must also route to Flash rates after the cutoff")
+	proTotal := 1000*6.6e-7 + 500*1.98e-6 + 1000*2.2e-8
+	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-pro-0813"} {
+		for _, at := range []time.Time{time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC), time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC), time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)} {
+			cost, err := bs.CalculateCostUnified(CostInput{Ctx: context.Background(), Model: model, Tokens: tokens, RateMultiplier: 1, Resolver: resolver, PricingAt: at})
+			require.NoError(t, err)
+			require.InDelta(t, proTotal, cost.TotalCost, 1e-10)
+		}
+	}
 }

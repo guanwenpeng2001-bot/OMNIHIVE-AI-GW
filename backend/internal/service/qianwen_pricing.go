@@ -324,7 +324,7 @@ func parseQianwenFlatPrices(m QianwenModelPrices, rate float64) QianwenPricingMo
 // the observed input-length grammar, never infer bounds from array position.
 var qianwenInputRange = regexp.MustCompile(`^(?:([0-9]+)([km])<)?输入<=([0-9]+)([km])$`)
 
-func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
+func parseQianwenUnconditionalPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
 	if len(m.Prices) < 2 {
 		return parseQianwenFlatPrices(m, rate)
 	}
