@@ -401,6 +401,9 @@ function normalizeConfig(value: MonitorConfig): MonitorConfig {
   const ignored = value.ignored_error_categories
   return {
     ...value,
+    platforms: value.platforms.some((p) => p.platform === 'cursor')
+      ? value.platforms
+      : [...value.platforms, { platform: 'cursor', enabled: false, models: [] }],
     health_thresholds: { ...defaultThresholds, ...(value.health_thresholds || {}) },
     // Preserve explicit empty arrays from the server (operator cleared all).
     ignored_error_categories: [
