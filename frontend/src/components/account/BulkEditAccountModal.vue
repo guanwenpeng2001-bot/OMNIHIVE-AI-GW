@@ -1591,10 +1591,11 @@ const allOpenAIAPIKey = computed(() => {
   )
 })
 
-// 上游倍率自动探测已放宽到全部 API-key 平台：只要求所选类型全为 apikey，
-// 平台不限（sub2api 上游即可应答 /v1/sub2api/billing）。
+// 上游倍率探测只支持非 Cursor 的 API-key 账号（Sub2API 中继）。
 const allBillingProbeCapable = computed(() => {
   return (
+    targetSelectedPlatforms.value.length > 0 &&
+    !targetSelectedPlatforms.value.includes('cursor') &&
     targetSelectedTypes.value.length > 0 &&
     targetSelectedTypes.value.every(t => t === 'apikey')
   )

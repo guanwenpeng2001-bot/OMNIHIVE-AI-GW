@@ -376,6 +376,47 @@ describe('EditAccountModal', () => {
   })
 
 
+  it.each(['oauth', 'apikey'])('persists, updates and clears Cursor %s scheduling overrides', async (type) => {
+    const account = { ...buildAccount(), platform: 'cursor', type, credentials_status: { has_api_key: true }, credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), account_scheduling_threshold: 80 } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="account-scheduling-threshold-override-value"]').element.value).toBe('80')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.account_scheduling_threshold).toBe(80)
+    await wrapper.get('[data-testid="account-scheduling-threshold-override-value"]').setValue('75')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.account_scheduling_threshold).toBe(75)
+    await wrapper.get('[data-testid="account-scheduling-threshold-override-enabled"]').setValue(false)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.account_scheduling_threshold).toBeNull()
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['qianwen', 'chat_completions', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
+    ['qianwen', 'anthropic', 'https://dashscope.aliyuncs.com/apps/anthropic'],
+    ['commandcode', 'chat_completions', 'https://api.commandcode.ai/provider/v1'],
+    ['commandcode', 'anthropic', 'https://api.commandcode.ai/provider/v1'],
+    ['minimax', 'chat_completions', 'https://api.minimaxi.com/v1'],
+    ['minimax', 'anthropic', 'https://api.minimaxi.com/anthropic'],
+  ])('restores the %s %s endpoint when Base URL is cleared', async (platform, protocol, expected) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'payg', api_protocol: protocol, base_url: 'https://relay.example/v1' } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const input = wrapper.findAll('input').find(input => input.element.value === 'https://relay.example/v1')!
+    await input.setValue('')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.lastCall?.[1].credentials.base_url).toBe(expected)
+    wrapper.unmount()
+  })
+
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2028-02-29T12:34:00'))
