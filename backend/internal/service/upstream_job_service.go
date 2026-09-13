@@ -32,6 +32,8 @@ type UpstreamJobBilling struct {
 	KeyRateLimit          bool    `json:"key_rate_limit"`
 	AccountQuota          bool    `json:"account_quota"`
 
+	// Async contains the immutable official tariff and FX provenance.
+	Async *QianwenAsyncSnapshot `json:"async,omitempty"`
 	// FileBatch contains only validated resource metadata, never file contents.
 	FileBatch *QianwenFileBatchSnapshot `json:"file_batch,omitempty"`
 }
@@ -129,7 +131,7 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	if job == nil || job.UserID <= 0 || job.APIKeyID <= 0 || job.AccountID <= 0 || submit == nil {
 		return nil, errors.New("invalid job submission")
 	}
-	if job.Family == "video" && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
+	if (job.Family == "video" || job.Family == "3d" || job.Family == "asr") && (!finitePositive(job.Billing.UnitPrice) || !finitePositive(job.Billing.RateMultiplier)) {
 		return nil, ErrUpstreamJobTariff
 	}
 	fingerprint, err := UpstreamJobFingerprint(job, body)

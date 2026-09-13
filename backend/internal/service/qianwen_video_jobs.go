@@ -235,6 +235,9 @@ func (s *OpenAIGatewayService) qianwenVideoRequest(ctx context.Context, account 
 	}
 	output := gjson.GetBytes(raw, "output")
 	update := UpstreamJobUpdate{TaskID: output.Get("task_id").String(), ResultRef: output.Get("video_url").String(), Usage: json.RawMessage(gjson.GetBytes(raw, "usage").Raw)}
+	if results := output.Get("results"); update.ResultRef == "" && results.IsArray() {
+		update.ResultRef = results.Raw
+	}
 	switch output.Get("task_status").String() {
 	case "PENDING":
 		update.Status = "submitted"
