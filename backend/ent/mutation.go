@@ -44541,6 +44541,9 @@ type UsageLogMutation struct {
 	model_mapping_chain          *string
 	billing_tier                 *string
 	billing_mode                 *string
+	thinking_enabled             *bool
+	price_source                 *string
+	price_card_version           *string
 	input_tokens                 *int
 	addinput_tokens              *int
 	output_tokens                *int
@@ -45396,6 +45399,153 @@ func (m *UsageLogMutation) SubscriptionIDCleared() bool {
 func (m *UsageLogMutation) ResetSubscriptionID() {
 	m.subscription = nil
 	delete(m.clearedFields, usagelog.FieldSubscriptionID)
+}
+
+// SetThinkingEnabled sets the "thinking_enabled" field.
+func (m *UsageLogMutation) SetThinkingEnabled(b bool) {
+	m.thinking_enabled = &b
+}
+
+// ThinkingEnabled returns the value of the "thinking_enabled" field in the mutation.
+func (m *UsageLogMutation) ThinkingEnabled() (r bool, exists bool) {
+	v := m.thinking_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldThinkingEnabled returns the old "thinking_enabled" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldThinkingEnabled(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldThinkingEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldThinkingEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldThinkingEnabled: %w", err)
+	}
+	return oldValue.ThinkingEnabled, nil
+}
+
+// ClearThinkingEnabled clears the value of the "thinking_enabled" field.
+func (m *UsageLogMutation) ClearThinkingEnabled() {
+	m.thinking_enabled = nil
+	m.clearedFields[usagelog.FieldThinkingEnabled] = struct{}{}
+}
+
+// ThinkingEnabledCleared returns if the "thinking_enabled" field was cleared in this mutation.
+func (m *UsageLogMutation) ThinkingEnabledCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldThinkingEnabled]
+	return ok
+}
+
+// ResetThinkingEnabled resets all changes to the "thinking_enabled" field.
+func (m *UsageLogMutation) ResetThinkingEnabled() {
+	m.thinking_enabled = nil
+	delete(m.clearedFields, usagelog.FieldThinkingEnabled)
+}
+
+// SetPriceSource sets the "price_source" field.
+func (m *UsageLogMutation) SetPriceSource(s string) {
+	m.price_source = &s
+}
+
+// PriceSource returns the value of the "price_source" field in the mutation.
+func (m *UsageLogMutation) PriceSource() (r string, exists bool) {
+	v := m.price_source
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriceSource returns the old "price_source" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldPriceSource(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriceSource is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriceSource requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriceSource: %w", err)
+	}
+	return oldValue.PriceSource, nil
+}
+
+// ClearPriceSource clears the value of the "price_source" field.
+func (m *UsageLogMutation) ClearPriceSource() {
+	m.price_source = nil
+	m.clearedFields[usagelog.FieldPriceSource] = struct{}{}
+}
+
+// PriceSourceCleared returns if the "price_source" field was cleared in this mutation.
+func (m *UsageLogMutation) PriceSourceCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldPriceSource]
+	return ok
+}
+
+// ResetPriceSource resets all changes to the "price_source" field.
+func (m *UsageLogMutation) ResetPriceSource() {
+	m.price_source = nil
+	delete(m.clearedFields, usagelog.FieldPriceSource)
+}
+
+// SetPriceCardVersion sets the "price_card_version" field.
+func (m *UsageLogMutation) SetPriceCardVersion(s string) {
+	m.price_card_version = &s
+}
+
+// PriceCardVersion returns the value of the "price_card_version" field in the mutation.
+func (m *UsageLogMutation) PriceCardVersion() (r string, exists bool) {
+	v := m.price_card_version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldPriceCardVersion returns the old "price_card_version" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldPriceCardVersion(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldPriceCardVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldPriceCardVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldPriceCardVersion: %w", err)
+	}
+	return oldValue.PriceCardVersion, nil
+}
+
+// ClearPriceCardVersion clears the value of the "price_card_version" field.
+func (m *UsageLogMutation) ClearPriceCardVersion() {
+	m.price_card_version = nil
+	m.clearedFields[usagelog.FieldPriceCardVersion] = struct{}{}
+}
+
+// PriceCardVersionCleared returns if the "price_card_version" field was cleared in this mutation.
+func (m *UsageLogMutation) PriceCardVersionCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldPriceCardVersion]
+	return ok
+}
+
+// ResetPriceCardVersion resets all changes to the "price_card_version" field.
+func (m *UsageLogMutation) ResetPriceCardVersion() {
+	m.price_card_version = nil
+	delete(m.clearedFields, usagelog.FieldPriceCardVersion)
 }
 
 // SetInputTokens sets the "input_tokens" field.
@@ -47279,7 +47429,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 47)
+	fields := make([]string, 0, 50)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -47324,6 +47474,15 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.subscription != nil {
 		fields = append(fields, usagelog.FieldSubscriptionID)
+	}
+	if m.thinking_enabled != nil {
+		fields = append(fields, usagelog.FieldThinkingEnabled)
+	}
+	if m.price_source != nil {
+		fields = append(fields, usagelog.FieldPriceSource)
+	}
+	if m.price_card_version != nil {
+		fields = append(fields, usagelog.FieldPriceCardVersion)
 	}
 	if m.input_tokens != nil {
 		fields = append(fields, usagelog.FieldInputTokens)
@@ -47459,6 +47618,12 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.GroupID()
 	case usagelog.FieldSubscriptionID:
 		return m.SubscriptionID()
+	case usagelog.FieldThinkingEnabled:
+		return m.ThinkingEnabled()
+	case usagelog.FieldPriceSource:
+		return m.PriceSource()
+	case usagelog.FieldPriceCardVersion:
+		return m.PriceCardVersion()
 	case usagelog.FieldInputTokens:
 		return m.InputTokens()
 	case usagelog.FieldOutputTokens:
@@ -47562,6 +47727,12 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldGroupID(ctx)
 	case usagelog.FieldSubscriptionID:
 		return m.OldSubscriptionID(ctx)
+	case usagelog.FieldThinkingEnabled:
+		return m.OldThinkingEnabled(ctx)
+	case usagelog.FieldPriceSource:
+		return m.OldPriceSource(ctx)
+	case usagelog.FieldPriceCardVersion:
+		return m.OldPriceCardVersion(ctx)
 	case usagelog.FieldInputTokens:
 		return m.OldInputTokens(ctx)
 	case usagelog.FieldOutputTokens:
@@ -47739,6 +47910,27 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetSubscriptionID(v)
+		return nil
+	case usagelog.FieldThinkingEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetThinkingEnabled(v)
+		return nil
+	case usagelog.FieldPriceSource:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriceSource(v)
+		return nil
+	case usagelog.FieldPriceCardVersion:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetPriceCardVersion(v)
 		return nil
 	case usagelog.FieldInputTokens:
 		v, ok := value.(int)
@@ -48279,6 +48471,15 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldSubscriptionID) {
 		fields = append(fields, usagelog.FieldSubscriptionID)
 	}
+	if m.FieldCleared(usagelog.FieldThinkingEnabled) {
+		fields = append(fields, usagelog.FieldThinkingEnabled)
+	}
+	if m.FieldCleared(usagelog.FieldPriceSource) {
+		fields = append(fields, usagelog.FieldPriceSource)
+	}
+	if m.FieldCleared(usagelog.FieldPriceCardVersion) {
+		fields = append(fields, usagelog.FieldPriceCardVersion)
+	}
 	if m.FieldCleared(usagelog.FieldAccountRateMultiplier) {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
 	}
@@ -48358,6 +48559,15 @@ func (m *UsageLogMutation) ClearField(name string) error {
 		return nil
 	case usagelog.FieldSubscriptionID:
 		m.ClearSubscriptionID()
+		return nil
+	case usagelog.FieldThinkingEnabled:
+		m.ClearThinkingEnabled()
+		return nil
+	case usagelog.FieldPriceSource:
+		m.ClearPriceSource()
+		return nil
+	case usagelog.FieldPriceCardVersion:
+		m.ClearPriceCardVersion()
 		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ClearAccountRateMultiplier()
@@ -48447,6 +48657,15 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldSubscriptionID:
 		m.ResetSubscriptionID()
+		return nil
+	case usagelog.FieldThinkingEnabled:
+		m.ResetThinkingEnabled()
+		return nil
+	case usagelog.FieldPriceSource:
+		m.ResetPriceSource()
+		return nil
+	case usagelog.FieldPriceCardVersion:
+		m.ResetPriceCardVersion()
 		return nil
 	case usagelog.FieldInputTokens:
 		m.ResetInputTokens()

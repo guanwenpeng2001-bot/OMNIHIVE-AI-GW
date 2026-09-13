@@ -1210,6 +1210,8 @@ func (s *GatewayService) buildRecordUsageLog(
 		usageLog.RateMultiplier = imageMultiplier
 	}
 	if cost != nil {
+		usageLog.PriceSource = optionalTrimmedStringPtr(cost.PriceSource)
+		usageLog.PriceCardVersion = optionalTrimmedStringPtr(cost.PriceCardVersion)
 		usageLog.InputCost = cost.InputCost
 		usageLog.OutputCost = cost.OutputCost
 		usageLog.ImageOutputCost = cost.ImageOutputCost

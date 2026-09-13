@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"database/sql/driver"
 	"regexp"
 	"strconv"
 	"strings"
@@ -129,7 +130,7 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	})
 	require.Len(t, prepared.args, len(usageLogInsertArgTypes))
 
-	idx := len(prepared.args) - 4
+	idx := len(prepared.args) - 7
 	arg, ok := prepared.args[idx].(sql.NullString)
 	require.True(t, ok, "upstream_request_id arg should be sql.NullString, got %T", prepared.args[idx])
 	require.True(t, arg.Valid)
@@ -142,4 +143,40 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	require.False(t, nullArg.Valid, "absent upstream request id must be NULL")
 
 	require.Contains(t, usageLogSelectColumns, "upstream_request_id")
+}
+
+func TestUsageLogPricingAuditRoundTrip(t *testing.T) {
+	for _, known := range []bool{false, true} {
+		log := &service.UsageLog{UserID: 1, APIKeyID: 2, AccountID: 3, Model: "qwen-turbo", CreatedAt: time.Now().UTC()}
+		if known {
+			enabled := false
+			source := "group:dashscope-cn-standard"
+			version := "sha256:card"
+			log.ThinkingEnabled = &enabled
+			log.PriceSource = &source
+			log.PriceCardVersion = &version
+		}
+		prepared := prepareUsageLogInsert(log)
+		values := []driver.Value{int64(11)}
+		for _, arg := range prepared.args {
+			value, err := driver.DefaultParameterConverter.ConvertValue(arg)
+			require.NoError(t, err)
+			values = append(values, value)
+		}
+		db, mock, err := sqlmock.New()
+		require.NoError(t, err)
+		mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(strings.Split(usageLogSelectColumns, ", ")).AddRow(values...))
+		rows, err := db.Query("SELECT")
+		require.NoError(t, err)
+		require.True(t, rows.Next())
+		got, err := scanUsageLog(rows)
+		require.NoError(t, err)
+		require.Equal(t, log.ThinkingEnabled, got.ThinkingEnabled)
+		require.Equal(t, log.PriceSource, got.PriceSource)
+		require.Equal(t, log.PriceCardVersion, got.PriceCardVersion)
+		require.NoError(t, rows.Close())
+		require.NoError(t, mock.ExpectationsWereMet())
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+	}
 }

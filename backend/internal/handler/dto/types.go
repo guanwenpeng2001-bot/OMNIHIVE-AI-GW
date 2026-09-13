@@ -669,6 +669,9 @@ type UsageLog struct {
 
 // AdminUsageLog 是管理员接口使用的 usage log DTO（包含管理员字段）。
 type AdminUsageLog struct {
+	ThinkingEnabled  *bool   `json:"thinking_enabled,omitempty"`
+	PriceSource      *string `json:"price_source,omitempty"`
+	PriceCardVersion *string `json:"price_card_version,omitempty"`
 	UsageLog
 
 	// UpstreamModel is the actual model sent to the upstream provider after mapping.

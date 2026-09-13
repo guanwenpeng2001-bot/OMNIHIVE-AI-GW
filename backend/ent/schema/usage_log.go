@@ -75,6 +75,11 @@ func (UsageLog) Fields() []ent.Field {
 			Optional().
 			Nillable(),
 
+		// Audit metadata is unknown for historical rows.
+		field.Bool("thinking_enabled").Optional().Nillable(),
+		field.String("price_source").Optional().Nillable(),
+		field.String("price_card_version").Optional().Nillable(),
+
 		// Token 计数字段
 		field.Int("input_tokens").
 			Default(0),
