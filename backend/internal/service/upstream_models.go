@@ -617,8 +617,10 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 		return ""
 	}
 	switch {
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCommandCode():
 		return account.GetOpenAIFormatBaseURL()
+	case account.IsCursor():
+		return "https://api2.cursor.sh"
 	case account.IsGrok():
 		return account.GetGrokBaseURL()
 	case account.IsGemini():
@@ -677,6 +679,8 @@ func matchModelsDevProviderByKnownHost(registry map[string]modelsDevProvider, ac
 	switch host {
 	case "api.openai.com", "chatgpt.com":
 		providerID = "openai"
+	case "api2.cursor.sh", "api.cursor.sh", "api.cursor.com":
+		providerID = "cursor"
 	case "opencode.ai":
 		providerID = "opencode-go"
 	default:
@@ -788,7 +792,7 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
 		return s.buildGrokUpstreamModelsRequest(ctx, account)
-	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo():
+	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCommandCode():
 		// 国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go
 		// 复用 OpenAI /v1/models 探测。
 		return s.buildOpenAIUpstreamModelsRequest(ctx, account)
@@ -1256,6 +1260,7 @@ type upstreamModelCapabilityEntry struct {
 	InputModalities          []string                   `json:"input_modalities"`
 	Modalities               modelsDevModalities        `json:"modalities"`
 	ContextWindow            int64                      `json:"context_window"`
+	ContextLength            int64                      `json:"context_length"`
 	MaxContextWindow         int64                      `json:"max_context_window"`
 	MaxOutputTokens          int64                      `json:"max_output_tokens"`
 	Limit                    modelsDevLimit             `json:"limit"`
@@ -1339,6 +1344,9 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 	contextWindow := entry.ContextWindow
 	if contextWindow <= 0 {
 		contextWindow = entry.MaxContextWindow
+	}
+	if contextWindow <= 0 {
+		contextWindow = entry.ContextLength
 	}
 	if contextWindow <= 0 {
 		contextWindow = entry.Limit.Context

@@ -296,6 +296,8 @@ func defaultModelsListCandidateIDs(platform string) []string {
 		return xai.DefaultModelIDs()
 	case PlatformCursor:
 		return DefaultCursorModelIDs()
+	case PlatformCommandCode:
+		return DefaultCommandCodeModelIDs()
 	case PlatformOpenCodeGo:
 		return DefaultOpenCodeGoModelIDs()
 	case PlatformComposite:
