@@ -341,7 +341,7 @@ func isAsyncImageTaskRead(method, path string) bool {
 }
 
 func isUpstreamJobRead(method, path string) bool {
-	return method == http.MethodGet && strings.HasPrefix(path, "/api/v1/tasks/")
+	return method == http.MethodGet && (strings.HasPrefix(path, "/api/v1/tasks/") || strings.HasPrefix(path, "/compatible-mode/v1/files/") || strings.HasPrefix(path, "/compatible-mode/v1/batches/"))
 }
 
 // GetAPIKeyFromContext 从上下文中获取API key

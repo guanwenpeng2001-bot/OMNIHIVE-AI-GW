@@ -31,6 +31,9 @@ type UpstreamJobBilling struct {
 	KeyQuota              bool    `json:"key_quota"`
 	KeyRateLimit          bool    `json:"key_rate_limit"`
 	AccountQuota          bool    `json:"account_quota"`
+
+	// FileBatch contains only validated resource metadata, never file contents.
+	FileBatch *QianwenFileBatchSnapshot `json:"file_batch,omitempty"`
 }
 
 type UpstreamJob struct {

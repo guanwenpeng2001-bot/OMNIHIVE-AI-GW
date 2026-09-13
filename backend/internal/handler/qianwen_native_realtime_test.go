@@ -27,6 +27,7 @@ func TestQianwenNativeRealtimeRejectsBeforeHandshakeAndAdmission(t *testing.T) {
 				h.QianwenNative(c)
 				require.Equal(t, http.StatusNotFound, w.Code)
 				require.Empty(t, w.Header().Get("Upgrade"))
+				require.Contains(t, w.Body.String(), "qianwen_realtime_unsupported")
 				var response struct {
 					Error struct {
 						Type    string `json:"type"`
