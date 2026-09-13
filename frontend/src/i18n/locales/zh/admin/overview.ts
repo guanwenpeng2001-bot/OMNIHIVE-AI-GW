@@ -918,6 +918,8 @@ export default {
         minimax: 'MiniMax',
         cursor: 'Cursor',
         opencode_go: 'OpenCode',
+        qianwen: '千问AI',
+        commandcode: 'Command Code',
         composite: 'Composite',
       },
       saving: '保存中...',

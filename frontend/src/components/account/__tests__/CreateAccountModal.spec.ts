@@ -487,6 +487,29 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
+  it.each(['qianwen', 'commandcode'] as const)('creates %s as API-key-only with protocol defaults', async (platform) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(platform)
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-sp-test-only')
+    if (platform === 'qianwen') expect(wrapper.find('[data-testid="qianwen-token-plan-warning"]').exists()).toBe(true)
+    if (platform === 'commandcode') {
+      expect(wrapper.find('[data-testid="cn-adaptive-base-url-responses"]').exists()).toBe(false)
+      expect(wrapper.find('option[value="responses"]').exists()).toBe(false)
+    }
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0][0]
+    expect(payload).toMatchObject({ platform, type: 'apikey', credentials: { account_mode: 'payg', api_protocol: 'adaptive', api_key: 'sk-sp-test-only' } })
+    if (platform === 'qianwen') {
+      expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://dashscope.aliyuncs.com/compatible-mode/v1', responses: 'https://dashscope.aliyuncs.com/compatible-mode/v1', anthropic: 'https://dashscope.aliyuncs.com/apps/anthropic' })
+    } else {
+      expect(payload.credentials.protocol_rules).toEqual([{ pattern: 'claude-*', protocol: 'anthropic' }, { pattern: 'anthropic/claude-*', protocol: 'anthropic' }])
+      expect(payload.credentials.api_base_urls).toEqual({ chat_completions: 'https://api.commandcode.ai/provider/v1', anthropic: 'https://api.commandcode.ai/provider/v1' })
+    }
+  })
+
   it('submits OpenCode Zen default protocol rules with adaptive endpoints', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenCode')

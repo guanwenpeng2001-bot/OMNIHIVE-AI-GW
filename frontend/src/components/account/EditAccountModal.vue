@@ -55,7 +55,7 @@
             @select="editBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNApiKeyAccount && account.platform !== 'opencode_go'"
+            v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode'].includes(account.platform)"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="editAccountMode"
@@ -131,7 +131,7 @@
           </div>
         </div>
         <!-- Account Mode Selection (CN providers) -->
-        <div v-if="isCNApiKeyAccount && account.platform !== 'opencode_go'">
+        <div v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode', 'qianwen'].includes(account.platform)">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
           <div class="mt-2 flex flex-wrap gap-2">
             <button
@@ -172,9 +172,11 @@
           </div>
           <p class="input-hint">{{ t(`admin.accounts.cnProviders.apiProtocol.${cnProtocolDescKey}Desc`) }}</p>
         </div>
+        <NewPlatformNotice :platform="account.platform" :api-key="editApiKey || String(account.credentials?.api_key || '')" />
         <OpenCodeGoProtocolRulesEditor
-          v-if="account.platform === 'opencode_go' && editApiProtocol === 'adaptive'"
+          v-if="['opencode_go', 'commandcode'].includes(account.platform) && editApiProtocol === 'adaptive'"
           v-model:rows="editOpenCodeGoProtocolRules"
+          :platform="account.platform"
           :plan="editOpenCodeAccountMode"
         />
         <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后用量查询走团队版端点） -->
@@ -217,7 +219,11 @@
             data-lpignore="true"
             data-bwignore="true"
             :placeholder="
-              account.platform === 'openai'
+              account.platform === 'qianwen'
+                ? 'sk-ws-... / sk-sp-...'
+                : account.platform === 'commandcode'
+                  ? '<api-key>'
+                  : account.platform === 'openai'
                 ? 'sk-proj-...'
                 : account.platform === 'gemini'
                   ? 'AIza...'
@@ -1971,7 +1977,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey'"
+        v-if="account?.type === 'apikey' && !['qianwen', 'commandcode', 'cursor'].includes(account.platform)"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -3057,6 +3063,7 @@ import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
+import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
@@ -3080,6 +3087,8 @@ import {
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   isCNProviderPlatform,
+  isMultiProtocolApiKeyPlatform,
+  DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
   type CnAccountMode,
@@ -3203,7 +3212,7 @@ const handleCursorAuthorized = async (accountId: number) => {
 const isCNApiKeyAccount = computed(
   () =>
     props.account?.type === 'apikey' &&
-    (isCNProviderPlatform(props.account.platform) || props.account.platform === 'opencode_go')
+    isMultiProtocolApiKeyPlatform(props.account.platform)
 )
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
@@ -3214,7 +3223,8 @@ const cnPresetPlatform = computed<CnProviderPlatform>(() => {
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go'>(() => {
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode'>(() => {
+  if (props.account?.platform === 'commandcode') return 'commandcode'
   if (props.account?.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
 })
@@ -4220,11 +4230,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const credentials = newAccount.credentials as Record<string, unknown>
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
-    if (isCNProviderPlatform(newAccount.platform) || newAccount.platform === 'opencode_go') {
+    if (isMultiProtocolApiKeyPlatform(newAccount.platform)) {
       if (newAccount.platform === 'opencode_go') {
         editOpenCodeAccountMode.value = resolveOpenCodeAccountMode(credentials.account_mode)
       } else {
-        editAccountMode.value = credentials.account_mode === 'coding' ? 'coding' : 'payg'
+        editAccountMode.value = ['qianwen', 'commandcode'].includes(newAccount.platform) ? 'payg' : credentials.account_mode === 'coding' ? 'coding' : 'payg'
       }
       const storedProtocol = credentials.api_protocol
       editApiProtocol.value =
@@ -4273,10 +4283,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         editZhipuOrganization.value = typeof credentials.zhipu_organization === 'string' ? credentials.zhipu_organization : ''
         editZhipuProject.value = typeof credentials.zhipu_project === 'string' ? credentials.zhipu_project : ''
       }
-      if (newAccount.platform === 'opencode_go') {
+      if (newAccount.platform === 'opencode_go' || newAccount.platform === 'commandcode') {
         editOpenCodeGoProtocolRules.value =
           parseOpenCodeGoProtocolRules(credentials.protocol_rules) ??
-          cloneOpenCodeGoProtocolRules(defaultOpenCodeProtocolRules(editOpenCodeAccountMode.value))
+          cloneOpenCodeGoProtocolRules(newAccount.platform === 'commandcode' ? DEFAULT_COMMANDCODE_PROTOCOL_RULES : defaultOpenCodeProtocolRules(editOpenCodeAccountMode.value))
       }
     }
     const platformDefaultUrl =
@@ -4286,10 +4296,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : newAccount.platform === 'kimi' ||
-                newAccount.platform === 'zhipu' ||
-                newAccount.platform === 'deepseek' ||
-                newAccount.platform === 'opencode_go'
+            : isMultiProtocolApiKeyPlatform(newAccount.platform)
               ? defaultCNBaseUrl(newAccount.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
               : 'https://api.anthropic.com'
     editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
@@ -5003,7 +5010,7 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
-    if (props.account.type === 'apikey') {
+    if (props.account.type === 'apikey' && !['qianwen', 'commandcode', 'cursor'].includes(props.account.platform)) {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
@@ -5038,7 +5045,7 @@ const handleSubmit = async () => {
         } else {
           delete newCredentials.api_base_urls
         }
-        if (props.account.platform === 'opencode_go') {
+        if (props.account.platform === 'opencode_go' || props.account.platform === 'commandcode') {
           applyOpenCodeGoProtocolRules(newCredentials, editOpenCodeGoProtocolRules.value, 'edit')
         }
         // 智谱团队版 Coding Plan：组织/项目 ID 写入凭据（非空才写，清空即移除回落个人版路径）
