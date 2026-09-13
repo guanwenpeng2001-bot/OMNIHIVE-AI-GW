@@ -263,7 +263,10 @@ const PLATFORM_LABELS: Record<string, string> = {
   cursor: 'Cursor',
 }
 
-const platformLabel = (p: string) => PLATFORM_LABELS[p] ?? p
+const platformLabel = (p: string) =>
+  ['qianwen', 'commandcode', 'opencode_go'].includes(p)
+    ? t(`monitorCommon.providers.${p}`)
+    : PLATFORM_LABELS[p] ?? p
 
 // 处理"各平台之和 < 总值"的差值：后端按平台聚合时过滤了无法归属平台的行
 // （group 与 account 都缺 platform）。这里把差值作为"其他"卡片显式展示，

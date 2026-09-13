@@ -379,6 +379,7 @@ function categoryLabel(category: string) {
 }
 
 function platformLabel(value: string) {
+  if (['qianwen', 'commandcode', 'opencode_go'].includes(value)) return t(`monitorCommon.providers.${value}`)
   return (
     {
       anthropic: 'Claude',
