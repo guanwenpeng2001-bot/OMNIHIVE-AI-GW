@@ -12,9 +12,71 @@ import (
 type QianwenNativeOperation string
 
 const (
-	QianwenNativeText       QianwenNativeOperation = "text_generation"
-	QianwenNativeMultimodal QianwenNativeOperation = "multimodal_generation"
+	QianwenNativeText           QianwenNativeOperation = "text_generation"
+	QianwenNativeMultimodal     QianwenNativeOperation = "multimodal_generation"
+	QianwenNativeTextPath                              = "/api/v1/services/aigc/text-generation/generation"
+	QianwenNativeMultimodalPath                        = "/api/v1/services/aigc/multimodal-generation/generation"
 )
+
+func QianwenNativeOperationForPath(path string) (QianwenNativeOperation, bool) {
+	switch path {
+	case QianwenNativeTextPath:
+		return QianwenNativeText, true
+	case QianwenNativeMultimodalPath:
+		return QianwenNativeMultimodal, true
+	default:
+		return "", false
+	}
+}
+
+// ParseQianwenNativeBody validates the supported native input without converting
+// it to a compatible protocol. Model aliases are rewritten by normal routing.
+func ParseQianwenNativeBody(body []byte) (string, error) {
+	var payload struct {
+		Model string `json:"model"`
+		Input struct {
+			Prompt   string `json:"prompt"`
+			Messages []struct {
+				Content json.RawMessage `json:"content"`
+			} `json:"messages"`
+		} `json:"input"`
+		Parameters struct {
+			Modalities []string `json:"modalities"`
+		} `json:"parameters"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", fmt.Errorf("invalid DashScope conversation JSON")
+	}
+	if strings.TrimSpace(payload.Model) == "" {
+		return "", fmt.Errorf("DashScope model is required")
+	}
+	if payload.Input.Prompt == "" && len(payload.Input.Messages) == 0 {
+		return "", fmt.Errorf("DashScope input.prompt or input.messages is required")
+	}
+	for _, modality := range payload.Parameters.Modalities {
+		if modality != "text" {
+			return "", fmt.Errorf("unsupported DashScope output modality: %s", modality)
+		}
+	}
+	for _, message := range payload.Input.Messages {
+		var text string
+		if json.Unmarshal(message.Content, &text) == nil {
+			continue
+		}
+		var parts []map[string]json.RawMessage
+		if err := json.Unmarshal(message.Content, &parts); err != nil || len(parts) == 0 {
+			return "", fmt.Errorf("DashScope message content must be text or image/text parts")
+		}
+		for _, part := range parts {
+			for key := range part {
+				if key != "text" && key != "image" {
+					return "", fmt.Errorf("unsupported DashScope input part: %s", key)
+				}
+			}
+		}
+	}
+	return payload.Model, nil
+}
 
 // BuildQianwenNativeRequest implements the verified DashScope conversation
 // endpoints. Other native families deliberately fail closed: video/image jobs,

@@ -21,6 +21,12 @@ import (
 // ChatCompletions handles OpenAI Chat Completions API requests.
 // POST /v1/chat/completions
 func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
+	h.chatCompletions(c, "")
+}
+
+// chatCompletions shares admission, scheduling, failover and accounting with
+// the native DashScope conversation ingress; only the wire forwarder differs.
+func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.QianwenNativeOperation) {
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
 
@@ -77,6 +83,10 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 	reqModel := modelResult.String()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
+	if native != "" && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformQianwen {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "DashScope requires a Qianwen group or an explicit Qianwen model route")
+		return
+	}
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
@@ -88,6 +98,14 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 		body = cappedBody
 	}
 	reqStream, ok := parseOpenAICompatibleStream(body)
+	if native != "" {
+		_, err := service.ParseQianwenNativeBody(body)
+		if err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
+		reqStream = strings.EqualFold(strings.TrimSpace(c.GetHeader("X-DashScope-SSE")), "enable")
+	}
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)
 		return
@@ -106,7 +124,11 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 	setOpsRequestContext(c, reqModel, reqStream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
-	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, body); decision != nil && !decision.AllowNextStage {
+	auditBody := body
+	if native != "" {
+		auditBody = qianwenNativeAuditBody(body)
+	}
+	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, reqModel, auditBody); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
 		return
 	}
@@ -247,6 +269,9 @@ func (h *OpenAIGatewayHandler) ChatCompletions(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
+			if native != "" {
+				return h.gatewayService.ForwardQianwenNative(c.Request.Context(), c, account, native, forwardBody, reqStream)
+			}
 			return h.gatewayService.ForwardAsChatCompletions(c.Request.Context(), c, account, forwardBody, promptCacheKey, "")
 		}()
 		var cyberBlockBodyChat []byte
