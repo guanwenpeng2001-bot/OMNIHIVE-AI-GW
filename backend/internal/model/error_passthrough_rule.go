@@ -82,8 +82,16 @@ func (r *ErrorPassthroughRule) Validate() error {
 	if len(r.ErrorCodes) == 0 && len(r.Keywords) == 0 {
 		return &ValidationError{Field: "conditions", Message: "at least one error_code or keyword is required"}
 	}
-	if !r.PassthroughCode && (r.ResponseCode == nil || *r.ResponseCode <= 0) {
+	if !r.PassthroughCode && r.ResponseCode == nil {
 		return &ValidationError{Field: "response_code", Message: "response_code is required when passthrough_code is false"}
+	}
+	if r.ResponseCode != nil && (*r.ResponseCode < 100 || *r.ResponseCode > 599) {
+		return &ValidationError{Field: "response_code", Message: "response_code must be between 100 and 599"}
+	}
+	for _, code := range r.ErrorCodes {
+		if code < 100 || code > 599 {
+			return &ValidationError{Field: "error_codes", Message: "error codes must be between 100 and 599"}
+		}
 	}
 	if !r.PassthroughBody && (r.CustomMessage == nil || *r.CustomMessage == "") {
 		return &ValidationError{Field: "custom_message", Message: "custom_message is required when passthrough_body is false"}

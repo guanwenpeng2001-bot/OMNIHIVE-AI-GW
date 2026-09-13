@@ -29,7 +29,7 @@ type CreateErrorPassthroughRuleRequest struct {
 	MatchMode       string   `json:"match_mode"`
 	Platforms       []string `json:"platforms"`
 	PassthroughCode *bool    `json:"passthrough_code"`
-	ResponseCode    *int     `json:"response_code"`
+	ResponseCode    *int     `json:"response_code" binding:"omitempty,min=100,max=599"`
 	PassthroughBody *bool    `json:"passthrough_body"`
 	CustomMessage   *string  `json:"custom_message"`
 	SkipMonitoring  *bool    `json:"skip_monitoring"`
@@ -46,7 +46,7 @@ type UpdateErrorPassthroughRuleRequest struct {
 	MatchMode       *string  `json:"match_mode"`
 	Platforms       []string `json:"platforms"`
 	PassthroughCode *bool    `json:"passthrough_code"`
-	ResponseCode    *int     `json:"response_code"`
+	ResponseCode    *int     `json:"response_code" binding:"omitempty,min=100,max=599"`
 	PassthroughBody *bool    `json:"passthrough_body"`
 	CustomMessage   *string  `json:"custom_message"`
 	SkipMonitoring  *bool    `json:"skip_monitoring"`
