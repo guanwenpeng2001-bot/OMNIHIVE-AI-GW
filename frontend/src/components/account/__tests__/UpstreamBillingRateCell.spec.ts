@@ -357,4 +357,14 @@ describe('UpstreamBillingRateCell', () => {
     )
     expect(wrapper.text()).not.toContain('-admin.accounts.upstreamBilling.unsupported')
   })
+  it.each(['qianwen', 'commandcode'] as const)('allows manual billing probes for %s API keys', async (platform) => {
+    const wrapper = mount(UpstreamBillingRateCell, { props: { account: makeAccount({ platform }) } })
+    await wrapper.get('[data-testid="upstream-billing-probe"]').trigger('click')
+    expect(wrapper.emitted('probe')).toBeTruthy()
+    await wrapper.setProps({ account: makeAccount({ platform, type: 'oauth' }) })
+    expect(wrapper.find('[data-testid="upstream-billing-probe"]').exists()).toBe(false)
+    await wrapper.setProps({ account: makeAccount({ platform, type: 'upstream' }) })
+    expect(wrapper.find('[data-testid="upstream-billing-probe"]').exists()).toBe(false)
+  })
+
 })
