@@ -31,11 +31,11 @@ func TestOpenAICompatibleTextTargetAllowsCompositeProviders(t *testing.T) {
 		platform string
 	}{
 		{model: "grok-4.3", platform: service.PlatformGrok},
-		{model: "kimi-k2-thinking", platform: service.PlatformKimi},
+		{model: "kimi/kimi-k2-thinking", platform: service.PlatformKimi},
 		{model: "k3", platform: service.PlatformKimi},
-		{model: "glm-5.2", platform: service.PlatformZhipu},
-		{model: "deepseek-v3.2", platform: service.PlatformDeepseek},
-		{model: "MiniMax-M3", platform: service.PlatformMiniMax},
+		{model: "zhipu/glm-5.2", platform: service.PlatformZhipu},
+		{model: "deepseek/deepseek-v3.2", platform: service.PlatformDeepseek},
+		{model: "minimax/MiniMax-M3", platform: service.PlatformMiniMax},
 	}
 	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/v1/responses/input_tokens", "/v1/messages/count_tokens"} {
 		for _, provider := range providers {
@@ -48,6 +48,17 @@ func TestOpenAICompatibleTextTargetAllowsCompositeProviders(t *testing.T) {
 			require.True(t, ok, "path=%s model=%s", path, provider.model)
 			require.Equal(t, provider.platform, platform, "path=%s model=%s", path, provider.model)
 		}
+	}
+}
+
+func TestCompositeSharedModelNamesRequireExplicitResolution(t *testing.T) {
+	for _, model := range []string{"qwen-plus", "deepseek-v3.2", "glm-5.2", "kimi-k2-thinking", "MiniMax-M3"} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+		apiKey := &service.APIKey{Group: &service.Group{Platform: service.PlatformComposite}}
+		require.False(t, openAICompatibleTextTargetAllowed(c, apiKey, model), model)
+		_, resolved := service.ResolvedTargetPlatformFromContext(c.Request.Context())
+		require.False(t, resolved, model)
 	}
 }
 

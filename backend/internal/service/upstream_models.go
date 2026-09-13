@@ -742,6 +742,10 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if account.Platform == PlatformQianwen {
+		return s.fetchQianwenModelPages(req, account)
+	}
+
 	proxyURL := upstreamModelsProxyURL(account)
 	resp, err := s.doUpstreamModelsRequest(req, proxyURL, account)
 	if err != nil {
