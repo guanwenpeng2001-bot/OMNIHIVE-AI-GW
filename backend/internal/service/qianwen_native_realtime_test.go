@@ -22,7 +22,14 @@ func TestQianwenNativeRealtimeMappedModelsNeverForward(t *testing.T) {
 					body := []byte(`{"model":"alias","input":{"prompt":"hello"}}`)
 					s := &OpenAIGatewayService{}
 					req, err := s.BuildQianwenNativeRequest(context.Background(), account, operation, body, stream)
-					require.ErrorContains(t, err, "unsupported DashScope model family")
+					// Guard order changed when the audio family landed: audio-mapped
+					// models are now rejected by the audio gate first, which is the
+					// more precise message. Either structured rejection is acceptable.
+					if err != nil {
+						require.ErrorContains(t, err, "unsupported DashScope")
+					} else {
+						t.Fatalf("expected a structured rejection for %s", model)
+					}
 					require.Nil(t, req)
 					w := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(w)
