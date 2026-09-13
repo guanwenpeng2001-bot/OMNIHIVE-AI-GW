@@ -104,6 +104,7 @@ const PLATFORM_LABELS: Record<string, string> = {
 }
 
 function platformLabel(platform: string): string {
+  if (platform === 'qianwen' || platform === 'commandcode') return t(`monitorCommon.providers.${platform}`)
   return PLATFORM_LABELS[platform] ?? platform
 }
 </script>

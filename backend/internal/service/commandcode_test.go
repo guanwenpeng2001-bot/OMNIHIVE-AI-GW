@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -126,7 +127,7 @@ func TestCommandCodeErrors(t *testing.T) {
 	require.True(t, fo.RetryableOnSameAccount)
 	require.True(t, fo.RequestScopedTransient)
 	require.Equal(t, 502, fo.StatusCode)
-	require.False(t, isCommandCodeTransientRouteError(404, []byte(`{"error":{"code":"model_not_found"}}`)))
+	require.False(t, isCommandCodeTransientUpstreamError(404, []byte(`{"error":{"code":"model_not_found"}}`)))
 }
 
 func TestCommandCodeModelSyncAndCursorRegistry(t *testing.T) {
@@ -200,4 +201,50 @@ func TestCommandCodePinnedAnthropicSyncUsesRelay(t *testing.T) {
 	header := http.Header{}
 	setAnthropicAPIKeyAuthHeader(header, a, "cc-test", a.GetAnthropicProtocolBaseURL())
 	require.Equal(t, "Bearer cc-test", header.Get("Authorization"))
+}
+
+func TestCommandCodeWAFAndCredentialState(t *testing.T) {
+	for _, tc := range []struct {
+		name                string
+		status              int
+		body                string
+		transient, disabled bool
+	}{
+		{"waf html", 403, `<html>Access forbidden (403): The site owner has blocked access based on your browser's signature.</html>`, true, false},
+		{"waf json", 403, `{"error":{"message":"Forbidden browser signature"}}`, true, false},
+		{"plan", 403, `{"error":{"code":"MODEL_NOT_IN_PLAN"}}`, false, false},
+		{"credentials", 401, `{"error":{"code":"UNAUTHORIZED","message":"Invalid API key"}}`, false, true},
+		{"401 not exempt by text", 401, `site owner has blocked access`, false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := &openAIAuthPolicyAccountRepo{}
+			rates := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			svc := &OpenAIGatewayService{rateLimitService: rates}
+			rates.SetAccountRuntimeBlocker(svc)
+			account := commandCodeTestAccount()
+			account.Schedulable = true
+			body := []byte(tc.body)
+			require.Equal(t, tc.transient, isCommandCodeTransientUpstreamError(tc.status, body))
+			if tc.transient {
+				failure := svc.failoverOpenAIUpstreamHTTPError(context.Background(), nil, account, &http.Response{StatusCode: tc.status}, body, tc.body, "model")
+				require.NotNil(t, failure)
+				require.True(t, failure.RequestScopedTransient)
+				require.True(t, failure.RetryableOnSameAccount)
+				require.Equal(t, GatewayFailureScopeRequest, failure.Scope)
+				require.Equal(t, 502, failure.ClientStatusCode)
+			}
+			disabled := svc.handleOpenAIAccountUpstreamError(context.Background(), account, tc.status, http.Header{}, body)
+			require.Equal(t, tc.disabled, disabled)
+			if tc.disabled {
+				require.Equal(t, 1, repo.setErrorCalls)
+			} else {
+				require.Zero(t, repo.setErrorCalls)
+				require.Zero(t, repo.tempCalls)
+				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+				require.Equal(t, StatusActive, account.Status)
+				require.True(t, account.Schedulable)
+			}
+		})
+	}
+	require.False(t, isCommandCodeTransientUpstreamError(403, []byte(`{"error":{"message":"permission denied"}}`)))
 }

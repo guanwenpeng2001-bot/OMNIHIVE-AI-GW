@@ -269,6 +269,8 @@ import {
   PROVIDER_KIMI,
   PROVIDER_ZHIPU,
   PROVIDER_DEEPSEEK,
+  PROVIDER_QIANWEN,
+  PROVIDER_COMMANDCODE,
   PROVIDER_MINIMAX,
   PROVIDER_OPENCODE_GO,
   API_MODE_CHAT_COMPLETIONS,
@@ -277,6 +279,10 @@ import {
   CHECK_MODE_QUOTA,
   CHECK_MODE_QUOTA_PROBE,
   DEFAULT_GROK_ENDPOINT,
+  DEFAULT_QIANWEN_ENDPOINT,
+  DEFAULT_COMMANDCODE_ENDPOINT,
+  PROVIDER_DEFAULT_MODELS,
+  PROBE_ONLY_PROVIDERS,
   DEFAULT_GROK_MODEL,
   DEFAULT_KIMI_ENDPOINT,
   DEFAULT_ZHIPU_ENDPOINT,
@@ -477,6 +483,8 @@ const providerOptions = computed<ProviderOption[]>(() => [
   { value: PROVIDER_KIMI, label: t('monitorCommon.providers.kimi') },
   { value: PROVIDER_ZHIPU, label: t('monitorCommon.providers.zhipu') },
   { value: PROVIDER_DEEPSEEK, label: t('monitorCommon.providers.deepseek') },
+  { value: PROVIDER_QIANWEN, label: t('monitorCommon.providers.qianwen') },
+  { value: PROVIDER_COMMANDCODE, label: t('monitorCommon.providers.commandcode') },
   { value: PROVIDER_MINIMAX, label: t('monitorCommon.providers.minimax') },
   { value: PROVIDER_OPENCODE_GO, label: t('monitorCommon.providers.opencode_go') },
 ])
@@ -486,6 +494,8 @@ const PROVIDER_DEFAULT_ENDPOINTS: Partial<Record<Provider, string>> = {
   [PROVIDER_KIMI]: DEFAULT_KIMI_ENDPOINT,
   [PROVIDER_ZHIPU]: DEFAULT_ZHIPU_ENDPOINT,
   [PROVIDER_DEEPSEEK]: DEFAULT_DEEPSEEK_ENDPOINT,
+  [PROVIDER_QIANWEN]: DEFAULT_QIANWEN_ENDPOINT,
+  [PROVIDER_COMMANDCODE]: DEFAULT_COMMANDCODE_ENDPOINT,
   [PROVIDER_MINIMAX]: DEFAULT_MINIMAX_ENDPOINT,
   [PROVIDER_OPENCODE_GO]: DEFAULT_OPENCODE_GO_ENDPOINT,
 }
@@ -509,14 +519,14 @@ const checkModeOptions = computed<CheckModeOption[]>(() => [
     value: CHECK_MODE_QUOTA,
     label: t('admin.channelMonitor.form.checkModeQuota'),
     hint: t('admin.channelMonitor.form.checkModeQuotaHint'),
-    disabled: false,
+    disabled: PROBE_ONLY_PROVIDERS.includes(form.provider),
   },
   {
     value: CHECK_MODE_QUOTA_PROBE,
     label: t('admin.channelMonitor.form.checkModeQuotaProbe'),
     hint: t('admin.channelMonitor.form.checkModeQuotaProbeHint'),
-    // antigravity 无探活 adapter，只支持配额模式。
-    disabled: form.provider === PROVIDER_ANTIGRAVITY,
+    // Probe-only providers have no verified quota source.
+    disabled: form.provider === PROVIDER_ANTIGRAVITY || PROBE_ONLY_PROVIDERS.includes(form.provider),
   },
 ])
 
@@ -668,6 +678,11 @@ watch(
 function selectProvider(provider: Provider) {
   if (form.provider === provider) return
   const previousProvider = form.provider
+  if (form.primary_model === PROVIDER_DEFAULT_MODELS[previousProvider]) form.primary_model = ''
+  if (PROBE_ONLY_PROVIDERS.includes(provider)) {
+    form.check_mode = CHECK_MODE_PROBE
+    if (form.primary_model === 'quota') form.primary_model = ''
+  }
   const clearGrokEndpoint =
     previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
   const clearGrokModel =
@@ -698,6 +713,7 @@ function selectProvider(provider: Provider) {
   }
   if (clearGrokEndpoint || clearPrevDefaultEndpoint) form.endpoint = ''
   if (clearGrokModel) form.primary_model = ''
+  if (!form.primary_model.trim()) form.primary_model = PROVIDER_DEFAULT_MODELS[provider] ?? ''
   const defaultEndpoint = PROVIDER_DEFAULT_ENDPOINTS[provider]
   if (defaultEndpoint && !form.endpoint.trim()) form.endpoint = defaultEndpoint
 }

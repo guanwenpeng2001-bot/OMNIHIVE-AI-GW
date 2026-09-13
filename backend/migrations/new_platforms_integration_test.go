@@ -103,6 +103,18 @@ func TestNewPlatformMigrations(t *testing.T) {
 						require.Error(t, err)
 					}
 				}
+				apply("243_channel_monitor_qianwen_commandcode.sql")
+				apply("243_channel_monitor_qianwen_commandcode.sql")
+				for _, table := range []string{"channel_monitors", "channel_monitor_request_templates"} {
+					for _, provider := range []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"} {
+						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
+						require.NoError(t, err)
+					}
+					for _, provider := range []string{"cursor", "minimax", "opencode_go", "bogus"} {
+						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
+						require.Error(t, err)
+					}
+				}
 			}
 			for _, constraint := range []string{"user_platform_quotas_platform_check", "composite_model_routes_target_platform_check"} {
 				value := definition(constraint)
@@ -113,10 +125,10 @@ func TestNewPlatformMigrations(t *testing.T) {
 			}
 			for _, constraint := range monitorConstraints {
 				value := definition(constraint)
-				for _, platform := range []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek"} {
+				for _, platform := range []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"} {
 					require.Contains(t, value, "'"+platform+"'")
 				}
-				for _, platform := range []string{"qianwen", "commandcode", "cursor", "minimax", "opencode_go"} {
+				for _, platform := range []string{"cursor", "minimax", "opencode_go"} {
 					require.NotContains(t, value, "'"+platform+"'")
 				}
 			}

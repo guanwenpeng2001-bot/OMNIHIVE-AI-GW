@@ -473,6 +473,8 @@ export default {
       kimi: 'Kimi',
       zhipu: 'Zhipu GLM',
       deepseek: 'DeepSeek',
+      qianwen: 'Qianwen',
+      commandcode: 'Command Code',
       minimax: 'MiniMax',
       cursor: 'Cursor',
       opencode_go: 'OpenCode'
