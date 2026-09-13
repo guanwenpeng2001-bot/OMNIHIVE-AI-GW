@@ -4,6 +4,8 @@ package handler
 
 import (
 	"encoding/json"
+	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,6 +14,38 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestQianwenRealtimeAuthenticationAndHandshakeAdmission(t *testing.T) {
+	for _, tt := range []struct {
+		name, platform, origin string
+		auth, upgrade          bool
+		status                 int
+	}{
+		{"missing_key", "qianwen", "", false, true, 401},
+		{"wrong_platform", "openai", "", true, true, 404},
+		{"no_upgrade", "qianwen", "", true, false, 426},
+		{"cross_origin", "qianwen", "https://evil.test", true, true, 403},
+		{"missing_billing_store", "qianwen", "", true, true, 503},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", "/api-ws/v1/realtime?model=qwen3-tts-flash-realtime", nil)
+			if tt.auth {
+				c.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, User: &service.User{ID: 1}, Group: &service.Group{Platform: tt.platform}})
+				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1, Concurrency: 3})
+			}
+			if tt.upgrade {
+				c.Request.Header.Set("Connection", "Upgrade")
+				c.Request.Header.Set("Upgrade", "websocket")
+			}
+			c.Request.Header.Set("Origin", tt.origin)
+			(&OpenAIGatewayHandler{}).QianwenNative(c)
+			require.Equal(t, tt.status, w.Code)
+			require.Empty(t, w.Header().Get("Upgrade"))
+		})
+	}
+}
 
 func TestQianwenNativeRealtimeRejectsBeforeHandshakeAndAdmission(t *testing.T) {
 	for _, path := range []string{"/api-ws/v1/realtime?model=qwen-omni-turbo-realtime", "/api-ws/v1/realtime/", "/api/v1/realtime", "/api/v1/realtime/tokens", "/api/v1/realtime/calls", "/api/v1/services/aigc/realtime/generation"} {
