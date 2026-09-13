@@ -21,7 +21,7 @@ func NewErrorPassthroughRepository(client *ent.Client) service.ErrorPassthroughR
 // List 获取所有规则
 func (r *errorPassthroughRepository) List(ctx context.Context) ([]*model.ErrorPassthroughRule, error) {
 	rules, err := r.client.ErrorPassthroughRule.Query().
-		Order(ent.Asc(errorpassthroughrule.FieldPriority)).
+		Order(ent.Asc(errorpassthroughrule.FieldPriority, errorpassthroughrule.FieldID)).
 		All(ctx)
 	if err != nil {
 		return nil, err

@@ -122,13 +122,17 @@ func (h *ErrorPassthroughHandler) Create(c *gin.Context) {
 	if req.PassthroughBody != nil {
 		rule.PassthroughBody = *req.PassthroughBody
 	} else {
-		rule.PassthroughBody = true
+		rule.PassthroughBody = false
 	}
 	if req.SkipMonitoring != nil {
 		rule.SkipMonitoring = *req.SkipMonitoring
 	}
 	rule.ResponseCode = req.ResponseCode
 	rule.CustomMessage = req.CustomMessage
+	if req.PassthroughBody == nil && (rule.CustomMessage == nil || *rule.CustomMessage == "") {
+		message := "Upstream request failed"
+		rule.CustomMessage = &message
+	}
 	rule.Description = req.Description
 
 	// 确保切片不为 nil
@@ -232,6 +236,10 @@ func (h *ErrorPassthroughHandler) Update(c *gin.Context) {
 	}
 	if req.CustomMessage != nil {
 		rule.CustomMessage = req.CustomMessage
+		if req.PassthroughBody == nil && (rule.CustomMessage == nil || *rule.CustomMessage == "") {
+			message := "Upstream request failed"
+			rule.CustomMessage = &message
+		}
 	}
 	if req.Description != nil {
 		rule.Description = req.Description

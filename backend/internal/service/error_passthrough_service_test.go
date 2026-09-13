@@ -1031,3 +1031,15 @@ func TestErrorPassthroughRuleRejectsInvalidHTTPStatus(t *testing.T) {
 		require.NoError(t, rule.Validate())
 	}
 }
+
+func TestErrorPassthroughPriorityTieUsesID(t *testing.T) {
+	s := &ErrorPassthroughService{}
+	for _, ids := range [][]int64{{9, 2, 5}, {5, 9, 2}, {2, 5, 9}} {
+		var rules []*model.ErrorPassthroughRule
+		for _, id := range ids {
+			rules = append(rules, &model.ErrorPassthroughRule{ID: id, Priority: 1, Enabled: true, PassthroughCode: true, ErrorCodes: []int{502}, MatchMode: model.MatchModeAny})
+		}
+		s.setLocalCache(rules)
+		assert.Equal(t, int64(2), s.MatchRule(PlatformOpenAI, 502, nil).ID)
+	}
+}

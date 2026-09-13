@@ -380,3 +380,13 @@ func newNonFailoverPassthroughRule(statusCode int, keyword string, respCode int,
 		CustomMessage:   &customMessage,
 	}
 }
+
+func TestErrorPassthroughUnsetBodyDoesNotExposeOriginal(t *testing.T) {
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	svc := &ErrorPassthroughService{}
+	svc.setLocalCache([]*model.ErrorPassthroughRule{{ID: 1, Enabled: true, PassthroughCode: true, ErrorCodes: []int{502}, MatchMode: model.MatchModeAny}})
+	BindErrorPassthroughService(c, svc)
+	_, _, message, matched := applyErrorPassthroughRule(c, PlatformOpenAI, 502, []byte(`{"error":{"message":"private upstream diagnostic"}}`), 502, "upstream_error", "fallback")
+	require.True(t, matched)
+	require.Equal(t, "Upstream request failed", message)
+}
