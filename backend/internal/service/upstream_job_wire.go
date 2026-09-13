@@ -7,7 +7,7 @@ import (
 )
 
 func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewayService, wheel *TimingWheelService, billing *BillingCacheService, keys *APIKeyService, platformQuotas UserPlatformQuotaRepository) *UpstreamJobService {
-	svc := NewUpstreamJobService(repo, gateway.PollQianwenJob, QianwenJobCharge)
+	svc := NewUpstreamJobService(repo, gateway.PollQianwenAsyncJob, QianwenAsyncJobCharge)
 	svc.afterSettle = func(ctx context.Context, j *UpstreamJob) {
 		_ = billing.InvalidateUserBalance(ctx, j.UserID)
 		_ = billing.InvalidateAPIKeyRateLimit(ctx, j.APIKeyID)
@@ -19,7 +19,7 @@ func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewa
 		// Monetary ledger writes above remain atomic; this derived quota cache has
 		// the same post-commit crash window as the synchronous gateway.
 		if j.Billing.SubscriptionID == nil && billing.HasUserPlatformQuotaLimit(ctx, j.UserID, j.Platform) {
-			log, _, err := QianwenJobCharge(j)
+			log, _, err := QianwenAsyncJobCharge(j)
 			if err == nil {
 				billing.IncrementUserPlatformQuotaUsage(j.UserID, j.Platform, log.ActualCost)
 				if billing.cfg == nil || !billing.cfg.Database.UserPlatformQuotaFlusherEnabled {

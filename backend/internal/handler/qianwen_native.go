@@ -14,13 +14,10 @@ func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
 	if h.handleQianwenFileBatch(c) {
 		return
 	}
-	if h.handleQianwenNativeVideo(c) {
+	if h.handleQianwenNativeAsyncJobs(c) {
 		return
 	}
 	if h.rejectQianwenNativeRealtime(c) {
-		return
-	}
-	if h.rejectQianwenNative3D(c) {
 		return
 	}
 	if h.rejectQianwenNativeResource(c) {

@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -15,19 +16,20 @@ import (
 
 // Ownership is checked by opaque public ID before exposing state or results.
 // GET reads durable state; the timing wheel polls independently of the client.
-func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
+func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool {
 	path := c.Request.URL.Path
-	submit := path == service.QianwenNativeVideoPath
+	family := service.QianwenAsyncFamilyForPath(path)
+	submit := family != ""
 	lookup := strings.HasPrefix(path, "/api/v1/tasks/") && c.Request.Method == http.MethodGet
 	if !submit && !lookup {
 		return false
 	}
 	if submit && c.Request.Method != http.MethodPost {
-		h.errorResponse(c, 404, "unsupported_operation_error", "Video submission requires POST")
+		h.errorResponse(c, 404, "unsupported_operation_error", "Async submission requires POST")
 		return true
 	}
 	if h.upstreamJobs == nil {
-		h.errorResponse(c, 503, "unsupported_operation_error", "Persistent video jobs unavailable")
+		h.errorResponse(c, 503, "unsupported_operation_error", "Persistent async jobs unavailable")
 		return true
 	}
 	key, ok := middleware2.GetAPIKeyFromContext(c)
@@ -38,7 +40,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
 	if lookup {
 		id := strings.TrimPrefix(path, "/api/v1/tasks/")
 		job, err := h.upstreamJobs.Get(c.Request.Context(), id, key.UserID, key.ID)
-		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && (job.Platform != service.PlatformQianwen || job.Family != "video") {
+		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && (job.Platform != service.PlatformQianwen || job.Family != "video" && job.Family != "3d" && job.Family != "asr") {
 			h.errorResponse(c, 404, "not_found_error", "Task not found")
 			return true
 		}
@@ -46,27 +48,27 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
 			h.errorResponse(c, 503, "api_error", "Task store unavailable")
 			return true
 		}
-		writeQianwenVideoJob(c, job, http.StatusOK)
+		writeQianwenAsyncJob(c, job, http.StatusOK)
 		return true
 	}
 	if openAICompatibleRequestPlatform(c.Request.Context(), key) != service.PlatformQianwen {
-		h.errorResponse(c, 404, "unsupported_operation_error", "Video requires a Qianwen group")
+		h.errorResponse(c, 404, "unsupported_operation_error", "Async submission requires a Qianwen group")
 		return true
 	}
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil || !gjson.ValidBytes(body) {
-		h.errorResponse(c, 400, "invalid_request_error", "Invalid video JSON")
+		h.errorResponse(c, 400, "invalid_request_error", "Invalid async JSON")
 		return true
 	}
 	body, err = service.CanonicalUpstreamJobBody(body)
 	if err != nil {
-		h.errorResponse(c, 400, "invalid_request_error", "Invalid video JSON")
+		h.errorResponse(c, 400, "invalid_request_error", "Invalid async JSON")
 		return true
 	}
 	model := gjson.GetBytes(body, "model").String()
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	// Fail before account admission when no explicit model/resolution rate exists.
-	if _, err = service.QianwenVideoBillingSnapshot(key.Group, nil, key, body, subscription); err != nil {
+	if _, err = service.QianwenAsyncBillingSnapshot(family, key.Group, nil, key, body, subscription); err != nil {
 		h.errorResponse(c, 422, "unsupported_operation_error", err.Error())
 		return true
 	}
@@ -75,7 +77,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
 		h.errorResponse(c, 401, "authentication_error", "Invalid user context")
 		return true
 	}
-	reqLog := requestLogger(c, "handler.qianwen_video")
+	reqLog := requestLogger(c, "handler.qianwen_async")
 	if decision := h.checkSecurityAudit(c, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, qianwenNativeAuditBody(body)); decision != nil && !decision.AllowNextStage {
 		h.openAISecurityAuditError(c, decision)
 		return true
@@ -99,7 +101,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	selection, _, err := h.gatewayService.SelectAccountWithSchedulerForCapability(c.Request.Context(), key.GroupID, "", sessionHash, model, nil, service.OpenAIUpstreamTransportAny, service.OpenAIEndpointCapabilityChatCompletions, false, false, true, service.PlatformQianwen)
 	if err != nil || selection == nil || selection.Account == nil {
-		h.errorResponse(c, 503, "api_error", "No video account available")
+		h.errorResponse(c, 503, "api_error", "No async account available")
 		return true
 	}
 	account := selection.Account
@@ -110,34 +112,38 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeVideo(c *gin.Context) bool {
 	if accountRelease != nil {
 		defer accountRelease()
 	}
-	snapshot, err := service.QianwenVideoBillingSnapshot(key.Group, account, key, body, subscription)
+	snapshot, err := service.QianwenAsyncBillingSnapshot(family, key.Group, account, key, body, subscription)
 	if err != nil {
 		h.errorResponse(c, 422, "unsupported_operation_error", err.Error())
 		return true
 	}
-	if !key.Group.VideoRateIndependent && key.GroupID != nil {
+	if (family != "video" || !key.Group.VideoRateIndependent) && key.GroupID != nil {
 		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(c.Request.Context(), key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(time.Now())
 	}
-	job, err := h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: "video", AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot}, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
-		return h.gatewayService.SubmitQianwenVideo(ctx, account, body)
+	job, err := h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot}, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
+		return h.gatewayService.SubmitQianwenAsync(ctx, account, family, body)
 	})
 	if err != nil {
-		h.errorResponse(c, 503, "api_error", "Unable to persist video task")
+		h.errorResponse(c, 503, "api_error", "Unable to persist async task")
 		return true
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
-	writeQianwenVideoJob(c, job, http.StatusAccepted)
+	writeQianwenAsyncJob(c, job, http.StatusAccepted)
 	return true
 }
 
-func writeQianwenVideoJob(c *gin.Context, j *service.UpstreamJob, status int) {
+func writeQianwenAsyncJob(c *gin.Context, j *service.UpstreamJob, status int) {
 	state := strings.ToUpper(j.Status)
 	if j.Status == "submitted" {
 		state = "PENDING"
 	}
 	output := gin.H{"task_id": j.PublicRequestID, "task_status": state}
 	if j.Status == "succeeded" {
-		output["video_url"] = j.ResultRef
+		if j.Family == "video" {
+			output["video_url"] = j.ResultRef
+		} else {
+			output["results"] = json.RawMessage(j.ResultRef)
+		}
 	}
 	if j.ErrorCode != "" {
 		output["code"] = j.ErrorCode
