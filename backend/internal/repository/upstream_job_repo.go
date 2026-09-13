@@ -101,7 +101,7 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 	return j, nil
 }
 func (r *upstreamJobRepository) Expire(ctx context.Context, now time.Time) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET status='expired',finished_at=$1,error_code='expired',error_message='Task expired' WHERE status IN ('submitted','running') AND expires_at<=$1`, now)
+	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET status='expired',finished_at=$1,error_code=CASE WHEN error_code='usage_pending' THEN error_code ELSE 'expired' END,error_message=CASE WHEN error_code='usage_pending' THEN error_message ELSE 'Task expired' END WHERE status IN ('submitted','running') AND expires_at<=$1 AND NOT (family='realtime_turn' AND usage_json IS NOT NULL AND error_code<>'usage_conflict')`, now)
 	if err != nil {
 		return 0, err
 	}
