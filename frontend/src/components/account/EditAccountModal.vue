@@ -3198,7 +3198,8 @@ const baseUrlHint = computed(() => {
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (props.account.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (props.account.platform === 'grok') return ''
-  return t('admin.accounts.baseUrlHint')
+  if (props.account.platform === 'anthropic') return t('admin.accounts.baseUrlHint')
+  return t('admin.accounts.platformBaseUrlHint')
 })
 
 const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))

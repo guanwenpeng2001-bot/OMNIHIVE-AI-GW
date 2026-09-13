@@ -518,7 +518,7 @@
               {{ formatKeyRequests }} req
             </span>
             <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-              {{ formatKeyTokens }}
+              {{ formatKeyTokens }} tokens
             </span>
             <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
               A ${{ formatKeyCost }}
@@ -605,7 +605,7 @@
             {{ formatKeyRequests }} req
           </span>
           <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800">
-            {{ formatKeyTokens }}
+            {{ formatKeyTokens }} tokens
           </span>
           <span class="rounded bg-gray-100 px-1.5 py-0.5 dark:bg-gray-800" :title="t('usage.accountBilled')">
             A ${{ formatKeyCost }}
@@ -735,10 +735,16 @@ let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = nul
 let visibilityObserver: IntersectionObserver | null = null
 
 // These providers expose no public upstream quota/usage endpoint.
-const hasNoUpstreamUsageApi = computed(() => ['qianwen'].includes(props.account.platform))
+const hasNoUpstreamUsageApi = computed(() => {
+  if (props.account.ollama_cloud_usage?.eligible) return false
+  if (props.account.platform === 'qianwen') return true
+  return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
+    && !cnQuotaCellVisible.value && !cnBalanceCellVisible.value
+})
 
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {
+  if (hasNoUpstreamUsageApi.value) return false
   if (props.account.platform === 'cursor') return props.account.type !== 'upstream'
   // Gemini: we can always compute local usage windows from DB logs (simulated quotas).
   if (props.account.platform === 'gemini') return true
@@ -777,7 +783,7 @@ const shouldFetchUsage = computed(() => {
 })
 
 // CN 供应商子单元格可见性（与 CNProviderQuotaCell / CNProviderBalanceCell 共用
-// credentialsBuilder 的单一实现）：都不可见时显示 `-` 占位符。
+// credentialsBuilder 的单一实现）：无上游接口的模式统一回落到今日本站统计。
 const cnAccountMode = computed(() => {
   const mode = props.account.credentials?.account_mode
   return typeof mode === 'string' ? mode : ''

@@ -262,7 +262,7 @@ async function onSave() {
     emit('success')
     emit('close')
   } catch (e: any) {
-    appStore.showError(e?.response?.data?.message || t('admin.users.platformQuota.updateFailed'))
+    appStore.showError(e?.message || e?.reason || t('admin.users.platformQuota.updateFailed'))
   } finally {
     submitting.value = false
   }
@@ -291,7 +291,7 @@ async function onReset(platform: PlatformQuotaPlatform, quotaWindow: PlatformQuo
     savedConfigured.value = configuredPlatforms(data.platform_quotas || [])
     appStore.showSuccess(t('admin.users.platformQuota.reset.success', { platform, window: windowLabel }))
   } catch (e: any) {
-    appStore.showError(e?.response?.data?.message || t('admin.users.platformQuota.reset.failed'))
+    appStore.showError(e?.message || e?.reason || t('admin.users.platformQuota.reset.failed'))
   } finally {
     resetting[key] = false
   }
