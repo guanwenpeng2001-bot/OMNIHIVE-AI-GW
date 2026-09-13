@@ -243,6 +243,9 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		result, forwardErr = s.bufferRawChatCompletions(c, resp, account, originalModel, billingModel, upstreamModel, reasoningEffort, serviceTier, startTime)
 	}
 	if result != nil {
+		if account.Platform == PlatformQianwen {
+			result.ThinkingEnabled = qianwenExplicitThinking(upstreamBody, "enable_thinking")
+		}
 		addOpenAIUsage(&result.Usage, bridgeUsage)
 		result.UpstreamEndpoint = grokChatRawEndpoint
 	}

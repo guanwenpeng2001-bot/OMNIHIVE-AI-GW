@@ -62,6 +62,7 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		return s.handleChatCompletionsErrorResponse(resp, c, account, model)
 	}
 	result := &OpenAIForwardResult{Model: model, BillingModel: account.GetMappedModel(model), UpstreamModel: account.GetMappedModel(model), UpstreamEndpoint: endpoint, Stream: stream, UpstreamHeaders: resp.Header.Clone(), RequestID: resp.Header.Get("X-Request-Id")}
+	result.ThinkingEnabled = qianwenExplicitThinking(body, "parameters.enable_thinking")
 	defer func() { result.Duration = time.Since(started); result.ClientDisconnect = clientCtx.Err() != nil }()
 	if !stream || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))
