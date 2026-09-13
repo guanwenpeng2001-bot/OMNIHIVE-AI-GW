@@ -59,7 +59,7 @@ func TestSyncQianwenPricingUnsetFXWritesNoGroupPrices(t *testing.T) {
 
 func TestMergeQianwenPricingPreservesOtherCards(t *testing.T) {
 	in, out := 1e-6, 2e-6
-	old := []service.ChannelModelPricing{{Models: []string{"qwen3.8-max", "other"}, InputPrice: &out}, {Models: []string{"*"}, OutputPrice: &out}}
+	old := []service.ChannelModelPricing{{Platform: service.PlatformQianwen, NativePricingSource: service.QianwenPricingSource, Models: []string{"qwen3.8-max", "other"}, InputPrice: &out}, {Models: []string{"*"}, OutputPrice: &out}}
 	result := &service.QianwenPricingResult{Models: []service.QianwenPricingModelResult{{QianwenModelPrices: service.QianwenModelPrices{Model: "qwen3.8-max"}, Pricing: &service.ChannelModelPricing{Models: []string{"qwen3.8-max"}, InputPrice: &in, OutputPrice: &out}}}}
 	cards := mergeQianwenPricing(old, result)
 	require.Len(t, cards, 3)
@@ -67,4 +67,38 @@ func TestMergeQianwenPricingPreservesOtherCards(t *testing.T) {
 	require.Equal(t, []string{"other"}, cards[1].Models)
 	require.Equal(t, []string{"*"}, cards[2].Models)
 	require.Equal(t, []string{"qwen3.8-max", "other"}, old[0].Models)
+}
+
+func TestQianwenImportProtectsOperatorAndOtherPlatformPrices(t *testing.T) {
+	price, newer := 2e-6, 5e-6
+	existing := []service.ChannelModelPricing{
+		{Platform: service.PlatformCommandCode, Models: []string{"shared"}, InputPrice: &price},
+		{Platform: service.PlatformQianwen, Models: []string{"manual"}, InputPrice: &price},
+	}
+	snapshot := &service.QianwenPricingResult{}
+	for _, model := range []string{"shared", "manual", "conditional"} {
+		snapshot.Models = append(snapshot.Models, service.QianwenPricingModelResult{QianwenModelPrices: service.QianwenModelPrices{Model: model}, Pricing: &service.ChannelModelPricing{Platform: service.PlatformQianwen, NativePricingSource: service.QianwenPricingSource, Models: []string{model}, InputPrice: &newer, ThinkingPricing: &service.QianwenModePricing{OutputPrice: &newer}}})
+	}
+	cards := mergeQianwenPricing(existing, snapshot)
+	require.Len(t, cards, 4)
+	require.Equal(t, "shared", cards[0].Models[0])
+	require.NotNil(t, cards[1].ThinkingPricing)
+	require.Equal(t, existing[0], cards[2])
+	require.Equal(t, existing[1], cards[3])
+	require.Equal(t, cards, mergeQianwenPricing(cards, snapshot), "repeated apply must be idempotent")
+}
+
+func TestQianwenImportSelectsActiveTargetRoutes(t *testing.T) {
+	models := []service.QianwenPricingModelResult{}
+	for _, name := range []string{"qwen-plus", "qwen-turbo", "other", "disabled"} {
+		models = append(models, service.QianwenPricingModelResult{QianwenModelPrices: service.QianwenModelPrices{Model: name}})
+	}
+	routes := []service.CompositeModelRoute{
+		{PublicModel: "alias", UpstreamModel: "qwen-plus", Enabled: true, MatchType: "exact", TargetPlatform: service.PlatformQianwen},
+		{PublicModel: "qwen-turbo", Enabled: true, MatchType: "exact", TargetPlatform: service.PlatformQianwen},
+		{PublicModel: "other", Enabled: true, MatchType: "exact", TargetPlatform: service.PlatformCommandCode},
+		{PublicModel: "disabled", MatchType: "exact", TargetPlatform: service.PlatformQianwen},
+	}
+	selected := routedQianwenPrices(models, routes)
+	require.Equal(t, models[:2], selected)
 }

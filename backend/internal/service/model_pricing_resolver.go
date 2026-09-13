@@ -70,7 +70,11 @@ type PricingInput struct {
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
-	if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
+	platform := ""
+	if input.Group != nil {
+		platform = channelLookupPlatform(ctx, input.Group.Platform)
+	}
+	if groupPricing := matchGroupModelPricing(input.Group, input.Model, platform); groupPricing != nil {
 		// Ordinary group cards override flat rates; optional long-context
 		// ladders come from presets. Native Qianwen input tiers are mandatory.
 		if groupPricing.NativePricingSource != QianwenPricingSource && (groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken) {
@@ -145,14 +149,22 @@ func (r *ModelPricingResolver) resolveConfiguredPricing(config *ChannelModelPric
 	return resolved
 }
 
-func matchGroupModelPricing(group *Group, model string) *ChannelModelPricing {
+func matchGroupModelPricing(group *Group, model string, platforms ...string) *ChannelModelPricing {
 	if group == nil {
 		return nil
 	}
 	model = normalizeChannelPricingModelName(model)
+	platform := group.Platform
+	if len(platforms) > 0 {
+		platform = platforms[0]
+	}
 	var wildcard *ChannelModelPricing
 	for i := range group.ModelPricing {
 		entry := &group.ModelPricing[i]
+		// An unresolved composite request must never borrow an arbitrary provider's card.
+		if entry.Platform != "" && platform != "" && entry.Platform != platform {
+			continue
+		}
 		for _, pattern := range entry.Models {
 			normalized := normalizeChannelPricingModelName(pattern)
 			if normalized == model {

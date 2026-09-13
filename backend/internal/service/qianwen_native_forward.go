@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"time"
 
@@ -46,6 +47,14 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	if err != nil {
 		return nil, err
 	}
+	body, thinking, err := prepareQianwenThinking(body, body, account.GetMappedModel(model), "parameters.enable_thinking")
+	if err == nil {
+		err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
+	}
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
 	req, err := s.BuildQianwenNativeRequest(ctx, account, operation, body, stream)
 	if err != nil {
 		return nil, err
@@ -62,7 +71,7 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		return s.handleChatCompletionsErrorResponse(resp, c, account, model)
 	}
 	result := &OpenAIForwardResult{Model: model, BillingModel: account.GetMappedModel(model), UpstreamModel: account.GetMappedModel(model), UpstreamEndpoint: endpoint, Stream: stream, UpstreamHeaders: resp.Header.Clone(), RequestID: resp.Header.Get("X-Request-Id")}
-	result.ThinkingEnabled = qianwenExplicitThinking(body, "parameters.enable_thinking")
+	result.ThinkingEnabled = thinking
 	defer func() { result.Duration = time.Since(started); result.ClientDisconnect = clientCtx.Err() != nil }()
 	if !stream || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))

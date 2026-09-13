@@ -1,4 +1,14 @@
 {
+  "composer-2.5-fast": {
+    "pricing_basis": "official_variant",
+    "source": "https://cursor.com/docs/models-and-pricing",
+    "litellm_provider": "cursor",
+    "mode": "chat",
+    "input_cost_per_token": 0.000003,
+    "output_cost_per_token": 0.000015,
+    "cache_read_input_token_cost": 0.0000005,
+    "supports_prompt_caching": true
+  },
   "default": {
     "pricing_basis": "operator_plan_alias",
     "description": "Operator-configurable Cursor default plan/alias rate in USD; not the actual price of the upstream model selected by Cursor. Override with pricing.override_file.",

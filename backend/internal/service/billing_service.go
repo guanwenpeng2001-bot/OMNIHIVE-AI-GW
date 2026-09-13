@@ -345,6 +345,11 @@ func NewBillingService(cfg *config.Config, pricingService *PricingService) *Bill
 // initFallbackPricing 初始化硬编码回退价格（当动态价格不可用时使用）
 // 价格单位：USD per token（与LiteLLM格式一致）
 func (s *BillingService) initFallbackPricing() {
+	// Cursor Composer 2.5 Fast, official USD/token rates checked 2026-09-13.
+	// https://cursor.com/docs/models-and-pricing
+	s.fallbackPrices["composer-2.5-fast"] = &ModelPricing{
+		InputPricePerToken: 3e-6, OutputPricePerToken: 15e-6, CacheReadPricePerToken: 0.5e-6,
+	}
 	// Claude 4.5 Opus
 	s.fallbackPrices["claude-opus-4.5"] = &ModelPricing{
 		InputPricePerToken:         5e-6,    // $5 per MTok
@@ -904,6 +909,9 @@ func (s *BillingService) initFallbackPricing() {
 // getFallbackPricing 根据模型系列获取回退价格
 func (s *BillingService) getFallbackPricing(model string) *ModelPricing {
 	modelLower := strings.ToLower(model)
+	if modelLower == "composer-2.5-fast" {
+		return s.fallbackPrices[modelLower]
+	}
 
 	// 按模型系列匹配
 	if isClaudeFable51Model(modelLower) {

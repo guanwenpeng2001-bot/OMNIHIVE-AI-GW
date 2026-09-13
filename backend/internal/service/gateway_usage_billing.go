@@ -718,6 +718,9 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	apiKey := input.APIKey
 	user := input.User
 	account := input.Account
+	if account != nil {
+		ctx = WithResolvedTargetPlatform(ctx, account.Platform)
+	}
 	subscription := input.Subscription
 	ApplyForwardImageBillingResolution(result)
 	logServiceTierBillingDowngrade("service.gateway", account, result.RequestID, ApplyForwardServiceTierBillingResolution(result))
@@ -1075,6 +1078,14 @@ func (s *GatewayService) calculateTokenCost(
 	multiplier float64,
 	pricingAt time.Time,
 ) *CostBreakdown {
+	platform, _ := ResolvedTargetPlatformFromContext(ctx)
+	if platform == "" && apiKey.Group != nil {
+		platform = apiKey.Group.Platform
+	}
+	cursorFast := platform == PlatformCursor && result.UpstreamModel == "composer-2.5-fast"
+	if cursorFast {
+		billingModel = result.UpstreamModel
+	}
 	tokens := UsageTokens{
 		InputTokens:           result.Usage.InputTokens,
 		OutputTokens:          result.Usage.OutputTokens,
@@ -1089,6 +1100,16 @@ func (s *GatewayService) calculateTokenCost(
 	if s.resolver != nil && apiKey.Group != nil {
 		gid := apiKey.Group.ID
 		resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
+	}
+	if cursorFast && resolved != nil && resolved.channelPricing != nil {
+		exact := false
+		for _, model := range resolved.channelPricing.Models {
+			exact = exact || strings.EqualFold(model, billingModel)
+		}
+		if !exact {
+			// A normal-family wildcard is not an explicit Fast variant price.
+			resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel})
+		}
 	}
 
 	cost, err := s.billingService.CalculateTokenCostForRequest(TokenCostRequest{
