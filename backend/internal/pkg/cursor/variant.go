@@ -185,3 +185,21 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 	}
 	return "", fmt.Errorf("cursor: unknown model %q", requested)
 }
+
+// ModelReasoningLevels returns only effort values observed in picker variants.
+// An empty result means unknown, not that the model cannot reason.
+func ModelReasoningLevels(model AvailableModel) []string {
+	seen := map[string]bool{}
+	for _, slug := range model.LegacySlugs {
+		if effort := parseRunVariant(slug).effort; effort != "" {
+			seen[effort] = true
+		}
+	}
+	var levels []string
+	for _, effort := range []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"} {
+		if seen[effort] {
+			levels = append(levels, effort)
+		}
+	}
+	return levels
+}
