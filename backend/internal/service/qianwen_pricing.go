@@ -8,6 +8,7 @@ import (
 	"math"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,6 +69,8 @@ type QianwenPricingResult struct {
 	Duplicates        int                         `json:"duplicates"`
 	Matched           int                         `json:"matched"`
 	Imported          int                         `json:"imported"`
+	ImportedRanges    int                         `json:"imported_ranges"`
+	SkippedRanges     int                         `json:"skipped_ranges"`
 	SkippedConditions int                         `json:"skipped_conditions"`
 	Models            []QianwenPricingModelResult `json:"models"`
 }
@@ -228,6 +231,10 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 		}
 		if entry.Pricing != nil {
 			r.Imported++
+			r.ImportedRanges += len(entry.Prices)
+		}
+		if entry.Pricing == nil {
+			r.SkippedRanges += len(entry.Prices)
 		}
 		r.SkippedConditions += entry.SkippedConditions
 		r.Models = append(r.Models, entry)
@@ -242,7 +249,7 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 
 func positiveFinite(v float64) bool { return v > 0 && !math.IsNaN(v) && !math.IsInf(v, 0) }
 
-func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
+func parseQianwenFlatPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
 	r := QianwenPricingModelResult{QianwenModelPrices: m, Status: "unsupported"}
 	count := 0
 	for _, tier := range m.Prices {
@@ -310,5 +317,70 @@ func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingM
 	}
 	r.Pricing = card
 	r.Status = "supported"
+	return r
+}
+
+// Native bounds use decimal K/M, per the CN pricing documentation. Accept only
+// the observed input-length grammar, never infer bounds from array position.
+var qianwenInputRange = regexp.MustCompile(`^(?:([0-9]+)([km])<)?输入<=([0-9]+)([km])$`)
+
+func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
+	if len(m.Prices) < 2 {
+		return parseQianwenFlatPrices(m, rate)
+	}
+	r := QianwenPricingModelResult{QianwenModelPrices: m, Status: "unsupported"}
+	for _, tier := range m.Prices {
+		r.SkippedConditions += len(tier.Prices)
+	}
+	card := &ChannelModelPricing{Platform: PlatformQianwen, Models: []string{m.Model}, BillingMode: BillingModeToken, NativePricingSource: QianwenPricingSource}
+	skipped := 0
+	for _, tier := range m.Prices {
+		parts := qianwenInputRange.FindStringSubmatch(tier.Name)
+		if parts == nil {
+			r.Reason = "unsupported input-length range label"
+			return r
+		}
+		bound := func(n, unit string) (int, error) {
+			if n == "" {
+				return 0, nil
+			}
+			v, err := strconv.ParseUint(n, 10, 31)
+			scale := uint64(1000)
+			if unit == "m" {
+				scale = 1000000
+			}
+			if err != nil || v == 0 || v > uint64(math.MaxInt32)/scale {
+				return 0, fmt.Errorf("invalid input bound")
+			}
+			return int(v * scale), nil
+		}
+		lo, errLo := bound(parts[1], parts[2])
+		hi, errHi := bound(parts[3], parts[4])
+		if errLo != nil || errHi != nil || hi <= lo {
+			r.Reason = "invalid input-length bounds"
+			return r
+		}
+		flat := parseQianwenFlatPrices(QianwenModelPrices{Model: m.Model, Prices: []QianwenPriceRange{{Name: "Default", Prices: tier.Prices}}}, rate)
+		if flat.Pricing == nil {
+			r.Reason = tier.Name + ": " + flat.Reason
+			return r
+		}
+		skipped += flat.SkippedConditions
+		card.Intervals = append(card.Intervals, PricingInterval{MinTokens: lo, MaxTokens: &hi, TierLabel: tier.Name, InputPrice: flat.Pricing.InputPrice, OutputPrice: flat.Pricing.OutputPrice, CacheReadPrice: flat.Pricing.CacheReadPrice})
+	}
+	sort.Slice(card.Intervals, func(i, j int) bool { return card.Intervals[i].MinTokens < card.Intervals[j].MinTokens })
+	expected := 0
+	for i := range card.Intervals {
+		iv := &card.Intervals[i]
+		if iv.MinTokens != expected {
+			r.Reason = "input-length ranges have a gap or overlap"
+			return r
+		}
+		expected = *iv.MaxTokens
+		iv.SortOrder = i
+	}
+	r.Pricing = card
+	r.Status = "supported"
+	r.SkippedConditions = skipped
 	return r
 }

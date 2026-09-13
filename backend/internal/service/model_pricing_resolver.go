@@ -71,9 +71,9 @@ type PricingInput struct {
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
 	if groupPricing := matchGroupModelPricing(input.Group, input.Model); groupPricing != nil {
-		// Group token cards only override the first-tier / flat rates.
-		// Long-context ladders come from official presets, gated by the checkbox.
-		if groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken {
+		// Ordinary group cards override flat rates; optional long-context
+		// ladders come from presets. Native Qianwen input tiers are mandatory.
+		if groupPricing.NativePricingSource != QianwenPricingSource && (groupPricing.BillingMode == "" || groupPricing.BillingMode == BillingModeToken) {
 			stripped := groupPricing.Clone()
 			stripped.Intervals = nil
 			groupPricing = &stripped
@@ -305,6 +305,24 @@ func filterValidIntervals(intervals []PricingInterval) []PricingInterval {
 // GetIntervalPricing 根据 context token 数获取区间定价。
 // 如果有区间列表，找到匹配区间并构造 ModelPricing；否则直接返回 BasePricing。
 func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, totalContextTokens int) *ModelPricing {
+	if resolved.channelPricing != nil && resolved.channelPricing.NativePricingSource == QianwenPricingSource && len(resolved.channelPricing.Intervals) > 0 {
+		// Native ladders are mandatory input-length prices, independent of the
+		// optional long-context surcharge switch. No first-tier/base fallback.
+		var match *PricingInterval
+		for i := range resolved.Intervals {
+			iv := &resolved.Intervals[i]
+			if totalContextTokens >= 0 && (totalContextTokens > iv.MinTokens || totalContextTokens == 0 && iv.MinTokens == 0) && (iv.MaxTokens == nil || totalContextTokens <= *iv.MaxTokens) {
+				if match != nil || iv.InputPrice == nil || iv.OutputPrice == nil {
+					return nil
+				}
+				match = iv
+			}
+		}
+		if match == nil {
+			return nil
+		}
+		return intervalToModelPricing(match, nil, resolved.channelPricing)
+	}
 	if len(resolved.Intervals) == 0 {
 		return resolved.BasePricing
 	}

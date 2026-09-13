@@ -210,3 +210,86 @@ func TestQianwenImportedGroupProducesNonzeroCostWithoutFallbackContamination(t *
 	require.NoError(t, err)
 	require.InDelta(t, 0.000195, cost.TotalCost, 1e-12)
 }
+
+func qianwenTieredTestModel() QianwenModelPrices {
+	m := qianwenTestModel()
+	m.Prices[0].Name = "输入<=128k"
+	second := qianwenTestModel().Prices[0]
+	second.Name = "128k<输入<=1m"
+	second.Prices[0].Price = "24"
+	second.Prices[1].Price = "72"
+	m.Prices = append(m.Prices, second)
+	return m
+}
+func TestQianwenTierParsing(t *testing.T) {
+	for _, tc := range []struct {
+		name, label string
+		supported   bool
+	}{
+		{"ordered", "128k<输入<=1m", true}, {"gap", "256k<输入<=1m", false}, {"overlap", "32k<输入<=1m", false}, {"unknown", "Default", false}, {"overflow", "128k<输入<=999999999999999999m", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			m := qianwenTieredTestModel()
+			m.Prices[1].Name = tc.label
+			r := parseQianwenModelPrices(m, 0.125)
+			if !tc.supported {
+				require.Nil(t, r.Pricing)
+				require.NotEmpty(t, r.Reason)
+				return
+			}
+			require.Len(t, r.Pricing.Intervals, 2)
+			require.Equal(t, 128000, *r.Pricing.Intervals[0].MaxTokens)
+			require.Equal(t, 1000000, *r.Pricing.Intervals[1].MaxTokens)
+			require.Equal(t, 4, r.SkippedConditions)
+			require.Nil(t, r.Pricing.InputPrice)
+			require.NoError(t, ValidateIntervals(r.Pricing.Intervals, BillingModeToken))
+			m.Prices[0], m.Prices[1] = m.Prices[1], m.Prices[0]
+			require.Equal(t, r.Pricing, parseQianwenModelPrices(m, 0.125).Pricing)
+		})
+	}
+	for _, kind := range []string{"missing first", "missing price", "thinking later"} {
+		t.Run(kind, func(t *testing.T) {
+			m := qianwenTieredTestModel()
+			switch kind {
+			case "missing first":
+				m.Prices[0].Name = "32k<输入<=128k"
+			case "missing price":
+				m.Prices[1].Prices = m.Prices[1].Prices[:1]
+			case "thinking later":
+				m.Prices[1].Prices = append(m.Prices[1].Prices, QianwenPrice{Type: "thinking_output_token"})
+			}
+			require.Nil(t, parseQianwenModelPrices(m, 0.125).Pricing)
+		})
+	}
+}
+func TestQianwenTierResolverAndBilling(t *testing.T) {
+	card := parseQianwenModelPrices(qianwenTieredTestModel(), 0.125).Pricing
+	bs := newTestBillingServiceForResolver()
+	resolver := NewModelPricingResolver(nil, bs)
+	for _, enabled := range []bool{false, true} {
+		group := &Group{Platform: PlatformQianwen, LongContextPricingEnabled: enabled, ModelPricing: []ChannelModelPricing{*card}}
+		resolved := resolver.Resolve(context.Background(), PricingInput{Model: card.Models[0], Group: group})
+		require.Len(t, resolved.Intervals, 2)
+		for _, tc := range []struct {
+			in    int
+			price float64
+		}{{0, 1.5e-6}, {128000, 1.5e-6}, {128001, 3e-6}, {1000000, 3e-6}} {
+			p := resolver.GetIntervalPricing(resolved, tc.in)
+			require.NotNil(t, p)
+			require.Equal(t, tc.price, p.InputPricePerToken)
+			cost, err := bs.CalculateCostUnified(CostInput{Model: card.Models[0], Group: group, Tokens: UsageTokens{InputTokens: tc.in, OutputTokens: 10}, RateMultiplier: 1, Resolver: resolver})
+			require.NoError(t, err)
+			require.InDelta(t, float64(tc.in)*tc.price+10*tc.price*3, cost.TotalCost, 1e-12)
+		}
+		cost, err := bs.CalculateCostUnified(CostInput{Model: card.Models[0], Group: group, Tokens: UsageTokens{InputTokens: 128000, CacheReadTokens: 1, OutputTokens: 10}, RateMultiplier: 1, Resolver: resolver})
+		require.NoError(t, err)
+		require.InDelta(t, 128000*3e-6+0.1875e-6+10*9e-6, cost.TotalCost, 1e-12)
+		for _, n := range []int{-1, 1000001} {
+			require.Nil(t, resolver.GetIntervalPricing(resolved, n))
+		}
+		_, err = bs.CalculateCostUnified(CostInput{Model: card.Models[0], Group: group, Tokens: UsageTokens{InputTokens: 1000001}, RateMultiplier: 1, Resolver: resolver})
+		require.ErrorIs(t, err, ErrModelPricingUnavailable)
+		resolved.Intervals = append(resolved.Intervals, resolved.Intervals[0])
+		require.Nil(t, resolver.GetIntervalPricing(resolved, 1))
+	}
+}
