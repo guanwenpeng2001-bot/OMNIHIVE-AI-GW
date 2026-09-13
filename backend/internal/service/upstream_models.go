@@ -133,6 +133,7 @@ type UpstreamModelSyncErrorKind string
 const (
 	// UpstreamModelSyncErrorConfiguration means the account or server configuration cannot perform the sync.
 	UpstreamModelSyncErrorConfiguration UpstreamModelSyncErrorKind = "configuration"
+	UpstreamModelSyncErrorCredentials   UpstreamModelSyncErrorKind = "credentials"
 	// UpstreamModelSyncErrorUnsupported means the account format is intentionally unsupported for live model sync.
 	UpstreamModelSyncErrorUnsupported UpstreamModelSyncErrorKind = "unsupported"
 	// UpstreamModelSyncErrorUpstream means the configured upstream failed or returned an unusable response.
@@ -738,8 +739,24 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 	}
 
 	if account.IsCursor() {
+		if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth && account.Type != AccountTypeUpstream {
+			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Cursor account type", nil)
+		}
+		key := "api_key"
+		if account.Type == AccountTypeOAuth {
+			key = "access_token"
+		}
+		if strings.TrimSpace(account.GetCredential(key)) == "" {
+			return nil, nil, newUpstreamModelSyncConfigError("Cursor credentials are required", nil)
+		}
 		models, err := s.cursorGatewayService.AvailableModels(ctx, account)
-		return models, nil, err
+		if err != nil {
+			if cursorAuthFailure(err) {
+				return nil, nil, &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorCredentials, Message: "Upstream rejected the account credentials", Err: err}
+			}
+			return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request Cursor model list", err)
+		}
+		return models, nil, nil
 	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)

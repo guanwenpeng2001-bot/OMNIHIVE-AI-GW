@@ -14,6 +14,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 type availableModelsAdminService struct {
@@ -38,12 +39,14 @@ func setupAvailableModelsRouter(adminSvc service.AdminService) *gin.Engine {
 }
 
 type syncUpstreamHTTPUpstream struct {
+	requests  []*http.Request
 	resp      *http.Response
 	responses []*http.Response
 	err       error
 }
 
 func (u *syncUpstreamHTTPUpstream) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+	u.requests = append(u.requests, req)
 	if u.err != nil {
 		return nil, u.err
 	}
@@ -525,4 +528,50 @@ func TestAccountHandlerSyncUpstreamModels_MetadataEnrichmentFailureReturnsWarnin
 	require.Equal(t, []string{"x-preview-f-free"}, resp.Data.Models)
 	require.Len(t, resp.Data.Warnings, 1)
 	require.Equal(t, "upstream_model_metadata_incomplete", resp.Data.Warnings[0].Code)
+}
+
+func TestSyncPreviewQianwenProtocolAndPagination(t *testing.T) {
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"first"}],"has_more":true,"last_id":"page-1"}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"second"}],"has_more":false}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
+	}}
+	router := setupSyncUpstreamModelsRouter(newStubAdminService(), upstream)
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview", strings.NewReader(`{"platform":"qianwen","type":"apikey","credentials":{"api_key":"preview-secret","base_url":"https://relay.example/anthropic","api_protocol":"anthropic","account_mode":"payg","api_base_urls":{"chat_completions":"https://relay.example/v1"}}}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.JSONEq(t, `["first","second"]`, string(gjson.Get(w.Body.String(), "data.models").Raw))
+	require.Equal(t, "https://relay.example/v1/models", upstream.requests[0].URL.String())
+	require.Equal(t, "page-1", upstream.requests[1].URL.Query().Get("after"))
+	require.Equal(t, "Bearer preview-secret", upstream.requests[1].Header.Get("Authorization"))
+	require.NotContains(t, w.Body.String(), "preview-secret")
+}
+
+func TestSyncPreviewErrorReasons(t *testing.T) {
+	for _, tc := range []struct {
+		name, platform, key, reason string
+		upstreamStatus, status      int
+	}{
+		{"missing credentials", "qianwen", "", "configuration", 200, 400},
+		{"unsupported", "unknown", "key", "unsupported", 200, 400},
+		{"authentication", "qianwen", "key", "credentials", 401, 400},
+		{"authorization", "qianwen", "key", "credentials", 403, 400},
+		{"unavailable", "qianwen", "key", "upstream", 503, 502},
+		{"malformed", "qianwen", "key", "upstream", 200, 502},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{StatusCode: tc.upstreamStatus, Body: io.NopCloser(strings.NewReader(`private upstream body`))}}
+			router := setupSyncUpstreamModelsRouter(newStubAdminService(), upstream)
+			body, _ := json.Marshal(map[string]any{"platform": tc.platform, "type": "apikey", "api_key": tc.key})
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/models/sync-upstream-preview", strings.NewReader(string(body)))
+			req.Header.Set("Content-Type", "application/json")
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+			require.Equal(t, tc.status, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), `"reason":"upstream_model_sync_`+tc.reason+`"`)
+			require.NotContains(t, w.Body.String(), "private upstream body")
+		})
+	}
 }
