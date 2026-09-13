@@ -69,7 +69,7 @@ func ParseQianwenNativeBody(body []byte) (string, error) {
 		}
 		for _, part := range parts {
 			for key := range part {
-				if key != "text" && key != "image" {
+				if key != "text" && key != "image" && key != "cache_control" {
 					return "", fmt.Errorf("unsupported DashScope input part: %s", key)
 				}
 			}

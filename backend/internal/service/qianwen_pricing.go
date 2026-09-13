@@ -46,10 +46,11 @@ type QianwenModelPrices struct {
 
 type QianwenPricingModelResult struct {
 	QianwenModelPrices
-	Status            string               `json:"status"`
-	Reason            string               `json:"reason,omitempty"`
-	SkippedConditions int                  `json:"skipped_conditions"`
-	Pricing           *ChannelModelPricing `json:"pricing,omitempty"`
+	Status                string                        `json:"status"`
+	Reason                string                        `json:"reason,omitempty"`
+	SkippedConditions     int                           `json:"skipped_conditions"`
+	UnsupportedConditions []QianwenUnsupportedCondition `json:"unsupported_conditions,omitempty"`
+	Pricing               *ChannelModelPricing          `json:"pricing,omitempty"`
 }
 
 // QianwenPricingResult preserves the native IDs and all conditions, including
@@ -108,7 +109,7 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 		return r, nil
 	}
 	u, err := url.Parse(account.GetCredential("base_url"))
-	if err != nil || u.Scheme != "https" || u.Host != "dashscope.aliyuncs.com" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimRight(u.Path, "/") != "/compatible-mode/v1" {
+	if err != nil || u.Scheme != "https" || (u.Host != "dashscope.aliyuncs.com" && u.Host != "batch.dashscope.aliyuncs.com") || u.User != nil || u.RawQuery != "" || u.Fragment != "" || strings.TrimRight(u.Path, "/") != "/compatible-mode/v1" {
 		r.Reason = "unsupported account base URL: verified Beijing compatible-mode account required"
 		return r, nil
 	}
@@ -122,6 +123,7 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 		r.Reason = "configured exact model mapping required"
 		return r, nil
 	}
+	u.Host = "dashscope.aliyuncs.com"
 	u.Path = "/api/v1/models"
 	r.SourceURL = u.String()
 	models := map[string]QianwenModelPrices{}
@@ -229,6 +231,7 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 				}
 			}
 		}
+		annotateQianwenConditions(&entry)
 		if entry.Pricing != nil {
 			r.Imported++
 			r.ImportedRanges += len(entry.Prices)

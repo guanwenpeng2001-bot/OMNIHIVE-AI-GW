@@ -29,6 +29,7 @@ func observeQianwenNative(body []byte, result *OpenAIForwardResult) error {
 		return fmt.Errorf("DashScope response error: %s", code)
 	}
 	u := gjson.GetBytes(body, "usage")
+	result.Usage.CacheCreationInputTokens = max(result.Usage.CacheCreationInputTokens, int(u.Get("prompt_tokens_details.cache_creation_input_tokens").Int()))
 	result.Usage.InputTokens = max(result.Usage.InputTokens, int(u.Get("input_tokens").Int()))
 	result.Usage.OutputTokens = max(result.Usage.OutputTokens, int(u.Get("output_tokens").Int()))
 	result.Usage.CacheReadInputTokens = max(result.Usage.CacheReadInputTokens, int(u.Get("prompt_tokens_details.cached_tokens").Int()))
@@ -51,6 +52,9 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	if err == nil {
 		err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
 	}
+	if err == nil {
+		err = s.validateQianwenRequestConditions(ctx, c, account.GetMappedModel(model), body, "", thinking)
+	}
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, err
@@ -72,6 +76,7 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	}
 	result := &OpenAIForwardResult{Model: model, BillingModel: account.GetMappedModel(model), UpstreamModel: account.GetMappedModel(model), UpstreamEndpoint: endpoint, Stream: stream, UpstreamHeaders: resp.Header.Clone(), RequestID: resp.Header.Get("X-Request-Id")}
 	result.ThinkingEnabled = thinking
+	result.QianwenExplicitCache, _ = qianwenCacheMode(body)
 	defer func() { result.Duration = time.Since(started); result.ClientDisconnect = clientCtx.Err() != nil }()
 	if !stream || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
 		data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))
