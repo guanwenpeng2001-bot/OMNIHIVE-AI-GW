@@ -20,11 +20,11 @@ export default {
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
         "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
-        "commandcodeNote": "Model sync is public and does not validate a key: run an inference test. HTTP 403 MODEL_NOT_IN_PLAN or upgrade_required means a plan/API permission restriction, not an invalid key. No OAuth or upstream quota/limit lookup is available.",
+        "commandcodeNote": "Model sync is public and does not validate a key: run an inference test. HTTP 403 MODEL_NOT_IN_PLAN or upgrade_required means a plan/API permission restriction, not an invalid key. OAuth is unavailable. Experimental alpha usage/quota lookup is supported; failed queries fall back to local request, token and cost statistics.",
         "cursorDescription": "Cursor supports Chat, Responses and Messages through the gateway. The native agent protocol has tool limitations; select a model available to the account.",
         "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
-        "localUsage": "Only local request/token/cost statistics are available; these are not upstream remaining balance. Pricing catalog sync is unsupported until a provider mapping is verified.",
-        "pricingUnsupported": "Pricing catalog sync unsupported",
+        "localUsage": "Local request/token/cost statistics are not upstream remaining balance. Generic provider-mapping pricing sync is unsupported; Qianwen has a separate Beijing-region CNY native pricing workflow.",
+        "pricingUnsupported": "Generic provider-mapping pricing sync unsupported",
         "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic."
 },
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',
@@ -638,6 +638,7 @@ export default {
       setupTokenLongLived: 'Setup Token (Long-lived)',
       baseUrl: 'Base URL',
       baseUrlHint: 'Leave default for official Anthropic API',
+      platformBaseUrlHint: 'Leave blank to use the default API URL for the selected platform and account mode.',
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: 'Your Claude Console API Key',
@@ -1615,7 +1616,7 @@ export default {
         noData: 'No usage data available for this account'
       },
       usageWindow: {
-        noUpstreamUsageApi: 'Today’s local requests, tokens and cost only. This provider does not offer a public quota/usage API.',
+        noUpstreamUsageApi: 'Local statistics only: today’s requests, tokens and cost, not upstream remaining quota.',
         statsTitle: '5-Hour Window Usage Statistics',
         statsTitleDaily: 'Daily Usage Statistics',
         geminiProDaily: 'Pro',

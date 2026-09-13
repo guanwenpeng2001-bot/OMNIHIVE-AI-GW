@@ -20,11 +20,11 @@ export default {
         "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
         "commandcodeDescription": "Command Code 仅支持 API Key。Claude 模型走 Anthropic Messages，其余模型走 Chat Completions；入站 Responses 由网关转换，无原生 Responses 端点。上游 Chat 鉴权使用 x-api-key。",
-        "commandcodeNote": "模型同步为公共接口，不能验证密钥，需执行真实推理测试。403 MODEL_NOT_IN_PLAN 或 upgrade_required 表示套餐/API 权限限制，不代表密钥无效。不支持 OAuth 或上游额度/限额查询。",
+        "commandcodeNote": "模型同步为公共接口，不能验证密钥，需执行真实推理测试。403 MODEL_NOT_IN_PLAN 或 upgrade_required 表示套餐/API 权限限制，不代表密钥无效。不支持 OAuth；支持实验性 alpha 用量/额度查询，查询失败时回落本地请求、Token 与成本统计。",
         "cursorDescription": "Cursor 经网关支持 Chat、Responses 和 Messages；原生 Agent 协议存在工具限制，请选择账号可用的模型。",
         "cursorNote": "客户端函数工具经 MCP/deferred 桥接；请使用网关已支持的工具格式，跨请求续传工具结果依赖工具 ID 持久化映射。中转模式能力取决于配置的上游。",
-        "localUsage": "仅提供本地累计请求、Token 和成本统计，并非上游剩余余额。定价 provider 映射未经实证，暂不支持定价目录同步。",
-        "pricingUnsupported": "不支持定价目录同步",
+        "localUsage": "本地请求、Token 和成本统计并非上游剩余余额。通用 provider 映射定价同步尚不支持；千问可使用独立的北京区人民币原生定价流程。",
+        "pricingUnsupported": "不支持通用 provider 映射定价同步",
         "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。"
 },
       noGroupWarning: '未选择分组；账号需要加入分组后才能参与该分组的请求调度。',
@@ -532,7 +532,7 @@ export default {
         }
       },
       usageWindow: {
-        noUpstreamUsageApi: '仅统计今日在本站累计的请求、Token 与成本；该平台上游未提供公开的额度/用量接口。',
+        noUpstreamUsageApi: '仅本地统计：今日请求、Token 与成本，并非上游剩余额度。',
         statsTitle: '5小时窗口用量统计',
         statsTitleDaily: '每日用量统计',
         geminiProDaily: 'Pro',
@@ -726,6 +726,7 @@ export default {
       setupTokenLongLived: 'Setup Token（长期有效）',
       baseUrl: 'Base URL',
       baseUrlHint: '留空使用官方 Anthropic API',
+      platformBaseUrlHint: '留空使用所选平台及账号模式的默认 API 地址。',
       apiKeyRequired: 'API Key *',
       apiKeyPlaceholder: 'sk-ant-api03-...',
       apiKeyHint: '您的 Claude Console API Key',

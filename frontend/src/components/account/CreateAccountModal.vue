@@ -3896,7 +3896,8 @@ const baseUrlHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.baseUrlHint')
   if (form.platform === 'grok') return ''
-  return t('admin.accounts.baseUrlHint')
+  if (form.platform === 'anthropic') return t('admin.accounts.baseUrlHint')
+  return t('admin.accounts.platformBaseUrlHint')
 })
 
 const apiKeyHint = computed(() => {

@@ -91,6 +91,33 @@ const cnUsageCellStubs = {
 }
 
 describe('AccountUsageCell', () => {
+  it.each([
+    ['zhipu', 'payg'], ['minimax', 'payg'], ['opencode_go', 'zen'],
+  ] as const)('shows local daily statistics for %s %s without probing upstream', async (platform, account_mode) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform, type: 'apikey', credentials: { account_mode } }) },
+      global: { stubs: cnUsageCellStubs }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toContain('noUpstreamUsageApi')
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+    expect(getUsage).not.toHaveBeenCalled()
+    await wrapper.setProps({ todayStatsLoading: true })
+    expect(wrapper.find('.animate-pulse').exists()).toBe(true)
+    await wrapper.setProps({ todayStatsLoading: false, todayStats: { requests: 12, tokens: 1200, cost: 2.5 } })
+    expect(wrapper.text()).toContain('12 req')
+    expect(wrapper.text()).toContain('tokens')
+    expect(wrapper.text()).toContain('A $2.50')
+    await wrapper.setProps({ todayStats: { requests: 0, tokens: 0, cost: 0 } })
+    expect(wrapper.text()).toContain('0 req')
+    expect(wrapper.text()).toContain('A $0.00')
+    await wrapper.setProps({ account: makeAccount({ platform, type: 'apikey', credentials: { account_mode: platform === 'opencode_go' ? 'go' : 'coding' } }) })
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
 
   it.each(['commandcode', 'qianwen'] as const)('explains local-only usage for %s with and without traffic', async (platform) => {
     const wrapper = mount(AccountUsageCell, {

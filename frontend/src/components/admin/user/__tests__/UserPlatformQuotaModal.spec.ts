@@ -3,6 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
 
 const apiMocks = vi.hoisted(() => ({
+  showError: vi.fn(),
   getPlatformQuotas: vi.fn(),
   updatePlatformQuotas: vi.fn(),
   resetPlatformQuotaWindow: vi.fn(),
@@ -20,7 +21,7 @@ vi.mock('@/api/admin', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError: apiMocks.showError,
     showSuccess: vi.fn(),
   }),
 }))
@@ -74,6 +75,35 @@ beforeEach(() => {
 })
 
 describe('UserPlatformQuotaModal', () => {
+  it.each([
+    [{ message: 'Normalized API message', reason: 'reason-code' }, 'Normalized API message'],
+    [{ reason: 'quota_window_unavailable' }, 'quota_window_unavailable'],
+    [{}, ''],
+  ])('surfaces normalized save and reset errors: %j', async (error, message) => {
+    apiMocks.getPlatformQuotas.mockResolvedValue({ platform_quotas: [{
+      platform: 'anthropic', daily_limit_usd: 10,
+      weekly_limit_usd: null, monthly_limit_usd: null,
+      daily_usage_usd: 0, weekly_usage_usd: 0, monthly_usage_usd: 0,
+    }] })
+    apiMocks.updatePlatformQuotas.mockRejectedValueOnce(error)
+    apiMocks.resetPlatformQuotaWindow.mockRejectedValueOnce(error)
+    const confirm = vi.spyOn(window, 'confirm').mockReturnValue(true)
+    const w = await mountAndOpen()
+    const save = w.findAll('button').find(b => b.text() === 'admin.users.platformQuota.save')!
+    await save.trigger('click')
+    await flushPromises()
+    expect(apiMocks.showError).toHaveBeenLastCalledWith(message || 'admin.users.platformQuota.updateFailed')
+    expect(w.emitted('close')).toBeUndefined()
+    expect((save.element as HTMLButtonElement).disabled).toBe(false)
+    const reset = w.findAll('button').find(b => b.text() === '↻')!
+    await reset.trigger('click')
+    await flushPromises()
+    expect(apiMocks.showError).toHaveBeenLastCalledWith(message || 'admin.users.platformQuota.reset.failed')
+    expect((reset.element as HTMLButtonElement).disabled).toBe(false)
+    confirm.mockRestore()
+    w.unmount()
+  })
+
   it('挂载并 show=true 时调用 getPlatformQuotas', async () => {
     await mountAndOpen()
     expect(apiMocks.getPlatformQuotas).toHaveBeenCalledWith(99)
