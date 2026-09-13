@@ -18,6 +18,17 @@
       />
     </div>
 
+    <template v-if="account.platform === 'commandcode'">
+      <p class="text-[10px] text-gray-400">{{ t('admin.accounts.cnProviders.commandCodeAlpha') }}</p>
+      <p v-if="data?.plan_level" class="text-[10px] text-gray-500">{{ data.plan_level }}</p>
+      <p v-for="(value, bucket) in data?.credits" :key="bucket" class="text-[10px] text-gray-500">
+        {{ t(`admin.accounts.cnProviders.${bucket}`) }}: {{ value.toFixed(2) }}
+      </p>
+      <p v-if="!data?.success" data-test="commandcode-local-fallback" class="text-[10px] text-gray-400">
+        {{ t('admin.accounts.cnProviders.commandCodeLocal') }}
+      </p>
+    </template>
+
     <!-- Explicit refresh action (aligned with the OpenAI "Query" / Grok "Probe"
          buttons): a verb label tells users this chip is clickable. The previous
          noun label ("5h/weekly") read as a passive caption and users could not
@@ -58,6 +69,11 @@
     </div>
   </div>
 </template>
+
+<script lang="ts">
+// Shared across remounts; setup-local maps are recreated for every account row.
+const commandCodeLastProbeAt = new Map<number, number>()
+</script>
 
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
@@ -106,6 +122,7 @@ const readExtraString = (key: string): string => {
 // 从持久化快照构造展示数据（缺少 5h/weekly 两档键时返回 null）。
 const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
   const platform = props.account.platform
+  if (platform === 'commandcode' && props.account.extra?.commandcode_usage_supported === false) return null
   const used5h = readExtraNumber(`${platform}_5h_used_percent`)
   const usedWeekly = readExtraNumber(`${platform}_weekly_used_percent`)
   const usedMonthly = readExtraNumber(`${platform}_monthly_used_percent`)
@@ -120,7 +137,14 @@ const snapshotData = computed<CNProviderQuotaProbeResult | null>(() => {
   if (usedMonthly != null) {
     tiers.push({ window: 'monthly', used_percent: usedMonthly, reset_at: readExtraString(`${platform}_monthly_reset_at`) || undefined })
   }
-  return { success: true, tiers } as CNProviderQuotaProbeResult
+  const credits: Record<string, number> = {}
+  if (platform === 'commandcode') {
+    for (const bucket of ['monthlyCredits', 'purchasedCredits', 'freeCredits']) {
+      const value = readExtraNumber(`commandcode_${bucket}`)
+      if (value != null) credits[bucket] = value
+    }
+  }
+  return { success: true, tiers, credits, plan_level: readExtraString(`${platform}_plan_level`) } as CNProviderQuotaProbeResult
 })
 
 // 快照是否过期（无更新时间或超过 staleness 窗口）→ 挂载时需要自动探测。
@@ -139,9 +163,10 @@ onMounted(() => {
   if (!snapshotIsStale.value) return
   // 模块级去抖：列表页每行一个实例，翻页/筛选/刷新会重复挂载；同一账号
   // 短时间内已自动探测过则跳过，避免对上游形成探测风暴。
-  const last = lastAutoProbeAt.get(props.account.id) ?? 0
+  const probeTimes = props.account.platform === 'commandcode' ? commandCodeLastProbeAt : lastAutoProbeAt
+  const last = probeTimes.get(props.account.id) ?? 0
   if (Date.now() - last < AUTO_PROBE_DEBOUNCE_MS) return
-  lastAutoProbeAt.set(props.account.id, Date.now())
+  probeTimes.set(props.account.id, Date.now())
   handleProbe()
 })
 
@@ -181,9 +206,11 @@ const handleProbe = async () => {
     if (result.success) {
       data.value = result
     } else {
-      error.value = result.error || t('common.error')
+      if (props.account.platform === 'commandcode') data.value = null
+      error.value = result.unsupported ? t('admin.accounts.cnProviders.commandCodeUnsupported') : result.error || t('common.error')
     }
   } catch (e) {
+    if (props.account.platform === 'commandcode') data.value = null
     error.value = extractErrorMessage(e)
   } finally {
     loading.value = false

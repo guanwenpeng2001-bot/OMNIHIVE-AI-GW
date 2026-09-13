@@ -9,6 +9,7 @@ const { getUsage } = vi.hoisted(() => ({
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
+    cnProviders: { queryQuota: vi.fn().mockResolvedValue({ success: false, unsupported: true }) },
     accounts: {
       getUsage
     }
@@ -96,7 +97,8 @@ describe('AccountUsageCell', () => {
       props: { account: makeAccount({ platform, type: 'apikey' }) }
     })
     await flushPromises()
-    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toBe('admin.accounts.usageWindow.noUpstreamUsageApi')
+    const explanation = platform === 'commandcode' ? '[data-test="commandcode-local-fallback"]' : '[data-testid="local-usage-explanation"]'
+    expect(wrapper.get(explanation).text()).toBe(platform === 'commandcode' ? 'admin.accounts.cnProviders.commandCodeLocal' : 'admin.accounts.usageWindow.noUpstreamUsageApi')
     expect(wrapper.text()).not.toBe('-')
     expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)
     expect(getUsage).not.toHaveBeenCalled()
@@ -104,9 +106,9 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).toContain('12 req')
     expect(wrapper.text()).toContain('A $2.50')
     expect(wrapper.text()).toContain('U $3.00')
-    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    expect(wrapper.find(explanation).exists()).toBe(true)
     await wrapper.setProps({ todayStats: null, todayStatsLoading: true })
-    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    expect(wrapper.find(explanation).exists()).toBe(true)
     await wrapper.setProps({ account: makeAccount({ platform: 'openai', type: 'apikey' }), todayStatsLoading: false })
     expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
     wrapper.unmount()

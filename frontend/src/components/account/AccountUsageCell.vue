@@ -589,6 +589,7 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
+      <CNProviderQuotaCell v-if="account.platform === 'commandcode'" :account="account" />
       <p
         v-if="hasNoUpstreamUsageApi"
         data-testid="local-usage-explanation"
@@ -734,7 +735,7 @@ let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = nul
 let visibilityObserver: IntersectionObserver | null = null
 
 // These providers expose no public upstream quota/usage endpoint.
-const hasNoUpstreamUsageApi = computed(() => ['commandcode', 'qianwen'].includes(props.account.platform))
+const hasNoUpstreamUsageApi = computed(() => ['qianwen'].includes(props.account.platform))
 
 // Show usage windows for OAuth and Setup Token accounts
 const showUsageWindows = computed(() => {

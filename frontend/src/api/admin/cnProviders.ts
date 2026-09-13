@@ -14,6 +14,8 @@ export interface CNQuotaTier {
 
 /** Coding Plan 额度探测结果（kimi / zhipu），对齐后端 CNProviderQuotaProbeResult。 */
 export interface CNProviderQuotaProbeResult {
+  unsupported?: boolean
+  credits?: Record<string, number>
   provider: string
   source?: string
   success: boolean

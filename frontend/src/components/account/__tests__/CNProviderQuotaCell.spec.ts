@@ -103,3 +103,30 @@ describe('CNProviderQuotaCell', () => {
     expect(queryQuota).toHaveBeenCalledWith(account.id)
   })
 })
+
+it('shows Command Code windows, credits and alpha notice from persisted data', async () => {
+ const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...account, id: 2020, platform: 'commandcode', credentials: {}, extra: { commandcode_5h_used_percent: 16.18, commandcode_weekly_used_percent: 37.1, commandcode_monthlyCredits: 57.01, commandcode_plan_level: 'individual-goat', commandcode_usage_updated_at: new Date().toISOString() } } as Account } })
+ await flushPromises()
+ expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(2)
+ expect(wrapper.text()).toContain('individual-goat')
+ expect(wrapper.text()).toContain('57.01')
+ expect(wrapper.text()).toContain('admin.accounts.cnProviders.commandCodeAlpha')
+ expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(false)
+})
+
+it('removes stale Command Code bars and shows local fallback on unsupported response', async () => {
+ queryQuota.mockResolvedValue({ success: false, unsupported: true })
+ const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...account, id: 2021, platform: 'commandcode', credentials: {}, extra: { commandcode_5h_used_percent: 42, commandcode_usage_updated_at: new Date().toISOString() } } as Account } })
+ await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+ await flushPromises()
+ expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+ expect(wrapper.text()).toContain('admin.accounts.cnProviders.commandCodeUnsupported')
+ expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(true)
+})
+
+it('never renders numeric bars for persisted unsupported Command Code snapshots', async () => {
+ const wrapper = mount(CNProviderQuotaCell, { props: { account: { ...account, id: 2022, platform: 'commandcode', credentials: {}, extra: { commandcode_usage_supported: false, commandcode_5h_used_percent: 42, commandcode_usage_updated_at: new Date().toISOString() } } as Account } })
+ await flushPromises()
+ expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
+ expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(true)
+})

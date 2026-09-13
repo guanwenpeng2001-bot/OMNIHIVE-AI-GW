@@ -52,16 +52,18 @@ type CNQuotaTier struct {
 
 // CNProviderQuotaProbeResult 是 Coding Plan 额度探测的返回结构（管理端 + UI 消费）。
 type CNProviderQuotaProbeResult struct {
-	Provider        string        `json:"provider"`
-	Source          string        `json:"source"`
-	Success         bool          `json:"success"`
-	CredentialValid bool          `json:"credential_valid"` // false = 401/403 鉴权失败
-	Tiers           []CNQuotaTier `json:"tiers,omitempty"`
-	PlanLevel       string        `json:"plan_level,omitempty"` // 智谱套餐等级
-	StatusCode      int           `json:"status_code,omitempty"`
-	FetchedAt       int64         `json:"fetched_at"`
-	Persisted       bool          `json:"persisted"`
-	Error           string        `json:"error,omitempty"`
+	Unsupported     bool               `json:"unsupported,omitempty"`
+	Credits         map[string]float64 `json:"credits,omitempty"`
+	Provider        string             `json:"provider"`
+	Source          string             `json:"source"`
+	Success         bool               `json:"success"`
+	CredentialValid bool               `json:"credential_valid"` // false = 401/403 鉴权失败
+	Tiers           []CNQuotaTier      `json:"tiers,omitempty"`
+	PlanLevel       string             `json:"plan_level,omitempty"` // 智谱套餐等级
+	StatusCode      int                `json:"status_code,omitempty"`
+	FetchedAt       int64              `json:"fetched_at"`
+	Persisted       bool               `json:"persisted"`
+	Error           string             `json:"error,omitempty"`
 }
 
 // CNProviderQuotaService 探测 Kimi / Zhipu Coding Plan 的滚动窗口用量。
@@ -130,6 +132,9 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 }
 
 func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, account *Account) (*CNProviderQuotaProbeResult, error) {
+	if account.IsCommandCode() {
+		return s.queryCommandCodeUsage(ctx, account)
+	}
 	provider := account.GetCodingPlanProvider()
 	if provider != PlatformKimi && provider != PlatformZhipu && provider != PlatformMiniMax && provider != PlatformOpenCodeGo {
 		return nil, infraerrors.New(http.StatusBadRequest, "CN_QUOTA_NOT_CODING_PLAN", "account is not a kimi/zhipu/minimax coding plan or opencode go account")
@@ -286,6 +291,9 @@ func (s *CNProviderQuotaService) loadCodingPlanAccount(ctx context.Context, acco
 func validateCodingPlanAccount(account *Account) error {
 	if account == nil {
 		return infraerrors.New(http.StatusNotFound, "CN_QUOTA_ACCOUNT_NOT_FOUND", "account not found")
+	}
+	if account.IsCommandCode() && account.Type == AccountTypeAPIKey {
+		return nil
 	}
 	if account.IsOpenCodeGoPlan() {
 		return nil
