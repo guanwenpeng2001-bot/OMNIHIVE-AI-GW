@@ -17,7 +17,7 @@ func (h *OpenAIGatewayHandler) rejectQianwenNativeRealtime(c *gin.Context) bool 
 	for _, prefix := range []string{"/api-ws/v1/realtime", "/api/v1/realtime", "/api/v1/services/aigc/realtime"} {
 		if path == prefix || strings.HasPrefix(path, prefix+"/") {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-			h.errorResponse(c, http.StatusNotFound, "unsupported_operation_error", "Unsupported DashScope operation: realtime is unavailable; bidirectional WebSocket sessions and WebRTC/token endpoints are not enabled; session admission, bounded bidirectional streaming, disconnect settlement and per-response text/audio usage billing are required")
+			c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "unsupported_operation_error", "code": "qianwen_realtime_unsupported", "message": "Unsupported DashScope operation: realtime is unavailable; bidirectional WebSocket sessions and WebRTC/token endpoints are not enabled; session admission, bounded bidirectional streaming, disconnect settlement and per-response text/audio usage billing are required"}})
 			return true
 		}
 	}

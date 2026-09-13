@@ -14,6 +14,6 @@ func (h *OpenAIGatewayHandler) rejectQianwenNative3D(c *gin.Context) bool {
 		return false
 	}
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-	h.errorResponse(c, http.StatusNotFound, "unsupported_operation_error", service.QianwenNative3DUnsupported)
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "unsupported_operation_error", "code": "qianwen_3d_unsupported", "message": service.QianwenNative3DUnsupported}})
 	return true
 }
