@@ -109,6 +109,14 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			return
 		}
 		reqStream = strings.EqualFold(strings.TrimSpace(c.GetHeader("X-DashScope-SSE")), "enable")
+		if strings.EqualFold(strings.TrimSpace(c.GetHeader("X-DashScope-Async")), "enable") {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Asynchronous DashScope operations are not supported")
+			return
+		}
+		if err := service.ValidateQianwenNativeOperation(native, reqModel, body, reqStream); err != nil {
+			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return
+		}
 	}
 	if !ok {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", invalidStreamFieldTypeMessage)

@@ -103,6 +103,9 @@ func (s *OpenAIGatewayService) BuildQianwenNativeRequest(ctx context.Context, ac
 	if err := json.Unmarshal(payload["model"], &model); err != nil || strings.TrimSpace(model) == "" {
 		return nil, fmt.Errorf("DashScope model is required")
 	}
+	if err := ValidateQianwenNativeOperation(operation, account.GetMappedModel(model), body, stream); err != nil {
+		return nil, err
+	}
 	if mapped := account.GetMappedModel(model); mapped != model {
 		payload["model"], _ = json.Marshal(mapped)
 		body, _ = json.Marshal(payload)
@@ -133,6 +136,12 @@ func (s *OpenAIGatewayService) BuildQianwenNativeRequest(ctx context.Context, ac
 		req.Header.Set("X-DashScope-SSE", "enable")
 	}
 	account.ApplyHeaderOverrides(req.Header)
+	// The supported native lifecycle never creates unowned asynchronous jobs.
+	req.Header.Del("X-DashScope-Async")
+	if IsQianwenNativeImageModel(account.GetMappedModel(model)) {
+		req.Header.Del("X-DashScope-SSE")
+		req.Header.Set("Accept", "application/json")
+	}
 	return req, nil
 }
 

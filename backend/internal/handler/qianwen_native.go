@@ -9,12 +9,12 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// QianwenNative exposes only the verified synchronous conversation families.
+// QianwenNative exposes conversations and synchronous Qwen image generation/editing.
 func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
 	operation, ok := service.QianwenNativeOperationForPath(c.Request.URL.Path)
 	if !ok || c.Request.Method != http.MethodPost {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Unsupported DashScope operation; only text and image/text conversations are supported")
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Unsupported DashScope operation; supported: text conversations, image/text conversations, synchronous Qwen image generation/editing on multimodal-generation")
 		return
 	}
 	h.chatCompletions(c, operation)

@@ -47,9 +47,17 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	if err != nil {
 		return nil, err
 	}
-	body, thinking, err := prepareQianwenThinking(body, body, account.GetMappedModel(model), "parameters.enable_thinking")
-	if err == nil {
-		err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
+	if err := ValidateQianwenNativeOperation(operation, account.GetMappedModel(model), body, stream); err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, err
+	}
+	image := IsQianwenNativeImageModel(account.GetMappedModel(model))
+	var thinking *bool
+	if !image {
+		body, thinking, err = prepareQianwenThinking(body, body, account.GetMappedModel(model), "parameters.enable_thinking")
+		if err == nil {
+			err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
+		}
 	}
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -74,6 +82,9 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	result.ThinkingEnabled = thinking
 	defer func() { result.Duration = time.Since(started); result.ClientDisconnect = clientCtx.Err() != nil }()
 	if !stream || !strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream") {
+		if image && (resp.StatusCode != http.StatusOK || strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream")) {
+			return nil, fmt.Errorf("unexpected DashScope image response status or stream")
+		}
 		data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))
 		if err != nil {
 			return nil, err
@@ -83,6 +94,11 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		}
 		if err := observeQianwenNative(data, result); err != nil {
 			return nil, err
+		}
+		if image {
+			if err := observeQianwenNativeImage(data, body, result); err != nil {
+				return nil, err
+			}
 		}
 		c.Data(resp.StatusCode, "application/json", data)
 		return result, nil
