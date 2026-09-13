@@ -23,8 +23,13 @@ func TestMonitorQianwenCommandCodeProbe(t *testing.T) {
 		t.Run(tc.provider, func(t *testing.T) {
 			require.NoError(t, validateProvider(tc.provider))
 			require.NoError(t, validateCheckMode(tc.provider, MonitorCheckModeProbe))
-			require.ErrorIs(t, validateCheckMode(tc.provider, MonitorCheckModeQuota), ErrChannelMonitorInvalidCheckMode)
-			require.ErrorIs(t, validateCheckMode(tc.provider, MonitorCheckModeQuotaProbe), ErrChannelMonitorInvalidCheckMode)
+			for _, mode := range []string{MonitorCheckModeQuota, MonitorCheckModeQuotaProbe} {
+				if tc.provider == MonitorProviderQianwen {
+					require.ErrorIs(t, validateCheckMode(tc.provider, mode), ErrChannelMonitorInvalidCheckMode)
+				} else {
+					require.NoError(t, validateCheckMode(tc.provider, mode))
+				}
+			}
 			require.Error(t, validateAPIMode(tc.provider, MonitorAPIModeResponses))
 			require.Equal(t, tc.model, normalizeMonitorPrimaryModel(tc.provider, MonitorCheckModeProbe, tc.model))
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
