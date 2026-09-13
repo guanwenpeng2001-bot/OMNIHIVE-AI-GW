@@ -260,6 +260,7 @@ import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
+import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
@@ -741,8 +742,11 @@ const currentFiles = computed((): FileConfig[] => {
         ]
       case 'grok':
         return [generateOpenCodeConfig('grok', apiBase, apiKey)]
-      default:
+      case 'composite':
+      case null:
         return [generateOpenCodeConfig('openai', apiBase, apiKey)]
+      default:
+        return [generateOpenCodeConfig(props.platform, apiBase, apiKey)]
     }
   }
 
@@ -1893,6 +1897,11 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
     provider[platform].npm = '@ai-sdk/openai-compatible'
     provider[platform].name = 'Grok via Sub2API'
     provider[platform].models = grokModels
+  } else {
+    provider[platform].npm = '@ai-sdk/openai-compatible'
+    provider[platform].models = Object.fromEntries(
+      getModelsByPlatform(platform).map((model) => [model, { name: model }])
+    )
   }
 
   const agent =
