@@ -178,6 +178,8 @@ func pricingWithPriorityMultiplier(base *ModelPricing, multiplier float64) *Mode
 
 // UsageTokens 使用的token数量
 type UsageTokens struct {
+	QianwenExplicitCache  bool
+	QianwenBatchChat      bool
 	InputTokens           int
 	ImageInputTokens      int
 	ImageCacheReadTokens  int
@@ -1420,6 +1422,10 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 
 	var conditionErr error
 	resolved, conditionErr = resolveQianwenThinkingPricing(resolved, input)
+	if conditionErr != nil {
+		return nil, conditionErr
+	}
+	resolved, conditionErr = resolveQianwenConditions(resolved, input)
 	if conditionErr != nil {
 		return nil, conditionErr
 	}

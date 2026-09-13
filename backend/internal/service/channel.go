@@ -87,7 +87,9 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
-	ThinkingPricing *QianwenModePricing `json:"thinking_pricing,omitempty"`
+	ExplicitCachePricing *QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
+	BatchChatPricing     *QianwenModePricing `json:"batch_chat_pricing,omitempty"`
+	ThinkingPricing      *QianwenModePricing `json:"thinking_pricing,omitempty"`
 	// NativePricingSource isolates an imported account-native group card from
 	// unrelated provider fallbacks. Native sync stores these in group JSON only.
 	NativePricingSource          string              `json:"native_pricing_source,omitempty"`
@@ -215,10 +217,10 @@ func (p *ChannelModelPricing) GetTierByLabel(label string) *PricingInterval {
 // Clone 返回 ChannelModelPricing 的拷贝（切片独立，指针字段共享，调用方只读安全）
 func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	cp := p
+	cp.ExplicitCachePricing = cloneQianwenMode(p.ExplicitCachePricing)
+	cp.BatchChatPricing = cloneQianwenMode(p.BatchChatPricing)
 	if p.ThinkingPricing != nil {
-		v := *p.ThinkingPricing
-		v.Intervals = append([]PricingInterval(nil), v.Intervals...)
-		cp.ThinkingPricing = &v
+		cp.ThinkingPricing = cloneQianwenMode(p.ThinkingPricing)
 	}
 	if p.Models != nil {
 		cp.Models = make([]string, len(p.Models))

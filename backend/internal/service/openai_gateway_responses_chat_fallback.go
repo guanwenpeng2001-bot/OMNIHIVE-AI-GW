@@ -127,6 +127,12 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 		}
 		reasoningEffort = extractOpenAIReasoningEffortFromBody(chatBody, "", "", "")
 	}
+	if account.Platform == PlatformQianwen {
+		if err := s.validateQianwenRequestConditions(ctx, c, upstreamModel, chatBody, targetURL, qianwenExplicitThinking(chatBody, "enable_thinking")); err != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, chatBody, clientStream, apiKey, account.GetOpenAIUserAgent(), "")
 	if err != nil {
 		return nil, err
@@ -152,6 +158,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	}
 	if result != nil {
 		result.ThinkingEnabled = thinking
+		if account.Platform == PlatformQianwen {
+			result.QianwenExplicitCache, _ = qianwenCacheMode(chatBody)
+			result.QianwenBatchChat = qianwenBatchChatURL(targetURL)
+		}
 	}
 	return result, err
 }

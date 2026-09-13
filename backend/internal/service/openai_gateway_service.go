@@ -263,8 +263,10 @@ type OpenAIForwardResult struct {
 	// ReasoningEffort is extracted from request body (reasoning.effort) or derived from model suffix
 	// after group policy rewriting and model-family remapping.
 	// Stored for usage records display; nil means not provided / not applicable.
-	ThinkingEnabled *bool
-	ReasoningEffort *string
+	ThinkingEnabled      *bool
+	QianwenExplicitCache bool
+	QianwenBatchChat     bool
+	ReasoningEffort      *string
 	// RequestedReasoningEffort is the client-requested effort before mapping.
 	// Empty/nil means it should fall back to ReasoningEffort at persistence.
 	RequestedReasoningEffort *string

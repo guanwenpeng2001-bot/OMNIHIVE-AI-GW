@@ -202,6 +202,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		}
 		reasoningEffort = extractOpenAIReasoningEffortFromBody(upstreamBody, "", "", "")
 	}
+	if account.Platform == PlatformQianwen {
+		if err := s.validateQianwenRequestConditions(ctx, c, upstreamModel, upstreamBody, targetURL, qianwenExplicitThinking(upstreamBody, "enable_thinking")); err != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+	}
 	resp, err := s.sendCCUpstreamRequest(ctx, c, account, targetURL, upstreamBody, clientStream, token, customUA, grokCacheIdentity)
 	if err != nil {
 		return nil, err
@@ -264,6 +270,10 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if result != nil {
 		if account.Platform == PlatformQianwen {
 			result.ThinkingEnabled = qianwenExplicitThinking(upstreamBody, "enable_thinking")
+			if account.Platform == PlatformQianwen {
+				result.QianwenExplicitCache, _ = qianwenCacheMode(upstreamBody)
+				result.QianwenBatchChat = qianwenBatchChatURL(targetURL)
+			}
 		}
 		addOpenAIUsage(&result.Usage, bridgeUsage)
 		result.UpstreamEndpoint = grokChatRawEndpoint

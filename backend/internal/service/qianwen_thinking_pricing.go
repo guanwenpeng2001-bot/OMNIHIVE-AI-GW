@@ -32,12 +32,15 @@ func (s *OpenAIGatewayService) validateQianwenThinkingMode(ctx context.Context, 
 }
 
 // QianwenModePricing is a complete independent rate card, in USD/token.
-// Batch and explicit cache creation remain unsupported native conditions.
+// Alternate cache and Batch Chat cards retain independent mode/input tiers.
 type QianwenModePricing struct {
-	InputPrice     *float64          `json:"input_price"`
-	OutputPrice    *float64          `json:"output_price"`
-	CacheReadPrice *float64          `json:"cache_read_price"`
-	Intervals      []PricingInterval `json:"intervals,omitempty"`
+	CacheWritePrice      *float64            `json:"cache_write_price,omitempty"`
+	ExplicitCachePricing *QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
+	BatchChatPricing     *QianwenModePricing `json:"batch_chat_pricing,omitempty"`
+	InputPrice           *float64            `json:"input_price"`
+	OutputPrice          *float64            `json:"output_price"`
+	CacheReadPrice       *float64            `json:"cache_read_price"`
+	Intervals            []PricingInterval   `json:"intervals,omitempty"`
 }
 
 func qianwenExplicitThinking(body []byte, path string) *bool {
@@ -69,6 +72,25 @@ func qianwenDefaultThinking(model string) *bool {
 
 // Preserve the same effective mode in the wire request and billing result.
 func prepareQianwenThinking(source, outbound []byte, model, path string) ([]byte, *bool, error) {
+	explicit, err := qianwenCacheMode(outbound)
+	if err != nil {
+		return nil, nil, err
+	}
+	sourceExplicit, err := qianwenCacheMode(source)
+	if err != nil {
+		return nil, nil, err
+	}
+	if sourceExplicit && !explicit {
+		return nil, nil, fmt.Errorf("unsupported Qianwen explicit cache: protocol conversion removed cache_control")
+	}
+	systemCache := false
+	gjson.GetBytes(source, "system").ForEach(func(_, block gjson.Result) bool {
+		systemCache = systemCache || block.Get("cache_control").Exists()
+		return true
+	})
+	if !explicit && systemCache {
+		return nil, nil, fmt.Errorf("unsupported Qianwen explicit cache: system cache markers are not preserved by this protocol adapter")
+	}
 	mode := qianwenExplicitThinking(source, path)
 	if v := gjson.GetBytes(source, path); v.Exists() && mode == nil {
 		return nil, nil, fmt.Errorf("enable_thinking must be a boolean")
@@ -86,6 +108,13 @@ func prepareQianwenThinking(source, outbound []byte, model, path string) ([]byte
 	if mode == nil {
 		mode = qianwenDefaultThinking(model)
 	}
+	if qianwenThinkingOnly(model) {
+		if mode != nil && !*mode {
+			return nil, nil, fmt.Errorf("%s only supports thinking mode", model)
+		}
+		v := true
+		return outbound, &v, nil
+	}
 	if mode == nil {
 		return outbound, nil, nil
 	}
@@ -93,7 +122,7 @@ func prepareQianwenThinking(source, outbound []byte, model, path string) ([]byte
 	return updated, mode, err
 }
 
-func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
+func parseQianwenThinkingModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
 	plain, thinking := QianwenModelPrices{Model: m.Model}, QianwenModelPrices{Model: m.Model}
 	hasThinking, total := false, 0
 	for _, tier := range m.Prices {
@@ -112,21 +141,28 @@ func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingM
 		thinking.Prices = append(thinking.Prices, t)
 	}
 	if !hasThinking {
-		return parseQianwenUnconditionalPrices(m, rate)
+		return parseQianwenConditionalPrices(m, rate)
 	}
-	p, t := parseQianwenUnconditionalPrices(plain, rate), parseQianwenUnconditionalPrices(thinking, rate)
+	p, t := parseQianwenConditionalPrices(plain, rate), parseQianwenConditionalPrices(thinking, rate)
 	r := QianwenPricingModelResult{QianwenModelPrices: m, Status: "unsupported", SkippedConditions: total}
+	if qianwenThinkingOnly(m.Model) && t.Pricing != nil {
+		r.Pricing, r.Status, r.SkippedConditions = t.Pricing, "supported", total-countQianwenPrices(thinking)+t.SkippedConditions
+		return r
+	}
 	if p.Pricing == nil || t.Pricing == nil {
 		r.Reason = "complete non-thinking and thinking cards required: " + p.Reason + "; " + t.Reason
 		return r
 	}
-	p.Pricing.ThinkingPricing = &QianwenModePricing{InputPrice: t.Pricing.InputPrice, OutputPrice: t.Pricing.OutputPrice, CacheReadPrice: t.Pricing.CacheReadPrice, Intervals: t.Pricing.Intervals}
+	p.Pricing.ThinkingPricing = qianwenModeFromCard(t.Pricing)
 	r.Pricing, r.Status, r.SkippedConditions = p.Pricing, "supported", p.SkippedConditions+t.SkippedConditions
 	return r
 }
 
 func resolveQianwenThinkingPricing(resolved *ResolvedPricing, input CostInput) (*ResolvedPricing, error) {
 	card := resolved.channelPricing
+	if card != nil && card.NativePricingSource == QianwenPricingSource && qianwenThinkingOnly(input.Model) && input.ThinkingEnabled != nil && !*input.ThinkingEnabled {
+		return nil, fmt.Errorf("%s only supports thinking mode", input.Model)
+	}
 	if card == nil || card.ThinkingPricing == nil {
 		return resolved, nil
 	}
@@ -141,7 +177,7 @@ func resolveQianwenThinkingPricing(resolved *ResolvedPricing, input CostInput) (
 	}
 	selected := card.Clone()
 	v := selected.ThinkingPricing
-	selected.InputPrice, selected.OutputPrice, selected.CacheReadPrice, selected.Intervals = v.InputPrice, v.OutputPrice, v.CacheReadPrice, v.Intervals
+	applyQianwenMode(&selected, v)
 	selected.ThinkingPricing = nil
 	r := input.Resolver.resolveConfiguredPricing(&selected, input.Model, resolved.Source)
 	r.longContextPricingEnabled = resolved.longContextPricingEnabled
@@ -150,14 +186,31 @@ func resolveQianwenThinkingPricing(resolved *ResolvedPricing, input CostInput) (
 
 func validateQianwenThinkingPrices(cards []ChannelModelPricing) error {
 	for _, card := range cards {
-		if card.ThinkingPricing == nil {
+		if card.ThinkingPricing == nil && card.ExplicitCachePricing == nil && card.BatchChatPricing == nil {
 			continue
 		}
 		if card.NativePricingSource != QianwenPricingSource || card.Platform != PlatformQianwen || (card.BillingMode != "" && card.BillingMode != BillingModeToken) {
 			return fmt.Errorf("thinking_pricing requires native Qianwen token pricing")
 		}
-		v := card.ThinkingPricing
-		for _, mode := range []QianwenModePricing{{InputPrice: card.InputPrice, OutputPrice: card.OutputPrice, CacheReadPrice: card.CacheReadPrice, Intervals: card.Intervals}, *v} {
+		modes := []*QianwenModePricing{qianwenModeFromCard(&card)}
+		if card.ThinkingPricing != nil {
+			modes = append(modes, card.ThinkingPricing)
+		}
+		for _, parent := range append([]*QianwenModePricing(nil), modes...) {
+			for _, child := range []*QianwenModePricing{parent.ExplicitCachePricing, parent.BatchChatPricing} {
+				if child == nil {
+					continue
+				}
+				if child.ExplicitCachePricing != nil || child.BatchChatPricing != nil {
+					return fmt.Errorf("nested Qianwen pricing conditions are unsupported")
+				}
+				modes = append(modes, child)
+			}
+			if err := validateQianwenCacheCard(parent.ExplicitCachePricing); err != nil {
+				return err
+			}
+		}
+		for _, mode := range modes {
 			valid := func(in, out, cache *float64) bool {
 				return in != nil && out != nil && positiveFinite(*in) && positiveFinite(*out) && (cache == nil || positiveFinite(*cache))
 			}
