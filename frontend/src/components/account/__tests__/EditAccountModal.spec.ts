@@ -2,17 +2,32 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 
-const { updateAccountMock, checkMixedChannelRiskMock, authIsSimpleMode } = vi.hoisted(() => ({
+const {
+  updateAccountMock,
+  checkMixedChannelRiskMock,
+  authIsSimpleMode,
+  syncUpstreamModelsMock,
+  showInfoMock,
+  showWarningMock,
+  showSuccessMock,
+  showErrorMock
+} = vi.hoisted(() => ({
   updateAccountMock: vi.fn(),
+  syncUpstreamModelsMock: vi.fn(),
+  showInfoMock: vi.fn(),
+  showWarningMock: vi.fn(),
+  showSuccessMock: vi.fn(),
+  showErrorMock: vi.fn(),
   checkMixedChannelRiskMock: vi.fn(),
   authIsSimpleMode: { value: true }
 }))
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
-    showSuccess: vi.fn(),
-    showInfo: vi.fn()
+    showError: showErrorMock,
+    showSuccess: showSuccessMock,
+    showInfo: showInfoMock,
+    showWarning: showWarningMock
   })
 }))
 
@@ -28,6 +43,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: updateAccountMock,
+      syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: checkMixedChannelRiskMock
     },
     settings: {
@@ -324,6 +340,35 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
 }
 
 describe('EditAccountModal', () => {
+  it.each(['partial', 'incomplete'] as const)('uses the correct severity for %s capability metadata', async (status) => {
+    showInfoMock.mockReset()
+    showWarningMock.mockReset()
+    showSuccessMock.mockReset()
+    showErrorMock.mockReset()
+    syncUpstreamModelsMock.mockResolvedValue({
+      models: ['gemini-new-model'],
+      warnings: [{ code: `upstream_model_metadata_${status}`, message: 'metadata status' }],
+    })
+    const wrapper = mountModal(buildAntigravityAccount())
+    await flushPromises()
+    const syncButton = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')
+    expect(syncButton).toBeDefined()
+    await syncButton!.trigger('click')
+    await flushPromises()
+
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(3)
+    if (status === 'partial') {
+      expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataPartial')
+      expect(showSuccessMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsSuccess')
+      expect(showWarningMock).not.toHaveBeenCalled()
+    } else {
+      expect(showWarningMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
+      expect(showSuccessMock).not.toHaveBeenCalled()
+    }
+    expect(showErrorMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     authIsSimpleMode.value = true
   })
