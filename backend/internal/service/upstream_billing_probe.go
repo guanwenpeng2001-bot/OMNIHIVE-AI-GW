@@ -1001,13 +1001,12 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 // CN providers, whose official-domain accounts are short-circuited to
 // "unsupported" by upstreamBillingProbeTargetIsOfficialAPI).
 // Non-sub2api upstreams return 404 and the snapshot records "unsupported".
-// Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
-// present at all; AccountTypeUpstream (antigravity relay accounts) does carry
-// a base_url plus a static api_key, but it is deliberately left out of the
-// current supported set. New antigravity relay accounts are created with
-// type=apikey by the admin form, so only pre-existing type=upstream rows
-// cannot turn the probe on.
+// Cursor relays carry a static key under AccountTypeUpstream; native Cursor
+// identities remain excluded. Other legacy upstream types remain unsupported.
 func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
+	if platform == PlatformCursor {
+		return accountType == AccountTypeUpstream
+	}
 	if accountType != AccountTypeAPIKey {
 		return false
 	}
@@ -1055,6 +1054,8 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"aliyuncs.com",
 	"qianwenai.com",
 	"commandcode.ai",
+	"cursor.com",
+	"cursor.sh",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

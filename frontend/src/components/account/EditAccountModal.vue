@@ -1728,7 +1728,7 @@
             }}
           </p>
           <div
-            v-if="account?.type === 'apikey'"
+            v-if="(account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream')"
             class="mt-3 flex items-center justify-between gap-3"
           >
             <div class="min-w-0">
@@ -1995,7 +1995,7 @@
       </div>
 
       <div
-        v-if="account?.type === 'apikey' && account.platform !== 'cursor'"
+        v-if="(account?.type === 'apikey' && account.platform !== 'cursor') || (account?.platform === 'cursor' && account.type === 'upstream')"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div>
@@ -5057,7 +5057,7 @@ const handleSubmit = async () => {
       updatePayload.load_factor = 0
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
-    if (props.account.type === 'apikey' && props.account.platform !== 'cursor') {
+    if ((props.account.type === 'apikey' && props.account.platform !== 'cursor') || (props.account.platform === 'cursor' && props.account.type === 'upstream')) {
       updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
@@ -5442,8 +5442,10 @@ const handleSubmit = async () => {
         applyHeaderOverride(cursorCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
       }
       updatePayload.credentials = cursorCredentials
-      delete updatePayload.upstream_billing_probe_enabled
-      delete updatePayload.upstream_billing_rate_sync_enabled
+      if (cursorKeyMode.value !== 'relay') {
+        delete updatePayload.upstream_billing_probe_enabled
+        delete updatePayload.upstream_billing_rate_sync_enabled
+      }
     }
     // For antigravity accounts, handle mixed_scheduling and allow_overages in extra
     if (props.account.platform === 'antigravity') {

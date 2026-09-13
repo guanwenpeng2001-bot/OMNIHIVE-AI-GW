@@ -367,4 +367,14 @@ describe('UpstreamBillingRateCell', () => {
     expect(wrapper.find('[data-testid="upstream-billing-probe"]').exists()).toBe(false)
   })
 
+  it('probes Cursor relays but excludes native Cursor keys and OAuth', async () => {
+    const wrapper = mount(UpstreamBillingRateCell, { props: { account: makeAccount({ platform: 'cursor', type: 'upstream' }) } })
+    await wrapper.get('[data-testid="upstream-billing-probe"]').trigger('click')
+    expect(wrapper.emitted('probe')).toBeTruthy()
+    for (const type of ['apikey', 'oauth'] as const) {
+      await wrapper.setProps({ account: makeAccount({ platform: 'cursor', type }) })
+      expect(wrapper.find('[data-testid="upstream-billing-probe"]').exists()).toBe(false)
+    }
+  })
+
 })
