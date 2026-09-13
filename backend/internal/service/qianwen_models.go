@@ -9,6 +9,13 @@ import (
 	"strings"
 )
 
+// Official retirement date: 2026-03-30. Native catalog APIs can retain historical
+// entries; do not advertise them as callable or revive their historical prices.
+// https://help.aliyun.com/zh/model-studio/rate-limit
+func IsRetiredQianwenModel(model string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(model)), "qwen1.5-")
+}
+
 // fetchQianwenModelPages retains the complete upstream entries so subsequent
 // metadata extraction sees every page. Pagination never follows upstream URLs.
 func (s *AccountTestService) fetchQianwenModelPages(req *http.Request, account *Account) ([]string, []byte, error) {
@@ -89,6 +96,9 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 				return nil, nil, newUpstreamModelSyncUpstreamError("Qianwen model ID missing", nil)
 			}
 			id = strings.TrimSpace(id)
+			if IsRetiredQianwenModel(id) {
+				continue
+			}
 			if seenModels[id] {
 				continue
 			}

@@ -260,6 +260,9 @@ type QianwenUnsupportedCondition struct {
 }
 
 func parseQianwenModelPrices(m QianwenModelPrices, rate float64) QianwenPricingModelResult {
+	if IsRetiredQianwenModel(m.Model) {
+		return QianwenPricingModelResult{QianwenModelPrices: m, Status: "unavailable", Reason: "DashScope retired Qwen1.5 on 2026-03-30; https://help.aliyun.com/zh/model-studio/rate-limit"}
+	}
 	r := parseQianwenThinkingModelPrices(m, rate)
 	annotateQianwenConditions(&r)
 	return r
