@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <p role="note" class="mb-4 text-sm text-gray-600 dark:text-gray-400">{{ t('admin.users.platformQuota.subscriptionWarning') }}</p>
     <div class="space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex justify-center py-12">

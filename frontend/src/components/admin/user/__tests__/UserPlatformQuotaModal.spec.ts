@@ -89,6 +89,9 @@ describe('UserPlatformQuotaModal', () => {
     expect(html).toContain('grok')
     expect(html).toContain('cursor')
     expect(w.findAll('tbody tr')).toHaveLength(13)
+    for (const [slug, brand] of [['opencode_go', 'OpenCode'], ['qianwen', '千问AI'], ['commandcode', 'Command Code']]) {
+      expect(w.get(`td[title="${slug}"]`).text()).toBe(brand)
+    }
   })
 
   it('已有数据正确填充 limit input', async () => {
@@ -249,7 +252,7 @@ describe('UserPlatformQuotaModal', () => {
       expect(w.html()).toContain('admin.users.platformQuota.subscriptionWarning')
     })
 
-    it('hides subscription warning when user has only expired subscriptions', async () => {
+    it('explains subscription exemption even when user has only expired subscriptions', async () => {
       const w = mount(UserPlatformQuotaModal, {
         props: {
           show: true,
@@ -267,10 +270,10 @@ describe('UserPlatformQuotaModal', () => {
         },
       })
       await flushPromises()
-      expect(w.html()).not.toContain('admin.users.platformQuota.subscriptionWarning')
+      expect(w.html()).toContain('admin.users.platformQuota.subscriptionWarning')
     })
 
-    it('hides subscription warning when subscriptions is empty array', async () => {
+    it('explains subscription exemption even when subscriptions is empty array', async () => {
       const w = mount(UserPlatformQuotaModal, {
         props: {
           show: true,
@@ -278,7 +281,7 @@ describe('UserPlatformQuotaModal', () => {
         },
       })
       await flushPromises()
-      expect(w.html()).not.toContain('admin.users.platformQuota.subscriptionWarning')
+      expect(w.html()).toContain('admin.users.platformQuota.subscriptionWarning')
     })
   })
 })

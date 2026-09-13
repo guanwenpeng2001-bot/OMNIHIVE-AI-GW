@@ -311,7 +311,7 @@
                     <div class="flex items-center gap-2">
                       <span :class="statusDot(row.health)" aria-hidden="true"></span>
                       <div>
-                        <span class="block text-xs text-gray-500 dark:text-dark-400">{{ row.platform }}</span>
+                        <span :title="row.platform" class="block text-xs text-gray-500 dark:text-dark-400">{{ platformLabel(row.platform) }}</span>
                         <strong class="font-semibold text-gray-900 dark:text-white">
                           {{ row.model === '__other__' ? t('channelMonitorV2.otherModels') : row.model }}
                         </strong>
@@ -459,6 +459,7 @@
 </template>
 
 <script setup lang="ts">
+import { platformLabel } from '@/utils/platformColors'
 import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'

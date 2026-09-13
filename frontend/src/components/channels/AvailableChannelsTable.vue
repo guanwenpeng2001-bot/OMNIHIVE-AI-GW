@@ -72,7 +72,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              <span :title="section.platform">{{ platformLabel(section.platform) }}</span>
             </span>
           </td>
 
@@ -208,7 +208,7 @@
               ]"
             >
               <PlatformIcon :platform="section.platform as GroupPlatform" size="xs" />
-              {{ section.platform }}
+              <span :title="section.platform">{{ platformLabel(section.platform) }}</span>
             </span>
 
             <dl class="mt-3 space-y-3">
@@ -320,6 +320,7 @@
 </template>
 
 <script setup lang="ts">
+import { platformLabel } from '@/utils/platformColors'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
