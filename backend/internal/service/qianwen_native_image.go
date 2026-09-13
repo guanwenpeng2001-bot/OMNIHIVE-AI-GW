@@ -27,7 +27,7 @@ func IsQianwenNativeImageModel(model string) bool {
 func ValidateQianwenNativeOperation(operation QianwenNativeOperation, model string, body []byte, stream bool) error {
 	if !IsQianwenNativeImageModel(model) {
 		if strings.HasPrefix(model, "qwen-image") || strings.HasPrefix(model, "wan") ||
-			strings.HasPrefix(model, "z-image") || strings.HasPrefix(model, "tripo") ||
+			strings.HasPrefix(model, "z-image") || IsQianwenNative3DModel(model) ||
 			strings.HasPrefix(model, "cosyvoice") || strings.HasPrefix(model, "fun-") ||
 			strings.HasPrefix(model, "qwen-voice") ||
 			strings.Contains(model, "tts") || strings.Contains(model, "omni") ||
