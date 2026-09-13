@@ -54,6 +54,9 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		return nil, err
 	}
 	image := IsQianwenNativeImageModel(account.GetMappedModel(model))
+	if qianwenNativeAudioMode(account.GetMappedModel(model)) != "" {
+		return s.forwardQianwenNativeAudio(ctx, c, account, operation, body, stream)
+	}
 	if image {
 		// Bound the whole synchronous operation, including reading a stalled body,
 		// so a live client cannot hold its user/account slots indefinitely.

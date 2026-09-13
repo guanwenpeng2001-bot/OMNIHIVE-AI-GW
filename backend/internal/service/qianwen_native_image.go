@@ -25,6 +25,9 @@ func IsQianwenNativeImageModel(model string) bool {
 
 // ValidateQianwenNativeOperation must also run after account model mapping.
 func ValidateQianwenNativeOperation(operation QianwenNativeOperation, model string, body []byte, stream bool) error {
+	if handled, err := validateQianwenNativeAudioOperation(operation, model, body, stream); handled {
+		return err
+	}
 	if !IsQianwenNativeImageModel(model) {
 		if strings.HasPrefix(model, "qwen-image") || strings.HasPrefix(model, "wan") ||
 			strings.HasPrefix(model, "z-image") || strings.HasPrefix(model, "tripo") ||

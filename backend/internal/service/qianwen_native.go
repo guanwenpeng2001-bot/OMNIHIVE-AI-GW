@@ -50,6 +50,9 @@ func ParseQianwenNativeBody(body []byte) (string, error) {
 	if strings.TrimSpace(payload.Model) == "" {
 		return "", fmt.Errorf("DashScope model is required")
 	}
+	if handled, err := parseQianwenNativeAudioBody(payload.Model, body); handled {
+		return payload.Model, err
+	}
 	if payload.Input.Prompt == "" && len(payload.Input.Messages) == 0 {
 		return "", fmt.Errorf("DashScope input.prompt or input.messages is required")
 	}
@@ -136,6 +139,7 @@ func (s *OpenAIGatewayService) BuildQianwenNativeRequest(ctx context.Context, ac
 		req.Header.Set("X-DashScope-SSE", "enable")
 	}
 	account.ApplyHeaderOverrides(req.Header)
+	applyQianwenNativeAudioHeaders(req, account.GetMappedModel(model))
 	// The supported native lifecycle never creates unowned asynchronous jobs.
 	req.Header.Del("X-DashScope-Async")
 	if IsQianwenNativeImageModel(account.GetMappedModel(model)) {
