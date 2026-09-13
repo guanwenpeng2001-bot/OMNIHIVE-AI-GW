@@ -165,6 +165,15 @@ func (s *ErrorPassthroughService) MatchRule(platform string, statusCode int, bod
 	var bodyLowerDone bool
 
 	for _, rule := range rules {
+		// Old persisted rules can predate validation; never pass an unsafe code
+		// to any gateway response writer (including failover handlers).
+		code := statusCode
+		if !rule.PassthroughCode && rule.ResponseCode != nil {
+			code = *rule.ResponseCode
+		}
+		if code < 100 || code > 599 {
+			continue
+		}
 		if !rule.Enabled {
 			continue
 		}

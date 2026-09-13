@@ -132,3 +132,78 @@ func TestUserPlatformQuotaCache_Delete(t *testing.T) {
 		t.Error("expected miss after delete")
 	}
 }
+
+func TestUserPlatformQuotaCache_RefreshPreservesConcurrentUsage(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	now := time.Now()
+	yesterday := now.Add(-48 * time.Hour)
+	limit := 100.0
+	stale := &service.UserPlatformQuotaCacheEntry{SchemaVersion: 1, Version: 7, DailyLimitUSD: &limit, DailyUsageUSD: 10, WeeklyUsageUSD: 20, MonthlyUsageUSD: 30, DailyWindowStart: &yesterday, WeeklyWindowStart: &now, MonthlyWindowStart: &now}
+	if err := c.SetUserPlatformQuotaCache(ctx, 1, "openai", stale, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	// B consumes after A read its old snapshot; consumption itself advances daily.
+	if err := c.IncrUserPlatformQuotaUsageCache(ctx, 1, "openai", 2, time.Minute, true); err != nil {
+		t.Fatal(err)
+	}
+	// A's delayed refill must not replace B's consumption or version.
+	if err := c.SetUserPlatformQuotaCache(ctx, 1, "openai", stale, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if err := c.IncrUserPlatformQuotaUsageCache(ctx, 1, "openai", 0, time.Minute, true); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err := c.GetUserPlatformQuotaCache(ctx, 1, "openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyUsageUSD != 2 || got.WeeklyUsageUSD != 22 || got.MonthlyUsageUSD != 32 || got.Version != 9 {
+		t.Fatalf("lost concurrent usage: %+v", got)
+	}
+	keys, err := c.PopDirtyUserPlatformQuotaKeys(ctx, 10)
+	if err != nil || len(keys) != 1 {
+		t.Fatalf("dirty keys: %v %v", keys, err)
+	}
+}
+
+func TestUserPlatformQuotaCache_FlusherRejectsMissingOrOldSchema(t *testing.T) {
+	for _, old := range []bool{false, true} {
+		c, _ := newMiniRedisCache(t)
+		ctx := context.Background()
+		if old {
+			if err := c.SetUserPlatformQuotaCache(ctx, 1, "openai", &service.UserPlatformQuotaCacheEntry{}, time.Minute); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := c.IncrUserPlatformQuotaUsageCache(ctx, 1, "openai", 2, time.Minute, true); err == nil {
+			t.Fatal("flusher increment must report unapplied consumption")
+		}
+	}
+}
+
+func TestUserPlatformQuotaCache_ParallelRefreshAndConsumption(t *testing.T) {
+	c, _ := newMiniRedisCache(t)
+	ctx := context.Background()
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	if err := c.SetUserPlatformQuotaCache(ctx, 1, "openai", &service.UserPlatformQuotaCacheEntry{SchemaVersion: 1, DailyUsageUSD: 10, WeeklyUsageUSD: 20, MonthlyUsageUSD: 30, DailyWindowStart: &old, WeeklyWindowStart: &old, MonthlyWindowStart: &old}, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 80)
+	for i := 0; i < 40; i++ {
+		go func() { done <- c.IncrUserPlatformQuotaUsageCache(ctx, 1, "openai", 0.25, time.Minute, true) }()
+		go func() { done <- c.IncrUserPlatformQuotaUsageCache(ctx, 1, "openai", 0, time.Minute, true) }()
+	}
+	for i := 0; i < 80; i++ {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	got, _, err := c.GetUserPlatformQuotaCache(ctx, 1, "openai")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.DailyUsageUSD != 10 || got.WeeklyUsageUSD != 10 || got.MonthlyUsageUSD != 10 || got.Version != 80 {
+		t.Fatalf("parallel reset lost usage: %+v", got)
+	}
+}

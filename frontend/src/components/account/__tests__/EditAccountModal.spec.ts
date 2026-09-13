@@ -1902,3 +1902,17 @@ describe('EditAccountModal OpenAI 自动使用重置卡', () => {
   })
 
 })
+
+it.each([
+  ['configuration', 'Configuration'], ['credentials', 'Credentials'],
+  ['unsupported', 'Unsupported'], ['upstream', 'Unavailable'], ['internal', 'Failed']
+])('classifies Antigravity sync %s errors', async (reason, key) => {
+  showErrorMock.mockReset()
+  syncUpstreamModelsMock.mockRejectedValueOnce({ reason: `upstream_model_sync_${reason}`, message: 'normalized error' })
+  const wrapper = mountModal(buildAntigravityAccount())
+  await flushPromises()
+  await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+  await flushPromises()
+  expect(showErrorMock).toHaveBeenCalledWith(`admin.accounts.syncUpstreamModels${key}`)
+  wrapper.unmount()
+})

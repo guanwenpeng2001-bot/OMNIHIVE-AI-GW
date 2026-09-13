@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
@@ -456,7 +457,6 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		return nil
 	}
 	key := userPlatformQuotaCacheKey(userID, platform)
-	pipe := c.rdb.TxPipeline()
 
 	// 浮点可空字段：nil → 空字符串（读取时 parseFloatPtr 返回 nil，表示无限额）
 	fmtFloatPtr := func(p *float64) string {
@@ -473,7 +473,9 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		return strconv.FormatInt(p.Unix(), 10)
 	}
 
-	pipe.HSet(ctx, key,
+	// Initialize only: another preflight may already have populated and consumed
+	// this entry while our DB snapshot was in flight.
+	args := []any{int(ttl.Seconds()), service.UserPlatformQuotaCacheSchemaV1,
 		"daily_usage", entry.DailyUsageUSD,
 		"weekly_usage", entry.WeeklyUsageUSD,
 		"monthly_usage", entry.MonthlyUsageUSD,
@@ -485,10 +487,12 @@ func (c *billingCache) SetUserPlatformQuotaCache(ctx context.Context, userID int
 		"daily_window_start", fmtTimePtr(entry.DailyWindowStart),
 		"weekly_window_start", fmtTimePtr(entry.WeeklyWindowStart),
 		"monthly_window_start", fmtTimePtr(entry.MonthlyWindowStart),
-	)
-	pipe.Expire(ctx, key, ttl)
-	_, err := pipe.Exec(ctx)
-	return err
+	}
+	return c.rdb.Eval(ctx, `
+if tonumber(redis.call("HGET", KEYS[1], "schema_version")) == tonumber(ARGV[2]) then return 0 end
+redis.call("HSET", KEYS[1], unpack(ARGV, 3))
+redis.call("EXPIRE", KEYS[1], ARGV[1])
+return 1`, []string{key}, args...).Err()
 }
 
 func (c *billingCache) DeleteUserPlatformQuotaCache(ctx context.Context, userID int64, platform string) error {
@@ -498,7 +502,8 @@ func (c *billingCache) DeleteUserPlatformQuotaCache(ctx context.Context, userID 
 // updateUserPlatformQuotaUsageScript 缓存累加：EXISTS + schema_version 双重守卫。
 // 旧版 entry（schema_version != ARGV[3]，包括缺字段的 0 值）不参与累加，由上层走 DB fallback 后
 // SetCache 重建为新版 entry —— 若此处仍累加，上层覆盖时会丢失这部分增量，导致 Redis usage 比真实偏小。
-// key 不存在同样跳过（由下次 SetCache 重建）。
+// key 不存在同样不累加；flusher 模式将未应用结果返回为错误，由服务层记录 ALERT。
+// cost=0 用于原子刷新窗口；真实消费在同一个脚本中 reset + increment。
 // KEYS[1] = hash key
 // KEYS[2] = 脏集 key（dirty set）
 // ARGV[1] = cost (string float)
@@ -506,6 +511,7 @@ func (c *billingCache) DeleteUserPlatformQuotaCache(ctx context.Context, userID 
 // ARGV[3] = expected schema_version (Go 侧 UserPlatformQuotaCacheSchemaV1)
 // ARGV[4] = dirty set member（空串则不 SADD）
 // ARGV[5] = 脏集兜底 TTL 秒
+// ARGV[6..8] = 当前日/周窗口起点和当前时间（Unix 秒，月窗口按 30 天滚动）
 const updateUserPlatformQuotaUsageScript = `
 if redis.call("EXISTS", KEYS[1]) == 0 then
     return 0
@@ -514,6 +520,16 @@ local ver = redis.call("HGET", KEYS[1], "schema_version")
 if ver == false or tonumber(ver) ~= tonumber(ARGV[3]) then
     return 0
 end
+-- Reset against the current hash, never against a caller's old snapshot.
+local function resetWindow(field, usage, start, rolling)
+ local old = tonumber(redis.call("HGET", KEYS[1], field))
+ if old == nil or (rolling and tonumber(start) - old >= 2592000) or (not rolling and old < tonumber(start)) then
+  redis.call("HSET", KEYS[1], field, start, usage, 0)
+ end
+end
+resetWindow("daily_window_start", "daily_usage", ARGV[6], false)
+resetWindow("weekly_window_start", "weekly_usage", ARGV[7], false)
+resetWindow("monthly_window_start", "monthly_usage", ARGV[8], true)
 redis.call("HINCRBYFLOAT", KEYS[1], "daily_usage", ARGV[1])
 redis.call("HINCRBYFLOAT", KEYS[1], "weekly_usage", ARGV[1])
 redis.call("HINCRBYFLOAT", KEYS[1], "monthly_usage", ARGV[1])
@@ -544,16 +560,21 @@ func (c *billingCache) IncrUserPlatformQuotaUsageCache(ctx context.Context, user
 	if markDirty {
 		member = userPlatformQuotaDirtyMember(userID, platform)
 	}
-	_, err := c.rdb.Eval(ctx, updateUserPlatformQuotaUsageScript,
+	now := time.Now()
+	applied, err := c.rdb.Eval(ctx, updateUserPlatformQuotaUsageScript,
 		[]string{userPlatformQuotaCacheKey(userID, platform), userPlatformQuotaDirtySetKey()},
 		strconv.FormatFloat(cost, 'f', -1, 64),
 		int(ttl.Seconds()),
 		service.UserPlatformQuotaCacheSchemaV1,
 		member,
 		userPlatformQuotaDirtyTTLSeconds,
-	).Result()
-	if err != nil && !errors.Is(err, redis.Nil) {
+		timezone.StartOfDay(now).Unix(), timezone.StartOfWeek(now).Unix(), now.Unix(),
+	).Int64()
+	if err != nil {
 		return err
+	}
+	if applied != 1 && markDirty {
+		return fmt.Errorf("user platform quota increment not applied: missing key or incompatible schema (user=%d platform=%s)", userID, platform)
 	}
 	return nil
 }

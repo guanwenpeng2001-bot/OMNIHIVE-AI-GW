@@ -152,6 +152,9 @@ func TestFlusher_MissKeySkipped(t *testing.T) {
 	f := newTestFlusher(cache, writer)
 
 	f.flush()
+	if f.metrics.DirtyLostTotal.Load() != 1 {
+		t.Fatalf("missing dirty snapshot must increment lost metric")
+	}
 
 	if len(writer.receivedSnaps) != 1 {
 		t.Fatalf("expected 1 snap, got %d", len(writer.receivedSnaps))

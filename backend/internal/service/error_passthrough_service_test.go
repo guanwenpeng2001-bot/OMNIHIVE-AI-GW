@@ -1012,3 +1012,22 @@ func newPassthroughRuleForWritePathTest(id int64, keyword, customMsg string) *mo
 // Helper functions
 func testIntPtr(i int) *int       { return &i }
 func testStrPtr(s string) *string { return &s }
+
+func TestErrorPassthroughRuleRejectsInvalidHTTPStatus(t *testing.T) {
+	for _, code := range []int{-1, 0, 99, 600, 1000} {
+		rule := &model.ErrorPassthroughRule{Name: "test", MatchMode: model.MatchModeAny, ErrorCodes: []int{502}, ResponseCode: &code, PassthroughBody: true}
+		require.Error(t, rule.Validate())
+		svc := &ErrorPassthroughService{}
+		rule.Enabled = true
+		svc.setLocalCache([]*model.ErrorPassthroughRule{rule})
+		require.Nil(t, svc.MatchRule("openai", 502, nil), "old stored invalid rules must not reach any response writer")
+		rule.PassthroughCode = true
+		rule.ResponseCode = nil
+		rule.ErrorCodes = []int{code}
+		require.Error(t, rule.Validate())
+	}
+	for _, code := range []int{100, 200, 400, 529, 599} {
+		rule := &model.ErrorPassthroughRule{Name: "test", MatchMode: model.MatchModeAny, ErrorCodes: []int{502}, ResponseCode: &code, PassthroughBody: true}
+		require.NoError(t, rule.Validate())
+	}
+}

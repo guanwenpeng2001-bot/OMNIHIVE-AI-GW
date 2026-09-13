@@ -1,3 +1,4 @@
+import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -7,7 +8,8 @@ const { copyToClipboardMock, saveAsMock } = vi.hoisted(() => ({
   saveAsMock: vi.fn()
 }))
 
-vi.mock('vue-i18n', () => ({
+vi.mock('vue-i18n', async (importOriginal) => ({
+  ...await importOriginal<typeof import('vue-i18n')>(),
   useI18n: () => ({
     t: (key: string) => key
   })
@@ -926,3 +928,20 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('model_reasoning_effort')
   })
 })
+
+  it.each(['kimi', 'zhipu', 'deepseek', 'minimax', 'opencode_go', 'cursor', 'qianwen', 'commandcode'] as const)(
+    'uses the %s catalog in copied OpenCode configuration', async (platform) => {
+      const wrapper = mount(UseKeyModal, {
+        props: { show: true, apiKey: 'sk-example', baseUrl: 'https://example.com/v1', platform },
+        global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } }
+      })
+      const tab = wrapper.findAll('button').find(button => button.text().includes('keys.useKeyModal.cliTabs.opencode'))!
+      await tab.trigger('click')
+      const config = JSON.parse(wrapper.get('pre code').text())
+      expect(Object.keys(config.provider)).toEqual([platform])
+      expect(Object.keys(config.provider[platform].models)).toEqual(getModelsByPlatform(platform))
+      expect(config.provider[platform].options).toEqual({ baseURL: 'https://example.com/v1', apiKey: 'sk-example' })
+      expect(config.provider[platform].npm).toBe('@ai-sdk/openai-compatible')
+      wrapper.unmount()
+    }
+  )
