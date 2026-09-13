@@ -341,6 +341,17 @@ func isAsyncImageTaskRead(method, path string) bool {
 }
 
 func isUpstreamJobRead(method, path string) bool {
+	// Resource cleanup must remain possible after inference balance is exhausted.
+	// Normal API-key authentication and handler ownership checks still apply.
+	if method == http.MethodGet && (path == "/compatible-mode/v1/files" || path == "/compatible-mode/v1/batches") {
+		return true
+	}
+	if method == http.MethodDelete && strings.HasPrefix(path, "/compatible-mode/v1/files/") {
+		return true
+	}
+	if method == http.MethodPost && strings.HasPrefix(path, "/compatible-mode/v1/batches/") && strings.HasSuffix(path, "/cancel") {
+		return true
+	}
 	return method == http.MethodGet && (strings.HasPrefix(path, "/api/v1/tasks/") || strings.HasPrefix(path, "/compatible-mode/v1/files/") || strings.HasPrefix(path, "/compatible-mode/v1/batches/"))
 }
 

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -29,16 +30,68 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 	}
 	method := c.Request.Method
 	suffix := strings.TrimPrefix(path, root)
-	if (method != http.MethodGet || suffix == "") && (method != http.MethodPost || suffix != "") {
+	manage := (method == http.MethodDelete && family == "files" && suffix != "") || (method == http.MethodPost && family == "batch" && strings.HasSuffix(suffix, "/cancel"))
+	if method != http.MethodGet && (method != http.MethodPost || suffix != "") && !manage {
 		return false
 	}
 	key, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || key == nil || key.Group == nil {
+	if !ok || key == nil || key.Group == nil || key.GroupID == nil {
 		fileBatchError(c, 401, "authentication_error", "Invalid API key")
 		return true
 	}
 	if openAICompatibleRequestPlatform(c.Request.Context(), key) != service.PlatformQianwen {
 		fileBatchError(c, 404, "unsupported_operation_error", "File batches require a Qianwen group")
+		return true
+	}
+	if manage {
+		return h.manageQianwenFileBatch(c, key, family, suffix)
+	}
+	if method == http.MethodGet && suffix == "" {
+		limit := 20
+		if raw := c.Query("limit"); raw != "" {
+			var err error
+			limit, err = strconv.Atoi(raw)
+			if err != nil || limit < 1 || limit > 100 {
+				fileBatchError(c, 400, "invalid_request_error", "limit must be 1-100")
+				return true
+			}
+		}
+		listFamily := family
+		if family == "files" {
+			switch c.Query("purpose") {
+			case "":
+			case "batch":
+				listFamily = "batch_input"
+			case "batch_output":
+				listFamily = "batch_output"
+			default:
+				fileBatchError(c, 400, "invalid_request_error", "Unsupported file purpose")
+				return true
+			}
+		}
+		jobs, err := h.upstreamJobs.ListResources(c.Request.Context(), key.UserID, key.ID, *key.GroupID, listFamily, c.Query("after"), limit)
+		if err != nil {
+			fileBatchOperationError(c, err)
+			return true
+		}
+		more := len(jobs) > limit
+		if more {
+			jobs = jobs[:limit]
+		}
+		data := make([]gin.H, 0, len(jobs))
+		for _, j := range jobs {
+			if family == "files" && j.Family == "batch" {
+				data = append(data, outputFileObject(j))
+			} else {
+				data = append(data, fileBatchObject(j))
+			}
+		}
+		out := gin.H{"object": "list", "data": data, "has_more": more, "first_id": nil, "last_id": nil}
+		if len(jobs) > 0 {
+			out["first_id"] = data[0]["id"]
+			out["last_id"] = data[len(data)-1]["id"]
+		}
+		c.JSON(200, out)
 		return true
 	}
 	if method == http.MethodGet {
@@ -54,7 +107,7 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 			expectedFamily = "batch"
 		}
 		j, err := h.upstreamJobs.Get(c.Request.Context(), id, key.UserID, key.ID)
-		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && !ownedFileBatch(j, key, expectedFamily) {
+		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && (!ownedFileBatch(j, key, expectedFamily) || j.ResourceState.Deleted || (family == "files" && expectedFamily == "batch" && j.ResourceState.OutputDeleted)) {
 			fileBatchError(c, 404, "not_found_error", "Resource not found")
 			return true
 		}
@@ -63,7 +116,7 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 			return true
 		}
 		if content {
-			if j.Status != "succeeded" {
+			if j.Status != "succeeded" || j.ResultRef == "" {
 				fileBatchError(c, 409, "resource_not_ready", "Resource content is not ready")
 				return true
 			}
@@ -80,7 +133,7 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 				fileBatchError(c, 409, "resource_not_ready", "Output file is not ready")
 				return true
 			}
-			c.JSON(200, gin.H{"id": "output-" + j.PublicRequestID, "object": "file", "purpose": "batch_output", "status": "processed", "filename": "batch-output.jsonl", "created_at": j.SubmittedAt.Unix()})
+			c.JSON(200, outputFileObject(j))
 		} else {
 			writeFileBatch(c, j, 200)
 		}
@@ -163,8 +216,8 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 			}
 			return true
 		})
-		if unknown || parsed.Get("endpoint").String() != "/v1/chat/ds-test" || parsed.Get("completion_window").String() != "24h" {
-			fileBatchError(c, 422, "unsupported_operation_error", "Only owned batch-test-model files, /v1/chat/ds-test and 24h are supported; metadata, OSS and paid tariffs are unavailable")
+		if unknown || (parsed.Get("endpoint").String() != "/v1/chat/ds-test" && parsed.Get("endpoint").String() != "/v1/chat/completions") || parsed.Get("completion_window").String() != "24h" {
+			fileBatchError(c, 422, "unsupported_operation_error", "Only owned JSONL files, supported chat endpoints and 24h are supported")
 			return true
 		}
 		inputFile, err = h.upstreamJobs.Get(c.Request.Context(), parsed.Get("input_file_id").String(), key.UserID, key.ID)
@@ -176,8 +229,12 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 			fileBatchError(c, 503, "resource_store_unavailable", "Resource store unavailable")
 			return true
 		}
-		if inputFile.Status != "succeeded" || inputFile.Billing.Model != service.QianwenBatchTestModel || inputFile.Billing.FileBatch == nil {
+		if inputFile.Status != "succeeded" || inputFile.ResourceState.Deleted || inputFile.Billing.FileBatch == nil {
 			fileBatchError(c, 409, "resource_not_ready", "Input file is not ready")
+			return true
+		}
+		if parsed.Get("endpoint").String() != inputFile.Billing.FileBatch.BatchEndpoint() {
+			fileBatchError(c, 422, "invalid_request_error", "Endpoint must match the uploaded file")
 			return true
 		}
 		copySnapshot := *inputFile.Billing.FileBatch
@@ -190,11 +247,11 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 	if family == "files" {
 		for _, line := range strings.Split(strings.TrimSpace(string(normalized)), "\n") {
 			audit := []byte(gjson.Get(line, "body").Raw)
-			if decision := h.checkSecurityAudit(c, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, service.QianwenBatchTestModel, audit); decision != nil && !decision.AllowNextStage {
+			if decision := h.checkSecurityAudit(c, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, snapshot.BatchModel(), audit); decision != nil && !decision.AllowNextStage {
 				h.openAISecurityAuditError(c, decision)
 				return true
 			}
-			if h.rejectIfCyberSessionBlocked(c, key, audit, service.QianwenBatchTestModel, cyberBlockFormatChat) {
+			if h.rejectIfCyberSessionBlocked(c, key, audit, snapshot.BatchModel(), cyberBlockFormatChat) {
 				return true
 			}
 		}
@@ -245,12 +302,29 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 	if accountRelease != nil {
 		defer accountRelease()
 	}
-	job, err := h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: service.UpstreamJobBilling{Model: service.QianwenBatchTestModel, RequestedModel: service.QianwenBatchTestModel, RateMultiplier: 1, FileBatch: snapshot}}, fingerprint, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
-		if family == "files" {
-			return h.gatewayService.SubmitQianwenFile(ctx, account, normalized)
-		}
-		return h.gatewayService.SubmitQianwenBatch(ctx, account, inputFile)
-	})
+	billing, err := service.QianwenFileBatchBillingSnapshot(key.Group, account, key, subscription, snapshot)
+	if err != nil {
+		fileBatchError(c, 422, "unsupported_pricing", err.Error())
+		return true
+	}
+	if snapshot.BatchModel() != service.QianwenBatchTestModel && (!account.IsModelSupported(snapshot.BatchModel()) || account.GetMappedModel(snapshot.BatchModel()) != snapshot.BatchModel()) {
+		fileBatchError(c, 422, "unsupported_model", "Batch requires an exact supported native model")
+		return true
+	}
+	submit := func() (*service.UpstreamJob, error) {
+		return h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}, fingerprint, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
+			if family == "files" {
+				return h.gatewayService.SubmitQianwenFile(ctx, account, normalized)
+			}
+			return h.gatewayService.SubmitQianwenBatch(ctx, account, inputFile)
+		})
+	}
+	var job *service.UpstreamJob
+	if inputFile != nil {
+		job, err = h.upstreamJobs.WithInputFile(c.Request.Context(), inputFile.PublicRequestID, key.UserID, key.ID, *key.GroupID, submit)
+	} else {
+		job, err = submit()
+	}
 	if err != nil {
 		fileBatchError(c, 503, "resource_store_unavailable", "Unable to persist resource job")
 		return true
@@ -265,7 +339,13 @@ func ownedFileBatch(j *service.UpstreamJob, key *service.APIKey, family string) 
 func fileBatchError(c *gin.Context, status int, code, message string) {
 	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "code": code, "message": message}})
 }
+func outputFileObject(j *service.UpstreamJob) gin.H {
+	return gin.H{"id": "output-" + j.PublicRequestID, "object": "file", "purpose": "batch_output", "status": "processed", "filename": "batch-output.jsonl", "created_at": j.SubmittedAt.Unix()}
+}
 func writeFileBatch(c *gin.Context, j *service.UpstreamJob, status int) {
+	c.JSON(status, fileBatchObject(j))
+}
+func fileBatchObject(j *service.UpstreamJob) gin.H {
 	state := j.Status
 	if j.Family == "files" && state == "succeeded" {
 		state = "processed"
@@ -279,6 +359,9 @@ func writeFileBatch(c *gin.Context, j *service.UpstreamJob, status int) {
 		case "running":
 			state = "in_progress"
 		}
+		if j.ResourceState.ProviderStatus != "" && j.ErrorCode == "" {
+			state = j.ResourceState.ProviderStatus
+		}
 	}
 	out := gin.H{"id": j.PublicRequestID, "object": "batch", "status": state, "created_at": j.SubmittedAt.Unix()}
 	if j.Family == "files" {
@@ -289,19 +372,55 @@ func writeFileBatch(c *gin.Context, j *service.UpstreamJob, status int) {
 			out["bytes"] = j.Billing.FileBatch.Bytes
 		}
 	} else {
-		out["endpoint"] = "/v1/chat/ds-test"
+		out["endpoint"] = j.Billing.FileBatch.BatchEndpoint()
 		out["completion_window"] = "24h"
 		out["output_file_id"] = nil
 		out["error_file_id"] = nil
 		if j.Billing.FileBatch != nil {
 			out["input_file_id"] = j.Billing.FileBatch.InputFileID
 		}
-		if j.Status == "succeeded" {
+		if j.Status == "succeeded" && j.ResultRef != "" && !j.ResourceState.OutputDeleted {
 			out["output_file_id"] = "output-" + j.PublicRequestID
 		}
 	}
 	if j.ErrorCode != "" {
 		out["error"] = gin.H{"code": j.ErrorCode, "message": j.ErrorMessage}
 	}
-	c.JSON(status, out)
+	return out
+}
+
+func fileBatchOperationError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, service.ErrUpstreamJobNotFound):
+		fileBatchError(c, 404, "not_found_error", "Resource not found")
+	case errors.Is(err, service.ErrUpstreamResourceConflict):
+		fileBatchError(c, 409, "resource_conflict", "Resource is not ready or is in use")
+	default:
+		fileBatchError(c, 503, "resource_operation_unavailable", "Resource operation unavailable")
+	}
+}
+func (h *OpenAIGatewayHandler) manageQianwenFileBatch(c *gin.Context, key *service.APIKey, family, suffix string) bool {
+	id, action := strings.TrimPrefix(suffix, "/"), "delete"
+	if family == "batch" {
+		id, action = strings.TrimSuffix(id, "/cancel"), "cancel"
+	}
+	publicID := id
+	if action == "delete" && strings.HasPrefix(id, "output-") {
+		id, action = strings.TrimPrefix(id, "output-"), "delete_output"
+	}
+	if id == "" || strings.Contains(id, "/") {
+		fileBatchError(c, 404, "not_found_error", "Resource not found")
+		return true
+	}
+	j, err := h.upstreamJobs.ManageResource(c.Request.Context(), id, key.UserID, key.ID, *key.GroupID, action, h.gatewayService.ManageQianwenResource)
+	if err != nil {
+		fileBatchOperationError(c, err)
+		return true
+	}
+	if action == "cancel" {
+		writeFileBatch(c, j, 200)
+	} else {
+		c.JSON(200, gin.H{"id": publicID, "object": "file", "deleted": true})
+	}
+	return true
 }
