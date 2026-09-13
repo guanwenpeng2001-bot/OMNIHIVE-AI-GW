@@ -417,7 +417,7 @@ func NormalizeGroupPlatform(platform string) string {
 }
 
 // ValidateProfitControlConfig 是分组利润控制配置的唯一校验来源，handler 与 service 层共用。
-// enabled=true 时仅允许五个可计费平台分组；margin/buffer 各自 ∈ [0,1)，且 margin+buffer < 1
+// enabled=true 时仅允许具备 token 计费与调度核价能力的平台分组；margin/buffer 各自 ∈ [0,1)，且 margin+buffer < 1
 // （相加 >=1 时阈值 <=0，所有可核价账号都会被排除，视为配置错误而不是静默全黑）。
 // enabled=false 时放行（不关心平台），由 Normalize 兜底清洗数值。
 func ValidateProfitControlConfig(platform string, enabled bool, minMargin, safetyBuffer float64) error {
@@ -425,7 +425,7 @@ func ValidateProfitControlConfig(platform string, enabled bool, minMargin, safet
 		return nil
 	}
 	if !profitControlPlatformSupported(platform) {
-		return errors.New("利润控制仅支持 openai、anthropic、gemini、grok、antigravity 平台分组")
+		return errors.New("利润控制仅支持具有 token 计费与调度核价能力的平台分组")
 	}
 	if !validProfitControlRatio(minMargin) {
 		return fmt.Errorf("profit_min_margin 应为 [0,1) 的小数，got %v", minMargin)
@@ -440,7 +440,7 @@ func ValidateProfitControlConfig(platform string, enabled bool, minMargin, safet
 }
 
 // NormalizeProfitControlConfig 归一化最终落库的利润控制配置，CreateGroup 与 UpdateGroup 共用（唯一收口）：
-//   - 非五个平台分组不携带利润控制，一律重置为默认（关、0、0）；
+//   - 不具备 token 计费与调度核价能力的平台分组不携带利润控制，一律重置为默认（关、0、0）；
 //   - 支持平台关闭开关时保留合法数值（便于再次启用），清洗 NaN/Inf/越界脏值。
 //
 // 与 ValidateProfitControlConfig 的分工同高峰倍率：先归一化、后校验，
@@ -462,7 +462,9 @@ func NormalizeProfitControlConfig(platform string, enabled bool, minMargin, safe
 
 func profitControlPlatformSupported(platform string) bool {
 	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity:
+	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity,
+		PlatformCursor, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
+		PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode:
 		return true
 	default:
 		return false

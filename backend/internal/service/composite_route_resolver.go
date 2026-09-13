@@ -58,6 +58,11 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 		}
 	}
 
+	if qianwenSharedModelRequiresRoute(strings.TrimPrefix(strings.ToLower(model), "models/")) {
+		decision.Reason = "shared model requires an explicit composite route"
+		return decision, nil
+	}
+
 	if r != nil && r.modelOwnershipResolver != nil && groupID > 0 {
 		ownership, err := r.modelOwnershipResolver(ctx, groupID, model)
 		if err != nil {
