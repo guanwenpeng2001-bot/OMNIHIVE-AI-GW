@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 	"time"
 
@@ -47,12 +46,13 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 	if err != nil {
 		return nil, err
 	}
-	body, thinking, err := prepareQianwenThinking(body, body, account.GetMappedModel(model), "parameters.enable_thinking")
+	body, thinking, err := prepareQianwenThinkingWithPolicy(ctx, c, body, body, account.GetMappedModel(model), "parameters.enable_thinking")
 	if err == nil {
 		err = s.validateQianwenThinkingMode(ctx, c, account.GetMappedModel(model), thinking)
 	}
 	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		status, kind := nativePolicyErrorResponse(err)
+		writeChatCompletionsError(c, status, kind, err.Error())
 		return nil, err
 	}
 	req, err := s.BuildQianwenNativeRequest(ctx, account, operation, body, stream)

@@ -128,6 +128,10 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		r.applyChannelOverrides(ctx, *input.GroupID, input.Model, resolved)
 	}
 
+	if platform == PlatformCommandCode && commandCodeOfficialFreeModel(input.Model) && resolved.Source != PricingSourceChannel {
+		resolved.BasePricing = &ModelPricing{}
+		resolved.Source = "official_free:commandcode"
+	}
 	return resolved
 }
 

@@ -186,18 +186,21 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if account.Platform == PlatformQianwen {
 		var thinkingErr error
 		var thinking *bool
-		upstreamBody, thinking, thinkingErr = prepareQianwenThinking(body, upstreamBody, upstreamModel, "enable_thinking")
+		upstreamBody, thinking, thinkingErr = prepareQianwenThinkingWithPolicy(ctx, c, body, upstreamBody, upstreamModel, "enable_thinking")
 		if thinkingErr == nil {
 			thinkingErr = s.validateQianwenThinkingMode(ctx, c, upstreamModel, thinking)
 		}
 		if thinkingErr != nil {
-			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", thinkingErr.Error())
+			status, kind := nativePolicyErrorResponse(thinkingErr)
+			writeChatCompletionsError(c, status, kind, thinkingErr.Error())
 			return nil, thinkingErr
 		}
 	}
 	if account.IsCommandCode() {
-		upstreamBody, err = normalizeCommandCodeReasoning(upstreamBody, upstreamModel)
+		upstreamBody, err = normalizeCommandCodeReasoningWithPolicy(c, upstreamBody, upstreamModel)
 		if err != nil {
+			status, kind := nativePolicyErrorResponse(err)
+			writeChatCompletionsError(c, status, kind, err.Error())
 			return nil, err
 		}
 		reasoningEffort = extractOpenAIReasoningEffortFromBody(upstreamBody, "", "", "")

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/tidwall/gjson"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -139,6 +140,12 @@ func (gateway *CursorGatewayService) ForwardAsChatCompletions(ctx context.Contex
 func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestContext *gin.Context, account *Account, body []byte, output *cursorOutput) (*ForwardResult, error) {
 	if gateway == nil {
 		return nil, cursorFailover(errors.New("unavailable"))
+	}
+
+	if strings.EqualFold(account.GetMappedModel(gjson.GetBytes(body, "model").String()), "echo-model") {
+		err := fmt.Errorf("model_pricing_unavailable: no verified Cursor price for echo-model")
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "model_pricing_unavailable", "message": err.Error()}))
+		return nil, err
 	}
 	if account.Type == AccountTypeUpstream {
 		return gateway.forwardRelayChatOutput(ctx, requestContext, account, body, output)
