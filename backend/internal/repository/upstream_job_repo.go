@@ -24,25 +24,25 @@ func scanUpstreamJob(row interface{ Scan(...any) error }) (*service.UpstreamJob,
 		}
 		return nil, err
 	}
-	var j service.UpstreamJob
-	if err := json.Unmarshal(raw, &j); err != nil {
+	var upstreamJob service.UpstreamJob
+	if err := json.Unmarshal(raw, &upstreamJob); err != nil {
 		return nil, err
 	}
-	return &j, nil
+	return &upstreamJob, nil
 }
 
-func (r *upstreamJobRepository) Create(ctx context.Context, j *service.UpstreamJob) (*service.UpstreamJob, bool, error) {
-	snapshot, err := json.Marshal(j.Billing)
+func (r *upstreamJobRepository) Create(ctx context.Context, upstreamJob *service.UpstreamJob) (*service.UpstreamJob, bool, error) {
+	snapshot, err := json.Marshal(upstreamJob.Billing)
 	if err != nil {
 		return nil, false, err
 	}
-	row := r.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS j
+	row := r.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS upstreamJob
  (public_request_id,request_fingerprint,platform,family,account_id,user_id,api_key_id,group_id,submitted_at,next_poll_at,expires_at,billing_snapshot,submission_key)
  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$9,$10,$11,$12)
- ON CONFLICT DO NOTHING RETURNING row_to_json(j)`, j.PublicRequestID, j.RequestFingerprint, j.Platform, j.Family, j.AccountID, j.UserID, j.APIKeyID, j.GroupID, j.SubmittedAt, j.ExpiresAt, string(snapshot), j.SubmissionKey)
+ ON CONFLICT DO NOTHING RETURNING row_to_json(upstreamJob)`, upstreamJob.PublicRequestID, upstreamJob.RequestFingerprint, upstreamJob.Platform, upstreamJob.Family, upstreamJob.AccountID, upstreamJob.UserID, upstreamJob.APIKeyID, upstreamJob.GroupID, upstreamJob.SubmittedAt, upstreamJob.ExpiresAt, string(snapshot), upstreamJob.SubmissionKey)
 	created, err := scanUpstreamJob(row)
 	if errors.Is(err, service.ErrUpstreamJobNotFound) {
-		existing, err := scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE submission_key=$1`, j.SubmissionKey))
+		existing, err := scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE submission_key=$1`, upstreamJob.SubmissionKey))
 		return existing, false, err
 	}
 	return created, err == nil, err
@@ -50,7 +50,7 @@ func (r *upstreamJobRepository) Create(ctx context.Context, j *service.UpstreamJ
 
 // InsertRealtimeReceipt persists every replay input before any money transaction.
 // A duplicate never updates the original evidence or its settlement anchor.
-func (r *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Context, receipt *service.UpstreamJob) (*service.UpstreamJob, error) {
+func (repository *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Context, receipt *service.UpstreamJob) (*service.UpstreamJob, error) {
 	if receipt == nil || receipt.Family != "realtime_turn" || receipt.UpstreamTaskID == "" || len(receipt.UsageJSON) == 0 || receipt.Billing.Realtime == nil || receipt.Billing.Realtime.SessionID == "" {
 		return nil, service.ErrUpstreamJobUnsupportedUsage
 	}
@@ -58,16 +58,16 @@ func (r *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Context, recei
 	if err != nil {
 		return nil, err
 	}
-	stored, err := scanUpstreamJob(r.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS j
+	stored, err := scanUpstreamJob(repository.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS upstreamJob
  (public_request_id,request_fingerprint,platform,family,account_id,user_id,api_key_id,group_id,submitted_at,next_poll_at,expires_at,billing_snapshot,submission_key,upstream_task_id,usage_json,result_ref,status,finished_at,error_code,error_message)
  VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
- ON CONFLICT (submission_key) DO NOTHING RETURNING row_to_json(j)`,
+ ON CONFLICT (submission_key) DO NOTHING RETURNING row_to_json(upstreamJob)`,
 		receipt.PublicRequestID, receipt.RequestFingerprint, receipt.Platform, receipt.Family, receipt.AccountID, receipt.UserID, receipt.APIKeyID, receipt.GroupID, receipt.SubmittedAt, receipt.NextPollAt, receipt.ExpiresAt, string(snapshot), receipt.SubmissionKey, receipt.UpstreamTaskID, string(receipt.UsageJSON), receipt.ResultRef, receipt.Status, receipt.FinishedAt, receipt.ErrorCode, receipt.ErrorMessage))
 	if !errors.Is(err, service.ErrUpstreamJobNotFound) {
 		return stored, err
 	}
 	// A separate statement sees the winning insert after ON CONFLICT waits for it.
-	stored, err = scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE submission_key=$1`, receipt.SubmissionKey))
+	stored, err = scanUpstreamJob(repository.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE submission_key=$1`, receipt.SubmissionKey))
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (r *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Context, recei
 }
 
 func (r *upstreamJobRepository) Get(ctx context.Context, id string, userID, keyID int64) (*service.UpstreamJob, error) {
-	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
+	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
 }
 func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit int) ([]string, error) {
 	if limit <= 0 || limit > 100 {
@@ -105,25 +105,25 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 		return nil, err
 	}
 	defer tx.Rollback()
-	j, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE public_request_id=$1 FOR UPDATE`, id))
+	upstreamJob, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 FOR UPDATE`, id))
 	if err != nil {
 		return nil, err
 	}
-	frozenPricing := j.Billing.PricingSnapshot
-	if err = fn(j, &upstreamJobTx{tx: tx, job: j}); err != nil {
+	frozenPricing := upstreamJob.Billing.PricingSnapshot
+	if err = fn(upstreamJob, &upstreamJobTx{tx: tx, job: upstreamJob}); err != nil {
 		return nil, err
 	}
-	if frozenPricing != "" && j.Billing.PricingSnapshot != frozenPricing {
+	if frozenPricing != "" && upstreamJob.Billing.PricingSnapshot != frozenPricing {
 		return nil, service.ErrUsageBillingRequestConflict
 	}
-	if j.Billing.PricingSnapshot != "" && !json.Valid([]byte(j.Billing.PricingSnapshot)) {
+	if upstreamJob.Billing.PricingSnapshot != "" && !json.Valid([]byte(upstreamJob.Billing.PricingSnapshot)) {
 		return nil, errors.New("invalid frozen pricing snapshot")
 	}
 	var usage any
-	if len(j.UsageJSON) > 0 {
-		usage = string(j.UsageJSON)
+	if len(upstreamJob.UsageJSON) > 0 {
+		usage = string(upstreamJob.UsageJSON)
 	}
-	resourceState, err := json.Marshal(j.ResourceState)
+	resourceState, err := json.Marshal(upstreamJob.ResourceState)
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +134,14 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
    THEN jsonb_set(billing_snapshot,'{pricing_snapshot}',to_jsonb($15::text),true)
    ELSE billing_snapshot END,
   '{pricing_state}',to_jsonb($14::text),true) END
- WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage, string(resourceState), string(j.Billing.PricingState), j.Billing.PricingSnapshot)
+ WHERE id=$1`, upstreamJob.ID, upstreamJob.UpstreamTaskID, upstreamJob.Status, upstreamJob.AttemptCount, upstreamJob.LastPolledAt, upstreamJob.NextPollAt, upstreamJob.FinishedAt, upstreamJob.ResultRef, usage, upstreamJob.ChargedUsageLogID, upstreamJob.ErrorCode, upstreamJob.ErrorMessage, string(resourceState), string(upstreamJob.Billing.PricingState), upstreamJob.Billing.PricingSnapshot)
 	if err != nil {
 		return nil, err
 	}
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
-	return j, nil
+	return upstreamJob, nil
 }
 func (r *upstreamJobRepository) Expire(ctx context.Context, now time.Time) (int64, error) {
 	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET status='expired',finished_at=$1,error_code=CASE WHEN error_code='usage_pending' THEN error_code ELSE 'expired' END,error_message=CASE WHEN error_code='usage_pending' THEN error_message ELSE 'Task expired' END WHERE status IN ('submitted','running') AND expires_at<=$1 AND NOT (family='realtime_turn' AND usage_json IS NOT NULL AND error_code<>'usage_conflict')`, now)

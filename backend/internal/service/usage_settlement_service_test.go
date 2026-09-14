@@ -14,13 +14,13 @@ type settlementCapture struct {
 	settles int
 }
 
-func (r *settlementCapture) Persist(_ context.Context, input *UsageSettlementReceipt) (*UsageSettlementReceipt, error) {
-	r.receipt = input
+func (capture *settlementCapture) Persist(_ context.Context, input *UsageSettlementReceipt) (*UsageSettlementReceipt, error) {
+	capture.receipt = input
 	return input, nil
 }
-func (r *settlementCapture) Settle(_ context.Context, _ UsageSettlementKey, _ string) (*UsageSettlementResult, error) {
-	r.settles++
-	return &UsageSettlementResult{Receipt: r.receipt, Billing: &UsageBillingApplyResult{Applied: true}}, nil
+func (capture *settlementCapture) Settle(_ context.Context, _ UsageSettlementKey, _ string) (*UsageSettlementResult, error) {
+	capture.settles++
+	return &UsageSettlementResult{Receipt: capture.receipt, Billing: &UsageBillingApplyResult{Applied: true}}, nil
 }
 
 func TestSubmitUsageSettlementFreeUnpricedAndMalformed(t *testing.T) {
@@ -70,16 +70,16 @@ type settlementRecoveryCapture struct {
 	settles int
 }
 
-func (r *settlementRecoveryCapture) ListPending(_ context.Context, cursor int64, _ int) ([]*UsageSettlementReceipt, error) {
+func (capture *settlementRecoveryCapture) ListPending(_ context.Context, cursor int64, _ int) ([]*UsageSettlementReceipt, error) {
 	if cursor > 0 {
 		return nil, nil
 	}
-	return []*UsageSettlementReceipt{r.receipt}, nil
+	return []*UsageSettlementReceipt{capture.receipt}, nil
 }
 
-func (r *settlementRecoveryCapture) Settle(_ context.Context, _ UsageSettlementKey, _ string) (*UsageSettlementResult, error) {
-	r.settles++
-	return &UsageSettlementResult{Receipt: r.receipt, Billing: &r.result}, nil
+func (capture *settlementRecoveryCapture) Settle(_ context.Context, _ UsageSettlementKey, _ string) (*UsageSettlementResult, error) {
+	capture.settles++
+	return &UsageSettlementResult{Receipt: capture.receipt, Billing: &capture.result}, nil
 }
 
 type settlementAuthInvalidator struct {
@@ -87,8 +87,8 @@ type settlementAuthInvalidator struct {
 	userIDs []int64
 }
 
-func (s *settlementAuthInvalidator) InvalidateAuthCacheByUserID(_ context.Context, userID int64) {
-	s.userIDs = append(s.userIDs, userID)
+func (invalidator *settlementAuthInvalidator) InvalidateAuthCacheByUserID(_ context.Context, userID int64) {
+	invalidator.userIDs = append(invalidator.userIDs, userID)
 }
 
 func TestSettlementRecoveryInvalidatesExhaustedKeyAuth(t *testing.T) {

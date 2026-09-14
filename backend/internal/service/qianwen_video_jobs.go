@@ -87,12 +87,12 @@ func videoUsageResolution(size string) string {
 	if len(parts) != 2 {
 		return ""
 	}
-	w, e1 := strconv.Atoi(parts[0])
-	h, e2 := strconv.Atoi(parts[1])
-	if e1 != nil || e2 != nil || w <= 0 || h <= 0 {
+	width, widthErr := strconv.Atoi(parts[0])
+	height, heightErr := strconv.Atoi(parts[1])
+	if widthErr != nil || heightErr != nil || width <= 0 || height <= 0 {
 		return ""
 	}
-	resolution, ok := LookupVideoBillingResolution(strconv.Itoa(min(w, h)) + "p")
+	resolution, ok := LookupVideoBillingResolution(strconv.Itoa(min(width, height)) + "p")
 	if !ok {
 		return ""
 	}
@@ -102,19 +102,19 @@ func videoUsageResolution(size string) string {
 // The returned usage is authoritative: Wan 2.6 duration includes input plus
 // output seconds; older Wan returns video_duration. Only single-video responses
 // with a matching official resolution are currently interpretable.
-func QianwenVideoJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
-	defer func() { recordJobPricingFailure(j, chargeErr) }()
-	if j.Platform != PlatformQianwen || j.Family != "video" || !strings.HasPrefix(j.Billing.Model, "wan2.") {
+func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(upstreamJob, chargeErr) }()
+	if upstreamJob.Platform != PlatformQianwen || upstreamJob.Family != "video" || !strings.HasPrefix(upstreamJob.Billing.Model, "wan2.") {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
-	b := j.Billing
-	if !finitePositive(b.UnitPrice) || !finitePositive(b.RateMultiplier) {
+	billingSnapshot := upstreamJob.Billing
+	if !finitePositive(billingSnapshot.UnitPrice) || !finitePositive(billingSnapshot.RateMultiplier) {
 		return nil, nil, ErrUpstreamJobTariff
 	}
-	usage := gjson.ParseBytes(j.UsageJSON)
+	usage := gjson.ParseBytes(upstreamJob.UsageJSON)
 	count := usage.Get("video_count")
 	seconds := usage.Get("video_duration")
-	if strings.HasPrefix(b.Model, "wan2.6") {
+	if strings.HasPrefix(billingSnapshot.Model, "wan2.6") {
 		seconds = usage.Get("duration")
 	}
 	resolution := videoUsageResolution(usage.Get("video_ratio").String())
@@ -128,18 +128,18 @@ func QianwenVideoJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 		}
 		resolution = tier
 	}
-	if count.Type != gjson.Number || count.Float() != 1 || seconds.Type != gjson.Number || !finitePositive(seconds.Float()) || resolution != b.Resolution || j.ResultRef == "" {
+	if count.Type != gjson.Number || count.Float() != 1 || seconds.Type != gjson.Number || !finitePositive(seconds.Float()) || resolution != billingSnapshot.Resolution || upstreamJob.ResultRef == "" {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
-	total := QuantizeUsageBillingAmount(seconds.Float() * b.UnitPrice)
-	actual := QuantizeUsageBillingAmount(total * b.RateMultiplier)
+	total := QuantizeUsageBillingAmount(seconds.Float() * billingSnapshot.UnitPrice)
+	actual := QuantizeUsageBillingAmount(total * billingSnapshot.RateMultiplier)
 	if !finitePositive(total) || !finitePositive(actual) {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	mode := "video"
 	source := "group_video_model_prices"
 	version := "upstream-job-v1"
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, VideoCount: 1, VideoResolution: &b.Resolution, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
+	log := &UsageLog{UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, RequestID: upstreamJob.PublicRequestID, Model: billingSnapshot.Model, RequestedModel: billingSnapshot.RequestedModel, UpstreamModel: &billingSnapshot.Model, GroupID: upstreamJob.GroupID, SubscriptionID: billingSnapshot.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: billingSnapshot.RateMultiplier, AccountRateMultiplier: &billingSnapshot.AccountRateMultiplier, VideoCount: 1, VideoResolution: &billingSnapshot.Resolution, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	// Existing audit column is integer; retain fractional official duration only in
 	// usage_json instead of rounding a billing quantity into misleading metadata.
 	if seconds.Float() == math.Trunc(seconds.Float()) && seconds.Float() <= math.MaxInt32 {
@@ -147,24 +147,24 @@ func QianwenVideoJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 		log.VideoDurationSeconds = &duration
 	}
 	log.AccountStatsCost = &total
-	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: "video", BalanceCost: actual}
-	if b.SubscriptionID != nil {
+	cmd := &UsageBillingCommand{RequestID: upstreamJob.PublicRequestID, RequestFingerprint: upstreamJob.RequestFingerprint, UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, AccountType: AccountTypeAPIKey, Model: billingSnapshot.Model, MediaType: "video", BalanceCost: actual}
+	if billingSnapshot.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
 		cmd.BillingType = BillingTypeSubscription
-		cmd.SubscriptionID = b.SubscriptionID
+		cmd.SubscriptionID = billingSnapshot.SubscriptionID
 		cmd.SubscriptionCost = actual
 		cmd.BalanceCost = 0
 	}
-	if b.KeyQuota {
+	if billingSnapshot.KeyQuota {
 		cmd.APIKeyQuotaCost = actual
 	}
-	if b.KeyRateLimit {
+	if billingSnapshot.KeyRateLimit {
 		cmd.APIKeyRateLimitCost = actual
 	}
-	if b.AccountQuota {
-		cmd.AccountQuotaCost = total * b.AccountRateMultiplier
+	if billingSnapshot.AccountQuota {
+		cmd.AccountQuotaCost = total * billingSnapshot.AccountRateMultiplier
 	}
-	if err := freezeJobPricing(j, log, PricingSnapshot{UnitPrice: &b.UnitPrice, Units: seconds.Float(), SizeTier: b.Resolution}); err != nil {
+	if err := freezeJobPricing(upstreamJob, log, PricingSnapshot{UnitPrice: &billingSnapshot.UnitPrice, Units: seconds.Float(), SizeTier: billingSnapshot.Resolution}); err != nil {
 		return nil, nil, err
 	}
 	return log, cmd, nil
