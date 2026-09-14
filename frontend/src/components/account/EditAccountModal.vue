@@ -3148,6 +3148,7 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  validateModelRestrictions,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -4018,7 +4019,12 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
+  loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
   if (!newAccount) {
+    editApiKey.value = ''
+    editBaseUrl.value = ''
+    cursorAutoCredentials.value = {}
+    cursorClientVersion.value = ''
     return
   }
   // 进入回填窗口：抑制 CN 模式/协议 watcher 联动重置 base_url（见 syncingForm 注释）。
@@ -4434,7 +4440,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     editBaseUrl.value = platformDefaultUrl
 
     // Load model mappings for OpenAI/Grok OAuth accounts
-    if ((newAccount.platform === 'openai' || newAccount.platform === 'grok') && newAccount.credentials) {
+    if (['openai', 'grok', 'cursor'].includes(newAccount.platform) && newAccount.credentials) {
       const oauthCredentials = newAccount.credentials as Record<string, unknown>
       loadModelRestrictionFromMapping(oauthCredentials.model_mapping as Record<string, unknown> | undefined)
     } else {
@@ -4464,6 +4470,7 @@ watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
     if (!show || !newAccount) {
+      syncFormFromAccount(null)
       return
     }
     if (!wasShow || newAccount !== previousAccount) {
@@ -5047,6 +5054,8 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 }
 
 const handleSubmit = async () => {
+  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
   if (!props.account) return
   const accountID = props.account.id
 
@@ -5456,8 +5465,9 @@ const handleSubmit = async () => {
     }
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
+      if (cursorKeyMode.value === 'relay' && !editBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
       const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
-      const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
       delete cursorCredentials.model_mapping
       if (mapping) cursorCredentials.model_mapping = mapping
       if (cursorKeyMode.value === 'relay') {

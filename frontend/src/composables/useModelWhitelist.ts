@@ -536,10 +536,8 @@ export function splitModelMappingObject(
   }
 
   for (const [rawFrom, rawTo] of Object.entries(modelMapping)) {
-    if (typeof rawTo !== 'string') continue
     const from = rawFrom.trim()
-    const to = rawTo.trim()
-    if (!from || !to) continue
+    const to = typeof rawTo === 'string' ? rawTo.trim() : ''
 
     if (from === to) {
       allowedModels.push(from)
@@ -549,6 +547,35 @@ export function splitModelMappingObject(
   }
 
   return { allowedModels, modelMappings }
+}
+
+// Validate before serialization so an invalid restriction never becomes unrestricted.
+export function validateModelRestrictions(
+  mode: ModelRestrictionMode,
+  allowedModels: string[],
+  modelMappings: ModelMappingEntry[]
+): string[] {
+  const errors: string[] = []
+  const targets = new Map<string, string>()
+  if (mode !== 'mapping') {
+    allowedModels.forEach((model, index) => {
+      const value = model.trim()
+      if (!value || value.includes('*')) errors.push(`Whitelist row ${index + 1}: an exact model ID is required (${model}).`)
+      else targets.set(value, value)
+    })
+  }
+  if (mode !== 'whitelist') {
+    modelMappings.forEach((entry, index) => {
+      const from = entry.from.trim()
+      const to = entry.to.trim()
+      const location = `Mapping row ${index + 1} (${from || 'empty'} → ${to || 'empty'})`
+      if (!from || !to) errors.push(`${location}: both model IDs are required.`)
+      else if (!isValidWildcardPattern(from) || to.includes('*')) errors.push(`${location}: only one trailing source wildcard is allowed.`)
+      else if (targets.has(from) && targets.get(from) !== to) errors.push(`${location}: conflicting target for ${from}.`)
+      else targets.set(from, to)
+    })
+  }
+  return errors
 }
 
 export function buildModelMappingObject(

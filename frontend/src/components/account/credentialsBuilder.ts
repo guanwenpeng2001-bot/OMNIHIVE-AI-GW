@@ -13,8 +13,11 @@ export function buildCursorCredentials(input: {
   if (input.existing?.model_mapping) credentials.model_mapping = input.existing.model_mapping
   if (input.mode === 'relay') {
     credentials.base_url = input.baseUrl?.trim() || ''
-    credentials.api_protocol = 'adaptive'
+    credentials.api_protocol = ['adaptive', 'chat_completions', 'anthropic', 'responses'].includes(String(input.existing?.api_protocol))
+      ? input.existing!.api_protocol
+      : 'adaptive'
   } else {
+    if (input.existing?.api_protocol) credentials.api_protocol = input.existing.api_protocol
     credentials.client_version = input.clientVersion?.trim() || ''
     for (const field of ['machine_id', 'mac_machine_id']) {
       if (input.existing?.[field]) credentials[field] = input.existing[field]

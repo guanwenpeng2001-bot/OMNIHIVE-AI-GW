@@ -1916,3 +1916,46 @@ it.each([
   expect(showErrorMock).toHaveBeenCalledWith(`admin.accounts.syncUpstreamModels${key}`)
   wrapper.unmount()
 })
+
+
+describe('Cursor lossless modal submissions', () => {
+  beforeEach(() => {
+    updateAccountMock.mockReset().mockResolvedValue({})
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    showErrorMock.mockReset()
+  })
+  it.each(['oauth', 'apikey', 'upstream'])('preserves mixed mappings and protocol when renaming %s', async (type) => {
+    const account = buildAccount()
+    account.platform = 'cursor'
+    account.type = type
+    account.credentials = { api_key: 'test-key', access_token: 'token', base_url: 'https://relay.example/v1', api_protocol: 'anthropic', model_mapping: { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' } }
+    const wrapper = mountModal(account)
+    await wrapper.get('input').setValue('Renamed')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({ model_mapping: account.credentials.model_mapping, api_protocol: 'anthropic' })
+    wrapper.unmount()
+  })
+  it('does not carry mappings across sequential relay edits', async () => {
+    const first = { ...buildAccount(), platform: 'cursor', type: 'upstream' }
+    const second = { ...first, id: 2, credentials: { api_key: 'second', base_url: 'https://second.example/v1' } }
+    const wrapper = mountModal(first)
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ account: second, show: true })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).not.toHaveProperty('model_mapping')
+    wrapper.unmount()
+  })
+  it('blocks an invalid restriction before sending a save request', async () => {
+    const account = buildAccount()
+    account.credentials.model_mapping = { 'bad*source': 'target' }
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith(expect.stringContaining('Mapping row 1'))
+    wrapper.unmount()
+  })
+})

@@ -1,3 +1,4 @@
+import { validateModelRestrictions } from '../useModelWhitelist'
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/api/admin/accounts', () => ({
@@ -164,7 +165,24 @@ describe('useModelWhitelist', () => {
 
     expect(parsed).toEqual({
       allowedModels: ['gpt-5.4'],
-      modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }]
+      modelMappings: [{ from: 'gpt-latest', to: 'gpt-5.4' }, { from: '', to: 'gpt-empty' }, { from: 'broken', to: '' }]
     })
+  })
+})
+
+
+describe('restriction validation', () => {
+  it.each([
+    [['bad*'], []],
+    [[], [{ from: 'bad*source', to: 'model' }]],
+    [[], [{ from: 'source', to: '' }]],
+    [[], [{ from: 'source', to: 'target*' }]],
+    [[], [{ from: 'source', to: 'one' }, { from: 'source', to: 'two' }]],
+    [['source'], [{ from: 'source', to: 'other' }]]
+  ])('reports the offending row for %j / %j', (allowed, mappings) => {
+    expect(validateModelRestrictions('combined', allowed, mappings)[0]).toMatch(/row \d+/)
+  })
+  it('accepts case-sensitive identities and aliases', () => {
+    expect(validateModelRestrictions('combined', ['Model'], [{ from: 'model-*', to: 'Model' }])).toEqual([])
   })
 })
