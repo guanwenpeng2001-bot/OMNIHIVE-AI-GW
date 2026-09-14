@@ -287,10 +287,12 @@ const props = withDefaults(defineProps<{
   hideTokenIntervals?: boolean
   enableTimePricing?: boolean
   enableTierMultipliers?: boolean
+  disableDefaultPricing?: boolean
 }>(), {
   hideTokenIntervals: false,
   enableTimePricing: false,
   enableTierMultipliers: false,
+  disableDefaultPricing: false,
 })
 
 const emit = defineEmits<{
@@ -369,6 +371,9 @@ function removeInterval(idx: number) {
 async function onModelsUpdate(newModels: string[]) {
   const oldModels = props.entry.models
   emit('update', { ...props.entry, models: newModels })
+
+  // The default lookup has no provider parameter, so Composite cards must not use it.
+  if (props.disableDefaultPricing) return
 
   // 只在新增模型且当前无价格时自动填充
   const addedModels = newModels.filter(m => !oldModels.includes(m))
