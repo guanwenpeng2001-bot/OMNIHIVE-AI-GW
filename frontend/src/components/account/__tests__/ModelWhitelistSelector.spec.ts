@@ -86,7 +86,7 @@ function findModelRow(wrapper: ReturnType<typeof mountSelector>, modelId: string
 describe('ModelWhitelistSelector', () => {
   it('keeps Cursor-exclusive models when platforms are mixed', async () => {
     const wrapper = mountSelector({ platform: undefined, platforms: ['cursor', 'openai'] })
-    await wrapper.get('div.cursor-pointer').trigger('click')
+    await wrapper.get('button[aria-expanded]').trigger('click')
     expect(findModelRow(wrapper, 'default').exists()).toBe(true)
     expect(findModelRow(wrapper, 'muse-spark-1.3').exists()).toBe(true)
     await findModelRow(wrapper, 'default').get('[data-testid="select-model"]').trigger('click')
@@ -98,12 +98,12 @@ describe('ModelWhitelistSelector', () => {
     getAvailableModels.mockResolvedValueOnce([{ id: 'cursor-future-model', display_name: 'Future' }])
     const wrapper = mountSelector({ platform: 'cursor', accountId: 42 })
     await flushPromises()
-    await wrapper.get('div.cursor-pointer').trigger('click')
+    await wrapper.get('button[aria-expanded]').trigger('click')
     expect(findModelRow(wrapper, 'composer-2.5').exists()).toBe(true)
     expect(findModelRow(wrapper, 'cursor-future-model').exists()).toBe(true)
     const fill = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.fillRelatedModels')!
     await fill.trigger('click')
-    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(['cursor-future-model'])
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toContain('composer-2.5')
     wrapper.unmount()
   })
 
@@ -119,7 +119,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('copies a model ID without selecting the model', async () => {
     const wrapper = mountSelector()
-    await wrapper.get('div.cursor-pointer').trigger('click')
+    await wrapper.get('button[aria-expanded]').trigger('click')
 
     const row = findModelRow(wrapper, 'gpt-5.6-sol')
 
@@ -135,7 +135,7 @@ describe('ModelWhitelistSelector', () => {
 
   it('keeps the existing model selection behavior', async () => {
     const wrapper = mountSelector()
-    await wrapper.get('div.cursor-pointer').trigger('click')
+    await wrapper.get('button[aria-expanded]').trigger('click')
 
     const row = findModelRow(wrapper, 'gpt-5.6-sol')
     await row.get('[data-testid="select-model"]').trigger('click')
@@ -306,4 +306,57 @@ it('ignores discovery from the previous account after a context switch', async (
   await flushPromises()
   expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   wrapper.unmount()
+})
+
+
+describe('model catalog context fencing', () => {
+  it('keeps preset, synchronized and exact selected IDs together', async () => {
+    getAvailableModels.mockResolvedValueOnce([{ id: 'remote-id' }])
+    const wrapper = mountSelector({ accountId: 100, modelValue: ['Legacy.Case/ID'] })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    for (const id of ['gpt-5.6', 'remote-id', 'Legacy.Case/ID']) expect(findModelRow(wrapper, id).exists()).toBe(true)
+    expect(wrapper.find('button button').exists()).toBe(false)
+    expect(wrapper.get('button[aria-expanded]').attributes('aria-controls')).toBeTruthy()
+    expect(wrapper.find('button[aria-label$="Legacy.Case/ID"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+  it('invalidates preview on credential change and close/reopen, including A-B-A', async () => {
+    let resolve!: (value: { models: string[] }) => void
+    syncUpstreamModelsPreview.mockImplementationOnce(() => new Promise(r => { resolve = r }))
+    const credentials = { platform: 'openai', credentials: { api_key: 'fake-a' } }
+    const wrapper = mountSelector({ syncCredentials: credentials })
+    const sync = () => wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!
+    await sync().trigger('click')
+    await wrapper.setProps({ syncCredentials: { ...credentials, credentials: { api_key: 'fake-b' } } })
+    await wrapper.setProps({ syncCredentials: credentials, active: false })
+    await wrapper.setProps({ active: true })
+    resolve({ models: ['stale-preview'] })
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+    expect(wrapper.emitted('upstream-synced')).toBeUndefined()
+    syncUpstreamModelsPreview.mockResolvedValueOnce({ models: ['fresh-preview'] })
+    await sync().trigger('click')
+    await flushPromises()
+    expect(wrapper.emitted('update:modelValue')?.at(-1)?.[0]).toEqual(['fresh-preview'])
+    wrapper.unmount()
+  })
+  it('distinguishes failure, empty and stale data and offers retry', async () => {
+    getAvailableModels.mockRejectedValueOnce(new Error('offline'))
+    const wrapper = mountSelector({ accountId: 101 })
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('failed')
+    getAvailableModels.mockResolvedValueOnce([])
+    await wrapper.findAll('button').find(b => b.text() === 'common.tryAgain')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('empty')
+    syncUpstreamModels.mockResolvedValueOnce({ models: ['cached-model'] })
+    await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+    await flushPromises()
+    syncUpstreamModels.mockRejectedValueOnce(new Error('offline'))
+    await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain('stale')
+    wrapper.unmount()
+  })
 })

@@ -1,7 +1,16 @@
 <template>
-  <div v-if="subscriptionFeatureEnabled && hasActiveSubscriptions" class="relative" ref="containerRef">
+  <div v-if="subscriptionFeatureEnabled" class="relative" ref="containerRef">
+    <p v-if="subscriptionStore.loading" role="status">{{ t('common.loading') }}</p>
+    <p v-else-if="subscriptionStore.error" role="status">{{ t(subscriptionStore.loaded ? 'admin.accounts.subscriptionState.stale' : 'admin.accounts.subscriptionState.failed') }}
+      <button type="button" @click="retrySubscriptions">{{ t('common.tryAgain') }}</button>
+    </p>
+    <p v-else-if="subscriptionStore.loaded && !hasActiveSubscriptions" role="status">{{ t('admin.accounts.subscriptionState.empty') }}</p>
     <!-- Mini Progress Display -->
     <button
+      v-if="hasActiveSubscriptions"
+      type="button"
+      :aria-expanded="tooltipOpen"
+      :aria-controls="tooltipId"
       @click="toggleTooltip"
       class="flex cursor-pointer items-center gap-2 rounded-xl bg-purple-50 px-3 py-1.5 transition-colors hover:bg-purple-100 dark:bg-purple-900/20 dark:hover:bg-purple-900/30"
       :title="t('subscriptionProgress.viewDetails')"
@@ -27,6 +36,7 @@
     <transition name="dropdown">
       <div
         v-if="tooltipOpen"
+        :id="tooltipId"
         class="absolute right-0 z-50 mt-2 w-[340px] overflow-hidden rounded-xl border border-gray-200 bg-white shadow-xl dark:border-dark-700 dark:bg-dark-800"
       >
         <div class="border-b border-gray-100 p-3 dark:border-dark-700">
@@ -60,8 +70,9 @@
             <!-- Progress bars or Unlimited badge -->
             <div class="space-y-1.5">
               <!-- Unlimited subscription badge -->
+              <p v-if="!subscription.group" role="status">{{ t('admin.accounts.cursor.quotaUnknown') }}</p>
               <div
-                v-if="isUnlimited(subscription)"
+                v-else-if="isUnlimited(subscription)"
                 class="flex items-center gap-2 rounded-lg bg-gradient-to-r from-emerald-50 to-teal-50 px-2.5 py-1.5 dark:from-emerald-900/20 dark:to-teal-900/20"
               >
                 <span class="text-lg text-emerald-600 dark:text-emerald-400">∞</span>
@@ -178,7 +189,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { ref, computed, onMounted, onBeforeUnmount, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import { useSubscriptionStore } from '@/stores'
@@ -191,6 +202,8 @@ const subscriptionStore = useSubscriptionStore()
 
 const containerRef = ref<HTMLElement | null>(null)
 const tooltipOpen = ref(false)
+const tooltipId = useId()
+const retrySubscriptions = () => subscriptionStore.fetchActiveSubscriptions(true).catch(() => {})
 
 // Use store data instead of local state
 const activeSubscriptions = computed(() => subscriptionStore.activeSubscriptions)

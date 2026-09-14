@@ -276,6 +276,7 @@ import {
 } from '@/api/channelMonitorV2'
 import { adminAPI } from '@/api/admin'
 import type { AdminGroup } from '@/types'
+import { normalizeConfig, defaultThresholds } from './normalizeConfig'
 
 const { t, te } = useI18n()
 const appStore = useAppStore()
@@ -303,32 +304,7 @@ const systemModeLabel = computed(() => {
     ? t('channelMonitorV2.settings.modeV1')
     : t('channelMonitorV2.settings.modeV2')
 })
-const defaultThresholds = {
-  minimum_sample: 50,
-  warning_error_rate: 0.05,
-  critical_error_rate: 0.20,
-  target_ttft_ms: 3000,
-  warning_ttft_ms: 3000,
-  critical_ttft_ms: 10000,
-  // Higher is better: below 85% watch, below 60% critical.
-  warning_cache_rate: 0.85,
-  critical_cache_rate: 0.60,
-  error_weight: 0.60,
-  ttft_weight: 0.20,
-  cache_weight: 0.20,
-}
 
-/** Factory ignored categories (matches backend DefaultChannelMonitorV2IgnoredErrorCategories). */
-const defaultIgnoredErrorCategories = [
-  'authentication',
-  'client_cancelled',
-  'content_policy',
-  'context_limit',
-  'group_access',
-  'model_unsupported',
-  'not_found',
-  'quota_or_balance',
-] as const
 function percentModel(key: 'warning_error_rate' | 'critical_error_rate' | 'warning_cache_rate' | 'critical_cache_rate') {
   return computed({
     get: () => ((draft.value?.health_thresholds?.[key] ?? defaultThresholds[key]) * 100),
@@ -396,21 +372,6 @@ function platformLabel(value: string) {
       composite: 'Composite',
     } as Record<string, string>
   )[value] || value
-}
-
-function normalizeConfig(value: MonitorConfig): MonitorConfig {
-  const ignored = value.ignored_error_categories
-  return {
-    ...value,
-    platforms: value.platforms.some((p) => p.platform === 'cursor')
-      ? value.platforms
-      : [...value.platforms, { platform: 'cursor', enabled: false, models: [] }],
-    health_thresholds: { ...defaultThresholds, ...(value.health_thresholds || {}) },
-    // Preserve explicit empty arrays from the server (operator cleared all).
-    ignored_error_categories: [
-      ...(ignored == null ? [...defaultIgnoredErrorCategories] : ignored),
-    ].sort(),
-  }
 }
 
 async function load() {

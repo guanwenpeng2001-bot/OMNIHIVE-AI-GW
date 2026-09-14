@@ -262,6 +262,7 @@
                       : 'sk-ant-...'
             "
           />
+          <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
@@ -335,7 +336,8 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+              <ModelWhitelistSelector
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -815,7 +817,8 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1027,7 +1030,8 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+            <ModelWhitelistSelector
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1244,7 +1248,8 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
+            <ModelWhitelistSelector
+                :active="show" v-model="allowedModels" platform="anthropic" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -3194,6 +3199,14 @@ const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
 }
 
 // Platform-specific hint for Base URL
+const apiKeyHint = computed(() => {
+  if (props.account?.platform === 'qianwen' || props.account?.platform === 'commandcode') return t('admin.accounts.apiKey')
+  if (props.account?.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
+  if (props.account?.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
+  if (props.account?.platform === 'grok') return ''
+  return t('admin.accounts.apiKeyHint')
+})
+
 const baseUrlHint = computed(() => {
   if (!props.account) return t('admin.accounts.baseUrlHint')
   if (props.account.platform === 'openai') return t('admin.accounts.openai.baseUrlHint')
@@ -4524,12 +4537,20 @@ const addAntigravityPresetMapping = (from: string, to: string) => {
   antigravityModelMappings.value.push({ from, to })
 }
 
+let antigravitySyncGeneration = 0
+watch(() => [props.show, props.account?.id, props.account?.platform], () => {
+  antigravitySyncGeneration++
+  isSyncingAntigravityUpstream.value = false
+}, { flush: 'sync' })
+
 const syncAntigravityUpstreamModels = async () => {
   if (!props.account?.id || isSyncingAntigravityUpstream.value) return
 
+  const request = ++antigravitySyncGeneration
   isSyncingAntigravityUpstream.value = true
   try {
     const result = await adminAPI.accounts.syncUpstreamModels(props.account.id, false)
+    if (request !== antigravitySyncGeneration || !props.show) return
     const upstreamModels = result.models.map((model) => model.trim()).filter(Boolean)
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
@@ -4565,6 +4586,7 @@ const syncAntigravityUpstreamModels = async () => {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
     }
   } catch (error) {
+    if (request !== antigravitySyncGeneration || !props.show) return
     const reason = error && typeof error === 'object' && 'reason' in error ? String(error.reason) : ''
     const keys: Record<string, string> = {
       upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
@@ -4576,7 +4598,7 @@ const syncAntigravityUpstreamModels = async () => {
     const message = t(`admin.accounts.${keys[reason] || 'syncUpstreamModelsFailed'}`)
     appStore.showError(message)
   } finally {
-    isSyncingAntigravityUpstream.value = false
+    if (request === antigravitySyncGeneration) isSyncingAntigravityUpstream.value = false
   }
 }
 
