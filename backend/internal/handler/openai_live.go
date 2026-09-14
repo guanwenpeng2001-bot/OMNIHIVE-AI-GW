@@ -38,6 +38,10 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", "Live is not enabled for this group")
 		return
 	}
+	if err := h.gatewayService.CheckLiveBillingPolicy(); err != nil {
+		h.writeLiveCreateError(c, err)
+		return
+	}
 	request, err := parseLiveCallRequest(c)
 	if err != nil {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -119,6 +123,8 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	c.Header("Location", liveSidebandLocation(c.FullPath(), created.CallID))
+	c.Header("X-Live-Pricing-State", "free")
+	c.Header("X-Live-Free-Reason", service.LiveFreeReason)
 	c.Data(http.StatusOK, "application/sdp", created.SDP)
 }
 
@@ -179,6 +185,8 @@ func liveCallIdentity(
 
 func (h *OpenAIGatewayHandler) writeLiveCreateError(c *gin.Context, err error) {
 	switch {
+	case errors.Is(err, service.ErrLiveBillingUnsupported):
+		h.errorResponse(c, http.StatusNotImplemented, "live_billing_unsupported", err.Error())
 	case errors.Is(err, service.ErrLiveConcurrencyFull):
 		h.errorResponse(c, http.StatusTooManyRequests, "rate_limit_error", "Live concurrency limit reached")
 	case errors.Is(err, service.ErrLiveUnavailable):

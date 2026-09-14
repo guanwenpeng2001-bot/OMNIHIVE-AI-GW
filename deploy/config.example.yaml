@@ -313,6 +313,11 @@ gateway:
   openai_compact_model: "gpt-5.4"
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
+    # 仅在核实存量客户承诺、明确由运营承担上游费用后设为 free。
+    # 空值或其他值暂停创建新会话；allow_live 分组开关仍须开启。
+    # 不支持付费 Live；时长仅用于会话上限，不用于计费或追收历史费用。
+    # 环境变量：GATEWAY_LIVE_BILLING_POLICY=free
+    billing_policy: ""
     max_session_duration_seconds: 3600
   # OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
   openai_ws:

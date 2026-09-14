@@ -50,6 +50,8 @@ type LiveCallIdentity struct {
 }
 
 type LiveCallRecord struct {
+	// FreeReason is frozen at admission; empty legacy records remain unpriced.
+	FreeReason      string
 	CallID          string
 	CallHash        string
 	AccountID       int64

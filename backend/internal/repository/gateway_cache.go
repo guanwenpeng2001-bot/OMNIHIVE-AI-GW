@@ -406,6 +406,7 @@ func (c *gatewayCache) SaveLiveCall(ctx context.Context, record *service.LiveCal
 	}
 	values := map[string]any{
 		"call_id":          record.CallID,
+		"free_reason":      record.FreeReason,
 		"account_id":       record.AccountID,
 		"api_key_id":       record.APIKeyID,
 		"user_id":          record.UserID,
@@ -445,6 +446,7 @@ func (c *gatewayCache) GetLiveCall(ctx context.Context, callHash string) (*servi
 	createdAt := time.UnixMilli(parseInt("created_at"))
 	expiresAt := time.UnixMilli(parseInt("expires_at"))
 	return &service.LiveCallRecord{
+		FreeReason:            values["free_reason"],
 		CallID:                values["call_id"],
 		CallHash:              callHash,
 		AccountID:             parseInt("account_id"),
