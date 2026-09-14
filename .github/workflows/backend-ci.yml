@@ -51,7 +51,7 @@ jobs:
           - test: TestUpstreamJobPostgres
             package: ./internal/repository
             tag: unit
-            required-subtests: concurrent_submit_poll_settle_restart,failure_replay_expiry_and_unsupported,rollback_usage_balance_and_anchor_together,poll_backoff_and_crashed_claim_expiry
+            required-subtests: concurrent_submit_poll_settle_restart,failure_replay_expiry_and_unsupported,rollback_usage_balance_and_anchor_together,poll_backoff_and_crashed_claim_expiry,frozen_pricing_survives_database_reload
           - test: TestNewPlatformMigrations
             package: ./migrations
             tag: integration
@@ -65,6 +65,30 @@ jobs:
             package: ./internal/repository
             tag: integration
             required-subtests: commit=false,commit=true
+          - test: TestQianwenRealtimeReceiptPostgres
+            package: ./internal/repository
+            tag: integration
+            required-subtests: first_commit_restart_concurrent_duplicate_and_conflicts,concurrent_first_insert_charges_once,insert_failure_leaves_no_empty_receipt,billing_failure_keeps_receipt_for_restart
+          - test: TestLegacyMonitorUpgradeChain
+            package: ./internal/repository
+            tag: integration
+            required-subtests: fresh,237,239,240,243,244,248,253
+          - test: TestLegacyMonitorAppliedChecksums
+            package: ./internal/repository
+            tag: integration
+            required-subtests: applied_240_crlf_false,applied_240_crlf_true,applied_243_crlf_false,applied_243_crlf_true,applied_244_crlf_false,applied_244_crlf_true,applied_248_crlf_false,applied_248_crlf_true,applied_253_crlf_false,applied_253_crlf_true
+          - test: TestLegacyMonitorChecksumDrift
+            package: ./internal/repository
+            tag: integration
+            required-subtests: 240_channel_monitor_provider_capabilities.sql,243_channel_monitor_qianwen_commandcode.sql,244_channel_monitor_minimax_opencode.sql
+          - test: TestLegacyMonitorUnknownAppliedChecksum
+            package: ./internal/repository
+            tag: integration
+            required-subtests: 240_channel_monitor_provider_capabilities.sql,243_channel_monitor_qianwen_commandcode.sql,244_channel_monitor_minimax_opencode.sql
+          - test: TestLegacyUpgradeDDLMeasurement
+            package: ./internal/repository
+            tag: integration
+            required-subtests: ""
     services:
       postgres:
         image: postgres:16
@@ -115,6 +139,7 @@ jobs:
           required = {required_test} | {
               f"{required_test}/{subtest}"
               for subtest in os.environ["REQUIRED_SUBTESTS"].split(",")
+              if subtest
           }
           events = [json.loads(line) for line in Path("postgres-test.json").read_text().splitlines()]
           passed = set()
