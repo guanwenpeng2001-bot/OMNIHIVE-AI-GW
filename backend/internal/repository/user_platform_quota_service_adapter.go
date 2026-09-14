@@ -250,3 +250,8 @@ func toRepoRecords(records []service.UserPlatformQuotaRecord) []UserPlatformQuot
 	}
 	return out
 }
+
+// ConsumeQuotaEvents exposes the durable consumer through a narrow optional port.
+func (a *userPlatformQuotaServiceAdapter) ConsumeQuotaEvents(ctx context.Context, limit int, invalidate func(context.Context, int64, string) error) (int, error) {
+	return a.inner.ConsumeQuotaEvents(ctx, limit, invalidate)
+}

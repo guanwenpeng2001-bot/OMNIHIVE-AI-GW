@@ -15,18 +15,11 @@ func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewa
 			_ = billing.InvalidateSubscription(ctx, j.UserID, *j.GroupID)
 		}
 		keys.InvalidateAuthCacheByUserID(ctx, j.UserID)
-		// Match the existing gateway's optional platform-quota cache/flusher path.
-		// Monetary ledger writes above remain atomic; this derived quota cache has
-		// the same post-commit crash window as the synchronous gateway.
-		if j.Billing.SubscriptionID == nil && billing.HasUserPlatformQuotaLimit(ctx, j.UserID, j.Platform) {
-			log, _, err := QianwenAsyncJobCharge(j)
-			if err == nil {
-				billing.IncrementUserPlatformQuotaUsage(j.UserID, j.Platform, log.ActualCost)
-				if billing.cfg == nil || !billing.cfg.Database.UserPlatformQuotaFlusherEnabled {
-					if err := platformQuotas.IncrementUsageWithReset(ctx, j.UserID, j.Platform, log.ActualCost, time.Now().UTC()); err != nil {
-						slog.Error("upstream job platform quota update failed", "job", j.PublicRequestID, "error", err)
-					}
-				}
+		// The transaction has recorded the quota event. Only invalidate here;
+		// durable replay retries this if the process exits or Redis is down.
+		if billing.cache != nil {
+			if err := billing.cache.DeleteUserPlatformQuotaCache(ctx, j.UserID, j.Platform); err != nil {
+				slog.Error("upstream job quota cache invalidation failed", "job", j.PublicRequestID, "error", err)
 			}
 		}
 	}

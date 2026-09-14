@@ -106,6 +106,8 @@ type UsageLog struct {
 	// of the legacy usage table schema. No migration is required for this DTO.
 	PricingState    PricingState
 	PricingSnapshot string
+	// QuotaPlatform is frozen with the receipt; empty means no platform effect.
+	QuotaPlatform string
 
 	ID        int64
 	UserID    int64
