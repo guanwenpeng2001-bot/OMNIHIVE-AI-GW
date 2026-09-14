@@ -298,7 +298,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	coordinator := securityaudit.NewCoordinator(legacyEngine, promptService)
 	gatewayHandler := handler.ProvideGatewayHandler(cursorGatewayService, gatewayService, openAIGatewayService, geminiMessagesCompatService, antigravityGatewayService, userService, concurrencyService, billingCacheService, usageService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, userMessageQueueService, configConfig, settingService, coordinator)
 	upstreamJobRepository := repository.NewUpstreamJobRepository(db)
-	upstreamJobService := service.ProvideUpstreamJobService(upstreamJobRepository, openAIGatewayService, timingWheelService, billingCacheService, apiKeyService, serviceUserPlatformQuotaRepository)
+	upstreamJobService := service.ProvideUpstreamJobService(upstreamJobRepository, openAIGatewayService, timingWheelService, billingCacheService, apiKeyService)
 	openAIGatewayHandler := handler.ProvideOpenAIGatewayHandler(openAIGatewayService, upstreamJobService, pluginManager, concurrencyService, billingCacheService, apiKeyService, usageRecordWorkerPool, errorPassthroughService, contentModerationService, opsService, grokQuotaService, configConfig, coordinator)
 	handlerSettingHandler := handler.ProvideSettingHandler(settingService, buildInfo, notificationEmailService)
 	totpHandler := handler.NewTotpHandler(totpService)

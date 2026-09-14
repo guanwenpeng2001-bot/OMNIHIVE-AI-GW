@@ -20,19 +20,19 @@ type UsageBillingExplanation struct {
 }
 
 func usageBillingExplanation(log *service.UsageLog, admin bool) *UsageBillingExplanation {
-	e := log.BillingEvidence
-	if e == nil {
+	evidence := log.BillingEvidence
+	if evidence == nil {
 		if log.PriceSource == nil && log.PriceCardVersion == nil {
 			return nil
 		}
 		return &UsageBillingExplanation{PriceSource: log.PriceSource, PriceCardVersion: log.PriceCardVersion}
 	}
-	result := &UsageBillingExplanation{PriceSource: log.PriceSource, PriceCardVersion: log.PriceCardVersion, PricingState: e.PricingState, SettlementState: e.SettlementState, CompletionState: e.CompletionState, JobID: e.JobID, SessionID: e.SessionID, TurnID: e.TurnID, Family: e.Family}
-	if e.Snapshot == "" {
+	result := &UsageBillingExplanation{PriceSource: log.PriceSource, PriceCardVersion: log.PriceCardVersion, PricingState: evidence.PricingState, SettlementState: evidence.SettlementState, CompletionState: evidence.CompletionState, JobID: evidence.JobID, SessionID: evidence.SessionID, TurnID: evidence.TurnID, Family: evidence.Family}
+	if evidence.Snapshot == "" {
 		return result
 	}
 	var snapshot service.PricingSnapshot
-	if err := json.Unmarshal([]byte(e.Snapshot), &snapshot); err != nil {
+	if err := json.Unmarshal([]byte(evidence.Snapshot), &snapshot); err != nil {
 		return result
 	}
 	// Keep the existing owner/admin boundary: price evidence must not expose

@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewayService, wheel *TimingWheelService, billing *BillingCacheService, keys *APIKeyService, platformQuotas UserPlatformQuotaRepository) *UpstreamJobService {
+func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewayService, wheel *TimingWheelService, billing *BillingCacheService, keys *APIKeyService) *UpstreamJobService {
 	svc := NewUpstreamJobService(repo, gateway.PollQianwenAsyncJob, QianwenAsyncJobCharge)
 	svc.afterSettle = func(ctx context.Context, j *UpstreamJob) {
 		if err := billing.InvalidateUserBalance(ctx, j.UserID); err != nil {
