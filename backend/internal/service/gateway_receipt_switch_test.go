@@ -54,3 +54,29 @@ func TestGatewayReceiptSwitchSingleFinancialProducer(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenAIFreeFastMissingPricingRetainsReceipt(t *testing.T) {
+	logs := &openAIRecordUsageLogRepoStub{}
+	oldBilling := &openAIRecordUsageBillingRepoStub{}
+	users := &openAIRecordUsageUserRepoStub{}
+	receipts := &settlementCapture{}
+	gateway := newOpenAIRecordUsageServiceForTest(logs, users, &openAIRecordUsageSubRepoStub{}, nil)
+	gateway.usageBillingRepo = oldBilling
+	gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
+	tier := "priority"
+	key := &APIKey{ID: 2, Group: &Group{Platform: PlatformOpenAI, FreeOpenAIFast: true}}
+	err := gateway.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "free-fast-unpriced", Model: "missing-receipt-model", ServiceTier: &tier, Usage: OpenAIUsage{InputTokens: 10, OutputTokens: 6}},
+		APIKey: key, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI}, QuotaPlatform: PlatformOpenAI,
+	})
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	require.NotNil(t, receipts.receipt)
+	require.Equal(t, PricingStateUnpriced, receipts.receipt.Usage.PricingState)
+	require.Equal(t, UsageSettlementNeedsReview, receipts.receipt.State)
+	require.Equal(t, 10, receipts.receipt.Usage.InputTokens)
+	require.Equal(t, 6, receipts.receipt.Usage.OutputTokens)
+	require.Zero(t, receipts.settles)
+	require.Zero(t, logs.calls)
+	require.Zero(t, oldBilling.calls)
+	require.Zero(t, users.deductCalls)
+}

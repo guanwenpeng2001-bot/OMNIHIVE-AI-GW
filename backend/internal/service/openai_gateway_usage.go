@@ -325,9 +325,13 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			pricingAt,
 		)
 		if standardErr != nil {
-			return standardErr
-		}
-		if cost != nil && standardCost != nil {
+			if s.usageSettlement == nil {
+				return standardErr
+			}
+			// Consumption has already happened. Retain it for review when the
+			// customer tariff is unavailable instead of bypassing the receipt.
+			cost.PricingState = pricingFailure(standardErr).PricingState
+		} else if cost != nil && standardCost != nil {
 			cost.ActualCost = standardCost.ActualCost
 			appendPricingAddition(cost, standardCost, true)
 		}
