@@ -1,4 +1,3 @@
-import type { AccountPlatform, GroupPlatform } from '@/types'
 
 export interface PlatformOption<T extends string = string> {
   value: T
@@ -25,13 +24,13 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'qianwen', label: '千问AI' },
   { value: 'commandcode', label: 'Command Code' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
-] as const satisfies readonly PlatformOption<AccountPlatform>[]
+] as const satisfies readonly PlatformOption[]
 
 /** Platforms that can own a group. */
 export const GROUP_PLATFORM_OPTIONS = [
   ...CONCRETE_PLATFORM_OPTIONS,
   { value: 'composite', label: 'Composite', supportsOAuth: true }
-] as const satisfies readonly PlatformOption<GroupPlatform>[]
+] as const satisfies readonly PlatformOption[]
 
 /** OAuth-only group filters follow account capabilities, including composite routes. */
 export function platformSupportsOAuth(platform: string): boolean {
@@ -43,3 +42,6 @@ export function platformSupportsPricingSync(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
     !['qianwen', 'commandcode', 'cursor'].includes(platform)
 }
+
+export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
+export type GroupPlatform = typeof GROUP_PLATFORM_OPTIONS[number]['value']

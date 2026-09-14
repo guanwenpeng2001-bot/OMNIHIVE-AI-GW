@@ -5,6 +5,8 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // WithResolvedTargetPlatform stores the concrete provider chosen for a request
@@ -204,12 +206,4 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 	return decision, decision.Matched, nil
 }
 
-func isConcreteRequestPlatform(platform string) bool {
-	switch platform {
-	case PlatformAnthropic, PlatformOpenAI, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode:
-		return true
-	default:
-		return false
-	}
-}
+func isConcreteRequestPlatform(platform string) bool { return domain.IsConcretePlatform(platform) }

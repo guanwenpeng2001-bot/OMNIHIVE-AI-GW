@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 const (
@@ -767,6 +769,10 @@ func normalizeChannelMonitorV2Config(cfg *ChannelMonitorV2Config) error {
 		p.Platform = strings.ToLower(strings.TrimSpace(p.Platform))
 		if p.Platform == "" {
 			return fmt.Errorf("%w: empty platform", ErrChannelMonitorV2InvalidConfig)
+		}
+		descriptor, ok := domain.LookupPlatform(p.Platform)
+		if !ok || !descriptor.PassiveMonitor {
+			return fmt.Errorf("%w: unsupported platform %s", ErrChannelMonitorV2InvalidConfig, p.Platform)
 		}
 		if _, ok := seen[p.Platform]; ok {
 			return fmt.Errorf("%w: duplicate platform %s", ErrChannelMonitorV2InvalidConfig, p.Platform)

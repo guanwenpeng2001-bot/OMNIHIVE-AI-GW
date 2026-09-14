@@ -824,7 +824,7 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	return s.rebuildBuckets(ctx, buckets, reason)
 }
 
-func schedulerSnapshotPlatforms() [13]string {
+func schedulerSnapshotPlatforms() []string {
 	return ConcretePlatforms()
 }
 

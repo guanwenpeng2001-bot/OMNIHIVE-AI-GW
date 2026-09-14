@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -332,12 +333,8 @@ func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, m
 // WSv2 ingress 的 transport 过滤，且 WS HTTP 桥没有面向 CN 的 Responses 转换，
 // 放行只会把明确的策略拒绝变成误导性的 "no available account"。
 func isResponsesWebSocketCompositePlatform(platform string) bool {
-	switch platform {
-	case service.PlatformOpenAI, service.PlatformGrok:
-		return true
-	default:
-		return false
-	}
+	descriptor, _ := domain.LookupPlatform(platform)
+	return descriptor.ResponsesWS != domain.EndpointRejected
 }
 
 // NewOpenAIGatewayHandler creates a new OpenAIGatewayHandler

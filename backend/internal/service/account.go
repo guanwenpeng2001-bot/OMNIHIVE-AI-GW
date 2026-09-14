@@ -937,7 +937,11 @@ func (a *Account) OpenAICompactSupportKnown() (supported bool, known bool) {
 // requests. Unknown capability remains allowed to avoid breaking older accounts
 // before an explicit probe has been run.
 func (a *Account) AllowsOpenAICompact() bool {
-	if a == nil || !a.IsOpenAI() {
+	if a == nil {
+		return false
+	}
+	descriptor, _ := domain.LookupPlatform(a.Platform)
+	if !descriptor.ResponsesCompact {
 		return false
 	}
 	supported, known := a.OpenAICompactSupportKnown()
@@ -1442,12 +1446,8 @@ func (a *Account) SupportsNativeCNResponses() bool {
 	if a == nil {
 		return false
 	}
-	switch a.Platform {
-	case PlatformDeepseek, PlatformKimi, PlatformMiniMax, PlatformOpenCodeGo, PlatformQianwen:
-		return true
-	default:
-		return false
-	}
+	descriptor, _ := domain.LookupPlatform(a.Platform)
+	return descriptor.NativeMultiProtocolResponses
 }
 
 // UsesNativeCNResponses 报告当前账号是否应按原生 Responses 协议转发
