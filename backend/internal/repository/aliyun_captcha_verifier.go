@@ -18,6 +18,7 @@ const aliyunCaptchaTimeoutMillis = 10_000
 type aliyunCaptchaVerifier struct {
 	protocol      string // "HTTPS"；测试注入 "HTTP" 指向 httptest.Server
 	timeoutMillis int
+	httpClient    dara.HttpClient // Optional per-verifier transport; nil uses the SDK default.
 }
 
 func NewAliyunCaptchaVerifier() service.AliyunCaptchaVerifier {
@@ -32,6 +33,7 @@ func NewAliyunCaptchaVerifier() service.AliyunCaptchaVerifier {
 func (v *aliyunCaptchaVerifier) VerifyCaptcha(ctx context.Context, cred service.AliyunCaptchaCredentials, captchaVerifyParam string) (*service.AliyunCaptchaVerifyResult, error) {
 	client, err := captcha.NewClient(&openapiutil.Config{
 		AccessKeyId:     dara.String(cred.AccessKeyID),
+		HttpClient:      v.httpClient,
 		AccessKeySecret: dara.String(cred.AccessKeySecret),
 		Endpoint:        dara.String(cred.Endpoint),
 		Protocol:        dara.String(v.protocol),

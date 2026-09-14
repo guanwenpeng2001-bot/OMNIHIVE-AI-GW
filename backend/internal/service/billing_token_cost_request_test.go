@@ -4,7 +4,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -201,7 +203,7 @@ func TestCalculateTokenCostForRequest_BuiltInPricingUsesUnifiedPath(t *testing.T
 		RequestCount: 1, RateMultiplier: 1, Resolver: resolver,
 	})
 	require.NoError(t, err)
-	require.Equal(t, want, got)
+	requireEqualTokenCostIgnoringPricingAt(t, want, got)
 	// 目录阶梯：超 272K 整单输入 ×2
 	require.InDelta(t, 300000*2.5e-6*2, got.InputCost, 1e-9)
 	require.True(t, got.LongContextBillingApplied)
@@ -214,7 +216,7 @@ func TestCalculateTokenCostForRequest_NoResolverFallsBackToCatalog(t *testing.T)
 	require.NoError(t, err)
 	want, err := bs.CalculateCost("gpt-5.4", tokens, 1)
 	require.NoError(t, err)
-	require.Equal(t, want, got)
+	requireEqualTokenCostIgnoringPricingAt(t, want, got)
 }
 
 func TestCalculateTokenCostForRequest_Fable51MaxEffortUsesDefaultMultiplier(t *testing.T) {
@@ -253,4 +255,29 @@ func TestCalculateTokenCostForRequest_ChannelOverridesFable51MaxEffortMultiplier
 	require.NoError(t, err)
 	require.InDelta(t, 1000*10e-6*configured, got.TotalCost, 1e-12)
 	require.InDelta(t, got.TotalCost, got.ActualCost, 1e-12)
+}
+
+// Compare all amounts, metadata and snapshot fields, excluding only the wall-clock
+// timestamp of the two independently calculated snapshots.
+func requireEqualTokenCostIgnoringPricingAt(t *testing.T, want, got *CostBreakdown) {
+	t.Helper()
+	normalize := func(cost *CostBreakdown) CostBreakdown {
+		require.NotNil(t, cost)
+		copy := *cost
+		if copy.PricingSnapshot != "" {
+			var snapshot map[string]json.RawMessage
+			require.NoError(t, json.Unmarshal([]byte(copy.PricingSnapshot), &snapshot))
+			if raw, ok := snapshot["pricing_at"]; ok {
+				var at time.Time
+				require.NoError(t, json.Unmarshal(raw, &at))
+				require.False(t, at.IsZero())
+				snapshot["pricing_at"] = json.RawMessage(`"2000-01-01T00:00:00Z"`)
+			}
+			encoded, err := json.Marshal(snapshot)
+			require.NoError(t, err)
+			copy.PricingSnapshot = string(encoded)
+		}
+		return copy
+	}
+	require.Equal(t, normalize(want), normalize(got))
 }
