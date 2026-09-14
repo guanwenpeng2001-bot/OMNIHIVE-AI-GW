@@ -3024,29 +3024,10 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		writeUpstreamModelSyncError(c, err)
 		return
 	}
-	if account.Platform == service.PlatformQianwen {
-		// Re-read after network discovery so edits made during pagination survive.
-		latest, err := h.adminService.GetAccount(c.Request.Context(), accountID)
-		if err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
-		mapping := make(map[string]any)
-		rawMapping, _ := latest.Credentials["model_mapping"].(map[string]any)
-		for key, value := range rawMapping {
-			mapping[key] = value
-		}
-		for _, model := range catalog.Models {
-			if _, exists := mapping[model]; !exists {
-				mapping[model] = model
-			}
-		}
-		credentials := make(map[string]any, len(latest.Credentials)+1)
-		for key, value := range latest.Credentials {
-			credentials[key] = value
-		}
-		credentials["model_mapping"] = mapping
-		if _, err := h.adminService.UpdateAccount(c.Request.Context(), accountID, &service.UpdateAccountInput{Credentials: credentials}); err != nil {
+	// Existing API callers retain immediate application. The modal explicitly
+	// requests preview, which persists capabilities but leaves restrictions alone.
+	if account.Platform == service.PlatformQianwen && c.Query("apply") != "false" {
+		if err := h.accountTestService.ApplyDiscoveredModelMapping(c.Request.Context(), accountID, catalog.Models); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}

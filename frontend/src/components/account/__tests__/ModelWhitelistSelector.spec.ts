@@ -174,6 +174,7 @@ describe('ModelWhitelistSelector', () => {
     await syncButton!.trigger('click')
     await flushPromises()
 
+    expect(syncUpstreamModels).toHaveBeenCalledWith(46, false)
     expect(wrapper.emitted('update:modelValue')).toEqual([[['x-preview-f-free']]])
     expect(showWarning).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
     expect(showSuccess).not.toHaveBeenCalled()
@@ -292,4 +293,17 @@ describe('ModelWhitelistSelector', () => {
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   })
 
+})
+
+
+it('ignores discovery from the previous account after a context switch', async () => {
+  let finish!: (value: { models: string[] }) => void
+  syncUpstreamModels.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+  const wrapper = mount(ModelWhitelistSelector, { props: { modelValue: [], platform: 'qianwen', accountId: 1 }, global: { stubs: { ModelIcon: true } } })
+  await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+  await wrapper.setProps({ accountId: 2 })
+  finish({ models: ['previous-account-model'] })
+  await flushPromises()
+  expect(wrapper.emitted('update:modelValue')).toBeUndefined()
+  wrapper.unmount()
 })

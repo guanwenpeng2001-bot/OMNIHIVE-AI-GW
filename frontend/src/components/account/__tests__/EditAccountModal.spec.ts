@@ -356,7 +356,7 @@ describe('EditAccountModal', () => {
     await syncButton!.trigger('click')
     await flushPromises()
 
-    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(3)
+    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(3, false)
     if (status === 'partial') {
       expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataPartial')
       expect(showSuccessMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsSuccess')

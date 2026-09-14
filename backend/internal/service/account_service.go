@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -45,6 +46,52 @@ type OAuthRefreshCandidatePage struct {
 // this bounded contract instead of silently falling back to an unpaged scan.
 type OAuthRefreshCandidatePager interface {
 	ListOAuthRefreshCandidatePage(ctx context.Context, options OAuthRefreshPageOptions) (*OAuthRefreshCandidatePage, error)
+}
+
+type accountCredentialChangesKey struct{}
+
+// WithAccountCredentialChanges records the configuration delta, including
+// deletion, so a locked repository merge cannot restore stale credentials.
+func WithAccountCredentialChanges(ctx context.Context, before, after map[string]any) context.Context {
+	changes := make(map[string]any)
+	for key, value := range after {
+		if old, exists := before[key]; !exists || !reflect.DeepEqual(old, value) {
+			changes[key] = value
+		}
+	}
+	for key := range before {
+		if _, exists := after[key]; !exists {
+			changes[key] = nil
+		}
+	}
+	return context.WithValue(ctx, accountCredentialChangesKey{}, changes)
+}
+
+// MergeAccountCredentialChanges returns a new map based on the locked row.
+// The boolean distinguishes an empty delta from a non-configuration caller.
+func MergeAccountCredentialChanges(ctx context.Context, current map[string]any) (map[string]any, bool) {
+	changes, ok := ctx.Value(accountCredentialChangesKey{}).(map[string]any)
+	if !ok {
+		return nil, false
+	}
+	merged := make(map[string]any, len(current)+len(changes))
+	for key, value := range current {
+		merged[key] = value
+	}
+	for key, value := range changes {
+		if value == nil {
+			delete(merged, key)
+		} else {
+			merged[key] = value
+		}
+	}
+	return merged, true
+}
+
+// AccountModelMappingMerger applies discovered identities to the current mapping
+// atomically, preserving aliases, rotated credentials and unrelated fields.
+type AccountModelMappingMerger interface {
+	MergeDiscoveredModelMapping(ctx context.Context, id int64, models []string) error
 }
 
 type AccountRepository interface {

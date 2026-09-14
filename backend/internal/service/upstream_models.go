@@ -198,6 +198,16 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	return models, err
 }
 
+// ApplyDiscoveredModelMapping retains the legacy immediate-apply action without
+// writing a credential snapshot obtained before the network request.
+func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, accountID int64, models []string) error {
+	merger, ok := s.accountRepo.(AccountModelMappingMerger)
+	if !ok {
+		return newUpstreamModelSyncInternalError("Account model mapping merge is not configured", nil)
+	}
+	return merger.MergeDiscoveredModelMapping(ctx, accountID, models)
+}
+
 // SyncUpstreamModelCatalog fetches the account's live model list, enriches
 // missing capability fields from the provider registry used by the upstream,
 // and persists a normalized account snapshot when complete metadata is available.

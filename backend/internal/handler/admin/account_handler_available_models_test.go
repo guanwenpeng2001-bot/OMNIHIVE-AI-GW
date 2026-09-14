@@ -19,7 +19,9 @@ import (
 
 type availableModelsAdminService struct {
 	*stubAdminService
-	account service.Account
+	account      service.Account
+	mergedModels []string
+	mergeCalls   int
 }
 
 func (s *availableModelsAdminService) GetAccount(_ context.Context, id int64) (*service.Account, error) {
@@ -62,11 +64,27 @@ func (u *syncUpstreamHTTPUpstream) DoWithTLS(req *http.Request, proxyURL string,
 	return u.Do(req, proxyURL, accountID, accountConcurrency)
 }
 
+type discoveryMappingRepo struct {
+	service.AccountRepository
+	admin *availableModelsAdminService
+}
+
+func (r *discoveryMappingRepo) MergeDiscoveredModelMapping(_ context.Context, _ int64, models []string) error {
+	r.admin.mergeCalls++
+	r.admin.mergedModels = append([]string(nil), models...)
+	return r.admin.updateAccountErr
+}
+func (r *discoveryMappingRepo) UpdateExtra(context.Context, int64, map[string]any) error { return nil }
+
 func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	var repo service.AccountRepository
+	if admin, ok := adminSvc.(*availableModelsAdminService); ok {
+		repo = &discoveryMappingRepo{admin: admin}
+	}
 	accountTestSvc := service.NewAccountTestService(
-		nil,
+		repo,
 		nil,
 		nil,
 		nil,
@@ -589,9 +607,9 @@ func TestSyncQianwenNativeCatalogPersistsMapping(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
 	require.Equal(t, 200, w.Code, w.Body.String())
-	require.Equal(t, 1, svc.updateAccountCalls)
-	require.Equal(t, map[string]any{"qwen-plus": "custom-target", "alias": "qwen-plus", "ZHIPU/GLM-5.3-Flash": "ZHIPU/GLM-5.3-Flash", "wanx-3d": "wanx-3d"}, svc.lastUpdateAccountInput.Credentials["model_mapping"])
-	require.Equal(t, "secret", svc.lastUpdateAccountInput.Credentials["api_key"])
+	require.Zero(t, svc.updateAccountCalls, "discovery must never send an entire credentials snapshot")
+	require.Equal(t, 1, svc.mergeCalls)
+	require.ElementsMatch(t, []string{"qwen-plus", "ZHIPU/GLM-5.3-Flash", "wanx-3d"}, svc.mergedModels)
 	require.NotContains(t, w.Body.String(), "secret")
 }
 
@@ -618,5 +636,20 @@ func TestSyncQianwenCatalogPersistenceFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
 	require.Equal(t, 500, w.Code, w.Body.String())
-	require.Equal(t, 1, svc.updateAccountCalls)
+	require.Equal(t, 1, svc.mergeCalls)
+	require.Zero(t, svc.updateAccountCalls)
+}
+
+func TestSyncQianwenPreviewDoesNotApplyMapping(t *testing.T) {
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "synthetic"}}}
+	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"qwen-plus"}]}}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
+	}}
+	w := httptest.NewRecorder()
+	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream?apply=false", nil))
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Zero(t, svc.mergeCalls)
+	require.Zero(t, svc.updateAccountCalls)
+	require.Contains(t, w.Body.String(), "qwen-plus")
 }
