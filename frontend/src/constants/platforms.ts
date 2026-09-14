@@ -45,3 +45,15 @@ export function platformSupportsPricingSync(platform: string): boolean {
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
 export type GroupPlatform = typeof GROUP_PLATFORM_OPTIONS[number]['value']
+
+/** Shared display labels; callers with an active locale pass their translator. */
+export function getPlatformLabel(platform: string, translate?: (key: string) => string): string {
+  const option = GROUP_PLATFORM_OPTIONS.find(option => option.value === platform)
+  if (!option) return platform || 'API'
+  if (translate) {
+    const key = `admin.accounts.platforms.${platform}`
+    const label = translate(key)
+    if (label !== key) return label
+  }
+  return option.label
+}

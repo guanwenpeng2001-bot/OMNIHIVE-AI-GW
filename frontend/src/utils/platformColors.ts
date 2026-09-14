@@ -1,4 +1,4 @@
-import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { GROUP_PLATFORM_OPTIONS, getPlatformLabel, type GroupPlatform } from '@/constants/platforms'
 /**
  * Centralized platform color definitions.
  *
@@ -6,21 +6,7 @@ import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
  * instead of defining their own color mappings.
  */
 
-export type Platform =
-  | 'anthropic'
-  | 'openai'
-  | 'antigravity'
-  | 'gemini'
-  | 'grok'
-  | 'kimi'
-  | 'zhipu'
-  | 'deepseek'
-  | 'minimax'
-  | 'qianwen'
-  | 'commandcode'
-  | 'opencode_go'
-  | 'cursor'
-  | 'composite'
+export type Platform = GroupPlatform
 
 // ── Badge (bg + text + border, for inline badges with border) ───────
 const BADGE: Record<Platform, string> = {
@@ -327,5 +313,29 @@ export function platformGradientSubtextClass(p: string): string {
 }
 
 export function platformLabel(p: string): string {
-  return GROUP_PLATFORM_OPTIONS.find(option => option.value === p)?.label ?? (p || 'API')
+  return getPlatformLabel(p)
+}
+
+// Selected account-mode cards preserve their existing colors and neutral fallback.
+const SELECTION: Partial<Record<Platform, string>> = {
+  kimi: 'border-pink-500 bg-pink-50 dark:bg-pink-900/20',
+  zhipu: 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20',
+  deepseek: 'border-teal-500 bg-teal-50 dark:bg-teal-900/20',
+  minimax: 'border-rose-500 bg-rose-50 dark:bg-rose-900/20',
+  opencode_go: 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+}
+const SELECTION_ICON: Partial<Record<Platform, string>> = {
+  kimi: 'bg-pink-500 text-white',
+  zhipu: 'bg-indigo-500 text-white',
+  deepseek: 'bg-teal-500 text-white',
+  minimax: 'bg-rose-500 text-white',
+  opencode_go: 'bg-amber-500 text-white'
+}
+
+export function platformSelectionClass(platform: string): string {
+  return (isPlatform(platform) ? SELECTION[platform] : undefined) ?? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+}
+
+export function platformSelectionIconClass(platform: string): string {
+  return (isPlatform(platform) ? SELECTION_ICON[platform] : undefined) ?? 'bg-primary-500 text-white'
 }

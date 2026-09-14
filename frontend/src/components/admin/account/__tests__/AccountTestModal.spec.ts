@@ -211,6 +211,37 @@ describe('AccountTestModal', () => {
     })
   })
 
+  it('renders Chat Completions path status from test SSE', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'gpt-5.4', display_name: 'GPT-5.4' }])
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse([
+      'data: {"type":"status","text":"已通过 /v1/chat/completions 验证"}\n\n',
+      'data: {"type":"test_complete","success":true}\n\n'
+    ]))
+    const wrapper = mountModal({ id: 1, name: 'OpenAI OAuth', platform: 'openai', type: 'oauth', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!.trigger('click')
+    await flushPromises()
+    expect(global.fetch).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).toContain('已通过 /v1/chat/completions 验证')
+    wrapper.unmount()
+  })
+
+  it.each([
+    { message: 'interceptor error' },
+    { response: { data: { message: 'legacy axios error' } } }
+  ])('shows API error details from failed probes: %o', async (error) => {
+    global.fetch = vi.fn().mockRejectedValue(error)
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('message' in error ? error.message : error.response.data.message)
+    wrapper.unmount()
+  })
+
+  // Also preserves the compact payload assertions formerly in components/account tests.
   it('OpenAI Compact 探测会携带 compact 测试模式', async () => {
     getAvailableModels.mockResolvedValue([
       { id: 'gpt-5.4', display_name: 'GPT-5.4' }

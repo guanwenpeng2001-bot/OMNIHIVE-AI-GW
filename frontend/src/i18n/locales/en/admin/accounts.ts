@@ -156,6 +156,10 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+        qianwen: 'Qianwen AI',
+        commandcode: 'Command Code',
+        cursor: 'Cursor',
+        composite: 'Composite',
         anthropic: 'Anthropic',
         claude: 'Claude',
         openai: 'OpenAI',
