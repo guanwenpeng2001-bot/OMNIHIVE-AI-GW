@@ -183,6 +183,17 @@ jobs:
           node-version: '20'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
+      # The critical vitest list includes the platform contract spec, which shells out to
+      # `go test` (execFileSync in frontend/src/constants/__tests__/platforms.spec.ts).
+      # Without this the job depends on whatever Go the runner image happens to ship,
+      # while backend/go.mod requires a specific version.
+      - name: Setup Go
+        uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
