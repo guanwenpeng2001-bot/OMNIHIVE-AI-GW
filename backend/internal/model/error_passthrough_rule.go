@@ -52,23 +52,7 @@ const (
 )
 
 // AllPlatforms 返回所有支持的平台列表
-func AllPlatforms() []string {
-	return []string{
-		PlatformAnthropic,
-		PlatformOpenAI,
-		PlatformGemini,
-		PlatformAntigravity,
-		PlatformGrok,
-		PlatformKimi,
-		PlatformZhipu,
-		PlatformDeepseek,
-		PlatformMiniMax,
-		PlatformOpenCodeGo,
-		PlatformCursor,
-		PlatformQianwen,
-		PlatformCommandCode,
-	}
-}
+func AllPlatforms() []string { return domain.ConcretePlatforms() }
 
 // Validate 验证规则配置的有效性
 func (r *ErrorPassthroughRule) Validate() error {

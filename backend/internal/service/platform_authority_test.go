@@ -17,9 +17,11 @@ func TestMonitorAndQuotaPlatformAuthorities(t *testing.T) {
 			expectedMonitors = append(expectedMonitors, platform)
 		}
 	}
-	actual := make([]string, 0, len(monitorProviders))
-	for platform := range monitorProviders {
-		actual = append(actual, platform)
+	actual := make([]string, 0)
+	for _, platform := range ConcretePlatforms() {
+		if validateProvider(platform) == nil {
+			actual = append(actual, platform)
+		}
 	}
 	require.ElementsMatch(t, expectedMonitors, actual)
 }

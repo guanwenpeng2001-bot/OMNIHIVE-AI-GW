@@ -61,18 +61,18 @@ const (
 	// MonitorProviderOpenAI 等 provider 字符串常量（也是 ent enum 的实际值）。
 	// 后 4 个 provider（antigravity/kimi/zhipu/deepseek）为配额模式引入：
 	// antigravity 无探活 adapter（仅配额），其余 3 个复用 OpenAI 兼容探活。
-	MonitorProviderOpenAI      = "openai"
-	MonitorProviderAnthropic   = "anthropic"
-	MonitorProviderGemini      = "gemini"
-	MonitorProviderGrok        = "grok"
-	MonitorProviderAntigravity = "antigravity"
-	MonitorProviderKimi        = "kimi"
-	MonitorProviderZhipu       = "zhipu"
-	MonitorProviderDeepseek    = "deepseek"
-	MonitorProviderMiniMax     = "minimax"
-	MonitorProviderOpenCodeGo  = "opencode_go"
-	MonitorProviderQianwen     = "qianwen"
-	MonitorProviderCommandCode = "commandcode"
+	MonitorProviderOpenAI      = PlatformOpenAI
+	MonitorProviderAnthropic   = PlatformAnthropic
+	MonitorProviderGemini      = PlatformGemini
+	MonitorProviderGrok        = PlatformGrok
+	MonitorProviderAntigravity = PlatformAntigravity
+	MonitorProviderKimi        = PlatformKimi
+	MonitorProviderZhipu       = PlatformZhipu
+	MonitorProviderDeepseek    = PlatformDeepseek
+	MonitorProviderMiniMax     = PlatformMiniMax
+	MonitorProviderOpenCodeGo  = PlatformOpenCodeGo
+	MonitorProviderQianwen     = PlatformQianwen
+	MonitorProviderCommandCode = PlatformCommandCode
 
 	// MonitorCheckMode 检测模式（channel_monitors.check_mode）。
 	//   probe       - LLM 探活（默认，原有行为）
