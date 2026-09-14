@@ -368,3 +368,37 @@ func TestCompositeLiveRouteDispatchesBySessionModelNotTopLevelAlias(t *testing.T
 
 	require.Equal(t, http.StatusNoContent, w.Code)
 }
+
+func TestCompositeRealtimeQueryAliasAndAllowlist(t *testing.T) {
+	for _, tt := range []struct {
+		path, model string
+		status      int
+		mapped      bool
+	}{
+		{"/api-ws/v1/realtime", "voice-alias", 204, true},
+		{"/api-ws/v1/realtime", "blocked", 404, false},
+		{"/other", "voice-alias", 204, false},
+	} {
+		t.Run(tt.path+tt.model, func(t *testing.T) {
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{ID: 1, Platform: service.PlatformComposite, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"voice-alias"}}}})
+				c.Next()
+			})
+			resolver := service.NewCompositeRouteResolver(compositeRouteRepoStub{routes: []service.CompositeModelRoute{{ID: 1, GroupID: 1, PublicModel: "voice-alias", MatchType: service.CompositeRouteMatchExact, TargetPlatform: service.PlatformQianwen, UpstreamModel: "qwen3-tts-flash-realtime", Endpoint: service.CompositeRouteEndpointAny, Enabled: true}}})
+			router.Use(servermiddleware.GroupModelAllowlist(), compositeTargetPlatformMiddleware(resolver))
+			router.GET(tt.path, func(c *gin.Context) {
+				model, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context())
+				require.Equal(t, tt.mapped, ok)
+				if tt.mapped {
+					require.Equal(t, "qwen3-tts-flash-realtime", model)
+					require.Equal(t, "voice-alias", c.Query("model"))
+				}
+				c.Status(204)
+			})
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest("GET", tt.path+"?model="+tt.model, nil))
+			require.Equal(t, tt.status, w.Code)
+		})
+	}
+}

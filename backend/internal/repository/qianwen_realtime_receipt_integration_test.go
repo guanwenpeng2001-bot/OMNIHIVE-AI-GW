@@ -10,6 +10,7 @@ import (
 	"os"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
@@ -210,8 +211,51 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Nil(t, stored.ChargedUsageLogID)
 		require.JSONEq(t, string(usage), string(stored.UsageJSON))
+		require.Equal(t, 1, stored.AttemptCount)
+		require.Equal(t, "settlement_pending", stored.ErrorCode)
+		_, err = database.Exec(`UPDATE upstream_jobs SET next_poll_at=now() WHERE public_request_id=$1`, requestID)
+		require.NoError(t, err)
 		recovered, err := newService(&upstreamJobRepository{db: database}).Poll(ctx, requestID)
 		require.NoError(t, err)
 		require.NotNil(t, recovered.ChargedUsageLogID)
 	})
+	t.Run("persistent_failures_do_not_starve_healthy_receipt", func(t *testing.T) {
+		session := fixture(t)
+		stop := errors.New("receipt committed")
+		boundary := &realtimeReceiptCommitBoundary{UpstreamJobRepository: repository, receipts: repository, stop: stop}
+		var healthy *service.UpstreamJob
+		for i := 0; i < 21; i++ {
+			id := fmt.Sprintf("fair-%02d", i)
+			receipt, err := newService(boundary).RecordQianwenRealtimeTurn(ctx, session, id, usage, "completed")
+			require.ErrorIs(t, err, stop)
+			if i == 20 {
+				healthy = receipt
+			}
+		}
+		recovering := service.NewUpstreamJobService(repository, nil, func(j *service.UpstreamJob) (*service.UsageLog, *service.UsageBillingCommand, error) {
+			if j.UpstreamTaskID != "fair-20" {
+				return nil, nil, errors.New("injected settlement outage")
+			}
+			return service.QianwenAsyncJobCharge(j)
+		})
+		require.Error(t, recovering.PollDue(ctx, 20))
+		require.NoError(t, recovering.PollDue(ctx, 20))
+		stored, err := repository.Get(ctx, healthy.PublicRequestID, session.UserID, session.APIKeyID)
+		require.NoError(t, err)
+		require.NotNil(t, stored.ChargedUsageLogID)
+		for attempt := 1; attempt < 20; attempt++ {
+			_, err := database.Exec(`UPDATE upstream_jobs SET next_poll_at=now() WHERE user_id=$1 AND status='running'`, session.UserID)
+			require.NoError(t, err)
+			require.Error(t, recovering.PollDue(ctx, 20))
+		}
+		var review, charged int
+		require.NoError(t, database.QueryRow(`SELECT count(*) FROM upstream_jobs WHERE user_id=$1 AND error_code='settlement_needs_review' AND status='failed' AND attempt_count=20 AND usage_json IS NOT NULL AND charged_usage_log_id IS NULL`, session.UserID).Scan(&review))
+		require.Equal(t, 20, review)
+		require.NoError(t, database.QueryRow(`SELECT count(*) FROM usage_logs WHERE user_id=$1`, session.UserID).Scan(&charged))
+		require.Equal(t, 1, charged)
+		due, err := repository.Due(ctx, time.Now().Add(48*time.Hour), 100)
+		require.NoError(t, err)
+		require.Empty(t, due)
+	})
+
 }

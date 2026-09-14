@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -94,6 +95,11 @@ type UpstreamJobUpdate struct {
 }
 
 type UpstreamJobService struct {
+	lifecycleMu sync.Mutex
+	draining    bool
+	active      sync.WaitGroup
+	sessions    map[*realtimeRegistration]struct{}
+	stopPolling func()
 	afterSettle func(context.Context, *UpstreamJob)
 	repo        UpstreamJobRepository
 	poll        func(context.Context, *UpstreamJob) (UpstreamJobUpdate, error)
@@ -201,11 +207,44 @@ func (s *UpstreamJobService) Get(ctx context.Context, id string, userID, keyID i
 // Poll rechecks due time and terminal state under the same lock as settlement.
 // Bounded network calls hold one row lock, never a global worker lock.
 func (s *UpstreamJobService) Poll(ctx context.Context, id string) (*UpstreamJob, error) {
-	return s.locked(ctx, id, func(j *UpstreamJob, tx UpstreamJobTx) error {
-		// Realtime receipts are already durable; retry billing without replaying
-		// generation or querying a provider endpoint that does not exist.
+	ctx, release, err := s.RegisterQianwenRealtime(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	attempted := -1
+	realtime := false
+	// Persist the attempt before money work. A second instance cannot slip into
+	// the rollback-to-retry gap and exceed the global automatic attempt budget.
+	prepared, err := s.locked(ctx, id, func(j *UpstreamJob, _ UpstreamJobTx) error {
+		if j.Family != "realtime_turn" {
+			return nil
+		}
+		realtime = true
+		now := s.now().UTC()
+		if j.Terminal() || j.ChargedUsageLogID != nil || j.UpstreamTaskID == "" || len(j.UsageJSON) == 0 || j.ErrorCode == "usage_conflict" || j.NextPollAt.After(now) {
+			return nil
+		}
+		if j.AttemptCount >= 20 || j.LastPolledAt != nil && !now.Before(j.LastPolledAt.Add(24*time.Hour)) {
+			s.finish(j, "failed", "settlement_needs_review", "Automatic settlement exhausted; receipt retained for manual review")
+			return nil
+		}
+		// Realtime has no provider polling: this field anchors its first
+		// settlement attempt and is never moved by subsequent retries.
+		if j.LastPolledAt == nil {
+			j.LastPolledAt = &now
+		}
+		j.AttemptCount++
+		attempted = j.AttemptCount
+		j.NextPollAt = now.Add(5 * time.Second * time.Duration(1<<min(j.AttemptCount-1, 6)))
+		return nil
+	})
+	if err != nil || realtime && attempted < 0 {
+		return prepared, err
+	}
+	job, err := s.locked(ctx, id, func(j *UpstreamJob, tx UpstreamJobTx) error {
 		if j.Family == "realtime_turn" {
-			if j.Terminal() || j.UpstreamTaskID == "" || len(j.UsageJSON) == 0 || j.ErrorCode == "usage_conflict" {
+			if j.Terminal() || j.ChargedUsageLogID != nil || j.AttemptCount != attempted {
 				return nil
 			}
 			return s.settle(ctx, j, tx)
@@ -243,10 +282,39 @@ func (s *UpstreamJobService) Poll(ctx context.Context, id string) (*UpstreamJob,
 		}
 		return s.advance(ctx, j, tx, update)
 	})
+	if err != nil && attempted >= 0 {
+		// Money failure rolled back only money writes. Advance in a separate short
+		// transaction, checking both the success anchor and the observed generation.
+		persist, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		defer cancel()
+		retryJob, retryErr := s.locked(persist, id, func(j *UpstreamJob, _ UpstreamJobTx) error {
+			if j.Terminal() || j.ChargedUsageLogID != nil || j.AttemptCount != attempted {
+				return nil
+			}
+			now := s.now().UTC()
+			j.NextPollAt = now.Add(5 * time.Second * time.Duration(1<<min(j.AttemptCount-1, 6)))
+			j.ErrorCode = "settlement_pending"
+			j.ErrorMessage = "Settlement failed; durable receipt queued for retry"
+			if j.AttemptCount >= 20 || !now.Before(j.LastPolledAt.Add(24*time.Hour)) {
+				s.finish(j, "failed", "settlement_needs_review", "Automatic settlement exhausted; receipt retained for manual review")
+			}
+			return nil
+		})
+		if retryErr == nil {
+			job = retryJob
+		}
+		err = errors.Join(err, retryErr)
+	}
+	return job, err
 }
 
 // PollDue is the bounded restart-safe scan used by the existing timing wheel.
 func (s *UpstreamJobService) PollDue(ctx context.Context, limit int) error {
+	ctx, release, err := s.RegisterQianwenRealtime(ctx)
+	if err != nil {
+		return nil
+	}
+	defer release()
 	if _, err := s.Expire(ctx); err != nil {
 		return err
 	}
@@ -255,6 +323,9 @@ func (s *UpstreamJobService) PollDue(ctx context.Context, limit int) error {
 		return err
 	}
 	for _, id := range ids {
+		if !s.Ready() {
+			break
+		}
 		_, pollErr := s.Poll(ctx, id)
 		err = errors.Join(err, pollErr)
 		if ctx.Err() != nil {

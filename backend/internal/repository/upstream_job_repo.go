@@ -84,7 +84,7 @@ func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit in
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT public_request_id FROM upstream_jobs WHERE status IN ('submitted','running') AND next_poll_at<=$1 AND upstream_task_id<>'' ORDER BY next_poll_at,id LIMIT $2`, now, limit)
+	rows, err := r.db.QueryContext(ctx, `SELECT public_request_id FROM upstream_jobs WHERE status IN ('submitted','running') AND next_poll_at<=$1 AND upstream_task_id<>'' AND error_code NOT IN ('usage_conflict','settlement_needs_review') ORDER BY next_poll_at,id LIMIT $2`, now, limit)
 	if err != nil {
 		return nil, err
 	}

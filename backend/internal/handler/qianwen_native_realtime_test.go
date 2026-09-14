@@ -64,7 +64,7 @@ func TestQianwenRealtimeAuthenticationAndHandshakeAdmission(t *testing.T) {
 }
 
 func TestQianwenNativeRealtimeRejectsBeforeHandshakeAndAdmission(t *testing.T) {
-	for _, path := range []string{"/api-ws/v1/realtime?model=qwen-omni-turbo-realtime", "/api-ws/v1/realtime/", "/api/v1/realtime", "/api/v1/realtime/tokens", "/api/v1/realtime/calls", "/api/v1/services/aigc/realtime/generation"} {
+	for _, path := range []string{"/api-ws/v1/realtime/", "/api/v1/realtime", "/api/v1/realtime/tokens", "/api/v1/realtime/calls", "/api/v1/services/aigc/realtime/generation"} {
 		for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
 			t.Run(method+path, func(t *testing.T) {
 				w := httptest.NewRecorder()

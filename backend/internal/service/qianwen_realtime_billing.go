@@ -157,6 +157,11 @@ func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 }
 
 func (s *UpstreamJobService) StartQianwenRealtime(ctx context.Context, j *UpstreamJob) (*UpstreamJob, error) {
+	release, err := s.beginWork()
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	repo, ok := s.repo.(QianwenRealtimeSessionRepository)
 	if !ok || j == nil || j.Billing.Realtime == nil || j.UserID <= 0 || j.APIKeyID <= 0 || j.AccountID <= 0 || j.Platform != PlatformQianwen {
 		return nil, errors.New("realtime session store unavailable")
@@ -225,7 +230,7 @@ func (s *UpstreamJobService) RecordQianwenRealtimeTurn(ctx context.Context, sess
 	if err != nil {
 		return j, err
 	}
-	if j.Terminal() {
+	if j.Terminal() || !s.Ready() {
 		return j, nil
 	}
 	return s.Poll(ctx, j.PublicRequestID)

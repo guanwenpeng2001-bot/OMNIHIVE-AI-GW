@@ -30,6 +30,7 @@ func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewa
 			}
 		}
 	}
+	svc.stopPolling = func() { wheel.Cancel("upstream-jobs") }
 	wheel.ScheduleRecurring("upstream-jobs", 5*time.Second, func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()

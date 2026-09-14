@@ -252,7 +252,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 		}
 	}
 	protocolError := func(err error) error {
-		raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "unsupported_operation_error", "code": "qianwen_realtime_rejected", "message": err.Error()}})
+		raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "unsupported_operation_error", "code": "qianwen_realtime_rejected", "message": "Realtime operation rejected"}})
 		_ = write(client, raw)
 		return err
 	}
@@ -291,7 +291,10 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				continue
 			}
 			if gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit" && cb.BeforeCommit != nil {
-				if err = cb.BeforeCommit(ctx, state.text); err != nil {
+				commitCtx, commitCancel := context.WithTimeout(ctx, 5*time.Second)
+				err = cb.BeforeCommit(commitCtx, state.text)
+				commitCancel()
+				if err != nil {
 					state.generating = false
 					return protocolError(err)
 				}
@@ -348,7 +351,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				}
 			}
 			if !disconnected {
-				if err := write(client, f.data); err != nil {
+				if err := write(client, sanitizeQianwenRealtimeError(f.data)); err != nil {
 					startDrain()
 				}
 			}
@@ -364,7 +367,12 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 }
 
 func (s *UpstreamJobService) MarkQianwenRealtimePending(ctx context.Context, id string) error {
-	_, err := s.locked(ctx, id, func(j *UpstreamJob, _ UpstreamJobTx) error {
+	release, err := s.beginWork()
+	if err != nil {
+		return err
+	}
+	defer release()
+	_, err = s.locked(ctx, id, func(j *UpstreamJob, _ UpstreamJobTx) error {
 		if j.Terminal() || !j.ExpiresAt.After(s.now()) {
 			return fmt.Errorf("realtime admission lease expired")
 		}
@@ -382,4 +390,13 @@ func (s *UpstreamJobService) MarkQianwenRealtimePending(ctx context.Context, id 
 func (s *UpstreamJobService) AcknowledgeQianwenRealtimeReceipt(ctx context.Context, id string) error {
 	_, err := s.locked(ctx, id, func(j *UpstreamJob, _ UpstreamJobTx) error { j.ErrorCode = ""; j.ErrorMessage = ""; return nil })
 	return err
+}
+
+// Error messages may contain credentials, URLs or reflected input. Forward a
+// fixed public envelope; audio, usage and every non-error frame stay byte exact.
+func sanitizeQianwenRealtimeError(raw []byte) []byte {
+	if gjson.GetBytes(raw, "type").String() != "error" {
+		return raw
+	}
+	return []byte(`{"type":"error","error":{"type":"upstream_error","code":"qianwen_realtime_error","message":"Realtime upstream rejected the request"}}`)
 }
