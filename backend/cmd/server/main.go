@@ -152,7 +152,6 @@ func runMainServer() {
 	if err != nil {
 		log.Fatalf("Failed to initialize application: %v", err)
 	}
-	defer app.Cleanup()
 	if app.PluginManager != nil {
 		if err := app.PluginManager.Start(context.Background()); err != nil {
 			log.Printf("Plugin manager started in degraded state: %v", err)
@@ -167,6 +166,19 @@ func runMainServer() {
 			log.Printf("Prompt Audit started in degraded state: %v", err)
 		}
 	}
+
+	originalHandler := app.Server.Handler
+	app.Server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/ready" {
+			if !app.UpstreamJobs.Ready() {
+				http.Error(w, "draining", http.StatusServiceUnavailable)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		originalHandler.ServeHTTP(w, r)
+	})
 
 	// 启动服务器
 	go func() {
@@ -184,12 +196,40 @@ func runMainServer() {
 
 	log.Println("Shutting down server...")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
 
-	if err := app.Server.Shutdown(ctx); err != nil {
-		log.Printf("Server forced to shutdown: %v", err)
+	if err := shutdownApplication(ctx, app); err != nil {
+		log.Printf("Shutdown budget exhausted: %v", err)
 	}
 
 	log.Println("Server exited")
+}
+
+// The initial 20s application budget includes WS drain, receipt persistence,
+// HTTP shutdown and infrastructure cleanup. Deployment grace should start at
+// 30s; both values require rehearsal and are not measured SLOs.
+func shutdownApplication(ctx context.Context, app *Application) error {
+	app.UpstreamJobs.BeginDrain()
+	httpDone := make(chan error, 1)
+	go func() { httpDone <- app.Server.Shutdown(ctx) }()
+	if err := app.UpstreamJobs.WaitDrain(ctx); err != nil {
+		return err
+	}
+	select {
+	case err := <-httpDone:
+		if err != nil {
+			return err
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	done := make(chan struct{})
+	go func() { app.Cleanup(); close(done) }()
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }

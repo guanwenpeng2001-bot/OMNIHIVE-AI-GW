@@ -12,7 +12,7 @@ import (
 // the structured gate for all other realtime families and transports.
 func (h *OpenAIGatewayHandler) rejectQianwenNativeRealtime(c *gin.Context) bool {
 	path := c.Request.URL.Path
-	if path == "/api-ws/v1/realtime" && c.Request.Method == http.MethodGet && service.IsQianwenRealtimeModel(c.Query("model")) {
+	if path == "/api-ws/v1/realtime" && c.Request.Method == http.MethodGet {
 		h.qianwenRealtime(c)
 		return true
 	}

@@ -561,7 +561,24 @@ func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver)
 			c.Next()
 			return
 		}
-		if c.Request == nil || c.Request.Method == http.MethodGet {
+		if c.Request == nil {
+			c.Next()
+			return
+		}
+		if c.Request.Method == http.MethodGet {
+			// Only this native WS ingress binds a public query model. Other
+			// GET routes retain their existing ownership/authentication flow.
+			if c.Request.URL.Path == "/api-ws/v1/realtime" {
+				model := c.Query("model")
+				decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, service.CompositeRouteEndpointAny)
+				if err != nil {
+					c.AbortWithStatusJSON(http.StatusInternalServerError, gin.H{"error": gin.H{"type": "server_error", "message": "Failed to resolve composite model route"}})
+					return
+				}
+				if decision.Matched {
+					c.Request = c.Request.WithContext(service.WithCompositeRouteDecision(c.Request.Context(), decision))
+				}
+			}
 			c.Next()
 			return
 		}

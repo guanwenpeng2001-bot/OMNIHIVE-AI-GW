@@ -123,18 +123,22 @@ func realtimeSocketPair(t *testing.T) (*ws.Conn, *ws.Conn) {
 }
 
 func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
-	for _, disconnect := range []bool{false, true} {
-		t.Run(map[bool]string{true: "disconnect_after_commit", false: "two_turns_and_replay"}[disconnect], func(t *testing.T) {
+	for _, mode := range []string{"two_turns_and_replay", "disconnect_after_commit", "application_shutdown"} {
+		disconnect := mode != "two_turns_and_replay"
+		t.Run(mode, func(t *testing.T) {
 			client, gatewayClient := realtimeSocketPair(t)
 			gatewayUpstream, provider := realtimeSocketPair(t)
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			repo := &fileBatchMemoryRepo{jobs: map[string]*UpstreamJob{}, claims: map[string]string{}}
 			svc := NewUpstreamJobService(repo, nil, QianwenAsyncJobCharge)
+			relayCtx, release, registerErr := svc.RegisterQianwenRealtime(ctx)
+			require.NoError(t, registerErr)
 			var commits atomic.Int32
 			finished := make(chan error, 1)
 			go func() {
-				finished <- relayQianwenRealtime(ctx, gatewayClient, &QianwenRealtimeUpstream{Conn: gatewayUpstream, Created: []byte(realtimeCreated)}, QianwenRealtimeCallbacks{
+				defer release()
+				finished <- relayQianwenRealtime(relayCtx, gatewayClient, &QianwenRealtimeUpstream{Conn: gatewayUpstream, Created: []byte(realtimeCreated)}, QianwenRealtimeCallbacks{
 					BeforeCommit: func(context.Context, string) error { commits.Add(1); return nil },
 					Receipt: func(ctx context.Context, id string, usage []byte, status string) error {
 						_, err := svc.RecordQianwenRealtimeTurn(ctx, realtimeSessionFixture(), id, usage, status)
@@ -164,7 +168,11 @@ func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
 				write(provider, string(created))
 				read(client)
 				if disconnect {
-					_ = client.CloseNow()
+					if mode == "application_shutdown" {
+						svc.BeginDrain()
+					} else {
+						_ = client.CloseNow()
+					}
 					read(provider)
 				}
 				done, _ := json.Marshal(map[string]any{"type": "response.done", "response": map[string]any{"id": id, "status": "completed", "usage": map[string]int{"characters": 5}}})
@@ -189,7 +197,18 @@ func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
 			case <-ctx.Done():
 				t.Fatal("relay readers did not stop")
 			}
-			require.Equal(t, turns, repo.charges)
+			if mode == "application_shutdown" {
+				require.NoError(t, svc.WaitDrain(ctx))
+				require.Zero(t, repo.charges)
+				require.Len(t, repo.jobs, 1)
+				for _, j := range repo.jobs {
+					require.NotEmpty(t, j.UsageJSON)
+					require.Nil(t, j.ChargedUsageLogID)
+					require.False(t, j.Terminal())
+				}
+			} else {
+				require.Equal(t, turns, repo.charges)
+			}
 			require.Equal(t, int32(turns), commits.Load())
 		})
 	}

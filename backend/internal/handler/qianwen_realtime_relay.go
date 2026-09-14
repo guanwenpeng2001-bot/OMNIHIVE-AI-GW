@@ -57,7 +57,12 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		h.errorResponse(c, 503, "api_error", "Realtime requires concurrency slot TTL of at least three minutes")
 		return
 	}
-	ctx := c.Request.Context()
+	ctx, release, err := h.upstreamJobs.RegisterQianwenRealtime(c.Request.Context())
+	if err != nil {
+		h.errorResponse(c, 503, "api_error", "Application is draining")
+		return
+	}
+	defer release()
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	eligible := func(ctx context.Context) error {
 		return h.billingCacheService.CheckBillingEligibility(ctx, key.User, key, key.Group, subscription, service.QuotaPlatform(ctx, key))
@@ -84,6 +89,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		return
 	}
 	forwardModel := model
+	if resolved, ok := service.ResolvedUpstreamModelFromContext(ctx); ok {
+		forwardModel = resolved
+	}
 	if mapping.Mapped {
 		forwardModel = mapping.MappedModel
 	}
@@ -137,7 +145,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	defer func() {
 		persist, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		_ = h.upstreamJobs.FinishQianwenRealtime(persist, session.PublicRequestID, finishCode)
+		if err := h.upstreamJobs.FinishQianwenRealtime(persist, session.PublicRequestID, finishCode); err != nil {
+			requestLogger(c, "handler.qianwen_realtime").Error("persist realtime session closure", zap.Error(err))
+		}
 	}()
 	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)
 	upstream, err := h.gatewayService.OpenQianwenRealtime(dialCtx, account, snapshot.Model)
@@ -181,8 +191,11 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 				return err
 			}
 			if job.ChargedUsageLogID == nil {
-				finishCode = "unsupported_usage"
-				return errors.New("Unexplained realtime usage retained without settlement")
+				finishCode = "settlement_pending"
+				if job.Terminal() {
+					finishCode = job.ErrorCode
+				}
+				return errors.New("Realtime receipt retained pending settlement")
 			}
 			if !receipts[id] {
 				if err = h.upstreamJobs.AcknowledgeQianwenRealtimeReceipt(persist, session.PublicRequestID); err != nil {

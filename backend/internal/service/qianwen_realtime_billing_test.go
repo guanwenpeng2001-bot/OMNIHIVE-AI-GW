@@ -62,7 +62,13 @@ func TestQianwenRealtimeDurablePerTurnIdempotencyAndRestart(t *testing.T) {
 			defer wg.Done()
 			j, err := svc.RecordQianwenRealtimeTurn(ctx, session, "response-one", []byte(`{"characters":25}`), "completed")
 			require.NoError(t, err)
-			require.NotNil(t, j.ChargedUsageLogID)
+			// A concurrent owner may have durably claimed settlement but not
+			// committed money yet. Every caller receives the durable receipt.
+			require.NotNil(t, j)
+			require.NotEmpty(t, j.UsageJSON)
+			if j.ChargedUsageLogID == nil {
+				require.False(t, j.Terminal())
+			}
 		}()
 	}
 	wg.Wait()
@@ -87,6 +93,12 @@ func TestQianwenRealtimeDurablePerTurnIdempotencyAndRestart(t *testing.T) {
 	require.ErrorIs(t, err, ErrQianwenRealtimeConflict, "frozen tariff inputs remain immutable after settlement")
 	require.Equal(t, frozenBilling, replayed.Billing)
 	require.Equal(t, 2, repo.charges)
+	for _, changeOwner := range []func(*UpstreamJob){func(j *UpstreamJob) { j.UserID++ }, func(j *UpstreamJob) { j.APIKeyID++ }, func(j *UpstreamJob) { j.AccountID++ }} {
+		other := *session
+		changeOwner(&other)
+		_, err := svc.RecordQianwenRealtimeTurn(ctx, &other, "response-two", []byte(`{"characters":10}`), "cancelled")
+		require.ErrorIs(t, err, ErrQianwenRealtimeConflict)
+	}
 	// New service instance represents process restart; the repository anchors win.
 	svc = NewUpstreamJobService(repo, nil, QianwenAsyncJobCharge)
 	_, err = svc.RecordQianwenRealtimeTurn(ctx, session, "response-one", []byte(`{ "characters" : 25 }`), "completed")
@@ -120,6 +132,7 @@ func TestQianwenRealtimeReceiptSurvivesBillingRollback(t *testing.T) {
 		t.Fatal("must not query or regenerate provider response")
 		return UpstreamJobUpdate{}, nil
 	}, QianwenAsyncJobCharge)
+	restarted.now = func() time.Time { return pending.NextPollAt }
 	settled, err := restarted.Poll(ctx, pending.PublicRequestID)
 	require.NoError(t, err)
 	require.NotNil(t, settled.ChargedUsageLogID)
