@@ -113,6 +113,9 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 			historical, err := logs.GetByID(ctx, input.Usage.ID)
 			require.NoError(t, err)
 			require.Nil(t, historical.BillingEvidence)
+			beforeStatus, err := repo.(service.UsageSettlementStatusRepository).SettlementStatus(ctx, input.Key.RequestID, 0)
+			require.NoError(t, err)
+			require.Len(t, beforeStatus.HistoricalItems, 1)
 			jobFamily := family
 			if family == "file_batch" {
 				jobFamily = "batch"
@@ -126,6 +129,10 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 			loaded, err := logs.GetByID(ctx, input.Usage.ID)
 			require.NoError(t, err)
 			require.Equal(t, "free", loaded.BillingEvidence.PricingState)
+			afterStatus, err := repo.(service.UsageSettlementStatusRepository).SettlementStatus(ctx, input.Key.RequestID, 0)
+			require.NoError(t, err)
+			require.Empty(t, afterStatus.HistoricalItems, "frozen job pricing is known even without an ordinary receipt")
+			require.Equal(t, beforeStatus.HistoricalZeroReview-1, afterStatus.HistoricalZeroReview)
 			var completed int
 			require.NoError(t, db.QueryRow("SELECT count(*) FROM usage_logs ul WHERE ul.id=$1 AND "+usageLogSuccessFilterUL, loaded.ID).Scan(&completed))
 			if family == "realtime_turn" {

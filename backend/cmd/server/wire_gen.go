@@ -146,7 +146,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	balanceNotifyService := service.ProvideBalanceNotifyService(emailService, settingRepository, accountRepository, notificationEmailService)
 	usageSettlementReceiptRepository := repository.NewUsageSettlementReceiptWithQuotaRepository(db)
 	usageRecordWorkerPool := service.NewUsageRecordWorkerPool(configConfig)
-	usageSettlementService := service.ProvideUsageSettlementService(usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService)
+	usageSettlementService := service.ProvideUsageSettlementService(usageSettlementReceiptRepository, usageRecordWorkerPool, billingCacheService, apiKeyService)
 	gatewayService := service.ProvideGatewayService(accountRepository, groupRepository, usageLogRepository, usageBillingRepository, userRepository, userSubscriptionRepository, userGroupRateRepository, gatewayCache, configConfig, schedulerSnapshotService, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCache, digestSessionStore, settingService, tlsFingerprintProfileService, channelService, modelPricingResolver, compositeRouteResolver, balanceNotifyService, serviceUserPlatformQuotaRepository, usageSettlementService)
 	openAIOAuthClient := repository.NewOpenAIOAuthClient()
 	privacyClientFactory := providePrivacyClientFactory()

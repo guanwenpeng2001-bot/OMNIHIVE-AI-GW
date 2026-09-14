@@ -5,6 +5,15 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
+// Job settlements carry their frozen pricing in upstream_jobs rather than an
+// ordinary receipt. Only zero rows without either source need historical review.
+const historicalZeroUsageFilter = `u.actual_cost=0
+ AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r WHERE r.request_id=u.request_id AND r.api_key_id=u.api_key_id)
+ AND NOT EXISTS (SELECT 1 FROM upstream_jobs j WHERE j.public_request_id=u.request_id
+ AND j.api_key_id=u.api_key_id AND j.user_id=u.user_id AND j.charged_usage_log_id=u.id
+ AND j.status='succeeded' AND j.billing_snapshot->>'pricing_state' IN ('priced','free')
+ AND COALESCE(j.billing_snapshot->>'pricing_snapshot','')<>'')`
+
 func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context, requestID string, afterID int64) (*service.UsageSettlementStatus, error) {
 	s := &service.UsageSettlementStatus{Items: []service.UsageSettlementStatusItem{}}
 	err := r.db.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE state='pending'),count(*) FILTER(WHERE state='needs_review') FROM usage_settlement_receipts`).Scan(&s.Pending, &s.NeedsReview)
@@ -12,7 +21,7 @@ func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context,
 		return nil, err
 	}
 	// Unknown old zeros are a review population, not evidence of free pricing.
-	err = r.db.QueryRowContext(ctx, `SELECT count(*) FROM usage_logs u WHERE actual_cost=0 AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r WHERE r.request_id=u.request_id AND r.api_key_id=u.api_key_id)`).Scan(&s.HistoricalZeroReview)
+	err = r.db.QueryRowContext(ctx, `SELECT count(*) FROM usage_logs u WHERE `+historicalZeroUsageFilter).Scan(&s.HistoricalZeroReview)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +44,7 @@ func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context,
 		return nil, err
 	}
 	s.HistoricalItems = []service.UsageSettlementStatusItem{}
-	history, err := r.db.QueryContext(ctx, `SELECT id,request_id,api_key_id,user_id,created_at FROM usage_logs u WHERE actual_cost=0 AND id>$1 AND ($2='' OR request_id=$2) AND NOT EXISTS (SELECT 1 FROM usage_settlement_receipts r WHERE r.request_id=u.request_id AND r.api_key_id=u.api_key_id) ORDER BY id LIMIT 100`, afterID, requestID)
+	history, err := r.db.QueryContext(ctx, `SELECT id,request_id,api_key_id,user_id,created_at FROM usage_logs u WHERE `+historicalZeroUsageFilter+` AND id>$1 AND ($2='' OR request_id=$2) ORDER BY id LIMIT 100`, afterID, requestID)
 	if err != nil {
 		return nil, err
 	}

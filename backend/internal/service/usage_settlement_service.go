@@ -16,13 +16,14 @@ const UsageSettlementRecoveryBoundary = "Recovery starts only after the first re
 // UsageSettlementService queues only persisted identities. It has no upstream
 // client or price resolver: recovery cannot perform inference or reprice usage.
 type UsageSettlementService struct {
-	repo            UsageSettlementReceiptRepository
-	pool            *UsageRecordWorkerPool
-	cache           *BillingCacheService
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
-	stop            sync.Once
-	persistFailures atomic.Uint64
+	repo                 UsageSettlementReceiptRepository
+	pool                 *UsageRecordWorkerPool
+	cache                *BillingCacheService
+	authCacheInvalidator APIKeyAuthCacheInvalidator
+	cancel               context.CancelFunc
+	wg                   sync.WaitGroup
+	stop                 sync.Once
+	persistFailures      atomic.Uint64
 }
 
 func (s *UsageSettlementService) Status(ctx context.Context, requestID string, afterID int64) (*UsageSettlementStatus, error) {
@@ -43,8 +44,9 @@ func NewUsageSettlementService(repo UsageSettlementReceiptRepository, pool *Usag
 	return &UsageSettlementService{repo: repo, pool: pool, cache: cache}
 }
 
-func ProvideUsageSettlementService(repo UsageSettlementReceiptRepository, pool *UsageRecordWorkerPool, cache *BillingCacheService) *UsageSettlementService {
+func ProvideUsageSettlementService(repo UsageSettlementReceiptRepository, pool *UsageRecordWorkerPool, cache *BillingCacheService, keys *APIKeyService) *UsageSettlementService {
 	s := NewUsageSettlementService(repo, pool, cache)
+	s.authCacheInvalidator = keys
 	ctx, cancel := context.WithCancel(context.Background())
 	s.cancel = cancel
 	s.wg.Add(1)
@@ -137,6 +139,12 @@ func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettl
 	if err != nil {
 		return nil, err
 	}
+	// Recovery has no original request callback. Refresh quota-bearing auth
+	// snapshots here, including replay after a lost settlement acknowledgement.
+	if s.authCacheInvalidator != nil && receipt.Command.APIKeyQuotaCost > 0 &&
+		(result.Billing.APIKeyQuotaExhausted || !result.Billing.Applied) {
+		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, receipt.Key.UserID)
+	}
 	// Invalidate views on replay too; never replay additive cache updates.
 	if s.cache != nil {
 		if err := s.cache.InvalidateUserBalance(ctx, receipt.Key.UserID); err != nil {
@@ -203,7 +211,8 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	p.QuotaDerived = true
 	p.Cost.ActualCost = QuantizeUsageBillingAmount(p.Cost.ActualCost)
 	return s.Submit(ctx, receipt, func(ctx context.Context, result *UsageSettlementResult) {
-		if result.Billing.APIKeyQuotaExhausted {
+		// Preserve explicit constructor callers without the production invalidator.
+		if s.authCacheInvalidator == nil && result.Billing.APIKeyQuotaExhausted {
 			if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey.Key != "" {
 				invalidator.InvalidateAuthCacheByKey(ctx, p.APIKey.Key)
 			}

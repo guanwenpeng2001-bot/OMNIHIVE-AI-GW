@@ -62,3 +62,59 @@ func TestReceiptFinalizeSkipsLegacyQuotaAndAdditiveCaches(t *testing.T) {
 		}, &billingDeps{}, &UsageBillingApplyResult{Applied: true})
 	})
 }
+
+type settlementRecoveryCapture struct {
+	UsageSettlementReceiptRepository
+	receipt *UsageSettlementReceipt
+	result  UsageBillingApplyResult
+	settles int
+}
+
+func (r *settlementRecoveryCapture) ListPending(_ context.Context, cursor int64, _ int) ([]*UsageSettlementReceipt, error) {
+	if cursor > 0 {
+		return nil, nil
+	}
+	return []*UsageSettlementReceipt{r.receipt}, nil
+}
+
+func (r *settlementRecoveryCapture) Settle(_ context.Context, _ UsageSettlementKey, _ string) (*UsageSettlementResult, error) {
+	r.settles++
+	return &UsageSettlementResult{Receipt: r.receipt, Billing: &r.result}, nil
+}
+
+type settlementAuthInvalidator struct {
+	APIKeyAuthCacheInvalidator
+	userIDs []int64
+}
+
+func (s *settlementAuthInvalidator) InvalidateAuthCacheByUserID(_ context.Context, userID int64) {
+	s.userIDs = append(s.userIDs, userID)
+}
+
+func TestSettlementRecoveryInvalidatesExhaustedKeyAuth(t *testing.T) {
+	for _, test := range []struct {
+		name       string
+		quotaCost  float64
+		result     UsageBillingApplyResult
+		invalidate bool
+	}{
+		{"recovered charge exhausts quota", 1, UsageBillingApplyResult{Applied: true, APIKeyQuotaExhausted: true}, true},
+		{"replay after lost acknowledgement", 1, UsageBillingApplyResult{}, true},
+		{"charge within quota", 1, UsageBillingApplyResult{Applied: true}, false},
+		{"no key quota effect", 0, UsageBillingApplyResult{}, false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			repo := &settlementRecoveryCapture{receipt: &UsageSettlementReceipt{ID: 1, Key: UsageSettlementKey{UserID: 7}, Command: UsageBillingCommand{APIKeyQuotaCost: test.quotaCost}}, result: test.result}
+			invalidator := &settlementAuthInvalidator{}
+			settlement := NewUsageSettlementService(repo, nil, nil)
+			settlement.authCacheInvalidator = invalidator
+			require.NoError(t, settlement.Recover(context.Background()))
+			require.Equal(t, 1, repo.settles)
+			if test.invalidate {
+				require.Equal(t, []int64{7}, invalidator.userIDs)
+			} else {
+				require.Empty(t, invalidator.userIDs)
+			}
+		})
+	}
+}
