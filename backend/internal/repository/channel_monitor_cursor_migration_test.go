@@ -47,7 +47,7 @@ func TestCursorPassiveInventoryPostgres(test *testing.T) {
 	}
 	adminDatabase, err := sql.Open("postgres", connectionString)
 	require.NoError(test, err)
-	defer adminDatabase.Close()
+	test.Cleanup(func() { require.NoError(test, adminDatabase.Close()) })
 	databaseName := fmt.Sprintf("cursor_monitor_test_%d", time.Now().UnixNano())
 	_, err = adminDatabase.Exec(`CREATE DATABASE "` + databaseName + `"`)
 	require.NoError(test, err)
@@ -60,7 +60,7 @@ func TestCursorPassiveInventoryPostgres(test *testing.T) {
 	parsedURL.Path = "/" + databaseName
 	database, err := sql.Open("postgres", parsedURL.String())
 	require.NoError(test, err)
-	defer database.Close()
+	test.Cleanup(func() { require.NoError(test, database.Close()) })
 	contextValue, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
 	defer cancel()
 	require.NoError(test, ApplyMigrations(contextValue, database))
