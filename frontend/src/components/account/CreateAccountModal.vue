@@ -74,7 +74,7 @@
           <button v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value"
             type="button" :data-testid="`${option.value}-platform`" @click="selectPlatform(option.value)"
             :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
-            <PlatformIcon :platform="option.value" size="sm" />{{ option.label }}
+            <PlatformIcon :platform="option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
           </button>
         </div>
       </div>
@@ -3766,6 +3766,7 @@ import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
 import {
@@ -3816,7 +3817,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -4105,39 +4106,8 @@ function resetAdaptiveBaseUrls(
 ) {
   adaptiveBaseUrls.value = defaultCNAdaptiveBaseUrls(platform, mode)
 }
-// 当前选中平台的品牌色（选中卡片描边 / 图标底色），与 platformColors 取色一致。
-const cnAccentActiveClass = computed(() => {
-  switch (form.platform) {
-    case 'kimi':
-      return 'border-pink-500 bg-pink-50 dark:bg-pink-900/20'
-    case 'zhipu':
-      return 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-    case 'deepseek':
-      return 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
-    case 'minimax':
-      return 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
-    case 'opencode_go':
-      return 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-    default:
-      return 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-  }
-})
-const cnAccentIconClass = computed(() => {
-  switch (form.platform) {
-    case 'kimi':
-      return 'bg-pink-500 text-white'
-    case 'zhipu':
-      return 'bg-indigo-500 text-white'
-    case 'deepseek':
-      return 'bg-teal-500 text-white'
-    case 'minimax':
-      return 'bg-rose-500 text-white'
-    case 'opencode_go':
-      return 'bg-amber-500 text-white'
-    default:
-      return 'bg-primary-500 text-white'
-  }
-})
+const cnAccentActiveClass = computed(() => platformSelectionClass(form.platform))
+const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platform))
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
 function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {

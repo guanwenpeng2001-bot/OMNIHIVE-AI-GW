@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, platformSupportsOAuth } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth } from '@/constants/platforms'
 
 interface BackendPlatform {
   id: string
@@ -33,6 +33,14 @@ function assertConcreteContract(descriptors: BackendPlatform[]) {
 }
 
 describe('platform option catalogs', () => {
+  it('localizes known platforms and preserves unknown display labels', () => {
+    const translate = (key: string) => key === 'admin.accounts.platforms.qianwen' ? 'Qianwen AI' : key
+    expect(getPlatformLabel('qianwen', translate)).toBe('Qianwen AI')
+    expect(getPlatformLabel('cursor', translate)).toBe('Cursor')
+    expect(getPlatformLabel('future-provider', translate)).toBe('future-provider')
+    expect(getPlatformLabel('', translate)).toBe('API')
+  })
+
   it('matches actual backend descriptors and shared OAuth capability', () => {
     assertConcreteContract(backend)
     expect(new Set(backend.map(p => p.id)).size).toBe(backend.length)

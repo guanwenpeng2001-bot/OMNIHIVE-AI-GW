@@ -359,6 +359,10 @@ export default {
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
+        qianwen: '千问AI',
+        commandcode: 'Command Code',
+        cursor: 'Cursor',
+        composite: 'Composite',
         claude: 'Claude',
         openai: 'OpenAI',
         anthropic: 'Anthropic',

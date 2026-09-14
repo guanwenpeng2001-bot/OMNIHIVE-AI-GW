@@ -3062,6 +3062,7 @@ import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
 import { adminAPI } from '@/api/admin'
@@ -3288,38 +3289,8 @@ const editAdaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 // 存储版 base_url（可能是用户自定义/中转地址）覆盖为官方预设并在下次保存时持久化。
 // nextTick 后解除，此后用户主动切换模式/协议仍正常联动重置。
 const syncingForm = ref(false)
-const cnAccentActiveClass = computed(() => {
-  switch (props.account?.platform) {
-    case 'kimi':
-      return 'border-pink-500 bg-pink-50 dark:bg-pink-900/20'
-    case 'zhipu':
-      return 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20'
-    case 'deepseek':
-      return 'border-teal-500 bg-teal-50 dark:bg-teal-900/20'
-    case 'minimax':
-      return 'border-rose-500 bg-rose-50 dark:bg-rose-900/20'
-    case 'opencode_go':
-      return 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
-    default:
-      return 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-  }
-})
-const cnAccentIconClass = computed(() => {
-  switch (props.account?.platform) {
-    case 'kimi':
-      return 'bg-pink-500 text-white'
-    case 'zhipu':
-      return 'bg-indigo-500 text-white'
-    case 'deepseek':
-      return 'bg-teal-500 text-white'
-    case 'minimax':
-      return 'bg-rose-500 text-white'
-    case 'opencode_go':
-      return 'bg-amber-500 text-white'
-    default:
-      return 'bg-primary-500 text-white'
-  }
-})
+const cnAccentActiveClass = computed(() => platformSelectionClass(props.account?.platform ?? ''))
+const cnAccentIconClass = computed(() => platformSelectionIconClass(props.account?.platform ?? ''))
 const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'payg' | 'coding' }>>(
   () => {
     // DeepSeek 无 coding 套餐（与创建弹窗一致），仅保留按量付费。

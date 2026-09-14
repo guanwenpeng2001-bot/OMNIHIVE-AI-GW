@@ -1135,7 +1135,7 @@ const selectPage = () => {
 const swipeVirtualContext: SwipeSelectVirtualContext = {
   getVirtualizer: () => dataTableRef.value?.virtualizer ?? null,
   getSortedData: () => dataTableRef.value?.sortedData ?? accounts.value,
-  getRowId: (row: any) => row.id,
+  getRowId: (row: AccountListItem) => row.id,
 }
 
 useSwipeSelect(accountTableRef, {
@@ -1644,7 +1644,7 @@ function grok45ResponsesPlanIsHeavy(snapshot: Record<string, any> | undefined): 
 // JWT / unambiguous credentials outrank snapshots. SuperGrokPro is ambiguous
 // (covers SuperGrok and Heavy). 8300/53M only upgrades when the window came
 // from grok-4.5 Responses (or a carried 4.5 hint).
-function getAccountPlanType(row: any): string | undefined {
+function getAccountPlanType(row: AccountListItem): string | undefined {
   if (!row) return undefined
   if (row.platform === 'grok') {
     const extra = (row.extra || {}) as Record<string, any>
@@ -1680,14 +1680,14 @@ function getAccountPlanType(row: any): string | undefined {
   return firstNonBlankString(row.credentials?.plan_type, row.parent_plan_type)
 }
 
-function getOpenAIAuthMode(row: any): string | undefined {
+function getOpenAIAuthMode(row: AccountListItem): string | undefined {
   if (!row || row.platform !== 'openai' || row.type !== 'oauth') return undefined
   const authMode = row.credentials?.auth_mode
   return typeof authMode === 'string' && authMode.trim() ? authMode : undefined
 }
 
 // Antigravity 订阅等级辅助函数
-function getAntigravityTierFromRow(row: any): string | null {
+function getAntigravityTierFromRow(row: AccountListItem): string | null {
   if (row.platform !== 'antigravity') return null
   const extra = row.extra as Record<string, unknown> | undefined
   if (!extra) return null
@@ -1700,7 +1700,7 @@ function getAntigravityTierFromRow(row: any): string | null {
   return null
 }
 
-function getAntigravityTierLabel(row: any): string | null {
+function getAntigravityTierLabel(row: AccountListItem): string | null {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
     case 'free-tier': return t('admin.accounts.tier.free')
@@ -1712,8 +1712,8 @@ function getAntigravityTierLabel(row: any): string | null {
 
 // 账号显示邮箱:优先账号自身(extra/credentials),影子账号回退母账号 parent_email。
 // 供名称单元格 v-if/标题/文本三处共用,避免同一回退链在模板里重复三次。
-function accountDisplayEmail(row: any): string {
-  return row.extra?.email_address || row.extra?.email || row.credentials?.email || row.parent_email || ''
+function accountDisplayEmail(row: AccountListItem): string {
+  return firstNonBlankString(row.extra?.email_address, row.extra?.email, row.credentials?.email, row.parent_email) ?? ''
 }
 
 function accountHomepageUrl(row: Account): string {
@@ -1724,7 +1724,7 @@ function accountHomepageUrl(row: Account): string {
 
 type OpenAICompactBadgeState = 'active' | 'blocked' | 'auto'
 
-function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
+function getOpenAICompactState(row: AccountListItem): OpenAICompactBadgeState | null {
   if (row.platform !== 'openai' || (row.type !== 'oauth' && row.type !== 'apikey')) return null
   const extra = row.extra as Record<string, unknown> | undefined
   const mode = typeof extra?.openai_compact_mode === 'string' ? extra.openai_compact_mode : 'auto'
@@ -1736,7 +1736,7 @@ function getOpenAICompactState(row: any): OpenAICompactBadgeState | null {
   return 'auto'
 }
 
-function getOpenAICompactMeta(row: any): { label: string; className: string; dotClass: string } | null {
+function getOpenAICompactMeta(row: AccountListItem): { label: string; className: string; dotClass: string } | null {
   const state = getOpenAICompactState(row)
   if (!state) return null
   switch (state) {
@@ -1761,7 +1761,7 @@ function getOpenAICompactMeta(row: any): { label: string; className: string; dot
   }
 }
 
-function getOpenAICompactTitle(row: any): string {
+function getOpenAICompactTitle(row: AccountListItem): string {
   const extra = row.extra as Record<string, unknown> | undefined
   const checkedAt = typeof extra?.openai_compact_checked_at === 'string' ? extra.openai_compact_checked_at : ''
   const label = getOpenAICompactMeta(row)?.label || ''
@@ -1769,7 +1769,7 @@ function getOpenAICompactTitle(row: any): string {
   return `${label} | ${t('admin.accounts.openai.compactLastChecked')}: ${formatDateTime(new Date(checkedAt))}`
 }
 
-function getAntigravityTierClass(row: any): string {
+function getAntigravityTierClass(row: AccountListItem): string {
   const tier = getAntigravityTierFromRow(row)
   switch (tier) {
     case 'free-tier': return 'bg-gray-100 text-gray-600 dark:bg-dark-700 dark:text-gray-300'
@@ -2290,7 +2290,7 @@ const handleExportData = async () => {
     } else {
       appStore.showSuccess(t('admin.accounts.dataExported'))
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (isStepUpCancelled(error)) {
       // 用户主动取消 step-up 验证，静默返回，不弹错误提示。
     } else if (isStepUpBlocked(error)) {
@@ -2300,7 +2300,7 @@ const handleExportData = async () => {
           : t('stepUp.notEnabled')
       )
     } else {
-      appStore.showError(error?.message || t('admin.accounts.dataExportFailed'))
+      appStore.showError(extractApiErrorMessage(error, t('admin.accounts.dataExportFailed')))
     }
   } finally {
     exportingData.value = false
@@ -2344,9 +2344,9 @@ const handleDuplicateAccount = async (a: Account) => {
     const duplicate = await adminAPI.accounts.duplicate(a.id)
     appStore.showSuccess(t('admin.accounts.duplicateSuccess', { name: duplicate.name }))
     reload()
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to duplicate account:', error)
-    appStore.showError(error?.message || t('admin.accounts.duplicateFailed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.duplicateFailed')))
   } finally {
     duplicatingAccountIDs.delete(a.id)
   }
@@ -2366,9 +2366,9 @@ const handleRecoverState = async (a: Account) => {
     patchAccountInList(updated)
     enterAutoRefreshSilentWindow()
     appStore.showSuccess(t('admin.accounts.recoverStateSuccess'))
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to recover account state:', error)
-    appStore.showError(error?.message || t('admin.accounts.recoverStateFailed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.recoverStateFailed')))
   }
 }
 const handleResetQuota = async (a: Account) => {
@@ -2414,9 +2414,9 @@ const handleSetPrivacy = async (a: Account) => {
     } else {
       appStore.showError(t(result.key))
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to set privacy:', error)
-    appStore.showError(error?.response?.data?.message || t('admin.accounts.privacyFailed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.privacyFailed')))
   }
 }
 const onRevertFallback = async (a: Account) => {
@@ -2424,9 +2424,9 @@ const onRevertFallback = async (a: Account) => {
     await adminAPI.accounts.revertProxyFallback(a.id)
     appStore.showSuccess(t('admin.accounts.revertProxySuccess'))
     reload()
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to revert proxy fallback:', error)
-    appStore.showError(error?.response?.data?.message || t('admin.accounts.revertProxyFailed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.revertProxyFailed')))
   }
 }
 const handleCreateSparkShadow = (a: Account) => {
@@ -2442,9 +2442,9 @@ const confirmCreateSparkShadow = async () => {
     creatingShadowAcc.value = null
     appStore.showSuccess(t('admin.accounts.createSparkShadowSuccess'))
     reload()
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to create spark shadow:', error)
-    appStore.showError(error?.response?.data?.message || t('admin.accounts.createSparkShadowFailed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.createSparkShadowFailed')))
   }
 }
 const handleDelete = (a: Account) => { deletingAcc.value = a; showDeleteDialog.value = true }
