@@ -12,6 +12,7 @@ import (
 	"mime/multipart"
 	"net/http"
 	"net/url"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -199,12 +200,41 @@ func (s *OpenAIGatewayService) qianwenResourceRequest(ctx context.Context, a *Ac
 		return nil, resp.StatusCode, errors.New("resource response exceeds 4 MiB")
 	}
 	if resp.StatusCode >= 500 || resp.StatusCode == 429 {
-		return nil, resp.StatusCode, errors.New("resource upstream temporarily unavailable")
+		return nil, resp.StatusCode, errors.New(qianwenResourceFailureMessage("resource upstream temporarily unavailable", raw))
 	}
 	return raw, resp.StatusCode, nil
 }
-func resourceFailure(status int) UpstreamJobUpdate {
-	return UpstreamJobUpdate{Status: "failed", ErrorCode: "upstream_rejected", ErrorMessage: fmt.Sprintf("DashScope rejected resource request (HTTP %d)", status)}
+
+// Suppress the entire reason when it could contain credentials, including short
+// values under sensitive field names. Check before truncating to avoid leaking
+// a credential whose identifying suffix would otherwise be cut off.
+var qianwenResourceCredentialPattern = regexp.MustCompile(`(?i)sk-|bearer\s|api[_-]?key|authorization|password|token|[a-z0-9_+/=-]{32,}`)
+
+func qianwenResourceFailureMessage(fallback string, raw []byte) string {
+	if !json.Valid(raw) {
+		return fallback
+	}
+	reason := gjson.GetBytes(raw, "error.message")
+	if reason.Type != gjson.String {
+		reason = gjson.GetBytes(raw, "errors.data.0.message")
+	}
+	if reason.Type != gjson.String || strings.TrimSpace(reason.String()) == "" {
+		return fallback
+	}
+	message := strings.TrimSpace(reason.String())
+	if qianwenResourceCredentialPattern.MatchString(message) {
+		message = "[redacted]"
+	}
+	characters := []rune(fallback + ": " + message)
+	const maxCharacters = 512
+	if len(characters) > maxCharacters {
+		return string(characters[:maxCharacters-1]) + "…"
+	}
+	return string(characters)
+}
+
+func resourceFailure(status int, raw []byte) UpstreamJobUpdate {
+	return UpstreamJobUpdate{Status: "failed", ErrorCode: "upstream_rejected", ErrorMessage: qianwenResourceFailureMessage(fmt.Sprintf("DashScope rejected resource request (HTTP %d)", status), raw)}
 }
 func (s *OpenAIGatewayService) SubmitQianwenFile(ctx context.Context, a *Account, body []byte) (UpstreamJobUpdate, error) {
 	var form bytes.Buffer
@@ -225,7 +255,7 @@ func (s *OpenAIGatewayService) SubmitQianwenFile(ctx context.Context, a *Account
 		return UpstreamJobUpdate{}, err
 	}
 	if status < 200 || status >= 300 {
-		return resourceFailure(status), nil
+		return resourceFailure(status, raw), nil
 	}
 	id := gjson.GetBytes(raw, "id").String()
 	if !json.Valid(raw) || id == "" || gjson.GetBytes(raw, "purpose").String() != "batch" || gjson.GetBytes(raw, "status").String() != "processed" {
@@ -240,7 +270,7 @@ func (s *OpenAIGatewayService) SubmitQianwenBatch(ctx context.Context, a *Accoun
 		return UpstreamJobUpdate{}, err
 	}
 	if status < 200 || status >= 300 {
-		return resourceFailure(status), nil
+		return resourceFailure(status, raw), nil
 	}
 	// Even immediate completion is polled to validate the result file before settlement.
 	u, err := parseQianwenBatch(raw)
@@ -267,7 +297,7 @@ func parseQianwenBatch(raw []byte) (UpstreamJobUpdate, error) {
 	case "failed":
 		u.Status = "failed"
 		u.ErrorCode = "upstream_failed"
-		u.ErrorMessage = "DashScope batch failed or was cancelled"
+		u.ErrorMessage = qianwenResourceFailureMessage("DashScope batch failed or was cancelled", raw)
 	case "expired", "cancelled":
 		// Successful rows still incur charges; terminal evidence is validated below.
 		u.Status = "succeeded"
@@ -289,7 +319,7 @@ func (s *OpenAIGatewayService) PollQianwenJob(ctx context.Context, j *UpstreamJo
 		return UpstreamJobUpdate{}, err
 	}
 	if status < 200 || status >= 300 {
-		return resourceFailure(status), nil
+		return resourceFailure(status, raw), nil
 	}
 	u, err := parseQianwenBatch(raw)
 	if err != nil || u.Status != "succeeded" || u.TaskID != j.UpstreamTaskID {
@@ -315,7 +345,7 @@ func (s *OpenAIGatewayService) PollQianwenJob(ctx context.Context, j *UpstreamJo
 		return UpstreamJobUpdate{}, err
 	}
 	if status < 200 || status >= 300 {
-		return resourceFailure(status), nil
+		return resourceFailure(status, result), nil
 	}
 	u.Usage, err = validateQianwenBatchItems(j, result, int(counts.Get("completed").Int()))
 	if err != nil {
@@ -414,7 +444,7 @@ func (s *OpenAIGatewayService) QianwenResourceContent(ctx context.Context, j *Up
 		return nil, err
 	}
 	if status < 200 || status >= 300 {
-		return nil, errors.New("resource content unavailable")
+		return nil, errors.New(qianwenResourceFailureMessage("resource content unavailable", raw))
 	}
 	expected := gjson.GetBytes(j.UsageJSON, "result_sha256").String()
 	if j.Family == "files" && j.Billing.FileBatch != nil {
