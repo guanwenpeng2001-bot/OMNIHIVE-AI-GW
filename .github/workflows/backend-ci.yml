@@ -89,6 +89,10 @@ jobs:
             package: ./internal/repository
             tag: integration
             required-subtests: ""
+          - test: TestUsageSettlementReceiptPostgres
+            package: ./internal/repository
+            tag: unit
+            required-subtests: same_identity_20,same_identity_32,log_insert_rolls_back_all_effects,balance_update_rolls_back_all_effects,commit_rolls_back_all_effects,derived_event_failure_rolls_back,concurrent_different_fingerprints_conflict,archived_different_fingerprint_conflicts,existing_canonical_log_conflict_rolls_back_claim,archived_identity_is_never_charged_again,free_and_unpriced_remain_distinct,pending_recovery_uses_frozen_input,committed_response_lost_query_original_identity,finance_worker_stopped_drop_sample_and_restart,finance_worker_stopped_drop_sample_and_restart/drop,finance_worker_stopped_drop_sample_and_restart/sample,finance_worker_stopped_drop_sample_and_restart/sync,finance_worker_stopped_drop_sample_and_restart/stopped,finance_persist_ack_lost_and_settlement_ack_lost,finance_rebuild_after_receipt_before_worker,finance_persistence_failure_is_visible_without_free_log,finance_legacy_dedup_repair_never_charges_again,finance_legacy_zero_requires_binding_and_original_evidence,finance_quota_provider_emits_once
     services:
       postgres:
         image: postgres:16

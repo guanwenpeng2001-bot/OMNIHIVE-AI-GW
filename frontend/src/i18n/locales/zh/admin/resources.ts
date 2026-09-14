@@ -507,6 +507,20 @@ export default {
 
     // Usage Records
     usage: {
+      settlement: {
+        title: '结算恢复',
+        pending: '待结算',
+        review: '需人工核查',
+        historical: '无回执的历史零费用记录（仅供人工核查）',
+        boundary: '恢复从首次回执保存成功后开始。此前进程退出或数据库不可用可能导致上游用量丢失，需人工核查。下方未确认写入数仅包含本实例启动以来的记录。',
+        failures: '数据库写入未确认',
+        locate: '请求 ID',
+        refresh: '定位 / 刷新',
+        next: '后 100 条',
+        failed: '结算状态加载失败',
+        empty: '没有匹配的回执',
+        separate: '回执数量独立展示，不计入正式用量统计和导出。'
+      },
       title: '使用记录',
       description: '查看和管理所有用户的使用记录',
       userFilter: '用户',
