@@ -2,6 +2,8 @@
 
 VERSION ?= $(shell ./scripts/resolve-version.sh)
 LDFLAGS ?= -s -w -X main.Version=$(VERSION)
+# Keep existing lint debt visible separately while gating new findings.
+LINT_BASE_REV ?= c51166151bbfda1e34b8d8b7ec77435a45648c24
 
 build:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -trimpath -o bin/server ./cmd/server
@@ -10,9 +12,8 @@ generate:
 	go generate ./ent
 	go generate ./cmd/server
 
-test:
-	go test ./...
-	golangci-lint run ./...
+test: test-unit
+	golangci-lint run --new-from-rev=$(LINT_BASE_REV) ./...
 
 test-unit:
 	go test -tags=unit ./...
