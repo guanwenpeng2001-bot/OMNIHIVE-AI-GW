@@ -11,7 +11,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
 )
 
+// sqlTimingClock keeps an injected clock local to a connector and its children.
+// The zero value uses the production monotonic wall clock.
+type sqlTimingClock struct {
+	now func() time.Time
+}
+
+func (c sqlTimingClock) timeNow() time.Time {
+	if c.now != nil {
+		return c.now()
+	}
+	return time.Now()
+}
+
 type serverTimingConnector struct {
+	sqlTimingClock
 	base driver.Connector
 }
 
@@ -20,13 +34,13 @@ func newServerTimingConnector(base driver.Connector) driver.Connector {
 }
 
 func (c *serverTimingConnector) Connect(ctx context.Context) (driver.Conn, error) {
-	startedAt := time.Now()
+	startedAt := c.timeNow()
 	conn, err := c.base.Connect(ctx)
-	servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, c.timeNow())
 	if err != nil {
 		return nil, err
 	}
-	return &serverTimingConn{Conn: conn}, nil
+	return &serverTimingConn{Conn: conn, sqlTimingClock: c.sqlTimingClock}, nil
 }
 
 func (c *serverTimingConnector) Driver() driver.Driver {
@@ -34,6 +48,7 @@ func (c *serverTimingConnector) Driver() driver.Driver {
 }
 
 type serverTimingConn struct {
+	sqlTimingClock
 	driver.Conn
 }
 
@@ -42,11 +57,11 @@ func (c *serverTimingConn) Prepare(query string) (driver.Stmt, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &serverTimingStmt{Stmt: stmt}, nil
+	return &serverTimingStmt{Stmt: stmt, sqlTimingClock: c.sqlTimingClock}, nil
 }
 
 func (c *serverTimingConn) PrepareContext(ctx context.Context, query string) (driver.Stmt, error) {
-	startedAt := time.Now()
+	startedAt := c.timeNow()
 	var (
 		stmt driver.Stmt
 		err  error
@@ -56,11 +71,11 @@ func (c *serverTimingConn) PrepareContext(ctx context.Context, query string) (dr
 	} else {
 		stmt, err = c.Conn.Prepare(query)
 	}
-	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, time.Now(), 1)
+	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, c.timeNow(), 1)
 	if err != nil {
 		return nil, err
 	}
-	return &serverTimingStmt{Stmt: stmt}, nil
+	return &serverTimingStmt{Stmt: stmt, sqlTimingClock: c.sqlTimingClock}, nil
 }
 
 func (c *serverTimingConn) ExecContext(ctx context.Context, query string, args []driver.NamedValue) (driver.Result, error) {
@@ -68,9 +83,9 @@ func (c *serverTimingConn) ExecContext(ctx context.Context, query string, args [
 	if !ok {
 		return nil, driver.ErrSkip
 	}
-	startedAt := time.Now()
+	startedAt := c.timeNow()
 	result, err := execer.ExecContext(ctx, query, args)
-	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, time.Now(), 1)
+	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, c.timeNow(), 1)
 	return result, err
 }
 
@@ -79,17 +94,17 @@ func (c *serverTimingConn) QueryContext(ctx context.Context, query string, args 
 	if !ok {
 		return nil, driver.ErrSkip
 	}
-	startedAt := time.Now()
+	startedAt := c.timeNow()
 	rows, err := queryer.QueryContext(ctx, query, args)
-	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, time.Now(), 1)
+	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, c.timeNow(), 1)
 	if err != nil || rows == nil {
 		return rows, err
 	}
-	return newServerTimingRows(ctx, rows), nil
+	return &serverTimingRows{Rows: rows, ctx: ctx, sqlTimingClock: c.sqlTimingClock}, nil
 }
 
 func (c *serverTimingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (driver.Tx, error) {
-	startedAt := time.Now()
+	startedAt := c.timeNow()
 	var (
 		tx  driver.Tx
 		err error
@@ -107,18 +122,18 @@ func (c *serverTimingConn) BeginTx(ctx context.Context, opts driver.TxOptions) (
 		// legacy fallback for drivers that only implement Conn.Begin.
 		tx, err = c.Conn.Begin() //nolint:staticcheck // Required driver compatibility fallback.
 	}
-	servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, c.timeNow())
 	if err != nil || tx == nil {
 		return tx, err
 	}
-	return &serverTimingTx{Tx: tx, ctx: ctx}, nil
+	return &serverTimingTx{Tx: tx, ctx: ctx, sqlTimingClock: c.sqlTimingClock}, nil
 }
 
 func (c *serverTimingConn) Ping(ctx context.Context) error {
 	if pinger, ok := c.Conn.(driver.Pinger); ok {
-		startedAt := time.Now()
+		startedAt := c.timeNow()
 		err := pinger.Ping(ctx)
-		servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, time.Now())
+		servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, c.timeNow())
 		return err
 	}
 	return nil
@@ -126,9 +141,9 @@ func (c *serverTimingConn) Ping(ctx context.Context) error {
 
 func (c *serverTimingConn) ResetSession(ctx context.Context) error {
 	if resetter, ok := c.Conn.(driver.SessionResetter); ok {
-		startedAt := time.Now()
+		startedAt := c.timeNow()
 		err := resetter.ResetSession(ctx)
-		servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, time.Now())
+		servertiming.RecordInterval(ctx, servertiming.MetricDatabase, startedAt, c.timeNow())
 		return err
 	}
 	return nil
@@ -149,11 +164,12 @@ func (c *serverTimingConn) CheckNamedValue(value *driver.NamedValue) error {
 }
 
 type serverTimingStmt struct {
+	sqlTimingClock
 	driver.Stmt
 }
 
 func (s *serverTimingStmt) ExecContext(ctx context.Context, args []driver.NamedValue) (driver.Result, error) {
-	startedAt := time.Now()
+	startedAt := s.timeNow()
 	var (
 		result driver.Result
 		err    error
@@ -169,12 +185,12 @@ func (s *serverTimingStmt) ExecContext(ctx context.Context, args []driver.NamedV
 			result, err = s.Stmt.Exec(values) //nolint:staticcheck // Required driver compatibility fallback.
 		}
 	}
-	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, time.Now(), 1)
+	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, s.timeNow(), 1)
 	return result, err
 }
 
 func (s *serverTimingStmt) QueryContext(ctx context.Context, args []driver.NamedValue) (driver.Rows, error) {
-	startedAt := time.Now()
+	startedAt := s.timeNow()
 	var (
 		rows driver.Rows
 		err  error
@@ -190,11 +206,11 @@ func (s *serverTimingStmt) QueryContext(ctx context.Context, args []driver.Named
 			rows, err = s.Stmt.Query(values) //nolint:staticcheck // Required driver compatibility fallback.
 		}
 	}
-	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, time.Now(), 1)
+	servertiming.Record(ctx, servertiming.MetricDatabase, startedAt, s.timeNow(), 1)
 	if err != nil || rows == nil {
 		return rows, err
 	}
-	return newServerTimingRows(ctx, rows), nil
+	return &serverTimingRows{Rows: rows, ctx: ctx, sqlTimingClock: s.sqlTimingClock}, nil
 }
 
 func (s *serverTimingStmt) CheckNamedValue(value *driver.NamedValue) error {
@@ -216,25 +232,22 @@ func namedValues(args []driver.NamedValue) ([]driver.Value, error) {
 }
 
 type serverTimingRows struct {
+	sqlTimingClock
 	driver.Rows
 	ctx context.Context
 }
 
-func newServerTimingRows(ctx context.Context, rows driver.Rows) *serverTimingRows {
-	return &serverTimingRows{Rows: rows, ctx: ctx}
-}
-
 func (r *serverTimingRows) Close() error {
-	startedAt := time.Now()
+	startedAt := r.timeNow()
 	err := r.Rows.Close()
-	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, r.timeNow())
 	return err
 }
 
 func (r *serverTimingRows) Next(dest []driver.Value) error {
-	startedAt := time.Now()
+	startedAt := r.timeNow()
 	err := r.Rows.Next(dest)
-	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, r.timeNow())
 	return err
 }
 
@@ -250,9 +263,9 @@ func (r *serverTimingRows) NextResultSet() error {
 	if !ok {
 		return io.EOF
 	}
-	startedAt := time.Now()
+	startedAt := r.timeNow()
 	err := rows.NextResultSet()
-	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(r.ctx, servertiming.MetricDatabase, startedAt, r.timeNow())
 	return err
 }
 
@@ -292,20 +305,21 @@ func (r *serverTimingRows) ColumnTypePrecisionScale(index int) (int64, int64, bo
 }
 
 type serverTimingTx struct {
+	sqlTimingClock
 	driver.Tx
 	ctx context.Context
 }
 
 func (t *serverTimingTx) Commit() error {
-	startedAt := time.Now()
+	startedAt := t.timeNow()
 	err := t.Tx.Commit()
-	servertiming.RecordInterval(t.ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(t.ctx, servertiming.MetricDatabase, startedAt, t.timeNow())
 	return err
 }
 
 func (t *serverTimingTx) Rollback() error {
-	startedAt := time.Now()
+	startedAt := t.timeNow()
 	err := t.Tx.Rollback()
-	servertiming.RecordInterval(t.ctx, servertiming.MetricDatabase, startedAt, time.Now())
+	servertiming.RecordInterval(t.ctx, servertiming.MetricDatabase, startedAt, t.timeNow())
 	return err
 }

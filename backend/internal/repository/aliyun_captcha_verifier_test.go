@@ -74,20 +74,32 @@ func TestAliyunCaptchaVerifier_APIErrorNormalized(t *testing.T) {
 }
 
 func TestAliyunCaptchaVerifier_TransportError(t *testing.T) {
-	server := httptest.NewServer(http.NotFoundHandler())
-	endpoint := strings.TrimPrefix(server.URL, "http://")
-	server.Close() // 立即关闭，制造连接失败
-
-	verifier := &aliyunCaptchaVerifier{protocol: "HTTP", timeoutMillis: 2_000}
+	transportErr := errors.New("deterministic captcha transport failure")
+	calls := 0
+	verifier := &aliyunCaptchaVerifier{protocol: "HTTP", timeoutMillis: 2_000,
+		httpClient: captchaHTTPClientFunc(func(req *http.Request, _ *http.Transport) (*http.Response, error) {
+			calls++
+			require.Equal(t, "captcha.test", req.URL.Host)
+			return nil, transportErr
+		}),
+	}
 	cred := service.AliyunCaptchaCredentials{
 		AccessKeyID:     "test-ak-id",
 		AccessKeySecret: "test-ak-secret",
 		SceneID:         "scene-1",
-		Endpoint:        endpoint,
+		Endpoint:        "captcha.test",
 	}
 
 	_, err := verifier.VerifyCaptcha(context.Background(), cred, "param")
 	require.Error(t, err)
 	var apiErr *service.AliyunCaptchaAPIError
 	require.False(t, errors.As(err, &apiErr), "transport errors must not be normalized to API errors")
+	require.Equal(t, 1, calls)
+	require.ErrorContains(t, err, transportErr.Error())
+}
+
+type captchaHTTPClientFunc func(*http.Request, *http.Transport) (*http.Response, error)
+
+func (f captchaHTTPClientFunc) Call(req *http.Request, transport *http.Transport) (*http.Response, error) {
+	return f(req, transport)
 }
