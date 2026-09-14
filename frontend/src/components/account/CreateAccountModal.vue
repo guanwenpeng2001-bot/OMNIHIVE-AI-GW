@@ -87,7 +87,7 @@
         </div>
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto'" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject(modelRestrictionMode, allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -3768,6 +3768,7 @@ import {
   getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
+  validateModelRestrictions,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -4619,6 +4620,14 @@ const tempUnschedPresets = computed(() => [
 ])
 
 const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
+watch(cursorKeyMode, () => {
+  allowedModels.value = []
+  modelMappings.value = []
+  apiKeyBaseUrl.value = ''
+  apiKeyValue.value = ''
+  cursorAutoCredentials.value = {}
+  cursorClientVersion.value = ''
+})
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
@@ -4739,6 +4748,8 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    cursorAutoCredentials.value = {}
+    cursorClientVersion.value = ''
     if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
     // Reset base URL based on platform
     if (isMultiProtocolApiKeyPlatform(newPlatform)) {
@@ -4746,7 +4757,7 @@ watch(
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
-        (newPlatform === 'openai')
+        newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
           ? 'https://api.openai.com'
           : newPlatform === 'gemini'
             ? 'https://generativelanguage.googleapis.com'
@@ -5585,11 +5596,14 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
+    if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
     const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
-    const mapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
     if (cursorKeyMode.value === 'relay') {
       const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)

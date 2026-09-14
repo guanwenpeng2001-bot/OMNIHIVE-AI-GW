@@ -15,6 +15,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -437,7 +438,7 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
-	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier, false)
+	return r.updateAccount(ctx, account, nil, nil, account.RateMultiplier, false, false)
 }
 
 // UpdateWithAccountBillingSettings applies an admin account edit while
@@ -450,14 +451,14 @@ func (r *accountRepository) UpdateWithAccountBillingSettings(
 	rateSyncEnabled *bool,
 	rateMultiplier *float64,
 ) error {
-	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, false)
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, false, true)
 }
 
 // UpdateWithCursorRefreshRecovery commits targeted runtime recovery with credentials.
 func (r *accountRepository) UpdateWithCursorRefreshRecovery(
 	ctx context.Context, account *service.Account, probeEnabled, rateSyncEnabled *bool, rateMultiplier *float64,
 ) error {
-	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, true)
+	return r.updateAccount(ctx, account, probeEnabled, rateSyncEnabled, rateMultiplier, true, true)
 }
 
 func (r *accountRepository) updateAccount(
@@ -467,6 +468,7 @@ func (r *accountRepository) updateAccount(
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
 	recoverCursorRefresh bool,
+	configurationOnly bool,
 ) error {
 	if account == nil {
 		return nil
@@ -499,6 +501,7 @@ func (r *accountRepository) updateAccount(
 		explicitRateSyncEnabled,
 		explicitRateMultiplier,
 		recoverCursorRefresh,
+		configurationOnly,
 	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
@@ -529,10 +532,33 @@ func (r *accountRepository) updateLockedAccount(
 	explicitRateSyncEnabled *bool,
 	explicitRateMultiplier *float64,
 	recoverCursorRefresh bool,
+	configurationOnly bool,
 ) (*dbent.Account, error) {
 	extra, err := lockAndMergeAccountProbeExtra(ctx, client, account, explicitProbeEnabled, explicitRateSyncEnabled)
 	if err != nil {
 		return nil, err
+	}
+	if configurationOnly {
+		// lockAndMergeAccountProbeExtra already holds the row lock. Read runtime
+		// fields here, after concurrent quota/window writers have committed.
+		current, err := client.Account.Get(ctx, account.ID)
+		if err != nil {
+			return nil, err
+		}
+		mergeAccountRuntimeExtra(extra, current.Extra)
+		if credentials, ok := service.MergeAccountCredentialChanges(ctx, current.Credentials); ok {
+			account.Credentials = credentials
+		}
+		account.LastUsedAt = current.LastUsedAt
+		account.RateLimitedAt = current.RateLimitedAt
+		account.RateLimitResetAt = current.RateLimitResetAt
+		account.OverloadUntil = current.OverloadUntil
+		account.SessionWindowStart = current.SessionWindowStart
+		account.SessionWindowEnd = current.SessionWindowEnd
+		account.SessionWindowStatus = ""
+		if current.SessionWindowStatus != nil {
+			account.SessionWindowStatus = *current.SessionWindowStatus
+		}
 	}
 	account.Extra = extra
 
@@ -800,6 +826,44 @@ func lockAndMergeAccountProbeExtra(
 	return extra, nil
 }
 
+// Configuration owns limits and reset schedules; billing/observation paths own
+// counters, observed windows, capability metadata and managed rate limits.
+func mergeAccountRuntimeExtra(incoming, current map[string]any) {
+	for _, key := range []string{
+		"quota_used", "quota_daily_used", "quota_weekly_used",
+		"quota_daily_start", "quota_weekly_start", "model_rate_limits",
+		"session_window_utilization", "passive_usage_7d_utilization", "passive_usage_7d_reset",
+		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset", "passive_usage_sampled_at",
+		"grok_usage_snapshot", "grok_billing_snapshot", "codex_auto_reset_credit_state",
+		"codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_window_minutes",
+		"codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_window_minutes",
+		"codex_primary_over_secondary_percent", "codex_usage_updated_at",
+		"codex_5h_used_percent", "codex_5h_reset_after_seconds", "codex_5h_window_minutes", "codex_5h_reset_at",
+		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_window_minutes", "codex_7d_reset_at",
+		service.UpstreamModelMetadataExtraKey,
+	} {
+		delete(incoming, key)
+		if value, ok := current[key]; ok {
+			incoming[key] = value
+		}
+	}
+	for _, window := range []string{"daily", "weekly"} {
+		unchanged := true
+		for _, key := range []string{"quota_reset_timezone", "quota_" + window + "_reset_mode", "quota_" + window + "_reset_hour", "quota_" + window + "_reset_day"} {
+			if !reflect.DeepEqual(incoming[key], current[key]) {
+				unchanged = false
+			}
+		}
+		if unchanged {
+			key := "quota_" + window + "_reset_at"
+			delete(incoming, key)
+			if value, ok := current[key]; ok {
+				incoming[key] = value
+			}
+		}
+	}
+}
+
 func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return nil, false, nil
@@ -809,6 +873,49 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 		return nil, false, err
 	}
 	return value, true, nil
+}
+
+// MergeDiscoveredModelMapping is the explicit compatibility action for callers
+// that want discovery applied immediately. UPDATE acquires the row lock and
+// evaluates both credentials and model_mapping against the current row.
+func (r *accountRepository) MergeDiscoveredModelMapping(ctx context.Context, id int64, models []string) error {
+	mapping := make(map[string]string, len(models))
+	for _, model := range models {
+		mapping[model] = model
+	}
+	encoded, err := json.Marshal(mapping)
+	if err != nil {
+		return err
+	}
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE accounts SET credentials = jsonb_set(
+		COALESCE(credentials, '{}'::jsonb), '{model_mapping}',
+		$2::jsonb || CASE WHEN jsonb_typeof(credentials->'model_mapping') = 'object'
+		THEN credentials->'model_mapping' ELSE '{}'::jsonb END, true
+	), updated_at = NOW() WHERE id = $1 AND deleted_at IS NULL`, id, string(encoded))
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return service.ErrAccountNotFound
+	}
+	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := enqueueSchedulerOutbox(txCtx, tx.Client(), service.SchedulerOutboxEventAccountChanged, &id, nil, nil); err != nil {
+		return err
+	}
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+	r.syncSchedulerAccountSnapshot(ctx, id)
+	return nil
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {

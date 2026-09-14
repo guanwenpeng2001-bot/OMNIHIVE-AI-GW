@@ -146,7 +146,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -179,6 +179,8 @@ const searchQuery = ref('')
 const customModel = ref('')
 const isComposing = ref(false)
 const isSyncingUpstream = ref(false)
+let disposed = false
+onUnmounted(() => { disposed = true })
 const normalizedPlatforms = computed(() => {
   const rawPlatforms =
     props.platforms && props.platforms.length > 0
@@ -315,17 +317,20 @@ const syncUpstreamModels = async () => {
   if (isSyncingUpstream.value) return
   if (!props.accountId && !props.syncCredentials) return
 
+  const accountId = props.accountId
+  const platform = props.platform
   isSyncingUpstream.value = true
   try {
     let result
     if (props.accountId) {
-      result = await accountsAPI.syncUpstreamModels(props.accountId)
+      result = await accountsAPI.syncUpstreamModels(props.accountId, false)
     } else if (props.syncCredentials) {
       result = await accountsAPI.syncUpstreamModelsPreview(props.syncCredentials as SyncUpstreamPreviewParams)
     } else {
       return
     }
 
+    if (disposed || props.accountId !== accountId || props.platform !== platform) return
     const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
     if (normalizedPlatforms.value.includes('cursor')) cursorCatalog.value = upstreamModels
     if (upstreamModels.length === 0) {
