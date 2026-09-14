@@ -19,6 +19,52 @@ import (
 const testBatchLine = `{"custom_id":"one","method":"POST","url":"/v1/chat/ds-test","body":{"model":"batch-test-model","messages":[{"role":"user","content":"Hello"}]}}`
 const testBatchResult = `{"custom_id":"one","error":null,"response":{"status_code":200,"body":{"model":"batch-test-model","usage":{"prompt_tokens":20,"completion_tokens":6,"total_tokens":26}}}}`
 
+func TestQianwenResourceFailureTransport(tester *testing.T) {
+	const failureBody = `{"error":{"message":"The user information is not completed."}}`
+	const failureMessage = "DashScope rejected resource request (HTTP 400): The user information is not completed."
+	account := qianwenTestAccount()
+	account.Status = StatusActive
+	for _, status := range []int{429, 500, 503} {
+		gateway := &OpenAIGatewayService{httpUpstream: &httpUpstreamRecorder{responses: []*http.Response{qianwenModelPage(failureBody, status)}}}
+		update, requestErr := gateway.SubmitQianwenFile(context.Background(), account, []byte(testBatchLine))
+		require.Empty(tester, update.Status)
+		require.EqualError(tester, requestErr, "resource upstream temporarily unavailable: The user information is not completed.")
+	}
+	_, snapshot, err := ValidateQianwenBatchFile([]byte(testBatchLine))
+	require.NoError(tester, err)
+	job := &UpstreamJob{Platform: PlatformQianwen, Family: "batch", AccountID: account.ID, UpstreamTaskID: "batch-1", Billing: UpstreamJobBilling{Model: QianwenBatchTestModel, FileBatch: snapshot}}
+	for _, operation := range []string{"upload", "submit", "poll", "result", "content"} {
+		tester.Run(operation, func(tester *testing.T) {
+			upstream := &httpUpstreamRecorder{}
+			if operation == "result" {
+				upstream.responses = append(upstream.responses, qianwenModelPage(`{"id":"batch-1","status":"completed","output_file_id":"result-1","request_counts":{"total":1,"completed":1,"failed":0}}`, 200))
+			}
+			upstream.responses = append(upstream.responses, qianwenModelPage(failureBody, 400))
+			gateway := &OpenAIGatewayService{httpUpstream: upstream, accountRepo: &fileBatchAccountRepo{account: account}}
+			var update UpstreamJobUpdate
+			var requestErr error
+			switch operation {
+			case "upload":
+				update, requestErr = gateway.SubmitQianwenFile(context.Background(), account, []byte(testBatchLine))
+			case "submit":
+				update, requestErr = gateway.SubmitQianwenBatch(context.Background(), account, job)
+			case "poll", "result":
+				update, requestErr = gateway.PollQianwenJob(context.Background(), job)
+			case "content":
+				contentJob := *job
+				contentJob.Status, contentJob.ResultRef = "succeeded", "result-1"
+				_, requestErr = gateway.QianwenResourceContent(context.Background(), &contentJob)
+				require.EqualError(tester, requestErr, "resource content unavailable: The user information is not completed.")
+				return
+			}
+			require.NoError(tester, requestErr)
+			require.Equal(tester, "failed", update.Status)
+			require.Equal(tester, "upstream_rejected", update.ErrorCode)
+			require.Equal(tester, failureMessage, update.ErrorMessage)
+		})
+	}
+}
+
 func TestQianwenBatchFileValidation(t *testing.T) {
 	canonical, snapshot, err := ValidateQianwenBatchFile([]byte(testBatchLine))
 	require.NoError(t, err)
