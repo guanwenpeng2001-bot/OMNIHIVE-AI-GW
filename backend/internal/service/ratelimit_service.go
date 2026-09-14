@@ -394,6 +394,12 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
 
+	if account.IsCommandCode() {
+		if handled, disable := s.handleCommandCodeError(ctx, account, statusCode, responseBody); handled {
+			return disable
+		}
+	}
+
 	switch statusCode {
 	case 400:
 		// "organization has been disabled" → 永久禁用

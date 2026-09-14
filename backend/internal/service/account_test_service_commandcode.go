@@ -83,8 +83,8 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 			if code := commandCodePlanError(resp.StatusCode, responseBody); code != "" {
 				return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code plan does not grant access (%d %s): %s", resp.StatusCode, code, responseBody))
 			}
-			if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
-				_ = s.accountRepo.SetError(c.Request.Context(), account.ID, "Command Code authentication failed (401)")
+			if isCommandCodeInvalidCredential(resp.StatusCode, responseBody) && s.accountRepo != nil {
+				_ = s.accountRepo.SetError(c.Request.Context(), account.ID, fmt.Sprintf("Command Code authentication failed (%d)", resp.StatusCode))
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code inference returned %d: %s", resp.StatusCode, responseBody))
 		}

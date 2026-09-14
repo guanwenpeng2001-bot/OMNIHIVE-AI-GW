@@ -90,9 +90,15 @@ func (s *OpenAIGatewayService) failoverOpenAIUpstreamHTTPError(
 ) *UpstreamFailoverError {
 	if account.IsCommandCode() {
 		if commandCodePlanError(resp.StatusCode, respBody) != "" {
+			if s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel) {
+				return s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMsg, true, false)
+			}
 			return nil
 		}
 		if isCommandCodeTransientUpstreamError(resp.StatusCode, respBody) {
+			if s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, upstreamModel) {
+				return s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMsg, true, false)
+			}
 			failure := s.newOpenAIAccountFailoverError(account, http.StatusBadGateway, resp.Header, respBody, upstreamMsg, false, true)
 			failure.RequestScopedTransient = true
 			failure.Scope = GatewayFailureScopeRequest

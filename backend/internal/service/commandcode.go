@@ -89,8 +89,13 @@ func commandCodePlanError(status int, body []byte) string {
 }
 func isCommandCodeTransientUpstreamError(status int, body []byte) bool {
 	if status == http.StatusForbidden {
+		if commandCodePlanError(status, body) != "" || isCommandCodeInvalidCredential(status, body) {
+			return false
+		}
 		text := strings.ToLower(string(body))
 		return strings.Contains(text, "site owner has blocked access") ||
+			((strings.Contains(text, "<html") || strings.Contains(text, "<!doctype html")) &&
+				(strings.Contains(text, "cf-chl-") || strings.Contains(text, "cloudflare") && strings.Contains(text, "just a moment"))) ||
 			strings.Contains(text, "blocked access based on your browser") ||
 			(strings.Contains(text, "browser") && strings.Contains(text, "signature") && (strings.Contains(text, "blocked") || strings.Contains(text, "forbidden")))
 	}
