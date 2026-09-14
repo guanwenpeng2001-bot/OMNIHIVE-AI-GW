@@ -510,6 +510,20 @@ export default {
 
     // Usage Records
     usage: {
+      settlement: {
+        title: 'Settlement recovery',
+        pending: 'Pending settlement',
+        review: 'Needs manual review',
+        historical: 'Historical zero-cost records without receipts (manual review only)',
+        boundary: 'Recovery starts after the first receipt is saved. If the process exits or the database is unavailable before then, upstream usage may be lost and requires manual review. The count below includes only unconfirmed writes recorded by this instance since startup.',
+        failures: 'Unconfirmed database writes',
+        locate: 'Request ID',
+        refresh: 'Find / refresh',
+        next: 'Next 100',
+        failed: 'Failed to load settlement status',
+        empty: 'No matching receipts',
+        separate: 'Receipt counts are shown separately and excluded from usage totals and exports.'
+      },
       title: 'Usage Records',
       description: 'View and manage all user usage records',
       userFilter: 'User',
