@@ -110,7 +110,7 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 		return nil, err
 	}
 	frozenPricing := j.Billing.PricingSnapshot
-	if err = fn(j, &upstreamJobTx{tx: tx}); err != nil {
+	if err = fn(j, &upstreamJobTx{tx: tx, job: j}); err != nil {
 		return nil, err
 	}
 	if frozenPricing != "" && j.Billing.PricingSnapshot != frozenPricing {
@@ -151,11 +151,21 @@ func (r *upstreamJobRepository) Expire(ctx context.Context, now time.Time) (int6
 	return result.RowsAffected()
 }
 
-type upstreamJobTx struct{ tx *sql.Tx }
+type upstreamJobTx struct {
+	tx  *sql.Tx
+	job *service.UpstreamJob
+}
 
 func (t *upstreamJobTx) Charge(ctx context.Context, log *service.UsageLog, cmd *service.UsageBillingCommand) error {
 	// Reuse the canonical insert shape and billing effects on THIS transaction.
 	// Job lock + anchor guard the whole operation; no best-effort worker is used.
+	if t.job != nil {
+		log.QuotaPlatform = t.job.Platform
+		// The persisted terminal usage time survives recovery on a different day.
+		if t.job.FinishedAt != nil {
+			log.CreatedAt = *t.job.FinishedAt
+		}
+	}
 	inserted, err := (&usageLogRepository{}).createSingle(ctx, t.tx, log)
 	if err != nil {
 		return err
@@ -164,5 +174,9 @@ func (t *upstreamJobTx) Charge(ctx context.Context, log *service.UsageLog, cmd *
 		return errors.New("unexpected existing usage log for unsettled job")
 	}
 	cmd.Normalize()
-	return (&usageBillingRepository{}).applyUsageBillingEffects(ctx, t.tx, cmd, &service.UsageBillingApplyResult{Applied: true})
+	if err := (&usageBillingRepository{}).applyUsageBillingEffects(ctx, t.tx, cmd, &service.UsageBillingApplyResult{Applied: true}); err != nil {
+		return err
+	}
+
+	return InsertUserPlatformQuotaEvent(ctx, t.tx, log)
 }

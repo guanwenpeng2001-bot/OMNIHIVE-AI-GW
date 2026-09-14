@@ -716,7 +716,7 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 	ctx, cancel := context.WithTimeout(context.Background(), cacheWriteTimeout)
 	defer cancel()
 	ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
-	markDirty := s.cfg.Database.UserPlatformQuotaFlusherEnabled
+	markDirty := s.quotaSnapshotsEnabled()
 	if err := s.cache.IncrUserPlatformQuotaUsageCache(ctx, userID, platform, cost, ttl, markDirty); err != nil {
 		logger.LegacyPrintf("service.billing_cache",
 			"ALERT: incr user platform quota cache failed user=%d platform=%s cost=%f: %v",
@@ -1113,7 +1113,7 @@ func (s *BillingCacheService) checkUserPlatformQuotaEligibility(
 			quotaWindowExpired(entry.WeeklyWindowStart, timezone.StartOfWeek(now)) || monthlyQuotaWindowExpired(entry.MonthlyWindowStart, now)) {
 			ttl := time.Duration(s.cfg.Billing.UserPlatformQuotaCacheTTLSeconds) * time.Second
 			refreshCtx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-			err := s.cache.IncrUserPlatformQuotaUsageCache(refreshCtx, userID, platform, 0, ttl, s.cfg.Database.UserPlatformQuotaFlusherEnabled)
+			err := s.cache.IncrUserPlatformQuotaUsageCache(refreshCtx, userID, platform, 0, ttl, s.quotaSnapshotsEnabled())
 			if err == nil {
 				var refreshed *UserPlatformQuotaCacheEntry
 				refreshed, _, err = s.cache.GetUserPlatformQuotaCache(refreshCtx, userID, platform)
@@ -1339,4 +1339,12 @@ func (s *BillingCacheService) HasUserPlatformQuotaLimit(ctx context.Context, use
 		return true
 	}
 	return entry.DailyLimitUSD != nil || entry.WeeklyLimitUSD != nil || entry.MonthlyLimitUSD != nil
+}
+
+// Durable consumers read PostgreSQL events, so Redis dirty snapshots are unused.
+func (s *BillingCacheService) quotaSnapshotsEnabled() bool {
+	if _, ok := s.userPlatformQuotaRepo.(quotaEventConsumer); ok {
+		return false
+	}
+	return s.cfg != nil && s.cfg.Database.UserPlatformQuotaFlusherEnabled
 }

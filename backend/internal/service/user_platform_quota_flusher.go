@@ -11,6 +11,10 @@ import (
 )
 
 // quotaDirtyCache 是 flusher 依赖的窄接口（来自 BillingCache）。
+type quotaEventConsumer interface {
+	ConsumeQuotaEvents(context.Context, int, func(context.Context, int64, string) error) (int, error)
+}
+
 type quotaDirtyCache interface {
 	PopDirtyUserPlatformQuotaKeys(ctx context.Context, n int) ([]UserPlatformQuotaKey, error)
 	ReaddDirtyUserPlatformQuotaKeys(ctx context.Context, keys []UserPlatformQuotaKey) error
@@ -47,12 +51,14 @@ const maxFlushBatchSize = 6000
 // defaultFlushBatchSize 是配置 flush_batch_size 非法(≤0)时的回退值。
 const defaultFlushBatchSize = 1000
 
-// UserPlatformQuotaUsageFlusher 将 Redis 脏集快照定期批量写入 DB。
-// 不维护任何 delta/in-process 状态；每批读取 Redis 当前绝对值覆盖写入。
+// UserPlatformQuotaUsageFlusher replays durable quota events in production.
+// The snapshot implementation remains only for adapters without the event port.
 type UserPlatformQuotaUsageFlusher struct {
-	cache       quotaDirtyCache
-	quotaRepo   quotaSnapshotWriter
-	timingWheel *TimingWheelService
+	cache         quotaDirtyCache
+	eventConsumer quotaEventConsumer
+	invalidate    func(context.Context, int64, string) error
+	quotaRepo     quotaSnapshotWriter
+	timingWheel   *TimingWheelService
 	// enabled 对应 flusher_enabled 配置；false 时 Start() 不注册定时器。
 	enabled      bool
 	interval     time.Duration
@@ -80,15 +86,22 @@ func NewUserPlatformQuotaUsageFlusher(cfg *config.Config, cache BillingCache, qu
 		logger.LegacyPrintf("quota_flusher", "[QuotaFlusher] flush_interval_ms %d 非法,回退 2000ms", cfg.Database.UserPlatformQuotaFlushIntervalMs)
 		interval = 2 * time.Second
 	}
+	consumer, _ := quotaRepo.(quotaEventConsumer)
+	invalidate := func(context.Context, int64, string) error { return errors.New("quota cache unavailable") }
+	if cache != nil {
+		invalidate = cache.DeleteUserPlatformQuotaCache
+	}
 	return &UserPlatformQuotaUsageFlusher{
-		cache:        cache,
-		quotaRepo:    quotaRepo,
-		timingWheel:  tw,
-		enabled:      cfg.Database.UserPlatformQuotaFlusherEnabled,
-		interval:     interval,
-		batchSize:    batchSize,
-		flushTimeout: 3 * time.Second,
-		metrics:      &FlusherMetrics{},
+		eventConsumer: consumer,
+		invalidate:    invalidate,
+		cache:         cache,
+		quotaRepo:     quotaRepo,
+		timingWheel:   tw,
+		enabled:       cfg.Database.UserPlatformQuotaFlusherEnabled,
+		interval:      interval,
+		batchSize:     batchSize,
+		flushTimeout:  3 * time.Second,
+		metrics:       &FlusherMetrics{},
 	}
 }
 
@@ -227,6 +240,19 @@ func (s *UserPlatformQuotaUsageFlusher) flush() {
 	if s == nil {
 		return
 	}
+	if s.eventConsumer != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), s.flushTimeout)
+		defer cancel()
+		n, err := s.eventConsumer.ConsumeQuotaEvents(ctx, s.batchSize, s.invalidate)
+		if err != nil {
+			s.metrics.FlushErrorTotal.Add(1)
+			logger.LegacyPrintf("quota_flusher", "quota event replay failed: %v", err)
+		} else {
+			s.metrics.FlushSuccessTotal.Add(1)
+			s.metrics.FlushBatchSizeTotal.Add(int64(n))
+		}
+		return
+	}
 	parentCtx := context.Background()
 	for b := 0; b < flusherMaxBatchesPerTick; b++ {
 		if !s.flushOneBatch(parentCtx) {
@@ -251,7 +277,7 @@ func (s *UserPlatformQuotaUsageFlusher) tick() {
 
 // Start 注册定时 tick。flusher_enabled=false 时直接返回，不注册定时器。
 func (s *UserPlatformQuotaUsageFlusher) Start() {
-	if s == nil || !s.enabled {
+	if s == nil || (!s.enabled && s.eventConsumer == nil) {
 		return
 	}
 	s.timingWheel.ScheduleRecurring("deferred:platform_quota", s.interval, s.tick)
