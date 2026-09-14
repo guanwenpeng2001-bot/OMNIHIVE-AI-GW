@@ -571,6 +571,14 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	var key *APIKey
+	if value, found := c.Get("api_key"); found {
+		key, _ = value.(*APIKey)
+	}
+	model := account.GetMappedModel(firstNonEmpty(channelMappedModel, parsed.Model))
+	if err := s.validateOpenAIImagePricing(ctx, key, model, parsed.Size); err != nil {
+		return nil, err
+	}
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)

@@ -80,7 +80,8 @@ func QianwenRealtimeCharacters(raw []byte) (int64, error) {
 	return n, nil
 }
 
-func QianwenRealtimeCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
+func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(j, chargeErr) }()
 	b := j.Billing
 	r := b.Realtime
 	if j.Platform != PlatformQianwen || r == nil || r.SessionID == "" || r.PriceVersion != QianwenRealtimePriceVersion || !IsQianwenRealtimeModel(b.Model) || !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) {
@@ -107,7 +108,7 @@ func QianwenRealtimeCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 	}
 	mode, source, version := "realtime", "dashscope-official-usd-"+r.Region, r.PriceVersion
 	tier := fmt.Sprintf("qwen3_tts_characters:%d", n)
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &accountCost, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
+	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &total, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: "realtime", BalanceCost: actual}
 	if b.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
@@ -124,6 +125,9 @@ func QianwenRealtimeCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 	}
 	if b.AccountQuota {
 		cmd.AccountQuotaCost = accountCost
+	}
+	if err := freezeJobPricing(j, log, PricingSnapshot{UnitPrice: &b.UnitPrice, Units: float64(n), SizeTier: "characters"}); err != nil {
+		return nil, nil, err
 	}
 	return log, cmd, nil
 }

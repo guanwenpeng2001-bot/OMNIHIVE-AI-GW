@@ -29,7 +29,8 @@ type ResolvedPricing struct {
 	RequestTiers []PricingInterval
 
 	// 按次/图片模式：默认价格（未命中层级时使用）
-	DefaultPerRequestPrice float64
+	DefaultPerRequestPrice      float64
+	DefaultPerRequestPriceFound bool
 
 	// 来源标识
 	Source string // "channel", "litellm", "fallback"
@@ -299,6 +300,7 @@ func (r *ModelPricingResolver) applyRequestTierOverrides(chPricing *ChannelModel
 	resolved.RequestTiers = filterValidIntervals(chPricing.Intervals)
 	if chPricing.PerRequestPrice != nil {
 		resolved.DefaultPerRequestPrice = *chPricing.PerRequestPrice
+		resolved.DefaultPerRequestPriceFound = true
 	}
 }
 
@@ -435,4 +437,21 @@ func (r *ModelPricingResolver) GetRequestTierPriceByContext(resolved *ResolvedPr
 		return *iv.PerRequestPrice
 	}
 	return 0
+}
+
+// LookupRequestTierPrice preserves explicit zero prices.
+func (r *ModelPricingResolver) LookupRequestTierPrice(resolved *ResolvedPricing, label string) (float64, bool) {
+	for _, tier := range resolved.RequestTiers {
+		if tier.TierLabel == label && tier.PerRequestPrice != nil {
+			return *tier.PerRequestPrice, true
+		}
+	}
+	return 0, false
+}
+func (r *ModelPricingResolver) LookupRequestTierPriceByContext(resolved *ResolvedPricing, tokens int) (float64, bool) {
+	interval := FindMatchingInterval(resolved.RequestTiers, tokens)
+	if interval != nil && interval.PerRequestPrice != nil {
+		return *interval.PerRequestPrice, true
+	}
+	return 0, false
 }

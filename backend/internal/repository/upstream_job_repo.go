@@ -80,8 +80,15 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 	if err != nil {
 		return nil, err
 	}
+	frozenPricing := j.Billing.PricingSnapshot
 	if err = fn(j, &upstreamJobTx{tx: tx}); err != nil {
 		return nil, err
+	}
+	if frozenPricing != "" && j.Billing.PricingSnapshot != frozenPricing {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+	if j.Billing.PricingSnapshot != "" && !json.Valid([]byte(j.Billing.PricingSnapshot)) {
+		return nil, errors.New("invalid frozen pricing snapshot")
 	}
 	var usage any
 	if len(j.UsageJSON) > 0 {
@@ -91,7 +98,14 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12,resource_state=$13 WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage, string(resourceState))
+	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12,resource_state=$13,
+ billing_snapshot=CASE WHEN $14::text='' THEN billing_snapshot ELSE
+ jsonb_set(
+  CASE WHEN COALESCE(billing_snapshot->>'pricing_snapshot','')='' AND $15::text<>''
+   THEN jsonb_set(billing_snapshot,'{pricing_snapshot}',to_jsonb($15::text),true)
+   ELSE billing_snapshot END,
+  '{pricing_state}',to_jsonb($14::text),true) END
+ WHERE id=$1`, j.ID, j.UpstreamTaskID, j.Status, j.AttemptCount, j.LastPolledAt, j.NextPollAt, j.FinishedAt, j.ResultRef, usage, j.ChargedUsageLogID, j.ErrorCode, j.ErrorMessage, string(resourceState), string(j.Billing.PricingState), j.Billing.PricingSnapshot)
 	if err != nil {
 		return nil, err
 	}

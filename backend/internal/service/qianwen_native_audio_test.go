@@ -110,7 +110,7 @@ func TestQianwenNativeAudioFailClosed(t *testing.T) {
 }
 
 func TestQianwenNativeAudioMissingPriceNeverCallsUpstream(t *testing.T) {
-	for _, rate := range []*float64{nil, func() *float64 { v := 0.0; return &v }(), func() *float64 { v := math.NaN(); return &v }()} {
+	for _, rate := range []*float64{nil, func() *float64 { v := -1.0; return &v }(), func() *float64 { v := math.NaN(); return &v }()} {
 		u := &httpUpstreamRecorder{}
 		s := &OpenAIGatewayService{httpUpstream: u}
 		key := audioTestKey()
@@ -119,7 +119,7 @@ func TestQianwenNativeAudioMissingPriceNeverCallsUpstream(t *testing.T) {
 		c.Request = httptest.NewRequest("POST", QianwenNativeMultimodalPath, nil)
 		c.Set("api_key", key)
 		result, err := s.ForwardQianwenNative(context.Background(), c, qianwenTestAccount(), QianwenNativeMultimodal, []byte(audioTTSRequest), false)
-		require.ErrorContains(t, err, "positive explicit group audio rate")
+		require.ErrorContains(t, err, "explicit nonnegative group audio rate")
 		require.Nil(t, result)
 		require.Empty(t, u.requests)
 		require.Equal(t, 400, c.Writer.Status())
@@ -190,6 +190,6 @@ func TestQianwenNativeAudioRecordUsageMissingPriceIsError(t *testing.T) {
 	key.Group.AudioTTSPricePerMillionChars = nil
 	result := &OpenAIForwardResult{Model: "qwen3-tts-flash", UpstreamModel: "qwen3-tts-flash", UpstreamEndpoint: QianwenNativeMultimodalPath, AudioUsage: &AudioUsage{Mode: "tts", DurationOrUnits: 3.0 / 1e6}}
 	err := billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, Account: qianwenTestAccount(), User: &User{ID: 20123}, APIKey: key})
-	require.ErrorContains(t, err, "positive explicit group audio rate")
+	require.ErrorContains(t, err, "explicit nonnegative group audio rate")
 	require.Nil(t, repo.lastLog)
 }

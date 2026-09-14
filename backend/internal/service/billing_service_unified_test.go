@@ -339,7 +339,7 @@ func TestCalculateCostUnified_RateMultiplierZeroProducesZero(t *testing.T) {
 
 // TestCalculateCostUnified_NegativeRateMultiplierClampedToZero 锁定新行为：
 // 负数倍率按 0 计费，避免历史的 <=0 → 1.0 把配置异常静默按标准价扣费。
-func TestCalculateCostUnified_NegativeRateMultiplierClampedToZero(t *testing.T) {
+func TestCalculateCostUnified_NegativeRateMultiplierRejected(t *testing.T) {
 	bs := newTestBillingService()
 	resolver := NewModelPricingResolver(nil, bs)
 
@@ -352,8 +352,8 @@ func TestCalculateCostUnified_NegativeRateMultiplierClampedToZero(t *testing.T) 
 		RateMultiplier: -5.0,
 		Resolver:       resolver,
 	})
-	require.NoError(t, err)
-	require.Greater(t, cost.TotalCost, 0.0)
+	require.ErrorIs(t, err, ErrInvalidBillingAmount)
+	require.Equal(t, PricingStateError, cost.PricingState)
 	require.InDelta(t, 0.0, cost.ActualCost, 1e-10)
 }
 

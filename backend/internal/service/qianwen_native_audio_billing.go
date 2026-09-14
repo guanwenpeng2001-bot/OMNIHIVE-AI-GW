@@ -29,8 +29,8 @@ func (s *OpenAIGatewayService) qianwenNativeAudioPrice(ctx context.Context, key 
 	default:
 		return nil, fmt.Errorf("unsupported DashScope audio billing model")
 	}
-	if price == nil || !positiveFinite(*price) {
-		return nil, fmt.Errorf("unsupported DashScope audio: a positive explicit group audio rate is required (TTS USD/million characters; ASR USD/hour)")
+	if price == nil || !validBillingNumber(*price) {
+		return nil, fmt.Errorf("unsupported DashScope audio: an explicit nonnegative group audio rate is required (TTS USD/million characters; ASR USD/hour)")
 	}
 	return cfg, nil
 }
@@ -49,7 +49,7 @@ func (s *OpenAIGatewayService) calculateQianwenNativeAudioCost(ctx context.Conte
 		return nil, fmt.Errorf("invalid DashScope audio billing units or multiplier")
 	}
 	cost := s.billingService.CalculateAudioCost(u.Mode, u.DurationOrUnits, cfg, multiplier)
-	if !positiveFinite(cost.TotalCost) {
+	if cost.PricingState == PricingStateError || ValidateUsageBillingAmount(cost.TotalCost) != nil {
 		return nil, fmt.Errorf("invalid DashScope audio cost")
 	}
 	cost.PriceSource = "qianwen_audio_group"
@@ -67,7 +67,7 @@ func recordQianwenNativeAudioUnits(log *UsageLog, result *OpenAIForwardResult) {
 	if result.AudioUsage.Mode == "tts" {
 		field, scale = "characters", 1_000_000
 	}
-	label := fmt.Sprintf("qianwen_audio_v1:%s=%.0f", field, result.AudioUsage.DurationOrUnits*scale)
+	label := fmt.Sprintf("qianwen_audio_v1:%s=%g", field, result.AudioUsage.DurationOrUnits*scale)
 	log.BillingTier = &label
 	if log.TotalCost > 0 {
 		log.RateMultiplier = log.ActualCost / log.TotalCost

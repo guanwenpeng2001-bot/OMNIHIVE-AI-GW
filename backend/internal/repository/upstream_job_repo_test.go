@@ -68,6 +68,39 @@ func TestUpstreamJobPostgres(t *testing.T) {
 		require.InDelta(t, 100-wantBalance, quota, 1e-8)
 		require.Equal(t, quota, rate)
 	}
+	t.Run("frozen_pricing_survives_database_reload", func(t *testing.T) {
+		input := fixture(t)
+		svc := service.NewUpstreamJobService(repo, nil, service.QianwenVideoJobCharge)
+		job, err := svc.Submit(ctx, input, []byte(`{"model":"wan2.6-t2v","input":{"prompt":"frozen"}}`), func(context.Context) (service.UpstreamJobUpdate, error) {
+			return service.UpstreamJobUpdate{TaskID: "upstream-1", Status: "submitted"}, nil
+		})
+		require.NoError(t, err)
+		_, err = svc.Settle(ctx, job.PublicRequestID, success)
+		require.NoError(t, err)
+		loaded, err := NewUpstreamJobRepository(db).Get(ctx, job.PublicRequestID, input.UserID, input.APIKeyID)
+		require.NoError(t, err)
+		require.Equal(t, service.PricingStatePriced, loaded.Billing.PricingState)
+		require.NotEmpty(t, loaded.Billing.PricingSnapshot)
+		replay, err := service.RecalculatePricingSnapshot(loaded.Billing.PricingSnapshot)
+		require.NoError(t, err)
+		require.Equal(t, .5, replay.ActualCost)
+		frozen := loaded.Billing.PricingSnapshot
+		_, err = repo.WithLocked(ctx, job.PublicRequestID, func(updated *service.UpstreamJob, _ service.UpstreamJobTx) error {
+			updated.Billing.PricingSnapshot = `{"changed":true}`
+			return nil
+		})
+		require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
+		_, err = repo.WithLocked(ctx, job.PublicRequestID, func(updated *service.UpstreamJob, _ service.UpstreamJobTx) error {
+			updated.Billing.UnitPrice = 999 // ordinary UPDATE must not rewrite admission rates
+			return nil
+		})
+		require.NoError(t, err)
+		reloaded, err := repo.Get(ctx, job.PublicRequestID, input.UserID, input.APIKeyID)
+		require.NoError(t, err)
+		require.Equal(t, frozen, reloaded.Billing.PricingSnapshot)
+		require.Equal(t, .1, reloaded.Billing.UnitPrice)
+		checkMoney(t, reloaded, 1, 99.5)
+	})
 	t.Run("concurrent_submit_poll_settle_restart", func(t *testing.T) {
 		input := fixture(t)
 		var submits, polls atomic.Int32
