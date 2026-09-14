@@ -245,6 +245,12 @@ func (r *ModelPricingResolver) applyChannelOverrides(ctx context.Context, groupI
 // applyTokenOverrides 应用 token 模式的渠道覆盖
 func (r *ModelPricingResolver) applyTokenOverrides(chPricing *ChannelModelPricing, resolved *ResolvedPricing) {
 	if resolved.BasePricing == nil {
+		// A missing catalog price needs an explicit text tariff. An empty or
+		// partial operator card must not manufacture a free base price.
+		if chPricing.InputPrice == nil || chPricing.OutputPrice == nil {
+			resolved.Intervals = filterValidIntervals(chPricing.Intervals)
+			return
+		}
 		resolved.BasePricing = &ModelPricing{}
 	} else {
 		// 防止修改 fallbackPrices 中的共享指针
@@ -349,11 +355,14 @@ func (r *ModelPricingResolver) GetIntervalPricing(resolved *ResolvedPricing, tot
 	if iv == nil {
 		return resolved.BasePricing
 	}
+	if resolved.BasePricing == nil && (iv.InputPrice == nil || iv.OutputPrice == nil) {
+		return nil
+	}
 
 	pricing := intervalToModelPricing(iv, resolved.BasePricing, resolved.channelPricing)
 	// BasePricing 为 nil（仅配置区间）时拷贝不到该标志，从 resolved 回填，
 	// 保证 computeCacheCreationCost 的 5m/1h 分档判断不被区间路径吞掉。
-	pricing.SupportsCacheBreakdown = resolved.SupportsCacheBreakdown
+	pricing.SupportsCacheBreakdown = pricing.SupportsCacheBreakdown || resolved.SupportsCacheBreakdown
 	return pricing
 }
 

@@ -377,6 +377,62 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		require.NoError(t, db.QueryRow(`SELECT count(*) FROM usage_billing_dedup WHERE request_id=$1 AND api_key_id=$2`, input.Key.RequestID, input.Key.APIKeyID).Scan(&liveDedup))
 		require.Zero(t, liveDedup)
 	})
+	t.Run("operator_card_missing_catalog_settlement", func(testingContext *testing.T) {
+		inputPrice, outputPrice := 2e-6, 6e-6
+		cards := []service.ChannelModelPricing{{Models: []string{"operator-only-model"}, InputPrice: &inputPrice, OutputPrice: &outputPrice}}
+		encoded, marshalErr := json.Marshal(cards)
+		require.NoError(testingContext, marshalErr)
+		var groupID int64
+		require.NoError(testingContext, db.QueryRow(`INSERT INTO groups(name,platform,model_pricing) VALUES($1,'openai',$2) RETURNING id`, "operator-price-"+uuid.NewString(), string(encoded)).Scan(&groupID))
+		billing := service.NewBillingService(nil, nil)
+		for _, configured := range []bool{true, false} {
+			if !configured {
+				_, updateErr := db.Exec(`UPDATE groups SET model_pricing='[]' WHERE id=$1`, groupID)
+				require.NoError(testingContext, updateErr)
+			}
+			var storedCard []byte
+			require.NoError(testingContext, db.QueryRow(`SELECT model_pricing FROM groups WHERE id=$1`, groupID).Scan(&storedCard))
+			group := &service.Group{ID: groupID, Platform: service.PlatformOpenAI}
+			require.NoError(testingContext, json.Unmarshal(storedCard, &group.ModelPricing))
+			cost, calculationErr := billing.CalculateTokenCostForRequest(service.TokenCostRequest{Ctx: ctx, Model: "operator-only-model", Group: group, Resolver: service.NewModelPricingResolver(nil, billing), Tokens: service.UsageTokens{InputTokens: 1000, OutputTokens: 100}, RateMultiplier: 1})
+			receipt := fixture(testingContext, cost.ActualCost)
+			receipt.Command.Model, receipt.Usage.Model = "operator-only-model", "operator-only-model"
+			receipt.Usage.PricingState, receipt.Usage.PricingSnapshot = cost.PricingState, cost.PricingSnapshot
+			receipt.Usage.PriceSource = &cost.PriceSource
+			if configured {
+				require.NoError(testingContext, calculationErr)
+				require.Equal(testingContext, service.PricingStatePriced, cost.PricingState)
+				require.InDelta(testingContext, .0026, cost.ActualCost, 1e-12)
+			} else {
+				require.ErrorIs(testingContext, calculationErr, service.ErrModelPricingUnavailable)
+				require.Equal(testingContext, service.PricingStateUnpriced, cost.PricingState)
+				receipt.ResolutionState = "unresolved"
+			}
+			stored, persistErr := repo.Persist(ctx, receipt)
+			require.NoError(testingContext, persistErr)
+			_, settleErr := repo.Settle(ctx, stored.Key, stored.Command.RequestFingerprint)
+			if configured {
+				require.NoError(testingContext, settleErr)
+				check(testingContext, receipt, true)
+				var source string
+				require.NoError(testingContext, db.QueryRow(`SELECT price_source FROM usage_logs WHERE request_id=$1`, receipt.Key.RequestID).Scan(&source))
+				require.Equal(testingContext, "group", source)
+				loadedReceipt, loadErr := repo.Get(ctx, receipt.Key)
+				require.NoError(testingContext, loadErr)
+				require.Contains(testingContext, loadedReceipt.Usage.PricingSnapshot, `"source":"group"`)
+			} else {
+				require.ErrorIs(testingContext, settleErr, service.ErrUsageSettlementNeedsReview)
+				require.Equal(testingContext, service.UsageSettlementNeedsReview, stored.State)
+				var balance float64
+				var logCount int
+				require.NoError(testingContext, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, receipt.Key.UserID).Scan(&balance))
+				require.Equal(testingContext, 100.0, balance)
+				require.NoError(testingContext, db.QueryRow(`SELECT count(*) FROM usage_logs WHERE request_id=$1`, receipt.Key.RequestID).Scan(&logCount))
+				require.Zero(testingContext, logCount, "unknown price must not create a free settled usage log")
+			}
+		}
+	})
+
 	t.Run("free_and_unpriced_remain_distinct", func(t *testing.T) {
 		free := fixture(t, 0)
 		free.CompletionState = "interrupted"
