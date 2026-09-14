@@ -108,7 +108,13 @@ type UpstreamJobService struct {
 }
 
 func NewUpstreamJobService(repo UpstreamJobRepository, poll func(context.Context, *UpstreamJob) (UpstreamJobUpdate, error), charge func(*UpstreamJob) (*UsageLog, *UsageBillingCommand, error)) *UpstreamJobService {
-	return &UpstreamJobService{repo: repo, poll: poll, charge: charge, now: time.Now}
+	return NewUpstreamJobServiceWithClock(repo, poll, charge, time.Now)
+}
+
+// NewUpstreamJobServiceWithClock uses the supplied clock for receipt scheduling,
+// retry budgets and expiry. The clock must be safe for concurrent calls.
+func NewUpstreamJobServiceWithClock(repo UpstreamJobRepository, poll func(context.Context, *UpstreamJob) (UpstreamJobUpdate, error), charge func(*UpstreamJob) (*UsageLog, *UsageBillingCommand, error), now func() time.Time) *UpstreamJobService {
+	return &UpstreamJobService{repo: repo, poll: poll, charge: charge, now: now}
 }
 
 // Fingerprints include tenant, key, group and selected account, in addition to

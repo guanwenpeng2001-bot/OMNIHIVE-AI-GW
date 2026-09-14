@@ -8,13 +8,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
-	_ "github.com/lib/pq"
+	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
@@ -41,13 +42,34 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		}
 		t.Skip("set UPSTREAM_JOB_TEST_DSN to isolated job_test")
 	}
+	admin, err := sql.Open("postgres", dsn)
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, admin.Close()) })
+	var databaseName string
+	require.NoError(t, admin.QueryRow(`SELECT current_database()`).Scan(&databaseName))
+	require.Equal(t, "job_test", databaseName)
+	// Due scans the whole database. Other suites intentionally leave pending
+	// video jobs, so each invocation (including -count) needs its own database.
+	databaseName = "qianwen_realtime_receipt_" + strings.ReplaceAll(uuid.NewString(), "-", "")
+	_, err = admin.Exec(`CREATE DATABASE ` + pq.QuoteIdentifier(databaseName))
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		_, err := admin.Exec(`DROP DATABASE ` + pq.QuoteIdentifier(databaseName) + ` WITH (FORCE)`)
+		require.NoError(t, err)
+	})
+	if strings.HasPrefix(dsn, "postgres://") || strings.HasPrefix(dsn, "postgresql://") {
+		dsn, err = pq.ParseURL(dsn)
+		require.NoError(t, err)
+	}
+	dsn += " dbname=" + databaseName
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
 	defer database.Close()
-	var databaseName string
-	require.NoError(t, database.QueryRow(`SELECT current_database()`).Scan(&databaseName))
-	require.Equal(t, "job_test", databaseName)
 	ctx := context.Background()
+	// Whole seconds survive PostgreSQL's microsecond timestamp precision.
+	// Advance only between operations, after concurrent writers have joined.
+	now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
+	clock := func() time.Time { return now }
 	require.NoError(t, ApplyMigrations(ctx, database))
 	repository := &upstreamJobRepository{db: database}
 	fixture := func(t *testing.T) *service.UpstreamJob {
@@ -60,10 +82,10 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		return session
 	}
 	newService := func(repo service.UpstreamJobRepository) *service.UpstreamJobService {
-		return service.NewUpstreamJobService(repo, func(context.Context, *service.UpstreamJob) (service.UpstreamJobUpdate, error) {
+		return service.NewUpstreamJobServiceWithClock(repo, func(context.Context, *service.UpstreamJob) (service.UpstreamJobUpdate, error) {
 			t.Error("recovery must not contact provider")
 			return service.UpstreamJobUpdate{}, errors.New("unexpected provider poll")
-		}, service.QianwenRealtimeCharge)
+		}, service.QianwenRealtimeCharge, clock)
 	}
 	usage := []byte(`{"characters":25}`)
 	t.Run("first_commit_restart_concurrent_duplicate_and_conflicts", func(t *testing.T) {
@@ -213,8 +235,7 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		require.JSONEq(t, string(usage), string(stored.UsageJSON))
 		require.Equal(t, 1, stored.AttemptCount)
 		require.Equal(t, "settlement_pending", stored.ErrorCode)
-		_, err = database.Exec(`UPDATE upstream_jobs SET next_poll_at=now() WHERE public_request_id=$1`, requestID)
-		require.NoError(t, err)
+		now = stored.NextPollAt
 		recovered, err := newService(&upstreamJobRepository{db: database}).Poll(ctx, requestID)
 		require.NoError(t, err)
 		require.NotNil(t, recovered.ChargedUsageLogID)
@@ -232,20 +253,29 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 				healthy = receipt
 			}
 		}
-		recovering := service.NewUpstreamJobService(repository, nil, func(j *service.UpstreamJob) (*service.UsageLog, *service.UsageBillingCommand, error) {
+		recovering := service.NewUpstreamJobServiceWithClock(repository, nil, func(j *service.UpstreamJob) (*service.UsageLog, *service.UsageBillingCommand, error) {
 			if j.UpstreamTaskID != "fair-20" {
 				return nil, nil, errors.New("injected settlement outage")
 			}
 			return service.QianwenAsyncJobCharge(j)
-		})
+		}, clock)
 		require.Error(t, recovering.PollDue(ctx, 20))
+		due, err := repository.Due(ctx, now, 100)
+		require.NoError(t, err)
+		require.Equal(t, []string{healthy.PublicRequestID}, due, "failed receipts must back off without starving the healthy receipt")
 		require.NoError(t, recovering.PollDue(ctx, 20))
 		stored, err := repository.Get(ctx, healthy.PublicRequestID, session.UserID, session.APIKeyID)
 		require.NoError(t, err)
 		require.NotNil(t, stored.ChargedUsageLogID)
 		for attempt := 1; attempt < 20; attempt++ {
-			_, err := database.Exec(`UPDATE upstream_jobs SET next_poll_at=now() WHERE user_id=$1 AND status='running'`, session.UserID)
+			due, err := repository.Due(ctx, now, 100)
 			require.NoError(t, err)
+			require.Empty(t, due, "failed receipts must remain deferred until their retry time")
+			var next time.Time
+			err = database.QueryRow(`SELECT max(next_poll_at) FROM upstream_jobs WHERE user_id=$1 AND status='running'`, session.UserID).Scan(&next)
+			require.NoError(t, err)
+			require.Equal(t, now.Add(5*time.Second*time.Duration(1<<min(attempt-1, 6))).UTC(), next.UTC())
+			now = next.UTC()
 			require.Error(t, recovering.PollDue(ctx, 20))
 		}
 		var review, charged int
@@ -253,7 +283,7 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		require.Equal(t, 20, review)
 		require.NoError(t, database.QueryRow(`SELECT count(*) FROM usage_logs WHERE user_id=$1`, session.UserID).Scan(&charged))
 		require.Equal(t, 1, charged)
-		due, err := repository.Due(ctx, time.Now().Add(48*time.Hour), 100)
+		due, err = repository.Due(ctx, now.Add(48*time.Hour), 100)
 		require.NoError(t, err)
 		require.Empty(t, due)
 	})
