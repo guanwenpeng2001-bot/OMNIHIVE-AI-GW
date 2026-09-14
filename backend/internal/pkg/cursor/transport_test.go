@@ -38,7 +38,8 @@ func TestAccountProxyRoutesCallFamilies(t *testing.T) {
 		require.Equal(t, "Bearer synthetic-key", request.Header.Get("Authorization"))
 		switch request.URL.Path {
 		case "/auth/exchange_user_api_key":
-			io.WriteString(writer, `{"accessToken":"session","expires_in":3600}`)
+			_, err := io.WriteString(writer, `{"accessToken":"session","expires_in":3600}`)
+			require.NoError(t, err)
 		default:
 			writer.WriteHeader(http.StatusBadGateway)
 		}
@@ -140,7 +141,8 @@ func TestConcurrentAccountProxyIsolation(t *testing.T) {
 		token := token
 		proxyServer := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			require.Equal(t, "Bearer "+token, request.Header.Get("Authorization"))
-			io.WriteString(writer, `{"accessToken":"`+token+`","expires_in":3600}`)
+			_, err := io.WriteString(writer, `{"accessToken":"`+token+`","expires_in":3600}`)
+			require.NoError(t, err)
 		}))
 		defer proxyServer.Close()
 		for range 10 {
@@ -162,15 +164,18 @@ func TestSOCKSProxyRoutesNativeAndHTTP(t *testing.T) {
 		t.Run(fmt.Sprintf("native=%t", native), func(t *testing.T) {
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
-			defer listener.Close()
+			defer func() { _ = listener.Close() }()
 			requested := make(chan string, 1)
 			go func() {
 				connection, err := listener.Accept()
 				if err != nil {
 					return
 				}
-				defer connection.Close()
-				connection.SetDeadline(time.Now().Add(time.Second))
+				defer func() { _ = connection.Close() }()
+				if err := connection.SetDeadline(time.Now().Add(time.Second)); err != nil {
+					t.Error(err)
+					return
+				}
 				greeting := make([]byte, 2)
 				if _, err := io.ReadFull(connection, greeting); err != nil {
 					return
@@ -179,7 +184,10 @@ func TestSOCKSProxyRoutesNativeAndHTTP(t *testing.T) {
 				if _, err := io.ReadFull(connection, methods); err != nil {
 					return
 				}
-				connection.Write([]byte{5, 0})
+				if _, err := connection.Write([]byte{5, 0}); err != nil {
+					t.Error(err)
+					return
+				}
 				request := make([]byte, 5)
 				if _, err := io.ReadFull(connection, request); err != nil {
 					return
@@ -193,7 +201,10 @@ func TestSOCKSProxyRoutesNativeAndHTTP(t *testing.T) {
 					return
 				}
 				requested <- string(target[:len(target)-2])
-				connection.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0})
+				if _, err := connection.Write([]byte{5, 5, 0, 1, 0, 0, 0, 0, 0, 0}); err != nil {
+					t.Error(err)
+					return
+				}
 			}()
 			ctx := WithAccountProxy(context.Background(), "socks5h://"+listener.Addr().String(), false)
 			request, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://account.invalid/usage", nil)

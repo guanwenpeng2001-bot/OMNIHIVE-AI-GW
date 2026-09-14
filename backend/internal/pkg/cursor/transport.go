@@ -69,7 +69,11 @@ func Do(client HTTPDoer, request *http.Request, native bool) (*http.Response, er
 		transport = nativeClient.HTTPClient.Transport
 		closeIdle = nativeClient.HTTPClient.CloseIdleConnections
 	} else {
-		standard := http.DefaultTransport.(*http.Transport).Clone()
+		defaultTransport, ok := http.DefaultTransport.(*http.Transport)
+		if !ok {
+			return nil, fmt.Errorf("cursor: default HTTP transport unavailable")
+		}
+		standard := defaultTransport.Clone()
 		standard.Proxy = nil
 		if err := proxyutil.ConfigureTransportProxy(standard, proxyURL); err != nil {
 			return nil, fmt.Errorf("cursor: invalid account proxy")
@@ -81,7 +85,9 @@ func Do(client HTTPDoer, request *http.Request, native bool) (*http.Response, er
 	if original, ok := client.(*http.Client); ok {
 		selected.Timeout = original.Timeout
 	}
-	response, err := selected.Do(request)
+	// The caller supplies the upstream request; account proxy context selects
+	// its route only, with redirects disabled and no fallback to direct dialing.
+	response, err := selected.Do(request) //nolint:gosec // G704: upstream target validation belongs to the calling native/relay service.
 	if err != nil {
 		closeIdle()
 		return nil, fmt.Errorf("cursor: account proxy transport failed")
@@ -108,7 +114,11 @@ func dialAccountProxy(ctx context.Context, network, address string, proxyURL *ur
 		if err != nil {
 			return nil, fmt.Errorf("cursor: invalid SOCKS proxy")
 		}
-		return socks.(proxy.ContextDialer).DialContext(ctx, network, address)
+		contextDialer, ok := socks.(proxy.ContextDialer)
+		if !ok {
+			return nil, fmt.Errorf("cursor: SOCKS proxy does not support context dialing")
+		}
+		return contextDialer.DialContext(ctx, network, address)
 	}
 	proxyAddress := proxyURL.Host
 	if proxyURL.Port() == "" {
@@ -125,17 +135,19 @@ func dialAccountProxy(ctx context.Context, network, address string, proxyURL *ur
 	succeeded := false
 	defer func() {
 		if !succeeded {
-			connection.Close()
+			_ = connection.Close()
 		}
 	}()
 	rawConnection := connection
-	stop := context.AfterFunc(ctx, func() { rawConnection.Close() })
+	stop := context.AfterFunc(ctx, func() { _ = rawConnection.Close() })
 	defer stop()
 	deadline := time.Now().Add(15 * time.Second)
 	if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
 		deadline = contextDeadline
 	}
-	connection.SetDeadline(deadline)
+	if err := connection.SetDeadline(deadline); err != nil {
+		return nil, err
+	}
 	if proxyURL.Scheme == "https" {
 		secured := tls.Client(connection, &tls.Config{ServerName: proxyURL.Hostname(), MinVersion: tls.VersionTLS12})
 		if err := secured.HandshakeContext(ctx); err != nil {
@@ -162,7 +174,9 @@ func dialAccountProxy(ctx context.Context, network, address string, proxyURL *ur
 	if reader.Buffered() != 0 {
 		return nil, fmt.Errorf("cursor: unexpected proxy tunnel data")
 	}
-	connection.SetDeadline(time.Time{})
+	if err := connection.SetDeadline(time.Time{}); err != nil {
+		return nil, err
+	}
 	succeeded = true
 	return connection, nil
 }
