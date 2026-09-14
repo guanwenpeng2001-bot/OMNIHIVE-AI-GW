@@ -19,6 +19,7 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
   const activeSubscriptions = ref<UserSubscription[]>([])
   const loading = ref(false)
   const loaded = ref(false)
+  const error = ref(false)
   const lastFetchedAt = ref<number | null>(null)
 
   // In-flight request deduplication
@@ -56,6 +57,7 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
 
     // Start new request
     loading.value = true
+    error.value = false
     const requestPromise = subscriptionsAPI
       .getActiveSubscriptions()
       .then((data) => {
@@ -66,9 +68,10 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
         }
         return data
       })
-      .catch((error) => {
-        console.error('Failed to fetch active subscriptions:', error)
-        throw error
+      .catch((cause) => {
+        if (currentGeneration === requestGeneration) error.value = true
+        console.error('Failed to fetch active subscriptions:', cause)
+        throw cause
       })
       .finally(() => {
         if (activePromise === requestPromise) {
@@ -89,8 +92,8 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
     if (pollerInterval) return
 
     pollerInterval = setInterval(() => {
-      fetchActiveSubscriptions(true).catch((error) => {
-        console.error('Subscription polling failed:', error)
+      fetchActiveSubscriptions(true).catch((cause) => {
+        console.error('Subscription polling failed:', cause)
       })
     }, 5 * 60 * 1000)
   }
@@ -113,6 +116,8 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
     activePromise = null
     activeSubscriptions.value = []
     loaded.value = false
+    loading.value = false
+    error.value = false
     lastFetchedAt.value = null
     stopPolling()
   }
@@ -127,6 +132,8 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
   return {
     // State
     activeSubscriptions,
+    loaded,
+    error,
     loading,
     hasActiveSubscriptions,
 

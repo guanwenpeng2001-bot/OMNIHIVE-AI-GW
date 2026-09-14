@@ -918,20 +918,23 @@
           <p class="input-hint">{{ t('admin.accounts.openai.planTypeDesc') }}</p>
           <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
             {{ t(`admin.accounts.autoPause${window}Threshold`) }}
-            <input v-model.number="createPauseThresholds[window]" type="number" min="1" max="100" class="input" />
+            <input v-model.number="createPauseThresholds[window]" type="number" min="0" max="100" step="0.1" class="input" />
           </label>
+          <p class="input-hint">{{ t('admin.accounts.autoPauseThresholdHint') }}</p>
+          <p class="input-hint">{{ t('admin.accounts.autoResetCredit.thresholdHint') }}</p>
           <label class="flex items-center gap-2"><input v-model="createAutoReset" type="checkbox" />{{ t('admin.accounts.autoResetCredit.title') }}</label>
           <div v-if="createAutoReset">
             <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
               {{ t(`admin.accounts.autoResetCredit.threshold${window}`) }}
-              <input v-model.number="createResetThresholds[window]" type="number" min="1" max="100" class="input" />
+              <input v-model.number="createResetThresholds[window]" type="number" min="0.1" max="100" step="0.1" class="input" />
             </label>
           </div>
         </div>
       </div>
       <div v-if="accountCategory === 'service_account'" class="space-y-3">
         <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector v-model="allowedModels" :platform="form.platform" />
+        <ModelWhitelistSelector
+                :active="show" v-model="allowedModels" :platform="form.platform" />
         <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
           <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
           <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
@@ -1418,6 +1421,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
+                :active="show"
                 v-model="allowedModels"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
@@ -1871,6 +1875,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+                :active="show"
               v-model="allowedModels"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
@@ -2212,6 +2217,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
+                :active="show"
               v-model="allowedModels"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
@@ -5195,12 +5201,12 @@ const createWithOptions = (payload: CreateAccountRequest) => {
       for (const window of ['5h', '7d'] as const) {
         const pause = createPauseThresholds[window]
         if (pause != null && String(pause).trim() !== '' && pause !== 0) {
-          if (!Number.isFinite(Number(pause)) || Number(pause) < 1 || Number(pause) > 100) throw new Error(t(`admin.accounts.autoPause${window}Threshold`))
+          if (!Number.isFinite(Number(pause)) || Number(pause) < 0.1 || Number(pause) > 100) throw new Error(t(`admin.accounts.autoPause${window}Threshold`))
           extra[`auto_pause_${window}_threshold`] = Number(pause) / 100
         }
         if (createAutoReset.value) {
           const reset = Number(createResetThresholds[window])
-          if (!Number.isFinite(reset) || reset < 1 || reset > 100) throw new Error(t(`admin.accounts.autoResetCredit.threshold${window}`))
+          if (!Number.isFinite(reset) || reset < 0.1 || reset > 100) throw new Error(t(`admin.accounts.autoResetCredit.threshold${window}`))
           extra[`auto_reset_credit_${window}_threshold`] = reset / 100
         }
       }

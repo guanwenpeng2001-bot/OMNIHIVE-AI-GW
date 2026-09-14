@@ -68,6 +68,10 @@
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
+        <p v-if="modelsFailed" role="status">{{ t('admin.accounts.modelCatalog.failed') }}
+          <button type="button" @click="loadAvailableModels">{{ t('common.tryAgain') }}</button>
+        </p>
+        <p v-else-if="!loadingModels && !availableModels.length" role="status">{{ t('admin.accounts.modelCatalog.empty') }}</p>
         <p v-if="selectedModel?.catalog_source" class="mt-2 text-xs text-gray-500">
           {{ t('admin.accounts.catalogSourceLabel') }}: {{ t(`admin.accounts.catalogSource.${selectedModel.catalog_source}`) }}
           <span v-if="selectedModel.metadata_source"> · {{ t('admin.accounts.metadataSourceLabel') }}: {{ selectedModel.metadata_source }}</span>
@@ -370,7 +374,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch, nextTick } from 'vue'
+import { computed, ref, watch, nextTick, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -413,6 +417,9 @@ const availableModels = ref<ClaudeModel[]>([])
 const selectedModelId = ref('')
 const testPrompt = ref('')
 const loadingModels = ref(false)
+const modelsFailed = ref(false)
+let modelGeneration = 0
+onUnmounted(() => { modelGeneration++; abortStream() })
 let abortController: AbortController | null = null
 const generatedImages = ref<PreviewMedia[]>([])
 const generatedAudios = ref<PreviewMedia[]>([])
@@ -742,14 +749,22 @@ const pickDefaultModelForMode = () => {
 }
 
 watch(
-  () => props.show,
-  async (newVal) => {
+  () => [props.show, props.account?.id, props.account?.platform] as const,
+  async ([newVal]) => {
+    modelGeneration++
+    abortStream()
+    availableModels.value = []
+    selectedModelId.value = ''
+    modelsFailed.value = false
+    loadingModels.value = false
+    const contextGeneration = modelGeneration
     if (newVal && props.account) {
       testPrompt.value = ''
       testMode.value = 'default'
       grokTestMode.value = 'text'
       resetState()
       await loadAvailableModels()
+      if (!props.show || contextGeneration + 1 !== modelGeneration) return
       if (isGrokAccount.value) {
         pickDefaultModelForMode()
         applyDefaultPromptForMode()
@@ -757,7 +772,8 @@ watch(
     } else {
       abortStream()
     }
-  }
+  },
+  { flush: 'sync' }
 )
 
 watch(grokTestMode, () => {
@@ -771,10 +787,14 @@ watch(grokTestMode, () => {
 const loadAvailableModels = async () => {
   if (!props.account) return
 
+  const request = ++modelGeneration
+  const account = props.account
   loadingModels.value = true
+  modelsFailed.value = false
   selectedModelId.value = '' // Reset selection before loading
   try {
-    const models = await adminAPI.accounts.getAvailableModels(props.account.id)
+    const models = await adminAPI.accounts.getAvailableModels(account.id)
+    if (request !== modelGeneration || !props.show) return
     availableModels.value = props.account.platform === 'gemini' || props.account.platform === 'antigravity'
       ? sortTestModels(models)
       : models
@@ -789,12 +809,14 @@ const loadAvailableModels = async () => {
       }
     }
   } catch (error) {
+    if (request !== modelGeneration || !props.show) return
+    modelsFailed.value = true
     console.error('Failed to load available models:', error)
     // Fallback to empty list
     availableModels.value = []
     selectedModelId.value = ''
   } finally {
-    loadingModels.value = false
+    if (request === modelGeneration) loadingModels.value = false
   }
 }
 
@@ -810,6 +832,7 @@ const resetState = () => {
 }
 
 const handleClose = () => {
+  modelGeneration++
   abortStream()
   emit('close')
 }

@@ -20,7 +20,7 @@ describe('Cursor monthly usage', () => {
   it('does not turn missing or invalid group percentages into zero usage', () => {
     const wrapper = render({ monthly: { ...monthly, plan_usage: { autoPercentUsed: NaN, apiPercentUsed: -1 } } })
     expect(wrapper.findAll('[data-test="progress"]')).toHaveLength(0)
-    expect(wrapper.text()).toContain('admin.accounts.cursor.unlimited')
+    expect(wrapper.text()).toContain('admin.accounts.cursor.quotaUnknown')
   })
 
   it('shows counters and the period without inventing percentages for null limits', () => {
@@ -28,7 +28,7 @@ describe('Cursor monthly usage', () => {
     expect(wrapper.text()).toContain('gpt-4')
     expect(wrapper.html()).toContain('8/28/2026')
     expect(wrapper.text()).toContain('9/28/2026')
-    expect(wrapper.text()).toContain('admin.accounts.cursor.unlimited')
+    expect(wrapper.text()).toContain('admin.accounts.cursor.quotaUnknown')
     expect(wrapper.findAll('[data-test="progress"]')).toHaveLength(0)
   })
   it('shows independent positive limits without inventing a percent for zero quotas', () => {

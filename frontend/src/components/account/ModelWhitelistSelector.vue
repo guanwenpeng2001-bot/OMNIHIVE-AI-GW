@@ -3,7 +3,6 @@
     <!-- Multi-select Dropdown -->
     <div class="relative mb-3">
       <div
-        @click="toggleDropdown"
         class="cursor-pointer rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
       >
         <div class="grid grid-cols-2 gap-1.5">
@@ -18,6 +17,7 @@
             </span>
             <button
               type="button"
+              :aria-label="`${t('common.remove')} ${model}`"
               @click.stop="removeModel(model)"
               class="shrink-0 rounded-full hover:bg-gray-200 dark:hover:bg-dark-500"
             >
@@ -25,16 +25,18 @@
             </button>
           </span>
         </div>
-        <div class="mt-2 flex items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
+        <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="mt-2 flex w-full items-center justify-between border-t border-gray-200 pt-2 dark:border-dark-600">
           <span class="text-xs text-gray-400">{{ t('admin.accounts.modelCount', { count: modelValue.length }) }}</span>
           <svg class="h-5 w-5 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
           </svg>
-        </div>
+        </button>
       </div>
       <!-- Dropdown List -->
       <div
         v-if="showDropdown"
+        :id="dropdownId"
+        @keydown.esc.stop.prevent="showDropdown = false; trigger?.focus()"
         class="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-700"
       >
         <div class="sticky top-0 border-b border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-700">
@@ -42,6 +44,7 @@
             v-model="searchQuery"
             type="text"
             class="input w-full text-sm"
+            :aria-label="t('admin.accounts.searchModels')"
             :placeholder="t('admin.accounts.searchModels')"
             @click.stop
           />
@@ -56,6 +59,7 @@
             <button
               type="button"
               data-testid="select-model"
+              :aria-pressed="modelValue.includes(model.value)"
               class="flex min-w-0 flex-1 items-center gap-2 px-3 py-2 text-left text-sm"
               @click="toggleModel(model.value)"
             >
@@ -92,6 +96,9 @@
       </div>
     </div>
 
+    <p v-if="catalogState !== 'idle'" role="status" class="mb-2 text-sm text-gray-500">{{ t(`admin.accounts.modelCatalog.${catalogState}`) }}</p>
+    <button v-if="catalogState === 'failed' || catalogState === 'stale'" type="button" @click="accountId ? loadCatalog() : syncUpstreamModels()">{{ t('common.tryAgain') }}</button>
+
     <!-- Quick Actions -->
     <div class="mb-4 flex flex-wrap gap-2">
       <button
@@ -126,6 +133,7 @@
       <div class="flex gap-2">
         <input
           v-model="customModel"
+          :aria-label="t('admin.accounts.customModelName')"
           type="text"
           class="input flex-1"
           :placeholder="t('admin.accounts.enterCustomModelName')"
@@ -146,7 +154,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, onUnmounted } from 'vue'
+import { ref, computed, watch, onUnmounted, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
@@ -158,13 +166,14 @@ import { allModels, getModelsByPlatform } from '@/composables/useModelWhitelist'
 
 const { t } = useI18n()
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
+  active?: boolean
   modelValue: string[]
   platform?: string
   platforms?: string[]
   accountId?: number
   syncCredentials?: SyncUpstreamPreviewParams
-}>()
+}>(), { active: true })
 
 const emit = defineEmits<{
   'update:modelValue': [value: string[]]
@@ -174,6 +183,8 @@ const emit = defineEmits<{
 const appStore = useAppStore()
 const { copyToClipboard } = useClipboard()
 
+const dropdownId = useId()
+const trigger = ref<HTMLButtonElement>()
 const showDropdown = ref(false)
 const searchQuery = ref('')
 const customModel = ref('')
@@ -225,36 +236,40 @@ const canSyncUpstream = computed(() => {
   return false
 })
 
-// Keep live Cursor picker IDs in the dropdown as well as in the selected chips.
-const cursorCatalog = ref<string[]>([])
-watch(() => [props.accountId, props.platform] as const, async ([accountId, platform], _, onCleanup) => {
-  cursorCatalog.value = []
-  if (!accountId || platform !== 'cursor') return
-  let stale = false
-  onCleanup(() => { stale = true })
+// A synchronous generation fence also invalidates A→B→A changes and close/reopen.
+const catalog = ref<string[]>([])
+const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready'>('idle')
+let generation = 0
+const context = computed(() => JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value, props.syncCredentials]))
+const loadCatalog = async () => {
+  if (!props.accountId || props.active === false) return
+  const request = ++generation
+  const accountId = props.accountId
+  catalogState.value = 'loading'
   try {
     const models = await accountsAPI.getAvailableModels(accountId)
-    if (!stale) cursorCatalog.value = models.map(model => model.id)
-  } catch { /* The calibrated static catalog remains available. */ }
-}, { immediate: true })
+    if (disposed || request !== generation) return
+    catalog.value = models.map(model => model.id)
+    catalogState.value = catalog.value.length ? 'ready' : 'empty'
+  } catch {
+    if (disposed || request !== generation) return
+    catalogState.value = catalog.value.length ? 'stale' : 'failed'
+  }
+}
+watch(context, () => {
+  generation++
+  catalog.value = []
+  catalogState.value = 'idle'
+  isSyncingUpstream.value = false
+  showDropdown.value = false
+  void loadCatalog()
+}, { immediate: true, flush: 'sync' })
 
 const availableOptions = computed(() => {
-  if (normalizedPlatforms.value.length === 1 && normalizedPlatforms.value[0] === 'cursor') {
-    return [...new Set([...getModelsByPlatform('cursor'), ...cursorCatalog.value])].map(value => ({ value, label: value }))
-  }
-  if (normalizedPlatforms.value.length === 0) {
-    return allModels
-  }
-
-  const allowedModels = new Set<string>()
-  for (const platform of normalizedPlatforms.value) {
-    for (const model of getModelsByPlatform(platform)) {
-      allowedModels.add(model)
-    }
-  }
-
-  if (normalizedPlatforms.value.includes('cursor')) cursorCatalog.value.forEach(model => allowedModels.add(model))
-  return [...allowedModels].map(value => ({ value, label: value }))
+  const presets = normalizedPlatforms.value.length
+    ? normalizedPlatforms.value.flatMap(getModelsByPlatform)
+    : allModels.map(model => model.value)
+  return [...new Set([...presets, ...catalog.value, ...props.modelValue])].map(value => ({ value, label: value }))
 })
 
 const filteredModels = computed(() => {
@@ -304,7 +319,7 @@ const handleEnter = () => {
 const fillRelated = () => {
   const newModels = [...props.modelValue]
   for (const platform of normalizedPlatforms.value) {
-    for (const model of (platform === 'cursor' && cursorCatalog.value.length ? cursorCatalog.value : getModelsByPlatform(platform))) {
+    for (const model of getModelsByPlatform(platform)) {
       if (!newModels.includes(model)) {
         newModels.push(model)
       }
@@ -317,9 +332,9 @@ const syncUpstreamModels = async () => {
   if (isSyncingUpstream.value) return
   if (!props.accountId && !props.syncCredentials) return
 
-  const accountId = props.accountId
-  const platform = props.platform
+  const request = ++generation
   isSyncingUpstream.value = true
+  catalogState.value = 'loading'
   try {
     let result
     if (props.accountId) {
@@ -330,9 +345,10 @@ const syncUpstreamModels = async () => {
       return
     }
 
-    if (disposed || props.accountId !== accountId || props.platform !== platform) return
+    if (disposed || request !== generation) return
     const upstreamModels = result.models.map(model => model.trim()).filter(Boolean)
-    if (normalizedPlatforms.value.includes('cursor')) cursorCatalog.value = upstreamModels
+    catalog.value = upstreamModels
+    catalogState.value = upstreamModels.length ? 'ready' : 'empty'
     if (upstreamModels.length === 0) {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
       return
@@ -372,6 +388,8 @@ const syncUpstreamModels = async () => {
       appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
     }
   } catch (error) {
+    if (disposed || request !== generation) return
+    catalogState.value = catalog.value.length ? 'stale' : 'failed'
     const reason = error && typeof error === 'object' && 'reason' in error ? String(error.reason) : ''
     const keys: Record<string, string> = {
       upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
@@ -383,7 +401,7 @@ const syncUpstreamModels = async () => {
     const message = t(`admin.accounts.${keys[reason] || 'syncUpstreamModelsFailed'}`)
     appStore.showError(message)
   } finally {
-    isSyncingUpstream.value = false
+    if (request === generation) isSyncingUpstream.value = false
   }
 }
 

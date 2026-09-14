@@ -1959,3 +1959,26 @@ describe('Cursor lossless modal submissions', () => {
     wrapper.unmount()
   })
 })
+
+
+it('does not save a late Antigravity catalog into a different account', async () => {
+  let resolve!: (result: { models: string[] }) => void
+  syncUpstreamModelsMock.mockImplementationOnce(() => new Promise(r => { resolve = r }))
+  updateAccountMock.mockReset().mockResolvedValue({})
+  checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+  const wrapper = mountModal(buildAntigravityAccount())
+  await flushPromises()
+  await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
+  const second = { ...buildAntigravityAccount(), id: 987, credentials: { ...buildAntigravityAccount().credentials, model_mapping: { ExistingExact: 'ExistingExact' } } }
+  await wrapper.setProps({ show: false })
+  await wrapper.setProps({ account: second, show: true })
+  resolve({ models: ['late-model'] })
+  await flushPromises()
+  expect(updateAccountMock).not.toHaveBeenCalled()
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock).toHaveBeenCalledTimes(1)
+  expect(updateAccountMock.mock.calls[0]?.[0]).toBe(987)
+  expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({ ExistingExact: 'ExistingExact' })
+  wrapper.unmount()
+})

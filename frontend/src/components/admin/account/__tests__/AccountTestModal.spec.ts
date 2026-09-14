@@ -245,3 +245,24 @@ describe('AccountTestModal', () => {
     })
   })
 })
+
+
+it('ignores old account model responses and distinguishes failure from empty with retry', async () => {
+  let resolve!: (models: unknown[]) => void
+  getAvailableModels.mockImplementationOnce(() => new Promise(r => { resolve = r }))
+  const wrapper = mountModal()
+  await wrapper.setProps({ show: true })
+  getAvailableModels.mockRejectedValueOnce(new Error('offline'))
+  await wrapper.setProps({ account: { id: 99, platform: 'openai', name: 'second', type: 'apikey', status: 'active' } as any })
+  await flushPromises()
+  resolve([{ id: 'stale-model', display_name: 'stale-model' }])
+  await flushPromises()
+  expect(wrapper.text()).toContain('admin.accounts.modelCatalog.failed')
+  expect(wrapper.text()).not.toContain('stale-model')
+  getAvailableModels.mockResolvedValueOnce([])
+  await wrapper.findAll('button').find(b => b.text() === 'common.tryAgain')!.trigger('click')
+  await flushPromises()
+  expect(wrapper.text()).toContain('admin.accounts.modelCatalog.empty')
+  expect(wrapper.text()).not.toContain('admin.accounts.modelCatalog.failed')
+  wrapper.unmount()
+})

@@ -8,7 +8,7 @@
         <UsageProgressBar v-if="row.percent != null" :label="t('admin.accounts.cursor.month')" :utilization="row.percent" :resets-at="monthly.resets_at" color="indigo" />
         <div v-else class="flex items-center gap-1 text-[10px] text-gray-400">
           <span class="w-[32px] shrink-0 rounded bg-indigo-100 px-1 text-center font-medium text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300">{{ t('admin.accounts.cursor.month') }}</span>
-          <span>{{ t('admin.accounts.cursor.unlimited') }}</span>
+          <span>{{ t('admin.accounts.cursor.quotaUnknown') }}</span>
         </div>
       </div>
       <div class="text-[10px] text-gray-400" :title="periodTitle">
@@ -24,9 +24,9 @@
           <div v-for="(usage, model) in monthly.models" :key="model" class="space-y-0.5">
             <div class="font-medium">{{ model }}</div>
             <div>{{ t('admin.accounts.cursor.totalRequests') }}: {{ usage.numRequestsTotal }}</div>
-            <div>{{ t('admin.accounts.cursor.requests') }}: {{ usage.numRequests }} / {{ usage.maxRequestUsage ?? t('admin.accounts.cursor.unlimited') }}</div>
+            <div>{{ t('admin.accounts.cursor.requests') }}: {{ usage.numRequests }} / {{ usage.maxRequestUsage ?? t('admin.accounts.cursor.quotaUnknown') }}</div>
             <UsageProgressBar v-if="usage.maxRequestUsage != null && usage.maxRequestUsage > 0" :label="t('admin.accounts.cursor.requests')" :utilization="usage.numRequests / usage.maxRequestUsage * 100" :resets-at="monthly.resets_at" color="indigo" />
-            <div>{{ t('admin.accounts.cursor.tokens') }}: {{ usage.numTokens }} / {{ usage.maxTokenUsage ?? t('admin.accounts.cursor.unlimited') }}</div>
+            <div>{{ t('admin.accounts.cursor.tokens') }}: {{ usage.numTokens }} / {{ usage.maxTokenUsage ?? t('admin.accounts.cursor.quotaUnknown') }}</div>
             <UsageProgressBar v-if="usage.maxTokenUsage != null && usage.maxTokenUsage > 0" :label="t('admin.accounts.cursor.tokens')" :utilization="usage.numTokens / usage.maxTokenUsage * 100" :resets-at="monthly.resets_at" color="emerald" />
           </div>
         </div>
