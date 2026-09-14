@@ -25,11 +25,15 @@ ARG NPM_CONFIG_REGISTRY
 
 WORKDIR /app/frontend
 
-# Install pnpm (pinned to v9 to match CI and keep builds reproducible)
-RUN corepack enable && corepack prepare pnpm@9 --activate
+# Install pnpm. Must be >= 10: the frontend's settings (overrides, allowBuilds)
+# live in frontend/pnpm-workspace.yaml, which pnpm 9 does not read.
+RUN corepack enable && corepack prepare pnpm@11 --activate
 
-# Install dependencies first (better caching)
-COPY frontend/package.json frontend/pnpm-lock.yaml ./
+# Install dependencies first (better caching).
+# pnpm-workspace.yaml must be present here: it carries the `overrides` and
+# `allowBuilds` that used to live in package.json. Without it pnpm sees no
+# overrides and refuses with ERR_PNPM_LOCKFILE_CONFIG_MISMATCH.
+COPY frontend/package.json frontend/pnpm-lock.yaml frontend/pnpm-workspace.yaml ./
 RUN --mount=type=cache,id=sub2api-pnpm-store,target=/root/.local/share/pnpm/store \
     if [ -n "${NPM_CONFIG_REGISTRY}" ]; then pnpm config set registry "${NPM_CONFIG_REGISTRY}"; fi && \
     pnpm install --frozen-lockfile --prefer-offline

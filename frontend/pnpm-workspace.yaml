@@ -1,4 +1,11 @@
 # pnpm 11 设置（原 package.json 的 pnpm 字段迁移至此）
+#
+# ⚠️ 这份文件只有 pnpm >= 10 会读。pnpm 9 既不会读这里的 overrides，
+# 又会因为本文件存在而要求 packages 非空 —— 两种表现都是
+# ERR_PNPM_LOCKFILE_CONFIG_MISMATCH 或 "packages field missing or empty"。
+# 因此 CI（.github/workflows/*.yml）与 Dockerfile / deploy/Dockerfile
+# 的 pnpm 版本**必须保持 >= 11**，不要降回 9。
+
 allowBuilds:
   esbuild: true
   vue-demi: true
