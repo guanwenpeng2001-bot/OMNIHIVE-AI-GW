@@ -48,6 +48,35 @@ func (r *upstreamJobRepository) Create(ctx context.Context, j *service.UpstreamJ
 	return created, err == nil, err
 }
 
+// InsertRealtimeReceipt persists every replay input before any money transaction.
+// A duplicate never updates the original evidence or its settlement anchor.
+func (r *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Context, receipt *service.UpstreamJob) (*service.UpstreamJob, error) {
+	if receipt == nil || receipt.Family != "realtime_turn" || receipt.UpstreamTaskID == "" || len(receipt.UsageJSON) == 0 || receipt.Billing.Realtime == nil || receipt.Billing.Realtime.SessionID == "" {
+		return nil, service.ErrUpstreamJobUnsupportedUsage
+	}
+	snapshot, err := json.Marshal(receipt.Billing)
+	if err != nil {
+		return nil, err
+	}
+	stored, err := scanUpstreamJob(r.db.QueryRowContext(ctx, `INSERT INTO upstream_jobs AS j
+ (public_request_id,request_fingerprint,platform,family,account_id,user_id,api_key_id,group_id,submitted_at,next_poll_at,expires_at,billing_snapshot,submission_key,upstream_task_id,usage_json,result_ref,status,finished_at,error_code,error_message)
+ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20)
+ ON CONFLICT (submission_key) DO NOTHING RETURNING row_to_json(j)`,
+		receipt.PublicRequestID, receipt.RequestFingerprint, receipt.Platform, receipt.Family, receipt.AccountID, receipt.UserID, receipt.APIKeyID, receipt.GroupID, receipt.SubmittedAt, receipt.NextPollAt, receipt.ExpiresAt, string(snapshot), receipt.SubmissionKey, receipt.UpstreamTaskID, string(receipt.UsageJSON), receipt.ResultRef, receipt.Status, receipt.FinishedAt, receipt.ErrorCode, receipt.ErrorMessage))
+	if !errors.Is(err, service.ErrUpstreamJobNotFound) {
+		return stored, err
+	}
+	// A separate statement sees the winning insert after ON CONFLICT waits for it.
+	stored, err = scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE submission_key=$1`, receipt.SubmissionKey))
+	if err != nil {
+		return nil, err
+	}
+	if !service.EqualQianwenRealtimeReceipt(stored, receipt) {
+		return stored, service.ErrQianwenRealtimeConflict
+	}
+	return stored, nil
+}
+
 func (r *upstreamJobRepository) Get(ctx context.Context, id string, userID, keyID int64) (*service.UpstreamJob, error) {
 	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(j) FROM upstream_jobs j WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
 }

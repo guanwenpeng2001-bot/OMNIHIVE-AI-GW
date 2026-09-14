@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/google/uuid"
@@ -28,6 +29,23 @@ type QianwenRealtimeSnapshot struct {
 // drain. Admission is serialized in PostgreSQL and works across replicas.
 type QianwenRealtimeSessionRepository interface {
 	CreateRealtimeSession(context.Context, *UpstreamJob) (*UpstreamJob, error)
+}
+
+// Realtime receipts must be committed with all replay inputs in one insert.
+type QianwenRealtimeReceiptRepository interface {
+	InsertRealtimeReceipt(context.Context, *UpstreamJob) (*UpstreamJob, error)
+}
+
+// EqualQianwenRealtimeReceipt compares immutable evidence, excluding settlement state.
+func EqualQianwenRealtimeReceipt(stored, receipt *UpstreamJob) bool {
+	oldUsage, oldErr := CanonicalUpstreamJobBody(stored.UsageJSON)
+	newUsage, newErr := CanonicalUpstreamJobBody(receipt.UsageJSON)
+	return oldErr == nil && newErr == nil && bytes.Equal(oldUsage, newUsage) &&
+		stored.SubmissionKey == receipt.SubmissionKey && stored.RequestFingerprint == receipt.RequestFingerprint &&
+		stored.Platform == receipt.Platform && stored.Family == receipt.Family &&
+		stored.UserID == receipt.UserID && stored.APIKeyID == receipt.APIKeyID && stored.AccountID == receipt.AccountID &&
+		reflect.DeepEqual(stored.GroupID, receipt.GroupID) && reflect.DeepEqual(stored.Billing, receipt.Billing) &&
+		stored.UpstreamTaskID == receipt.UpstreamTaskID && stored.ResultRef == receipt.ResultRef
 }
 
 func IsQianwenRealtimeModel(model string) bool {
@@ -172,54 +190,30 @@ func (s *UpstreamJobService) RecordQianwenRealtimeTurn(ctx context.Context, sess
 	}
 	sum := sha256.Sum256([]byte(session.PublicRequestID + "\x00" + responseID))
 	identity := hex.EncodeToString(sum[:])
-	copy := *session
-	j := &copy
-	j.ID = 0
-	j.PublicRequestID = uuid.NewString()
-	j.Family = "realtime_turn"
-	j.Status = "submitted"
-	j.FinishedAt = nil
-	j.RequestFingerprint = identity
-	j.SubmissionKey = identity
-	j.SubmittedAt = s.now().UTC()
-	j.ExpiresAt = j.SubmittedAt.Add(24 * time.Hour)
-	j, _, err = s.repo.Create(ctx, j)
-	if err != nil {
-		return nil, err
+	repo, ok := s.repo.(QianwenRealtimeReceiptRepository)
+	if !ok {
+		return nil, errors.New("realtime receipt store unavailable")
 	}
-	conflict := false
-	j, err = s.locked(ctx, j.PublicRequestID, func(stored *UpstreamJob, _ UpstreamJobTx) error {
-		if stored.UpstreamTaskID != "" {
-			conflict = stored.ErrorCode == "usage_conflict"
-			old, _ := CanonicalUpstreamJobBody(stored.UsageJSON)
-			if !bytes.Equal(old, canonical) {
-				conflict = true
-				stored.ErrorCode = "usage_conflict"
-				stored.ErrorMessage = "Conflicting receipt; original usage retained"
-				stored.ResultRef = string(canonical)
-			}
-			return nil
-		}
-		stored.UpstreamTaskID = responseID
-		stored.UsageJSON = append(json.RawMessage(nil), canonical...)
-		stored.Status = "running"
-		stored.NextPollAt = s.now()
-		stored.ResultRef = status
-		if _, e := QianwenRealtimeCharacters(canonical); e != nil {
-			s.finish(stored, "failed", "unsupported_usage", "Unexplained usage retained; not charged")
-		}
-		switch status {
-		case "completed", "cancelled", "failed", "incomplete":
-		default:
-			s.finish(stored, "failed", "unsupported_usage", "Unexplained response status retained; not charged")
-		}
-		return nil
-	})
-	if err != nil {
-		return nil, err
+	now := s.now().UTC()
+	j := &UpstreamJob{
+		PublicRequestID: uuid.NewString(), Family: "realtime_turn", Status: "running",
+		Platform: session.Platform, UserID: session.UserID, APIKeyID: session.APIKeyID,
+		AccountID: session.AccountID, GroupID: session.GroupID, Billing: session.Billing,
+		RequestFingerprint: identity, SubmissionKey: identity,
+		SubmittedAt: now, NextPollAt: now, ExpiresAt: now.Add(24 * time.Hour),
+		UpstreamTaskID: responseID, UsageJSON: append(json.RawMessage(nil), canonical...), ResultRef: status,
 	}
-	if conflict {
-		return j, ErrQianwenRealtimeConflict
+	if _, usageErr := QianwenRealtimeCharacters(canonical); usageErr != nil {
+		s.finish(j, "failed", "unsupported_usage", "Unexplained usage retained; not charged")
+	}
+	switch status {
+	case "completed", "cancelled", "failed", "incomplete":
+	default:
+		s.finish(j, "failed", "unsupported_usage", "Unexplained response status retained; not charged")
+	}
+	j, err = repo.InsertRealtimeReceipt(ctx, j)
+	if err != nil {
+		return j, err
 	}
 	if j.Terminal() {
 		return j, nil
