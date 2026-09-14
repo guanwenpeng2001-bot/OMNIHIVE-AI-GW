@@ -370,6 +370,7 @@ func TestProviderProbeCapabilityMatrix(t *testing.T) {
 	for _, p := range []string{
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
 		MonitorProviderGrok, MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
+		MonitorProviderQianwen, MonitorProviderCommandCode, MonitorProviderMiniMax, MonitorProviderOpenCodeGo,
 	} {
 		require.True(t, providerSupportsProbe(p), p)
 	}
@@ -377,8 +378,17 @@ func TestProviderProbeCapabilityMatrix(t *testing.T) {
 		MonitorProviderOpenAI, MonitorProviderAnthropic, MonitorProviderGemini,
 		MonitorProviderGrok, MonitorProviderAntigravity,
 		MonitorProviderKimi, MonitorProviderZhipu, MonitorProviderDeepseek,
+		MonitorProviderQianwen, MonitorProviderCommandCode, MonitorProviderMiniMax, MonitorProviderOpenCodeGo,
 	} {
 		require.NoError(t, validateProvider(p), p)
+	}
+	require.ErrorIs(t, validateProvider("cursor"), ErrChannelMonitorInvalidProvider)
+	require.False(t, providerSupportsProbe("cursor"))
+	require.ErrorIs(t, validateCheckMode(MonitorProviderQianwen, MonitorCheckModeQuota), ErrChannelMonitorInvalidCheckMode)
+	require.ErrorIs(t, validateCheckMode(MonitorProviderQianwen, MonitorCheckModeQuotaProbe), ErrChannelMonitorInvalidCheckMode)
+	for _, p := range []string{MonitorProviderCommandCode, MonitorProviderMiniMax, MonitorProviderOpenCodeGo} {
+		require.NoError(t, validateCheckMode(p, MonitorCheckModeQuota), p)
+		require.NoError(t, validateCheckMode(p, MonitorCheckModeQuotaProbe), p)
 	}
 }
 
