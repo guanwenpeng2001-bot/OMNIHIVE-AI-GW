@@ -65,6 +65,85 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 			ResolutionState: "resolved", CompletionState: "complete",
 		}
 	}
+
+	t.Run("billing evidence does not double count pending and settled", func(t *testing.T) {
+		input := fixture(t, 0.12345678)
+		input.CompletionState = "interrupted"
+		prepared, err := service.PrepareUsageSettlementReceipt(input)
+		require.NoError(t, err)
+		stored, err := repo.Persist(ctx, prepared)
+		require.NoError(t, err)
+		logs := NewUsageLogRepository(nil, db).(*usageLogRepository)
+		query := "SELECT " + usageLogSelectColumns + " FROM usage_logs WHERE request_id=$1 AND api_key_id=$2"
+		before, err := logs.queryUsageLogs(ctx, query, input.Key.RequestID, input.Key.APIKeyID)
+		require.NoError(t, err)
+		require.Empty(t, before)
+		result, err := repo.Settle(ctx, stored.Key, stored.Command.RequestFingerprint)
+		require.NoError(t, err)
+		after, err := logs.queryUsageLogs(ctx, query, input.Key.RequestID, input.Key.APIKeyID)
+		require.NoError(t, err)
+		require.Len(t, after, 1)
+		require.Equal(t, 0.12345678, after[0].ActualCost)
+		require.Equal(t, "settled", after[0].BillingEvidence.SettlementState)
+		require.Equal(t, "interrupted", after[0].BillingEvidence.CompletionState)
+		require.Equal(t, stored.Usage.PricingSnapshot, after[0].BillingEvidence.Snapshot)
+		replay, err := service.RecalculatePricingSnapshot(after[0].BillingEvidence.Snapshot)
+		require.NoError(t, err)
+		require.Equal(t, after[0].ActualCost, replay.ActualCost)
+		_, err = repo.Settle(ctx, stored.Key, stored.Command.RequestFingerprint)
+		require.NoError(t, err)
+		loaded, err := logs.GetByID(ctx, *result.Receipt.UsageLogID)
+		require.NoError(t, err)
+		require.Equal(t, after[0].BillingEvidence, loaded.BillingEvidence)
+		var count int
+		var amount float64
+		require.NoError(t, db.QueryRow(`SELECT count(*),sum(actual_cost) FROM usage_logs WHERE request_id=$1 AND api_key_id=$2`, input.Key.RequestID, input.Key.APIKeyID).Scan(&count, &amount))
+		require.Equal(t, 1, count)
+		require.Equal(t, 0.12345678, amount)
+		require.NoError(t, db.QueryRow("SELECT count(*) FROM usage_logs ul WHERE ul.id=$1 AND "+usageLogSuccessFilterUL, loaded.ID).Scan(&count))
+		require.Zero(t, count, "paid interruption is not completion")
+
+	})
+	t.Run("async billing evidence preserves actual units and completion", func(t *testing.T) {
+		for _, family := range []string{"asr", "3d", "file_batch", "realtime_turn"} {
+			input := fixture(t, 0)
+			logs := NewUsageLogRepository(nil, db).(*usageLogRepository)
+			_, err := logs.Create(ctx, &input.Usage)
+			require.NoError(t, err)
+			historical, err := logs.GetByID(ctx, input.Usage.ID)
+			require.NoError(t, err)
+			require.Nil(t, historical.BillingEvidence)
+			jobFamily := family
+			if family == "file_batch" {
+				jobFamily = "batch"
+			}
+			snapshot := map[string]any{"pricing_state": "free", "pricing_snapshot": input.Usage.PricingSnapshot, "realtime": map[string]string{"session_id": "entry-session"}}
+			raw, err := json.Marshal(snapshot)
+			require.NoError(t, err)
+			_, err = db.Exec(`INSERT INTO upstream_jobs(public_request_id,request_fingerprint,submission_key,platform,family,account_id,user_id,api_key_id,expires_at,billing_snapshot,status,charged_usage_log_id,finished_at,result_ref,upstream_task_id)
+       VALUES($1,$1,$1,'qianwen',$2,$3,$4,$5,NOW()+INTERVAL '1 hour',$6,'succeeded',$7,NOW(),'incomplete','turn-1')`, input.Key.RequestID, jobFamily, input.Usage.AccountID, input.Key.UserID, input.Key.APIKeyID, string(raw), input.Usage.ID)
+			require.NoError(t, err)
+			loaded, err := logs.GetByID(ctx, input.Usage.ID)
+			require.NoError(t, err)
+			require.Equal(t, "free", loaded.BillingEvidence.PricingState)
+			var completed int
+			require.NoError(t, db.QueryRow("SELECT count(*) FROM usage_logs ul WHERE ul.id=$1 AND "+usageLogSuccessFilterUL, loaded.ID).Scan(&completed))
+			if family == "realtime_turn" {
+				require.Zero(t, completed)
+			} else {
+				require.Equal(t, 1, completed, "free success counts independently of price")
+			}
+
+			require.Equal(t, input.Usage.PricingSnapshot, loaded.BillingEvidence.Snapshot)
+			if family == "realtime_turn" {
+				require.Equal(t, "interrupted", loaded.BillingEvidence.CompletionState)
+				require.Equal(t, "entry-session", loaded.BillingEvidence.SessionID)
+				require.Equal(t, "turn-1", loaded.BillingEvidence.TurnID)
+			} else {
+				require.Equal(t, "complete", loaded.BillingEvidence.CompletionState)
+			}
+		}
+	})
 	check := func(t *testing.T, receipt *service.UsageSettlementReceipt, settled bool) {
 		t.Helper()
 		var balance, quota, rate float64

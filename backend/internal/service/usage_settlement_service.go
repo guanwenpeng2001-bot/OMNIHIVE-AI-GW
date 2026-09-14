@@ -7,6 +7,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 )
 
 const UsageSettlementRecoveryBoundary = "Recovery starts only after the first receipt commits; process death or database failure before that point can lose upstream usage and requires manual review."
@@ -52,7 +54,7 @@ func ProvideUsageSettlementService(repo UsageSettlementReceiptRepository, pool *
 		defer ticker.Stop()
 		for {
 			if err := s.Recover(ctx); err != nil && ctx.Err() == nil {
-				slog.Error("usage settlement recovery", "error", err)
+				slog.Error("usage settlement recovery", "failure_category", billingFailureCategory(err))
 			}
 			select {
 			case <-ctx.Done():
@@ -96,15 +98,18 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 		}
 	}
 	if stored.Command.RequestFingerprint != prepared.Command.RequestFingerprint {
+		slog.Error("usage settlement conflict", "request_id", prepared.Key.RequestID, "failure_category", "conflict")
 		return ErrUsageBillingRequestConflict
 	}
 	if stored.State == UsageSettlementNeedsReview {
 		return ErrUsageSettlementNeedsReview
 	}
+	requestID, _ := ctx.Value(ctxkey.RequestID).(string)
+	slog.Info("usage receipt accepted", "component", "billing", "request_id", requestID, "client_request_id", stored.Key.RequestID)
 	task := func(ctx context.Context) {
 		result, err := s.settle(ctx, stored)
 		if err != nil {
-			slog.Error("usage settlement pending", "request_id", stored.Key.RequestID, "api_key_id", stored.Key.APIKeyID, "error", err)
+			slog.Error("usage settlement pending", "request_id", stored.Key.RequestID, "api_key_id", stored.Key.APIKeyID, "failure_category", billingFailureCategory(err))
 			return
 		}
 		if after != nil && result.Billing != nil && result.Billing.Applied {
@@ -123,8 +128,8 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 
 func (s *UsageSettlementService) persistenceError(key UsageSettlementKey, err error) error {
 	s.persistFailures.Add(1)
-	slog.Error("usage receipt persistence unconfirmed", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "recovery_boundary", UsageSettlementRecoveryBoundary, "error", err)
-	return fmt.Errorf("usage receipt persistence unconfirmed (%s): %w", key.RequestID, err)
+	slog.Error("usage receipt persistence unconfirmed", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "recovery_boundary", UsageSettlementRecoveryBoundary, "failure_category", billingFailureCategory(err))
+	return billingObservedError{cause: err}
 }
 
 func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettlementReceipt) (*UsageSettlementResult, error) {
@@ -135,14 +140,14 @@ func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettl
 	// Invalidate views on replay too; never replay additive cache updates.
 	if s.cache != nil {
 		if err := s.cache.InvalidateUserBalance(ctx, receipt.Key.UserID); err != nil {
-			slog.Warn("receipt balance cache invalidation", "error", err)
+			slog.Warn("receipt balance cache invalidation", "request_id", receipt.Key.RequestID, "failure_category", billingFailureCategory(err))
 		}
 		if err := s.cache.InvalidateAPIKeyRateLimit(ctx, receipt.Key.APIKeyID); err != nil {
-			slog.Warn("receipt key cache invalidation", "error", err)
+			slog.Warn("receipt key cache invalidation", "request_id", receipt.Key.RequestID, "failure_category", billingFailureCategory(err))
 		}
 		if receipt.Usage.GroupID != nil && receipt.Usage.SubscriptionID != nil {
 			if err := s.cache.InvalidateSubscription(ctx, receipt.Key.UserID, *receipt.Usage.GroupID); err != nil {
-				slog.Warn("receipt subscription cache invalidation", "error", err)
+				slog.Warn("receipt subscription cache invalidation", "request_id", receipt.Key.RequestID, "failure_category", billingFailureCategory(err))
 			}
 		}
 	}
@@ -168,7 +173,7 @@ func (s *UsageSettlementService) Recover(ctx context.Context) error {
 			_, err := s.settle(settleCtx, receipt)
 			cancel()
 			if err != nil {
-				slog.Error("usage settlement recovery pending", "request_id", receipt.Key.RequestID, "api_key_id", receipt.Key.APIKeyID, "error", err)
+				slog.Error("usage settlement recovery pending", "request_id", receipt.Key.RequestID, "api_key_id", receipt.Key.APIKeyID, "failure_category", billingFailureCategory(err))
 			}
 		}
 	}

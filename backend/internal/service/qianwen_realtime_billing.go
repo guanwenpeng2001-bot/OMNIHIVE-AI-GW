@@ -179,7 +179,11 @@ func (s *UpstreamJobService) StartQianwenRealtime(ctx context.Context, j *Upstre
 	j.SubmissionKey = j.PublicRequestID
 	j.SubmittedAt = s.now().UTC()
 	j.ExpiresAt = j.SubmittedAt.Add(150 * time.Second)
-	return repo.CreateRealtimeSession(ctx, j)
+	stored, err := repo.CreateRealtimeSession(ctx, j)
+	if err == nil {
+		logJobEvent(ctx, stored, "admitted")
+	}
+	return stored, err
 }
 
 func (s *UpstreamJobService) FinishQianwenRealtime(ctx context.Context, id, code string) error {
@@ -226,8 +230,11 @@ func (s *UpstreamJobService) RecordQianwenRealtimeTurn(ctx context.Context, sess
 	default:
 		s.finish(j, "failed", "unsupported_usage", "Unexplained response status retained; not charged")
 	}
+	logJobEvent(ctx, j, "receipt_received")
+	attemptedReceipt := j
 	j, err = repo.InsertRealtimeReceipt(ctx, j)
 	if err != nil {
+		logJobEvent(ctx, attemptedReceipt, billingFailureCategory(err))
 		return j, err
 	}
 	if j.Terminal() || !s.Ready() {

@@ -25,6 +25,7 @@ import (
 )
 
 type Application struct {
+	OpsMetrics    *service.OpsMetricsCollector
 	UpstreamJobs  *service.UpstreamJobService
 	Server        *http.Server
 	PromptAudit   *securityaudit.PromptService
@@ -59,7 +60,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		provideCleanup,
 
 		// Application struct
-		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs"),
+		wire.Struct(new(Application), "Server", "PromptAudit", "PluginManager", "Cleanup", "UpstreamJobs", "OpsMetrics"),
 	)
 	return nil, nil
 }

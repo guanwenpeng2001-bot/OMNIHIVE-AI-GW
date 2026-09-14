@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"log/slog"
 	"math"
 	"os"
 	"runtime"
@@ -271,6 +272,9 @@ func (c *OpsMetricsCollector) collectAndPersist(ctx context.Context) error {
 
 	dbOK := c.checkDB(ctx)
 	redisOK := c.checkRedis(ctx)
+	if err := c.collectBillingBacklog(ctx); err != nil {
+		slog.Warn("billing backlog unavailable", "component", "billing", "failure_category", billingFailureCategory(err))
+	}
 	active, idle := c.dbPoolStats()
 	redisTotal, redisIdle, redisStatsOK := c.redisPoolStats()
 
@@ -832,6 +836,11 @@ func readIntFile(path string) (int64, bool) {
 		return 0, false
 	}
 	return v, true
+}
+
+// DependenciesReady reuses the existing bounded dependency probes; it does not depend on monitoring settings.
+func (c *OpsMetricsCollector) DependenciesReady(ctx context.Context) bool {
+	return c.checkDB(ctx) && c.checkRedis(ctx)
 }
 
 func (c *OpsMetricsCollector) checkDB(ctx context.Context) bool {

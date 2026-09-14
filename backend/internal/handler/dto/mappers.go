@@ -683,6 +683,7 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		requestedModel = l.Model
 	}
 	return UsageLog{
+		BillingExplanation:        usageBillingExplanation(l, false),
 		ID:                        l.ID,
 		UserID:                    l.UserID,
 		APIKeyID:                  l.APIKeyID,
@@ -757,6 +758,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 	}
 	usageLog := usageLogFromServiceUser(l)
 	usageLog.UpstreamEndpoint = l.UpstreamEndpoint
+	usageLog.BillingExplanation = usageBillingExplanation(l, true)
 	return &AdminUsageLog{
 		ThinkingEnabled:         l.ThinkingEnabled,
 		PriceSource:             l.PriceSource,

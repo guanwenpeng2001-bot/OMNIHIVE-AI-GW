@@ -176,6 +176,7 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 	if err != nil || !created {
 		return existing, err
 	}
+	logJobEvent(ctx, existing, "admitted")
 	networkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
 	update, upstreamErr := submit(networkCtx)
 	cancel()
@@ -187,6 +188,7 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 			return nil
 		}
 		if upstreamErr != nil {
+			logJobEvent(ctx, j, "submission_unknown")
 			s.finish(j, "failed", "submission_unknown", "Upstream submission outcome is unknown; automatic resubmission is disabled")
 			return nil
 		}
@@ -268,6 +270,7 @@ func (s *UpstreamJobService) Poll(ctx context.Context, id string) (*UpstreamJob,
 		defer cancel()
 		update, err := s.poll(networkCtx, j)
 		if err != nil {
+			logJobEvent(ctx, j, billingFailureCategory(err))
 			j.ErrorCode = "poll_unavailable"
 			j.ErrorMessage = "Upstream poll unavailable; retry scheduled"
 			return nil
@@ -326,7 +329,13 @@ func (s *UpstreamJobService) PollDue(ctx context.Context, limit int) error {
 		if !s.Ready() {
 			break
 		}
-		_, pollErr := s.Poll(ctx, id)
+		job, pollErr := s.Poll(ctx, id)
+		if pollErr != nil {
+			if job == nil {
+				job = &UpstreamJob{PublicRequestID: id}
+			}
+			logJobEvent(ctx, job, billingFailureCategory(pollErr))
+		}
 		err = errors.Join(err, pollErr)
 		if ctx.Err() != nil {
 			break
@@ -359,13 +368,15 @@ func (s *UpstreamJobService) settle(ctx context.Context, j *UpstreamJob, tx Upst
 	}
 	log, cmd, err := s.charge(j)
 	if errors.Is(err, ErrUpstreamJobUnsupportedUsage) || errors.Is(err, ErrUpstreamJobTariff) {
-		s.finish(j, "failed", "unsupported_usage", err.Error())
+		logJobEvent(ctx, j, "needs_review")
+		s.finish(j, "failed", "unsupported_usage", "Usage cannot be priced; evidence retained for review")
 		return nil
 	}
 	if err != nil {
 		return err
 	}
 	if err = tx.Charge(ctx, log, cmd); err != nil {
+		logJobEvent(ctx, j, billingFailureCategory(err))
 		return err
 	}
 	j.ChargedUsageLogID = &log.ID

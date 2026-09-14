@@ -299,6 +299,56 @@ export default {
 
   // Usage
   usage: {
+    evidence: {
+  "title": "账单解释",
+  "unknown": "未知",
+  "pricingState": "计价状态",
+  "settlementState": "结算状态",
+  "completionState": "完成状态",
+  "source": "价格来源",
+  "version": "价格版本",
+  "conditions": "冻结条件",
+  "quantity": "计量数量",
+  "unit": "计量单位",
+  "unitPrice": "单位价格（美元）",
+  "charged": "冻结实扣（美元）",
+  "requestId": "请求 ID",
+  "jobId": "任务 ID",
+  "sessionId": "会话 ID",
+  "turnId": "轮次 ID",
+  "snapshot": "冻结快照",
+  "states": {
+    "unknown": "未知",
+    "priced": "已定价",
+    "free": "免费",
+    "unpriced": "未定价",
+    "error": "计价错误",
+    "pending": "待结算",
+    "settled": "已结算",
+    "needs_review": "待核查",
+    "complete": "正常完成",
+    "interrupted": "已中断"
+  },
+  "units": {
+    "unknown": "未知",
+    "tokens": "Token（分类计量）",
+    "characters": "字符",
+    "million_characters": "百万字符",
+    "hours": "小时",
+    "seconds": "秒",
+    "models": "3D 模型",
+    "images": "张",
+    "calls": "次",
+    "thousand_calls": "千次"
+  },
+  "modes": {
+    "file_batch": "File Batch",
+    "realtime": "Realtime",
+    "asr": "ASR",
+    "3d": "3D",
+    "audio": "音频"
+  }
+},
     title: '使用记录',
     description: '查看和分析您的 API 使用历史',
     costDetails: '费用明细',

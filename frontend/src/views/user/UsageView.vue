@@ -219,6 +219,7 @@
 </template>
 
 <script setup lang="ts">
+import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -669,6 +670,7 @@ const exportToCSV = async () => {
       'Original Cost',
       'First Token (ms)',
       'Duration (ms)',
+      ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`)),
     ]
     const rows = allLogs.map((log) => [
       log.created_at,
@@ -688,6 +690,7 @@ const exportToCSV = async () => {
       log.total_cost.toFixed(8),
       log.first_token_ms ?? '',
       log.duration_ms ?? '',
+      ...billingExplanationValues(log, t),
     ].map(escapeCSVValue))
     const csvContent = [
       headers.map(escapeCSVValue).join(','),

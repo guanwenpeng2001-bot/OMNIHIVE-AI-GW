@@ -294,6 +294,56 @@ export default {
 
   // Usage
   usage: {
+    evidence: {
+  "title": "Billing evidence",
+  "unknown": "Unknown",
+  "pricingState": "Pricing state",
+  "settlementState": "Settlement state",
+  "completionState": "Completion state",
+  "source": "Price source",
+  "version": "Price version",
+  "conditions": "Frozen conditions",
+  "quantity": "Quantity",
+  "unit": "Metering unit",
+  "unitPrice": "Unit price (USD)",
+  "charged": "Frozen charge (USD)",
+  "requestId": "Request ID",
+  "jobId": "Job ID",
+  "sessionId": "Session ID",
+  "turnId": "Turn ID",
+  "snapshot": "Frozen snapshot",
+  "states": {
+    "unknown": "Unknown",
+    "priced": "Priced",
+    "free": "Free",
+    "unpriced": "Unpriced",
+    "error": "Pricing error",
+    "pending": "Pending",
+    "settled": "Settled",
+    "needs_review": "Needs review",
+    "complete": "Complete",
+    "interrupted": "Interrupted"
+  },
+  "units": {
+    "unknown": "Unknown",
+    "tokens": "Tokens (by category)",
+    "characters": "Characters",
+    "million_characters": "Million characters",
+    "hours": "Hours",
+    "seconds": "Seconds",
+    "models": "3D models",
+    "images": "Images",
+    "calls": "Calls",
+    "thousand_calls": "Thousand calls"
+  },
+  "modes": {
+    "file_batch": "File Batch",
+    "realtime": "Realtime",
+    "asr": "ASR",
+    "3d": "3D",
+    "audio": "Audio"
+  }
+},
     title: 'Usage Records',
     description: 'View and analyze your API usage history',
     costDetails: 'Cost Breakdown',

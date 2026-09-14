@@ -1706,7 +1706,43 @@ export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
+export interface UsagePricingSnapshot {
+  pricing_state: string
+  model: string
+  provider?: string
+  mode: string
+  source: string
+  price_card_version?: string
+  tokens?: Record<string, number | boolean>
+  token_prices?: Record<string, number | boolean | string | null>
+  unit_price?: number
+  units?: number
+  size_tier?: string
+  service_tier?: string
+  thinking_enabled?: boolean
+  long_context_applied?: boolean
+  rate_multiplier: number
+  time_multiplier: number
+  reasoning_multiplier: number
+  adjustment_multiplier?: number
+  fx?: Record<string, unknown>
+  charged_amount: number
+}
+
 export interface UsageLog {
+  billing_explanation?: {
+    price_source?: string | null
+    price_card_version?: string | null
+    pricing_state: string | null
+    settlement_state: string | null
+    completion_state: string | null
+    snapshot: UsagePricingSnapshot | null
+    family?: string
+    job_id?: string
+    session_id?: string
+    turn_id?: string
+  } | null
+  session_id?: string | null
   id: number
   user_id: number
   api_key_id: number
