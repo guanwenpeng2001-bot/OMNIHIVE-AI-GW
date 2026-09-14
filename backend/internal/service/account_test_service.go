@@ -345,7 +345,7 @@ func (s *AccountTestService) probeTestAccountConnection(c *accountProbeContext, 
 	}
 
 	if !AccountModelProbeSupported(account, modelID) {
-		message := "Native probe unsupported for this media model"
+		message := "native probe unsupported for this media model"
 		s.sendEvent(c, TestEvent{Type: "error", Code: "unsupported", Error: message})
 		return errors.New(message)
 	}
@@ -1076,10 +1076,6 @@ func (s *AccountTestService) grokTestProxyURL(account *Account) string {
 		return account.Proxy.URL()
 	}
 	return ""
-}
-
-func (s *AccountTestService) prepareGrokTestSSE(c *accountProbeContext) {
-
 }
 
 func (s *AccountTestService) applyGrokTestRequestHeaders(req *http.Request, account *Account, authToken string, accept string) {
@@ -2603,7 +2599,7 @@ func (s *AccountTestService) probeProcessGeminiStream(c *accountProbeContext, bo
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err != nil && !(err == io.EOF && len(line) > 0) {
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			if err == io.EOF {
 				return s.sendErrorAndEnd(c, "Stream ended before protocol completion")
 			}
@@ -2730,7 +2726,7 @@ func (s *AccountTestService) processClaudeStream(c *accountProbeContext, body io
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err != nil && !(err == io.EOF && len(line) > 0) {
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			if err == io.EOF {
 				return s.sendErrorAndEnd(c, "Stream ended before protocol completion")
 			}
@@ -2793,7 +2789,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *accountProbeC
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err != nil && !(err == io.EOF && len(line) > 0) {
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			if err == io.EOF {
 				if seenFinish {
 					s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
@@ -2870,7 +2866,7 @@ func (s *AccountTestService) processOpenAIStream(c *accountProbeContext, body io
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err != nil && !(err == io.EOF && len(line) > 0) {
+		if err != nil && (err != io.EOF || len(line) == 0) {
 			if err == io.EOF {
 				return s.sendErrorAndEnd(c, "Stream ended before response.completed")
 			}
