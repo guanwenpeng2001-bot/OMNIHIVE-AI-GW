@@ -57,6 +57,36 @@ type UsageSettlementReceiptRepository interface {
 	ListPending(context.Context, int64, int) ([]*UsageSettlementReceipt, error)
 }
 
+// Reconciliation is an explicit operator action using retained raw evidence.
+// It never reapplies an existing dedup charge or derives a second quota event.
+type UsageSettlementReconciler interface {
+	ReconcileLegacy(context.Context, UsageSettlementKey, string) (*UsageSettlementResult, error)
+}
+
+type UsageSettlementStatusItem struct {
+	ID           int64     `json:"id"`
+	RequestID    string    `json:"request_id"`
+	APIKeyID     int64     `json:"api_key_id"`
+	UserID       int64     `json:"user_id"`
+	State        string    `json:"state"`
+	PricingState string    `json:"pricing_state"`
+	CreatedAt    time.Time `json:"created_at"`
+}
+
+type UsageSettlementStatus struct {
+	Pending                int64                       `json:"pending"`
+	NeedsReview            int64                       `json:"needs_review"`
+	HistoricalZeroReview   int64                       `json:"historical_zero_review"`
+	PersistenceUnconfirmed uint64                      `json:"persistence_unconfirmed"`
+	RecoveryBoundary       string                      `json:"recovery_boundary"`
+	Items                  []UsageSettlementStatusItem `json:"items"`
+	HistoricalItems        []UsageSettlementStatusItem `json:"historical_items"`
+}
+
+type UsageSettlementStatusRepository interface {
+	SettlementStatus(context.Context, string, int64) (*UsageSettlementStatus, error)
+}
+
 // PrepareUsageSettlementReceipt copies the input before normalizing. Existing
 // fingerprints must be retained: Normalize computes missing ones from RAW money
 // before rounding, and must never be repeated from reconstructed rounded money.

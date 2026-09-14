@@ -119,6 +119,14 @@ func (r *usageSettlementReceiptRepository) ListPending(ctx context.Context, afte
 }
 
 func (r *usageSettlementReceiptRepository) Settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
+	return r.settle(ctx, key, fingerprint, false)
+}
+
+func (r *usageSettlementReceiptRepository) ReconcileLegacy(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
+	return r.settle(ctx, key, fingerprint, true)
+}
+
+func (r *usageSettlementReceiptRepository) settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string, reconcile bool) (*service.UsageSettlementResult, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
@@ -137,7 +145,7 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 	if receipt.State == service.UsageSettlementSettled {
 		return result, nil
 	}
-	if receipt.State != service.UsageSettlementPending {
+	if receipt.State != service.UsageSettlementPending && !reconcile {
 		return nil, service.ErrUsageSettlementNeedsReview
 	}
 	prepared, err := service.PrepareUsageSettlementReceipt(receipt)
@@ -145,6 +153,9 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 		return nil, err
 	}
 	if prepared.State != service.UsageSettlementPending {
+		return nil, service.ErrUsageSettlementNeedsReview
+	}
+	if reconcile && strings.TrimSpace(receipt.Command.RequestPayloadHash) == "" {
 		return nil, service.ErrUsageSettlementNeedsReview
 	}
 	billing := &usageBillingRepository{}
@@ -159,35 +170,71 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 		if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT receipt_dedup`); err != nil {
 			return nil, err
 		}
-		// A legacy or archived dedup is an existing charge. Never reapply effects
-		// or invent a canonical log if its old log is missing/has been retained
-		// elsewhere; preserve the receipt for explicit reconciliation instead.
-		_, err = tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1`, receipt.ID)
-		if err != nil {
-			return nil, err
+		if !reconcile {
+			// A legacy or archived dedup is an existing charge. Never reapply effects
+			// or invent a canonical log if its old log is missing/has been retained
+			// elsewhere; preserve the receipt for explicit reconciliation instead.
+			_, err = tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1`, receipt.ID)
+			if err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			return nil, service.ErrUsageSettlementNeedsReview
 		}
-		if err := tx.Commit(); err != nil {
-			return nil, err
-		}
-		return nil, service.ErrUsageSettlementNeedsReview
 	}
 	inserted, err := (&usageLogRepository{}).createSingle(ctx, tx, &receipt.Usage)
 	if err != nil {
 		return nil, err
 	}
 	if !inserted {
-		return nil, service.ErrUsageBillingRequestConflict
-	}
-	result.Billing.Applied = true
-	if err := billing.applyUsageBillingEffects(ctx, tx, &receipt.Command, result.Billing); err != nil {
-		return nil, err
-	}
-	for _, effect := range r.effects {
-		if effect == nil {
-			continue
+		if !reconcile {
+			if _, err := tx.ExecContext(ctx, `ROLLBACK TO SAVEPOINT receipt_dedup`); err != nil {
+				return nil, err
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE usage_settlement_receipts SET state='needs_review' WHERE id=$1`, receipt.ID); err != nil {
+				return nil, err
+			}
+			if err := tx.Commit(); err != nil {
+				return nil, err
+			}
+			return nil, service.ErrUsageSettlementNeedsReview
 		}
-		if err := effect(ctx, tx, &receipt.Usage); err != nil {
+		// Only a same-owner, same-model, same-unit zero row bound to this
+		// immutable receipt can advance. Never infer a historical price.
+		err = tx.QueryRowContext(ctx, `UPDATE usage_logs SET actual_cost=$1,
+        input_cost=$2,output_cost=$3,cache_creation_cost=$4,cache_read_cost=$5
+        WHERE request_id=$6 AND api_key_id=$7 AND user_id=$8 AND account_id=$9
+        AND model=$10 AND input_tokens=$11 AND output_tokens=$12
+        AND cache_creation_tokens=$13 AND cache_read_tokens=$14
+        AND image_count=$15 AND total_cost=$16 AND actual_cost=0
+        AND billing_type=$17 AND subscription_id IS NOT DISTINCT FROM $18
+		AND COALESCE(service_tier,'')=COALESCE($19,'') AND COALESCE(reasoning_effort,'')=COALESCE($20,'')
+        RETURNING id`, receipt.Usage.ActualCost, receipt.Usage.InputCost, receipt.Usage.OutputCost,
+			receipt.Usage.CacheCreationCost, receipt.Usage.CacheReadCost, key.RequestID, key.APIKeyID, key.UserID,
+			receipt.Usage.AccountID, receipt.Usage.Model, receipt.Usage.InputTokens, receipt.Usage.OutputTokens,
+			receipt.Usage.CacheCreationTokens, receipt.Usage.CacheReadTokens, receipt.Usage.ImageCount,
+			receipt.Usage.TotalCost, receipt.Usage.BillingType, receipt.Usage.SubscriptionID, receipt.Usage.ServiceTier, receipt.Usage.ReasoningEffort).Scan(&receipt.Usage.ID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, service.ErrUsageSettlementNeedsReview
+		}
+		if err != nil {
 			return nil, err
+		}
+	}
+	if claimed {
+		result.Billing.Applied = true
+		if err := billing.applyUsageBillingEffects(ctx, tx, &receipt.Command, result.Billing); err != nil {
+			return nil, err
+		}
+		for _, effect := range r.effects {
+			if effect == nil {
+				continue
+			}
+			if err := effect(ctx, tx, &receipt.Usage); err != nil {
+				return nil, err
+			}
 		}
 	}
 	err = tx.QueryRowContext(ctx, `UPDATE usage_settlement_receipts SET state='settled',usage_log_id=$2,settled_at=NOW() WHERE id=$1 RETURNING settled_at`, receipt.ID, receipt.Usage.ID).Scan(&receipt.SettledAt)

@@ -12,6 +12,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
@@ -262,10 +263,15 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		_, err = (&usageLogRepository{}).createSingle(ctx, db, &input.Usage)
 		require.NoError(t, err)
 		_, err = repo.Settle(ctx, stored.Key, stored.Command.RequestFingerprint)
-		require.ErrorIs(t, err, service.ErrUsageBillingRequestConflict)
+		require.ErrorIs(t, err, service.ErrUsageSettlementNeedsReview)
 		_, err = db.Exec(`DELETE FROM usage_logs WHERE id=$1`, input.Usage.ID)
 		require.NoError(t, err)
-		check(t, input, false)
+		loaded, err := repo.Get(ctx, input.Key)
+		require.NoError(t, err)
+		require.Equal(t, service.UsageSettlementNeedsReview, loaded.State)
+		var claims int
+		require.NoError(t, db.QueryRow(`SELECT count(*) FROM usage_billing_dedup WHERE request_id=$1`, input.Key.RequestID).Scan(&claims))
+		require.Zero(t, claims)
 	})
 	t.Run("archived_identity_is_never_charged_again", func(t *testing.T) {
 		input := fixture(t, 2)
@@ -341,4 +347,177 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		require.False(t, result.Billing.Applied)
 		check(t, input, true)
 	})
+	t.Run("finance_worker_stopped_drop_sample_and_restart", func(t *testing.T) {
+		for _, policy := range []string{"drop", "sample", "sync", "stopped"} {
+			t.Run(policy, func(t *testing.T) {
+				input := fixture(t, 2)
+				pool := service.NewUsageRecordWorkerPoolWithOptions(service.UsageRecordWorkerPoolOptions{WorkerCount: 1, QueueSize: 1, OverflowPolicy: policy, OverflowSamplePercent: 1})
+				if policy == "stopped" {
+					pool.Stop()
+				} else {
+					entered, release := make(chan struct{}), make(chan struct{})
+					pool.Submit(func(context.Context) { close(entered); <-release })
+					<-entered
+					pool.Submit(func(context.Context) {})
+					defer func() { close(release); pool.Stop() }()
+				}
+				// This wrapper rejects settlement unless a PG read sees the full receipt.
+				guarded := &financeReceiptFaults{UsageSettlementReceiptRepository: repo, verifyPersisted: true}
+				svc := service.NewUsageSettlementService(guarded, pool, nil)
+				require.NoError(t, svc.Submit(ctx, input, nil))
+				check(t, input, true)
+				restarted := service.NewUsageSettlementService(NewUsageSettlementReceiptRepository(db, effect), nil, nil)
+				require.NoError(t, restarted.Recover(ctx))
+				check(t, input, true)
+			})
+		}
+	})
+	t.Run("finance_persist_ack_lost_and_settlement_ack_lost", func(t *testing.T) {
+		input := fixture(t, 3)
+		faults := &financeReceiptFaults{UsageSettlementReceiptRepository: repo, losePersistAck: true, loseSettleAck: true}
+		svc := service.NewUsageSettlementService(faults, nil, nil)
+		require.NoError(t, svc.Submit(ctx, input, nil))
+		check(t, input, true)
+		// Both first INSERT and settlement COMMIT acknowledged by same identity.
+		restarted := service.NewUsageSettlementService(NewUsageSettlementReceiptRepository(db, effect), nil, nil)
+		require.NoError(t, restarted.Submit(ctx, input, nil))
+		check(t, input, true)
+	})
+	t.Run("finance_rebuild_after_receipt_before_worker", func(t *testing.T) {
+		input := fixture(t, 4)
+		stored, err := repo.Persist(ctx, input)
+		require.NoError(t, err)
+		restarted := service.NewUsageSettlementService(NewUsageSettlementReceiptRepository(db, effect), nil, nil)
+		require.NoError(t, restarted.Recover(ctx))
+		check(t, input, true)
+		loaded, err := repo.Get(ctx, input.Key)
+		require.NoError(t, err)
+		require.Equal(t, stored.Command.RequestFingerprint, loaded.Command.RequestFingerprint)
+		require.Equal(t, stored.Usage.PricingSnapshot, loaded.Usage.PricingSnapshot)
+	})
+	t.Run("finance_persistence_failure_is_visible_without_free_log", func(t *testing.T) {
+		input := fixture(t, 2)
+		faults := &financeReceiptFaults{UsageSettlementReceiptRepository: repo, failPersist: true}
+		svc := service.NewUsageSettlementService(faults, nil, nil)
+		require.ErrorContains(t, svc.Submit(ctx, input, nil), "persistence unconfirmed")
+		_, err := repo.Get(ctx, input.Key)
+		require.ErrorIs(t, err, service.ErrUsageSettlementNotFound)
+		var logs int
+		require.NoError(t, db.QueryRow(`SELECT count(*) FROM usage_logs WHERE request_id=$1`, input.Key.RequestID).Scan(&logs))
+		require.Zero(t, logs)
+		status, err := svc.Status(ctx, "", 0)
+		require.NoError(t, err)
+		require.Equal(t, uint64(1), status.PersistenceUnconfirmed)
+		require.NotEmpty(t, status.RecoveryBoundary)
+	})
+	t.Run("finance_legacy_dedup_repair_never_charges_again", func(t *testing.T) {
+		for _, archive := range []bool{false, true} {
+			input := fixture(t, 2)
+			input.Command.RequestPayloadHash = service.HashUsageRequestPayload([]byte("retained-original-request"))
+			stored, err := repo.Persist(ctx, input)
+			require.NoError(t, err)
+			// The old transaction has charged but never wrote its usage log.
+			_, err = NewUsageBillingRepository(nil, db).Apply(ctx, &stored.Command)
+			require.NoError(t, err)
+			if archive {
+				_, err = db.Exec(`INSERT INTO usage_billing_dedup_archive(request_id,api_key_id,request_fingerprint,created_at) SELECT request_id,api_key_id,request_fingerprint,created_at FROM usage_billing_dedup WHERE request_id=$1`, input.Key.RequestID)
+				require.NoError(t, err)
+				_, err = db.Exec(`DELETE FROM usage_billing_dedup WHERE request_id=$1`, input.Key.RequestID)
+				require.NoError(t, err)
+			}
+			_, err = repo.Settle(ctx, input.Key, stored.Command.RequestFingerprint)
+			require.ErrorIs(t, err, service.ErrUsageSettlementNeedsReview)
+			repaired, err := repo.(service.UsageSettlementReconciler).ReconcileLegacy(ctx, input.Key, stored.Command.RequestFingerprint)
+			require.NoError(t, err)
+			require.False(t, repaired.Billing.Applied)
+			_, err = repo.(service.UsageSettlementReconciler).ReconcileLegacy(ctx, input.Key, stored.Command.RequestFingerprint)
+			require.NoError(t, err)
+			var balance float64
+			require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, input.Key.UserID).Scan(&balance))
+			require.Equal(t, float64(98), balance)
+			var events, logs int
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM receipt_test_effects WHERE request_id=$1`, input.Key.RequestID).Scan(&events))
+			require.Zero(t, events)
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM usage_logs WHERE request_id=$1`, input.Key.RequestID).Scan(&logs))
+			require.Equal(t, 1, logs)
+		}
+	})
+	t.Run("finance_legacy_zero_requires_binding_and_original_evidence", func(t *testing.T) {
+		input := fixture(t, 2)
+		input.Command.RequestPayloadHash = service.HashUsageRequestPayload([]byte("original-zero-failure"))
+		stored, err := repo.Persist(ctx, input)
+		require.NoError(t, err)
+		zero := stored.Usage
+		zero.ActualCost = 0
+		_, err = (&usageLogRepository{}).createSingle(ctx, db, &zero)
+		require.NoError(t, err)
+		_, err = repo.(service.UsageSettlementReconciler).ReconcileLegacy(ctx, input.Key, stored.Command.RequestFingerprint)
+		require.NoError(t, err)
+		check(t, input, true)
+		orphan := fixture(t, 2)
+		orphan.Usage.ActualCost = 0
+		_, err = (&usageLogRepository{}).createSingle(ctx, db, &orphan.Usage)
+		require.NoError(t, err)
+		orphan.Command.Normalize()
+		_, err = repo.(service.UsageSettlementReconciler).ReconcileLegacy(ctx, orphan.Key, orphan.Command.RequestFingerprint)
+		require.ErrorIs(t, err, service.ErrUsageSettlementNotFound)
+		status, err := repo.(service.UsageSettlementStatusRepository).SettlementStatus(ctx, "", 0)
+		require.NoError(t, err)
+		require.Greater(t, status.HistoricalZeroReview, int64(0))
+		noEvidence := fixture(t, 2)
+		stored, err = repo.Persist(ctx, noEvidence)
+		require.NoError(t, err)
+		_, err = repo.(service.UsageSettlementReconciler).ReconcileLegacy(ctx, noEvidence.Key, stored.Command.RequestFingerprint)
+		require.ErrorIs(t, err, service.ErrUsageSettlementNeedsReview)
+	})
+	t.Run("finance_quota_provider_emits_once", func(t *testing.T) {
+		input := fixture(t, 2)
+		input.Usage.QuotaPlatform = "qianwen"
+		_, err := db.Exec(`INSERT INTO user_platform_quotas(user_id,platform,daily_limit_usd) VALUES($1,'qianwen',100)`, input.Key.UserID)
+		require.NoError(t, err)
+		input.Usage.CreatedAt = time.Now().UTC().Add(time.Second)
+		quotaRepo := NewUsageSettlementReceiptWithQuotaRepository(db)
+		svc := service.NewUsageSettlementService(quotaRepo, nil, nil)
+		require.NoError(t, svc.Submit(ctx, input, nil))
+		require.NoError(t, svc.Submit(ctx, input, nil))
+		var events int
+		require.NoError(t, db.QueryRow(`SELECT count(*) FROM user_platform_quota_events WHERE user_id=$1`, input.Key.UserID).Scan(&events))
+		require.Equal(t, 1, events)
+	})
+
+}
+
+type financeReceiptFaults struct {
+	service.UsageSettlementReceiptRepository
+	losePersistAck, loseSettleAck, failPersist, verifyPersisted bool
+}
+
+func (r *financeReceiptFaults) Persist(ctx context.Context, input *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	if r.failPersist {
+		return nil, errors.New("database unavailable before first receipt")
+	}
+	result, err := r.UsageSettlementReceiptRepository.Persist(ctx, input)
+	if err == nil && r.losePersistAck {
+		return nil, errors.New("INSERT commit acknowledgement lost")
+	}
+	return result, err
+}
+func (r *financeReceiptFaults) Settle(ctx context.Context, key service.UsageSettlementKey, fp string) (*service.UsageSettlementResult, error) {
+	if r.verifyPersisted {
+		row, err := r.Get(ctx, key)
+		if err != nil {
+			return nil, err
+		}
+		if row.Usage.PricingSnapshot == "" {
+			return nil, errors.New("queued before frozen receipt")
+		}
+	}
+	result, err := r.UsageSettlementReceiptRepository.Settle(ctx, key, fp)
+	if err == nil && r.loseSettleAck {
+		return nil, errors.New("settlement commit acknowledgement lost")
+	}
+	return result, err
+}
+func (r *financeReceiptFaults) SettlementStatus(ctx context.Context, requestID string, afterID int64) (*service.UsageSettlementStatus, error) {
+	return r.UsageSettlementReceiptRepository.(service.UsageSettlementStatusRepository).SettlementStatus(ctx, requestID, afterID)
 }
