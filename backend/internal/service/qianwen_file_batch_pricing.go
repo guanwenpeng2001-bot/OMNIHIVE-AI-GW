@@ -117,7 +117,7 @@ func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (usageLog *UsageL
 	var inputCost, outputCost float64
 	if b.Model != QianwenBatchTestModel {
 		in, out, ok := qianwenFileBatchTariff(b.Model)
-		if !ok || f.FX == nil || f.PriceVersion != QianwenFileBatchPriceVersion || !finitePositive(f.InputPrice) || !finitePositive(f.OutputPrice) || !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) || f.FX.Region != "asia-pacific-china" || !finitePositive(f.FX.USDPerCNY) || f.InputPrice != in*f.FX.USDPerCNY/1e6 || f.OutputPrice != out*f.FX.USDPerCNY/1e6 {
+		if !ok || f.FX == nil || !finitePositive(f.InputPrice) || !finitePositive(f.OutputPrice) || !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) || f.FX.Region != "asia-pacific-china" || !finitePositive(f.FX.USDPerCNY) || f.InputPrice != in*f.FX.USDPerCNY/1e6 || f.OutputPrice != out*f.FX.USDPerCNY/1e6 {
 			return nil, nil, ErrUpstreamJobTariff
 		}
 		source, version = "dashscope_cn_file_batch", f.PriceVersion
