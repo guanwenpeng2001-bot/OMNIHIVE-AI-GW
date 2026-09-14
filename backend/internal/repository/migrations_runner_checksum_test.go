@@ -1,10 +1,41 @@
 package repository
 
 import (
+	"crypto/sha256"
+	"fmt"
+	"os"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
+
+func TestMonitorStorageChecksumExceptionsAreExact(t *testing.T) {
+	for _, name := range []string{"240_channel_monitor_provider_capabilities.sql", "243_channel_monitor_qianwen_commandcode.sql", "244_channel_monitor_minimax_opencode.sql"} {
+		t.Run(name, func(t *testing.T) {
+			old, err := os.ReadFile("testdata/legacy_monitor_migrations/" + name)
+			require.NoError(t, err)
+			current, err := migrations.FS.ReadFile(name)
+			require.NoError(t, err)
+			hashes := []string{}
+			for _, body := range []string{string(old), string(current)} {
+				body = strings.ReplaceAll(body, "\r\n", "\n")
+				for _, content := range []string{body, strings.ReplaceAll(body, "\n", "\r\n")} {
+					hashes = append(hashes, fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(content)))))
+				}
+			}
+			for _, stored := range hashes {
+				for _, file := range hashes {
+					require.True(t, isMigrationChecksumCompatible(name, stored, file), "known forward/rollback contents")
+					require.False(t, isMigrationChecksumCompatible("255_channel_monitor_storage_compatibility.sql", stored, file))
+				}
+				require.False(t, isMigrationChecksumCompatible(name, stored, strings.Repeat("0", 64)))
+				require.False(t, isMigrationChecksumCompatible(name, strings.Repeat("0", 64), stored))
+			}
+		})
+	}
+}
 
 func TestIsMigrationChecksumCompatible(t *testing.T) {
 	t.Run("054历史checksum可兼容", func(t *testing.T) {

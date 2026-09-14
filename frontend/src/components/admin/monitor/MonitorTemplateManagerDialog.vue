@@ -5,6 +5,12 @@
     width="wide"
     @close="$emit('close')"
   >
+    <div v-for="template in legacyTemplates" :key="template.id" class="mb-3 rounded-lg border p-4">
+      <p class="font-medium">{{ template.name }} · Cursor</p>
+      <p class="text-xs text-gray-500">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</p>
+      <p class="text-sm">{{ template.description }}</p>
+      <pre class="mt-2 overflow-auto text-xs">{{ JSON.stringify({ extra_headers: template.extra_headers, body_override_mode: template.body_override_mode, body_override: template.body_override }, null, 2) }}</pre>
+    </div>
     <!-- provider tabs -->
     <div class="mb-4 border-b border-gray-200 dark:border-dark-700">
       <div role="tablist" class="flex flex-wrap gap-1">
@@ -291,6 +297,7 @@ const providerTabs = computed<{ value: Provider; label: string }[]>(() => [
 const activeProvider = ref<Provider>(PROVIDER_ANTHROPIC)
 const templates = ref<ChannelMonitorTemplate[]>([])
 const loading = ref(false)
+const legacyTemplates = computed(() => templates.value.filter(template => String(template.provider) === 'cursor'))
 
 const templatesForActiveProvider = computed(() =>
   templates.value.filter((t) => t.provider === activeProvider.value),

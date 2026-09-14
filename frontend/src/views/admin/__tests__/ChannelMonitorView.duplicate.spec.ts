@@ -67,7 +67,7 @@ const DataTableStub = defineComponent({
     columns: { type: Array, default: () => [] },
     loading: { type: Boolean, default: false },
   },
-  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div></div>',
+  template: '<div><div v-for="row in data" :key="row.id"><slot name="cell-enabled" :row="row" /><slot name="cell-actions" :row="row" /></div></div>',
 })
 
 function makeMonitor(overrides: Partial<ChannelMonitor> = {}): ChannelMonitor {
@@ -138,6 +138,21 @@ describe('ChannelMonitorView duplicate action', () => {
       pages: 1,
     })
     duplicateMonitor.mockResolvedValue(makeMonitor({ id: 43, name: 'primary (Copy)', enabled: false }))
+  })
+
+  it('keeps a stored Cursor row read-only even when its historical enabled flag is true', async () => {
+    listMonitors.mockResolvedValueOnce({
+      items: [makeMonitor({ provider: 'cursor' as ChannelMonitor['provider'], enabled: true })],
+      total: 1, page: 1, page_size: 20, pages: 1,
+    })
+    const wrapper = mountView()
+    await flushPromises()
+
+    expect(wrapper.findComponent(MonitorActionsCell).exists()).toBe(false)
+    expect(wrapper.find('toggle-stub').exists()).toBe(false)
+    expect(wrapper.text()).toContain('channelMonitorV2.cursorLegacyReadOnly')
+    expect(duplicateMonitor).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('duplicates the selected monitor, reports success, and refreshes the list', async () => {

@@ -1,6 +1,7 @@
 /** Channel Monitor V2 (user + admin passive monitor UI) */
 export default {
   channelMonitorV2: {
+    cursorLegacyReadOnly: '历史 Cursor 监控仅供只读查看，不执行主动探测或配额查询。',
     cursorProbeUnsupported: 'Cursor 不支持监控探针（需原生协议），可用账号页用量窗口查看。',
     title: '渠道监控',
     updating: '正在更新数据',

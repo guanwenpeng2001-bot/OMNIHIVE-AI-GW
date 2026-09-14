@@ -98,11 +98,13 @@
           </template>
 
           <template #cell-enabled="{ row }">
-            <Toggle :modelValue="row.enabled" @update:modelValue="toggleEnabled(row)" />
+            <span v-if="String(row.provider) === 'cursor'" class="text-xs text-gray-500">{{ t('channelMonitorV2.cursorLegacyReadOnly') }}</span>
+            <Toggle v-else :modelValue="row.enabled" @update:modelValue="toggleEnabled(row)" />
           </template>
 
           <template #cell-actions="{ row }">
             <MonitorActionsCell
+              v-if="String(row.provider) !== 'cursor'"
               :row="row"
               :running="runningId === row.id"
               :duplicating="duplicatingIds.has(row.id)"

@@ -1,6 +1,7 @@
 /** Channel Monitor V2 (user + admin passive monitor UI) */
 export default {
   channelMonitorV2: {
+    cursorLegacyReadOnly: 'Legacy Cursor monitoring is read-only; probes and quota queries are disabled.',
     cursorProbeUnsupported: 'Cursor does not support monitoring probes (native protocol required). View usage windows on the Accounts page.',
     title: 'Channel Monitor',
     updating: 'Updating data',
