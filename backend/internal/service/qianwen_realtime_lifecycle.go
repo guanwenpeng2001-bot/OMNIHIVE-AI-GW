@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"sync"
 )
 
@@ -77,6 +78,7 @@ func (s *UpstreamJobService) WaitDrain(ctx context.Context) error {
 	case <-done:
 		return nil
 	case <-ctx.Done():
+		slog.Error("billing drain timed out", "component", "billing", "failure_category", "drain_timeout")
 		return ctx.Err()
 	}
 }

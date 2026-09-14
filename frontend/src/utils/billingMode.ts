@@ -5,10 +5,16 @@ export const BILLING_MODE_VIDEO = 'video'
 
 export function getBillingModeLabel(mode: string | null | undefined, t: (key: string) => string): string {
   switch (mode) {
+    case 'file_batch': return t('usage.evidence.modes.file_batch')
+    case 'realtime': return t('usage.evidence.modes.realtime')
+    case 'asr': return t('usage.evidence.modes.asr')
+    case '3d': return t('usage.evidence.modes.3d')
+    case 'audio': return t('usage.evidence.modes.audio')
+    case BILLING_MODE_TOKEN: return t('admin.usage.billingModeToken')
     case BILLING_MODE_PER_REQUEST: return t('admin.usage.billingModePerRequest')
     case BILLING_MODE_IMAGE: return t('admin.usage.billingModeImage')
     case BILLING_MODE_VIDEO: return t('admin.usage.billingModeVideo')
-    default: return t('admin.usage.billingModeToken')
+    default: return t('usage.evidence.unknown')
   }
 }
 

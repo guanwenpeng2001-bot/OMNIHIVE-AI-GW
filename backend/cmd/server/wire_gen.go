@@ -362,6 +362,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 		PluginManager: pluginManager,
 		Cleanup:       v,
 		UpstreamJobs:  upstreamJobService,
+		OpsMetrics:    opsMetricsCollector,
 	}
 	return application, nil
 }
@@ -369,6 +370,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 // wire.go:
 
 type Application struct {
+	OpsMetrics    *service.OpsMetricsCollector
 	UpstreamJobs  *service.UpstreamJobService
 	Server        *http.Server
 	PromptAudit   *securityaudit.PromptService

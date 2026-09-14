@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/server/routes"
 	"github.com/Wei-Shaw/sub2api/internal/setup"
 	"github.com/Wei-Shaw/sub2api/internal/web"
 
@@ -167,14 +168,11 @@ func runMainServer() {
 		}
 	}
 
+	readyHandler := routes.NewReadinessHandler(app.OpsMetrics.DependenciesReady, app.UpstreamJobs.Ready)
 	originalHandler := app.Server.Handler
 	app.Server.Handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/ready" {
-			if !app.UpstreamJobs.Ready() {
-				http.Error(w, "draining", http.StatusServiceUnavailable)
-				return
-			}
-			w.WriteHeader(http.StatusOK)
+			readyHandler(w, r)
 			return
 		}
 		originalHandler.ServeHTTP(w, r)

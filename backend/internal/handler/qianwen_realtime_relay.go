@@ -146,7 +146,7 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		persist, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 		if err := h.upstreamJobs.FinishQianwenRealtime(persist, session.PublicRequestID, finishCode); err != nil {
-			requestLogger(c, "handler.qianwen_realtime").Error("persist realtime session closure", zap.Error(err))
+			requestLogger(c, "handler.qianwen_realtime").Error("persist realtime session closure", zap.String("failure_category", "persistence_unconfirmed"), zap.String("session_id", session.PublicRequestID))
 		}
 	}()
 	dialCtx, cancel := context.WithTimeout(ctx, 12*time.Second)

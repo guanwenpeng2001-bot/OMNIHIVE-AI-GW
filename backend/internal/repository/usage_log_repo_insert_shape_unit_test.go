@@ -163,6 +163,7 @@ func TestUsageLogPricingAuditRoundTrip(t *testing.T) {
 			require.NoError(t, err)
 			values = append(values, value)
 		}
+		values = append(values, nil) // Historical row without a settlement receipt.
 		db, mock, err := sqlmock.New()
 		require.NoError(t, err)
 		mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(strings.Split(usageLogSelectColumns, ", ")).AddRow(values...))
