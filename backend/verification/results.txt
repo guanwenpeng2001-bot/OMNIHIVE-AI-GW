@@ -1,6 +1,0 @@
-default=0
-unit=0
-postgres-jobs=0
-migrations=0
-postgres-receipts=0
-lint=0
