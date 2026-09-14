@@ -15,13 +15,13 @@ const historicalZeroUsageFilter = `u.actual_cost=0
  AND COALESCE(j.billing_snapshot->>'pricing_snapshot','')<>'')`
 
 func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context, requestID string, afterID int64) (*service.UsageSettlementStatus, error) {
-	s := &service.UsageSettlementStatus{Items: []service.UsageSettlementStatusItem{}}
-	err := r.db.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE state='pending'),count(*) FILTER(WHERE state='needs_review') FROM usage_settlement_receipts`).Scan(&s.Pending, &s.NeedsReview)
+	status := &service.UsageSettlementStatus{Items: []service.UsageSettlementStatusItem{}}
+	err := r.db.QueryRowContext(ctx, `SELECT count(*) FILTER(WHERE state='pending'),count(*) FILTER(WHERE state='needs_review') FROM usage_settlement_receipts`).Scan(&status.Pending, &status.NeedsReview)
 	if err != nil {
 		return nil, err
 	}
 	// Unknown old zeros are a review population, not evidence of free pricing.
-	err = r.db.QueryRowContext(ctx, `SELECT count(*) FROM usage_logs u WHERE `+historicalZeroUsageFilter).Scan(&s.HistoricalZeroReview)
+	err = r.db.QueryRowContext(ctx, `SELECT count(*) FROM usage_logs u WHERE `+historicalZeroUsageFilter).Scan(&status.HistoricalZeroReview)
 	if err != nil {
 		return nil, err
 	}
@@ -35,7 +35,7 @@ func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context,
 		if err := rows.Scan(&item.ID, &item.RequestID, &item.APIKeyID, &item.UserID, &item.State, &item.PricingState, &item.CreatedAt); err != nil {
 			return nil, err
 		}
-		s.Items = append(s.Items, item)
+		status.Items = append(status.Items, item)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context,
 	if err := rows.Close(); err != nil {
 		return nil, err
 	}
-	s.HistoricalItems = []service.UsageSettlementStatusItem{}
+	status.HistoricalItems = []service.UsageSettlementStatusItem{}
 	history, err := r.db.QueryContext(ctx, `SELECT id,request_id,api_key_id,user_id,created_at FROM usage_logs u WHERE `+historicalZeroUsageFilter+` AND id>$1 AND ($2='' OR request_id=$2) ORDER BY id LIMIT 100`, afterID, requestID)
 	if err != nil {
 		return nil, err
@@ -54,7 +54,7 @@ func (r *usageSettlementReceiptRepository) SettlementStatus(ctx context.Context,
 		if err := history.Scan(&item.ID, &item.RequestID, &item.APIKeyID, &item.UserID, &item.CreatedAt); err != nil {
 			return nil, err
 		}
-		s.HistoricalItems = append(s.HistoricalItems, item)
+		status.HistoricalItems = append(status.HistoricalItems, item)
 	}
-	return s, history.Err()
+	return status, history.Err()
 }
