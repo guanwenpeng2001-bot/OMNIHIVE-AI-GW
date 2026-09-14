@@ -217,6 +217,9 @@ func (s *ChannelMonitorService) Duplicate(
 		return nil, err
 	}
 
+	if source.Provider == PlatformCursor {
+		return nil, ErrChannelMonitorInvalidProvider
+	}
 	plainAPIKey, err := s.decryptAPIKeyForDuplicate(source)
 	if err != nil {
 		return nil, err
@@ -614,6 +617,9 @@ func (s *ChannelMonitorService) RunCheck(ctx context.Context, id int64) ([]*Chec
 	if err != nil {
 		return nil, err
 	}
+	if err := validateProvider(m.Provider); err != nil {
+		return nil, err
+	}
 	checkMode := defaultCheckMode(m.CheckMode)
 	if checkMode != MonitorCheckModeQuota && m.APIKeyDecryptFailed {
 		return nil, ErrChannelMonitorAPIKeyDecryptFailed
@@ -749,10 +755,15 @@ func (s *ChannelMonitorService) ListEnabledMonitors(ctx context.Context) ([]*Cha
 	if err != nil {
 		return nil, err
 	}
+	runnable := make([]*ChannelMonitor, 0, len(all))
 	for _, m := range all {
+		if validateProvider(m.Provider) != nil {
+			continue // Preserve stored legacy rows without scheduling unsupported providers.
+		}
 		s.decryptInPlace(m)
+		runnable = append(runnable, m)
 	}
-	return all, nil
+	return runnable, nil
 }
 
 // cleanupOldHistory 删除 monitorHistoryRetentionDays 天之前的明细历史记录。
@@ -884,6 +895,9 @@ func (s *ChannelMonitorService) decryptInPlace(m *ChannelMonitor) {
 // 行数稍超过 30：这是逐字段平铺的 dispatcher，每个 if 都是 1-3 行的"非 nil 则覆盖"模式，
 // 拆分反而会增加跳转噪音、影响可读性，故保留为单函数。
 func applyMonitorUpdate(existing *ChannelMonitor, p ChannelMonitorUpdateParams) error {
+	if existing.Provider == PlatformCursor {
+		return ErrChannelMonitorInvalidProvider
+	}
 	providerChanged := false
 	if p.Name != nil {
 		existing.Name = strings.TrimSpace(*p.Name)

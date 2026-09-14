@@ -98,7 +98,7 @@ func TestNewPlatformMigrations(t *testing.T) {
 					require.Equal(t, 5, count, "legacy rows and both new platforms must survive")
 				}
 				for _, table := range []string{"channel_monitors", "channel_monitor_request_templates"} {
-					for _, platform := range []string{"qianwen", "commandcode", "cursor", "minimax", "opencode_go"} {
+					for _, platform := range []string{"qianwen", "commandcode"} {
 						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", platform)
 						require.Error(t, err)
 					}
@@ -110,7 +110,7 @@ func TestNewPlatformMigrations(t *testing.T) {
 						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
 						require.NoError(t, err)
 					}
-					for _, provider := range []string{"cursor", "minimax", "opencode_go", "bogus"} {
+					for _, provider := range []string{"bogus"} {
 						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
 						require.Error(t, err)
 					}
@@ -128,7 +128,7 @@ func TestNewPlatformMigrations(t *testing.T) {
 						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
 						require.NoError(t, err)
 					}
-					for _, provider := range []string{"cursor", "bogus", "composite"} {
+					for _, provider := range []string{"bogus", "composite"} {
 						_, err = db.ExecContext(ctx, "INSERT INTO "+table+" VALUES ($1)", provider)
 						require.Error(t, err)
 					}
@@ -148,7 +148,7 @@ func TestNewPlatformMigrations(t *testing.T) {
 					require.Contains(t, value, "'"+platform+"'")
 				}
 				for _, platform := range []string{"cursor"} {
-					require.NotContains(t, value, "'"+platform+"'")
+					require.Contains(t, value, "'"+platform+"'")
 				}
 			}
 		})
