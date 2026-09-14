@@ -37,13 +37,13 @@ var liveObserverStoreRetryInterval = time.Second
 
 const LiveFreeReason = "operator_explicit_free_live_no_reliable_metering"
 
-var ErrLiveBillingUnsupported = errors.New("Live is free only; paid Live is not supported; an explicit free policy is required: set gateway.live.billing_policy explicitly to free to enable Live")
+var ErrLiveBillingUnsupported = errors.New("free Live only; paid Live is not supported; an explicit free policy is required: set gateway.live.billing_policy explicitly to free to enable Live")
 
 // CheckLiveBillingPolicy does not infer a commercial promise from AllowLive.
 // Live is free and disabled by default; only the exact policy free enables creation.
 func (s *OpenAIGatewayService) CheckLiveBillingPolicy() error {
 	if s == nil || s.cfg == nil || s.cfg.Gateway.Live.BillingPolicy == "" {
-		return fmt.Errorf("Live is disabled because gateway.live.billing_policy is not configured: %w", ErrLiveBillingUnsupported)
+		return fmt.Errorf("the Live feature is disabled because gateway.live.billing_policy is not configured: %w", ErrLiveBillingUnsupported)
 	}
 	if s.cfg.Gateway.Live.BillingPolicy != "free" {
 		return fmt.Errorf("unsupported gateway.live.billing_policy %q (accepted values: empty to disable, free to enable): %w", s.cfg.Gateway.Live.BillingPolicy, ErrLiveBillingUnsupported)

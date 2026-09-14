@@ -78,7 +78,7 @@ func NormalizeCursorAccount(account *Account) error {
 		if protocol == "" {
 			account.Credentials["api_protocol"] = "adaptive"
 		} else if protocol != "adaptive" && protocol != "chat_completions" {
-			return invalid("Cursor M1 relay supports adaptive or chat_completions")
+			return invalid("Cursor relay supports adaptive or chat_completions")
 		}
 		for _, key := range []string{"machine_id", "mac_machine_id", "client_version"} {
 			if account.GetCredential(key) != "" {

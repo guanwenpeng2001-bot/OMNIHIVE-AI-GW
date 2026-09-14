@@ -258,11 +258,11 @@ func TestLiveBillingPolicyRequiresExplicitFree(test *testing.T) {
 				// No dependencies: rejection must happen before validation or upstream work.
 				_, err = gateway.CreateLiveCall(context.Background(), nil, LiveCallIdentity{}, 1)
 				require.ErrorIs(test, err, ErrLiveBillingUnsupported)
-				require.Contains(test, err.Error(), "Live is free only")
+				require.Contains(test, err.Error(), "free Live only")
 				require.Contains(test, err.Error(), "paid Live is not supported")
 				require.Contains(test, err.Error(), "set gateway.live.billing_policy explicitly to free")
 				if policy == "" {
-					require.Contains(test, err.Error(), "Live is disabled")
+					require.Contains(test, err.Error(), "the Live feature is disabled")
 					require.Contains(test, err.Error(), "not configured")
 				} else {
 					require.Contains(test, err.Error(), "unsupported gateway.live.billing_policy")

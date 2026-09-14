@@ -43,33 +43,33 @@ func QianwenAsyncBillingSnapshot(family string, group *Group, account *Account, 
 	if family == "video" {
 		return QianwenVideoBillingSnapshot(group, account, key, body, subscription)
 	}
-	b := UpstreamJobBilling{RequestedModel: gjson.GetBytes(body, "model").String(), AccountRateMultiplier: 1}
-	b.Model = b.RequestedModel
+	billingSnapshot := UpstreamJobBilling{RequestedModel: gjson.GetBytes(body, "model").String(), AccountRateMultiplier: 1}
+	billingSnapshot.Model = billingSnapshot.RequestedModel
 	if account != nil {
-		b.Model = account.GetMappedModel(b.Model)
+		billingSnapshot.Model = account.GetMappedModel(billingSnapshot.Model)
 	}
-	a, err := qianwenAsyncSpecification(family, b.Model, body)
+	asyncSnapshot, err := qianwenAsyncSpecification(family, billingSnapshot.Model, body)
 	if err != nil {
-		return b, err
+		return billingSnapshot, err
 	}
-	b.Async = a
+	billingSnapshot.Async = asyncSnapshot
 	if group == nil {
-		return b, ErrUpstreamJobTariff
+		return billingSnapshot, ErrUpstreamJobTariff
 	}
-	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(time.Now())
-	if !finitePositive(b.RateMultiplier) {
-		return b, ErrUpstreamJobTariff
+	billingSnapshot.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(time.Now())
+	if !finitePositive(billingSnapshot.RateMultiplier) {
+		return billingSnapshot, ErrUpstreamJobTariff
 	}
 	// Before scheduling, validate the request. The selected account supplies FX.
 	if account == nil {
-		return b, nil
+		return billingSnapshot, nil
 	}
 	raw, _ := json.Marshal(account.Extra["qianwen_pricing_sync"])
-	if json.Unmarshal(raw, &a.QianwenPricingOptions) != nil || a.Region != "asia-pacific-china" || !finitePositive(a.USDPerCNY) || strings.TrimSpace(a.FXSource) == "" {
-		return b, fmt.Errorf("unsupported async tariff: Beijing pricing snapshot with explicit USD/CNY conversion and provenance required")
+	if json.Unmarshal(raw, &asyncSnapshot.QianwenPricingOptions) != nil || asyncSnapshot.Region != "asia-pacific-china" || !finitePositive(asyncSnapshot.USDPerCNY) || strings.TrimSpace(asyncSnapshot.FXSource) == "" {
+		return billingSnapshot, fmt.Errorf("unsupported async tariff: Beijing pricing snapshot with explicit USD/CNY conversion and provenance required")
 	}
-	if _, err := time.Parse(time.RFC3339, a.FXEffectiveAt); err != nil {
-		return b, fmt.Errorf("unsupported async tariff: FX effective timestamp required")
+	if _, err := time.Parse(time.RFC3339, asyncSnapshot.FXEffectiveAt); err != nil {
+		return billingSnapshot, fmt.Errorf("unsupported async tariff: FX effective timestamp required")
 	}
 	base := DefaultQianwenDashScopeBaseURL
 	if bases, ok := account.Credentials["api_base_urls"].(map[string]any); ok {
@@ -77,27 +77,27 @@ func QianwenAsyncBillingSnapshot(family string, group *Group, account *Account, 
 			base = override
 		}
 	}
-	u, err := url.Parse(base)
-	if err != nil || u.Scheme != "https" || (u.Hostname() != "dashscope.aliyuncs.com" && !strings.HasSuffix(u.Hostname(), ".cn-beijing.maas.aliyuncs.com")) {
-		return b, fmt.Errorf("unsupported async tariff: verified Beijing endpoint required")
+	endpointURL, err := url.Parse(base)
+	if err != nil || endpointURL.Scheme != "https" || (endpointURL.Hostname() != "dashscope.aliyuncs.com" && !strings.HasSuffix(endpointURL.Hostname(), ".cn-beijing.maas.aliyuncs.com")) {
+		return billingSnapshot, fmt.Errorf("unsupported async tariff: verified Beijing endpoint required")
 	}
-	if family == "3d" && !strings.HasSuffix(u.Hostname(), ".cn-beijing.maas.aliyuncs.com") {
-		return b, fmt.Errorf("3D requires the official Beijing workspace endpoint")
+	if family == "3d" && !strings.HasSuffix(endpointURL.Hostname(), ".cn-beijing.maas.aliyuncs.com") {
+		return billingSnapshot, fmt.Errorf("3D requires the official Beijing workspace endpoint")
 	}
-	b.UnitPrice = a.UnitCNY * a.USDPerCNY
-	if !finitePositive(b.UnitPrice) {
-		return b, ErrUpstreamJobTariff
+	billingSnapshot.UnitPrice = asyncSnapshot.UnitCNY * asyncSnapshot.USDPerCNY
+	if !finitePositive(billingSnapshot.UnitPrice) {
+		return billingSnapshot, ErrUpstreamJobTariff
 	}
-	b.AccountRateMultiplier = account.BillingRateMultiplier()
-	b.AccountQuota = account.HasAnyQuotaLimit()
+	billingSnapshot.AccountRateMultiplier = account.BillingRateMultiplier()
+	billingSnapshot.AccountQuota = account.HasAnyQuotaLimit()
 	if key != nil {
-		b.KeyQuota = key.Quota > 0
-		b.KeyRateLimit = key.HasRateLimits()
+		billingSnapshot.KeyQuota = key.Quota > 0
+		billingSnapshot.KeyRateLimit = key.HasRateLimits()
 	}
 	if subscription != nil {
-		b.SubscriptionID = &subscription.ID
+		billingSnapshot.SubscriptionID = &subscription.ID
 	}
-	return b, nil
+	return billingSnapshot, nil
 }
 
 func qianwenAsyncSpecification(family, model string, body []byte) (*QianwenAsyncSnapshot, error) {
@@ -316,35 +316,35 @@ func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) 
 	return raw, nil
 }
 
-func QianwenAsyncJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
-	defer func() { recordJobPricingFailure(j, chargeErr) }()
-	if j.Family == "realtime_turn" {
-		return QianwenRealtimeCharge(j)
+func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(upstreamJob, chargeErr) }()
+	if upstreamJob.Family == "realtime_turn" {
+		return QianwenRealtimeCharge(upstreamJob)
 	}
-	if j.Family != "3d" && j.Family != "asr" {
-		return QianwenJobCharge(j)
+	if upstreamJob.Family != "3d" && upstreamJob.Family != "asr" {
+		return QianwenJobCharge(upstreamJob)
 	}
-	b, a := j.Billing, j.Billing.Async
-	if j.Platform != PlatformQianwen || a == nil || !finitePositive(b.UnitPrice) || !finitePositive(b.RateMultiplier) || !finitePositive(a.UnitCNY) || !finitePositive(a.USDPerCNY) || math.Abs(b.UnitPrice-a.UnitCNY*a.USDPerCNY) > 1e-12 {
+	billingSnapshot, asyncSnapshot := upstreamJob.Billing, upstreamJob.Billing.Async
+	if upstreamJob.Platform != PlatformQianwen || asyncSnapshot == nil || !finitePositive(billingSnapshot.UnitPrice) || !finitePositive(billingSnapshot.RateMultiplier) || !finitePositive(asyncSnapshot.UnitCNY) || !finitePositive(asyncSnapshot.USDPerCNY) || math.Abs(billingSnapshot.UnitPrice-asyncSnapshot.UnitCNY*asyncSnapshot.USDPerCNY) > 1e-12 {
 		return nil, nil, ErrUpstreamJobTariff
 	}
-	usage, result := gjson.ParseBytes(j.UsageJSON), gjson.Parse(j.ResultRef)
-	if !json.Valid(j.UsageJSON) || !result.IsArray() || len(result.Array()) != 1 {
+	usage, result := gjson.ParseBytes(upstreamJob.UsageJSON), gjson.Parse(upstreamJob.ResultRef)
+	if !json.Valid(upstreamJob.UsageJSON) || !result.IsArray() || len(result.Array()) != 1 {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	quantity := 1.0
-	if j.Family == "3d" {
+	if upstreamJob.Family == "3d" {
 		texture, geometry := usage.Get("texture_quality").String(), usage.Get("geometry_quality").String()
 		// texture_quality may retain its default even when texture and PBR are
 		// disabled. The documented base-only output proves the untextured tier;
 		// do not invent a mandatory provider texture_quality="none" value.
-		if a.Texture == "none" && qianwenHTTPURL(result.Get("0.base_model_url")) && !result.Get("0.pbr_model_url").Exists() && (texture == "" || texture == "none" || texture == "standard" || texture == "detailed") {
+		if asyncSnapshot.Texture == "none" && qianwenHTTPURL(result.Get("0.base_model_url")) && !result.Get("0.pbr_model_url").Exists() && (texture == "" || texture == "none" || texture == "standard" || texture == "detailed") {
 			texture = "none"
 		}
 		if geometry == "" {
 			geometry = "standard"
 		}
-		if usage.Get("count").Type != gjson.Number || usage.Get("count").Float() != 1 || usage.Get("3d_task_type").String() != a.TaskType || geometry != a.Geometry || texture != a.Texture {
+		if usage.Get("count").Type != gjson.Number || usage.Get("count").Float() != 1 || usage.Get("3d_task_type").String() != asyncSnapshot.TaskType || geometry != asyncSnapshot.Geometry || texture != asyncSnapshot.Texture {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
 		if !qianwenHTTPURL(result.Get("0.pbr_model_url")) && !qianwenHTTPURL(result.Get("0.base_model_url")) {
@@ -357,34 +357,34 @@ func QianwenAsyncJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 		}
 		quantity = duration.Float()
 	}
-	total := QuantizeUsageBillingAmount(quantity * b.UnitPrice)
-	actual := QuantizeUsageBillingAmount(total * b.RateMultiplier)
+	total := QuantizeUsageBillingAmount(quantity * billingSnapshot.UnitPrice)
+	actual := QuantizeUsageBillingAmount(total * billingSnapshot.RateMultiplier)
 	if !finitePositive(total) || !finitePositive(actual) {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
-	mode, source, version := j.Family, "dashscope-cn-standard", "async-families-2026-09-14"
-	tier := fmt.Sprintf("qianwen_%s_v1:units=%g", j.Family, quantity)
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
-	accountCost := total * b.AccountRateMultiplier
+	mode, source, version := upstreamJob.Family, "dashscope-cn-standard", "async-families-2026-09-14"
+	tier := fmt.Sprintf("qianwen_%s_v1:units=%g", upstreamJob.Family, quantity)
+	log := &UsageLog{UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, RequestID: upstreamJob.PublicRequestID, Model: billingSnapshot.Model, RequestedModel: billingSnapshot.RequestedModel, UpstreamModel: &billingSnapshot.Model, GroupID: upstreamJob.GroupID, SubscriptionID: billingSnapshot.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: billingSnapshot.RateMultiplier, AccountRateMultiplier: &billingSnapshot.AccountRateMultiplier, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
+	accountCost := total * billingSnapshot.AccountRateMultiplier
 	log.AccountStatsCost = &total
-	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: j.Family, BalanceCost: actual}
-	if b.SubscriptionID != nil {
+	cmd := &UsageBillingCommand{RequestID: upstreamJob.PublicRequestID, RequestFingerprint: upstreamJob.RequestFingerprint, UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, AccountType: AccountTypeAPIKey, Model: billingSnapshot.Model, MediaType: upstreamJob.Family, BalanceCost: actual}
+	if billingSnapshot.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
 		cmd.BillingType = BillingTypeSubscription
-		cmd.SubscriptionID = b.SubscriptionID
+		cmd.SubscriptionID = billingSnapshot.SubscriptionID
 		cmd.SubscriptionCost = actual
 		cmd.BalanceCost = 0
 	}
-	if b.KeyQuota {
+	if billingSnapshot.KeyQuota {
 		cmd.APIKeyQuotaCost = actual
 	}
-	if b.KeyRateLimit {
+	if billingSnapshot.KeyRateLimit {
 		cmd.APIKeyRateLimitCost = actual
 	}
-	if b.AccountQuota {
+	if billingSnapshot.AccountQuota {
 		cmd.AccountQuotaCost = accountCost
 	}
-	if err := freezeJobPricing(j, log, PricingSnapshot{UnitPrice: &b.UnitPrice, Units: quantity, SizeTier: j.Family}); err != nil {
+	if err := freezeJobPricing(upstreamJob, log, PricingSnapshot{UnitPrice: &billingSnapshot.UnitPrice, Units: quantity, SizeTier: upstreamJob.Family}); err != nil {
 		return nil, nil, err
 	}
 	return log, cmd, nil
