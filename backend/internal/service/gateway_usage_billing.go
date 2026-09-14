@@ -171,7 +171,7 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 	}
 
 	if p.shouldUpdateAccountQuota() {
-		accountCost := cost.TotalCost * p.AccountRateMultiplier
+		accountCost := QuantizeUsageBillingAmount(cost.TotalCost * p.AccountRateMultiplier)
 		if err := deps.accountRepo.IncrementQuotaUsed(billingCtx, p.Account.ID, accountCost); err != nil {
 			slog.Error("increment account quota used failed", "account_id", p.Account.ID, "cost", accountCost, "error", err)
 		}
@@ -328,6 +328,11 @@ func buildUsageBillingCommand(requestID string, usageLog *UsageLog, p *postUsage
 	}
 
 	cmd.Normalize()
+	if usageLog != nil {
+		usageLog.ActualCost = QuantizeUsageBillingAmount(p.Cost.ActualCost)
+		usageLog.PricingState = p.Cost.PricingState
+		usageLog.PricingSnapshot = p.Cost.PricingSnapshot
+	}
 	return cmd
 }
 
@@ -336,7 +341,37 @@ func applyUsageBilling(ctx context.Context, requestID string, usageLog *UsageLog
 		return false, nil
 	}
 
+	if p.Cost != nil {
+		if usageLog != nil && p.Account != nil {
+			if err := FreezeUsagePricing(p.Cost, firstNonEmpty(optionalStringValue(usageLog.UpstreamModel), usageLog.Model), p.Account.Platform, p.AccountRateMultiplier, usageLog.AccountStatsCost); err != nil {
+				return false, err
+			}
+		}
+		if usageLog != nil {
+			usageLog.PricingState, usageLog.PricingSnapshot = p.Cost.PricingState, p.Cost.PricingSnapshot
+		}
+		if p.Cost.PricingState == PricingStateUnpriced {
+			return false, ErrModelPricingUnavailable
+		}
+		if p.Cost.PricingState == PricingStateError {
+			return false, ErrInvalidBillingAmount
+		}
+		if err := ValidateUsageBillingAmount(p.Cost.ActualCost); err != nil {
+			return false, err
+		}
+	}
 	cmd := buildUsageBillingCommand(requestID, usageLog, p)
+	if cmd != nil {
+		for _, amount := range []float64{cmd.BalanceCost, cmd.SubscriptionCost, cmd.APIKeyQuotaCost, cmd.APIKeyRateLimitCost, cmd.AccountQuotaCost} {
+			if err := ValidateUsageBillingAmount(amount); err != nil {
+				return false, err
+			}
+		}
+	}
+	// Keep raw inputs until Normalize has generated the historical fingerprint.
+	if p.Cost != nil {
+		p.Cost.ActualCost = QuantizeUsageBillingAmount(p.Cost.ActualCost)
+	}
 	if cmd == nil || cmd.RequestID == "" || repo == nil {
 		postUsageBilling(ctx, p, deps)
 		return true, nil
@@ -501,7 +536,7 @@ func notifyAccountQuota(p *postUsageBillingParams, deps *billingDeps, result *Us
 		)
 		return
 	}
-	accountCost := p.Cost.TotalCost * p.AccountRateMultiplier
+	accountCost := QuantizeUsageBillingAmount(p.Cost.TotalCost * p.AccountRateMultiplier)
 	var quotaState *AccountQuotaState
 	if result != nil {
 		quotaState = result.QuotaState
@@ -929,6 +964,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 			}
 			tokenCost.TotalCost += searchCost.TotalCost
 			tokenCost.ActualCost += searchCost.ActualCost
+			appendPricingAddition(tokenCost, searchCost, false)
 		}
 	}
 	return tokenCost
@@ -1031,9 +1067,10 @@ func (s *GatewayService) calculateImageCost(
 			RequestCount: result.ImageCount, SizeTier: sizeTier,
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
 		})
-		if err == nil {
-			return cost
+		if err != nil {
+			return pricingFailure(err)
 		}
+		return cost
 	}
 	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
@@ -1060,7 +1097,7 @@ func (s *GatewayService) calculateImageCost(
 		})
 		if err != nil {
 			logger.LegacyPrintf("service.gateway", "Calculate image token cost failed: %v", err)
-			return &CostBreakdown{ActualCost: 0}
+			return pricingFailure(err)
 		}
 		return cost
 	}
@@ -1126,7 +1163,7 @@ func (s *GatewayService) calculateTokenCost(
 	})
 	if err != nil {
 		logger.LegacyPrintf("service.gateway", "Calculate cost failed: %v", err)
-		return &CostBreakdown{ActualCost: 0}
+		return pricingFailure(err)
 	}
 	return cost
 }
@@ -1161,6 +1198,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		)
 	}
 	usageLog := &UsageLog{
+		PricingState: cost.PricingState, PricingSnapshot: cost.PricingSnapshot,
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,
 		AccountID:                account.ID,
@@ -1218,7 +1256,7 @@ func (s *GatewayService) buildRecordUsageLog(
 		usageLog.CacheCreationCost = cost.CacheCreationCost
 		usageLog.CacheReadCost = cost.CacheReadCost
 		usageLog.TotalCost = cost.TotalCost
-		usageLog.ActualCost = cost.ActualCost
+		usageLog.ActualCost = QuantizeUsageBillingAmount(cost.ActualCost)
 		usageLog.LongContextBillingApplied = cost.LongContextBillingApplied
 	}
 

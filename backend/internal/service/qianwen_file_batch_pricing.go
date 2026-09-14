@@ -3,7 +3,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"math"
 	"net/url"
 	"strings"
 	"time"
@@ -38,6 +37,25 @@ func (f *QianwenFileBatchSnapshot) BatchEndpoint() string {
 }
 
 func QianwenFileBatchBillingSnapshot(group *Group, account *Account, key *APIKey, subscription *UserSubscription, f *QianwenFileBatchSnapshot) (UpstreamJobBilling, error) {
+	multiplier := 1.0
+	if group != nil {
+		multiplier = group.RateMultiplier
+	}
+	return QianwenFileBatchBillingSnapshotAt(group, account, key, subscription, f, FileBatchPricingAdmission{UserGroupRateMultiplier: multiplier, PricingAt: time.Now()})
+}
+
+// FileBatchPricingAdmission is resolved once at admission, before upstream work.
+type FileBatchPricingAdmission struct {
+	UserGroupRateMultiplier float64
+	PricingAt               time.Time
+}
+
+func QianwenFileBatchBillingSnapshotAt(group *Group, account *Account, key *APIKey, subscription *UserSubscription, f *QianwenFileBatchSnapshot, admission FileBatchPricingAdmission) (UpstreamJobBilling, error) {
+	if f != nil {
+		cloned := *f
+		cloned.CustomIDHashes = append([]string(nil), f.CustomIDHashes...)
+		f = &cloned
+	}
 	b := UpstreamJobBilling{Model: f.BatchModel(), RequestedModel: f.BatchModel(), RateMultiplier: 1, AccountRateMultiplier: 1, FileBatch: f}
 	if b.Model == QianwenBatchTestModel {
 		return b, nil
@@ -60,7 +78,13 @@ func QianwenFileBatchBillingSnapshot(group *Group, account *Account, key *APIKey
 	}
 	f.InputPrice, f.OutputPrice = in*opts.USDPerCNY/1e6, out*opts.USDPerCNY/1e6
 	f.PriceVersion, f.FX = QianwenFileBatchPriceVersion, &opts
-	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(time.Now())
+	if admission.PricingAt.IsZero() || !finitePositive(admission.UserGroupRateMultiplier) {
+		return b, ErrUpstreamJobTariff
+	}
+	f.UserGroupRateMultiplier = admission.UserGroupRateMultiplier
+	f.TimeMultiplier = group.PeakMultiplierAt(admission.PricingAt)
+	f.PricingAt = admission.PricingAt
+	b.RateMultiplier = f.UserGroupRateMultiplier * f.TimeMultiplier
 	b.AccountRateMultiplier = account.BillingRateMultiplier()
 	if !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) {
 		return b, ErrUpstreamJobTariff
@@ -75,7 +99,11 @@ func QianwenFileBatchBillingSnapshot(group *Group, account *Account, key *APIKey
 	return b, nil
 }
 
-func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (*UsageLog, *UsageBillingCommand, error) {
+func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(j, chargeErr) }()
+	if j == nil || j.Billing.FileBatch == nil || input < 0 || output < 0 {
+		return nil, nil, ErrUpstreamJobUnsupportedUsage
+	}
 	b, f := j.Billing, j.Billing.FileBatch
 	mode, source, version := "file_batch", "dashscope_free_test_model", "file-batch-test-v1"
 	var inputCost, outputCost float64
@@ -97,11 +125,11 @@ func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (*UsageLog, *Usag
 	actual := QuantizeUsageBillingAmount(total * multiplier)
 	accountCost := QuantizeUsageBillingAmount(total * b.AccountRateMultiplier)
 	for _, cost := range []float64{inputCost, outputCost, total, actual, accountCost} {
-		if cost < 0 || math.IsNaN(cost) || math.IsInf(cost, 0) {
+		if ValidateUsageBillingAmount(cost) != nil {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
 	}
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, GroupID: j.GroupID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, InputTokens: input, OutputTokens: output, InputCost: inputCost, OutputCost: outputCost, TotalCost: total, ActualCost: actual, RateMultiplier: multiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &accountCost, SubscriptionID: b.SubscriptionID, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
+	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, GroupID: j.GroupID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, InputTokens: input, OutputTokens: output, InputCost: inputCost, OutputCost: outputCost, TotalCost: total, ActualCost: actual, RateMultiplier: multiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &total, SubscriptionID: b.SubscriptionID, BillingMode: &mode, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, BalanceCost: actual}
 	if b.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
@@ -118,6 +146,9 @@ func chargeQianwenFileBatch(j *UpstreamJob, input, output int) (*UsageLog, *Usag
 	}
 	if b.AccountQuota {
 		cmd.AccountQuotaCost = accountCost
+	}
+	if err := freezeJobPricing(j, log, PricingSnapshot{Tokens: UsageTokens{InputTokens: input, OutputTokens: output}, TokenPrices: &ModelPricing{InputPricePerToken: f.InputPrice, OutputPricePerToken: f.OutputPrice}, FX: f.FX}); err != nil {
+		return nil, nil, err
 	}
 	return log, cmd, nil
 }

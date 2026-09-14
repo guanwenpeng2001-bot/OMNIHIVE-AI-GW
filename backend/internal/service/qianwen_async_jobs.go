@@ -316,7 +316,8 @@ func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) 
 	return raw, nil
 }
 
-func QianwenAsyncJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
+func QianwenAsyncJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(j, chargeErr) }()
 	if j.Family == "realtime_turn" {
 		return QianwenRealtimeCharge(j)
 	}
@@ -365,7 +366,7 @@ func QianwenAsyncJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 	tier := fmt.Sprintf("qianwen_%s_v1:units=%g", j.Family, quantity)
 	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	accountCost := total * b.AccountRateMultiplier
-	log.AccountStatsCost = &accountCost
+	log.AccountStatsCost = &total
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: j.Family, BalanceCost: actual}
 	if b.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
@@ -382,6 +383,9 @@ func QianwenAsyncJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 	}
 	if b.AccountQuota {
 		cmd.AccountQuotaCost = accountCost
+	}
+	if err := freezeJobPricing(j, log, PricingSnapshot{UnitPrice: &b.UnitPrice, Units: quantity, SizeTier: j.Family}); err != nil {
+		return nil, nil, err
 	}
 	return log, cmd, nil
 }

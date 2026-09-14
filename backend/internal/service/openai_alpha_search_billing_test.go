@@ -33,13 +33,13 @@ func TestCalculateWebSearchCostDefaultAndOverride(t *testing.T) {
 
 	// 负数倍率按 0 处理，避免按 1x 误扣
 	cost = s.CalculateWebSearchCost(1, nil, -1)
-	require.InDelta(t, 0.01, cost.TotalCost, 1e-12)
+	require.Equal(t, PricingStateError, cost.PricingState)
 	require.Zero(t, cost.ActualCost)
 
 	// 次数 <= 0 不产生费用
 	cost = s.CalculateWebSearchCost(0, float64Ptr(0.02), 1.0)
 	require.Zero(t, cost.TotalCost)
-	require.Empty(t, cost.BillingMode)
+	require.Equal(t, string(BillingModePerRequest), cost.BillingMode)
 }
 
 func TestCalculateOpenAIRecordUsageCostWebSearchPerCall(t *testing.T) {

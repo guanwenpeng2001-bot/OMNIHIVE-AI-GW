@@ -125,6 +125,11 @@ func TestQianwenConditionRatesReachBilling(t *testing.T) {
 					cost, err := bs.CalculateCostUnified(CostInput{Ctx: context.Background(), Model: m.Model, Group: group, Resolver: resolver, Tokens: tokens, ThinkingEnabled: &think, RateMultiplier: 1})
 					require.NoError(t, err)
 					require.InDelta(t, want, cost.TotalCost, 1e-12)
+					frozen := cost.PricingSnapshot
+					replay, err := RecalculatePricingSnapshot(frozen)
+					require.NoError(t, err)
+					require.InDelta(t, want, replay.TotalCost, 1e-12)
+					require.Equal(t, cost.ActualCost, replay.ActualCost)
 				}
 			}
 		}

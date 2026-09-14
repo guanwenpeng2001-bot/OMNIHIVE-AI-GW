@@ -21,6 +21,9 @@ var ErrUpstreamJobTariff = errors.New("explicit video model/resolution tariff is
 // UpstreamJobBilling is an immutable admission-time price/ownership snapshot.
 // Never persist credentials or the client's potentially sensitive input body.
 type UpstreamJobBilling struct {
+	PricingState    PricingState `json:"pricing_state,omitempty"`
+	PricingSnapshot string       `json:"pricing_snapshot,omitempty"`
+
 	Realtime              *QianwenRealtimeSnapshot `json:"realtime,omitempty"`
 	Model                 string                   `json:"model"`
 	RequestedModel        string                   `json:"requested_model"`

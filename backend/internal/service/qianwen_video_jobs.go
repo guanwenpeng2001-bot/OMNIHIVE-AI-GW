@@ -102,7 +102,8 @@ func videoUsageResolution(size string) string {
 // The returned usage is authoritative: Wan 2.6 duration includes input plus
 // output seconds; older Wan returns video_duration. Only single-video responses
 // with a matching official resolution are currently interpretable.
-func QianwenVideoJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, error) {
+func QianwenVideoJobCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
+	defer func() { recordJobPricingFailure(j, chargeErr) }()
 	if j.Platform != PlatformQianwen || j.Family != "video" || !strings.HasPrefix(j.Billing.Model, "wan2.") {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
@@ -145,8 +146,7 @@ func QianwenVideoJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 		duration := int(seconds.Float())
 		log.VideoDurationSeconds = &duration
 	}
-	accountCost := total * b.AccountRateMultiplier
-	log.AccountStatsCost = &accountCost
+	log.AccountStatsCost = &total
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: "video", BalanceCost: actual}
 	if b.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription
@@ -163,6 +163,9 @@ func QianwenVideoJobCharge(j *UpstreamJob) (*UsageLog, *UsageBillingCommand, err
 	}
 	if b.AccountQuota {
 		cmd.AccountQuotaCost = total * b.AccountRateMultiplier
+	}
+	if err := freezeJobPricing(j, log, PricingSnapshot{UnitPrice: &b.UnitPrice, Units: seconds.Float(), SizeTier: b.Resolution}); err != nil {
+		return nil, nil, err
 	}
 	return log, cmd, nil
 }

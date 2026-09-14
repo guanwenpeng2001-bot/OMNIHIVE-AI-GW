@@ -93,6 +93,7 @@ type BillingCache interface {
 
 // ModelPricing 模型价格配置（per-token价格，与LiteLLM格式一致）
 type ModelPricing struct {
+	Source                             string   `json:"source,omitempty"` // effective catalog or built-in origin
 	InputPricePerToken                 float64  // 每token输入价格 (USD)
 	InputPricePerTokenPriority         float64  // priority service tier 下每token输入价格 (USD)
 	ImageInputPricePerToken            float64  // 图片输入 token 价格 (USD)，用于多模态 embedding 等图文不同价场景；为 0 时回退到 InputPricePerToken
@@ -193,6 +194,8 @@ type UsageTokens struct {
 
 // CostBreakdown 费用明细
 type CostBreakdown struct {
+	PricingState              PricingState
+	PricingSnapshot           string // Immutable JSON; persist verbatim in the settlement receipt.
 	PriceSource               string
 	PriceCardVersion          string
 	InputCost                 float64 // 文本输入费用（不含图片输入，图片输入单独记入 ImageInputCost）
@@ -219,6 +222,7 @@ func applyCostBreakdownMultiplier(cost *CostBreakdown, multiplier float64) {
 	cost.CacheReadCost *= multiplier
 	cost.TotalCost *= multiplier
 	cost.ActualCost *= multiplier
+	refreshPricingMultiplier(cost, multiplier)
 }
 
 const claudeFable51MaxReasoningEffortMultiplier = 3.0
@@ -1238,6 +1242,12 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
 		litellmPricing := s.pricingService.GetModelPricing(model)
+		if IsGPTImageGenerationModel(model) {
+			// GPT Image billing requires this exact model's tariff, not family fallback.
+			s.pricingService.mu.RLock()
+			litellmPricing = s.pricingService.pricingData[model]
+			s.pricingService.mu.RUnlock()
+		}
 		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
 		// 无 fallback 则 fail-closed（ErrModelPricingUnavailable）。
@@ -1254,6 +1264,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 			price1h := litellmPricing.CacheCreationInputTokenCostAbove1hr
 			enableBreakdown := price1h > 0 && price1h > price5m
 			return s.applyModelSpecificPricingPolicyEx(model, &ModelPricing{
+				Source:                             PricingSourceLiteLLM,
 				InputPricePerToken:                 litellmPricing.InputCostPerToken,
 				InputPricePerTokenPriority:         litellmPricing.InputCostPerTokenPriority,
 				OutputPricePerToken:                litellmPricing.OutputCostPerToken,
@@ -1277,6 +1288,9 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		}
 	}
 
+	if IsGPTImageGenerationModel(model) {
+		return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
+	}
 	// 2. 使用硬编码回退价格
 	fallback := s.getFallbackPricing(model)
 	if fallback != nil {
@@ -1285,7 +1299,9 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 		if _, seen := s.fallbackWarnSeen.LoadOrStore(model, struct{}{}); !seen {
 			log.Printf("[Billing] Using fallback pricing for model: %s", model)
 		}
-		return s.applyModelSpecificPricingPolicyEx(model, fallback, true, pricingAt), nil
+		cloned := *fallback
+		cloned.Source = PricingSourceFallback
+		return s.applyModelSpecificPricingPolicyEx(model, &cloned, true, pricingAt), nil
 	}
 
 	return nil, fmt.Errorf("%w for model: %s", ErrModelPricingUnavailable, model)
@@ -1371,6 +1387,7 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 
 // CostInput 统一计费输入
 type CostInput struct {
+	Provider                  string // final outbound provider; especially required for Composite
 	ThinkingEnabled           *bool
 	Ctx                       context.Context
 	Model                     string
@@ -1391,7 +1408,16 @@ type CostInput struct {
 
 // CalculateCostUnified 统一计费入口，支持三种计费模式。
 // 使用 ModelPricingResolver 解析定价，然后根据 BillingMode 分发计算。
-func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, error) {
+func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakdown, calculationErr error) {
+	defer func() {
+		if calculationErr != nil {
+			cost = pricingFailure(calculationErr)
+		}
+	}()
+	if err := validateCostInput(input); err != nil {
+		return nil, err
+	}
+
 	if input.Resolver == nil {
 		// 无 Resolver，回退到旧路径
 		applyLongContextBilling := true
@@ -1430,11 +1456,6 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (*CostBreakdown, 
 	resolved, conditionErr = resolveQianwenConditions(resolved, input)
 	if conditionErr != nil {
 		return nil, conditionErr
-	}
-
-	// 保存时强制 > 0；若仍有负数泄漏（缓存/迁移残留），按 0 处理避免按 1x 误扣。
-	if input.RateMultiplier < 0 {
-		input.RateMultiplier = 0
 	}
 
 	var breakdown *CostBreakdown
@@ -1507,7 +1528,13 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
-	return breakdown, nil
+	source, version := pricingAuditIdentity(resolved)
+	provider := input.Provider
+	if provider == "" && input.Group != nil {
+		provider = channelLookupPlatform(input.Ctx, input.Group.Platform)
+	}
+	err := freezePricing(breakdown, PricingSnapshot{Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
+	return breakdown, err
 }
 
 // computeTokenBreakdown 是 token 计费的核心逻辑，由 calculateTokenCost 和 calculateCostInternal 共用。
@@ -1680,28 +1707,28 @@ func (s *BillingService) calculatePerRequestCost(resolved *ResolvedPricing, inpu
 	}
 
 	var unitPrice float64
-
+	var found bool
 	if input.SizeTier != "" {
-		unitPrice = input.Resolver.GetRequestTierPrice(resolved, input.SizeTier)
+		unitPrice, found = input.Resolver.LookupRequestTierPrice(resolved, input.SizeTier)
 	}
-
-	if unitPrice == 0 {
+	if !found && input.SizeTier == "" {
 		totalContext := input.Tokens.InputTokens + input.Tokens.CacheCreationTokens + input.Tokens.CacheReadTokens
-		unitPrice = input.Resolver.GetRequestTierPriceByContext(resolved, totalContext)
+		unitPrice, found = input.Resolver.LookupRequestTierPriceByContext(resolved, totalContext)
 	}
-
-	// 回退到默认按次价格
-	if unitPrice == 0 {
-		unitPrice = resolved.DefaultPerRequestPrice
+	if !found && (resolved.DefaultPerRequestPriceFound || resolved.DefaultPerRequestPrice != 0) {
+		unitPrice, found = resolved.DefaultPerRequestPrice, true
 	}
-
+	if !found {
+		return nil, ErrModelPricingUnavailable
+	}
+	if !validBillingNumber(unitPrice) {
+		return nil, ErrInvalidBillingAmount
+	}
 	totalCost := unitPrice * units
-	actualCost := totalCost * input.RateMultiplier
-
-	return &CostBreakdown{
-		TotalCost:  totalCost,
-		ActualCost: actualCost,
-	}, nil
+	breakdown := &CostBreakdown{TotalCost: totalCost, ActualCost: totalCost * input.RateMultiplier}
+	source, version := pricingAuditIdentity(resolved)
+	err := freezePricing(breakdown, PricingSnapshot{Model: input.Model, Provider: input.Provider, PricingAt: input.PricingAt, Mode: string(resolved.Mode), Source: source, PriceCardVersion: version, UnitPrice: &unitPrice, Units: units, SizeTier: input.SizeTier, ServiceTier: input.ServiceTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: 1, ReasoningMultiplier: 1})
+	return breakdown, err
 }
 
 // CalculateCost 计算使用费用
@@ -1743,10 +1770,18 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 		pricing, err = s.GetModelPricing(model)
 	}
 	if err != nil {
-		return nil, err
+		return pricingFailure(err), err
 	}
 
-	return s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled), nil
+	if err := validateCostInput(CostInput{Tokens: tokens, RateMultiplier: rateMultiplier}); err != nil {
+		return pricingFailure(err), err
+	}
+	breakdown := s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled)
+	err = freezePricing(breakdown, PricingSnapshot{Model: model, Mode: string(BillingModeToken), Source: pricing.Source, Tokens: tokens, TokenPrices: pricing, ServiceTier: serviceTier, RateMultiplier: rateMultiplier, TimeMultiplier: 1, ReasoningMultiplier: 1})
+	if err != nil {
+		return pricingFailure(err), err
+	}
+	return breakdown, nil
 }
 
 // applyModelSpecificPricingPolicy 对目录数据做模型特定修正：DeepSeek 官方价
@@ -1996,52 +2031,25 @@ const (
 // groupPrice: 分组配置的单次价格（nil 表示使用默认价 0.01；0 表示免费）
 // rateMultiplier: 分组费率倍数
 func (s *BillingService) CalculateWebSearchCost(callCount int, groupPrice *float64, rateMultiplier float64) *CostBreakdown {
-	if callCount <= 0 {
-		return &CostBreakdown{}
+	price := defaultWebSearchPricePerCall
+	source := "openai_web_search"
+	if groupPrice != nil {
+		price, source = *groupPrice, "group"
 	}
-	unitPrice := defaultWebSearchPricePerCall
-	if groupPrice != nil && *groupPrice >= 0 {
-		unitPrice = *groupPrice
-	}
-	totalCost := unitPrice * float64(callCount)
+	return calculateUnitCost("", "calls", string(BillingModePerRequest), source, float64(callCount), price, rateMultiplier)
 
-	// 应用倍率（保存时强制 > 0；负数按 0 处理避免按 1x 误扣）
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
-	}
-	return &CostBreakdown{
-		TotalCost:   totalCost,
-		ActualCost:  totalCost * rateMultiplier,
-		BillingMode: string(BillingModePerRequest),
-	}
 }
 
 // CalculateSearchCost bills search/tool invocations (e.g. web_search) per 1k calls.
 // groupPricePer1k: nil → defaultSearchPricePer1k; explicit 0 → free; >0 → that rate.
 func (s *BillingService) CalculateSearchCost(numCalls int, groupPricePer1k *float64, rateMultiplier float64) *CostBreakdown {
-	if numCalls <= 0 {
-		return &CostBreakdown{}
-	}
-	pricePer1k := defaultSearchPricePer1k
+	price := defaultSearchPricePer1k
+	source := "xai_search"
 	if groupPricePer1k != nil {
-		if *groupPricePer1k < 0 {
-			return &CostBreakdown{}
-		}
-		pricePer1k = *groupPricePer1k
+		price, source = *groupPricePer1k, "group"
 	}
-	if pricePer1k == 0 {
-		return &CostBreakdown{}
-	}
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
-	}
-	unit := pricePer1k / 1000.0
-	total := unit * float64(numCalls)
-	return &CostBreakdown{
-		TotalCost:   total,
-		ActualCost:  total * rateMultiplier,
-		BillingMode: string(BillingModePerRequest),
-	}
+	return calculateUnitCost("", "thousand_calls", string(BillingModePerRequest), source, float64(numCalls)/1000, price, rateMultiplier)
+
 }
 
 type audioPriceConfig struct {
@@ -2053,9 +2061,6 @@ type audioPriceConfig struct {
 // CalculateAudioCost supports realtime (per min), tts (per M chars), stt (per hr).
 // Missing group prices use defaults; explicit 0 means free for that mode.
 func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64, groupConfig *audioPriceConfig, rateMultiplier float64) *CostBreakdown {
-	if durationOrUnits <= 0 {
-		return &CostBreakdown{}
-	}
 	var unitPrice float64
 	switch strings.ToLower(mode) {
 	case "realtime":
@@ -2074,20 +2079,13 @@ func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64
 			unitPrice = *groupConfig.STTPerHour
 		}
 	default:
-		return &CostBreakdown{}
+		return pricingFailure(ErrModelPricingUnavailable)
 	}
-	if unitPrice <= 0 {
-		return &CostBreakdown{}
+	source := "audio_default"
+	if groupConfig != nil && (mode == "tts" && groupConfig.TTSPerMChars != nil || mode == "stt" && groupConfig.STTPerHour != nil || mode == "realtime" && groupConfig.RealtimePerMin != nil) {
+		source = PricingSourceGroup
 	}
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
-	}
-	total := unitPrice * durationOrUnits
-	return &CostBreakdown{
-		TotalCost:   total,
-		ActualCost:  total * rateMultiplier,
-		BillingMode: string(BillingModePerRequest),
-	}
+	return calculateUnitCost("", mode, "audio", source, durationOrUnits, unitPrice, rateMultiplier)
 }
 
 // CalculateImageCost 计算图片生成费用
@@ -2097,28 +2095,18 @@ func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64
 // groupConfig: 分组配置的价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateImageCost(model string, imageSize string, imageCount int, groupConfig *ImagePriceConfig, rateMultiplier float64) *CostBreakdown {
-	if imageCount <= 0 {
-		return &CostBreakdown{}
-	}
 	imageSize = NormalizeImageBillingTierOrDefault(imageSize)
-
-	// 获取单价
-	unitPrice := s.getImageUnitPrice(model, imageSize, groupConfig)
-
-	// 计算总费用
-	totalCost := unitPrice * float64(imageCount)
-
-	// 应用倍率（保存时强制 > 0；负数按 0 处理避免按 1x 误扣）
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
+	price := s.getImageUnitPrice(model, imageSize, groupConfig)
+	if math.IsNaN(price) && IsGPTImageGenerationModel(model) {
+		return pricingFailure(ErrModelPricingUnavailable)
 	}
-	actualCost := totalCost * rateMultiplier
-
-	return &CostBreakdown{
-		TotalCost:   totalCost,
-		ActualCost:  actualCost,
-		BillingMode: string(BillingModeImage),
+	source := "model_image_default"
+	if groupConfig != nil {
+		if imageSize == "1K" && groupConfig.Price1K != nil || imageSize == "2K" && groupConfig.Price2K != nil || imageSize == "4K" && groupConfig.Price4K != nil {
+			source = PricingSourceGroup
+		}
 	}
+	return calculateUnitCost(model, imageSize, string(BillingModeImage), source, float64(imageCount), price, rateMultiplier)
 }
 
 // CalculateVideoCost 计算视频生成费用（按秒计费，与 xAI 口径一致）。
@@ -2129,25 +2117,13 @@ func (s *BillingService) CalculateImageCost(model string, imageSize string, imag
 // groupConfig: 分组配置的每秒价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateVideoCost(model string, resolution string, videoCount int, durationSeconds int, groupConfig *VideoPriceConfig, rateMultiplier float64) *CostBreakdown {
-	if videoCount <= 0 {
-		return &CostBreakdown{}
+	if durationSeconds < 0 {
+		return pricingFailure(ErrInvalidBillingAmount)
 	}
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
 	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
-
-	perSecondPrice := s.getVideoUnitPrice(model, resolution, groupConfig)
-	totalCost := perSecondPrice * float64(durationSeconds) * float64(videoCount)
-
-	if rateMultiplier < 0 {
-		rateMultiplier = 0
-	}
-	actualCost := totalCost * rateMultiplier
-
-	return &CostBreakdown{
-		TotalCost:   totalCost,
-		ActualCost:  actualCost,
-		BillingMode: string(BillingModeVideo),
-	}
+	price := s.getVideoUnitPrice(model, resolution, groupConfig)
+	return calculateUnitCost(model, resolution, string(BillingModeVideo), "video_group_or_default", float64(durationSeconds)*float64(videoCount), price, rateMultiplier)
 }
 
 // getImageUnitPrice 获取图片单价
@@ -2215,6 +2191,9 @@ func (s *BillingService) getDefaultImagePrice(model string, imageSize string) fl
 		}
 	}
 
+	if IsGPTImageGenerationModel(model) {
+		return math.NaN()
+	}
 	// 如果没有找到价格，使用硬编码默认值（$0.134，来自 gemini-3-pro-image-preview）
 	if basePrice <= 0 {
 		basePrice = defaultImageGenerationPrice

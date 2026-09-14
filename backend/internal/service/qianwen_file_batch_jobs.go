@@ -25,16 +25,19 @@ const QianwenBatchTestModel = "batch-test-model"
 
 // File batch tariffs are distinct from synchronous Batch Chat prices.
 type QianwenFileBatchSnapshot struct {
-	Model          string                 `json:"model,omitempty"`
-	Endpoint       string                 `json:"endpoint,omitempty"`
-	InputPrice     float64                `json:"input_price,omitempty"`
-	OutputPrice    float64                `json:"output_price,omitempty"`
-	PriceVersion   string                 `json:"price_version,omitempty"`
-	FX             *QianwenPricingOptions `json:"fx,omitempty"`
-	SHA256         string                 `json:"sha256,omitempty"`
-	Bytes          int                    `json:"bytes,omitempty"`
-	CustomIDHashes []string               `json:"custom_id_hashes"`
-	InputFileID    string                 `json:"input_file_id,omitempty"`
+	UserGroupRateMultiplier float64                `json:"user_group_rate_multiplier,omitempty"`
+	TimeMultiplier          float64                `json:"time_multiplier,omitempty"`
+	PricingAt               time.Time              `json:"pricing_at,omitempty"`
+	Model                   string                 `json:"model,omitempty"`
+	Endpoint                string                 `json:"endpoint,omitempty"`
+	InputPrice              float64                `json:"input_price,omitempty"`
+	OutputPrice             float64                `json:"output_price,omitempty"`
+	PriceVersion            string                 `json:"price_version,omitempty"`
+	FX                      *QianwenPricingOptions `json:"fx,omitempty"`
+	SHA256                  string                 `json:"sha256,omitempty"`
+	Bytes                   int                    `json:"bytes,omitempty"`
+	CustomIDHashes          []string               `json:"custom_id_hashes"`
+	InputFileID             string                 `json:"input_file_id,omitempty"`
 }
 
 func fileBatchHash(value []byte) string {

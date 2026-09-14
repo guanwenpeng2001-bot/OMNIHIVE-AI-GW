@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -16,6 +17,7 @@ import (
 )
 
 func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
+	pricingAt := time.Now()
 	path := c.Request.URL.Path
 	family, root := "files", "/compatible-mode/v1/files"
 	if path != "" && (path == "/compatible-mode/v1/batches" || strings.HasPrefix(path, "/compatible-mode/v1/batches/")) {
@@ -302,7 +304,11 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 	if accountRelease != nil {
 		defer accountRelease()
 	}
-	billing, err := service.QianwenFileBatchBillingSnapshot(key.Group, account, key, subscription, snapshot)
+	admission := service.FileBatchPricingAdmission{PricingAt: pricingAt, UserGroupRateMultiplier: 1}
+	if key.Group != nil {
+		admission.UserGroupRateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(c.Request.Context(), key.UserID, key.Group.ID, key.Group.RateMultiplier)
+	}
+	billing, err := service.QianwenFileBatchBillingSnapshotAt(key.Group, account, key, subscription, snapshot, admission)
 	if err != nil {
 		fileBatchError(c, 422, "unsupported_pricing", err.Error())
 		return true

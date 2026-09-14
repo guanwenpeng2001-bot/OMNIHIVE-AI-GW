@@ -102,6 +102,11 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
+	// Pricing context is carried to the durable settlement receipt, independently
+	// of the legacy usage table schema. No migration is required for this DTO.
+	PricingState    PricingState
+	PricingSnapshot string
+
 	ID        int64
 	UserID    int64
 	APIKeyID  int64
