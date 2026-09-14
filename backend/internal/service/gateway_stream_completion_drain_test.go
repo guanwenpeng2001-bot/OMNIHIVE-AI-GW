@@ -70,7 +70,7 @@ func TestFrameReaderTimeoutAndDrain(t *testing.T) {
 	for _, semantic := range []bool{false, true} {
 		t.Run(map[bool]string{false: "first-output", true: "idle"}[semantic], func(t *testing.T) {
 			body, writer := io.Pipe()
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 			r := newUpstreamFrameReader(body, 1024, context.Background(), 30*time.Millisecond)
 			defer r.Close()
 			if semantic {
@@ -92,11 +92,13 @@ func TestFrameReaderTimeoutAndDrain(t *testing.T) {
 	t.Run("late-usage", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		body, writer := io.Pipe()
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		r := newUpstreamFrameReader(body, 1024, ctx, time.Second)
-		defer r.Close()
+		exited := make(chan struct{})
+		defer func() { r.Close(); <-exited }()
 		cancel()
 		go func() {
+			defer close(exited)
 			time.Sleep(20 * time.Millisecond)
 			_, _ = io.WriteString(writer, "data: {\"usage\":{\"prompt_tokens\":7}}\n\n")
 		}()
@@ -106,7 +108,7 @@ func TestFrameReaderTimeoutAndDrain(t *testing.T) {
 	})
 	t.Run("disconnect-bounded", func(t *testing.T) {
 		body, writer := io.Pipe()
-		defer writer.Close()
+		defer func() { _ = writer.Close() }()
 		r := newUpstreamFrameReader(body, 1024, context.Background(), time.Minute)
 		defer r.Close()
 		r.Disconnected()
@@ -121,8 +123,9 @@ func TestRawChatDoneClosesConnection(t *testing.T) {
 	for _, envelope := range []bool{false, true} {
 		t.Run(map[bool]string{false: "done-only", true: "valid"}[envelope], func(t *testing.T) {
 			body, writer := io.Pipe()
-			defer writer.Close()
+			defer func() { _ = writer.Close() }()
 			exited := make(chan struct{})
+			defer func() { _ = body.Close(); <-exited }()
 			go func() {
 				defer close(exited)
 				if envelope {
@@ -163,13 +166,16 @@ func TestAnthropicTerminalReleasesHTTPConnection(t *testing.T) {
 		if _, err := io.WriteString(w, drainMessageStart+drainMessageStop); err != nil {
 			return
 		}
-		w.(http.Flusher).Flush()
+		if err := http.NewResponseController(w).Flush(); err != nil {
+			return
+		}
 		<-r.Context().Done()
 		close(released)
 	}))
 	defer server.Close()
 	resp, err := server.Client().Get(server.URL)
 	require.NoError(t, err)
+	defer func() { _ = resp.Body.Close() }()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
 	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
@@ -207,7 +213,9 @@ func TestStreamingHTTPHeaderAndBodyTimeout(t *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				if headers {
 					w.WriteHeader(http.StatusOK)
-					w.(http.Flusher).Flush()
+					if err := http.NewResponseController(w).Flush(); err != nil {
+						return
+					}
 				}
 				<-r.Context().Done()
 				close(released)
@@ -222,9 +230,9 @@ func TestStreamingHTTPHeaderAndBodyTimeout(t *testing.T) {
 			if headers {
 				require.NoError(t, err)
 				reader := newUpstreamFrameReader(resp.Body, 1024, ctx, 50*time.Millisecond)
+				defer reader.Close()
 				require.False(t, reader.Scan())
 				require.Error(t, reader.Err())
-				reader.Close()
 			} else {
 				require.Error(t, err)
 			}

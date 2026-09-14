@@ -218,21 +218,21 @@ func (r *anthropicFrameReader) Scan() bool {
 			event.Type = r.frame.EventType
 		}
 		if r.frame.EventType != "" && event.Type != r.frame.EventType {
-			r.err = fmt.Errorf("Anthropic SSE event type mismatch")
+			r.err = fmt.Errorf("anthropic SSE event type mismatch")
 			return false
 		}
 		if event.Type == "ping" {
 			continue
 		}
 		if event.Type == "error" {
-			r.err = fmt.Errorf("Anthropic upstream stream error")
+			r.err = fmt.Errorf("anthropic upstream stream error")
 			return false
 		}
 		if event.Type == "message_start" {
 			r.started = event.Message != nil && event.Message.ID != ""
 		}
 		if !r.started {
-			r.err = fmt.Errorf("Anthropic stream missing message_start")
+			r.err = fmt.Errorf("anthropic stream missing message_start")
 			return false
 		}
 		if event.Index != nil && *event.Index < 0 {
@@ -268,7 +268,7 @@ func (r *anthropicFrameReader) Err() error {
 		return err
 	}
 	if !r.completed {
-		return fmt.Errorf("Anthropic stream ended before message_stop")
+		return fmt.Errorf("anthropic stream ended before message_stop")
 	}
 	return nil
 }

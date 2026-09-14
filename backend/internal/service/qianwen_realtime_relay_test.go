@@ -106,7 +106,9 @@ func realtimeSocketPair(t *testing.T) (*ws.Conn, *ws.Conn) {
 	t.Helper()
 	accepted := make(chan *ws.Conn, 1)
 	done := make(chan struct{})
+	exited := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defer close(exited)
 		conn, err := ws.Accept(w, r, nil)
 		if err != nil {
 			return
@@ -115,10 +117,20 @@ func realtimeSocketPair(t *testing.T) (*ws.Conn, *ws.Conn) {
 		<-done
 		_ = conn.CloseNow()
 	}))
+	// Register server cleanup before dialing, including failed handshakes.
+	// Server.Close does not join hijacked WebSocket handlers.
+	var peer *ws.Conn
+	t.Cleanup(func() {
+		close(done)
+		server.Close()
+		if peer != nil {
+			<-exited
+		}
+	})
 	conn, _, err := ws.Dial(context.Background(), strings.Replace(server.URL, "http", "ws", 1), nil)
 	require.NoError(t, err)
-	peer := <-accepted
-	t.Cleanup(func() { _ = conn.CloseNow(); _ = peer.CloseNow(); close(done); server.Close() })
+	peer = <-accepted
+	t.Cleanup(func() { _ = conn.CloseNow(); _ = peer.CloseNow() })
 	return conn, peer
 }
 
@@ -136,7 +148,13 @@ func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
 			require.NoError(t, registerErr)
 			var commits atomic.Int32
 			finished := make(chan error, 1)
+			defer func() {
+				cancel()
+				for range finished {
+				}
+			}()
 			go func() {
+				defer close(finished)
 				defer release()
 				finished <- relayQianwenRealtime(relayCtx, gatewayClient, &QianwenRealtimeUpstream{Conn: gatewayUpstream, Created: []byte(realtimeCreated)}, QianwenRealtimeCallbacks{
 					BeforeCommit: func(context.Context, string) error { commits.Add(1); return nil },
@@ -224,7 +242,12 @@ func TestQianwenRealtimeTimeoutAndDisconnectCleanup(t *testing.T) {
 			client, gatewayClient := realtimeSocketPair(t)
 			gatewayUpstream, _ := realtimeSocketPair(t)
 			done := make(chan error, 1)
+			defer func() {
+				for range done {
+				}
+			}()
 			go func() {
+				defer close(done)
 				done <- relayQianwenRealtime(context.Background(), gatewayClient, &QianwenRealtimeUpstream{Conn: gatewayUpstream, Created: []byte(realtimeCreated)}, QianwenRealtimeCallbacks{BeforeCommit: func(context.Context, string) error { return nil }, Receipt: func(context.Context, string, []byte, string) error { return errors.New("unexpected receipt") }}, test.life, test.idle, test.drain)
 			}()
 			ctx, cancel := context.WithTimeout(context.Background(), time.Second)

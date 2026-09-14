@@ -107,8 +107,25 @@ func TestProxyTunnelCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	done := make(chan error, 1)
-	go func() { _, err := dialAccountProxy(ctx, "tcp", "native.invalid:443", proxyURL); done <- err }()
-	<-entered
+	exited := make(chan struct{})
+	go func() {
+		defer close(exited)
+		connection, err := dialAccountProxy(ctx, "tcp", "native.invalid:443", proxyURL)
+		if connection != nil {
+			_ = connection.Close()
+		}
+		done <- err
+	}()
+	defer func() { cancel(); <-exited }()
+	// Dial can fail before the handler runs (for example, exhausted sockets).
+	// Report that error instead of waiting for the package-wide test timeout.
+	select {
+	case <-entered:
+	case err := <-done:
+		t.Fatalf("proxy CONNECT returned before reaching handler: %v", err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("proxy CONNECT did not reach handler")
+	}
 	cancel()
 	select {
 	case err := <-done:

@@ -73,7 +73,7 @@ func TestRunPreflightDoesNotReplayAcceptedPOST(t *testing.T) {
 			defer backup.Close()
 			client := &Client{HTTPClient: server.Client(), RunHosts: []string{server.URL, backup.URL}}
 			var output strings.Builder
-			_, err := client.Run(context.Background(), Credentials{}, []ChatMessage{{Role: "user", Content: "hi"}}, "default", func(event StreamEvent) error { output.WriteString(event.Text); return nil })
+			_, err := client.Run(context.Background(), Credentials{}, []ChatMessage{{Role: "user", Content: "hi"}}, "default", func(event StreamEvent) error { _, _ = output.WriteString(event.Text); return nil })
 			if strings.HasPrefix(scenario, "already_") {
 				require.Error(t, err)
 				require.Equal(t, int32(1), attempts.Load())
