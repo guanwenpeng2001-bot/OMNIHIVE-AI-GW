@@ -47,7 +47,7 @@ func (r *channelMonitorV2Repository) GetConfig(ctx context.Context) (*service.Ch
 		_ = json.Unmarshal(thresholds, &cfg.HealthThresholds)
 	}
 	cfg.HealthThresholds = service.NormalizeChannelMonitorV2HealthThresholds(cfg.HealthThresholds)
-	service.SeedChannelMonitorV2Cursor(&cfg)
+	service.SeedCursorDimensionIntoFactoryConfig(&cfg)
 	return &cfg, nil
 }
 

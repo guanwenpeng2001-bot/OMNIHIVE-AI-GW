@@ -8,17 +8,17 @@ import (
 
 // Exact pre-Cursor factory seed from migration 197; migrations stay immutable.
 //go:embed channel_monitor_v2_factory_platforms.json
-var channelMonitorV2FactoryPlatforms []byte
+var preCursorFactoryPlatformSeed []byte
 
-// SeedChannelMonitorV2Cursor adds the new default dimension only to an untouched
-// factory configuration. Saved custom configurations, including explicit removal,
-// retain their meaning. The next normal config save persists this default.
-func SeedChannelMonitorV2Cursor(cfg *ChannelMonitorV2Config) {
+// SeedCursorDimensionIntoFactoryConfig adds the new default dimension only to an
+// untouched factory configuration. Saved custom configurations, including explicit
+// removal, retain their meaning. The next normal config save persists this default.
+func SeedCursorDimensionIntoFactoryConfig(cfg *ChannelMonitorV2Config) {
 	if cfg == nil || cfg.UpdatedBy != nil {
 		return
 	}
 	var factory []ChannelMonitorV2PlatformConfig
-	if json.Unmarshal(channelMonitorV2FactoryPlatforms, &factory) != nil {
+	if json.Unmarshal(preCursorFactoryPlatformSeed, &factory) != nil {
 		return
 	}
 	if !reflect.DeepEqual(cfg.Platforms, factory) {
