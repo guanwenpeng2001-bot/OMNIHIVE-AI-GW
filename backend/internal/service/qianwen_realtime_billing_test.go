@@ -80,7 +80,7 @@ func TestQianwenRealtimeDurablePerTurnIdempotencyAndRestart(t *testing.T) {
 	j, err := svc.RecordQianwenRealtimeTurn(ctx, session, "response-one", []byte(`{"characters":26}`), "completed")
 	require.ErrorIs(t, err, ErrQianwenRealtimeConflict)
 	require.JSONEq(t, `{"characters":25}`, string(j.UsageJSON))
-	require.JSONEq(t, `{"characters":26}`, j.ResultRef)
+	require.Equal(t, "completed", j.ResultRef)
 	require.Equal(t, 2, repo.charges)
 }
 
@@ -143,4 +143,15 @@ func TestQianwenRealtimeRegionAndMappedModel(t *testing.T) {
 		_, _, err = qianwenRealtimeEndpoint(a, model)
 		require.Error(t, err)
 	}
+}
+
+func (repo *fileBatchMemoryRepo) InsertRealtimeReceipt(ctx context.Context, receipt *UpstreamJob) (*UpstreamJob, error) {
+	stored, _, err := repo.Create(ctx, receipt)
+	if err != nil {
+		return nil, err
+	}
+	if !EqualQianwenRealtimeReceipt(stored, receipt) {
+		return stored, ErrQianwenRealtimeConflict
+	}
+	return stored, nil
 }
