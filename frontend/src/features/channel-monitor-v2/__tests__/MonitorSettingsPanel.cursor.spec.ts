@@ -11,6 +11,30 @@ vi.mock('@/api/channelMonitorV2', () => ({ getConfig: mocks.getConfig, updateCon
 
 describe('Cursor monitor dimension option', () => {
   beforeEach(() => { vi.clearAllMocks() })
+  it('shows migrated models disabled and saves an explicit passive selection', async () => {
+    const migratedConfig = {
+      version: 11, enabled: false, refresh_interval_seconds: 300, group_ids: [],
+      platforms: [{ platform: 'cursor', enabled: false, models: ['legacy-model', 'template-model'] }],
+    }
+    mocks.getConfig.mockResolvedValue(migratedConfig)
+    mocks.updateConfig.mockImplementation(async (config) => ({ ...JSON.parse(JSON.stringify(config)), version: 12 }))
+    const wrapper = mount(MonitorSettingsPanel, { global: { stubs: { Icon: true, RouterLink: true } } })
+    await flushPromises()
+    const cursorLabel = wrapper.findAll('strong').find((node) => node.text() === 'Cursor')!
+    const cursorRow = cursorLabel.element.parentElement!
+    const cursorSwitch = wrapper.findAll('[role="switch"]').find((node) => node.element.parentElement === cursorRow)!
+    expect(cursorSwitch.attributes('aria-checked')).toBe('false')
+    expect((cursorRow.querySelector('input') as HTMLInputElement).value).toBe('legacy-model, template-model')
+    await cursorSwitch.trigger('click')
+    await wrapper.find('header button').trigger('click')
+    await flushPromises()
+    expect(mocks.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
+      version: 11, enabled: false,
+      platforms: expect.arrayContaining([{ platform: 'cursor', enabled: true, models: ['legacy-model', 'template-model'] }]),
+    }))
+    expect(mocks.error).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
   it.each([false, true])('retains an existing Cursor selection (%s) and makes missing Cursor selectable', async (existing) => {
     mocks.getConfig.mockResolvedValue({ version: 2, enabled: true, refresh_interval_seconds: 60, group_ids: [], platforms: existing ? [{ platform: 'cursor', enabled: true, models: ['chosen'] }] : [{ platform: 'openai', enabled: true, models: [] }] })
     const wrapper = mount(MonitorSettingsPanel, { global: { stubs: { Icon: true, RouterLink: true } } })
