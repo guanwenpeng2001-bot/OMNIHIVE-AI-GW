@@ -60,6 +60,8 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 		winner = pickLatestResetSchedulingCandidate(grokThresholdCandidates(account), threshold, now)
 	case PlatformCursor:
 		winner = pickLatestResetSchedulingCandidate(cursorThresholdCandidates(account), threshold, now)
+	case PlatformCommandCode:
+		winner = pickLatestResetSchedulingCandidate(commandCodeUsageWindows(account, now), threshold, now)
 	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo:
 		winner = pickLatestResetSchedulingCandidate(cnProviderThresholdCandidates(account, decision.Platform), threshold, now)
 	default:

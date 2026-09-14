@@ -214,7 +214,7 @@ func TestCommandCodeWAFAndCredentialState(t *testing.T) {
 		{"waf json", 403, `{"error":{"message":"Forbidden browser signature"}}`, true, false},
 		{"plan", 403, `{"error":{"code":"MODEL_NOT_IN_PLAN"}}`, false, false},
 		{"credentials", 401, `{"error":{"code":"UNAUTHORIZED","message":"Invalid API key"}}`, false, true},
-		{"401 not exempt by text", 401, `site owner has blocked access`, false, true},
+		{"unconfirmed 401", 401, `site owner has blocked access`, false, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := &openAIAuthPolicyAccountRepo{}

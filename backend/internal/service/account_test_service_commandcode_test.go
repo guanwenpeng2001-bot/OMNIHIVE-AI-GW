@@ -55,6 +55,9 @@ func TestAccountTestServiceCommandCodePlanAndAuthentication(t *testing.T) {
 		{"claude-sonnet-5", 403, `{"type":"error","error":{"type":"permission_error","message":"MODEL_NOT_IN_PLAN: upgrade plan"}}`, "MODEL_NOT_IN_PLAN", false},
 		{DefaultCommandCodeTestModel, 403, `{"error":{"code":"upgrade_required","message":"upgrade plan"}}`, "UPGRADE_REQUIRED", false},
 		{DefaultCommandCodeTestModel, 401, `{"error":{"code":"UNAUTHORIZED","message":"invalid key"}}`, "401", true},
+		{DefaultCommandCodeTestModel, 401, `<html>unauthorized</html>`, "401", false},
+		{DefaultCommandCodeTestModel, 402, `{"error":{"message":"insufficient balance"}}`, "402", false},
+		{DefaultCommandCodeTestModel, 403, `{"error":{"code":"INVALID_API_KEY"}}`, "403", true},
 		{"claude-sonnet-5", 401, `{"type":"error","error":{"type":"authentication_error","message":"invalid key"}}`, "401", true},
 	} {
 		t.Run(tc.model+tc.message, func(t *testing.T) {
@@ -68,6 +71,8 @@ func TestAccountTestServiceCommandCodePlanAndAuthentication(t *testing.T) {
 			repo := svc.accountRepo.(*openAIAccountTestRepo)
 			if !tc.authError {
 				require.Empty(t, repo.setErrorMsg)
+			} else {
+				require.NotEmpty(t, repo.setErrorMsg)
 			}
 		})
 	}

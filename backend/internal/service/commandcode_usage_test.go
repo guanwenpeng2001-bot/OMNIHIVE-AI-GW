@@ -50,6 +50,11 @@ func TestCommandCodeUnsupportedDoesNotInventQuotaOrChangeHealth(t *testing.T) {
 		body   string
 	}{{401, `{}`}, {403, `{}`}, {404, `{}`}, {200, `{}`}, {200, `{"windowLimits":{"limited":true,"fiveHour":{"cap":14}}}`}, {200, strings.Repeat(" ", cnQuotaMaxBodyBytes+1)}} {
 		account := &Account{ID: 20, Platform: PlatformCommandCode, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test", "base_url": "https://proxy.example/provider/v1"}}
+		account.Extra = map[string]any{
+			"commandcode_usage_supported": true,
+			"commandcode_5h_used_percent": 100.0,
+			"commandcode_5h_reset_at":     time.Now().Add(time.Hour).Format(time.RFC3339),
+		}
 		repo := &cnBalanceProbeRepo{account: account}
 		svc := NewCNProviderQuotaService(repo, nil, &cnBalanceResponseUpstream{statusCode: tc.status, body: tc.body}, nil)
 		result, err := svc.QueryUsage(context.Background(), 20)
@@ -60,6 +65,10 @@ func TestCommandCodeUnsupportedDoesNotInventQuotaOrChangeHealth(t *testing.T) {
 		require.Len(t, repo.extraWrites, 1)
 		require.Equal(t, false, repo.extraWrites[0]["commandcode_usage_supported"])
 		require.NotContains(t, repo.extraWrites[0], "commandcode_5h_used_percent")
+		for key, value := range repo.extraWrites[0] {
+			account.Extra[key] = value
+		}
+		require.False(t, EvaluateAccountSchedulingThreshold(account, map[string]int{PlatformCommandCode: 90}, time.Now()).ShouldPause)
 	}
 }
 func TestCommandCodePersistsOnlyObservedWindows(t *testing.T) {
