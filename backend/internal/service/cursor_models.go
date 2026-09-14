@@ -80,9 +80,8 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 	return ids, nil
 }
 
-func (service *AccountTestService) testCursorAccountConnection(requestContext *gin.Context, account *Account, modelID, mode string) error {
-	requestContext.Header("Content-Type", "text/event-stream")
-	requestContext.Header("Cache-Control", "no-cache")
+func (service *AccountTestService) probeTestCursorAccountConnection(requestContext *accountProbeContext, account *Account, modelID, mode string) error {
+
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if mode != "" && mode != AccountTestModeDefault && mode != "text" {
 		return service.sendErrorAndEnd(requestContext, "Cursor test mode unsupported: use default or text")
@@ -90,7 +89,7 @@ func (service *AccountTestService) testCursorAccountConnection(requestContext *g
 	modelID = strings.TrimSpace(modelID)
 	service.sendEvent(requestContext, TestEvent{Type: "test_start", Model: modelID})
 	gateway := service.cursorGatewayService
-	ctx, cancel := context.WithTimeout(requestContext.Request.Context(), 60*time.Second)
+	ctx, cancel := context.WithTimeout(requestContext.ctx, 60*time.Second)
 	defer cancel()
 	if gateway == nil {
 		return service.sendErrorAndEnd(requestContext, "Cursor service unavailable")
@@ -107,7 +106,7 @@ func (service *AccountTestService) testCursorAccountConnection(requestContext *g
 		body, _ := json.Marshal(map[string]any{"model": modelID, "messages": []map[string]string{{"role": "user", "content": "Reply with OK."}}, "stream": false, "max_tokens": 1024})
 		recorder := httptest.NewRecorder()
 		probeContext, _ := gin.CreateTestContext(recorder)
-		probeContext.Request = requestContext.Request.WithContext(ctx)
+		probeContext.Request = (&http.Request{}).WithContext(ctx)
 		_, err := gateway.forwardRelayChat(ctx, probeContext, account, body)
 		var response struct {
 			Choices []struct {

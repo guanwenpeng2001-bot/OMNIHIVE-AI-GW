@@ -1,5 +1,7 @@
 export default {
+
     accounts: {
+      catalogSourceLabel: '模型目录', metadataSourceLabel: '能力元数据', catalogSource: { live: '上游目录', configured: '已配置映射', preset: '平台预置' }, nativeProbeUnsupported: '该模型不支持原生探测；这不表示凭据失效。', incompleteProbeStream: '探测流已结束，但未收到完成结果。',
       createAdvancedScope: "这些覆盖项适用于普通创建及手工 OAuth/Token 录入。Codex 会话、Agent Identity、PAT 导入使用独立导入接口，请在导入后的账号编辑中设置覆盖项。",
       qianwenPricing: {
         "title": "同步千问原生定价",

@@ -68,6 +68,11 @@
           label-key="display_name"
           :placeholder="loadingModels ? t('common.loading') + '...' : t('admin.accounts.selectTestModel')"
         />
+        <p v-if="selectedModel?.catalog_source" class="mt-2 text-xs text-gray-500">
+          {{ t('admin.accounts.catalogSourceLabel') }}: {{ t(`admin.accounts.catalogSource.${selectedModel.catalog_source}`) }}
+          <span v-if="selectedModel.metadata_source"> · {{ t('admin.accounts.metadataSourceLabel') }}: {{ selectedModel.metadata_source }}</span>
+        </p>
+        <p v-if="probeUnsupported" class="mt-2 text-sm text-amber-600">{{ t('admin.accounts.nativeProbeUnsupported') }}</p>
       </div>
 
       <div v-if="isOpenAIAccount" class="space-y-1.5">
@@ -673,8 +678,11 @@ const testModeSummary = computed(() => {
   return t('admin.accounts.testPrompt')
 })
 
+const selectedModel = computed(() => availableModels.value.find(model => model.id === selectedModelId.value))
+const probeUnsupported = computed(() => selectedModel.value?.probe_supported === false)
+
 const canStartTest = computed(() => {
-  if (status.value === 'connecting') return false
+  if (status.value === 'connecting' || probeUnsupported.value) return false
   if (isGrokAccount.value) {
     if (
       grokTestMode.value === 'search' ||
@@ -926,6 +934,7 @@ const startTest = async () => {
         }
       }
     }
+    if (status.value === 'connecting') throw new Error(t('admin.accounts.incompleteProbeStream'))
   } catch (error: unknown) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       status.value = 'idle'

@@ -10,12 +10,46 @@ import (
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
 )
+
+func TestAccountModelCatalogPlatformDefaultsAndConfiguredAliases(t *testing.T) {
+	for _, descriptor := range domain.PlatformDescriptors() {
+		t.Run(descriptor.ID, func(t *testing.T) {
+			account := service.Account{ID: 1, Platform: descriptor.ID, Type: service.AccountTypeAPIKey}
+			svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+			router := setupAvailableModelsRouter(svc)
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/1/models", nil))
+			require.Equal(t, http.StatusOK, rec.Code)
+			var payload struct {
+				Data []struct {
+					ID     string `json:"id"`
+					Source string `json:"catalog_source"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &payload))
+			ids := make([]string, 0, len(payload.Data))
+			for _, model := range payload.Data {
+				ids = append(ids, model.ID)
+				require.Equal(t, "preset", model.Source)
+			}
+			require.ElementsMatch(t, service.DefaultModelIDsForPlatform(descriptor.ID), ids)
+		})
+	}
+	account := service.Account{ID: 2, Platform: service.PlatformKimi, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"MyAlias": "kimi-k3", "myalias": "kimi-k2.5"}}}
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	rec := httptest.NewRecorder()
+	setupAvailableModelsRouter(svc).ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/v1/admin/accounts/2/models", nil))
+	require.Contains(t, rec.Body.String(), `"id":"MyAlias"`)
+	require.Contains(t, rec.Body.String(), `"id":"myalias"`)
+	require.Contains(t, rec.Body.String(), `"catalog_source":"configured"`)
+}
 
 type availableModelsAdminService struct {
 	*stubAdminService

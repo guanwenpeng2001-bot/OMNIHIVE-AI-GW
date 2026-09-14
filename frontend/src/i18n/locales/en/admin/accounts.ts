@@ -1,5 +1,7 @@
 export default {
+
     accounts: {
+      catalogSourceLabel: 'Model catalog', metadataSourceLabel: 'Capability metadata', catalogSource: { live: 'Upstream', configured: 'Configured mapping', preset: 'Platform preset' }, nativeProbeUnsupported: 'Native probe unsupported for this model; this does not indicate invalid credentials.', incompleteProbeStream: 'The probe stream ended without a completion result.',
       createAdvancedScope: "These overrides apply to standard account creation and manual OAuth/token entry. Codex session, Agent Identity and PAT import use dedicated import APIs; configure overrides by editing the imported account.",
       qianwenPricing: {
         "title": "Sync Qianwen native pricing",
