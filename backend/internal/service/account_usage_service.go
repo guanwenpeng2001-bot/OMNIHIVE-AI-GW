@@ -15,6 +15,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	httppool "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	openaipkg "github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -171,7 +172,7 @@ func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token 
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage request unavailable"}
 	}
 	request.Header.Set("Authorization", "Bearer "+token)
-	response, err := s.cursorUsageClient.Do(request)
+	response, err := cursor.Do(s.cursorUsageClient, request, false)
 	if err != nil {
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
 	}
@@ -194,6 +195,7 @@ func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token 
 }
 
 func (s *AccountUsageService) fetchCursorUsageWithToken(ctx context.Context, account *Account, token string) *UsageInfo {
+	ctx = cursorAccountContext(ctx, account)
 	// Dashboard values are independent of legacy /auth/usage counters.
 	var period struct {
 		BillingCycleStart string           `json:"billingCycleStart"`
@@ -261,7 +263,7 @@ func (s *AccountUsageService) fetchCursorDashboard(ctx context.Context, token, m
 	request.Header.Set("Authorization", "Bearer "+token)
 	request.Header.Set("Content-Type", "application/json")
 	request.Header.Set("Connect-Protocol-Version", "1")
-	response, err := s.cursorUsageClient.Do(request)
+	response, err := cursor.Do(s.cursorUsageClient, request, false)
 	if err != nil {
 		return err
 	}

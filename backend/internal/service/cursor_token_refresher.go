@@ -46,6 +46,7 @@ func (refresher *CursorTokenRefresher) NeedsRefresh(account *Account, window tim
 }
 
 func (refresher *CursorTokenRefresher) Refresh(ctx context.Context, account *Account) (map[string]any, error) {
+	ctx = cursorAccountContext(ctx, account)
 	if account.GetCredential("refresh_token") == "" {
 		return nil, cursor.ErrReauthRequired
 	}

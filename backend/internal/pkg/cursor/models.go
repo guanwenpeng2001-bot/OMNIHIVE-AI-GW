@@ -62,7 +62,7 @@ func (client *Client) AvailableModels(ctx context.Context, credentials Credentia
 	}
 	request.Header = headers(credentials, "")
 	request.Header.Set("Content-Type", "application/proto")
-	response, err := client.HTTPClient.Do(request)
+	response, err := Do(client.HTTPClient, request, true)
 	if err != nil {
 		return nil, fmt.Errorf("cursor: picker transport failed")
 	}
