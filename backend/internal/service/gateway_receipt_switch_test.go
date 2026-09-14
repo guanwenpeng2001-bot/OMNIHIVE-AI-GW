@@ -6,6 +6,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -56,11 +57,21 @@ func TestGatewayReceiptSwitchSingleFinancialProducer(t *testing.T) {
 }
 
 func TestOpenAIFreeFastMissingPricingRetainsReceipt(t *testing.T) {
+	for _, runMode := range []string{config.RunModeStandard, config.RunModeSimple} {
+		t.Run(runMode, func(testingContext *testing.T) {
+			assertOpenAIFreeFastMissingPricingReceipt(testingContext, runMode)
+		})
+	}
+}
+
+func assertOpenAIFreeFastMissingPricingReceipt(testingContext *testing.T, runMode string) {
+	testingContext.Helper()
 	logs := &openAIRecordUsageLogRepoStub{}
 	oldBilling := &openAIRecordUsageBillingRepoStub{}
 	users := &openAIRecordUsageUserRepoStub{}
 	receipts := &settlementCapture{}
 	gateway := newOpenAIRecordUsageServiceForTest(logs, users, &openAIRecordUsageSubRepoStub{}, nil)
+	gateway.cfg.RunMode = runMode
 	gateway.usageBillingRepo = oldBilling
 	gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
 	tier := "priority"
@@ -69,14 +80,38 @@ func TestOpenAIFreeFastMissingPricingRetainsReceipt(t *testing.T) {
 		Result: &OpenAIForwardResult{RequestID: "free-fast-unpriced", Model: "missing-receipt-model", ServiceTier: &tier, Usage: OpenAIUsage{InputTokens: 10, OutputTokens: 6}},
 		APIKey: key, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI}, QuotaPlatform: PlatformOpenAI,
 	})
-	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
-	require.NotNil(t, receipts.receipt)
-	require.Equal(t, PricingStateUnpriced, receipts.receipt.Usage.PricingState)
-	require.Equal(t, UsageSettlementNeedsReview, receipts.receipt.State)
-	require.Equal(t, 10, receipts.receipt.Usage.InputTokens)
-	require.Equal(t, 6, receipts.receipt.Usage.OutputTokens)
-	require.Zero(t, receipts.settles)
-	require.Zero(t, logs.calls)
-	require.Zero(t, oldBilling.calls)
-	require.Zero(t, users.deductCalls)
+	require.ErrorIs(testingContext, err, ErrUsageSettlementNeedsReview)
+	require.NotNil(testingContext, receipts.receipt)
+	require.Equal(testingContext, PricingStateUnpriced, receipts.receipt.Usage.PricingState)
+	require.Equal(testingContext, UsageSettlementNeedsReview, receipts.receipt.State)
+	require.Equal(testingContext, 10, receipts.receipt.Usage.InputTokens)
+	require.Equal(testingContext, 6, receipts.receipt.Usage.OutputTokens)
+	require.Zero(testingContext, receipts.settles)
+	require.Zero(testingContext, logs.calls)
+	require.Zero(testingContext, oldBilling.calls)
+	require.Zero(testingContext, users.deductCalls)
+}
+
+func TestOpenAIFreeFastSimplePricedUsageRemainsUnbilled(testingContext *testing.T) {
+	logs := &openAIRecordUsageLogRepoStub{inserted: true}
+	oldBilling := &openAIRecordUsageBillingRepoStub{}
+	users := &openAIRecordUsageUserRepoStub{}
+	receipts := &settlementCapture{}
+	gateway := newOpenAIRecordUsageServiceForTest(logs, users, &openAIRecordUsageSubRepoStub{}, nil)
+	gateway.cfg.RunMode = config.RunModeSimple
+	gateway.usageBillingRepo = oldBilling
+	gateway.usageSettlement = NewUsageSettlementService(receipts, nil, nil)
+	serviceTier := "priority"
+	apiKey := &APIKey{ID: 2, Group: &Group{Platform: PlatformOpenAI, FreeOpenAIFast: true}}
+	recordErr := gateway.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "free-fast-simple-priced", Model: "gpt-5.1", ServiceTier: &serviceTier, Usage: OpenAIUsage{InputTokens: 10, OutputTokens: 6}},
+		APIKey: apiKey, User: &User{ID: 1}, Account: &Account{ID: 3, Platform: PlatformOpenAI}, QuotaPlatform: PlatformOpenAI,
+	})
+	require.NoError(testingContext, recordErr)
+	require.Equal(testingContext, 1, logs.calls)
+	require.Greater(testingContext, logs.lastLog.ActualCost, 0.0)
+	require.Nil(testingContext, receipts.receipt)
+	require.Zero(testingContext, receipts.settles)
+	require.Zero(testingContext, oldBilling.calls)
+	require.Zero(testingContext, users.deductCalls)
 }
