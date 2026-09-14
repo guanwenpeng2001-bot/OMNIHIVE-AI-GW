@@ -313,8 +313,9 @@ gateway:
   openai_compact_model: "gpt-5.4"
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
-    # 仅在核实存量客户承诺、明确由运营承担上游费用后设为 free。
-    # 空值或其他值暂停创建新会话；allow_live 分组开关仍须开启。
+    # Live 对客户免费，上游费用由运营承担；默认关闭，不支持付费 Live。
+    # 启用须显式设置 billing_policy: free；allow_live 分组开关仍须开启。
+    # 空值（含未配置）或其他值拒绝创建新会话；已显式设为 free 的环境行为不变。
     # 不支持付费 Live；时长仅用于会话上限，不用于计费或追收历史费用。
     # 环境变量：GATEWAY_LIVE_BILLING_POLICY=free
     billing_policy: ""

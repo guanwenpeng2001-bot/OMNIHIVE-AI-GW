@@ -242,27 +242,111 @@ func TestRequestTypeLive(t *testing.T) {
 	require.Equal(t, RequestTypeLive, parsed)
 }
 
-func TestLiveBillingPolicyRequiresExplicitFree(t *testing.T) {
-	for _, policy := range []string{"", "paid", "duration", "FREE", "free"} {
-		t.Run(policy, func(t *testing.T) {
+func TestLiveBillingPolicyRequiresExplicitFree(test *testing.T) {
+	for _, policy := range []string{"", "paid", "duration", "FREE", " free ", "free"} {
+		test.Run(policy, func(test *testing.T) {
 			cfg := &config.Config{}
 			cfg.Gateway.Live.BillingPolicy = policy
 			gateway := &OpenAIGatewayService{cfg: cfg}
 			err := gateway.CheckLiveBillingPolicy()
 			if policy == "free" {
-				require.NoError(t, err)
+				require.NoError(test, err)
 				_, err = gateway.CreateLiveCall(context.Background(), nil, LiveCallIdentity{}, 1)
-				require.EqualError(t, err, "sdp is required")
+				require.EqualError(test, err, "sdp is required")
 			} else {
-				require.ErrorIs(t, err, ErrLiveBillingUnsupported)
+				require.ErrorIs(test, err, ErrLiveBillingUnsupported)
 				// No dependencies: rejection must happen before validation or upstream work.
 				_, err = gateway.CreateLiveCall(context.Background(), nil, LiveCallIdentity{}, 1)
-				require.ErrorIs(t, err, ErrLiveBillingUnsupported)
+				require.ErrorIs(test, err, ErrLiveBillingUnsupported)
+				require.Contains(test, err.Error(), "Live is free only")
+				require.Contains(test, err.Error(), "paid Live is not supported")
+				require.Contains(test, err.Error(), "set gateway.live.billing_policy explicitly to free")
+				if policy == "" {
+					require.Contains(test, err.Error(), "Live is disabled")
+					require.Contains(test, err.Error(), "not configured")
+				} else {
+					require.Contains(test, err.Error(), "unsupported gateway.live.billing_policy")
+					require.Contains(test, err.Error(), "accepted values: empty to disable, free to enable")
+				}
 			}
 		})
 	}
 	var gateway *OpenAIGatewayService
-	require.ErrorIs(t, gateway.CheckLiveBillingPolicy(), ErrLiveBillingUnsupported)
+	require.ErrorIs(test, gateway.CheckLiveBillingPolicy(), ErrLiveBillingUnsupported)
+}
+
+type liveFreePolicyScheduler struct {
+	OpenAIAccountScheduler
+	account *Account
+}
+
+func (scheduler *liveFreePolicyScheduler) Select(context.Context, OpenAIAccountScheduleRequest) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	return &AccountSelectionResult{Account: scheduler.account, Acquired: true, ReleaseFunc: func() {}}, OpenAIAccountScheduleDecision{}, nil
+}
+
+type liveFreePolicyStore struct {
+	liveTestStore
+}
+
+func (store *liveFreePolicyStore) GetSessionAccountID(context.Context, int64, string) (int64, error) {
+	return 0, nil
+}
+
+type liveFreePolicyBillingRepo struct {
+	UsageBillingRepository
+	charges int
+}
+
+func (repo *liveFreePolicyBillingRepo) Apply(context.Context, *UsageBillingCommand) (*UsageBillingApplyResult, error) {
+	repo.charges++
+	return &UsageBillingApplyResult{}, nil
+}
+
+func TestCreateLiveCallExplicitFreeDoesNotCharge(test *testing.T) {
+	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
+		enabled: true, expiresAt: time.Now().Add(time.Hour).UnixNano(),
+	})
+	test.Cleanup(resetOpenAIAdvancedSchedulerSettingCacheForTest)
+	configuration := &config.Config{JWT: config.JWTConfig{Secret: "live-free-test-secret"}}
+	configuration.Gateway.Live.BillingPolicy = "free"
+	account := &Account{
+		ID: 7, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Concurrency: 2,
+		Credentials: map[string]any{"access_token": "test-token", "chatgpt_account_id": "test-account"},
+	}
+	store := &liveFreePolicyStore{}
+	usageRepo := &liveTestUsageRepo{}
+	billingRepo := &liveFreePolicyBillingRepo{}
+	upstream := &liveHTTPUpstreamStub{}
+	sideband := newLiveTestFrameConn()
+	sideband.reads <- liveTestFrame{messageType: coderws.MessageText, payload: []byte(`{"type":"session.closed"}`)}
+	gateway := &OpenAIGatewayService{
+		cfg: configuration, cache: store, usageLogRepo: usageRepo, usageBillingRepo: billingRepo,
+		accountRepo: &liveTestAccountRepo{account: account}, httpUpstream: upstream,
+		openaiScheduler:           &liveFreePolicyScheduler{account: account},
+		concurrencyService:        &ConcurrencyService{cache: &liveTestConcurrencyCache{}},
+		liveAttestation:           liveAttestationStub{header: "test-attestation"},
+		liveAttestationCipher:     newLiveAttestationCipher(configuration),
+		openaiWSPassthroughDialer: &liveTestDialer{conn: sideband},
+	}
+	created, err := gateway.CreateLiveCall(context.Background(), &LiveCallRequest{
+		SDP: "v=offer\r\n", Session: json.RawMessage(`{"model":"gpt-live-test"}`),
+	}, LiveCallIdentity{UserID: 12, APIKeyID: 34}, 1)
+	require.NoError(test, err)
+	require.Equal(test, "call_test", created.CallID)
+	record, err := store.GetLiveCall(context.Background(), hashLiveCallID(created.CallID))
+	require.NoError(test, err)
+	require.Equal(test, LiveFreeReason, record.FreeReason)
+	require.Eventually(test, func() bool {
+		usageRepo.mu.Lock()
+		defer usageRepo.mu.Unlock()
+		return len(usageRepo.logs) == 1
+	}, 3*time.Second, 10*time.Millisecond)
+	usageRepo.mu.Lock()
+	defer usageRepo.mu.Unlock()
+	require.Equal(test, PricingStateFree, usageRepo.logs[0].PricingState)
+	require.Zero(test, usageRepo.logs[0].TotalCost)
+	require.Zero(test, usageRepo.logs[0].ActualCost)
+	require.Zero(test, billingRepo.charges)
 }
 
 func TestFinalizeLiveCallExplicitFreeReasonSurvivesPolicyChange(t *testing.T) {

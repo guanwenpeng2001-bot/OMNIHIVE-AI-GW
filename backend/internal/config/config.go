@@ -1144,8 +1144,9 @@ type GatewayCNProvidersConfig struct {
 }
 
 type GatewayLiveConfig struct {
-	// BillingPolicy must be explicitly free before new Live calls can start.
-	// Empty/unsupported policies disable creation; paid Live is not implemented.
+	// Live is free only and disabled by default. BillingPolicy must be explicitly
+	// free before new calls can start; empty/unsupported values disable creation.
+	// Paid Live is not supported; existing explicit free deployments stay free.
 	BillingPolicy string `mapstructure:"billing_policy"`
 	// MaxSessionDurationSeconds 是 Live 会话的硬上限。
 	MaxSessionDurationSeconds int `mapstructure:"max_session_duration_seconds"`
@@ -2385,7 +2386,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_passthrough_allow_timeout_headers", false)
 	viper.SetDefault("gateway.openai_compact_model", "gpt-5.4")
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
-	viper.SetDefault("gateway.live.billing_policy", "")
+	viper.SetDefault("gateway.live.billing_policy", "") // Free Live requires explicit opt-in.
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
