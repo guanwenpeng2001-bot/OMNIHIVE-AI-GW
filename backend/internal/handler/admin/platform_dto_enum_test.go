@@ -20,7 +20,7 @@ import (
 )
 
 // Discover every platform enum tag, including nested and newly added DTOs.
-// Domain constants and the latest monitor migration are independent authorities;
+// Domain constants and the monitor migration are independent authorities;
 // a missing provider in a copied binding tag must not become a passing fixture.
 func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 	constants, err := parser.ParseFile(token.NewFileSet(), "../../domain/constants.go", nil, 0)
@@ -51,6 +51,16 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 		monitors = append(monitors, strings.Trim(strings.TrimSpace(value), "'"))
 	}
 	require.Len(t, concrete, 13)
+	// Storage preserves historical Cursor rows, but V1 monitor DTOs must not
+	// grant permission to create/edit them or enable unsupported active probes.
+	require.ElementsMatch(t, concrete, monitors, "monitor storage must retain every concrete platform")
+	var writableMonitors []string
+	for _, provider := range monitors {
+		if provider != "cursor" {
+			writableMonitors = append(writableMonitors, provider)
+		}
+	}
+	monitors = writableMonitors
 	require.Len(t, monitors, 12)
 	checked := 0
 	require.NoError(t, filepath.WalkDir("..", func(path string, d fs.DirEntry, walkErr error) error {

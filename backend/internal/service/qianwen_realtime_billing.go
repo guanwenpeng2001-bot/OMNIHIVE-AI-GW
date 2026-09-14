@@ -38,13 +38,19 @@ type QianwenRealtimeReceiptRepository interface {
 
 // EqualQianwenRealtimeReceipt compares immutable evidence, excluding settlement state.
 func EqualQianwenRealtimeReceipt(stored, receipt *UpstreamJob) bool {
+	// These fields are settlement outputs, added after the first receipt commits.
+	// Compare all original tariff inputs, but do not confuse a settled replay with
+	// conflicting evidence or mutate the persisted pricing explanation.
+	storedBilling, receiptBilling := stored.Billing, receipt.Billing
+	storedBilling.PricingState, receiptBilling.PricingState = "", ""
+	storedBilling.PricingSnapshot, receiptBilling.PricingSnapshot = "", ""
 	oldUsage, oldErr := CanonicalUpstreamJobBody(stored.UsageJSON)
 	newUsage, newErr := CanonicalUpstreamJobBody(receipt.UsageJSON)
 	return oldErr == nil && newErr == nil && bytes.Equal(oldUsage, newUsage) &&
 		stored.SubmissionKey == receipt.SubmissionKey && stored.RequestFingerprint == receipt.RequestFingerprint &&
 		stored.Platform == receipt.Platform && stored.Family == receipt.Family &&
 		stored.UserID == receipt.UserID && stored.APIKeyID == receipt.APIKeyID && stored.AccountID == receipt.AccountID &&
-		reflect.DeepEqual(stored.GroupID, receipt.GroupID) && reflect.DeepEqual(stored.Billing, receipt.Billing) &&
+		reflect.DeepEqual(stored.GroupID, receipt.GroupID) && reflect.DeepEqual(storedBilling, receiptBilling) &&
 		stored.UpstreamTaskID == receipt.UpstreamTaskID && stored.ResultRef == receipt.ResultRef
 }
 

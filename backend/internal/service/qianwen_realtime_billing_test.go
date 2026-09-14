@@ -72,6 +72,21 @@ func TestQianwenRealtimeDurablePerTurnIdempotencyAndRestart(t *testing.T) {
 	require.NotNil(t, second.ChargedUsageLogID)
 	require.Equal(t, 2, repo.charges)
 	require.Equal(t, session.PublicRequestID, second.Billing.Realtime.SessionID)
+	require.NotEmpty(t, second.Billing.PricingState)
+	require.NotEmpty(t, second.Billing.PricingSnapshot)
+	frozenBilling := second.Billing
+	replayed, err := svc.RecordQianwenRealtimeTurn(ctx, session, "response-two", []byte(`{"characters":10}`), "cancelled")
+	require.NoError(t, err)
+	require.Equal(t, frozenBilling, replayed.Billing, "replay must preserve the settled pricing explanation")
+	recalculated, err := RecalculatePricingSnapshot(replayed.Billing.PricingSnapshot)
+	require.NoError(t, err)
+	require.Equal(t, QuantizeUsageBillingAmount(10*session.Billing.UnitPrice), recalculated.ActualCost)
+	changedSession := *session
+	changedSession.Billing.RateMultiplier = 2
+	_, err = svc.RecordQianwenRealtimeTurn(ctx, &changedSession, "response-two", []byte(`{"characters":10}`), "cancelled")
+	require.ErrorIs(t, err, ErrQianwenRealtimeConflict, "frozen tariff inputs remain immutable after settlement")
+	require.Equal(t, frozenBilling, replayed.Billing)
+	require.Equal(t, 2, repo.charges)
 	// New service instance represents process restart; the repository anchors win.
 	svc = NewUpstreamJobService(repo, nil, QianwenAsyncJobCharge)
 	_, err = svc.RecordQianwenRealtimeTurn(ctx, session, "response-one", []byte(`{ "characters" : 25 }`), "completed")

@@ -91,6 +91,10 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		require.Contains(t, due, stored.PublicRequestID)
 		restarted := newService(restartedRepo)
 		require.NoError(t, restarted.PollDue(ctx, 100))
+		beforeReplay, err := restartedRepo.Get(ctx, stored.PublicRequestID, session.UserID, session.APIKeyID)
+		require.NoError(t, err)
+		require.NotEmpty(t, beforeReplay.Billing.PricingState)
+		require.NotEmpty(t, beforeReplay.Billing.PricingSnapshot)
 		var workers sync.WaitGroup
 		failures := make(chan error, 16)
 		for range 16 {
@@ -109,6 +113,10 @@ func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
 		settled, err := restartedRepo.Get(ctx, stored.PublicRequestID, session.UserID, session.APIKeyID)
 		require.NoError(t, err)
 		require.NotNil(t, settled.ChargedUsageLogID)
+		require.Equal(t, beforeReplay.Billing, settled.Billing, "duplicate receipt must preserve persisted pricing outputs")
+		recalculated, err := service.RecalculatePricingSnapshot(settled.Billing.PricingSnapshot)
+		require.NoError(t, err)
+		require.Equal(t, 0.000325, recalculated.ActualCost)
 		var logs int
 		var balance float64
 		require.NoError(t, database.QueryRow(`SELECT count(*) FROM usage_logs WHERE request_id=$1`, stored.PublicRequestID).Scan(&logs))
