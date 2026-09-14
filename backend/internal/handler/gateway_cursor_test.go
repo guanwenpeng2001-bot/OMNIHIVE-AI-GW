@@ -195,6 +195,7 @@ func TestCursorRoutes(t *testing.T) {
 			request := httptest.NewRequest(http.MethodPost, scenario.path, strings.NewReader(body))
 			request.Header.Set("Content-Type", "application/json")
 			router.ServeHTTP(recorder, request)
+			require.Len(t, repo.logs, 1, "financial preparation completes before returning, without a worker queue")
 			pool.Stop()
 
 			require.Equal(t, 200, recorder.Code, recorder.Body.String())
@@ -203,7 +204,7 @@ func TestCursorRoutes(t *testing.T) {
 			}
 			require.Zero(t, slots.accounts.Load(), "account slots must be released")
 			require.Zero(t, slots.users.Load(), "user slots must be released")
-			require.Equal(t, uint64(1), pool.Stats().SubmittedTasks)
+			require.Zero(t, pool.Stats().SubmittedTasks, "handler must not enqueue pre-receipt work")
 			require.Len(t, repo.logs, 1)
 			expectedAttempts := int32(1)
 			expectedAccount := int64(1)

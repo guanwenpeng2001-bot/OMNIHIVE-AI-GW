@@ -400,6 +400,16 @@ func finalizePostUsageBilling(ctx context.Context, p *postUsageBillingParams, de
 	if p == nil || p.Cost == nil || deps == nil {
 		return
 	}
+	if p.QuotaDerived {
+		// Receipt settlement invalidates cache views and owns the quota event.
+		// Do not execute any legacy additive cache or database accumulation.
+		if deps.deferredService != nil {
+			deps.deferredService.ScheduleLastUsedUpdate(p.Account.ID)
+		}
+		notifyBalanceLow(p, deps, result)
+		notifyAccountQuota(p, deps, result)
+		return
+	}
 
 	if p.IsSubscriptionBill {
 		if p.Cost.ActualCost > 0 && p.User != nil && p.APIKey != nil && p.APIKey.GroupID != nil {
@@ -878,6 +888,21 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 			quotaPlatform = account.Platform
 		}
 	}
+	if s.usageSettlement != nil {
+		return submitUsageSettlement(ctx, s.usageSettlement, usageLog, &postUsageBillingParams{
+			Cost:                  cost,
+			User:                  user,
+			APIKey:                apiKey,
+			Account:               account,
+			Subscription:          subscription,
+			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			IsSubscriptionBill:    isSubscriptionBilling,
+			AccountRateMultiplier: accountRateMultiplier,
+			APIKeyService:         input.APIKeyService,
+			Platform:              quotaPlatform,
+		}, s.billingDeps(), result.ClientDisconnect)
+	}
+
 	requestID := usageLog.RequestID
 	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                  cost,

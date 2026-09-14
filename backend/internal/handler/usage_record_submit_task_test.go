@@ -24,6 +24,24 @@ func newUsageRecordTestPool(t *testing.T) *service.UsageRecordWorkerPool {
 	return pool
 }
 
+func TestFinancialReceiptPreparationRunsBeforeQueue(t *testing.T) {
+	pool := newUsageRecordTestPool(t)
+	entered, release := make(chan struct{}), make(chan struct{})
+	pool.Submit(func(context.Context) { close(entered); <-release })
+	<-entered
+	defer close(release)
+	for name, submit := range map[string]func(context.Context, service.UsageRecordTask){
+		"gateway": (&GatewayHandler{usageRecordWorkerPool: pool}).submitMandatoryUsageRecordTask,
+		"openai":  (&OpenAIGatewayHandler{usageRecordWorkerPool: pool}).submitMandatoryUsageRecordTask,
+	} {
+		t.Run(name, func(t *testing.T) {
+			var ran atomic.Bool
+			submit(context.Background(), func(context.Context) { ran.Store(true) })
+			require.True(t, ran.Load(), "receipt preparation cannot wait behind the blocked worker")
+		})
+	}
+}
+
 func TestGatewayHandlerSubmitUsageRecordTask_WithPool(t *testing.T) {
 	pool := newUsageRecordTestPool(t)
 	h := &GatewayHandler{usageRecordWorkerPool: pool}

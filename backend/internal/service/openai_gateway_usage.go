@@ -171,8 +171,12 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 	subscription := input.Subscription
 	billingAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)
-	if err != nil {
+	if err != nil && s.usageSettlement == nil {
 		return err
+	}
+	resolutionErr := err
+	if resolutionErr != nil {
+		billingAccount = account
 	}
 	if !isGrokVideoUsageResult(result, nil) {
 		ApplyOpenAIImageBillingResolution(result)
@@ -256,7 +260,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		pricingAt,
 	)
 	if err != nil {
-		if !isUsagePricingUnavailableError(err) {
+		if !isUsagePricingUnavailableError(err) && s.usageSettlement == nil {
 			return err
 		}
 		logger.L().With(
@@ -267,7 +271,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 			zap.String("upstream_model", result.UpstreamModel),
 			zap.Int64("api_key_id", apiKey.ID),
 			zap.Int64("account_id", account.ID),
-		).Warn("openai_usage.pricing_missing_record_zero_cost", zap.Error(err))
+		).Warn("openai_usage.pricing_needs_review", zap.Error(err))
 		cost = pricingFailure(err)
 		cost.BillingMode = string(BillingModeToken)
 	}
@@ -509,6 +513,24 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	quotaPlatform := input.QuotaPlatform
 	if quotaPlatform == "" {
 		quotaPlatform = PlatformFromAPIKey(apiKey)
+	}
+
+	if s.usageSettlement != nil {
+		if resolutionErr != nil {
+			cost.PricingState = PricingStateError
+		}
+		return submitUsageSettlement(ctx, s.usageSettlement, usageLog, &postUsageBillingParams{
+			Cost:                  cost,
+			User:                  user,
+			APIKey:                apiKey,
+			Account:               account,
+			Subscription:          subscription,
+			RequestPayloadHash:    resolveUsageBillingPayloadFingerprint(ctx, input.RequestPayloadHash),
+			IsSubscriptionBill:    isSubscriptionBilling,
+			AccountRateMultiplier: accountRateMultiplier,
+			APIKeyService:         input.APIKeyService,
+			Platform:              quotaPlatform,
+		}, s.billingDeps(), result.ClientDisconnect || !result.SucceededForScheduling() || input.CyberBlocked)
 	}
 
 	billingErr := func() error {

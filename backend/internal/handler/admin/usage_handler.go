@@ -21,6 +21,7 @@ import (
 
 // UsageHandler handles admin usage-related requests
 type UsageHandler struct {
+	settlement     *service.UsageSettlementService
 	usageService   *service.UsageService
 	apiKeyService  *service.APIKeyService
 	adminService   service.AdminService
@@ -647,4 +648,25 @@ func (h *UsageHandler) CancelCleanupTask(c *gin.Context) {
 	}
 	logger.LegacyPrintf("handler.admin.usage", "[UsageCleanup] 清理任务已取消: task=%d operator=%d", taskID, subject.UserID)
 	response.Success(c, gin.H{"id": taskID, "status": service.UsageCleanupStatusCanceled})
+}
+
+func ProvideUsageHandler(usageService *service.UsageService, apiKeyService *service.APIKeyService, adminService service.AdminService, cleanupService *service.UsageCleanupService, settlement *service.UsageSettlementService) *UsageHandler {
+	h := NewUsageHandler(usageService, apiKeyService, adminService, cleanupService)
+	h.settlement = settlement
+	return h
+}
+
+// SettlementStatus is separate from usage lists, totals and exports.
+func (h *UsageHandler) SettlementStatus(c *gin.Context) {
+	afterID, err := strconv.ParseInt(c.DefaultQuery("after_id", "0"), 10, 64)
+	if err != nil || afterID < 0 {
+		response.BadRequest(c, "Invalid after_id")
+		return
+	}
+	status, err := h.settlement.Status(c.Request.Context(), strings.TrimSpace(c.Query("request_id")), afterID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Cannot load settlement status")
+		return
+	}
+	response.Success(c, status)
 }
