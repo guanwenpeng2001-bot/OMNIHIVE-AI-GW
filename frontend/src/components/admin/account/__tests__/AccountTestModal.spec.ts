@@ -90,6 +90,30 @@ function mountModal(account: Record<string, unknown> = {
 }
 
 describe('AccountTestModal', () => {
+  it('shows catalog and metadata provenance and prevents unsupported media probes', async () => {
+    getAvailableModels.mockResolvedValue([{ id: 'MyImage', display_name: 'MyImage', catalog_source: 'configured', metadata_source: 'models.dev', probe_supported: false }])
+    const wrapper = mountModal({ id: 42, name: 'Media', platform: 'qianwen', type: 'apikey', status: 'active' })
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.catalogSource.configured')
+    expect(wrapper.text()).toContain('models.dev')
+    expect(wrapper.text()).toContain('admin.accounts.nativeProbeUnsupported')
+    const start = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!
+    expect(start.attributes('disabled')).toBeDefined()
+    expect(global.fetch).not.toHaveBeenCalled()
+  })
+
+  it('does not accept an empty probe stream as success', async () => {
+    global.fetch = vi.fn().mockResolvedValue(createStreamResponse([]))
+    const wrapper = mountModal()
+    await wrapper.setProps({ show: true })
+    await flushPromises()
+    const start = wrapper.findAll('button').find(button => button.text().includes('admin.accounts.startTest'))!
+    await start.trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('admin.accounts.incompleteProbeStream')
+  })
+
   beforeEach(() => {
     getAvailableModels.mockResolvedValue([
       { id: 'gemini-2.0-flash', display_name: 'Gemini 2.0 Flash' },

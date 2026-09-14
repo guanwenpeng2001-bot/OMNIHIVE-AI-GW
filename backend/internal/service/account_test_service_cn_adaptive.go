@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -12,15 +11,12 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
-	"github.com/gin-gonic/gin"
 )
-
-const accountTestSuppressCompletionContextKey = "account_test_suppress_completion"
 
 // testCNProviderAdaptiveConnection verifies every native endpoint used by an
 // adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
 // DeepSeek and Kimi additionally use their native Responses endpoints.
-func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
+func (s *AccountTestService) testCNProviderAdaptiveConnection(c *accountProbeContext, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
@@ -34,8 +30,8 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, ac
 
 	// The existing Chat probe owns the SSE lifecycle. Suppress intermediate
 	// completion events until every native adaptive endpoint has passed.
-	c.Set(accountTestSuppressCompletionContextKey, true)
-	defer c.Set(accountTestSuppressCompletionContextKey, false)
+	c.suppressCompletion = true
+	defer func() { c.suppressCompletion = false }()
 	if err := s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt); err != nil {
 		return err
 	}
@@ -50,13 +46,13 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *gin.Context, ac
 		}
 	}
 
-	c.Set(accountTestSuppressCompletionContextKey, false)
+	c.suppressCompletion = false
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 	return nil
 }
 
-func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Context, account *Account, testModelID string, authToken string) error {
-	ctx := c.Request.Context()
+func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *accountProbeContext, account *Account, testModelID string, authToken string) error {
+	ctx := c.ctx
 	baseURL, err := s.validateUpstreamBaseURL(account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Anthropic base URL: %s", err.Error()))
@@ -85,7 +81,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 	// base_url 强制 Bearer，其余保持 extra/default 行为。
 	setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
 	account.ApplyHeaderOverrides(req.Header)
-	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 
 	resp, err := s.doCNProviderAdaptiveRequest(req, account)
 	if err != nil {
@@ -108,53 +104,15 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 	return nil
 }
 
-func (s *AccountTestService) processCNProviderAdaptiveAnthropicStream(c *gin.Context, body io.Reader) error {
-	reader := bufio.NewReader(body)
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				return s.sendErrorAndEnd(c, "Adaptive Anthropic stream ended before message_stop")
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Adaptive Anthropic stream read error: %s", err.Error()))
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" || !sseDataPrefix.MatchString(line) {
-			continue
-		}
-		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
-		if jsonStr == "[DONE]" {
-			return nil
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			continue
-		}
-		switch eventType, _ := data["type"].(string); eventType {
-		case "content_block_delta":
-			if delta, ok := data["delta"].(map[string]any); ok {
-				if text, ok := delta["text"].(string); ok && text != "" {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
-				}
-			}
-		case "message_stop":
-			return nil
-		case "error":
-			errorMsg := "Unknown error"
-			if errData, ok := data["error"].(map[string]any); ok {
-				if message, ok := errData["message"].(string); ok && message != "" {
-					errorMsg = message
-				}
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Adaptive Anthropic endpoint error: %s", errorMsg))
-		}
-	}
+func (s *AccountTestService) processCNProviderAdaptiveAnthropicStream(c *accountProbeContext, body io.Reader) error {
+	suppressed := c.suppressCompletion
+	c.suppressCompletion = true
+	defer func() { c.suppressCompletion = suppressed }()
+	return s.processClaudeStream(c, body)
 }
 
-func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Context, account *Account, testModelID string, authToken string) error {
-	ctx := c.Request.Context()
+func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accountProbeContext, account *Account, testModelID string, authToken string) error {
+	ctx := c.ctx
 	baseURL, err := s.validateUpstreamBaseURL(account.GetCNProtocolBaseURL(APIProtocolResponses))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Invalid adaptive Responses base URL: %s", err.Error()))
@@ -179,7 +137,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 	req.Header.Set("Authorization", "Bearer "+authToken)
 	applyOpenAICodexProbeHeaders(req.Header)
 	account.ApplyHeaderOverrides(req.Header)
-	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 
 	resp, err := s.doCNProviderAdaptiveRequest(req, account)
 	if err != nil {
@@ -217,8 +175,8 @@ func (s *AccountTestService) doCNProviderAdaptiveRequest(req *http.Request, acco
 // instead of the provider's own Anthropic-compatible endpoint. The probe uses
 // GetAnthropicProtocolBaseURL (same resolution as real /v1/messages forwarding,
 // including per-platform defaults) and the shared API-key auth header.
-func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, account *Account, modelID string) error {
-	ctx := c.Request.Context()
+func (s *AccountTestService) testCNProviderAnthropicConnection(c *accountProbeContext, account *Account, modelID string) error {
+	ctx := c.ctx
 
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
@@ -239,12 +197,6 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 		return s.sendErrorAndEnd(c, hint)
 	}
 	apiURL := strings.TrimRight(baseURL, "/") + "/v1/messages"
-
-	c.Writer.Header().Set("Content-Type", "text/event-stream")
-	c.Writer.Header().Set("Cache-Control", "no-cache")
-	c.Writer.Header().Set("Connection", "keep-alive")
-	c.Writer.Header().Set("X-Accel-Buffering", "no")
-	c.Writer.Flush()
 
 	payload, err := createTestPayload(testModelID)
 	if err != nil {
@@ -268,7 +220,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 	// extra/default 行为。
 	setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
 	account.ApplyHeaderOverrides(req.Header)
-	applyOpenCodeSessionHeader(c, account, apiURL, req.Header, payloadBytes)
+	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 
 	resp, err := s.doCNProviderAdaptiveRequest(req, account)
 	if err != nil {

@@ -925,6 +925,9 @@ export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
 // Claude Model type (returned by /v1/models and account models API)
 export interface ClaudeModel {
+	 catalog_source?: 'live' | 'configured' | 'preset'
+	 metadata_source?: string
+	 probe_supported?: boolean
   id: string
   type: string
   display_name: string

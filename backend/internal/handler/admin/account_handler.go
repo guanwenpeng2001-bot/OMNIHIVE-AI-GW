@@ -21,7 +21,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -1286,9 +1285,22 @@ func (h *AccountHandler) Test(c *gin.Context) {
 		AudioDataURL: req.AudioDataURL,
 	}
 
-	// Use AccountTestService to test the account with SSE streaming
-	if err := h.accountTestService.TestAccountConnection(c, accountID, req.ModelID, req.Prompt, req.Mode, opts); err != nil {
-		// Error already sent via SSE, just log
+	c.Header("Content-Type", "text/event-stream")
+	c.Header("Cache-Control", "no-cache")
+	c.Header("X-Accel-Buffering", "no")
+	result := h.accountTestService.ProbeAccount(c.Request.Context(), service.AccountProbeInput{AccountID: accountID, ModelID: req.ModelID, Prompt: req.Prompt, Mode: req.Mode, Options: opts}, func(event service.TestEvent) {
+		body, err := json.Marshal(event)
+		if err != nil {
+			_ = c.Error(err)
+			return
+		}
+		if _, err := fmt.Fprintf(c.Writer, "data: %s\n\n", body); err != nil {
+			_ = c.Error(err)
+			return
+		}
+		c.Writer.Flush()
+	})
+	if !result.Success {
 		return
 	}
 
@@ -2791,15 +2803,63 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	catalogSource := "preset"
+	if raw, ok := account.Credentials["model_mapping"]; ok {
+		switch mapping := raw.(type) {
+		case map[string]any:
+			if len(mapping) > 0 {
+				catalogSource = "configured"
+			}
+		case map[string]string:
+			if len(mapping) > 0 {
+				catalogSource = "configured"
+			}
+		}
+	}
+	respond := func(models any) {
+		body, err := json.Marshal(models)
+		if err != nil {
+			_ = c.Error(err)
+			response.InternalError(c, "Failed to encode model catalog")
+			return
+		}
+		entries := make([]map[string]any, 0)
+		if err := json.Unmarshal(body, &entries); err != nil {
+			_ = c.Error(err)
+			response.InternalError(c, "Failed to encode model catalog")
+			return
+		}
+		if entries == nil {
+			entries = make([]map[string]any, 0)
+		}
+		c.Header("X-Model-Catalog-Source", catalogSource)
+		snapshot := account.GetUpstreamModelMetadataSnapshot()
+		for _, entry := range entries {
+			if _, present := entry["catalog_source"]; !present {
+				entry["catalog_source"] = catalogSource
+			}
+			id, _ := entry["id"].(string)
+			entry["probe_supported"] = service.AccountModelProbeSupported(account, id)
+			if snapshot != nil {
+				if _, found := snapshot.Models[account.GetMappedModel(id)]; found {
+					entry["metadata_source"] = snapshot.Source
+				}
+			}
+		}
+		response.Success(c, entries)
+	}
+
 	if account.IsCursor() {
 		ids := service.DefaultCursorModelIDs()
 		if h.accountTestService != nil {
 			if live, err := h.accountTestService.FetchUpstreamSupportedModels(c.Request.Context(), account); err == nil && len(live) > 0 {
 				ids = live
+				catalogSource = "live"
 			}
 		}
 		if mapping := account.GetModelMapping(); len(mapping) > 0 {
 			ids = nil
+			catalogSource = "configured"
 			for model := range mapping {
 				ids = append(ids, model)
 			}
@@ -2808,7 +2868,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		for _, id := range ids {
 			models = append(models, map[string]string{"id": id, "display_name": id})
 		}
-		response.Success(c, models)
+		respond(models)
 		return
 	}
 	// Handle OpenAI accounts
@@ -2817,19 +2877,21 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// retain the legacy local catalog below so the test dialog remains usable.
 		if h.accountTestService != nil {
 			if models, fetchErr := h.accountTestService.FetchOpenAIAccountModels(c.Request.Context(), account); fetchErr == nil {
-				response.Success(c, models)
+				catalogSource = "live"
+				respond(models)
 				return
 			}
 		}
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
-			response.Success(c, openai.DefaultModels)
+			catalogSource = "preset"
+			respond(openai.DefaultModels)
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, openai.DefaultModels)
+			respond(openai.DefaultModels)
 			return
 		}
 
@@ -2853,7 +2915,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				})
 			}
 		}
-		response.Success(c, models)
+		respond(models)
 		return
 	}
 
@@ -2862,19 +2924,19 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// Consumer Google One OAuth still uses the legacy Gemini CLI / Code
 		// Assist channel. Do not advertise newer 3.x or image models that the
 		// channel cannot serve.
-		if account.IsOAuth() {
+		if account.IsOAuth() && catalogSource != "configured" {
 			if account.IsGeminiGoogleOne() {
-				response.Success(c, geminicli.GoogleOneModels)
+				respond(geminicli.GoogleOneModels)
 				return
 			}
-			response.Success(c, geminicli.DefaultModels)
+			respond(geminicli.DefaultModels)
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, geminicli.DefaultModels)
+			respond(geminicli.DefaultModels)
 			return
 		}
 
@@ -2897,14 +2959,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				})
 			}
 		}
-		response.Success(c, models)
+		respond(models)
 		return
 	}
 
 	// Handle Antigravity accounts: return Claude + Gemini models
-	if account.Platform == service.PlatformAntigravity {
+	if account.Platform == service.PlatformAntigravity && catalogSource != "configured" {
 		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
+		respond(antigravity.DefaultModels())
 		return
 	}
 
@@ -2920,13 +2982,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			hasExplicitMapping = len(rawMapping) > 0
 		}
 		if !hasExplicitMapping {
-			response.Success(c, defaultModels)
+			respond(defaultModels)
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			response.Success(c, defaultModels)
+			respond(defaultModels)
 			return
 		}
 
@@ -2954,49 +3016,25 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 				DisplayName: requestedModel,
 			})
 		}
-		response.Success(c, models)
+		respond(models)
 		return
 	}
 
-	// Handle Claude/Anthropic accounts
-	// For OAuth and Setup-Token accounts: return default models
-	if account.IsOAuth() {
-		response.Success(c, claude.DefaultModels)
-		return
-	}
-
-	// For API Key accounts: return models based on model_mapping
-	mapping := account.GetModelMapping()
-	if len(mapping) == 0 {
-		// No mapping configured, return default models
-		response.Success(c, claude.DefaultModels)
-		return
-	}
-
-	// Return mapped models (keys of the mapping are the available model IDs)
-	var models []claude.Model
-	for requestedModel := range mapping {
-		// Try to find display info from default models
-		var found bool
-		for _, dm := range claude.DefaultModels {
-			if dm.ID == requestedModel {
-				models = append(models, dm)
-				found = true
-				break
-			}
+	defaults := service.DefaultModelIDsForPlatform(account.Platform)
+	source := "preset"
+	if mapping := account.GetModelMapping(); len(mapping) > 0 {
+		defaults = make([]string, 0, len(mapping))
+		for id := range mapping {
+			defaults = append(defaults, id)
 		}
-		// If not found in defaults, create a basic entry
-		if !found {
-			models = append(models, claude.Model{
-				ID:          requestedModel,
-				Type:        "model",
-				DisplayName: requestedModel,
-				CreatedAt:   "",
-			})
-		}
+		sort.Strings(defaults)
+		source = "configured"
 	}
-
-	response.Success(c, models)
+	models := make([]map[string]string, 0, len(defaults))
+	for _, id := range defaults {
+		models = append(models, map[string]string{"id": id, "display_name": id, "catalog_source": source})
+	}
+	respond(models)
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

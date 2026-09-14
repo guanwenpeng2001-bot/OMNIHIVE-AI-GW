@@ -1,20 +1,16 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"strings"
-
-	"github.com/gin-gonic/gin"
-	"github.com/tidwall/gjson"
 )
 
 // Test with actual inference: the public model catalog accepts even invalid keys.
-func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+func (s *AccountTestService) testCommandCodeAccountConnection(c *accountProbeContext, account *Account, modelID, prompt string) error {
 	modelID = strings.TrimSpace(modelID)
 	if modelID == "" {
 		modelID = DefaultCommandCodeTestModel
@@ -46,15 +42,11 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to encode test payload")
 	}
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
-	c.Writer.Flush()
+
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: modelID})
 	// Retry only the observed transient edge routing failure, never a missing model.
 	for attempt := 0; attempt < 2; attempt++ {
-		req, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, endpoint, bytes.NewReader(body))
+		req, err := http.NewRequestWithContext(c.ctx, http.MethodPost, endpoint, bytes.NewReader(body))
 		if err != nil {
 			return s.sendErrorAndEnd(c, "Failed to create inference request")
 		}
@@ -84,7 +76,7 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 				return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code plan does not grant access (%d %s): %s", resp.StatusCode, code, responseBody))
 			}
 			if isCommandCodeInvalidCredential(resp.StatusCode, responseBody) && s.accountRepo != nil {
-				_ = s.accountRepo.SetError(c.Request.Context(), account.ID, fmt.Sprintf("Command Code authentication failed (%d)", resp.StatusCode))
+				_ = s.accountRepo.SetError(c.ctx, account.ID, fmt.Sprintf("Command Code authentication failed (%d)", resp.StatusCode))
 			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code inference returned %d: %s", resp.StatusCode, responseBody))
 		}
@@ -94,55 +86,10 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *gin.Context, ac
 	return s.sendErrorAndEnd(c, "Command Code inference failed")
 }
 
-// A public catalog, empty body, or prematurely closed stream is not proof of
-// inference. Require a native completion marker after a real inference event.
-func (s *AccountTestService) processCommandCodeInferenceStream(c *gin.Context, body io.Reader, protocol string) error {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), 1<<20)
-	seenInference := false
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if !strings.HasPrefix(line, "data:") {
-			continue
-		}
-		data := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
-		if data == "[DONE]" && protocol == APIProtocolChatCompletions && seenInference {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-		if !gjson.Valid(data) {
-			return s.sendErrorAndEnd(c, "Invalid Command Code inference stream")
-		}
-		event := gjson.Parse(data)
-		if event.Get("error").Exists() || event.Get("type").String() == "error" {
-			return s.sendErrorAndEnd(c, "Command Code inference error: "+event.Get("error.message").String())
-		}
-		if protocol == APIProtocolAnthropic {
-			switch event.Get("type").String() {
-			case "message_start", "content_block_delta":
-				seenInference = true
-			case "message_stop":
-				if seenInference {
-					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-					return nil
-				}
-			}
-			if text := event.Get("delta.text").String(); text != "" {
-				s.sendEvent(c, TestEvent{Type: "content", Text: text})
-			}
-		} else {
-			for _, choice := range event.Get("choices").Array() {
-				if choice.Get("delta").Exists() || choice.Get("message").Exists() {
-					seenInference = true
-				}
-				if text := choice.Get("delta.content").String(); text != "" {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
-				}
-			}
-		}
+// Use the same terminal-state checks as every other provider of this protocol.
+func (s *AccountTestService) processCommandCodeInferenceStream(c *accountProbeContext, body io.Reader, protocol string) error {
+	if protocol == APIProtocolAnthropic {
+		return s.processClaudeStream(c, body)
 	}
-	if err := scanner.Err(); err != nil {
-		return s.sendErrorAndEnd(c, "Command Code stream read error: "+err.Error())
-	}
-	return s.sendErrorAndEnd(c, "Command Code inference stream ended before completion")
+	return s.processOpenAIChatCompletionsStream(c, body)
 }

@@ -501,16 +501,17 @@ func TestSyncUpstreamModelCatalogEnrichesOpenCodeIDOnlyListAndPersistsSnapshot(t
 
 // Scenario: 不提供 /models 的兼容上游使用管理员已配置模型继续同步能力。
 func TestSyncUpstreamModelCatalogUsesConfiguredModelsWhenListEndpointUnsupported(t *testing.T) {
-	upstream := &httpUpstreamRecorder{responses: []*http.Response{
-		{
-			StatusCode: http.StatusNotFound,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
-		},
-		{
-			StatusCode: http.StatusOK,
-			Header:     http.Header{"Content-Type": []string{"application/json"}},
-			Body: io.NopCloser(strings.NewReader(`{
+	for _, status := range []int{http.StatusNotFound, http.StatusMethodNotAllowed} {
+		upstream := &httpUpstreamRecorder{responses: []*http.Response{
+			{
+				StatusCode: status,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body:       io.NopCloser(strings.NewReader(`{"error":"not found"}`)),
+			},
+			{
+				StatusCode: http.StatusOK,
+				Header:     http.Header{"Content-Type": []string{"application/json"}},
+				Body: io.NopCloser(strings.NewReader(`{
 				"configured-provider": {
 					"id": "configured-provider",
 					"name": "Configured Provider",
@@ -527,40 +528,43 @@ func TestSyncUpstreamModelCatalogUsesConfiguredModelsWhenListEndpointUnsupported
 					}
 				}
 			}`)),
-		},
-	}}
-	repo := &upstreamModelMetadataRepoStub{}
-	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
-	account := &Account{
-		ID: 97, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":  "key",
-			"base_url": "https://provider.example/v1",
-			"model_mapping": map[string]any{
-				"public-glm": "glm-5.3",
-				"duplicate":  "glm-5.3",
-				"wildcard":   "glm-*",
-				"empty":      "",
 			},
-		},
-	}
+		}}
+		repo := &upstreamModelMetadataRepoStub{}
+		svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
+		account := &Account{
+			ID: 97, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+			Credentials: map[string]any{
+				"api_key":  "key",
+				"base_url": "https://provider.example/v1",
+				"model_mapping": map[string]any{
+					"public-glm": "glm-5.3",
+					"duplicate":  "glm-5.3",
+					"wildcard":   "glm-*",
+					"empty":      "",
+				},
+			},
+		}
 
-	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
-		"old-live-model": {ID: "old-live-model", ContextWindow: 256000},
-	}})
-	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
-	require.NoError(t, err)
-	require.Contains(t, account.GetUpstreamModelMetadataSnapshot().Models, "old-live-model", "an unavailable model-list endpoint is not evidence of removal")
-	require.Equal(t, []string{"glm-5.3"}, catalog.Models)
-	require.Empty(t, catalog.Warnings)
-	require.Len(t, upstream.requests, 2)
-	require.Equal(t, "https://provider.example/v1/models", upstream.requests[0].URL.String())
-	require.Equal(t, modelsDevRegistryURL, upstream.requests[1].URL.String())
-	metadata := catalog.Metadata["glm-5.3"]
-	require.Equal(t, []string{"low", "medium", "high"}, metadata.SupportedReasoningLevels)
-	require.Equal(t, []string{"text"}, metadata.InputModalities)
-	require.Equal(t, int64(1_000_000), metadata.ContextWindow)
-	require.NotNil(t, repo.updates)
+		account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+			"old-live-model": {ID: "old-live-model", ContextWindow: 256000},
+		}})
+		catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
+		require.NoError(t, err)
+		require.Contains(t, account.GetUpstreamModelMetadataSnapshot().Models, "old-live-model", "an unavailable model-list endpoint is not evidence of removal")
+		require.Equal(t, []string{"glm-5.3"}, catalog.Models)
+		require.Equal(t, "configured", catalog.CatalogSource)
+		require.Equal(t, []string{"models.dev"}, catalog.MetadataSources)
+		require.Equal(t, "model_list_endpoint_unsupported", catalog.Warnings[0].Code)
+		require.Len(t, upstream.requests, 2)
+		require.Equal(t, "https://provider.example/v1/models", upstream.requests[0].URL.String())
+		require.Equal(t, modelsDevRegistryURL, upstream.requests[1].URL.String())
+		metadata := catalog.Metadata["glm-5.3"]
+		require.Equal(t, []string{"low", "medium", "high"}, metadata.SupportedReasoningLevels)
+		require.Equal(t, []string{"text"}, metadata.InputModalities)
+		require.Equal(t, int64(1_000_000), metadata.ContextWindow)
+		require.NotNil(t, repo.updates)
+	}
 }
 
 func TestSyncUpstreamModelCatalogDoesNotUseConfiguredModelsForRealUpstreamFailures(t *testing.T) {

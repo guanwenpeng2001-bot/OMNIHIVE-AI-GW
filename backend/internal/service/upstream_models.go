@@ -48,9 +48,11 @@ type UpstreamModelMetadataSnapshot struct {
 }
 
 type UpstreamModelCatalog struct {
-	Models   []string                         `json:"models"`
-	Metadata map[string]UpstreamModelMetadata `json:"metadata,omitempty"`
-	Warnings []UpstreamModelSyncWarning       `json:"warnings,omitempty"`
+	CatalogSource   string                           `json:"catalog_source"`
+	MetadataSources []string                         `json:"metadata_sources,omitempty"`
+	Models          []string                         `json:"models"`
+	Metadata        map[string]UpstreamModelMetadata `json:"metadata,omitempty"`
+	Warnings        []UpstreamModelSyncWarning       `json:"warnings,omitempty"`
 }
 
 type UpstreamModelSyncWarning struct {
@@ -235,11 +237,18 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 			"model_count", len(models),
 		)
 	}
-	catalog := &UpstreamModelCatalog{Models: models, Metadata: make(map[string]UpstreamModelMetadata)}
+	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
+	if !liveListAvailable {
+		catalog.CatalogSource = "configured"
+		catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{Code: "model_list_endpoint_unsupported", Message: "Upstream model listing is unavailable (404/405); using configured mapping targets."})
+	}
 	if len(body) > 0 {
 		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok())
 		if parseErr == nil {
 			catalog.Metadata = directMetadata
+			if len(directMetadata) > 0 {
+				catalog.MetadataSources = append(catalog.MetadataSources, "upstream")
+			}
 		}
 	}
 
@@ -259,6 +268,7 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 			catalog.Metadata[id] = merged
 			if changed {
 				source = "cursor-builtin"
+				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "cursor-builtin"))
 			}
 		}
 	}
@@ -270,6 +280,7 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 				catalog.Metadata[modelID] = merged
 				if changed {
 					source = "models.dev"
+					catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "models.dev"))
 				}
 			}
 		} else {
