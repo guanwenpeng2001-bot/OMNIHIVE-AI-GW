@@ -138,6 +138,7 @@ func (gateway *CursorGatewayService) ForwardAsChatCompletions(ctx context.Contex
 }
 
 func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestContext *gin.Context, account *Account, body []byte, output *cursorOutput) (*ForwardResult, error) {
+	ctx = cursorAccountContext(ctx, account)
 	if gateway == nil {
 		return nil, cursorFailover(errors.New("unavailable"))
 	}

@@ -53,7 +53,7 @@ func RefreshToken(ctx context.Context, client *http.Client, baseURL, refreshToke
 		return OAuthTokens{}, errors.New("cursor: invalid refresh endpoint")
 	}
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
+	response, err := Do(client, request, false)
 	if err != nil {
 		return OAuthTokens{}, errors.New("cursor: refresh transport failed")
 	}

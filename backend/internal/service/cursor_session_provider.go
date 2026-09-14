@@ -54,6 +54,7 @@ func cursorSessionKey(account *Account) string {
 // rejectedToken is empty for ordinary reads. A rejected token is replaced once;
 // another caller's already-refreshed token can be reused without another exchange.
 func (provider *CursorSessionProvider) GetSessionToken(ctx context.Context, account *Account, rejectedToken string) (string, error) {
+	ctx = cursorAccountContext(ctx, account)
 	if account.IsCursor() && account.Type == AccountTypeOAuth {
 		// Unsaved previews cannot enter the durable account refresh API.
 		if account.ID == 0 {

@@ -32,7 +32,7 @@ func ExchangeKey(ctx context.Context, client *http.Client, baseURL, apiKey strin
 	}
 	request.Header.Set("Authorization", "Bearer "+apiKey)
 	request.Header.Set("Content-Type", "application/json")
-	response, err := client.Do(request)
+	response, err := Do(client, request, false)
 	if err != nil {
 		return Session{}, fmt.Errorf("cursor: exchange transport failed")
 	}

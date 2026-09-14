@@ -28,9 +28,13 @@ type Client struct {
 }
 
 func NewClient() *Client {
+	dialer := &net.Dialer{Timeout: 15 * time.Second}
+	return newClientWithDial(dialer.DialContext)
+}
+
+func newClientWithDial(dial func(context.Context, string, string) (net.Conn, error)) *Client {
 	transport := &http2.Transport{DialTLSContext: func(ctx context.Context, network, address string, _ *tls.Config) (net.Conn, error) {
-		dialer := net.Dialer{Timeout: 15 * time.Second}
-		connection, err := dialer.DialContext(ctx, network, address)
+		connection, err := dial(ctx, network, address)
 		if err != nil {
 			return nil, err
 		}
@@ -131,7 +135,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		return TokenUsage{}, fmt.Errorf("cursor: invalid Run endpoint")
 	}
 	request.Header = headers(credentials, runID)
-	response, err := client.HTTPClient.Do(request)
+	response, err := Do(client.HTTPClient, request, true)
 	if err != nil {
 		return TokenUsage{}, fmt.Errorf("cursor: Run transport failed")
 	}

@@ -24,6 +24,7 @@ func DefaultCursorModelIDs() []string {
 }
 
 func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, account *Account) ([]string, error) {
+	ctx = cursorAccountContext(ctx, account)
 	if gateway == nil {
 		return nil, fmt.Errorf("cursor: service unavailable")
 	}
@@ -32,8 +33,8 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 		if err != nil {
 			return nil, err
 		}
-		request.Header.Set("Authorization", "Bearer "+account.GetCredential("api_key"))
-		response, err := gateway.relayClient.Do(request)
+		applyCursorRelayHeaders(request.Header, account)
+		response, err := cursor.Do(gateway.relayClient, request, false)
 		if err != nil {
 			return nil, fmt.Errorf("cursor: relay models unavailable")
 		}

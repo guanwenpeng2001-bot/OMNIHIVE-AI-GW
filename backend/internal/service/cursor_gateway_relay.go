@@ -95,6 +95,7 @@ func cursorConvertRelayRequest(body []byte, from, to string) ([]byte, error) {
 }
 
 func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestContext *gin.Context, account *Account, body []byte, inbound string, output *cursorOutput) (*ForwardResult, error) {
+	ctx = cursorAccountContext(ctx, account)
 	started := time.Now()
 	upstream := strings.TrimSpace(account.GetCredential("api_protocol"))
 	if upstream == "" || upstream == APIProtocolAdaptive {
@@ -141,7 +142,7 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
-	account.ApplyHeaderOverrides(request.Header)
+	applyCursorRelayHeaders(request.Header, account)
 	// Protocol headers take precedence over account configuration.
 	request.Header.Set("Accept", "application/json")
 	if metadata.Stream {
@@ -153,7 +154,7 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 		deleteHeaderAllForms(request.Header, "anthropic-version")
 		request.Header.Set("anthropic-version", "2023-06-01")
 	}
-	response, err := gateway.relayClient.Do(request)
+	response, err := cursor.Do(gateway.relayClient, request, false)
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
