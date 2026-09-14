@@ -195,7 +195,7 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 				if job.Terminal() {
 					finishCode = job.ErrorCode
 				}
-				return errors.New("Realtime receipt retained pending settlement")
+				return errors.New("realtime receipt retained pending settlement")
 			}
 			if !receipts[id] {
 				if err = h.upstreamJobs.AcknowledgeQianwenRealtimeReceipt(persist, session.PublicRequestID); err != nil {

@@ -106,7 +106,7 @@ func (r *usageSettlementReceiptRepository) ListPending(ctx context.Context, afte
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var receipts []*service.UsageSettlementReceipt
 	for rows.Next() {
 		receipt, err := scanUsageSettlement(rows)

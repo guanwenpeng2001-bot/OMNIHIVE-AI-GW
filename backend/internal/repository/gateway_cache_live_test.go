@@ -14,6 +14,7 @@ import (
 func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	redisServer := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: redisServer.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
 	cache, ok := NewGatewayCache(client).(service.LiveCallStore)
 	require.True(t, ok)
 	otherInstance, ok := NewGatewayCache(client).(service.LiveCallStore)
