@@ -9,11 +9,73 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 const paidBatchLine = `{"custom_id":"one","method":"POST","url":"/v1/chat/completions","body":{"model":"qwen-long","messages":[{"role":"user","content":"Hello"}],"enable_thinking":false}}`
+
+func TestQianwenBatchFlatTariffs(tester *testing.T) {
+	for _, tariff := range []struct {
+		model               string
+		inputCNY, outputCNY float64
+	}{
+		{model: "qwen-max", inputCNY: 1.2, outputCNY: 4.8},
+		{model: "qwen-turbo", inputCNY: 0.15, outputCNY: 0.3},
+	} {
+		tester.Run(tariff.model, func(tester *testing.T) {
+			line := strings.ReplaceAll(paidBatchLine, "qwen-long", tariff.model)
+			_, snapshot, err := ValidateQianwenBatchFile([]byte(line))
+			require.NoError(tester, err)
+			job, account := paidBatchFixture(tester)
+			pricingAt := time.Date(2026, time.September, 15, 0, 0, 0, 0, time.UTC)
+			job.Billing, err = QianwenFileBatchBillingSnapshotAt(&Group{RateMultiplier: 2}, account, nil, nil, snapshot, FileBatchPricingAdmission{UserGroupRateMultiplier: 3, PricingAt: pricingAt})
+			require.NoError(tester, err)
+			frozen := job.Billing.FileBatch
+			require.Equal(tester, tariff.model, frozen.Model)
+			require.InDelta(tester, tariff.inputCNY/7/1e6, frozen.InputPrice, 1e-20)
+			require.InDelta(tester, tariff.outputCNY/7/1e6, frozen.OutputPrice, 1e-20)
+			require.Equal(tester, QianwenFileBatchPriceVersion, frozen.PriceVersion)
+			require.Equal(tester, 1.0/7, frozen.FX.USDPerCNY)
+			require.Equal(tester, 3.0, frozen.UserGroupRateMultiplier)
+			require.Equal(tester, 1.0, frozen.TimeMultiplier)
+			require.Equal(tester, pricingAt, frozen.PricingAt)
+			require.Equal(tester, 3.0, job.Billing.RateMultiplier)
+			require.Equal(tester, account.BillingRateMultiplier(), job.Billing.AccountRateMultiplier)
+			job.UsageJSON, err = validateQianwenBatchResult(job, []byte(strings.ReplaceAll(testBatchResult, QianwenBatchTestModel, tariff.model)))
+			require.NoError(tester, err)
+			job.ResultRef = "output"
+			usageLog, command, err := QianwenJobCharge(job)
+			require.NoError(tester, err)
+			expectedCost := QuantizeUsageBillingAmount((20*tariff.inputCNY + 6*tariff.outputCNY) / 7 / 1e6)
+			require.Equal(tester, expectedCost, usageLog.TotalCost)
+			require.Equal(tester, QuantizeUsageBillingAmount(expectedCost*3), command.BalanceCost)
+			_, _, err = ValidateQianwenBatchFile([]byte(strings.ReplaceAll(line, `"enable_thinking":false`, `"enable_thinking":true`)))
+			require.EqualError(tester, err, "paid batches require non-thinking text requests with supported parameters")
+		})
+	}
+}
+
+func TestQianwenBatchTieredTariffsRemainUnsupported(tester *testing.T) {
+	// Upstream supports these models, but this tariff function cannot price tiers.
+	for _, model := range []string{"qwen-plus", "qwen-plus-latest"} {
+		tester.Run(model, func(tester *testing.T) {
+			_, _, err := ValidateQianwenBatchFile([]byte(strings.ReplaceAll(paidBatchLine, "qwen-long", model)))
+			require.EqualError(tester, err, "only non-streaming diagnostic or explicitly priced text file batches are supported")
+		})
+	}
+}
+
+func TestQianwenBatchMaxParameterAllowlist(tester *testing.T) {
+	line := strings.ReplaceAll(paidBatchLine, "qwen-long", "qwen-max")
+	line = strings.ReplaceAll(line, `"enable_thinking":false`, `"max_tokens":32,"temperature":0.5,"top_p":0.9,"seed":42,"stop":["END"],"stream":false`)
+	canonical, _, err := ValidateQianwenBatchFile([]byte(line))
+	require.NoError(tester, err)
+	require.JSONEq(tester, line, string(canonical))
+	_, _, err = ValidateQianwenBatchFile([]byte(strings.ReplaceAll(line, `"max_tokens":32`, `"max_tokens":32,"enable_search":true`)))
+	require.EqualError(tester, err, "paid batches require non-thinking text requests with supported parameters")
+}
 
 func paidBatchFixture(t *testing.T) (*UpstreamJob, *Account) {
 	t.Helper()

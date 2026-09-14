@@ -8,17 +8,25 @@ import (
 	"time"
 )
 
-const QianwenFileBatchPriceVersion = "dashscope-cn-file-batch-2026-09-14"
+const QianwenFileBatchPriceVersion = "dashscope-cn-file-batch-flat-2026-09-15"
 
-// Beijing prices in CNY per million tokens, already discounted by 50%.
+// Beijing flat prices in CNY per million tokens, verified 2026-09-15.
+// Official batch input/output prices are 50% of the corresponding realtime
+// prices: qwen-long 0.5/2, qwen-max 2.4/9.6, qwen-turbo 0.3/0.6.
 // https://help.aliyun.com/zh/model-studio/model-pricing
 // https://help.aliyun.com/zh/model-studio/batch-inference
 // Only flat, non-thinking text tariffs are admitted; never infer a batch price
 // from a synchronous Batch Chat card or a similarly named model.
+// qwen-plus and qwen-plus-latest remain excluded because their tiered pricing
+// cannot be represented by this flat tariff function, not for lack of upstream support.
 func qianwenFileBatchTariff(model string) (float64, float64, bool) {
 	switch model {
 	case "qwen-long", "qwen-long-latest":
 		return .25, 1, true
+	case "qwen-max":
+		return 1.2, 4.8, true
+	case "qwen-turbo":
+		return 0.15, 0.3, true
 	}
 	return 0, 0, false
 }
