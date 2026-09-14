@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -118,4 +119,34 @@ func jsonPathString(t *testing.T, raw json.RawMessage, keys ...string) string {
 	result, ok := current.(string)
 	require.True(t, ok)
 	return result
+}
+
+func TestLiveBillingUnsupportedErrorIsExplicit(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	(&OpenAIGatewayHandler{}).writeLiveCreateError(c, service.ErrLiveBillingUnsupported)
+	require.Equal(t, http.StatusNotImplemented, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "live_billing_unsupported")
+	require.Contains(t, recorder.Body.String(), "explicit free policy")
+}
+
+func TestLiveRejectsUnapprovedBillingBeforeUpstream(t *testing.T) {
+	for _, platform := range []string{service.PlatformOpenAI, service.PlatformComposite} {
+		for _, enabled := range []bool{false, true} {
+			recorder := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(recorder)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/live", nil)
+			c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+				Group: &service.Group{Platform: platform, AllowLive: enabled},
+			})
+			c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 1})
+			// Nil billing, scheduler and upstream dependencies enforce early rejection.
+			(&OpenAIGatewayHandler{}).Live(c)
+			if enabled {
+				require.Equal(t, http.StatusNotImplemented, recorder.Code)
+			} else {
+				require.Equal(t, http.StatusForbidden, recorder.Code)
+			}
+		}
+	}
 }

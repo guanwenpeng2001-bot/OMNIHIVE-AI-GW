@@ -241,3 +241,39 @@ func TestRequestTypeLive(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, RequestTypeLive, parsed)
 }
+
+func TestLiveBillingPolicyRequiresExplicitFree(t *testing.T) {
+	for _, policy := range []string{"", "paid", "duration", "FREE", "free"} {
+		t.Run(policy, func(t *testing.T) {
+			cfg := &config.Config{}
+			cfg.Gateway.Live.BillingPolicy = policy
+			gateway := &OpenAIGatewayService{cfg: cfg}
+			err := gateway.CheckLiveBillingPolicy()
+			if policy == "free" {
+				require.NoError(t, err)
+				_, err = gateway.CreateLiveCall(context.Background(), nil, LiveCallIdentity{}, 1)
+				require.EqualError(t, err, "sdp is required")
+			} else {
+				require.ErrorIs(t, err, ErrLiveBillingUnsupported)
+				// No dependencies: rejection must happen before validation or upstream work.
+				_, err = gateway.CreateLiveCall(context.Background(), nil, LiveCallIdentity{}, 1)
+				require.ErrorIs(t, err, ErrLiveBillingUnsupported)
+			}
+		})
+	}
+	var gateway *OpenAIGatewayService
+	require.ErrorIs(t, gateway.CheckLiveBillingPolicy(), ErrLiveBillingUnsupported)
+}
+
+func TestFinalizeLiveCallExplicitFreeReasonSurvivesPolicyChange(t *testing.T) {
+	record := &LiveCallRecord{CallHash: "free-call", FreeReason: LiveFreeReason, CreatedAt: time.Now().Add(-time.Hour)}
+	store := &liveTestStore{}
+	require.NoError(t, store.SaveLiveCall(context.Background(), record, time.Hour))
+	repo := &liveTestUsageRepo{}
+	gateway := &OpenAIGatewayService{cache: store, usageLogRepo: repo, cfg: &config.Config{}}
+	gateway.finalizeLiveCall(record)
+	require.Len(t, repo.logs, 1)
+	require.Equal(t, PricingStateFree, repo.logs[0].PricingState)
+	require.Zero(t, repo.logs[0].TotalCost)
+	require.Zero(t, repo.logs[0].ActualCost)
+}

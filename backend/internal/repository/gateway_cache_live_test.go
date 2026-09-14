@@ -28,6 +28,7 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 		LeaseID:               "lease",
 		Model:                 "gpt-live-test",
 		AttestationCiphertext: "encrypted-attestation",
+		FreeReason:            service.LiveFreeReason,
 		CreatedAt:             time.Now(),
 		ExpiresAt:             time.Now().Add(time.Hour),
 		Controller:            service.LiveControllerPending,
@@ -39,6 +40,12 @@ func TestGatewayCacheLiveCallIdentityAndController(t *testing.T) {
 	require.Equal(t, record.CallID, loaded.CallID)
 	require.Equal(t, record.AccountID, loaded.AccountID)
 	require.Equal(t, record.AttestationCiphertext, loaded.AttestationCiphertext)
+	require.Equal(t, service.LiveFreeReason, loaded.FreeReason)
+	// A record written by an older instance must not inherit today's free policy.
+	require.NoError(t, client.HDel(context.Background(), liveCallKey(record.CallHash), "free_reason").Err())
+	legacy, err := otherInstance.GetLiveCall(context.Background(), record.CallHash)
+	require.NoError(t, err)
+	require.Empty(t, legacy.FreeReason)
 
 	claimed, err := cache.ClaimLiveController(context.Background(), record.CallHash, service.LiveControllerObserver, "observer-1")
 	require.NoError(t, err)

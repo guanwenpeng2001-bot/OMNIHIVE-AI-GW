@@ -35,6 +35,19 @@ const (
 // liveObserverStoreRetryInterval 是 var 以便测试缩短 store 报错的重试等待。
 var liveObserverStoreRetryInterval = time.Second
 
+const LiveFreeReason = "operator_explicit_free_live_no_reliable_metering"
+
+var ErrLiveBillingUnsupported = errors.New("paid Live is not supported: reliable metering and settlement are unavailable; an explicit free policy is required")
+
+// CheckLiveBillingPolicy does not infer a commercial promise from AllowLive.
+// Existing deployments must review their customer commitments before rollout.
+func (s *OpenAIGatewayService) CheckLiveBillingPolicy() error {
+	if s == nil || s.cfg == nil || s.cfg.Gateway.Live.BillingPolicy != "free" {
+		return ErrLiveBillingUnsupported
+	}
+	return nil
+}
+
 var (
 	chatGPTLiveCallsURL        = "https://chatgpt.com/backend-api/codex/realtime/calls?intent=quicksilver&architecture=avas"
 	chatGPTLiveSidebandBaseURL = "wss://chatgpt.com/backend-api/codex"
@@ -127,6 +140,9 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	identity LiveCallIdentity,
 	userMaxConcurrency int,
 ) (*LiveCallCreated, error) {
+	if err := s.CheckLiveBillingPolicy(); err != nil {
+		return nil, err
+	}
 	if err := ValidateLiveCallRequest(request); err != nil {
 		return nil, err
 	}
@@ -144,8 +160,8 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	}
 
 	excluded := make(map[int64]struct{})
-	// Live 按通话时长计费，不属于 token 利润门的语义范围：显式豁免，避免
-	// 防御性装门按文本 D 过滤 Live 账号池且门与计费时刻不同源。
+	// Only explicitly free Live reaches scheduling. There is no reliable usage
+	// meter or paid settlement here; token profit control does not apply.
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	var lastErr error
 	for attempt := 0; attempt <= 3; attempt++ {
@@ -213,6 +229,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			model = "gpt-live"
 		}
 		record := &LiveCallRecord{
+			FreeReason:            LiveFreeReason,
 			CallID:                created.CallID,
 			CallHash:              hashLiveCallID(created.CallID),
 			AccountID:             account.ID,
@@ -824,11 +841,17 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 	if record.SubscriptionID > 0 {
 		billingType = BillingTypeSubscription
 	}
-	// TODO(billing): Live 会话目前不计费：TotalCost/ActualCost 恒为 0，完全绕过
-	// recordUsageCore/applyUsageBilling，余额模式下极低余额也能反复开启最长
-	// liveMaxSessionDuration 的会话。若确认按时长计费，应在此接入计费管道；
-	// 若确认有意免费，删除本注释即可（零值行为由
-	// TestFinalizeLiveCallIsIdempotentAndWritesZeroUsage 锁定）。
+	// This is an activity log, not a billing settlement. Duration is diagnostic
+	// only: never estimate token, time or byte charges or back-charge legacy calls.
+	// Legacy records have no approved free policy and must not be relabeled free.
+	pricingState := PricingStateUnpriced
+	if record.FreeReason == LiveFreeReason {
+		pricingState = PricingStateFree
+	}
+	logger.FromContext(context.Background()).Info("Live call closed without charging",
+		zap.String("request_id", record.CallHash),
+		zap.String("pricing_state", string(pricingState)),
+		zap.String("free_reason", record.FreeReason))
 	//
 	// 这是该会话唯一一次落库机会（MarkLiveCallClosed 已标记 first），失败即永久
 	// 丢失，因此走带日志与同步兜底的 writeUsageLogBestEffort（issue #3656）。
@@ -844,6 +867,7 @@ func (s *OpenAIGatewayService) finalizeLiveCall(record *LiveCallRecord) {
 		RateMultiplier:   1,
 		BillingType:      billingType,
 		RequestType:      RequestTypeLive,
+		PricingState:     pricingState,
 		DurationMs:       &duration,
 		UserAgent:        &userAgent,
 		IPAddress:        &ipAddress,
