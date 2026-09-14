@@ -199,7 +199,7 @@ func TestHandleOpenAIUpstreamTransportError_DeadlineExceeded_StillFailsOver(t *t
 	require.True(t, errors.As(err, &fo), "context.DeadlineExceeded must still return *UpstreamFailoverError")
 }
 
-func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
+func TestForwardAsRawChatCompletions_UnknownAcceptanceDoesNotReplay(t *testing.T) {
 	repo := &openaiTransportAccountRepoStub{}
 	upstream := &failingOpenAIHTTPUpstream{
 		err: errors.New(`Post "https://opencode.ai/zen/v1/chat/completions": EOF`),
@@ -238,8 +238,8 @@ func TestForwardAsRawChatCompletions_TransportErrorFailsOver(t *testing.T) {
 	require.Equal(t, 1, upstream.calls)
 	require.Equal(t, proxy.URL(), upstream.proxyURL)
 	var fo *UpstreamFailoverError
-	require.True(t, errors.As(err, &fo), "transport error must trigger account failover")
-	require.Equal(t, http.StatusBadGateway, fo.StatusCode)
+	require.Error(t, err)
+	require.False(t, errors.As(err, &fo), "unknown POST acceptance must not trigger account failover")
 	require.Empty(t, repo.tempUnschedCalls, "plain EOF is transient: fail over but do not evict")
 	require.Equal(t, 0, rec.Body.Len(), "service must not write a hard 502 before handler can fail over")
 
@@ -276,7 +276,8 @@ func TestForwardAsRawChatCompletions_RecordsProxyPerAccountAttempt(t *testing.T)
 	for _, account := range accounts {
 		_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
 		var failoverErr *UpstreamFailoverError
-		require.ErrorAs(t, err, &failoverErr)
+		require.Error(t, err)
+		require.False(t, errors.As(err, &failoverErr))
 	}
 
 	require.Equal(t, []string{proxyA.URL(), proxyB.URL(), ""}, upstream.proxyURLs)

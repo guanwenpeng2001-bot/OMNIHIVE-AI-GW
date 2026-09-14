@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRunPreflightFailover(t *testing.T) {
+func TestRunPreflightDoesNotReplayAcceptedPOST(t *testing.T) {
 	for _, scenario := range []string{"gating", "gating_after_heartbeat", "connect", "already_text", "already_thinking"} {
 		t.Run(scenario, func(t *testing.T) {
 			var attempts atomic.Int32
@@ -73,19 +73,16 @@ func TestRunPreflightFailover(t *testing.T) {
 			defer backup.Close()
 			client := &Client{HTTPClient: server.Client(), RunHosts: []string{server.URL, backup.URL}}
 			var output strings.Builder
-			usage, err := client.Run(context.Background(), Credentials{}, []ChatMessage{{Role: "user", Content: "hi"}}, "default", func(event StreamEvent) error { output.WriteString(event.Text); return nil })
+			_, err := client.Run(context.Background(), Credentials{}, []ChatMessage{{Role: "user", Content: "hi"}}, "default", func(event StreamEvent) error { output.WriteString(event.Text); return nil })
 			if strings.HasPrefix(scenario, "already_") {
 				require.Error(t, err)
 				require.Equal(t, int32(1), attempts.Load())
 				require.Equal(t, "partial", output.String())
 			} else {
-				require.NoError(t, err)
-				require.Equal(t, int32(2), attempts.Load())
-				require.Equal(t, "hello", output.String())
-				require.Equal(t, 5, usage.OutputTokens)
-				require.False(t, usage.Estimated)
+				require.Error(t, err)
+				require.Equal(t, int32(1), attempts.Load())
+				require.Empty(t, output.String())
 				require.Equal(t, strings.TrimPrefix(server.URL, "https://"), <-hosts)
-				require.Equal(t, strings.TrimPrefix(backup.URL, "https://"), <-hosts)
 			}
 		})
 	}
@@ -121,7 +118,11 @@ func TestRunUsageAuthorityAndFallback(t *testing.T) {
 			server.StartTLS()
 			defer server.Close()
 			usage, err := (&Client{HTTPClient: server.Client(), BaseURL: server.URL}).Run(context.Background(), Credentials{}, nil, "default", func(StreamEvent) error { return io.ErrClosedPipe })
-			require.NoError(t, err)
+			if ended {
+				require.NoError(t, err)
+			} else {
+				require.ErrorContains(t, err, "before turn_ended")
+			}
 			require.Equal(t, !ended, usage.Estimated)
 			if ended {
 				require.Equal(t, 5, usage.OutputTokens)
