@@ -202,6 +202,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	grokCacheIdentity string,
 ) (*http.Response, error) {
 	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	if owned, _ := ctx.Value(boundedStreamContextKey{}).(bool); owned {
+		upstreamCtx = ctx
+	}
 	upstreamReq, err := http.NewRequestWithContext(upstreamCtx, http.MethodPost, targetURL, bytes.NewReader(body))
 	releaseUpstreamCtx()
 	if err != nil {
@@ -250,7 +253,11 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
-		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		reported := s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		if owned, _ := ctx.Value(boundedStreamContextKey{}).(bool); owned {
+			return nil, fmt.Errorf("upstream POST failed (acceptance unknown): %s", sanitizeUpstreamErrorMessage(err.Error()))
+		}
+		return nil, reported
 	}
 	return resp, nil
 }

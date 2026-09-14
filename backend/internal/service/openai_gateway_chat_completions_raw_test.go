@@ -116,7 +116,7 @@ func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDown
 	require.Equal(t, 4, result.Usage.OutputTokens)
 	require.Equal(t, 3, result.Usage.CacheReadInputTokens)
 	require.NotNil(t, upstream.lastReq)
-	require.NoError(t, upstream.lastReq.Context().Err())
+	require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 	require.Contains(t, rec.Body.String(), `"usage"`)
@@ -457,7 +457,7 @@ func TestForwardAsRawChatCompletions_NormalizesGLMReasoningEffortForUpstream(t *
 	require.Equal(t, "max", gjson.GetBytes(upstream.lastBody, "reasoning_effort").String())
 }
 
-func TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover(t *testing.T) {
+func TestForwardAsRawChatCompletions_ValidEmptyOutputDoesNotReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := largeRawChatCompletionsBody()
@@ -486,13 +486,9 @@ func TestForwardAsRawChatCompletions_SilentRefusalTriggersFailover(t *testing.T)
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr))
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, IsOpenAISilentRefusalErrorBody(failoverErr.ResponseBody))
-	require.False(t, c.Writer.Written(), "silent refusal must not commit a 200 response before failover")
-	require.Empty(t, rec.Body.String())
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Contains(t, rec.Body.String(), "[DONE]")
 }
 
 func TestForwardAsRawChatCompletions_SilentRefusalToolCallsExempt(t *testing.T) {
@@ -738,7 +734,7 @@ func TestForwardAsRawChatCompletions_TruncatedStreamAfterOutputFailsRequest(t *t
 }
 
 // 截断 failover 事件必须带上本次传输真实使用的托管代理快照。
-func TestForwardAsRawChatCompletions_TruncationFailoverAttributesManagedProxy(t *testing.T) {
+func TestForwardAsRawChatCompletions_TruncationErrorAttributesManagedProxy(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hello"}],"stream":true}`)
@@ -759,22 +755,23 @@ func TestForwardAsRawChatCompletions_TruncationFailoverAttributesManagedProxy(t 
 	account.Proxy = proxy
 
 	_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
+	require.False(t, errors.As(err, &failoverErr))
 	require.Equal(t, proxy.URL(), upstream.lastProxyURL)
 
 	rawEvents, ok := c.Get(OpsUpstreamErrorsKey)
 	require.True(t, ok)
 	events := rawEvents.([]*OpsUpstreamErrorEvent)
 	require.Len(t, events, 1)
-	require.Equal(t, "failover", events[0].Kind)
+	require.Equal(t, "http_error", events[0].Kind)
 	require.NotNil(t, events[0].ProxyID)
 	require.Equal(t, proxy.ID, *events[0].ProxyID)
 	require.Equal(t, proxy.Name, events[0].ProxyName)
 }
 
 // 上游 200 但一个 SSE 字节都没发：响应头尚未提交，应换号重试而不是回 200 空流。
-func TestForwardAsRawChatCompletions_EmptyStreamBeforeOutputTriggersFailover(t *testing.T) {
+func TestForwardAsRawChatCompletions_EmptyStreamBeforeOutputDoesNotReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hello"}],"stream":true}`)
@@ -795,14 +792,11 @@ func TestForwardAsRawChatCompletions_EmptyStreamBeforeOutputTriggersFailover(t *
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr))
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.Equal(t, OpenAIUpstreamStreamTruncatedCode,
-		gjson.GetBytes(failoverErr.ResponseBody, "error.code").String())
-	require.True(t, failoverErr.ShouldRetryNextAccount())
-	require.False(t, c.Writer.Written(), "换号重试前不得提交 200 响应头")
+	require.False(t, errors.As(err, &failoverErr))
+	require.False(t, c.Writer.Written())
 	require.Empty(t, rec.Body.String())
 }
 
@@ -843,7 +837,7 @@ func TestForwardAsRawChatCompletions_StreamReadErrorAfterOutputFailsRequest(t *t
 
 // 边界：缺 [DONE] 但收到了 usage 帧 —— 生成已完整，只是尾巴丢失。必须继续按成功
 // 计费，否则会误伤那些跑完就直接 EOF 的兼容上游并白送 token。
-func TestForwardAsRawChatCompletions_MissingDoneWithUsageStillSucceeds(t *testing.T) {
+func TestForwardAsRawChatCompletions_UsageWithoutTerminalReturnsPartialUsage(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"deepseek-v4-pro","messages":[{"role":"user","content":"hello"}],"stream":true}`)
@@ -870,7 +864,7 @@ func TestForwardAsRawChatCompletions_MissingDoneWithUsageStillSucceeds(t *testin
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 11, result.Usage.InputTokens)
 	require.Equal(t, 6, result.Usage.OutputTokens)
@@ -951,7 +945,7 @@ func TestForwardAsRawChatCompletions_ClientDisconnectTruncationStillBills(t *tes
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 }
 
@@ -980,7 +974,7 @@ func TestForwardAsRawChatCompletions_ClientCancelTruncationStillBills(t *testing
 	}
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, rawChatCompletionsTestAccount(), body, "")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 }
 
@@ -1057,7 +1051,7 @@ func TestForwardAsRawChatCompletions_ClientDisconnectDrainsUsage(t *testing.T) {
 	body := []byte(`{"model":"gpt-5.4","messages":[{"role":"user","content":"hello"}],"stream":true}`)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Writer = &openAIChatFailingWriter{ResponseWriter: c.Writer, failAfter: 0}
+	c.Writer = &openAIRawStreamDisconnectedWriter{ResponseWriter: c.Writer}
 	c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
 	c.Request.Header.Set("Content-Type", "application/json")
 
@@ -1082,7 +1076,7 @@ func TestForwardAsRawChatCompletions_ClientDisconnectDrainsUsage(t *testing.T) {
 	account := rawChatCompletionsTestAccount()
 
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
-	require.NoError(t, err)
+	require.Error(t, err)
 	require.NotNil(t, result)
 	require.Equal(t, 17, result.Usage.InputTokens)
 	require.Equal(t, 8, result.Usage.OutputTokens)
@@ -1090,7 +1084,7 @@ func TestForwardAsRawChatCompletions_ClientDisconnectDrainsUsage(t *testing.T) {
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 }
 
-func TestForwardAsRawChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.T) {
+func TestForwardAsRawChatCompletions_CanceledClientDrainsThenReleasesUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	reqCtx, cancel := context.WithCancel(context.Background())
@@ -1120,10 +1114,10 @@ func TestForwardAsRawChatCompletions_UpstreamRequestIgnoresClientCancel(t *testi
 	account := rawChatCompletionsTestAccount()
 
 	result, err := svc.forwardAsRawChatCompletions(reqCtx, c, account, body, "")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
 	require.NotNil(t, upstream.lastReq)
-	require.NoError(t, upstream.lastReq.Context().Err())
+	require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled)
 }
 
 func TestForwardAsChatCompletions_UnknownResponsesSupportFallbackUsesVersionedChatURL(t *testing.T) {

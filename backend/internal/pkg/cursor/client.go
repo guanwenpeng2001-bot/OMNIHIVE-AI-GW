@@ -73,25 +73,11 @@ func (client *Client) RunWithTools(ctx context.Context, credentials Credentials,
 	} else if client.BaseURL == "" {
 		hosts = []string{"https://agentn.global.api5.cursor.sh", "https://agentn.api5.cursor.sh", "https://agentn-gcpp-eucentral.api5.cursor.sh"}
 	}
-	emitted := false
-	forward := func(event StreamEvent) error {
-		emitted = emitted || event.Text != "" || event.ToolCall != nil
-		return emit(event)
-	}
-	var usage TokenUsage
-	var err error
-	for _, host := range hosts {
-		attempt := *client
-		attempt.BaseURL = host
-		usage, err = attempt.run(ctx, credentials, messages, model, options, forward)
-		var upstream *HTTPError
-		var connect *ConnectError
-		authentication := (errors.As(err, &upstream) && (upstream.Status == 401 || upstream.Status == 403)) || (errors.As(err, &connect) && connect.Authentication())
-		if err == nil || emitted || errors.Is(err, errToolReply) || authentication || ctx.Err() != nil {
-			return usage, err
-		}
-	}
-	return usage, err
+	// Run is a non-idempotent POST. A transport failure or stream rejection
+	// does not prove the request was unaccepted; never regenerate on another host.
+	attempt := *client
+	attempt.BaseURL = hosts[0]
+	return attempt.run(ctx, credentials, messages, model, options, emit)
 }
 
 func (client *Client) run(ctx context.Context, credentials Credentials, messages []ChatMessage, model string, options ToolOptions, emit func(StreamEvent) error) (TokenUsage, error) {
@@ -147,15 +133,11 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	storedBytes := 0
 	usage := TokenUsage{Estimated: true}
 	outputStarted := false
-	toolStarted := false
 	for {
 		frame, err := readFrame(response.Body)
 		if err != nil {
 			if err == io.EOF {
-				if toolStarted {
-					return usage, fmt.Errorf("cursor: MCP stream ended before turn_ended")
-				}
-				return usage, nil
+				return usage, fmt.Errorf("cursor: stream ended before turn_ended")
 			}
 			return usage, err
 		}
@@ -168,8 +150,8 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		}
 		if frame.flags&2 != 0 {
 			err := trailerError(frame.payload)
-			if err == nil && toolStarted {
-				err = fmt.Errorf("cursor: MCP stream ended before turn_ended")
+			if err == nil {
+				err = fmt.Errorf("cursor: stream ended before turn_ended")
 			}
 			return usage, err
 		}
@@ -188,7 +170,6 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 			return usage, err
 		}
 		if call != nil {
-			toolStarted = true
 			outputStarted = true
 			result, failure := ToolResult{}, "deferred_to_client"
 			if options.Execute != nil {

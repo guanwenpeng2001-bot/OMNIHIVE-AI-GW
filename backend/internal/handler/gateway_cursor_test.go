@@ -77,6 +77,29 @@ func (repo *cursorRouteUsageRepo) Create(ctx context.Context, usage *service.Usa
 	return true, repo.CreateBestEffort(ctx, usage)
 }
 
+// Count acquired and released leases at the real handler boundary.
+type cursorRouteSlotCache struct {
+	fakeConcurrencyCache
+	accounts, users atomic.Int32
+}
+
+func (cache *cursorRouteSlotCache) AcquireAccountSlot(context.Context, int64, int, string) (bool, error) {
+	cache.accounts.Add(1)
+	return true, nil
+}
+func (cache *cursorRouteSlotCache) ReleaseAccountSlot(context.Context, int64, string) error {
+	cache.accounts.Add(-1)
+	return nil
+}
+func (cache *cursorRouteSlotCache) AcquireUserSlot(context.Context, int64, int, string) (bool, error) {
+	cache.users.Add(1)
+	return true, nil
+}
+func (cache *cursorRouteSlotCache) ReleaseUserSlot(context.Context, int64, string) error {
+	cache.users.Add(-1)
+	return nil
+}
+
 func TestCursorRoutes(t *testing.T) {
 	for _, scenario := range []struct {
 		name, path                      string
@@ -90,6 +113,7 @@ func TestCursorRoutes(t *testing.T) {
 		{name: "messages_stream", path: EndpointMessages, stream: true},
 		{name: "responses_non_stream", path: EndpointResponses},
 		{name: "responses_stream", path: EndpointResponses, stream: true},
+		{name: "responses_partial_usage_once", path: EndpointResponses, stream: true, interrupted: true},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			var attempts atomic.Int32
@@ -146,8 +170,11 @@ func TestCursorRoutes(t *testing.T) {
 			defer cleanup()
 			cfg := &config.Config{RunMode: config.RunModeSimple}
 			repo := &cursorRouteUsageRepo{}
+			slots := &cursorRouteSlotCache{}
+			concurrency := service.NewConcurrencyService(slots)
+			handler.concurrencyHelper = NewConcurrencyHelper(concurrency, SSEPingFormatClaude, 0)
 			snapshot := service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: accounts}, nil, nil, nil, nil)
-			handler.gatewayService = service.NewGatewayService(nil, &fakeGroupRepo{group: group}, repo, nil, nil, nil, nil, nil, cfg, snapshot, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			handler.gatewayService = service.NewGatewayService(nil, &fakeGroupRepo{group: group}, repo, nil, nil, nil, nil, nil, cfg, snapshot, concurrency, service.NewBillingService(cfg, nil), nil, nil, nil, nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 			handler.cursorGatewayService = service.NewCursorGatewayWithClientForTest(cursorRouteSessionCache{}, &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL})
 			pool := newUsageRecordTestPool(t)
 			defer pool.Stop()
@@ -174,6 +201,8 @@ func TestCursorRoutes(t *testing.T) {
 			if !scenario.stream || scenario.interrupted {
 				require.Contains(t, recorder.Body.String(), "hello")
 			}
+			require.Zero(t, slots.accounts.Load(), "account slots must be released")
+			require.Zero(t, slots.users.Load(), "user slots must be released")
 			require.Equal(t, uint64(1), pool.Stats().SubmittedTasks)
 			require.Len(t, repo.logs, 1)
 			expectedAttempts := int32(1)
