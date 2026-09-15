@@ -921,22 +921,30 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 		return hash
 	}
 
-	// 3. 最后 fallback: 使用 session上下文 + system + 所有消息的完整摘要串
+	// 3. 最后 fallback: 使用会话锚定摘要（model + session 区分 + system + 第一条 user 消息）。
+	//    不能再用"全部消息"：多轮会话每轮追加消息 → hash 每轮变化 → 粘性绑定失效 →
+	//    同一会话在账号池内漂移 → 上游按账号隔离的 prompt cache 无法命中。
+	//    对齐 OpenAI 路径 deriveOpenAIContentSessionSeed 的稳定锚语义。
 	var combined strings.Builder
+	if parsed.Model != "" {
+		_, _ = combined.WriteString("model=")
+		_, _ = combined.WriteString(parsed.Model)
+	}
 	// 混入请求上下文区分因子，避免不同用户相同消息产生相同 hash
 	if parsed.SessionContext != nil {
+		_, _ = combined.WriteString("|")
 		_, _ = combined.WriteString(parsed.SessionContext.ClientIP)
 		_, _ = combined.WriteString(":")
 		_, _ = combined.WriteString(NormalizeSessionUserAgent(parsed.SessionContext.UserAgent))
 		_, _ = combined.WriteString(":")
 		_, _ = combined.WriteString(strconv.FormatInt(parsed.SessionContext.APIKeyID, 10))
-		_, _ = combined.WriteString("|")
 	}
 	if systemText := extractTextFromSystemRaw(parsed.SystemRaw()); systemText != "" {
+		_, _ = combined.WriteString("|system=")
 		_, _ = combined.WriteString(systemText)
 	}
 	contentStart := combined.Len()
-	appendMessageTextsFromRaw(&combined, parsed.MessagesRaw())
+	appendFirstUserTextFromRaw(&combined, parsed.MessagesRaw())
 	if combined.Len() == contentStart {
 		appendResponsesSessionAnchorFromRaw(&combined, parsed.InputRaw())
 	}
@@ -1106,6 +1114,40 @@ func extractTextFromContentRaw(content gjson.Result) string {
 		return builder.String()
 	}
 	return ""
+}
+
+// appendFirstUserTextFromRaw extracts only the first user message text as a
+// session-stable anchor. Multi-turn histories keep the first user message
+// constant, so the derived session hash stays stable across turns (unlike a
+// full-history digest) and sticky account binding survives the conversation.
+func appendFirstUserTextFromRaw(builder *strings.Builder, raw []byte) {
+	if builder == nil || len(raw) == 0 {
+		return
+	}
+	messages := parseRawJSONView(raw)
+	if !messages.IsArray() {
+		return
+	}
+	messages.ForEach(func(_, msg gjson.Result) bool {
+		if strings.TrimSpace(msg.Get("role").String()) != "user" {
+			return true
+		}
+		if content := msg.Get("content"); content.Exists() {
+			if text := extractTextFromContentRaw(content); text != "" {
+				_, _ = builder.WriteString(text)
+			}
+			return false
+		}
+		if parts := msg.Get("parts"); parts.IsArray() {
+			parts.ForEach(func(_, part gjson.Result) bool {
+				if text := part.Get("text").String(); text != "" {
+					_, _ = builder.WriteString(text)
+				}
+				return true
+			})
+		}
+		return false
+	})
 }
 
 func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
