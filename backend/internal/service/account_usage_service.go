@@ -1897,6 +1897,8 @@ func (s *AccountUsageService) tryClearRecoverableAccountError(ctx context.Contex
 
 	account.Status = StatusActive
 	account.ErrorMessage = ""
+	// 账号从 error 恢复为 active（可调度集合变化）后立即失效网关模型列表缓存。
+	InvalidateAvailableModelsCacheForAccount(account)
 }
 
 // buildUsageInfo 构建UsageInfo

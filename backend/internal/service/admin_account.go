@@ -576,6 +576,8 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		}
 	}
 
+	// 新账号（含 model_mapping）创建成功后立即失效网关模型列表缓存。
+	InvalidateAvailableModelsCacheForAccount(&Account{Platform: account.Platform, GroupIDs: groupIDs})
 	return account, nil
 }
 
@@ -948,7 +950,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		if err := s.accountRepo.BindGroups(ctx, account.ID, *input.GroupIDs); err != nil {
 			return nil, err
 		}
+		// 覆盖为新绑定分组，使失效范围（及早退路径返回值）包含最新分组。
+		account.GroupIDs = *input.GroupIDs
 	}
+	// 账号编辑（模型映射/配额/分组）落库成功后立即失效网关模型列表缓存。
+	InvalidateAvailableModelsCacheForAccount(account)
 
 	// Credentials-only Cursor reauthorization already has the persisted account.
 	// A redundant read must not turn a committed PKCE login into a failed session.
@@ -1407,6 +1413,8 @@ func (s *adminServiceImpl) SetAccountSchedulable(ctx context.Context, id int64, 
 	if err != nil {
 		return nil, err
 	}
+	// 启用/禁用状态落库成功后立即失效网关模型列表缓存（可调度集合变化）。
+	InvalidateAvailableModelsCacheForAccount(updated)
 	return updated, nil
 }
 
@@ -1720,7 +1728,12 @@ func (s *adminServiceImpl) ResetAccountQuota(ctx context.Context, id int64) erro
 		return infraerrors.New(http.StatusBadRequest, "SPARK_SHADOW_NO_QUOTA_RESET",
 			"cannot reset quota for a spark shadow account; manage it on the parent account")
 	}
-	return s.accountRepo.ResetQuotaUsedAndClearRateLimitCooldown(ctx, id)
+	if err := s.accountRepo.ResetQuotaUsedAndClearRateLimitCooldown(ctx, id); err != nil {
+		return err
+	}
+	// 限额/冷却重置成功后立即失效网关模型列表缓存（可调度集合变化）。
+	InvalidateAvailableModelsCacheForAccount(account)
+	return nil
 }
 
 // EnsureOpenAIPrivacy 检查 OpenAI OAuth 账号是否已设置 privacy_mode，

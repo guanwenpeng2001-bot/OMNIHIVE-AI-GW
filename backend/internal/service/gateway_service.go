@@ -1583,6 +1583,29 @@ func (s *GatewayService) InvalidateAvailableModelsCache(groupID *int64, platform
 	}
 }
 
+// availableModelsCacheInvalidator 持有进程内网关实例，供管理端/调度路径在账号
+// 同步/编辑/状态变更后按组失效模型列表缓存（单实例，不做跨实例广播）。
+var availableModelsCacheInvalidator atomic.Pointer[GatewayService]
+
+// InvalidateAvailableModelsCacheForAccount 按账号所属组失效模型列表缓存；账号未绑定组
+// 时退化为按平台整体失效，保证不会残留过期模型列表。
+func InvalidateAvailableModelsCacheForAccount(account *Account) {
+	if account == nil {
+		return
+	}
+	gs := availableModelsCacheInvalidator.Load()
+	if gs == nil {
+		return
+	}
+	if len(account.GroupIDs) > 0 {
+		for _, groupID := range account.GroupIDs {
+			gs.InvalidateAvailableModelsCache(&groupID, account.Platform)
+		}
+		return
+	}
+	gs.InvalidateAvailableModelsCache(nil, account.Platform)
+}
+
 func (s *GatewayService) invalidateCompositeModelOwnershipCache(groupID *int64) {
 	for key := range s.modelsListCache.Items() {
 		if !strings.HasPrefix(key, compositeModelOwnershipCachePrefix) {
@@ -1728,6 +1751,7 @@ func ProvideGatewayService(
 	settlement *UsageSettlementService,
 ) *GatewayService {
 	s := NewGatewayService(accountRepo, groupRepo, usageLogRepo, usageBillingRepo, userRepo, userSubRepo, userGroupRateRepo, cache, cfg, schedulerSnapshot, concurrencyService, billingService, rateLimitService, billingCacheService, identityService, httpUpstream, deferredService, claudeTokenProvider, sessionLimitCache, rpmCache, digestStore, settingService, tlsFPProfileService, channelService, resolver, compositeResolver, balanceNotifyService, userPlatformQuotaRepo)
+	availableModelsCacheInvalidator.Store(s)
 	s.usageSettlement = settlement
 	return s
 }
