@@ -345,6 +345,8 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 			})
 		}
 	}
+	// 上游模型同步成功后立即失效网关模型列表缓存。
+	InvalidateAvailableModelsCacheForAccount(account)
 	return catalog, nil
 }
 
