@@ -66,6 +66,13 @@ async function mountAndOpen(extraProps: Record<string, unknown> = {}) {
   return w
 }
 
+function quotaInput(w: Awaited<ReturnType<typeof mountAndOpen>>, platform: string, window: string) {
+  const row = w.findAll('tbody tr').find(row => row.find(`td[title="${platform}"]`).exists())!
+  const headers = w.findAll('thead th')
+  const column = headers.findIndex(header => header.text() === `admin.users.platformQuota.columns.${window}`)
+  return row.findAll('td')[column].get('input[type=number]')
+}
+
 beforeEach(() => {
   setActivePinia(createPinia())
   vi.clearAllMocks()
@@ -101,6 +108,40 @@ describe('UserPlatformQuotaModal', () => {
     expect(apiMocks.showError).toHaveBeenLastCalledWith(message || 'admin.users.platformQuota.reset.failed')
     expect((reset.element as HTMLButtonElement).disabled).toBe(false)
     confirm.mockRestore()
+    w.unmount()
+  })
+
+  it.each([['anthropic', 'daily'], ['openai', 'weekly'], ['qianwen', 'monthly']])('rejects a negative %s %s limit', async (platform, window) => {
+    const w = await mountAndOpen()
+    await quotaInput(w, platform, window).setValue('-1')
+    await w.findAll('button').find(b => b.text() === 'admin.users.platformQuota.save')!.trigger('click')
+    await flushPromises()
+    expect(apiMocks.updatePlatformQuotas).not.toHaveBeenCalled()
+    expect(apiMocks.showError).toHaveBeenCalledWith('admin.users.platformQuota.invalidNumber')
+    expect(w.emitted('success')).toBeUndefined()
+    w.unmount()
+  })
+
+  it.each([['0', 0], ['', null]])('preserves the meaning of a limit entered as %j', async (input, expected) => {
+    const w = await mountAndOpen()
+    await quotaInput(w, 'anthropic', 'daily').setValue(input)
+    await w.findAll('button').find(b => b.text() === 'admin.users.platformQuota.save')!.trigger('click')
+    await flushPromises()
+    expect(apiMocks.updatePlatformQuotas).toHaveBeenCalledTimes(1)
+    expect(apiMocks.updatePlatformQuotas.mock.calls[0][1].find((row: { platform: string }) => row.platform === 'anthropic').daily_limit_usd).toBe(expected)
+    w.unmount()
+  })
+
+  it.each([NaN, Infinity, -Infinity])('rejects non-finite loaded limits: %s', async (value) => {
+    apiMocks.getPlatformQuotas.mockResolvedValueOnce({ platform_quotas: [{
+      platform: 'qianwen', monthly_limit_usd: value,
+    }] })
+    const w = await mountAndOpen()
+    await w.findAll('button').find(b => b.text() === 'admin.users.platformQuota.save')!.trigger('click')
+    await flushPromises()
+    expect(apiMocks.updatePlatformQuotas).not.toHaveBeenCalled()
+    expect(apiMocks.showError).toHaveBeenCalledWith('admin.users.platformQuota.invalidNumber')
+    expect(w.emitted('success')).toBeUndefined()
     w.unmount()
   })
 
