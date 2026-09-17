@@ -98,6 +98,8 @@ type AuditLogRepository interface {
 	Count(ctx context.Context) (int64, error)
 	// TruncateAll 全量清空（TRUNCATE），返回前需调用方自行 Count 记录行数。
 	TruncateAll(ctx context.Context) error
+	// ClearWithTrace atomically counts, clears, and inserts the mandatory trace.
+	ClearWithTrace(ctx context.Context, trace *AuditLog) (int64, error)
 	// DeleteBefore 按保留期批量删除，返回本批删除行数（幂等，可多实例并发）。
 	DeleteBefore(ctx context.Context, cutoff time.Time, batchSize int) (int64, error)
 }

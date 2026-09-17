@@ -329,6 +329,42 @@ func (r *auditLogRepository) TruncateAll(ctx context.Context) error {
 	return err
 }
 
+func (r *auditLogRepository) ClearWithTrace(ctx context.Context, trace *service.AuditLog) (int64, error) {
+	if r == nil || r.db == nil || trace == nil {
+		return 0, fmt.Errorf("audit repository and clear trace are required")
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	// Serialize count + truncate with writers and concurrent clears, including
+	// other application instances, so deleted_rows matches the cleared table.
+	if _, err := tx.ExecContext(ctx, "LOCK TABLE audit_logs IN ACCESS EXCLUSIVE MODE"); err != nil {
+		return 0, err
+	}
+	var deleted int64
+	if err := tx.QueryRowContext(ctx, "SELECT COUNT(*) FROM audit_logs").Scan(&deleted); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, "TRUNCATE TABLE audit_logs"); err != nil {
+		return 0, err
+	}
+	if trace.Extra == nil {
+		trace.Extra = map[string]any{}
+	}
+	trace.Extra["deleted_rows"] = deleted
+	query := `INSERT INTO audit_logs (` + auditLogInsertColumns + `)
+VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)`
+	if _, err := tx.ExecContext(ctx, query, auditLogInsertValues(trace)...); err != nil {
+		return 0, fmt.Errorf("persist audit clear trace: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return deleted, nil
+}
+
 func (r *auditLogRepository) DeleteBefore(ctx context.Context, cutoff time.Time, batchSize int) (int64, error) {
 	if r == nil || r.db == nil {
 		return 0, fmt.Errorf("nil audit log repository")
