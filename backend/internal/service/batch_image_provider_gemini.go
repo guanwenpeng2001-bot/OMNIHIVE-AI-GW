@@ -69,6 +69,13 @@ type GeminiAPIBatchImageProvider struct {
 	client GeminiBatchClient
 }
 
+// geminiBatchNotCreatedError proves Submit stopped before calling CreateBatch.
+// Errors from CreateBatch must remain ambiguous, even for HTTP failures.
+type geminiBatchNotCreatedError struct{ cause error }
+
+func (e *geminiBatchNotCreatedError) Error() string { return e.cause.Error() }
+func (e *geminiBatchNotCreatedError) Unwrap() error { return e.cause }
+
 func NewGeminiAPIBatchImageProvider(client GeminiBatchClient) *GeminiAPIBatchImageProvider {
 	if client == nil {
 		client = NewGeminiBatchHTTPClient("", nil)
@@ -89,11 +96,11 @@ func (p *GeminiAPIBatchImageProvider) SupportsAccount(account *Account) bool {
 
 func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImageJob, account *Account, input BatchImageInput) (*BatchProviderJob, error) {
 	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
-		return nil, ErrBatchImageProviderUnsupportedAccount
+		return nil, &geminiBatchNotCreatedError{ErrBatchImageProviderUnsupportedAccount}
 	}
 	apiKey := batchImageProviderAPIKey(account)
 	if apiKey == "" {
-		return nil, ErrBatchImageProviderMissingAPIKey
+		return nil, &geminiBatchNotCreatedError{ErrBatchImageProviderMissingAPIKey}
 	}
 	if input.BatchID == "" && job != nil {
 		input.BatchID = job.BatchID
@@ -104,7 +111,7 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 
 	jsonl, err := BuildGeminiBatchJSONL(input)
 	if err != nil {
-		return nil, err
+		return nil, &geminiBatchNotCreatedError{err}
 	}
 
 	displayName := strings.TrimSpace(input.DisplayName)
@@ -114,10 +121,10 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 
 	uploaded, err := p.client.UploadJSONL(ctx, apiKey, displayName, bytes.NewReader(jsonl))
 	if err != nil {
-		return nil, mapGeminiClientError(err)
+		return nil, &geminiBatchNotCreatedError{mapGeminiClientError(err)}
 	}
 	if uploaded == nil || strings.TrimSpace(uploaded.Name) == "" {
-		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini upload response is missing file name", nil)
+		return nil, &geminiBatchNotCreatedError{geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini upload response is missing file name", nil)}
 	}
 
 	batch, err := p.client.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
