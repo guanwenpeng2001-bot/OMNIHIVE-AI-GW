@@ -34,11 +34,14 @@ func TestGeminiToolIDsProfilesAndOutOfOrderResults(t *testing.T) {
 			require.NoError(t, err)
 			var req map[string]any
 			require.NoError(t, json.Unmarshal(body, &req))
-			contents := req["contents"].([]any)
-			calls := contents[0].(map[string]any)["parts"].([]any)
-			results := contents[1].(map[string]any)["parts"].([]any)
+			contents := requireGeminiToolValue[[]any](t, req["contents"])
+			require.Len(t, contents, 2)
+			calls := requireGeminiToolValue[[]any](t, requireGeminiToolValue[map[string]any](t, contents[0])["parts"])
+			require.Len(t, calls, 2)
+			results := requireGeminiToolValue[[]any](t, requireGeminiToolValue[map[string]any](t, contents[1])["parts"])
+			require.Len(t, results, 2)
 			for i, id := range []string{"call-a", "call-b"} {
-				call := calls[i].(map[string]any)["functionCall"].(map[string]any)
+				call := requireGeminiToolValue[map[string]any](t, requireGeminiToolValue[map[string]any](t, calls[i])["functionCall"])
 				require.Equal(t, map[string]any{"query": "same"}, call["args"], "no schema-external ID injection")
 				if profile == geminiToolIDNative {
 					require.Equal(t, id, call["id"])
@@ -46,8 +49,8 @@ func TestGeminiToolIDsProfilesAndOutOfOrderResults(t *testing.T) {
 					require.NotContains(t, call, "id")
 				}
 			}
-			first := results[0].(map[string]any)["functionResponse"].(map[string]any)
-			second := results[1].(map[string]any)["functionResponse"].(map[string]any)
+			first := requireGeminiToolValue[map[string]any](t, requireGeminiToolValue[map[string]any](t, results[0])["functionResponse"])
+			second := requireGeminiToolValue[map[string]any](t, requireGeminiToolValue[map[string]any](t, results[1])["functionResponse"])
 			if profile == geminiToolIDNative {
 				require.Equal(t, "call-b", first["id"])
 				require.Equal(t, "call-a", second["id"])
@@ -151,10 +154,10 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 		raw, err := json.Marshal(response)
 		require.NoError(t, err)
 		converted, _ := convertGeminiToClaudeMessage(response, "test", raw, false)
-		blocks := converted["content"].([]any)
+		blocks := requireGeminiToolValue[[]any](t, converted["content"])
 		require.Len(t, blocks, 2)
-		first := blocks[0].(map[string]any)["id"]
-		second := blocks[1].(map[string]any)["id"]
+		first := requireGeminiToolValue[map[string]any](t, blocks[0])["id"]
+		second := requireGeminiToolValue[map[string]any](t, blocks[1])["id"]
 		require.NotEqual(t, first, second)
 		if ids {
 			require.Equal(t, "native-a", first)
@@ -167,7 +170,7 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 		for _, call := range calls {
 			chunk, marshalErr := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{call}}}}})
 			require.NoError(t, marshalErr)
-			events.WriteString("data: " + string(chunk) + "\n\n")
+			_, _ = events.WriteString("data: " + string(chunk) + "\n\n")
 		}
 		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
 		collected, _, collectErr := collectGeminiSSE(strings.NewReader(events.String()), false)
@@ -183,9 +186,9 @@ func TestGeminiToolIDsResponsePreservation(t *testing.T) {
 			var event map[string]any
 			require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
 			if event["type"] == "content_block_start" {
-				block := event["content_block"].(map[string]any)
+				block := requireGeminiToolValue[map[string]any](t, event["content_block"])
 				if block["type"] == "tool_use" {
-					streamIDs = append(streamIDs, block["id"].(string))
+					streamIDs = append(streamIDs, requireGeminiToolValue[string](t, block["id"]))
 				}
 			}
 		}
@@ -257,4 +260,11 @@ func TestGeminiToolIDsForwardProfileBoundary(t *testing.T) {
 			}
 		})
 	}
+}
+
+func requireGeminiToolValue[T any](t *testing.T, value any) T {
+	t.Helper()
+	typed, ok := value.(T)
+	require.True(t, ok, "unexpected Gemini JSON value type: %T", value)
+	return typed
 }
