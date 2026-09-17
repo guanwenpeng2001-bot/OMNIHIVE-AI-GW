@@ -37,4 +37,20 @@ describe('payment api', () => {
       resume_token: 'resume-token-123',
     })
   })
+
+  it('forwards the caller cancellation signal for order status requests', async () => {
+    const controller = new AbortController()
+    await paymentAPI.getOrder(42, controller.signal)
+    expect(get).toHaveBeenCalledWith('/payment/orders/42', { signal: controller.signal })
+  })
+  it('forwards cancellation for authenticated and public verification', async () => {
+    const { signal } = new AbortController()
+    await paymentAPI.verifyOrder('order', signal)
+    await paymentAPI.verifyOrderPublic('order', signal)
+    await paymentAPI.resolveOrderPublicByResumeToken('token', signal)
+    expect(post).toHaveBeenNthCalledWith(1, '/payment/orders/verify', { out_trade_no: 'order' }, { signal })
+    expect(post).toHaveBeenNthCalledWith(2, '/payment/public/orders/verify', { out_trade_no: 'order' }, { signal })
+    expect(post).toHaveBeenNthCalledWith(3, '/payment/public/orders/resolve', { resume_token: 'token' }, { signal })
+  })
+
 })

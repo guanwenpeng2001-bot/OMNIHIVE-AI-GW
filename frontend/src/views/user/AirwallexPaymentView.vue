@@ -32,7 +32,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
-  readPaymentRecoverySnapshot,
+  usePaymentPageLifecycle,
+  readOwnedPaymentRecoverySnapshot,
   type PaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 
@@ -42,6 +43,7 @@ const router = useRouter()
 
 const loading = ref(true)
 const errorMessage = ref('')
+const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query))
 
 function queryString(key: string): string {
   const value = route.query[key]
@@ -69,7 +71,7 @@ function restoreAirwallexSnapshot(): PaymentRecoverySnapshot | null {
   const orderId = Number(queryString('order_id')) || 0
   const outTradeNo = queryString('out_trade_no')
   const resumeToken = queryString('resume_token')
-  const snapshot = readPaymentRecoverySnapshot(
+  const snapshot = readOwnedPaymentRecoverySnapshot(
     window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
     resumeToken ? { resumeToken } : {},
   )
@@ -99,13 +101,22 @@ onMounted(async () => {
     return
   }
 
+  const isCurrentSnapshot = () => {
+    if (!lifecycle.isCurrent()) return false
+    const current = restoreAirwallexSnapshot()
+    return current?.ownerUserId === snapshot.ownerUserId && current?.orderId === snapshot.orderId
+  }
+
   try {
     const airwallex = await import('@airwallex/components-sdk')
+    if (!isCurrentSnapshot()) return
     const result = await airwallex.init({
       env: snapshot.paymentEnv === 'prod' ? 'prod' : 'demo',
       enabledElements: ['payments'],
       locale: checkoutLocale,
     })
+
+    if (!isCurrentSnapshot()) return
 
     loading.value = false
     const checkoutOptions = {
@@ -124,6 +135,7 @@ onMounted(async () => {
       window.location.assign(redirectResult)
     }
   } catch (err: unknown) {
+    if (!isCurrentSnapshot()) return
     loading.value = false
     errorMessage.value = err instanceof Error && err.message
       ? err.message
