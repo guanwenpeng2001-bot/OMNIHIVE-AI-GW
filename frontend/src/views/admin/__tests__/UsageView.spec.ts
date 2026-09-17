@@ -800,3 +800,27 @@ describe('admin UsageView model audit export', () => {
 		expect(saveAs).toHaveBeenCalledTimes(1)
 	})
 })
+
+
+describe('ledger export formatting', () => {
+  it.each([0, 1e-8, -1e-8, null])('exports exact %s and leaves counts and model IDs intact', async amount => {
+    vi.useFakeTimers()
+    list.mockResolvedValue({ items: [], total: 0, pages: 0 })
+    exportList.mockResolvedValue({ items: [{ model: 'model-original-ID', input_tokens: 23,
+      actual_cost: amount, total_cost: amount, account_rate_multiplier: 1,
+      created_at: '2026-11-01T05:30:00Z' }], total: 1, pages: 1 })
+    aoaToSheet.mockClear()
+    sheetAddAoa.mockClear()
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    await (wrapper.vm as any).exportToExcel()
+    const row = sheetAddAoa.mock.calls[0][1][0]
+    expect(row[0]).toBe('2026-11-01T05:30:00Z')
+    expect(row[4]).toBe('model-original-ID')
+    expect(row[14]).toBe(23)
+    expect(row.slice(24, 27)).toEqual(Array(3).fill(amount == null ? '-' : amount.toFixed(8)))
+    wrapper.unmount()
+    vi.useRealTimers()
+  })
+})

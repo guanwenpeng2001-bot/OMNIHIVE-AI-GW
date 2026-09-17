@@ -66,6 +66,16 @@ export default {
 
   // API Keys
   keys: {
+    payAsYouGo: {
+      title: 'Pay-as-you-go mode',
+      mode: 'Pay-as-you-go',
+      description: 'Access credentials for authenticating model requests in pay-as-you-go mode. Use an API key below with the corresponding protocol address.',
+      openai: 'OpenAI compatible · Base URL',
+      anthropic: 'Anthropic compatible · Messages endpoint',
+      copyAddress: 'Copy {protocol} address',
+      copied: 'Endpoint address copied',
+      addressHint: 'Use the address provided in the admin console or integration guide as the source of truth; available protocols and models depend on the API key’s group.'
+    },
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
     searchPlaceholder: 'Search name or key...',
@@ -711,7 +721,7 @@ export default {
       paidPrice: 'Your Price (Discounted)',
       officialPrice: 'Official Price',
       rate: 'Rate',
-      unitPerMillion: '$ / 1M tokens',
+      unitPerMillion: 'USD / 1M tokens',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',
       perRequest: 'Per request',

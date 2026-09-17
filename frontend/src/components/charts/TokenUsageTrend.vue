@@ -2,6 +2,7 @@
   <div class="card p-4">
     <h3 class="mb-4 text-sm font-semibold text-gray-900 dark:text-white">
       {{ t('admin.dashboard.tokenUsageTrend') }}
+      <span class="ml-2 font-normal text-gray-500 dark:text-gray-400">{{ t('common.displayTimeZone', { timezone: timeZone || getBrowserTimeZone() }) }}</span>
     </h3>
     <div v-if="loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
@@ -19,6 +20,8 @@
 </template>
 
 <script setup lang="ts">
+import { formatLedgerAmount as formatCost } from '@/utils/money'
+import { getBrowserTimeZone } from '@/utils/format'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import {
@@ -52,6 +55,8 @@ const { t } = useI18n()
 const props = defineProps<{
   trendData: TrendDataPoint[]
   loading?: boolean
+  /** Query zone for calendar bucket labels, which must not be reparsed. */
+  timeZone?: string
 }>()
 
 const isDarkMode = computed(() => {
@@ -155,7 +160,7 @@ const lineOptions = computed(() => ({
           const dataIndex = tooltipItems[0]?.dataIndex
           if (dataIndex !== undefined && props.trendData[dataIndex]) {
             const data = props.trendData[dataIndex]
-            return `Actual: $${formatCost(data.actual_cost)} | Standard: $${formatCost(data.cost)}`
+            return `${t('dashboard.actual')}: USD ${formatCost(data.actual_cost)} | ${t('dashboard.standard')}: USD ${formatCost(data.cost)}`
           }
           return ''
         }
@@ -215,14 +220,4 @@ const formatTokens = (value: number): string => {
   return value.toLocaleString()
 }
 
-const formatCost = (value: number): string => {
-  if (value >= 1000) {
-    return (value / 1000).toFixed(2) + 'K'
-  } else if (value >= 1) {
-    return value.toFixed(2)
-  } else if (value >= 0.01) {
-    return value.toFixed(3)
-  }
-  return value.toFixed(4)
-}
 </script>
