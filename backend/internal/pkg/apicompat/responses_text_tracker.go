@@ -70,7 +70,7 @@ func (t *responsesTextTracker) delta(e *ResponsesStreamEvent) string {
 	if t.text[key] == nil {
 		t.text[key] = &strings.Builder{}
 	}
-	t.text[key].WriteString(e.Delta)
+	_, _ = t.text[key].WriteString(e.Delta)
 	return e.Delta
 }
 
@@ -92,7 +92,7 @@ func (t *responsesTextTracker) recover(output, content int, id, text string) str
 		builder = &strings.Builder{}
 		t.text[key] = builder
 	}
-	builder.WriteString(tail)
+	_, _ = builder.WriteString(tail)
 	t.done[key] = true
 	return tail
 }
@@ -124,7 +124,7 @@ func (t *responsesTextTracker) terminalText(r *ResponsesResponse, emit func(stri
 			if !hadText && item.ID == "" {
 				key := t.key(i, j, "")
 				builder := &strings.Builder{}
-				builder.WriteString(part.Text)
+				_, _ = builder.WriteString(part.Text)
 				t.text[key], t.done[key] = builder, true
 				emit(part.Text)
 			} else {
