@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"log"
+	"math"
+	"strconv"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -369,6 +371,14 @@ func (s *OpsService) GetUserConcurrencyStats(ctx context.Context) (map[int64]*Us
 
 	collectedAt := time.Now()
 	loadMap := s.getUsersLoadMapBestEffort(ctx, users)
+	var globalThreshold *float64
+	if s.settingRepo != nil {
+		if raw, err := s.settingRepo.GetValue(ctx, SettingKeyBalanceLowNotifyThreshold); err == nil {
+			if threshold, err := strconv.ParseFloat(raw, 64); err == nil && threshold > 0 && !math.IsInf(threshold, 0) {
+				globalThreshold = &threshold
+			}
+		}
+	}
 
 	result := make(map[int64]*UserConcurrencyInfo)
 
@@ -398,6 +408,7 @@ func (s *OpsService) GetUserConcurrencyStats(ctx context.Context) (map[int64]*Us
 			MaxCapacity:    int64(u.Concurrency),
 			WaitingInQueue: waiting,
 		}
+		setOpsBalanceExposure(info, u, globalThreshold)
 		if info.MaxCapacity > 0 {
 			info.LoadPercentage = float64(info.CurrentInUse) / float64(info.MaxCapacity) * 100
 		}
@@ -405,4 +416,30 @@ func (s *OpsService) GetUserConcurrencyStats(ctx context.Context) (map[int64]*Us
 	}
 
 	return result, &collectedAt, nil
+}
+
+// Report exposure using the existing notification threshold, never a new credit
+// policy or cost estimate. A missing positive threshold remains unknown; an
+// exhausted balance is observable without one. This snapshot is not a reserve.
+func setOpsBalanceExposure(info *UserConcurrencyInfo, user User, globalThreshold *float64) {
+	info.Balance = user.Balance
+	info.ConcurrencyLimitExceeded = info.MaxCapacity > 0 && info.CurrentInUse > info.MaxCapacity
+	if info.CurrentInUse > 0 {
+		perRequest := user.Balance / float64(info.CurrentInUse)
+		info.BalancePerActiveRequest = &perRequest
+	}
+	threshold := globalThreshold
+	if user.BalanceNotifyThreshold != nil {
+		threshold = user.BalanceNotifyThreshold
+	}
+	if threshold != nil {
+		resolved := resolveBalanceThreshold(*threshold, user.BalanceNotifyThresholdType, user.TotalRecharged)
+		if resolved > 0 && !math.IsInf(resolved, 0) && !math.IsNaN(resolved) {
+			info.LowBalanceThreshold = &resolved
+		}
+	}
+	if info.CurrentInUse <= 1 || user.Balance <= 0 || info.LowBalanceThreshold != nil {
+		exposed := info.CurrentInUse > 1 && (user.Balance <= 0 || (info.LowBalanceThreshold != nil && user.Balance < *info.LowBalanceThreshold))
+		info.LowBalanceConcurrent = &exposed
+	}
 }

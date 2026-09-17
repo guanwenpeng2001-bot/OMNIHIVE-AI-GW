@@ -30,10 +30,12 @@ type OpsPercentiles struct {
 }
 
 type OpsDashboardOverview struct {
-	StartTime time.Time `json:"start_time"`
-	EndTime   time.Time `json:"end_time"`
-	Platform  string    `json:"platform"`
-	GroupID   *int64    `json:"group_id"`
+	// Global lifetime diagnostics are separate from the requested time/filter window.
+	Diagnostics OpsDiagnosticsSnapshot `json:"diagnostics"`
+	StartTime   time.Time              `json:"start_time"`
+	EndTime     time.Time              `json:"end_time"`
+	Platform    string                 `json:"platform"`
+	GroupID     *int64                 `json:"group_id"`
 
 	// HealthScore is a backend-computed overall health score (0-100).
 	// It is derived from the monitored metrics in this overview, plus best-effort system metrics/job heartbeats.

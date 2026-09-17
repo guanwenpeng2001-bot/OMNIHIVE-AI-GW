@@ -128,6 +128,7 @@ type OpenAIAccountScheduler interface {
 }
 
 type openAIAccountSchedulerMetrics struct {
+	mu                     sync.RWMutex // Keep related counters coherent during concurrent snapshots.
 	selectTotal            atomic.Int64
 	stickyPreviousHitTotal atomic.Int64
 	stickySessionHitTotal  atomic.Int64
@@ -164,6 +165,9 @@ func (m *openAIAccountSchedulerMetrics) recordSelect(decision OpenAIAccountSched
 	if m == nil {
 		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	updateOpsDiagnostics(func(v *OpsDiagnosticsSnapshot) { v.OpenAISelections++ })
 	m.selectTotal.Add(1)
 	m.latencyMsTotal.Add(decision.LatencyMs)
 	m.loadSkewMilliTotal.Add(int64(math.Round(decision.LoadSkew * 1000)))
@@ -1844,6 +1848,8 @@ func (s *defaultOpenAIAccountScheduler) SnapshotMetrics() OpenAIAccountScheduler
 	if s == nil {
 		return OpenAIAccountSchedulerMetricsSnapshot{}
 	}
+	s.metrics.mu.RLock()
+	defer s.metrics.mu.RUnlock()
 
 	selectTotal := s.metrics.selectTotal.Load()
 	prevHit := s.metrics.stickyPreviousHitTotal.Load()
