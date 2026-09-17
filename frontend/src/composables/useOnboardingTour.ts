@@ -57,6 +57,55 @@ export function useOnboardingTour(options: OnboardingOptions) {
   let autoStartTimer: ReturnType<typeof setTimeout> | null = null
   let globalKeyboardHandler: ((e: KeyboardEvent) => void) | null = null
 
+  let generation = 0
+  let highlightGeneration = 0
+  let disposed = false
+  let targetMonitor: ReturnType<typeof setInterval> | null = null
+  const pendingWaits = new Map<ReturnType<typeof setTimeout>, () => void>()
+
+  const wait = (delay: number) => new Promise<void>(resolve => {
+    const timer = setTimeout(() => {
+      pendingWaits.delete(timer)
+      resolve()
+    }, delay)
+    pendingWaits.set(timer, resolve)
+  })
+
+  const cleanup = () => {
+    generation++
+    highlightGeneration++
+    cleanupClickListener()
+    if (autoStartTimer) clearTimeout(autoStartTimer)
+    autoStartTimer = null
+    if (targetMonitor) clearInterval(targetMonitor)
+    targetMonitor = null
+    for (const [timer, resolve] of pendingWaits) {
+      clearTimeout(timer)
+      resolve()
+    }
+    pendingWaits.clear()
+    if (globalKeyboardHandler) {
+      document.removeEventListener('keydown', globalKeyboardHandler, { capture: true })
+      globalKeyboardHandler = null
+    }
+  }
+
+  // Cancellation invalidates pending work without persisting completion.
+  const cancelTour = () => {
+    cleanup()
+    const current = driverInstance
+    driverInstance = null
+    current?.destroy()
+    onboardingStore.setDriverInstance(null)
+  }
+
+  const isVisible = (element: Element | null | undefined): element is Element => {
+    if (!element?.isConnected || element.id === 'driver-dummy-element') return false
+    const rect = element.getBoundingClientRect()
+    const style = getComputedStyle(element)
+    return rect.height > 0 && rect.width > 0 && style.visibility !== 'hidden' && style.display !== 'none'
+  }
+
   const getStorageKey = () => {
     const baseKey = options.storageKey ?? 'onboarding_tour'
     const userId = userStore.user?.id ?? 'guest'
@@ -79,19 +128,23 @@ export function useOnboardingTour(options: OnboardingOptions) {
   /**
    * 检查元素是否存在，如果不存在则重试
    */
-  const ensureElement = async (selector: string, timeout = 5000): Promise<boolean> => {
+  const ensureElement = async (selector: string, timeout = 5000, isCurrent = () => true): Promise<boolean> => {
     const startTime = Date.now()
-    while (Date.now() - startTime < timeout) {
+    while (isCurrent() && Date.now() - startTime < timeout) {
       const element = document.querySelector(selector)
-      if (element && element.getBoundingClientRect().height > 0) {
+      if (isVisible(element)) {
         return true
       }
-      await new Promise((resolve) => setTimeout(resolve, 150))
+      await wait(150)
     }
     return false
   }
 
   const startTour = async (startIndex = 0) => {
+    if (disposed) return
+    cancelTour()
+    const session = generation
+    const isCurrent = () => !disposed && generation === session
     // 动态获取当前用户角色和步骤
     const isAdmin = userStore.user?.role === 'admin'
     const isSimpleMode = userStore.isSimpleMode
@@ -99,23 +152,25 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
     // 确保 DOM 就绪
     await nextTick()
+    if (!isCurrent()) return
 
     // 如果指定了起始步骤，确保元素可见
     const currentStep = steps[startIndex]
     if (currentStep?.element && typeof currentStep.element === 'string') {
-      await ensureElement(currentStep.element, TIMING.ELEMENT_TIMEOUT_MS)
+      const exists = await ensureElement(currentStep.element, TIMING.ELEMENT_TIMEOUT_MS, isCurrent)
+      if (!isCurrent() || !exists) return
     }
 
-    if (driverInstance) {
-      driverInstance.destroy()
-    }
+    if (!isCurrent() || !currentStep) return
 
     // 创建新的 driver 实例并存储到 store
     driverInstance = driver({
       showProgress: true,
       steps,
-      animate: true,
-      allowClose: false, // 禁止点击遮罩关闭
+      animate: false,
+      allowClose: true,
+      allowKeyboardControl: false, // Keyboard navigation is managed below.
+      overlayClickBehavior: () => {},
       stagePadding: 4,
       popoverClass: 'theme-tour-popover',
       nextBtnText: t('common.next'),
@@ -126,9 +181,12 @@ export function useOnboardingTour(options: OnboardingOptions) {
       onNextClick: async (_el, _step, { config, state }) => {
         // 如果是最后一步，点击则是"完成"
         if (state.activeIndex === (config.steps?.length ?? 0) - 1) {
+          if (_step.element && !isVisible(_el)) {
+            cancelTour()
+            return
+          }
           markAsSeen()
-          driverInstance?.destroy()
-          onboardingStore.setDriverInstance(null)
+          cancelTour()
         } else {
           // 注意：交互式步骤通常隐藏 Next 按钮，此处逻辑为防御性编程
           const currentIndex = state.activeIndex ?? 0
@@ -153,14 +211,16 @@ export function useOnboardingTour(options: OnboardingOptions) {
       onPrevClick: () => {
         driverInstance?.movePrevious()
       },
-      onCloseClick: () => {
-        markAsSeen()
-        driverInstance?.destroy()
-        onboardingStore.setDriverInstance(null)
-      },
+      onCloseClick: cancelTour,
 
       // 渲染时重组 Footer 布局
       onPopoverRender: (popover, { config, state }) => {
+        // Include an explicit exit even when a step hides navigation buttons.
+        popover.closeButton.style.display = 'block'
+        popover.closeButton.style.setProperty('width', 'auto', 'important')
+        popover.closeButton.style.setProperty('padding', '0 8px', 'important')
+        popover.closeButton.textContent = t('onboarding.navigation.exit')
+        popover.closeButton.setAttribute('aria-label', t('onboarding.navigation.exit'))
         // Class name constants for easier maintenance
         const CLASS_REORGANIZED = 'reorganized'
         const CLASS_FOOTER_LEFT = 'footer-left'
@@ -270,18 +330,33 @@ export function useOnboardingTour(options: OnboardingOptions) {
       },
 
       // 步骤高亮时触发
-      onHighlightStarted: async (element, step) => {
-        // 清理之前的监听器
+      onHighlightStarted: async (element, step, { state }) => {
         cleanupClickListener()
+        if (targetMonitor) clearInterval(targetMonitor)
+        targetMonitor = null
+        const stepIndex = state.activeIndex ?? 0
+        const highlight = ++highlightGeneration
+        const isCurrentHighlight = () => isCurrent() && highlight === highlightGeneration
 
-        // 尝试等待元素
-        if (!element && step.element && typeof step.element === 'string') {
-           const exists = await ensureElement(step.element, 8000)
-           if (!exists) {
-             console.warn(`Tour element not found after 8s: ${step.element}`)
-             return
-           }
-           element = document.querySelector(step.element) as HTMLElement
+        // Driver does not await hooks; re-highlight when an asynchronous target appears.
+        if (step.element && !isVisible(element)) {
+          const exists = await (typeof step.element === 'string'
+            ? ensureElement(step.element, TIMING.ELEMENT_TIMEOUT_MS, isCurrentHighlight)
+            : Promise.resolve(false))
+          if (!isCurrentHighlight()) return
+          if (!exists) {
+            cancelTour()
+            return
+          }
+          driverInstance?.moveTo(stepIndex)
+          return
+        }
+        if (!isCurrentHighlight()) return
+        if (step.element && element) {
+          const target = element
+          targetMonitor = setInterval(() => {
+            if (isCurrentHighlight() && !isVisible(target)) cancelTour()
+          }, 150)
         }
 
         if (isInteractiveStep(step) && element) {
@@ -296,11 +371,6 @@ export function useOnboardingTour(options: OnboardingOptions) {
             return // Don't bind any click listeners for submit buttons
           }
 
-          const originalTabIndex = htmlElement.getAttribute('tabindex')
-          if (!htmlElement.isContentEditable && htmlElement.tabIndex === -1) {
-             htmlElement.setAttribute('tabindex', '0')
-          }
-
           // Enhanced Select component detection - check both children and self
           const isSelectComponent = htmlElement.querySelector('.select-trigger') !== null ||
                                     htmlElement.classList.contains('select-trigger')
@@ -310,6 +380,11 @@ export function useOnboardingTour(options: OnboardingOptions) {
           // Users navigate using Next/Previous buttons after making their selection.
           if (isSelectComponent) {
             return
+          }
+
+          const originalTabIndex = htmlElement.getAttribute('tabindex')
+          if (!htmlElement.isContentEditable && htmlElement.tabIndex === -1) {
+             htmlElement.setAttribute('tabindex', '0')
           }
 
           // Single-execution protection flag
@@ -326,10 +401,10 @@ export function useOnboardingTour(options: OnboardingOptions) {
             hasExecuted = true
 
             // Wait before advancing to allow user to see the result of their action
-            await new Promise(resolve => setTimeout(resolve, TIMING.INTERACTIVE_WAIT_MS))
+            await wait(TIMING.INTERACTIVE_WAIT_MS)
 
             // Verify driver is still active and not destroyed
-            if (!driverInstance || !driverInstance.isActive()) {
+            if (!isCurrentHighlight() || !driverInstance || !driverInstance.isActive()) {
               return
             }
 
@@ -342,15 +417,17 @@ export function useOnboardingTour(options: OnboardingOptions) {
             const nextStep = steps[currentIndex + 1]
 
             if (nextStep?.element && typeof nextStep.element === 'string') {
-              const exists = await ensureElement(nextStep.element, TIMING.ELEMENT_TIMEOUT_MS)
+              const exists = await ensureElement(nextStep.element, TIMING.ELEMENT_TIMEOUT_MS, isCurrentHighlight)
+              if (!isCurrentHighlight()) return
               if (!exists) {
+                cancelTour()
                 console.warn(`Onboarding: Next step element not found: ${nextStep.element}`)
                 return
               }
             }
 
             // Final check before moving
-            if (driverInstance && driverInstance.isActive()) {
+            if (isCurrentHighlight() && driverInstance && driverInstance.isActive()) {
               driverInstance.moveNext()
             }
           }
@@ -398,12 +475,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
       },
 
       onDestroyed: () => {
-        cleanupClickListener()
-        // 清理全局监听器 (由此处唯一管理)
-        if (globalKeyboardHandler) {
-          document.removeEventListener('keydown', globalKeyboardHandler, { capture: true })
-          globalKeyboardHandler = null
-        }
+        cleanup()
+        driverInstance = null
         onboardingStore.setDriverInstance(null)
       }
     })
@@ -417,9 +490,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        markAsSeen()
-        driverInstance.destroy()
-        onboardingStore.setDriverInstance(null)
+        cancelTour()
         return
       }
 
@@ -456,6 +527,8 @@ export function useOnboardingTour(options: OnboardingOptions) {
         driverInstance!.moveNext()
       }
       else if (e.key === 'Enter') {
+        // Preserve native keyboard activation of popover buttons, especially Exit.
+        if ((e.target as HTMLElement)?.closest('.driver-popover')) return
         const target = e.target as HTMLElement
         // 允许在输入框中使用回车
         if (['INPUT', 'TEXTAREA'].includes(target?.tagName)) {
@@ -503,10 +576,13 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
   const nextStep = async (delay = 300) => {
     if (!driverInstance?.isActive()) return
-    if (delay > 0) {
-      await new Promise(resolve => setTimeout(resolve, delay))
+    const current = driverInstance
+    const session = generation
+    const highlight = highlightGeneration
+    if (delay > 0) await wait(delay)
+    if (generation === session && highlightGeneration === highlight && current === driverInstance && current.isActive()) {
+      current.moveNext()
     }
-    driverInstance.moveNext()
   }
 
   const isCurrentStep = (elementSelector: string): boolean => {
@@ -549,16 +625,14 @@ export function useOnboardingTour(options: OnboardingOptions) {
   })
 
   onUnmounted(() => {
-    if (autoStartTimer) {
-      clearTimeout(autoStartTimer)
-      autoStartTimer = null
-    }
-    // 关键修复：不再此处清理 globalKeyboardHandler，交由 driver.onDestroyed 管理
+    disposed = true
+    cancelTour()
     onboardingStore.clearControlMethods()
   })
 
   return {
     startTour,
+    cancelTour,
     replayTour,
     nextStep,
     isCurrentStep,

@@ -24,7 +24,8 @@
 
 <script setup lang="ts">
 import '@/styles/onboarding.css'
-import { computed, onMounted } from 'vue'
+import { computed, onMounted, onUnmounted, watch } from 'vue'
+import { useRoute } from 'vue-router'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { useOnboardingTour } from '@/composables/useOnboardingTour'
@@ -37,15 +38,23 @@ const authStore = useAuthStore()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const isAdmin = computed(() => authStore.user?.role === 'admin')
 
-const { replayTour } = useOnboardingTour({
+const { replayTour, cancelTour } = useOnboardingTour({
   storageKey: isAdmin.value ? 'admin_guide' : 'user_guide',
   autoStart: true
 })
 
 const onboardingStore = useOnboardingStore()
+const route = useRoute()
+
+watch(() => route.fullPath, cancelTour, { flush: 'sync' })
+watch(sidebarCollapsed, cancelTour, { flush: 'sync' })
 
 onMounted(() => {
   onboardingStore.setReplayCallback(replayTour)
+})
+
+onUnmounted(() => {
+  onboardingStore.setReplayCallback(null)
 })
 
 defineExpose({ replayTour })
