@@ -14,9 +14,9 @@ const (
 	geminiToolIDUnknown geminiToolIDProfile = "unknown"
 )
 
-// Explicit account metadata describes a verified upstream schema, not a model
-// name heuristic. Unrecognized profiles and custom endpoints fail closed for
-// tools. The public Gemini v1beta schema supports IDs:
+// Explicit account metadata overrides the transport defaults. Existing Code
+// Assist, Vertex and custom endpoint accounts retain legacy ID-free requests
+// without requiring new metadata. The public Gemini v1beta schema supports IDs:
 // https://ai.google.dev/api/generate-content#FunctionCall
 func geminiToolIDProfileForAccount(account *Account) geminiToolIDProfile {
 	if account == nil {
@@ -32,9 +32,12 @@ func geminiToolIDProfileForAccount(account *Account) geminiToolIDProfile {
 			return geminiToolIDUnknown
 		}
 	}
-	// Internal Code Assist and Vertex schemas must be explicitly profiled;
-	// authentication type alone does not establish their ID capability.
-	if account.Type != AccountTypeAPIKey && (account.Type != AccountTypeOAuth || strings.TrimSpace(account.GetCredential("project_id")) != "") {
+	// Preserve the legacy wire format where native ID support is not established.
+	// This is a compatibility fallback, not a claim of native schema support.
+	if account.Type == AccountTypeServiceAccount || (account.Type == AccountTypeOAuth && strings.TrimSpace(account.GetCredential("project_id")) != "") {
+		return geminiToolIDLegacy
+	}
+	if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth {
 		return geminiToolIDUnknown
 	}
 	base := strings.TrimSpace(account.GetCredential("base_url"))
@@ -45,7 +48,7 @@ func geminiToolIDProfileForAccount(account *Account) geminiToolIDProfile {
 	if err == nil && u.Scheme == "https" && u.Host == "generativelanguage.googleapis.com" && (u.Path == "" || u.Path == "/") {
 		return geminiToolIDNative
 	}
-	return geminiToolIDUnknown
+	return geminiToolIDLegacy
 }
 
 func geminiFunctionCallID(call map[string]any) string {
