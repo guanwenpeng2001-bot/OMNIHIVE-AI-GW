@@ -13,11 +13,19 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+import { identityScoped } from './identityScope'
 
 /**
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/admin/compliance',
+    name: 'AdminCompliance',
+    // The global mandatory dialog owns this gate; mount no restricted view.
+    component: { render: () => null },
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Compliance' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',
@@ -726,6 +734,14 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
+// Wrap lazy protected pages so their local state belongs to one login session.
+for (const route of routes) {
+  if (route.meta?.requiresAuth !== true || typeof route.component !== 'function') continue
+  const load = route.component as () => Promise<{ default: import('vue').Component }>
+  const admin = route.meta.requiresAdmin === true
+  route.component = async () => identityScoped((await load()).default, admin)
+}
+
 /**
  * Create router instance
  */
@@ -890,17 +906,46 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  let stillAuthorizedAdmin: (() => boolean) | undefined
   if (requiresAdmin && authStore.isAdmin) {
     const adminComplianceStore = useAdminComplianceStore()
-    if (!adminComplianceStore.initialized) {
-      try {
-        await adminComplianceStore.fetchStatus()
-      } catch (error) {
-        const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
-        if (err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
-          adminComplianceStore.requireAcknowledgement(err.metadata)
-        }
+    const identityRevision = adminComplianceStore.getIdentityRevision()
+    const identity = [authStore.user?.id, authStore.user?.role, authStore.sessionRevision]
+    const sameIdentity = () => identityRevision === adminComplianceStore.getIdentityRevision() &&
+      identity[0] === authStore.user?.id &&
+      identity[1] === authStore.user?.role && identity[2] === authStore.sessionRevision
+    stillAuthorizedAdmin = () => sameIdentity() && authStore.isAuthenticated && authStore.isAdmin &&
+      adminComplianceStore.status?.required === false
+    try {
+      await adminComplianceStore.fetchStatus()
+    } catch (error) {
+      if (!sameIdentity()) {
+        next(false)
+        return
       }
+      const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
+      // Unknown status is fail-closed too. The gate retains the logout path.
+      adminComplianceStore.requireAcknowledgement(
+        err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED' ? err.metadata : undefined
+      )
+    }
+    if (!sameIdentity() || !authStore.isAuthenticated || !authStore.isAdmin) {
+      next(false)
+      return
+    }
+    if (adminComplianceStore.status?.required !== false && to.path !== '/admin/compliance') {
+      next({ path: '/admin/compliance', query: { redirect: to.fullPath } })
+      return
+    }
+    if (to.path === '/admin/compliance') {
+      if (adminComplianceStore.status?.required === false) {
+        const redirect = to.query.redirect
+        next(typeof redirect === 'string' && redirect.startsWith('/admin/') &&
+          !redirect.startsWith('/admin/compliance') ? redirect : '/admin/dashboard')
+      } else {
+        next()
+      }
+      return
     }
   }
 
@@ -914,6 +959,11 @@ router.beforeEach(async (to, _from, next) => {
     } catch (error) {
       console.warn('Failed to load public settings in route guard', error)
     }
+  }
+
+  if (stillAuthorizedAdmin && !stillAuthorizedAdmin()) {
+    next(false)
+    return
   }
 
   // Only an explicit value from successfully loaded settings can disable a route.

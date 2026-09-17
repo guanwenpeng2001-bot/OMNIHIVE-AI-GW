@@ -4,17 +4,18 @@
  */
 
 import { defineStore } from 'pinia'
-import { ref, computed } from 'vue'
+import { ref, computed, watch, onScopeDispose } from 'vue'
 import subscriptionsAPI from '@/api/subscriptions'
 import type { UserSubscription } from '@/types'
+import { useAuthStore } from './auth'
 
 // Cache TTL: 60 seconds
 const CACHE_TTL_MS = 60_000
 
-// Request generation counter to invalidate stale in-flight responses
-let requestGeneration = 0
-
 export const useSubscriptionStore = defineStore('subscriptions', () => {
+  const authStore = useAuthStore()
+  // Keep generations local to this store, including isolated Pinia instances.
+  let requestGeneration = 0
   // State
   const activeSubscriptions = ref<UserSubscription[]>([])
   const loading = ref(false)
@@ -27,6 +28,15 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
 
   // Auto-refresh interval
   let pollerInterval: ReturnType<typeof setInterval> | null = null
+
+  // A peer-tab account switch can keep isAuthenticated=true throughout.
+  // Invalidate before any new page can consume the previous principal's cache.
+  watch(
+    [() => authStore.user?.id, () => authStore.user?.role, () => authStore.isAuthenticated, () => authStore.sessionRevision],
+    clear,
+    { flush: 'sync' }
+  )
+  onScopeDispose(clear)
 
   // Computed
   const hasActiveSubscriptions = computed(() => activeSubscriptions.value.length > 0)
@@ -61,11 +71,10 @@ export const useSubscriptionStore = defineStore('subscriptions', () => {
     const requestPromise = subscriptionsAPI
       .getActiveSubscriptions()
       .then((data) => {
-        if (currentGeneration === requestGeneration) {
-          activeSubscriptions.value = data
-          loaded.value = true
-          lastFetchedAt.value = Date.now()
-        }
+        if (currentGeneration !== requestGeneration) return []
+        activeSubscriptions.value = data
+        loaded.value = true
+        lastFetchedAt.value = Date.now()
         return data
       })
       .catch((cause) => {
