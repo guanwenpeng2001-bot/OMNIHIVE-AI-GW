@@ -996,3 +996,154 @@ func (r *publicBatchImageUserGroupRateRepo) GetByUserAndGroup(_ context.Context,
 
 var _ BatchImageGroupPricingRepository = (*publicBatchImageGroupRepo)(nil)
 var _ BatchImageUserGroupRateRepository = (*publicBatchImageUserGroupRateRepo)(nil)
+
+// Simulate a repository/query cache that accidentally returns another scope.
+// Service authorization must validate the returned row, not trust the lookup key.
+type batchImageScopeRepo struct {
+	BatchImageRepository
+	job       *BatchImageJob
+	items     []*BatchImageItem
+	mutations int
+}
+
+func (r *batchImageScopeRepo) GetBatchImageJobByBatchIDForOwner(context.Context, int64, int64, string) (*BatchImageJob, error) {
+	return r.job, nil
+}
+func (r *batchImageScopeRepo) GetBatchImageJobByIdempotencyKey(context.Context, int64, int64, string) (*BatchImageJob, error) {
+	return r.job, nil
+}
+func (r *batchImageScopeRepo) ListBatchImageJobsForOwner(context.Context, int64, int64, BatchImageJobFilter) ([]*BatchImageJob, error) {
+	return []*BatchImageJob{r.job}, nil
+}
+func (r *batchImageScopeRepo) ListBatchImageItemsForOwner(context.Context, int64, int64, string, BatchImageItemFilter) ([]*BatchImageItem, error) {
+	return r.items, nil
+}
+func (r *batchImageScopeRepo) MarkBatchImageDownloaded(context.Context, string, time.Time) error {
+	r.mutations++
+	return nil
+}
+func (r *batchImageScopeRepo) MarkBatchImageJobUserDeleted(context.Context, int64, int64, string, time.Time) error {
+	r.mutations++
+	return nil
+}
+
+func TestBatchImagePublicService_RejectsMismatchedResourceScope(t *testing.T) {
+	for _, mutation := range []string{"user", "api_key", "nil_key", "batch", "deleted", "nil_job"} {
+		t.Run(mutation, func(t *testing.T) {
+			owner := testBatchImageOwner()
+			key := owner.APIKeyID
+			job := &BatchImageJob{BatchID: "requested", UserID: owner.UserID, APIKeyID: &key, Status: BatchImageJobStatusCompleted}
+			switch mutation {
+			case "user":
+				job.UserID++
+			case "api_key":
+				key++
+			case "nil_key":
+				job.APIKeyID = nil
+			case "batch":
+				job.BatchID = "another-batch"
+			case "deleted":
+				now := time.Now()
+				job.UserDeletedAt = &now
+			case "nil_job":
+				job = nil
+			}
+			repo := &batchImageScopeRepo{job: job}
+			svc := &BatchImagePublicService{Repo: repo}
+			_, err := svc.Get(context.Background(), owner, "requested")
+			require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+			_, err = svc.ListItems(context.Background(), owner, "requested", BatchImageItemsQuery{})
+			require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+			require.ErrorIs(t, svc.MarkDownloaded(context.Background(), owner, "requested"), ErrBatchImageJobNotFound)
+			require.ErrorIs(t, svc.DeleteRecord(context.Background(), owner, "requested"), ErrBatchImageJobNotFound)
+			_, err = svc.Cancel(context.Background(), owner, "requested")
+			require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+			if mutation != "batch" {
+				_, err = svc.List(context.Background(), owner, BatchImageJobsQuery{})
+				require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+			}
+			require.Zero(t, repo.mutations)
+		})
+	}
+}
+
+func TestBatchImagePublicService_DoesNotReuseAuthorization(t *testing.T) {
+	owner := testBatchImageOwner()
+	key := owner.APIKeyID
+	job := &BatchImageJob{BatchID: "requested", UserID: owner.UserID, APIKeyID: &key, Status: BatchImageJobStatusCompleted}
+	repo := &batchImageScopeRepo{job: job, items: []*BatchImageItem{{JobID: "requested", CustomID: "image", Status: BatchImageItemStatusSuccess}}}
+	svc := &BatchImagePublicService{Repo: repo}
+	ctx := context.Background()
+	_, err := svc.Get(ctx, owner, "requested")
+	require.NoError(t, err)
+	_, err = svc.ListItems(ctx, owner, "requested", BatchImageItemsQuery{})
+	require.NoError(t, err)
+	for _, other := range []BatchImageOwner{{UserID: 12, APIKeyID: key}, {UserID: owner.UserID, APIKeyID: key + 1}, {}} {
+		_, err = svc.Get(ctx, other, "requested")
+		require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+		_, err = svc.ListItems(ctx, other, "requested", BatchImageItemsQuery{})
+		require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+	}
+	// A valid job authorization must not authorize items from another batch.
+	repo.items[0].JobID = "foreign-batch"
+	items, err := svc.ListItems(ctx, owner, "requested", BatchImageItemsQuery{})
+	require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+	require.Nil(t, items)
+	repo.items = []*BatchImageItem{nil}
+	items, err = svc.ListItems(ctx, owner, "requested", BatchImageItemsQuery{})
+	require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+	require.Nil(t, items)
+	now := time.Now()
+	job.UserDeletedAt = &now
+	_, err = svc.Get(ctx, owner, "requested")
+	require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+}
+
+func TestBatchImagePublicService_IdempotencyScope(t *testing.T) {
+	for _, mismatch := range []string{"user", "api_key", "nil_key", "idempotency_key", "nil_idempotency_key", "deleted", "nil_job"} {
+		t.Run(mismatch, func(t *testing.T) {
+			svc, _, queue, gemini, _ := newTestBatchImagePublicService(true)
+			owner := testBatchImageOwner()
+			key := owner.APIKeyID
+			job := &BatchImageJob{BatchID: "foreign", UserID: owner.UserID, APIKeyID: &key, IdempotencyKey: batchImageStringPtr("retry")}
+			switch mismatch {
+			case "user":
+				job.UserID++
+			case "api_key":
+				key++
+			case "nil_key":
+				job.APIKeyID = nil
+			case "idempotency_key":
+				job.IdempotencyKey = batchImageStringPtr("other")
+			case "nil_idempotency_key":
+				job.IdempotencyKey = nil
+			case "deleted":
+				now := time.Now()
+				job.UserDeletedAt = &now
+			case "nil_job":
+				job = nil
+			}
+			svc.Repo = &batchImageScopeRepo{job: job}
+			// A mismatched request hash must not reveal a foreign idempotency record.
+			batch, err := svc.Submit(context.Background(), owner, validBatchImageSubmitRequest(), "retry")
+			require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+			require.Nil(t, batch)
+			require.Empty(t, gemini.submits)
+			require.Empty(t, queue.enqueued)
+		})
+	}
+}
+
+func TestBatchImagePublicService_RejectsForeignParentBatch(t *testing.T) {
+	svc, _, queue, gemini, _ := newTestBatchImagePublicService(true)
+	owner := testBatchImageOwner()
+	key := owner.APIKeyID
+	svc.Repo = &batchImageScopeRepo{job: &BatchImageJob{BatchID: "parent", UserID: owner.UserID + 1, APIKeyID: &key}}
+	req := validBatchImageSubmitRequest()
+	req.ParentBatchID = "parent"
+	batch, err := svc.Submit(context.Background(), owner, req, "")
+	require.ErrorIs(t, err, ErrBatchImageJobNotFound)
+	require.Nil(t, batch)
+	require.Empty(t, gemini.submits)
+	require.Empty(t, queue.enqueued)
+}

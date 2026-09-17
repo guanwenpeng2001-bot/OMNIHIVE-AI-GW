@@ -215,6 +215,9 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	if idempotencyKey != "" {
 		existing, err := s.Repo.GetBatchImageJobByIdempotencyKey(ctx, owner.UserID, owner.APIKeyID, idempotencyKey)
 		if err == nil {
+			if !batchImageJobMatchesOwner(existing, owner) || existing.IdempotencyKey == nil || *existing.IdempotencyKey != idempotencyKey {
+				return nil, ErrBatchImageJobNotFound
+			}
 			if batchImageDerefString(existing.RequestHash) != requestHash {
 				return nil, ErrBatchImageIdempotencyConflict
 			}
@@ -241,7 +244,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	}
 	parentBatchID := batchImageOptionalStringPtr(normalized.ParentBatchID)
 	if parentBatchID != nil {
-		parent, parentErr := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, *parentBatchID)
+		parent, parentErr := s.getOwnedJob(ctx, owner, *parentBatchID)
 		if parentErr != nil {
 			return nil, parentErr
 		}
@@ -533,7 +536,7 @@ func (s *BatchImagePublicService) hidePreUpstreamSubmitFailure(ctx context.Conte
 }
 
 func (s *BatchImagePublicService) Get(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicBatch, error) {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -586,6 +589,9 @@ func (s *BatchImagePublicService) List(ctx context.Context, owner BatchImageOwne
 	}
 	data := make([]*BatchImagePublicBatch, 0, len(jobs))
 	for _, job := range jobs {
+		if !batchImageJobMatchesOwner(job, owner) {
+			return nil, ErrBatchImageJobNotFound
+		}
 		data = append(data, BatchImageJobToPublic(job))
 	}
 	return &BatchImagePublicListResponse{
@@ -596,7 +602,7 @@ func (s *BatchImagePublicService) List(ctx context.Context, owner BatchImageOwne
 }
 
 func (s *BatchImagePublicService) MarkDownloaded(ctx context.Context, owner BatchImageOwner, batchID string) error {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return err
 	}
@@ -604,7 +610,7 @@ func (s *BatchImagePublicService) MarkDownloaded(ctx context.Context, owner Batc
 }
 
 func (s *BatchImagePublicService) DeleteRecord(ctx context.Context, owner BatchImageOwner, batchID string) error {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return err
 	}
@@ -674,6 +680,9 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 }
 
 func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImageOwner, batchID string, query BatchImageItemsQuery) (*BatchImagePublicItemsResponse, error) {
+	if _, err := s.getOwnedJob(ctx, owner, batchID); err != nil {
+		return nil, err
+	}
 	filter := BatchImageItemFilter{Limit: query.Limit, Offset: parseBatchImageCursor(query.Cursor)}
 	switch strings.TrimSpace(query.Status) {
 	case "", "all":
@@ -695,6 +704,9 @@ func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImag
 	}
 	data := make([]BatchImagePublicItem, 0, len(items))
 	for _, item := range items {
+		if item == nil || item.JobID != batchID {
+			return nil, ErrBatchImageJobNotFound
+		}
 		data = append(data, BatchImageItemToPublic(item))
 	}
 	return &BatchImagePublicItemsResponse{
@@ -705,7 +717,7 @@ func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImag
 }
 
 func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicBatch, error) {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -745,7 +757,7 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 				return nil, ErrBatchImageCancelFailed
 			}
 		}
-		updated, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+		updated, err := s.getOwnedJob(ctx, owner, batchID)
 		if err != nil {
 			return nil, err
 		}
@@ -762,7 +774,7 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 		return nil, ErrBatchImageCancelFailed
 	}
 	s.invalidateAuthCache(ctx, owner.UserID)
-	updated, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	updated, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -1438,4 +1450,26 @@ func parseBatchImageCursor(cursor string) int {
 		return 0
 	}
 	return offset
+}
+
+// Authorization is bound to both the caller and the returned resource, even
+// when a repository implementation serves the query from a cache.
+func batchImageJobMatchesOwner(job *BatchImageJob, owner BatchImageOwner) bool {
+	return owner.UserID > 0 && owner.APIKeyID > 0 && job != nil &&
+		job.UserID == owner.UserID && job.APIKeyID != nil && *job.APIKeyID == owner.APIKeyID &&
+		job.UserDeletedAt == nil
+}
+
+func (s *BatchImagePublicService) getOwnedJob(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImageJob, error) {
+	if owner.UserID <= 0 || owner.APIKeyID <= 0 || strings.TrimSpace(batchID) == "" {
+		return nil, ErrBatchImageJobNotFound
+	}
+	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	if !batchImageJobMatchesOwner(job, owner) || job.BatchID != batchID {
+		return nil, ErrBatchImageJobNotFound
+	}
+	return job, nil
 }
