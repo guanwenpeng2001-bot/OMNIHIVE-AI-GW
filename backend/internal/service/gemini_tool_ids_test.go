@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -94,13 +95,84 @@ func TestGeminiToolIDProfileSelection(t *testing.T) {
 	}{
 		{"public", &Account{Type: AccountTypeAPIKey}, geminiToolIDNative},
 		{"public oauth", &Account{Type: AccountTypeOAuth}, geminiToolIDNative},
-		{"custom", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}}, geminiToolIDUnknown},
-		{"code assist", &Account{Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "project"}}, geminiToolIDUnknown},
+		{"public URL", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://generativelanguage.googleapis.com/"}}, geminiToolIDNative},
+		{"custom", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}}, geminiToolIDLegacy},
+		{"code assist", &Account{Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "project"}}, geminiToolIDLegacy},
+		{"vertex", &Account{Type: AccountTypeServiceAccount}, geminiToolIDLegacy},
+		{"nil", nil, geminiToolIDUnknown},
+		{"unsupported", &Account{Type: "unsupported"}, geminiToolIDUnknown},
+		{"custom native override", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}, Extra: map[string]any{"gemini_tool_id_profile": "native"}}, geminiToolIDNative},
 		{"explicit legacy", &Account{Extra: map[string]any{"gemini_tool_id_profile": "legacy_no_id"}}, geminiToolIDLegacy},
 		{"explicit native", &Account{Extra: map[string]any{"gemini_tool_id_profile": "native"}}, geminiToolIDNative},
 		{"invalid", &Account{Type: AccountTypeAPIKey, Extra: map[string]any{"gemini_tool_id_profile": "typo"}}, geminiToolIDUnknown},
 	} {
 		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, geminiToolIDProfileForAccount(tc.account)) })
+	}
+}
+
+// These pre-existing account configurations have no gemini_tool_id_profile.
+// Exercise the conversion used by both compatibility entry points so a tools-only
+// first turn cannot fail locally before the upstream request is built.
+func TestGeminiToolIDsExistingAccounts(t *testing.T) {
+	for name, account := range map[string]*Account{
+		"code assist oauth":      {Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "project"}},
+		"vertex service account": {Type: AccountTypeServiceAccount},
+		"custom api key":         {Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			profile := geminiToolIDProfileForAccount(account)
+			require.Equal(t, geminiToolIDLegacy, profile)
+			for _, chat := range []bool{false, true} {
+				entry := "messages"
+				if chat {
+					entry = "chat"
+				}
+				t.Run(entry, func(t *testing.T) {
+					for _, withTools := range []bool{false, true} {
+						request := map[string]any{"model": "gemini-test", "messages": []any{map[string]any{"role": "user", "content": "hi"}}}
+						if withTools {
+							tool := map[string]any{"name": "lookup", "input_schema": map[string]any{"type": "object"}}
+							if chat {
+								tool = map[string]any{"type": "function", "function": map[string]any{"name": "lookup", "parameters": map[string]any{"type": "object"}}}
+							}
+							request["tools"] = []any{tool}
+						}
+						body, err := json.Marshal(request)
+						require.NoError(t, err)
+						if chat {
+							var req apicompat.ChatCompletionsRequest
+							require.NoError(t, json.Unmarshal(body, &req))
+							responses, err := apicompat.ChatCompletionsToResponses(&req)
+							require.NoError(t, err)
+							anthropic, err := apicompat.ResponsesToAnthropicRequest(responses)
+							require.NoError(t, err)
+							body, err = json.Marshal(anthropic)
+							require.NoError(t, err)
+						}
+						converted, err := convertClaudeMessagesToGeminiGenerateContent(body, profile)
+						require.NoError(t, err, "existing accounts must not require new profile metadata")
+						var got map[string]any
+						require.NoError(t, json.Unmarshal(converted, &got))
+						if withTools {
+							require.Contains(t, string(converted), `"functionDeclarations"`)
+							require.Contains(t, string(converted), `"name":"lookup"`)
+						} else {
+							require.NotContains(t, got, "tools")
+							// Profile selection must not change ordinary text requests.
+							native, err := convertClaudeMessagesToGeminiGenerateContent(body, geminiToolIDNative)
+							require.NoError(t, err)
+							require.JSONEq(t, string(native), string(converted))
+						}
+					}
+				})
+			}
+			// A subsequent parallel call batch still correlates results by local ID
+			// before stripping unsupported IDs from the legacy wire format.
+			converted, err := convertClaudeMessagesToGeminiGenerateContent([]byte(geminiParallelToolHistory), profile)
+			require.NoError(t, err)
+			require.NotContains(t, string(converted), `"id":`)
+			require.Less(t, strings.Index(string(converted), `"content":"first"`), strings.Index(string(converted), `"content":"second"`))
+		})
 	}
 }
 
