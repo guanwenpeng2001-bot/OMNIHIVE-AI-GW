@@ -19,8 +19,9 @@ import (
 const QianwenRealtimeFrameLimit = 256 << 10
 
 type QianwenRealtimeUpstream struct {
-	Conn    *ws.Conn
-	Created []byte
+	accountID int64
+	Conn      *ws.Conn
+	Created   []byte
 }
 
 type QianwenRealtimeDialError struct {
@@ -69,6 +70,9 @@ func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account 
 	var failure *QianwenRealtimeDialError
 	if errors.As(err, &failure) && failure.StatusCode > 0 && s.rateLimitService != nil {
 		s.rateLimitService.HandleUpstreamError(ctx, account, failure.StatusCode, failure.Headers, failure.Body, model)
+	}
+	if upstream != nil {
+		upstream.accountID = account.ID
 	}
 	return upstream, err
 }
@@ -223,6 +227,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 		return err
 	}
 	state := qianwenRealtimeState{}
+	logicalTurn := 0
 	seen := map[string]bool{}
 	absolute := time.NewTimer(lifetime)
 	defer absolute.Stop()
@@ -290,7 +295,15 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				startDrain()
 				continue
 			}
-			if gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit" && cb.BeforeCommit != nil {
+			generating := gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit"
+			if generating {
+				logicalTurn++
+				BeginAttemptStreamTurn(ctx, logicalTurn)
+				if err := CheckAttemptBudget(ctx); err != nil {
+					return err
+				}
+			}
+			if generating && cb.BeforeCommit != nil {
 				commitCtx, commitCancel := context.WithTimeout(ctx, 5*time.Second)
 				err = cb.BeforeCommit(commitCtx, state.text)
 				commitCancel()
@@ -299,7 +312,17 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 					return protocolError(err)
 				}
 			}
-			if err = write(upstream.Conn, canonical); err != nil {
+			if generating {
+				finish, admissionErr := BeginGenerationAttempt(ctx, upstream.accountID)
+				if admissionErr != nil {
+					return admissionErr
+				}
+				err = write(upstream.Conn, canonical)
+				finish(0, err)
+			} else {
+				err = write(upstream.Conn, canonical)
+			}
+			if err != nil {
 				return err
 			}
 			timer.Reset(idle)

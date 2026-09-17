@@ -154,7 +154,9 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 		deleteHeaderAllForms(request.Header, "anthropic-version")
 		request.Header.Set("anthropic-version", "2023-06-01")
 	}
-	response, err := cursor.Do(gateway.relayClient, request, false)
+	response, err := generationHTTP(request, account.ID, func(request *http.Request) (*http.Response, error) {
+		return cursor.Do(gateway.relayClient, request, false)
+	})
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
