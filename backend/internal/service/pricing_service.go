@@ -169,8 +169,35 @@ type PricingRemoteClient interface {
 	FetchHashText(ctx context.Context, url string) (string, error)
 }
 
+// LiteLLMCapabilityFields retains presence and source semantics. MaxTokens is
+// deliberately not interpreted: LiteLLM entries use it for different limits.
+// Vision is a partial observation, never a complete modality declaration.
+type LiteLLMCapabilityFields struct {
+	MaxInputTokens          *int64   `json:"max_input_tokens,omitempty"`
+	MaxOutputTokens         *int64   `json:"max_output_tokens,omitempty"`
+	MaxTokens               *int64   `json:"max_tokens,omitempty"`
+	SupportsReasoning       *bool    `json:"supports_reasoning,omitempty"`
+	SupportsVision          *bool    `json:"supports_vision,omitempty"`
+	SupportsFunctionCalling *bool    `json:"supports_function_calling,omitempty"`
+	SupportsPromptCaching   *bool    `json:"supports_prompt_caching,omitempty"`
+	InputModalities         []string `json:"input_modalities,omitempty"`
+	OutputModalities        []string `json:"output_modalities,omitempty"`
+}
+
+// pricingCapabilityInput holds unverified source bytes, not capability evidence.
+// It is immutable after publication under PricingService.mu. Capability consumers
+// must validate the source and its hash before building a capability snapshot.
+type pricingCapabilityInput struct {
+	body         []byte
+	declaredHash string
+	sourcePath   string
+}
+
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	// Capability parsing is independent of price admission. Keep this carrier
+	// out of the legacy decoder so malformed metadata cannot discard prices.
+	LiteLLMCapabilityFields             `json:"-"`
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64 `json:"output_cost_per_token"`
@@ -195,12 +222,13 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	cfg            *config.Config
+	remoteClient   PricingRemoteClient
+	mu             sync.RWMutex
+	pricingData    map[string]*LiteLLMModelPricing
+	capabilityData *pricingCapabilityInput
+	lastUpdated    time.Time
+	localHash      string
 	// fallback/override 文件在最近一次成功重建时的内容指纹，定时器据此判断是否
 	// 需要从本地目录缓存重建叠加层。
 	customFilesHash string
@@ -213,12 +241,33 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
-		cfg:          cfg,
-		remoteClient: remoteClient,
-		pricingData:  make(map[string]*LiteLLMModelPricing),
-		stopCh:       make(chan struct{}),
+		cfg:            cfg,
+		remoteClient:   remoteClient,
+		pricingData:    make(map[string]*LiteLLMModelPricing),
+		capabilityData: &pricingCapabilityInput{},
+		stopCh:         make(chan struct{}),
 	}
 	return s
+}
+
+// buildPricingCapabilityInput captures only the original catalog, never custom
+// fallback/override layers. It deliberately makes no validity or trust claim.
+func (s *PricingService) buildPricingCapabilityInput(body []byte, declaredHash, sourcePath string) *pricingCapabilityInput {
+	if s.cfg != nil && sourcePath != "" && sourcePath == s.cfg.Pricing.FallbackFile {
+		return nil
+	}
+	return &pricingCapabilityInput{
+		body: bytes.Clone(body), declaredHash: declaredHash, sourcePath: sourcePath,
+	}
+}
+
+func (s *PricingService) publishPricingCapabilityInput(input *pricingCapabilityInput) {
+	if input == nil {
+		return
+	}
+	s.mu.Lock()
+	s.capabilityData = input
+	s.mu.Unlock()
 }
 
 // Initialize 初始化价格服务
@@ -470,6 +519,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	// 否则丢弃这次混合快照并重试，避免短暂应用不匹配的 fallback/override。
 	var data map[string]*LiteLLMModelPricing
 	var fingerprint string
+	var capability *pricingCapabilityInput
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		if validateErr := s.validateCustomPricingFiles(); validateErr != nil {
@@ -480,6 +530,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 		if readErr != nil {
 			return fmt.Errorf("read file failed: %w", readErr)
 		}
+		capability = s.buildPricingCapabilityInput(body, "", pricingFile)
 		data, fingerprint, err = s.buildPricingData(body)
 		if err != nil {
 			return fmt.Errorf("parse pricing data: %w", err)
@@ -499,6 +550,9 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
 
@@ -540,8 +594,10 @@ func (s *PricingService) downloadPricingData() error {
 			remoteHash[:min(8, len(remoteHash))], dataHashStr[:8])
 	}
 
+	capability := s.buildPricingCapabilityInput(body, remoteHash, "")
 	data, customFilesHash, err := s.buildPricingData(body)
 	if err != nil {
+		s.publishPricingCapabilityInput(capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
@@ -566,6 +622,9 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
 	s.customFilesHash = customFilesHash
@@ -978,8 +1037,10 @@ func (s *PricingService) loadPricingData(filePath string) error {
 		return fmt.Errorf("read file failed: %w", err)
 	}
 
+	capability := s.buildPricingCapabilityInput(data, "", filePath)
 	pricingData, customFilesHash, err := s.buildPricingData(data)
 	if err != nil {
+		s.publishPricingCapabilityInput(capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
@@ -990,6 +1051,9 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
 	s.pricingData = pricingData
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
 
