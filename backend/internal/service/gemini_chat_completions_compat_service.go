@@ -88,7 +88,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, geminiToolIDProfileForAccount(account))
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -491,6 +491,9 @@ func geminiResponseToChatCompletions(
 	rawData []byte,
 	usageOverride *ClaudeUsage,
 ) (*apicompat.ChatCompletionsResponse, *ClaudeUsage, error) {
+	if err := validateGeminiResponseToolIDs(geminiResp); err != nil {
+		return nil, nil, err
+	}
 	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData, true)
 	if usageOverride != nil && (usageOverride.InputTokens > 0 || usageOverride.OutputTokens > 0 || usageOverride.CacheReadInputTokens > 0) {
 		usage = usageOverride
@@ -594,6 +597,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	seenText := ""
 	openToolIndex := -1
 	openToolName := ""
+	openToolID := ""
+	seenToolIDs := map[string]bool{}
 	seenToolJSON := ""
 
 	closeOpenBlock := func() bool {
@@ -689,6 +694,15 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 							}
 
 							if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
+								activeID, activeName := openToolID, openToolName
+								if openToolIndex < 0 {
+									activeID, activeName = "", ""
+								}
+								if err := validateGeminiStreamToolCall(fc, activeID, activeName, seenToolIDs); err != nil {
+									writeSSE(c.Writer, "error", map[string]any{"error": map[string]any{"type": "upstream_error", "message": err.Error()}})
+									flusher.Flush()
+									return nil, err
+								}
 								name, _ := fc["name"].(string)
 								if strings.TrimSpace(name) == "" {
 									name = "tool"
@@ -696,7 +710,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 								if closeOpenBlock() {
 									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 								}
-								if openToolIndex >= 0 && openToolName != name {
+								wireID, _ := fc["id"].(string)
+								if openToolIndex >= 0 && (wireID == "" || openToolID != wireID || openToolName != name) {
 									if closeOpenTool() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
@@ -706,13 +721,14 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 									nextBlockIndex++
 									openToolIndex = idx
 									openToolName = name
+									openToolID = geminiFunctionCallID(fc)
 									sawToolUse = true
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 										Type:  "content_block_start",
 										Index: &idx,
 										ContentBlock: &apicompat.AnthropicContentBlock{
 											Type:  "tool_use",
-											ID:    "toolu_" + randomHex(8),
+											ID:    openToolID,
 											Name:  name,
 											Input: json.RawMessage(`{}`),
 										},

@@ -629,7 +629,8 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body)
+	toolIDProfile := geminiToolIDProfileForAccount(account)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(body, toolIDProfile)
 	if err != nil {
 		return nil, s.writeClaudeError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -881,7 +882,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 					stageName = "thinking+tools"
 					signatureRetryStage = 2
 				}
-				retryGeminiReq, txErr := convertClaudeMessagesToGeminiGenerateContent(strippedClaudeBody)
+				retryGeminiReq, txErr := convertClaudeMessagesToGeminiGenerateContent(strippedClaudeBody, toolIDProfile)
 				if txErr == nil {
 					logger.LegacyPrintf("service.gemini_messages_compat", "Gemini account %d: detected signature-related 400, retrying with downgraded Claude blocks (%s)", account.ID, stageName)
 					geminiReq = retryGeminiReq
@@ -1121,6 +1122,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			collectedBytes, _ := json.Marshal(collected)
 			upstreamResponseModelObserverFromContext(c).ObserveGemini(collectedBytes)
 			observeGeminiImageOutputs(c, collectedBytes)
+			if err := validateGeminiResponseToolIDs(collected); err != nil {
+				return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+			}
 			claudeResp, usageObj2 := convertGeminiToClaudeMessage(collected, originalModel, collectedBytes, false)
 			c.JSON(http.StatusOK, claudeResp)
 			usage = usageObj2
@@ -2128,6 +2132,9 @@ func (s *GeminiMessagesCompatService) handleNonStreamingResponse(c *gin.Context,
 		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", "Failed to parse upstream response")
 	}
 
+	if err := validateGeminiResponseToolIDs(geminiResp); err != nil {
+		return nil, s.writeClaudeError(c, http.StatusBadGateway, "upstream_error", err.Error())
+	}
 	claudeResp, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, unwrappedBody, false)
 	c.JSON(http.StatusOK, claudeResp)
 
@@ -2177,6 +2184,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 	seenText := ""
 	openToolIndex := -1
 	openToolID := ""
+	seenToolIDs := map[string]bool{}
 	openToolName := ""
 	seenToolJSON := ""
 
@@ -2283,6 +2291,15 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 			}
 
 			if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
+				activeID, activeName := openToolID, openToolName
+				if openToolIndex < 0 {
+					activeID, activeName = "", ""
+				}
+				if err := validateGeminiStreamToolCall(fc, activeID, activeName, seenToolIDs); err != nil {
+					writeSSE(c.Writer, "error", map[string]any{"type": "error", "error": map[string]any{"type": "upstream_error", "message": err.Error()}})
+					flusher.Flush()
+					return nil, err
+				}
 				name, _ := fc["name"].(string)
 				args := fc["args"]
 				if strings.TrimSpace(name) == "" {
@@ -2300,7 +2317,10 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				}
 
 				// If we receive streamed tool args in pieces, keep a single tool block open and emit deltas.
-				if openToolIndex >= 0 && openToolName != name {
+				wireID, _ := fc["id"].(string)
+				// An ID-less part is a distinct complete call, never a continuation
+				// inferred from its name or arguments.
+				if openToolIndex >= 0 && (wireID == "" || openToolID != wireID || openToolName != name) {
 					writeSSE(c.Writer, "content_block_stop", map[string]any{
 						"type":  "content_block_stop",
 						"index": openToolIndex,
@@ -2311,7 +2331,7 @@ func (s *GeminiMessagesCompatService) handleStreamingResponse(c *gin.Context, re
 				}
 
 				if openToolIndex < 0 {
-					openToolID = "toolu_" + randomHex(8)
+					openToolID = geminiFunctionCallID(fc)
 					openToolIndex = nextBlockIndex
 					openToolName = name
 					nextBlockIndex++
@@ -2488,8 +2508,32 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 	var last map[string]any
 	var lastWithParts map[string]any
 	var collectedTextParts []string // Collect all text parts for aggregation
+	var collectedToolParts []map[string]any
+	seenToolIDs := map[string]bool{}
 	usage := &ClaudeUsage{}
 	stats := geminiSSECollectStats{fallback: &geminiSSEFallbackBody{}}
+	finish := func() map[string]any {
+		result := pickGeminiCollectResult(last, lastWithParts)
+		if len(collectedToolParts) > 0 {
+			parts := make([]any, 0)
+			for _, part := range extractGeminiParts(result) {
+				if _, isCall := part["functionCall"]; !isCall {
+					parts = append(parts, part)
+				}
+			}
+			for _, part := range collectedToolParts {
+				parts = append(parts, part)
+			}
+			if candidates, ok := result["candidates"].([]any); ok && len(candidates) > 0 {
+				if candidate, ok := candidates[0].(map[string]any); ok {
+					if content, ok := candidate["content"].(map[string]any); ok {
+						content["parts"] = parts
+					}
+				}
+			}
+		}
+		return mergeCollectedTextParts(result, collectedTextParts)
+	}
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -2504,7 +2548,7 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 				switch payload {
 				case "", "[DONE]":
 					if payload == "[DONE]" {
-						return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, stats, nil
+						return finish(), usage, stats, nil
 					}
 				default:
 					var parsed map[string]any
@@ -2534,6 +2578,14 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 							lastWithParts = parsed
 							// Collect text from each part for aggregation
 							for _, part := range parts {
+								if call, ok := part["functionCall"].(map[string]any); ok {
+									// This collector accepts complete tool parts only. A
+									// repeated ID cannot silently replace an earlier call.
+									if err := validateGeminiStreamToolCall(call, "", "", seenToolIDs); err != nil {
+										return nil, usage, stats, err
+									}
+									collectedToolParts = append(collectedToolParts, part)
+								}
 								if text, ok := part["text"].(string); ok && text != "" {
 									collectedTextParts = append(collectedTextParts, text)
 								}
@@ -2552,7 +2604,7 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 		}
 	}
 
-	return mergeCollectedTextParts(pickGeminiCollectResult(last, lastWithParts), collectedTextParts), usage, stats, nil
+	return finish(), usage, stats, nil
 }
 
 func pickGeminiCollectResult(last map[string]any, lastWithParts map[string]any) map[string]any {
@@ -2998,7 +3050,7 @@ func convertGeminiToClaudeMessage(geminiResp map[string]any, originalModel strin
 							sawToolUse = true
 							contentBlocks = append(contentBlocks, map[string]any{
 								"type":  "tool_use",
-								"id":    "toolu_" + randomHex(8),
+								"id":    geminiFunctionCallID(fc),
 								"name":  name,
 								"input": args,
 							})
@@ -3330,7 +3382,7 @@ func mapGeminiFinishReasonToClaudeStopReason(finishReason string) string {
 	}
 }
 
-func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
+func convertClaudeMessagesToGeminiGenerateContent(body []byte, profiles ...geminiToolIDProfile) ([]byte, error) {
 	var req map[string]any
 	if err := json.Unmarshal(body, &req); err != nil {
 		return nil, err
@@ -3361,38 +3413,14 @@ func convertClaudeMessagesToGeminiGenerateContent(body []byte) ([]byte, error) {
 		out["generationConfig"] = generationConfig
 	}
 
-	stripGeminiFunctionIDs(out)
+	profile := geminiToolIDNative
+	if len(profiles) > 0 {
+		profile = profiles[0]
+	}
+	if err := prepareGeminiToolIDs(out, profile); err != nil {
+		return nil, err
+	}
 	return json.Marshal(out)
-}
-
-func stripGeminiFunctionIDs(req map[string]any) {
-	// Defensive cleanup: some upstreams reject unexpected `id` fields in functionCall/functionResponse.
-	contents, ok := req["contents"].([]any)
-	if !ok {
-		return
-	}
-	for _, c := range contents {
-		cm, ok := c.(map[string]any)
-		if !ok {
-			continue
-		}
-		contentParts, ok := cm["parts"].([]any)
-		if !ok {
-			continue
-		}
-		for _, p := range contentParts {
-			pm, ok := p.(map[string]any)
-			if !ok {
-				continue
-			}
-			if fc, ok := pm["functionCall"].(map[string]any); ok && fc != nil {
-				delete(fc, "id")
-			}
-			if fr, ok := pm["functionResponse"].(map[string]any); ok && fr != nil {
-				delete(fr, "id")
-			}
-		}
-	}
 }
 
 func extractClaudeSystemText(system any) string {
@@ -3465,9 +3493,13 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 				case "tool_use":
 					id, _ := bm["id"].(string)
 					name, _ := bm["name"].(string)
-					if strings.TrimSpace(id) != "" && strings.TrimSpace(name) != "" {
-						toolUseIDToName[id] = name
+					if strings.TrimSpace(id) == "" || strings.TrimSpace(name) == "" {
+						return nil, errors.New("tool_use requires a nonempty id and name")
 					}
+					if _, exists := toolUseIDToName[id]; exists {
+						return nil, errors.New("duplicate tool_use id")
+					}
+					toolUseIDToName[id] = name
 					signature, _ := bm["signature"].(string)
 					signature = strings.TrimSpace(signature)
 					if signature == "" {
@@ -3476,6 +3508,7 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					parts = append(parts, map[string]any{
 						"thoughtSignature": signature,
 						"functionCall": map[string]any{
+							"id":   id,
 							"name": name,
 							"args": bm["input"],
 						},
@@ -3484,10 +3517,12 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 					toolUseID, _ := bm["tool_use_id"].(string)
 					name := toolUseIDToName[toolUseID]
 					if name == "" {
-						name = "tool"
+						return nil, errors.New("tool_result references an unknown or already completed tool_use id")
 					}
+					delete(toolUseIDToName, toolUseID)
 					parts = append(parts, map[string]any{
 						"functionResponse": map[string]any{
+							"id":   toolUseID,
 							"name": name,
 							"response": map[string]any{
 								"content": extractClaudeContentText(bm["content"]),

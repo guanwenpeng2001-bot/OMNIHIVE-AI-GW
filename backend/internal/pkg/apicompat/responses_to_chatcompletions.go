@@ -123,6 +123,7 @@ type ResponsesEventToChatState struct {
 	SentRole               bool
 	SawToolCall            bool
 	SawText                bool
+	textTracker            responsesTextTracker
 	Finalized              bool        // true after finish chunk has been emitted
 	NextToolCallIndex      int         // next sequential tool_call index to assign
 	OutputIndexToToolIndex map[int]int // Responses output_index → Chat tool_calls index
@@ -144,11 +145,45 @@ func NewResponsesEventToChatState() *ResponsesEventToChatState {
 // ResponsesEventToChatChunks converts a single Responses SSE event into zero
 // or more Chat Completions chunks, updating state as it goes.
 func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {
+	if state.Finalized || !state.textTracker.accept(evt) {
+		return nil
+	}
+	if ResponsesStreamEventFailed(evt) {
+		state.Finalized = true
+		return nil
+	}
 	switch evt.Type {
 	case "response.created":
 		return resToChatHandleCreated(evt, state)
 	case "response.output_text.delta":
-		return resToChatHandleTextDelta(evt, state)
+		copy := *evt
+		copy.Delta = state.textTracker.delta(evt)
+		return resToChatHandleTextDelta(&copy, state)
+	case "response.output_text.done", "response.content_part.done":
+		text := evt.Text
+		if evt.Type == "response.content_part.done" {
+			if evt.Part == nil || evt.Part.Type != "output_text" {
+				return nil
+			}
+			text = evt.Part.Text
+		}
+		copy := *evt
+		copy.Delta = state.textTracker.recover(evt.OutputIndex, evt.ContentIndex, evt.ItemID, text)
+		return resToChatHandleTextDelta(&copy, state)
+	case "response.output_item.done":
+		if evt.Item == nil || evt.Item.Type != "message" {
+			return nil
+		}
+		var chunks []ChatCompletionsChunk
+		for index, part := range evt.Item.Content {
+			if part.Type != "output_text" {
+				continue
+			}
+			copy := *evt
+			copy.Delta = state.textTracker.recover(evt.OutputIndex, index, evt.Item.ID, part.Text)
+			chunks = append(chunks, resToChatHandleTextDelta(&copy, state)...)
+		}
+		return chunks
 	case "response.output_item.added":
 		return resToChatHandleOutputItemAdded(evt, state)
 	case "response.function_call_arguments.delta",
@@ -363,6 +398,9 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	}
 
 	var chunks []ChatCompletionsChunk
+	state.textTracker.terminalText(evt.Response, func(text string) {
+		chunks = append(chunks, resToChatHandleTextDelta(&ResponsesStreamEvent{Delta: text}, state)...)
+	})
 	chunks = append(chunks, makeChatFinishChunk(state, finishReason))
 
 	if state.IncludeUsage && state.Usage != nil {
