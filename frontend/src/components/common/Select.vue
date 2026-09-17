@@ -6,9 +6,11 @@
       @click="toggle"
       :disabled="disabled"
       :aria-expanded="isOpen"
-      :aria-haspopup="true"
+      aria-haspopup="listbox"
+      :aria-controls="`${instanceId}-listbox`"
       :id="id"
-      :aria-label="ariaLabel ?? 'Select option'"
+      :aria-label="ariaLabelledby ? undefined : `${fieldLabel}: ${selectedLabel}`"
+      :aria-labelledby="ariaLabelledby ? `${ariaLabelledby} ${instanceId}-value` : undefined"
       :aria-describedby="ariaDescribedby"
       :class="[
         'select-trigger',
@@ -16,10 +18,9 @@
         error && 'select-trigger-error',
         disabled && 'select-trigger-disabled'
       ]"
-      @keydown.down.prevent="onTriggerKeyDown"
-      @keydown.up.prevent="onTriggerKeyDown"
+      @keydown="onTriggerKeyDown"
     >
-      <span class="select-value">
+      <span :id="`${instanceId}-value`" class="select-value">
         <slot name="selected" :option="selectedOption">
           {{ selectedLabel }}
         </slot>
@@ -54,7 +55,8 @@
           class="select-dropdown-portal"
           :class="[instanceId]"
           :style="dropdownStyle"
-          role="listbox"
+          :data-dialog-owner="dialogOwner"
+          :data-select-open="isOpen"
           @click.stop
           @mousedown.stop
           @keydown="onDropdownKeyDown"
@@ -67,18 +69,27 @@
               v-model="searchQuery"
               type="text"
               :placeholder="searchPlaceholderText"
-              :aria-label="searchPlaceholderText"
+              :aria-label="ariaLabelledby ? undefined : `${fieldLabel}: ${searchPlaceholderText}`"
+              :aria-labelledby="ariaLabelledby"
+              role="combobox"
+              aria-autocomplete="list"
+              :aria-expanded="isOpen"
+              :aria-controls="`${instanceId}-listbox`"
+              :aria-activedescendant="focusedIndex >= 0 ? `${instanceId}-option-${focusedIndex}` : undefined"
               class="select-search-input"
               @click.stop
             />
           </div>
 
           <!-- Options list -->
-          <div class="select-options" ref="optionsListRef">
+          <div class="select-options" ref="optionsListRef" role="listbox" tabindex="-1"
+            :id="`${instanceId}-listbox`" :aria-label="ariaLabelledby ? undefined : fieldLabel"
+            :aria-labelledby="ariaLabelledby" :aria-activedescendant="focusedIndex >= 0 ? `${instanceId}-option-${focusedIndex}` : undefined">
             <div
               v-for="(option, index) in filteredOptions"
               :key="`${typeof getOptionValue(option)}:${String(getOptionValue(option) ?? '')}`"
               role="option"
+              :id="`${instanceId}-option-${index}`"
               :aria-selected="isSelected(option)"
               :aria-disabled="isOptionDisabled(option)"
               @click.stop="!isOptionDisabled(option) && selectOption(option)"
@@ -152,6 +163,8 @@ interface Props {
   creatablePrefix?: string
   clearable?: boolean
   id?: string
+  label?: string
+  ariaLabelledby?: string
   ariaLabel?: string
   ariaDescribedby?: string
   /** 远程搜索模式：输入不在本地过滤 options，而是防抖后 emit('search', query)，由父组件请求数据更新 options */
@@ -182,6 +195,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 
 const isOpen = ref(false)
+const dialogOwner = ref<string | undefined>()
 const searchQuery = ref('')
 const focusedIndex = ref(-1)
 const containerRef = ref<HTMLElement | null>(null)
@@ -195,6 +209,11 @@ const dropdownViewportPadding = 8
 const dropdownMinimumWidth = 200
 
 // i18n placeholders
+const externalLabel = ref('')
+onMounted(() => {
+  externalLabel.value = Array.from(triggerRef.value?.labels ?? []).map(label => label.textContent?.trim()).filter(Boolean).join(' ')
+})
+const fieldLabel = computed(() => props.ariaLabel || props.label || externalLabel.value || placeholderText.value)
 const placeholderText = computed(() => props.placeholder ?? t('common.selectOption'))
 const searchPlaceholderText = computed(() => props.searchPlaceholder ?? t('common.searchPlaceholder'))
 const emptyTextDisplay = computed(() => props.emptyText ?? t('common.noOptionsFound'))
@@ -370,6 +389,7 @@ const toggle = () => {
 
 watch(isOpen, (open) => {
   if (open) {
+    dialogOwner.value = triggerRef.value?.closest<HTMLElement>('[data-dialog-id]')?.dataset.dialogId
     calculateDropdownPosition()
     // Reset focused index to current selection or first item
     if (filteredOptions.value.length === 0) {
@@ -382,13 +402,19 @@ watch(isOpen, (open) => {
         : initialIdx
     }
 
+    scrollToFocused()
+
     if (isSearchable.value) {
       nextTick(() => searchInputRef.value?.focus())
+    } else {
+      nextTick(() => optionsListRef.value?.focus())
     }
     // Add scroll listener to update position
     window.addEventListener('scroll', updateTriggerRect, { capture: true, passive: true })
     window.addEventListener('resize', calculateDropdownPosition)
   } else {
+    // A leaving portal must no longer consume its dialog's Escape.
+    dropdownRef.value?.removeAttribute('data-select-open')
     searchQuery.value = ''
     focusedIndex.value = -1
     // 关闭时取消仍在排队的远程搜索（避免关闭后尾随 emit 一次 search(''))。
@@ -423,16 +449,20 @@ const clearSelection = () => {
   if (props.disabled) return
   emit('update:modelValue', null)
   emit('change', null, null)
+  triggerRef.value?.focus()
 }
 
 // Keyboards
-const onTriggerKeyDown = () => {
-  if (!isOpen.value) {
+const onTriggerKeyDown = (event: KeyboardEvent) => {
+  if (isOpen.value) return onDropdownKeyDown(event)
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
     isOpen.value = true
   }
 }
 
 const onDropdownKeyDown = (e: KeyboardEvent) => {
+  if (e.isComposing) return
   switch (e.key) {
     case 'ArrowDown':
       e.preventDefault()
@@ -453,11 +483,14 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       break
     case 'Escape':
       e.preventDefault()
+      e.stopPropagation()
       isOpen.value = false
       triggerRef.value?.focus()
       break
     case 'Tab':
+      e.preventDefault()
       isOpen.value = false
+      triggerRef.value?.focus()
       break
   }
 }
@@ -476,6 +509,13 @@ const scrollToFocused = () => {
     }
   })
 }
+
+// Filtering or replacing remote results must not leave a stale active descendant.
+watch(filteredOptions, () => {
+  if (!isOpen.value) return
+  focusedIndex.value = findNextEnabledIndex(0)
+  scrollToFocused()
+})
 
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
