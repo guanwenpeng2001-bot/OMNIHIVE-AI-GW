@@ -192,7 +192,8 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 
 	// 1. 获取分布式锁
 	if api.tokenCache != nil {
-		acquired, lockErr := api.tokenCache.AcquireRefreshLock(ctx, cacheKey, api.lockTTL)
+		lockOwner := newRefreshLockOwner()
+		acquired, lockErr := api.tokenCache.AcquireRefreshLock(ctx, cacheKey, lockOwner, api.lockTTL)
 		if lockErr != nil {
 			// Redis 错误，降级为无锁刷新（进程内互斥锁仍生效）
 			slog.Warn("oauth_refresh_lock_failed_degraded",
@@ -204,7 +205,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			// 锁被其他 worker 持有
 			return &OAuthRefreshResult{LockHeld: true}, nil
 		} else {
-			defer api.releaseRefreshLock(ctx, cacheKey)
+			defer api.releaseRefreshLock(ctx, cacheKey, lockOwner)
 		}
 	}
 
@@ -383,14 +384,14 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	}, nil
 }
 
-func (api *OAuthRefreshAPI) releaseRefreshLock(parent context.Context, cacheKey string) {
+func (api *OAuthRefreshAPI) releaseRefreshLock(parent context.Context, cacheKey string, lockOwner string) {
 	cleanupParent := context.Background()
 	if parent != nil {
 		cleanupParent = context.WithoutCancel(parent)
 	}
 	ctx, cancel := context.WithTimeout(cleanupParent, defaultRefreshLockReleaseTimeout)
 	defer cancel()
-	if err := api.tokenCache.ReleaseRefreshLock(ctx, cacheKey); err != nil {
+	if err := api.tokenCache.ReleaseRefreshLock(ctx, cacheKey, lockOwner); err != nil {
 		slog.Warn("oauth_refresh_lock_release_failed", "cache_key", cacheKey, "error", err)
 	}
 }

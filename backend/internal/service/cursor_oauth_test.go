@@ -298,7 +298,7 @@ type cursorOAuthLeaseCache struct {
 	held bool
 }
 
-func (cache *cursorOAuthLeaseCache) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (cache *cursorOAuthLeaseCache) AcquireRefreshLock(context.Context, string, string, time.Duration) (bool, error) {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	if cache.held {
@@ -307,7 +307,7 @@ func (cache *cursorOAuthLeaseCache) AcquireRefreshLock(context.Context, string, 
 	cache.held = true
 	return true, nil
 }
-func (cache *cursorOAuthLeaseCache) ReleaseRefreshLock(context.Context, string) error {
+func (cache *cursorOAuthLeaseCache) ReleaseRefreshLock(context.Context, string, string) error {
 	cache.mu.Lock()
 	defer cache.mu.Unlock()
 	cache.held = false
