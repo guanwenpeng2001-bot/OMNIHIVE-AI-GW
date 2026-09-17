@@ -11,8 +11,10 @@
  * `minFractionDigits` pads the result back up to a minimum number of decimals.
  */
 export function formatScaled(value: number | null, scale: number, minFractionDigits = 0): string {
-  if (value == null) return '-'
-  let s = (value * scale).toPrecision(10).replace(/\.?0+$/, '')
+  if (value == null || !Number.isFinite(value * scale)) return '-'
+  const [mantissa, exponent] = (value * scale).toPrecision(10).split('e')
+  let s = mantissa.includes('.') ? mantissa.replace(/\.?0+$/, '') : mantissa
+  if (exponent !== undefined) s += `e${exponent}`
   if (minFractionDigits > 0 && !s.includes('e')) {
     const dot = s.indexOf('.')
     const digits = dot === -1 ? 0 : s.length - dot - 1

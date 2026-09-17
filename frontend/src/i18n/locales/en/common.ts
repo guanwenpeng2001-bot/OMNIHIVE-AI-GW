@@ -1,5 +1,6 @@
 export default {
   common: {
+    displayTimeZone: 'Display time zone: {timezone}',
     loading: 'Loading...',
     submitting: 'Submitting...',
     justNow: 'just now',

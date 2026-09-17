@@ -1,5 +1,6 @@
 <template>
   <div :class="flat ? '' : 'card overflow-hidden'">
+    <p class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{{ t('common.displayTimeZone', { timezone: getBrowserTimeZone() }) }}</p>
     <div
       v-if="showIpGeoToolbar"
       class="flex items-center justify-end gap-2 border-b border-gray-200 px-4 py-2 dark:border-dark-700"
@@ -208,7 +209,7 @@
         <template #cell-cost="{ row }">
           <div class="text-sm">
             <div class="flex items-center gap-1.5">
-              <span class="font-medium text-green-600 dark:text-green-400">${{ row.actual_cost?.toFixed(6) || '0.000000' }}</span>
+              <span class="font-medium text-green-600 dark:text-green-400">${{ formatLedgerAmount(row.actual_cost) }}</span>
               <span
                 v-if="row.long_context_billing_applied"
                 data-testid="long-context-billing-marker"
@@ -227,7 +228,7 @@
             </div>
             <UsageBillingExplanation :log="row" />
             <div v-if="showAccountBilling && row.account_rate_multiplier != null" class="mt-0.5 text-[11px] text-orange-500 dark:text-orange-400">
-              A ${{ accountBilled(row).toFixed(6) }}
+              A ${{ formatLedgerAmount(accountBilledAmount(row)) }}
             </div>
           </div>
         </template>
@@ -253,7 +254,7 @@
         </template>
 
         <template #cell-created_at="{ value }">
-          <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTime(value) }}</span>
+          <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTimeWithZone(value) }}</span>
         </template>
 
         <template #cell-request_id="{ row }">
@@ -411,19 +412,19 @@
             <div class="text-xs font-semibold text-gray-300 mb-1">{{ t('usage.costDetails') }}</div>
             <div v-if="tooltipData && tooltipData.input_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.inputCost') }}</span>
-              <span class="font-medium text-white">${{ tooltipData.input_cost.toFixed(8) }}</span>
+              <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData.input_cost) }}</span>
             </div>
             <div v-if="tooltipData && hasImageInputCost(tooltipData)" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('usage.imageInputCost') }}</span>
-              <span class="font-medium text-fuchsia-300">${{ tooltipData.image_input_cost.toFixed(8) }}</span>
+              <span class="font-medium text-fuchsia-300">${{ formatLedgerAmount(tooltipData.image_input_cost) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.output_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.outputCost') }}</span>
-              <span class="font-medium text-white">${{ tooltipData.output_cost.toFixed(8) }}</span>
+              <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData.output_cost) }}</span>
             </div>
             <div v-if="tooltipData && hasImageOutputCost(tooltipData)" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('usage.imageOutputCost') }}</span>
-              <span class="font-medium text-pink-300">${{ tooltipData.image_output_cost.toFixed(8) }}</span>
+              <span class="font-medium text-pink-300">${{ formatLedgerAmount(tooltipData.image_output_cost) }}</span>
             </div>
             <!-- Token billing: show unit prices per 1M tokens -->
             <template v-if="tooltipData && !isImageUsage(tooltipData) && (!tooltipData.billing_mode || tooltipData.billing_mode === BILLING_MODE_TOKEN)">
@@ -475,20 +476,20 @@
               </div>
               <div class="flex items-center justify-between gap-4">
                 <span class="text-gray-400">{{ t('usage.imageTotalPrice') }}</span>
-                <span class="font-medium text-white">${{ tooltipData.total_cost?.toFixed(8) || '0.00000000' }}</span>
+                <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData.total_cost) }}</span>
               </div>
             </template>
             <div v-else class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('usage.unitPrice') }}</span>
-              <span class="font-medium text-sky-300">${{ tooltipData?.total_cost?.toFixed(8) || '0.00000000' }}</span>
+              <span class="font-medium text-sky-300">${{ formatLedgerAmount(tooltipData?.total_cost) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.cache_creation_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheCreationCost') }}</span>
-              <span class="font-medium text-white">${{ tooltipData.cache_creation_cost.toFixed(8) }}</span>
+              <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData.cache_creation_cost) }}</span>
             </div>
             <div v-if="tooltipData && tooltipData.cache_read_cost > 0" class="flex items-center justify-between gap-4">
               <span class="text-gray-400">{{ t('admin.usage.cacheReadCost') }}</span>
-              <span class="font-medium text-white">${{ tooltipData.cache_read_cost.toFixed(8) }}</span>
+              <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData.cache_read_cost) }}</span>
             </div>
           </div>
           <!-- Rate and Summary -->
@@ -502,11 +503,11 @@
           </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.original') }}</span>
-            <span class="font-medium text-white">${{ tooltipData?.total_cost?.toFixed(8) || '0.00000000' }}</span>
+            <span class="font-medium text-white">${{ formatLedgerAmount(tooltipData?.total_cost) }}</span>
           </div>
           <div class="flex items-center justify-between gap-6">
             <span class="text-gray-400">{{ t('usage.userBilled') }}</span>
-            <span class="font-semibold text-green-400">${{ tooltipData?.actual_cost?.toFixed(8) || '0.00000000' }}</span>
+            <span class="font-semibold text-green-400">${{ formatLedgerAmount(tooltipData?.actual_cost) }}</span>
           </div>
           <!-- Account billing (separated from user billing) -->
           <template v-if="showAccountBilling">
@@ -517,11 +518,11 @@
             <div class="flex items-center justify-between gap-6">
               <span class="text-gray-400">{{ t('usage.accountBilled') }}</span>
               <span class="font-semibold text-green-400">
-                ${{ accountBilled({
+                ${{ formatLedgerAmount(accountBilledAmount({
                   total_cost: tooltipData?.total_cost,
                   account_stats_cost: tooltipData?.account_stats_cost,
                   account_rate_multiplier: tooltipData?.account_rate_multiplier,
-                }).toFixed(8) }}
+                })) }}
               </span>
             </div>
           </template>
@@ -536,7 +537,8 @@
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { formatDateTime, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
+import { formatLedgerAmount, accountBilledAmount } from '@/utils/money'
+import { formatDateTimeWithZone, getBrowserTimeZone, formatReasoningEffort, reasoningEffortValuesEqual } from '@/utils/format'
 import { formatCacheTokens, formatMultiplier } from '@/utils/formatters'
 import UsageBillingExplanation from './UsageBillingExplanation.vue'
 import { formatTokenPricePerMillion } from '@/utils/usagePricing'
@@ -571,14 +573,6 @@ import {
   textInputTokens,
   hasImageInputCost,
 } from '@/utils/imageUsage'
-
-/** Compute the account-billed cost for display: (account_stats_cost ?? total_cost) * rate_multiplier */
-function accountBilled(row: { total_cost?: number | null; account_stats_cost?: number | null; account_rate_multiplier?: number | null }): number {
-  const base = row.account_stats_cost != null ? row.account_stats_cost : (row.total_cost ?? 0)
-  const result = base * (row.account_rate_multiplier ?? 1)
-  return Number.isNaN(result) ? 0 : result
-}
-
 
 import DataTable from '@/components/common/DataTable.vue'
 import EmptyState from '@/components/common/EmptyState.vue'

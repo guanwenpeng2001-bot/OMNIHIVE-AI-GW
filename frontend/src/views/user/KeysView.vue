@@ -1,5 +1,39 @@
 <template>
   <AppLayout>
+    <section class="card mb-6 p-4 sm:p-6" aria-labelledby="pay-as-you-go-title">
+      <div class="flex flex-wrap items-center gap-3">
+        <h2 id="pay-as-you-go-title" class="text-lg font-semibold text-gray-900 dark:text-white">
+          {{ t('keys.payAsYouGo.title') }}
+        </h2>
+        <span class="rounded-full bg-primary-50 px-3 py-1 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+          {{ t('keys.payAsYouGo.mode') }}
+        </span>
+      </div>
+      <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.description') }}</p>
+      <dl class="mt-4 space-y-3">
+        <div
+          v-for="endpoint in gatewayEndpoints"
+          :key="endpoint.protocol"
+          class="flex flex-col gap-2 rounded-lg bg-gray-50 p-3 dark:bg-dark-900 sm:flex-row sm:items-center sm:gap-4"
+        >
+          <dt class="shrink-0 text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t(endpoint.label) }}
+          </dt>
+          <dd class="flex min-w-0 flex-1 items-center gap-3">
+            <code class="min-w-0 flex-1 break-all text-sm text-gray-900 dark:text-gray-100">{{ endpoint.url }}</code>
+            <button
+              type="button"
+              class="btn btn-secondary shrink-0 p-2"
+              :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
+              @click="clipboardCopy(endpoint.url, t('keys.payAsYouGo.copied'))"
+            >
+              <Icon name="clipboard" size="sm" />
+            </button>
+          </dd>
+        </div>
+      </dl>
+      <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.addressHint') }}</p>
+    </section>
     <TablePageLayout>
       <template #filters>
         <div class="flex flex-col gap-3">
@@ -1126,6 +1160,7 @@ import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 
 const { t } = useI18n()
 import { keysAPI, authAPI, usageAPI, userGroupsAPI } from '@/api'
+import { buildGatewayUrl } from '@/api/url'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import DataTable from '@/components/common/DataTable.vue'
@@ -1174,6 +1209,14 @@ interface GroupOption {
 const appStore = useAppStore()
 const onboardingStore = useOnboardingStore()
 const { copyToClipboard: clipboardCopy } = useClipboard()
+
+const gatewayEndpoints = [
+  { protocol: 'openai', label: 'keys.payAsYouGo.openai', path: '/v1' },
+  { protocol: 'anthropic', label: 'keys.payAsYouGo.anthropic', path: '/v1/messages' }
+].map((endpoint) => ({
+  ...endpoint,
+  url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href
+}))
 
 const allColumns = computed<Column[]>(() => [
   { key: 'name', label: t('common.name'), sortable: true },

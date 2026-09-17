@@ -398,8 +398,10 @@ describe('user UsageView', () => {
     expect(showSuccess).toHaveBeenCalled()
     expect(csvContent.startsWith('\uFEFF')).toBe(true)
     expect(csvContent.slice(1)).toBe([
-      'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost,Original Cost,First Token (ms),Duration (ms)',
-      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345',
+      'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost (USD),Original Cost (USD),First Token (ms),Duration (ms),' +
+        ['pricingState', 'settlementState', 'completionState', 'source', 'version', 'conditions', 'quantity', 'unit', 'unitPrice', 'charged', 'requestId', 'jobId', 'sessionId', 'turnId', 'snapshot'].map(field => `usage.evidence.${field}`).join(','),
+      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,' +
+        [...Array<string>(10).fill('usage.evidence.unknown'), 'req-user-export', ...Array<string>(4).fill('usage.evidence.unknown')].join(','),
     ].join('\n'))
     expect(csvContent).toContain('IP Address')
     expect(csvContent).toContain('203.0.113.10')
@@ -408,6 +410,21 @@ describe('user UsageView', () => {
     expect(csvContent).not.toContain('Upstream Endpoint')
     expect(csvContent).not.toContain('account_cost')
     expect(csvContent).not.toContain('account_rate_multiplier')
+
+    // Exercise the real CSV path with micro amounts, zero and unknown values.
+    for (const amount of [0, 1e-8, -1e-8, null]) {
+      query.mockResolvedValueOnce({ items: [{ model: 'model-original-ID', created_at: '2026-11-01T05:30:00Z',
+        input_tokens: 23, actual_cost: amount, total_cost: amount }], total: 1, pages: 1 })
+      await (wrapper.vm as any).exportToCSV()
+      const row = csvContent.split('\n')[1].split(',')
+      expect(row[0]).toBe('2026-11-01T05:30:00Z')
+      expect(row[2]).toBe('model-original-ID')
+      expect(row[8]).toBe('23')
+      // CSV formula-injection escaping is retained for negative/unknown strings.
+      const expected = amount == null ? '-' : amount.toFixed(8)
+      expect(row[13].replaceAll('"', '').replace(/^'/, '')).toBe(expected)
+      expect(row[14].replaceAll('"', '').replace(/^'/, '')).toBe(expected)
+    }
 
     window.URL.createObjectURL = originalCreateObjectURL
     window.URL.revokeObjectURL = originalRevokeObjectURL
