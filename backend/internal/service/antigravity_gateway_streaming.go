@@ -288,6 +288,10 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 
+			// data frames above already include their blank separator.
+			if trimmed == "" {
+				continue
+			}
 			cw.Fprintf("%s\n", line)
 
 		case <-intervalCh:
