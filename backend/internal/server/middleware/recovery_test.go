@@ -43,6 +43,31 @@ func TestRecovery_PanicLogContainsInfo(t *testing.T) {
 	require.Contains(t, logOutput, "recovery_test.go", "日志应包含堆栈跟踪文件名")
 }
 
+func TestRecovery_DoesNotLogRequestCredentials(t *testing.T) {
+	previousMode := gin.Mode()
+	gin.SetMode(gin.DebugMode)
+	t.Cleanup(func() { gin.SetMode(previousMode) })
+	var buf bytes.Buffer
+	originalWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &buf
+	t.Cleanup(func() { gin.DefaultErrorWriter = originalWriter })
+	r := gin.New()
+	r.Use(Recovery())
+	r.GET("/panic", func(c *gin.Context) { panic("password=panic-secret") })
+	req := httptest.NewRequest(http.MethodGet, "/panic?api_key=query-secret", nil)
+	req.Header.Set("Authorization", "Bearer auth-secret")
+	req.Header.Set("X-Api-Key", "header-secret")
+	req.Header.Set("Cookie", "session=cookie-secret")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	require.Equal(t, http.StatusInternalServerError, w.Code)
+	for _, secret := range []string{"query-secret", "auth-secret", "header-secret", "cookie-secret", "panic-secret"} {
+		require.NotContains(t, buf.String(), secret)
+		require.NotContains(t, w.Body.String(), secret)
+	}
+	require.Contains(t, buf.String(), "recovery_test.go")
+}
+
 func TestRecovery(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 

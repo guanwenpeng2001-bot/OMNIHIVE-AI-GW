@@ -58,6 +58,9 @@ func (r *auditCaptureRepository) GetByID(context.Context, int64) (*service.Audit
 }
 func (r *auditCaptureRepository) Count(context.Context) (int64, error) { return 0, nil }
 func (r *auditCaptureRepository) TruncateAll(context.Context) error    { return nil }
+func (r *auditCaptureRepository) ClearWithTrace(context.Context, *service.AuditLog) (int64, error) {
+	return 0, nil
+}
 func (r *auditCaptureRepository) DeleteBefore(context.Context, time.Time, int) (int64, error) {
 	return 0, nil
 }
