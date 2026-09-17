@@ -545,13 +545,20 @@ func (s *OpenAIGatewayService) ProxyLiveSideband(
 	defer cancel()
 	errCh := make(chan error, 2)
 	go func() {
+		turn := 0
 		for {
 			messageType, payload, readErr := downstream.Read(proxyCtx)
 			if readErr != nil {
 				errCh <- readErr
 				return
 			}
-			if writeErr := upstream.WriteFrame(proxyCtx, messageType, payload); writeErr != nil {
+			if gjson.GetBytes(payload, "type").String() == "response.create" {
+				turn++
+				BeginAttemptStreamTurn(proxyCtx, turn)
+			}
+			if writeErr := generationWS(proxyCtx, record.AccountID, json.RawMessage(payload), func(sendCtx context.Context) error {
+				return upstream.WriteFrame(sendCtx, messageType, payload)
+			}); writeErr != nil {
 				errCh <- writeErr
 				return
 			}

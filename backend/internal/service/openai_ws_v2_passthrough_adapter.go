@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -18,6 +19,15 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 )
+
+type attemptFrameConn struct {
+	openaiwsv2.FrameConn
+	accountID int64
+}
+
+func (c *attemptFrameConn) WriteFrame(ctx context.Context, kind coderws.MessageType, payload []byte) error {
+	return generationWS(ctx, c.accountID, json.RawMessage(payload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
+}
 
 type openAIWSClientFrameConn struct {
 	conn                 *coderws.Conn
@@ -404,6 +414,9 @@ func (c *openAIWSPassthroughFirstOutputFrameConn) ReadFrame(ctx context.Context)
 			return
 		}
 		remaining := time.Until(state.deadline.startedAt.Add(state.deadline.timeout))
+		if deadline := attemptDeadline(ctx); !deadline.IsZero() && time.Until(deadline) < remaining {
+			remaining = time.Until(deadline)
+		}
 		if remaining < 0 {
 			remaining = 0
 		}
@@ -433,6 +446,11 @@ func (c *openAIWSPassthroughFirstOutputFrameConn) ReadFrame(ctx context.Context)
 			resetTimer()
 		case <-timerCh:
 			state := c.deadlineState()
+			if deadline := attemptDeadline(ctx); state.armed && !deadline.IsZero() && !time.Now().Before(deadline) {
+				cancelRead()
+				<-readResultCh
+				return coderws.MessageText, nil, context.DeadlineExceeded
+			}
 			if !state.armed || state.deadline.timeout <= 0 || time.Now().Before(state.deadline.startedAt.Add(state.deadline.timeout)) {
 				resetTimer()
 				continue
@@ -651,6 +669,7 @@ func (c *openAIWSClientFrameConn) WriteFrame(ctx context.Context, msgType coderw
 			payload = c.restoreToolNames(payload)
 		}
 	}
+	CommitAttemptResponse(c.controlCtx)
 	return c.conn.Write(ctx, msgType, payload)
 }
 
@@ -921,9 +940,10 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if !ok {
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
+	upstreamFrameConn = &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID}
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
 		inner:             upstreamFrameConn,
-		activeReadTimeout: s.openAIWSPassthroughIdleTimeout(),
+		activeReadTimeout: attemptTimeout(ctx, s.openAIWSPassthroughIdleTimeout()),
 		deadlineChanged:   make(chan struct{}, 1),
 		resolveDeadline: func(payload []byte) openAIWSPassthroughFirstOutputDeadline {
 			reasoningEffort := ""
@@ -934,6 +954,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if timeout <= 0 {
 				timeout = s.openAIWSPassthroughIdleTimeout()
 			}
+			timeout = attemptTimeout(ctx, timeout)
 			model := openAIWSPassthroughRequestModelForFrame(payload)
 			if model == "" {
 				model = usageMeta.requestModelForFrame(payload)

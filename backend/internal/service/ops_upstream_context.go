@@ -178,6 +178,9 @@ func BeginOpsStreamTurn(c *gin.Context, turn int) {
 	if c == nil || turn <= 0 {
 		return
 	}
+	if c.Request != nil {
+		BeginAttemptStreamTurn(c.Request.Context(), turn)
+	}
 	c.Set(OpsStreamTurnKey, turn)
 	// Rule and attempt state is turn-scoped on a long-lived WS connection.
 	c.Set(OpsSkipPassthroughKey, false)
