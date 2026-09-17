@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -85,45 +88,53 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		return "", errors.New("not an antigravity oauth account")
 	}
 
-	cacheKey := AntigravityTokenCacheKey(account)
+	// Retire legacy shared keys without ever reading them.
+	if p.tokenCache != nil {
+		for _, key := range antigravityLegacyTokenCacheKeys(account) {
+			_ = p.tokenCache.DeleteAccessToken(ctx, key)
+		}
+	}
+	var err error
+	account, err = p.currentOAuthAccount(ctx, account)
+	if err != nil {
+		return "", err
+	}
+	cacheKey := antigravityCredentialTokenCacheKey(account)
+	expiresAt := account.GetCredentialAsTime("expires_at")
 
 	// 1) Try cache first.
-	if p.tokenCache != nil {
+	if p.tokenCache != nil && (expiresAt == nil || expiresAt.After(time.Now())) {
 		if token, err := p.tokenCache.GetAccessToken(ctx, cacheKey); err == nil && strings.TrimSpace(token) != "" {
 			return token, nil
 		}
 	}
 
 	// 2) Refresh if needed (pre-expiry skew).
-	expiresAt := account.GetCredentialAsTime("expires_at")
 	needsRefresh := expiresAt == nil || time.Until(*expiresAt) <= antigravityTokenRefreshSkew
 	if needsRefresh && p.refreshAPI != nil && p.executor != nil {
 		// 请求路径使用短超时，避免代理不通时阻塞过久（后台刷新服务会继续重试）
 		refreshCtx, cancel := context.WithTimeout(ctx, antigravityRequestRefreshTimeout)
 		defer cancel()
-		result, err := p.refreshAPI.RefreshIfNeeded(refreshCtx, account, p.executor, antigravityTokenRefreshSkew)
+		result, err := p.refreshAPI.RefreshIfNeeded(withOAuthRefreshRequestPath(refreshCtx), account, p.executor, antigravityTokenRefreshSkew)
 		if err != nil {
 			// 标记账号临时不可调度，避免后续请求继续命中
 			p.markTempUnschedulable(account, err)
 			if p.refreshPolicy.OnRefreshError == ProviderRefreshErrorReturn {
 				return "", err
 			}
-		} else if result.LockHeld {
-			if p.refreshPolicy.OnLockHeld == ProviderLockHeldWaitForCache && p.tokenCache != nil {
-				if token, cacheErr := p.tokenCache.GetAccessToken(ctx, cacheKey); cacheErr == nil && strings.TrimSpace(token) != "" {
-					return token, nil
-				}
-			}
-			// default policy: continue with existing token.
-		} else {
+		} else if !result.LockHeld {
 			account = result.Account
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
+		// When another worker holds the lock, re-read durable credentials below.
+		// Cached tokens must not bypass the final expiry and revocation checks.
 	} else if needsRefresh && p.tokenCache != nil {
 		// Backward-compatible test path when refreshAPI is not injected.
-		locked, err := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, 30*time.Second)
+		lockKey := AntigravityTokenCacheKey(account)
+		lockOwner := newRefreshLockOwner()
+		locked, err := p.tokenCache.AcquireRefreshLock(ctx, lockKey, lockOwner, 30*time.Second)
 		if err == nil && locked {
-			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, cacheKey) }()
+			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, lockKey, lockOwner) }()
 		}
 	}
 
@@ -148,30 +159,29 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		}
 	}
 
-	// 3) Populate cache with TTL.
+	// Re-read after refresh/backfill. Late writes stay in their old fingerprint;
+	// readers always derive the cache key from the durable credentials.
+	account, err = p.currentOAuthAccount(ctx, account)
+	if err != nil {
+		return "", err
+	}
+	accessToken = account.GetCredential("access_token")
+	if strings.TrimSpace(accessToken) == "" {
+		return "", errors.New("access_token not found after version check")
+	}
+	expiresAt = account.GetCredentialAsTime("expires_at")
+	if expiresAt != nil && !expiresAt.After(time.Now()) {
+		return "", errors.New("antigravity access_token has expired")
+	}
 	if p.tokenCache != nil {
-		latestAccount, isStale := CheckTokenVersion(ctx, account, p.accountRepo)
-		if isStale && latestAccount != nil {
-			slog.Debug("antigravity_token_version_stale_use_latest", "account_id", account.ID)
-			accessToken = latestAccount.GetCredential("access_token")
-			if strings.TrimSpace(accessToken) == "" {
-				return "", errors.New("access_token not found after version check")
+		ttl := 30 * time.Minute
+		if expiresAt != nil {
+			ttl = time.Until(*expiresAt)
+			if ttl > antigravityTokenCacheSkew {
+				ttl -= antigravityTokenCacheSkew
 			}
-		} else {
-			ttl := 30 * time.Minute
-			if expiresAt != nil {
-				until := time.Until(*expiresAt)
-				switch {
-				case until > antigravityTokenCacheSkew:
-					ttl = until - antigravityTokenCacheSkew
-				case until > 0:
-					ttl = until
-				default:
-					ttl = time.Minute
-				}
-			}
-			_ = p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl)
 		}
+		_ = p.tokenCache.SetAccessToken(ctx, antigravityCredentialTokenCacheKey(account), accessToken, ttl)
 	}
 
 	return accessToken, nil
@@ -230,10 +240,44 @@ func (p *AntigravityTokenProvider) markBackfillAttempted(accountID int64) {
 	p.backfillCooldown.Store(accountID, time.Now())
 }
 
+// AntigravityTokenCacheKey is the stable credential-owner refresh lock key.
+// A project is a routing scope, not an OAuth credential owner.
 func AntigravityTokenCacheKey(account *Account) string {
-	projectID := strings.TrimSpace(account.GetCredential("project_id"))
-	if projectID != "" {
-		return "ag:" + projectID
-	}
 	return "ag:account:" + strconv.FormatInt(account.ID, 10)
+}
+
+func antigravityCredentialTokenCacheKey(account *Account) string {
+	// Credential fingerprints also cover manual reauthorization and rollback
+	// that do not increase the explicit version. Secrets never appear in keys.
+	encoded, _ := json.Marshal([]string{
+		account.GetCredential("access_token"), account.GetCredential("refresh_token"),
+		strconv.FormatInt(account.GetCredentialAsInt64("_token_version"), 10),
+		account.GetCredential("expires_at"),
+	})
+	digest := sha256.Sum256(encoded)
+	return "ag:credentials:account:" + strconv.FormatInt(account.ID, 10) + ":" + hex.EncodeToString(digest[:])
+}
+
+func antigravityLegacyTokenCacheKeys(account *Account) []string {
+	keys := []string{AntigravityTokenCacheKey(account)}
+	if projectID := strings.TrimSpace(account.GetCredential("project_id")); projectID != "" {
+		keys = append(keys, "ag:"+projectID)
+	}
+	return keys
+}
+
+func (p *AntigravityTokenProvider) currentOAuthAccount(ctx context.Context, account *Account) (*Account, error) {
+	if p.accountRepo == nil {
+		return account, nil
+	}
+	latest, err := p.accountRepo.GetByID(ctx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+	if latest == nil || latest.ID != account.ID || !latest.IsActive() ||
+		latest.Platform != PlatformAntigravity || latest.Type != AccountTypeOAuth ||
+		strings.TrimSpace(latest.GetCredential("access_token")) == "" {
+		return nil, errors.New("antigravity OAuth credentials revoked or unavailable")
+	}
+	return snapshotOAuthRefreshAccount(latest), nil
 }

@@ -429,10 +429,10 @@ func (f *fakeGeminiTokenCache) DeleteAccessToken(context.Context, string) error 
 	return nil
 }
 
-func (f *fakeGeminiTokenCache) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (f *fakeGeminiTokenCache) AcquireRefreshLock(context.Context, string, string, time.Duration) (bool, error) {
 	return false, nil
 }
 
-func (f *fakeGeminiTokenCache) ReleaseRefreshLock(context.Context, string) error {
+func (f *fakeGeminiTokenCache) ReleaseRefreshLock(context.Context, string, string) error {
 	return nil
 }
