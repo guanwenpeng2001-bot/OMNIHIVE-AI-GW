@@ -1,0 +1,116 @@
+package handler
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http/httptest"
+	"testing"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+type historyRepo struct {
+	service.RedeemCodeRepository
+	userID      int64
+	params      pagination.PaginationParams
+	legacyLimit int
+	codeType    string
+	err         error
+}
+
+func (r *historyRepo) ListByUser(_ context.Context, userID int64, limit int) ([]service.RedeemCode, error) {
+	r.userID, r.legacyLimit = userID, limit
+	return []service.RedeemCode{}, r.err
+}
+func (r *historyRepo) ListByUserPaginated(_ context.Context, userID int64, params pagination.PaginationParams, codeType string) ([]service.RedeemCode, *pagination.PaginationResult, error) {
+	r.userID, r.params = userID, params
+	r.codeType = codeType
+	return []service.RedeemCode{}, &pagination.PaginationResult{Total: 101}, r.err
+}
+func TestRedeemHistory(t *testing.T) {
+	for _, tt := range []struct {
+		name, query        string
+		userID             int64
+		status, page, size int
+	}{
+		{"legacy", "", 7, 200, 0, 0},
+		{"legacy ignores user query", "?user_id=8", 7, 200, 0, 0},
+		{"empty params", "?page=&page_size=", 7, 400, 0, 0},
+		{"default", "?page=1", 7, 200, 1, 20},
+		{"size only", "?page_size=50", 7, 200, 1, 50},
+		{"second user", "?page=2&page_size=100&user_id=7", 8, 200, 2, 100},
+		{"cap", "?page_size=101", 7, 200, 1, 100},
+		{"beyond last", "?page=100&page_size=20", 7, 200, 100, 20},
+		{"zero", "?page=0", 7, 400, 0, 0},
+		{"zero size", "?page_size=0", 7, 400, 0, 0},
+		{"negative page", "?page=-1", 7, 400, 0, 0},
+		{"negative", "?page_size=-1", 7, 400, 0, 0},
+		{"invalid", "?page=abc", 7, 400, 0, 0},
+		{"invalid size", "?page_size=abc", 7, 400, 0, 0},
+		{"integer overflow", "?page=999999999999999999999", 7, 400, 0, 0},
+		{"overflow", "?page=9223372036854775807", 7, 400, 0, 0},
+		{"unauthenticated", "?page=1", 0, 401, 0, 0},
+		{"legacy unauthenticated", "", 0, 401, 0, 0},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			repo := &historyRepo{}
+			h := NewRedeemHandler(service.NewRedeemService(repo, nil, nil, nil, nil, nil, nil, nil))
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", "/api/v1/redeem/history"+tt.query, nil)
+			if tt.userID != 0 {
+				c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: tt.userID})
+			}
+			h.GetHistory(c)
+			require.Equal(t, tt.status, w.Code)
+			if tt.status != 200 {
+				require.Zero(t, repo.userID)
+				return
+			}
+			require.Equal(t, tt.userID, repo.userID)
+			var body struct {
+				Data json.RawMessage `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			if tt.page == 0 {
+				require.Equal(t, 25, repo.legacyLimit)
+				require.JSONEq(t, "[]", string(body.Data))
+				return
+			}
+			require.Equal(t, tt.page, repo.params.Page)
+			require.Equal(t, tt.size, repo.params.PageSize)
+			require.Empty(t, repo.codeType, "history must include every redemption type")
+			var data struct {
+				Items []service.RedeemCode `json:"items"`
+				Total int                  `json:"total"`
+				Page  int                  `json:"page"`
+				Size  int                  `json:"page_size"`
+			}
+			require.NoError(t, json.Unmarshal(body.Data, &data))
+			require.NotNil(t, data.Items)
+			require.Equal(t, 101, data.Total)
+			require.Equal(t, tt.page, data.Page)
+			require.Equal(t, tt.size, data.Size)
+		})
+	}
+}
+
+func TestRedeemHistoryRepositoryFailure(t *testing.T) {
+	for _, query := range []string{"", "?page=1"} {
+		t.Run(query, func(t *testing.T) {
+			repo := &historyRepo{err: errors.New("history unavailable")}
+			h := NewRedeemHandler(service.NewRedeemService(repo, nil, nil, nil, nil, nil, nil, nil))
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest("GET", "/api/v1/redeem/history"+query, nil)
+			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 7})
+			h.GetHistory(c)
+			require.Equal(t, 500, w.Code)
+		})
+	}
+}
