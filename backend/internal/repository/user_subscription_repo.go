@@ -2,8 +2,10 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
@@ -79,7 +81,7 @@ func (r *userSubscriptionRepository) GetByIDForUpdate(ctx context.Context, id in
 	client := clientFromContext(ctx, r.client)
 	m, err := client.UserSubscription.Query().
 		Where(usersubscription.IDEQ(id)).
-		ForUpdate().
+		ForUpdate(func(options *entsql.LockOptions) { options.Strength = entsql.LockNoKeyUpdate }).
 		Only(ctx)
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrSubscriptionNotFound, nil)
@@ -503,15 +505,11 @@ func (r *userSubscriptionRepository) IncrementUsage(ctx context.Context, id int6
 }
 
 func (r *userSubscriptionRepository) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
-	client := clientFromContext(ctx, r.client)
-	n, err := client.UserSubscription.Update().
-		Where(
-			usersubscription.StatusEQ(service.SubscriptionStatusActive),
-			usersubscription.ExpiresAtLTE(time.Now()),
-		).
-		SetStatus(service.SubscriptionStatusExpired).
-		Save(ctx)
-	return int64(n), err
+	return r.withOrderedSubscriptions(ctx, []predicate.UserSubscription{
+		usersubscription.StatusEQ(service.SubscriptionStatusActive), usersubscription.ExpiresAtLTE(time.Now()),
+	}, func(ctx context.Context, client *dbent.Client, ids []int64) (int, error) {
+		return client.UserSubscription.Update().Where(usersubscription.IDIn(ids...)).SetStatus(service.SubscriptionStatusExpired).Save(ctx)
+	})
 }
 
 // Extra repository helpers (currently used only by integration tests).
@@ -549,9 +547,46 @@ func (r *userSubscriptionRepository) CountActiveByGroupID(ctx context.Context, g
 }
 
 func (r *userSubscriptionRepository) DeleteByGroupID(ctx context.Context, groupID int64) (int64, error) {
+	return r.withOrderedSubscriptions(ctx, []predicate.UserSubscription{usersubscription.GroupIDEQ(groupID)}, func(ctx context.Context, client *dbent.Client, ids []int64) (int, error) {
+		return client.UserSubscription.Delete().Where(usersubscription.IDIn(ids...)).Exec(ctx)
+	})
+}
+
+// Lock the exact batch in ID order before updating it. PostgreSQL's UPDATE
+// execution plan alone does not guarantee row order. Reuse the caller's atomic
+// transaction and ORM soft-delete hooks, including explicit hard-delete contexts.
+func (r *userSubscriptionRepository) withOrderedSubscriptions(ctx context.Context, filters []predicate.UserSubscription, update func(context.Context, *dbent.Client, []int64) (int, error)) (int64, error) {
+	if dbent.TxFromContext(ctx) == nil {
+		tx, err := r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return 0, err
+		}
+		if err == nil {
+			defer func() { _ = tx.Rollback() }()
+			n, err := r.withOrderedSubscriptions(dbent.NewTxContext(ctx, tx), filters, update)
+			if err != nil {
+				return 0, err
+			}
+			return n, tx.Commit()
+		}
+		// A repository constructed with tx.Client() already owns the caller's
+		// transaction even when the context carries no Ent transaction.
+	}
 	client := clientFromContext(ctx, r.client)
-	n, err := client.UserSubscription.Delete().Where(usersubscription.GroupIDEQ(groupID)).Exec(ctx)
-	return int64(n), err
+	ids, err := client.UserSubscription.Query().Where(filters...).Order(dbent.Asc(usersubscription.FieldID)).
+		ForUpdate(func(options *entsql.LockOptions) { options.Strength = entsql.LockNoKeyUpdate }).IDs(ctx)
+	if err != nil || len(ids) == 0 {
+		return 0, err
+	}
+	var total int64
+	for start := 0; start < len(ids); start += 1000 {
+		n, err := update(ctx, client, ids[start:min(start+1000, len(ids))])
+		if err != nil {
+			return 0, err
+		}
+		total += int64(n)
+	}
+	return total, nil
 }
 
 func (r *userSubscriptionRepository) attachUserSubscriptionRelations(ctx context.Context, subs []service.UserSubscription) error {

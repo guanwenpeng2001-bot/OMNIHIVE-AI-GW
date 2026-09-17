@@ -2,9 +2,12 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"errors"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -20,6 +23,14 @@ func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBill
 }
 
 func (r *usageBillingRepository) Apply(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
+	if cmd == nil {
+		return &service.UsageBillingApplyResult{}, nil
+	}
+	copy := *cmd
+	return withBillingAdmission(ctx, copy.UserID, func(ctx context.Context) (*service.UsageBillingApplyResult, error) { return r.apply(ctx, &copy) })
+}
+
+func (r *usageBillingRepository) apply(ctx context.Context, cmd *service.UsageBillingCommand) (_ *service.UsageBillingApplyResult, err error) {
 	if cmd == nil {
 		return &service.UsageBillingApplyResult{}, nil
 	}
@@ -110,20 +121,33 @@ func (r *usageBillingRepository) claimUsageBillingRequest(ctx context.Context, t
 }
 
 func (r *usageBillingRepository) ReserveBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, reserveUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, "reserve", reserveUsageBillingBatchImageBalance)
 }
 
 func (r *usageBillingRepository) CaptureBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, captureUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, "capture", captureUsageBillingBatchImageBalance)
 }
 
 func (r *usageBillingRepository) ReleaseBatchImageBalance(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {
-	return r.applyBatchImageBalanceHold(ctx, cmd, releaseUsageBillingBatchImageBalance)
+	return r.applyBatchImageBalanceHold(ctx, cmd, "release", releaseUsageBillingBatchImageBalance)
 }
 
 func (r *usageBillingRepository) applyBatchImageBalanceHold(
 	ctx context.Context,
 	cmd *service.BatchImageBalanceHoldCommand,
+	operation string,
+	apply func(context.Context, *sql.Tx, *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error),
+) (_ *service.BatchImageBalanceHoldResult, err error) {
+	if cmd == nil {
+		return &service.BatchImageBalanceHoldResult{}, nil
+	}
+	copy := *cmd
+	return withBillingAdmission(ctx, copy.UserID, func(ctx context.Context) (*service.BatchImageBalanceHoldResult, error) {
+		return r.applyBatchImageBalanceHoldOnce(ctx, &copy, operation, apply)
+	})
+}
+
+func (r *usageBillingRepository) applyBatchImageBalanceHoldOnce(ctx context.Context, cmd *service.BatchImageBalanceHoldCommand, operation string,
 	apply func(context.Context, *sql.Tx, *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error),
 ) (_ *service.BatchImageBalanceHoldResult, err error) {
 	if cmd == nil {
@@ -147,6 +171,43 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 		}
 	}()
 
+	// Capture and release used to have independent dedup identities, allowing
+	// both to consume another job's frozen funds. Claim a shared terminal
+	// identity FIRST, then the legacy operation identity, then the user row.
+	// This works across instances and retains the old fingerprints unchanged.
+	if operation != "reserve" {
+		if cmd.BatchID == "" {
+			return nil, service.ErrUsageBillingRequestIDRequired
+		}
+		terminalFingerprint := sha256.Sum256([]byte(operation + ":" + strings.TrimSpace(cmd.RequestFingerprint)))
+		claimed, err := r.claimUsageBillingRequest(ctx, tx, "batch_image_terminal:"+cmd.BatchID, cmd.APIKeyID, hex.EncodeToString(terminalFingerprint[:]))
+		if err != nil {
+			return nil, err
+		}
+		if !claimed {
+			return &service.BatchImageBalanceHoldResult{Applied: false}, nil
+		}
+		opposite := service.BatchImageCaptureRequestID(cmd.BatchID)
+		if operation == "capture" {
+			opposite = service.BatchImageReleaseRequestID(cmd.BatchID)
+		}
+		exists, err := batchImageHoldClaimExists(ctx, tx, opposite, cmd.APIKeyID)
+		if err != nil {
+			return nil, err
+		}
+		if exists {
+			return nil, service.ErrUsageBillingRequestConflict
+		}
+		if operation == "capture" && cmd.HoldAmount > 0 {
+			held, err := batchImageHoldClaimExists(ctx, tx, service.BatchImageHoldRequestID(cmd.BatchID), cmd.APIKeyID)
+			if err != nil {
+				return nil, err
+			}
+			if !held {
+				return nil, service.ErrBatchImageBillingHoldFailed
+			}
+		}
+	}
 	applied, err := r.claimUsageBillingRequest(ctx, tx, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint)
 	if err != nil {
 		return nil, err
@@ -172,10 +233,12 @@ func (r *usageBillingRepository) applyBatchImageBalanceHold(
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
-	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
-		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
-			return err
-		}
+	// Universal financial row order: user -> subscription -> API key -> account
+	// -> platform quota (derived effect). Receipt/job and dedup/usage identities
+	// precede these rows; never acquire an identity after a financial row.
+	// NO KEY UPDATE is compatible with usage foreign-key KEY SHARE locks.
+	if err := lockUsageBillingEffects(ctx, tx, cmd); err != nil {
+		return err
 	}
 
 	if cmd.BalanceCost > 0 {
@@ -185,6 +248,11 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		}
 		result.NewBalance = &newBalance
 		result.BalanceOverdrafted = !sufficient
+	}
+	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
+		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
+			return err
+		}
 	}
 
 	if cmd.APIKeyQuotaCost > 0 {
@@ -209,6 +277,39 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 		result.QuotaState = quotaState
 	}
 
+	return nil
+}
+
+func lockUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+	rows := []struct {
+		table   string
+		id      int64
+		needed  bool
+		missing error
+	}{
+		{"users", cmd.UserID, cmd.BalanceCost > 0, service.ErrUserNotFound},
+		{"user_subscriptions", 0, cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil, service.ErrSubscriptionNotFound},
+		{"api_keys", cmd.APIKeyID, cmd.APIKeyQuotaCost > 0 || cmd.APIKeyRateLimitCost > 0, service.ErrAPIKeyNotFound},
+		{"accounts", cmd.AccountID, cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)), service.ErrAccountNotFound},
+	}
+	if cmd.SubscriptionID != nil {
+		rows[1].id = *cmd.SubscriptionID
+	}
+	for _, row := range rows {
+		if !row.needed {
+			continue
+		}
+		started := time.Now()
+		var id int64
+		err := tx.QueryRowContext(ctx, "SELECT id FROM "+row.table+" WHERE id=$1 AND deleted_at IS NULL FOR NO KEY UPDATE", row.id).Scan(&id)
+		observeBillingLock(started)
+		if errors.Is(err, sql.ErrNoRows) {
+			return row.missing
+		}
+		if err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

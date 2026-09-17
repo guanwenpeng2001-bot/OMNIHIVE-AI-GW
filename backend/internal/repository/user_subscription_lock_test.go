@@ -39,5 +39,5 @@ func TestUserSubscriptionGetByIDForUpdateLocksRow(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, int64(7), sub.ID)
 	require.NoError(t, mock.ExpectationsWereMet())
-	require.Contains(t, strings.ToUpper(normalizeSQLWhitespace(capturedSQL)), "FOR UPDATE")
+	require.Contains(t, strings.ToUpper(normalizeSQLWhitespace(capturedSQL)), "FOR NO KEY UPDATE")
 }

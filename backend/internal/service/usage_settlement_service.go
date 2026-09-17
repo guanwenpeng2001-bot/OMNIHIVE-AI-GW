@@ -36,6 +36,11 @@ func (s *UsageSettlementService) Status(ctx context.Context, requestID string, a
 		return nil, err
 	}
 	status.PersistenceUnconfirmed = s.persistFailures.Load()
+	if stats, ok := s.repo.(interface {
+		SettlementContention() *UsageSettlementContention
+	}); ok {
+		status.Contention = stats.SettlementContention()
+	}
 	status.RecoveryBoundary = UsageSettlementRecoveryBoundary
 	return status, nil
 }
@@ -80,6 +85,9 @@ func (s *UsageSettlementService) Stop() {
 // Submit returns only after the complete frozen receipt has committed. A failed
 // acknowledgement is resolved by the original identity, never by a new request.
 func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlementReceipt, after func(context.Context, *UsageSettlementResult)) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	if input == nil {
 		return s.persistenceError(UsageSettlementKey{}, fmt.Errorf("usage settlement receipt is nil"))
 	}
@@ -99,19 +107,29 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 			return s.persistenceError(prepared.Key, fmt.Errorf("persist: %v; lookup: %w", persistErr, err))
 		}
 	}
-	if stored.Command.RequestFingerprint != prepared.Command.RequestFingerprint {
+	if stored == nil {
+		return s.persistenceError(prepared.Key, fmt.Errorf("receipt acknowledgement is empty"))
+	}
+	if stored.Key != prepared.Key || stored.Command.RequestFingerprint != prepared.Command.RequestFingerprint {
 		slog.Error("usage settlement conflict", "request_id", prepared.Key.RequestID, "failure_category", "conflict")
 		return ErrUsageBillingRequestConflict
 	}
 	if stored.State == UsageSettlementNeedsReview {
 		return ErrUsageSettlementNeedsReview
 	}
+	if stored.State != UsageSettlementPending && stored.State != UsageSettlementSettled {
+		return s.persistenceError(prepared.Key, fmt.Errorf("invalid persisted receipt state"))
+	}
 	requestID, _ := ctx.Value(ctxkey.RequestID).(string)
 	slog.Info("usage receipt accepted", "component", "billing", "request_id", requestID, "client_request_id", stored.Key.RequestID)
+	// Queue only durable identity as billing evidence, never a caller-owned
+	// receipt pointer. The optional post-commit callback is best-effort only;
+	// recovery and every financial effect depend exclusively on the repository.
+	key, fingerprint := stored.Key, stored.Command.RequestFingerprint
 	task := func(ctx context.Context) {
-		result, err := s.settle(ctx, stored)
+		result, err := s.settleIdentity(ctx, key, fingerprint)
 		if err != nil {
-			slog.Error("usage settlement pending", "request_id", stored.Key.RequestID, "api_key_id", stored.Key.APIKeyID, "failure_category", billingFailureCategory(err))
+			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
 			return
 		}
 		if after != nil && result.Billing != nil && result.Billing.Applied {
@@ -135,9 +153,20 @@ func (s *UsageSettlementService) persistenceError(key UsageSettlementKey, err er
 }
 
 func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettlementReceipt) (*UsageSettlementResult, error) {
-	result, err := s.repo.Settle(ctx, receipt.Key, receipt.Command.RequestFingerprint)
+	return s.settleIdentity(ctx, receipt.Key, receipt.Command.RequestFingerprint)
+}
+
+func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSettlementKey, fingerprint string) (*UsageSettlementResult, error) {
+	result, err := s.repo.Settle(ctx, key, fingerprint)
 	if err != nil {
 		return nil, err
+	}
+	if result == nil || result.Receipt == nil || result.Billing == nil {
+		return nil, fmt.Errorf("settlement acknowledgement is incomplete")
+	}
+	receipt := result.Receipt
+	if receipt.Key != key || receipt.Command.RequestFingerprint != fingerprint {
+		return nil, ErrUsageBillingRequestConflict
 	}
 	// Recovery has no original request callback. Refresh quota-bearing auth
 	// snapshots here, including replay after a lost settlement acknowledgement.
@@ -162,7 +191,17 @@ func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettl
 	return result, nil
 }
 
+type usageSettlementRecoveryContextKey struct{}
+
+// IsUsageSettlementRecovery allows repository admission to reserve bounded
+// capacity for durable backlog even while new submissions saturate a payer.
+func IsUsageSettlementRecovery(ctx context.Context) bool {
+	recovery, _ := ctx.Value(usageSettlementRecoveryContextKey{}).(bool)
+	return recovery
+}
+
 func (s *UsageSettlementService) Recover(ctx context.Context) error {
+	ctx = context.WithValue(ctx, usageSettlementRecoveryContextKey{}, true)
 	var cursor int64
 	for {
 		rows, err := s.repo.ListPending(ctx, cursor, 100)
