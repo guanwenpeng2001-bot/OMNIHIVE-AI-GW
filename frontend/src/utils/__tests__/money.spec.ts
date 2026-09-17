@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest'
-import { formatLedgerAmount, formatBalanceAmount, formatMoney, formatUnitPrice, accountBilledAmount } from '../money'
+import { formatLedgerAmount, formatBalanceAmount, formatMoney, accountBilledAmount } from '../money'
 import { formatCurrency, formatDateTimeWithZone, formatDateTime, formatRelativeTime, formatRelativeWithDateTime } from '../format'
 import { formatScaled } from '../pricing'
 import { formatTokenPricePerMillion } from '../usagePricing'
@@ -29,8 +29,6 @@ describe('amount and unit contract', () => {
     expect(formatBalanceAmount(-1e-8)).toBe('-0.00000001')
     expect(formatMoney(0, 'CNY')).toBe('CNY 0.00')
     expect(formatMoney(0, 'USD')).toBe('USD 0.00')
-    expect(formatUnitPrice(1e-9, 'CNY', 'tokens')).toBe('CNY 1e-9 / tokens')
-    expect(formatUnitPrice(0, 'USD', 'images')).toBe('USD 0.00000000 / images')
     expect(formatTokenPricePerMillion(1e-8, 1e6)).toBe('$0.00000001')
   })
   it('does not corrupt scientific exponents or non-finite price cards', () => {

@@ -30,13 +30,6 @@ export function formatMoney(value: Amount, currency = 'USD', kind: 'balance' | '
   return `${currency} ${kind === 'ledger' ? formatLedgerAmount(value) : formatBalanceAmount(value, locale)}`
 }
 
-export function formatUnitPrice(value: Amount, currency: string, unit: string): string {
-  if (!isKnownAmount(value)) return UNKNOWN_AMOUNT
-  // Preserve sub-ledger unit prices as well; unit prices are not rounded charges.
-  const price = value !== 0 && Math.abs(value) < 1e-8 ? String(value) : formatLedgerAmount(value)
-  return `${currency} ${price} / ${unit}`
-}
-
 export function accountBilledAmount(row: { total_cost?: Amount; account_stats_cost?: Amount; account_rate_multiplier?: Amount }): number | null {
   const base = row.account_stats_cost ?? row.total_cost
   const rate = row.account_rate_multiplier ?? 1

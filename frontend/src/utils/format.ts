@@ -63,6 +63,18 @@ export function formatCurrency(amount: number | null | undefined, currency: stri
   return formatMoney(amount, currency, 'balance', getLocale())
 }
 
+/** Preserve the account table's existing currency symbols and six-digit small amounts. */
+export function formatAccountStatsCurrency(amount: number | null | undefined): string {
+  if (amount === null || amount === undefined) return '$0.00'
+  const fractionDigits = amount > 0 && amount < 0.01 ? 6 : 2
+  return new Intl.NumberFormat(getLocale(), {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: fractionDigits,
+    maximumFractionDigits: fractionDigits
+  }).format(amount)
+}
+
 /**
  * 格式化字节大小
  * @param bytes 字节数

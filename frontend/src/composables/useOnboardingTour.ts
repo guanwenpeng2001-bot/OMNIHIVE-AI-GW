@@ -125,6 +125,16 @@ export function useOnboardingTour(options: OnboardingOptions) {
     localStorage.removeItem(getStorageKey())
   }
 
+  // A manual exit pauses this user's tour for this login, without completing it.
+  // The auth revision changes on login/logout, but not on token refresh.
+  const dismissalKey = () => `${getStorageKey()}_dismissed`
+  const loginSession = () => userStore.sessionRevision ?? 'legacy-session'
+  const isDismissed = () => sessionStorage.getItem(dismissalKey()) === loginSession()
+  const dismissTour = () => {
+    sessionStorage.setItem(dismissalKey(), loginSession())
+    cancelTour()
+  }
+
   /**
    * 检查元素是否存在，如果不存在则重试
    */
@@ -211,7 +221,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
       onPrevClick: () => {
         driverInstance?.movePrevious()
       },
-      onCloseClick: cancelTour,
+      onCloseClick: dismissTour,
 
       // 渲染时重组 Footer 布局
       onPopoverRender: (popover, { config, state }) => {
@@ -490,7 +500,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
       if (e.key === 'Escape') {
         e.preventDefault()
         e.stopPropagation()
-        cancelTour()
+        dismissTour()
         return
       }
 
@@ -593,6 +603,7 @@ export function useOnboardingTour(options: OnboardingOptions) {
 
   const replayTour = () => {
     clearSeen()
+    sessionStorage.removeItem(dismissalKey())
     void startTour()
   }
 
@@ -618,9 +629,9 @@ export function useOnboardingTour(options: OnboardingOptions) {
       return
     }
 
-    if (!options.autoStart || hasSeen()) return
+    if (!options.autoStart || hasSeen() || isDismissed()) return
     autoStartTimer = setTimeout(() => {
-      void startTour()
+      if (!hasSeen() && !isDismissed()) void startTour()
     }, TIMING.AUTO_START_DELAY_MS)
   })
 
