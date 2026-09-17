@@ -22,7 +22,7 @@ const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
 
-watchIdentityRouteRecovery(router)
+watchIdentityRouteRecovery(router, authStore)
 
 function updateDocumentTitle() {
   const customMenuItems = [

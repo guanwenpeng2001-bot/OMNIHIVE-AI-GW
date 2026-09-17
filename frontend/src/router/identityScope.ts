@@ -3,8 +3,7 @@ import { useAuthStore } from '@/stores/auth'
 import type { Router } from 'vue-router'
 
 /** Recover an already-open protected route when another tab revokes its identity. */
-export function watchIdentityRouteRecovery(router: Router) {
-  const auth = useAuthStore()
+export function watchIdentityRouteRecovery(router: Router, auth: ReturnType<typeof useAuthStore>) {
   return watch([() => auth.isAuthenticated, () => auth.isAdmin], () => {
     const route = router.currentRoute.value
     if (route.meta.requiresAuth === false) return
