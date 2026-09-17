@@ -14,7 +14,11 @@ const mocks = vi.hoisted(() => ({
 }))
 vi.mock('vue-router', () => ({
   RouterView: { template: '<div />' },
-  useRouter: () => ({ afterEach: () => mocks.removeRouteHook, replace: vi.fn() }),
+  useRouter: () => ({
+    afterEach: () => mocks.removeRouteHook,
+    replace: vi.fn(),
+    currentRoute: { value: { path: '/dashboard', fullPath: '/dashboard', meta: {} } },
+  }),
   useRoute: () => ({ path: '/dashboard', fullPath: '/dashboard', meta: {}, params: {} }),
 }))
 vi.mock('@/stores', () => ({

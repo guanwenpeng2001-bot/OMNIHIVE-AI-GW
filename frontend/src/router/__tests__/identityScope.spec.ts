@@ -30,7 +30,7 @@ describe('route identity boundary', () => {
     ] })
     await router.push('/keys?search=private#list')
     const wrapper = mount(defineComponent({ setup() {
-      watchIdentityRouteRecovery(router)
+      watchIdentityRouteRecovery(router, state.current)
       return () => h(RouterView)
     } }), { global: { plugins: [router] } })
     expect(wrapper.text()).toBe('Private data')
