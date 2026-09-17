@@ -727,6 +727,60 @@ func TestBatchImagePublicService_StatusItemsAndCancel(t *testing.T) {
 	})
 }
 
+func TestBatchImagePublicService_GeminiSubmitFailureStage(t *testing.T) {
+	for _, tc := range []struct {
+		name        string
+		client      *fakeGeminiBatchClient
+		wantStatus  string
+		wantCode    string
+		wantCalls   []string
+		wantRelease int
+	}{
+		{"upload_401", &fakeGeminiBatchClient{uploadErr: &GeminiAPIError{StatusCode: 401, Message: "unauthorized"}}, BatchImageJobStatusFailed, "SUBMISSION_NOT_CREATED", []string{"upload"}, 1},
+		{"create_outcome_unknown", &fakeGeminiBatchClient{createErr: errors.New("connection reset after create")}, BatchImageJobStatusUploading, "SUBMISSION_UNKNOWN", []string{"upload", "create"}, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			svc, repo, _, _, _ := newTestBatchImagePublicService(true)
+			svc.ProviderRegistry = NewBatchImageProviderRegistry(NewGeminiAPIBatchImageProvider(tc.client))
+			_, err := svc.Submit(context.Background(), testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+			require.ErrorIs(t, err, ErrBatchImageProviderSubmitFailed)
+			require.Equal(t, tc.wantCalls, tc.client.calls)
+			billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+			require.Len(t, billing.reserves, 1)
+			require.Len(t, billing.releases, tc.wantRelease)
+			require.Empty(t, billing.captures)
+			require.Len(t, repo.jobs, 1)
+			for _, job := range repo.jobs {
+				require.Equal(t, tc.wantStatus, job.Status)
+				require.Equal(t, tc.wantCode, batchImageDerefString(job.LastErrorCode))
+				if tc.wantRelease > 0 {
+					require.Equal(t, BatchImageReleaseRequestID(job.BatchID), billing.releases[0].RequestID)
+				}
+			}
+		})
+	}
+}
+
+func TestBatchImagePublicService_GeminiUploadFailureReleaseRetry(t *testing.T) {
+	svc, repo, queue, _, _ := newTestBatchImagePublicService(true)
+	svc.ProviderRegistry = NewBatchImageProviderRegistry(NewGeminiAPIBatchImageProvider(&fakeGeminiBatchClient{uploadErr: &GeminiAPIError{StatusCode: 401}}))
+	billing := svc.BillingRepo.(*fakeBatchImageBillingRepo)
+	billing.releaseErr = errors.New("temporary billing failure")
+	_, err := svc.Submit(context.Background(), testBatchImageOwner(), validBatchImageSubmitRequest(), "")
+	require.ErrorIs(t, err, ErrBatchImageBillingHoldFailed)
+	require.Len(t, billing.releases, 1)
+	require.Len(t, repo.jobs, 1)
+	for _, job := range repo.jobs {
+		require.Equal(t, BatchImageJobStatusFailed, job.Status)
+		require.Equal(t, "BILLING_RELEASE_FAILED", batchImageDerefString(job.LastErrorCode))
+		require.Equal(t, []string{job.BatchID}, queue.enqueued)
+		billing.releaseErr = nil
+		require.NoError(t, releaseBatchImageBalanceHold(context.Background(), billing, job, batchImageDerefString(job.RequestHash)))
+		require.Len(t, billing.releases, 2)
+		require.Equal(t, billing.releases[0].RequestID, billing.releases[1].RequestID)
+	}
+}
+
 func newTestBatchImagePublicService(enabled bool) (*BatchImagePublicService, *fakeBatchImageRepository, *publicBatchImageQueue, *publicBatchImageProvider, *publicBatchImageProvider) {
 	repo := newFakeBatchImageRepository()
 	queue := &publicBatchImageQueue{}

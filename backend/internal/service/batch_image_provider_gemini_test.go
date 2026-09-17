@@ -43,6 +43,28 @@ func TestGeminiProvider_MissingAPIKeyRejected(t *testing.T) {
 	provider := NewGeminiAPIBatchImageProvider(&fakeGeminiBatchClient{})
 	_, err := provider.Submit(context.Background(), nil, &Account{Platform: PlatformGemini, Type: AccountTypeAPIKey}, validGeminiBatchInput())
 	require.ErrorIs(t, err, ErrBatchImageProviderMissingAPIKey)
+	var notCreated *geminiBatchNotCreatedError
+	require.ErrorAs(t, err, &notCreated)
+}
+
+func TestBatchImageGeminiSubmitPreCreateFailures(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		input     BatchImageInput
+		client    *fakeGeminiBatchClient
+		wantCalls []string
+	}{
+		{"invalid_input", BatchImageInput{}, &fakeGeminiBatchClient{}, nil},
+		{"missing_upload_name", validGeminiBatchInput(), &fakeGeminiBatchClient{uploaded: &GeminiUploadedFile{}}, []string{"upload"}},
+		{"upload_cancelled", validGeminiBatchInput(), &fakeGeminiBatchClient{uploadErr: context.Canceled}, []string{"upload"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := NewGeminiAPIBatchImageProvider(tc.client).Submit(context.Background(), nil, geminiAPIKeyAccount("test"), tc.input)
+			var notCreated *geminiBatchNotCreatedError
+			require.ErrorAs(t, err, &notCreated)
+			require.Equal(t, tc.wantCalls, tc.client.calls)
+		})
+	}
 }
 
 func TestBuildGeminiBatchJSONL_WritesValidLinesAndPreservesCustomID(t *testing.T) {

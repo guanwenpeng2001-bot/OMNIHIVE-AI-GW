@@ -355,6 +355,21 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	providerJob, err := provider.Submit(ctx, job, account, input)
 	hbCancel()
 	<-hbDone
+	var notCreated *geminiBatchNotCreatedError
+	if errors.As(err, &notCreated) {
+		// Persist proof before releasing, so a crash or failed release can use the
+		// existing terminal billing recovery. The request may already be cancelled.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if persistErr := s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_NOT_CREATED", sanitizeBatchImagePublicMessage(err.Error()), true); persistErr != nil {
+			return nil, persistErr
+		}
+		if releaseErr := s.releaseFailedSubmitHold(persistCtx, job, requestHash); releaseErr != nil {
+			return nil, releaseErr
+		}
+		s.hidePreUpstreamSubmitFailure(persistCtx, owner, job)
+		return nil, ErrBatchImageProviderSubmitFailed
+	}
 	if err != nil || providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
 		// No receipt does not prove rejection: the provider may have committed before
 		// the connection failed. Keep uploading and the hold for reconciliation.
