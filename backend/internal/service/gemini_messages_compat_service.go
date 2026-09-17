@@ -2497,9 +2497,13 @@ func collectGeminiSSEObserved(body io.Reader, isOAuth bool, observe func(rawByte
 			for _, part := range collectedToolParts {
 				parts = append(parts, part)
 			}
-			candidates := result["candidates"].([]any)
-			candidate := candidates[0].(map[string]any)
-			candidate["content"].(map[string]any)["parts"] = parts
+			if candidates, ok := result["candidates"].([]any); ok && len(candidates) > 0 {
+				if candidate, ok := candidates[0].(map[string]any); ok {
+					if content, ok := candidate["content"].(map[string]any); ok {
+						content["parts"] = parts
+					}
+				}
+			}
 		}
 		return mergeCollectedTextParts(result, collectedTextParts)
 	}
