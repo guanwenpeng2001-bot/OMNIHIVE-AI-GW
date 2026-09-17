@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
+import { identityScoped } from '@/router/identityScope'
 import * as gatewayUrl from '@/api/url'
 import englishDashboard from '@/i18n/locales/en/dashboard'
 import chineseDashboard from '@/i18n/locales/zh/dashboard'
@@ -9,6 +10,8 @@ import type { ApiKey } from '@/types'
 import KeysView from '../KeysView.vue'
 
 let credentialLocale: 'en' | 'zh' = 'en'
+const { authState } = vi.hoisted(() => ({ authState: { current: null as any } }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => authState.current }))
 const translateCredential = (key: string, values: Record<string, string> = {}) => {
   const translations = credentialLocale === 'en' ? englishDashboard.keys.payAsYouGo : chineseDashboard.keys.payAsYouGo
   const message = translations[key.slice('keys.payAsYouGo.'.length) as keyof typeof translations]
@@ -230,8 +233,8 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
-const mountView = async () => {
-  const wrapper = mount(KeysView, {
+const mountView = async (scoped = false) => {
+  const wrapper = mount(scoped ? identityScoped(KeysView, false) : KeysView, {
     global: {
       stubs: {
         AppLayout: AppLayoutStub,
@@ -304,6 +307,48 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it.each(['AUTH_SESSION_CHANGED', 'NETWORK_ERROR'])('ignores a delayed old-session %s after same-user relogin', async (code) => {
+    authState.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
+    let rejectOld!: (error: unknown) => void
+    listKeys.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const wrapper = await mountView(true)
+    const oldSignal = listKeys.mock.calls[0][3].signal as AbortSignal
+    authState.current.sessionRevision = 'second'
+    await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    expect(listKeys).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('test-key')
+    rejectOld({ code })
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores session-change rejection while preserving real current-session failures', async () => {
+    listKeys.mockRejectedValueOnce({ code: 'AUTH_SESSION_CHANGED' })
+    const stale = await mountView()
+    expect(showError).not.toHaveBeenCalled()
+    stale.unmount()
+    listKeys.mockRejectedValueOnce({ code: 'NETWORK_ERROR' })
+    const current = await mountView()
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('keys.failedToLoad')
+    current.unmount()
+  })
+
+  it('does not surface an older request failure after a newer list succeeds', async () => {
+    let rejectOld!: (error: unknown) => void
+    listKeys.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="sort-current-concurrency"]').trigger('click')
+    await flushPromises()
+    rejectOld({ code: 'NETWORK_ERROR' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('test-key')
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it.each(['en', 'zh'] as const)('renders and copies gateway addresses in %s', async (locale) => {

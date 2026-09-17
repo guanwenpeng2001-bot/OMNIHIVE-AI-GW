@@ -1355,6 +1355,7 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
+let disposed = false
 
 // Get the currently selected key for group change
 const selectedKeyForGroup = computed(() => {
@@ -1491,14 +1492,16 @@ const copyToClipboard = async (text: string, keyId: number) => {
 const isAbortError = (error: unknown) => {
   if (!error || typeof error !== 'object') return false
   const { name, code } = error as { name?: string; code?: string }
-  return name === 'AbortError' || code === 'ERR_CANCELED'
+  return name === 'AbortError' || code === 'ERR_CANCELED' || code === 'AUTH_SESSION_CHANGED'
 }
 
 const loadApiKeys = async () => {
+  if (disposed) return
   abortController?.abort()
   const controller = new AbortController()
   abortController = controller
   const { signal } = controller
+  const isCurrentRequest = () => !disposed && !signal.aborted && abortController === controller
   loading.value = true
   try {
     // Build filters
@@ -1518,7 +1521,7 @@ const loadApiKeys = async () => {
     const response = await keysAPI.list(pagination.value.page, pagination.value.page_size, filters, {
       signal
     })
-    if (signal.aborted) return
+    if (!isCurrentRequest()) return
     apiKeys.value = response.items
     pagination.value.total = response.total
     pagination.value.pages = response.pages
@@ -1528,21 +1531,21 @@ const loadApiKeys = async () => {
       const keyIds = response.items.map((k) => k.id)
       try {
         const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
-        if (signal.aborted) return
+        if (!isCurrentRequest()) return
         usageStats.value = usageResponse.stats
       } catch (e) {
-        if (!isAbortError(e)) {
+        if (isCurrentRequest() && !isAbortError(e)) {
           console.error('Failed to load usage stats:', e)
         }
       }
     }
   } catch (error) {
-    if (isAbortError(error)) {
+    if (!isCurrentRequest() || isAbortError(error)) {
       return
     }
     appStore.showError(t('keys.failedToLoad'))
   } finally {
-    if (abortController === controller) {
+    if (isCurrentRequest()) {
       loading.value = false
     }
   }
@@ -2011,6 +2014,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
+  abortController?.abort()
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)
 })
