@@ -723,10 +723,11 @@ func TestDirectBridge_RequestMatchesDoubleConversion(t *testing.T) {
 	direct, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 
-	// Double-conversion bridge
+	// Compare the strict system-only target profile; the default Responses
+	// bridge now preserves AnthropicToResponses' developer role.
 	responsesReq, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	double, err := ResponsesToChatCompletionsRequest(responsesReq)
+	double, err := ResponsesToChatCompletionsRequestWithOptions(responsesReq, &ResponsesToChatOptions{SingleLeadingSystemMessage: true})
 	require.NoError(t, err)
 
 	// Compare key fields

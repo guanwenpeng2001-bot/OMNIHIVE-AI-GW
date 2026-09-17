@@ -8,12 +8,12 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestResponsesInputToChatMessages_DeveloperRoleMapsToSystem(t *testing.T) {
+func TestResponsesInputToChatMessages_DeveloperRolePreserved(t *testing.T) {
 	messages, err := responsesInputToChatMessages("", json.RawMessage(`[{"role":"developer","content":"follow project instructions"}]`))
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 
-	assert.Equal(t, "system", messages[0].Role)
+	assert.Equal(t, "developer", messages[0].Role)
 	assert.JSONEq(t, `"follow project instructions"`, string(messages[0].Content))
 }
 
@@ -96,13 +96,13 @@ func TestResponsesInputToChatMessages_EmptyRoleFallsBackToUser(t *testing.T) {
 	assert.Equal(t, "user", messages[0].Role)
 }
 
-func TestResponsesInputToChatMessages_LeadingDeveloperRolesMergeIntoOneSystem(t *testing.T) {
+func TestResponsesInputToChatMessages_StrictLeadingDeveloperRolesMergeIntoOneSystem(t *testing.T) {
 	input := json.RawMessage(`[
 		{"role":" Developer ","content":"one"},
 		{"role":"\tDEVELOPER\n","content":"two"}
 	]`)
 
-	messages, err := responsesInputToChatMessages("", input)
+	messages, err := responsesInputToChatMessagesWithOptions("", input, &ResponsesToChatOptions{SingleLeadingSystemMessage: true})
 	require.NoError(t, err)
 	require.Len(t, messages, 1)
 
@@ -120,7 +120,7 @@ func TestResponsesToChatCompletionsRequest_InstructionsAndInputDeveloperRole(t *
 		]`),
 	}
 
-	out, err := ResponsesToChatCompletionsRequest(req)
+	out, err := ResponsesToChatCompletionsRequestWithOptions(req, &ResponsesToChatOptions{SingleLeadingSystemMessage: true})
 	require.NoError(t, err)
 	require.Len(t, out.Messages, 2)
 
@@ -129,7 +129,7 @@ func TestResponsesToChatCompletionsRequest_InstructionsAndInputDeveloperRole(t *
 	assert.JSONEq(t, `"Hello"`, string(out.Messages[1].Content))
 }
 
-func TestResponsesInputToChatMessages_MidConversationDeveloperBecomesUser(t *testing.T) {
+func TestResponsesInputToChatMessages_MidConversationInstructionRolesPreserved(t *testing.T) {
 	input := json.RawMessage(`[
 		{"type":"message","role":"user","content":[{"type":"input_text","text":"hello"}]},
 		{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hi"}]},
@@ -142,7 +142,7 @@ func TestResponsesInputToChatMessages_MidConversationDeveloperBecomesUser(t *tes
 	require.NoError(t, err)
 	require.Len(t, messages, 5)
 
-	assert.Equal(t, []string{"user", "assistant", "user", "user", "user"}, chatMessageRoles(messages))
+	assert.Equal(t, []string{"user", "assistant", "developer", "system", "user"}, chatMessageRoles(messages))
 	assert.JSONEq(t, `"<model_switch> switched model"`, string(messages[2].Content))
 	assert.JSONEq(t, `"be terse"`, string(messages[3].Content))
 }
