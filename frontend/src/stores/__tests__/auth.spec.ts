@@ -1,16 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { setActivePinia, createPinia } from 'pinia'
+import { setActivePinia, createPinia, getActivePinia, disposePinia } from 'pinia'
 import { useAuthStore } from '@/stores/auth'
 
 // Mock authAPI
 const mockLogin = vi.fn()
 const mockLogin2FA = vi.fn()
+const mockPasskeyLogin = vi.fn()
 const mockLogout = vi.fn()
 const mockGetCurrentUser = vi.fn()
 const mockRegister = vi.fn()
 const mockRefreshToken = vi.fn()
 
 vi.mock('@/api', () => ({
+  passkeyAPI: { login: (...args: any[]) => mockPasskeyLogin(...args) },
   authAPI: {
     login: (...args: any[]) => mockLogin(...args),
     login2FA: (...args: any[]) => mockLogin2FA(...args),
@@ -56,10 +58,12 @@ describe('useAuthStore', () => {
     setActivePinia(createPinia())
     localStorage.clear()
     vi.useFakeTimers()
-    vi.clearAllMocks()
+    vi.resetAllMocks()
   })
 
   afterEach(() => {
+    disposePinia(getActivePinia()!)
+    vi.clearAllTimers()
     vi.useRealTimers()
   })
 
@@ -273,6 +277,7 @@ describe('useAuthStore', () => {
         suggested_display_name: 'OIDC Nick'
       })
 
+      firstStore.$dispose()
       setActivePinia(createPinia())
       const restoredStore = useAuthStore()
       restoredStore.checkAuth()
@@ -363,6 +368,163 @@ describe('useAuthStore', () => {
     it('未认证时抛出错误', async () => {
       const store = useAuthStore()
       await expect(store.refreshUser()).rejects.toThrow('Not authenticated')
+    })
+  })
+
+  describe('identity races', () => {
+    async function login(user = fakeUser, token = 'session-a') {
+      mockLogin.mockResolvedValue({ ...fakeAuthResponse, access_token: token, user })
+      const store = useAuthStore()
+      await store.login({ email: user.email, password: 'secret' })
+      return store
+    }
+
+    it('does not clear a replacement session when logout returns late', async () => {
+      const store = await login()
+      let finish!: () => void
+      mockLogout.mockReturnValueOnce(new Promise<void>(resolve => { finish = resolve }))
+      const pending = store.logout()
+      await login(fakeAdminUser, 'session-b')
+      finish()
+      await pending
+      expect(store.token).toBe('session-b')
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+    })
+
+    it('rejects an old login result after a newer login has completed', async () => {
+      const store = useAuthStore()
+      let finish!: (response: typeof fakeAuthResponse) => void
+      mockLogin.mockReturnValueOnce(new Promise(resolve => { finish = resolve }))
+      const pending = store.login({ email: fakeUser.email, password: 'secret' })
+      await login(fakeAdminUser, 'session-b')
+      finish(fakeAuthResponse)
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.token).toBe('session-b')
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+    })
+
+    it.each(['success', '401', 'session-changed'])('ignores late %s after another login', async outcome => {
+      const store = await login()
+      let resolve!: (value: unknown) => void
+      let reject!: (error: unknown) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise((res, rej) => { resolve = res; reject = rej }))
+      const pending = store.refreshUser()
+      await login(fakeAdminUser, 'session-b')
+      if (outcome === 'success') resolve({ data: { ...fakeUser, run_mode: 'simple' } })
+      else reject({ status: 401, code: outcome === '401' ? 'TOKEN_EXPIRED' : 'AUTH_SESSION_CHANGED' })
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.token).toBe('session-b')
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+      expect(store.runMode).toBe('standard')
+      expect(JSON.parse(localStorage.getItem('auth_user')!).id).toBe(fakeAdminUser.id)
+    })
+
+    it('invalidates a late response even when the same user and token log in again', async () => {
+      const store = await login()
+      let resolve!: (value: unknown) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise(res => { resolve = res }))
+      const pending = store.refreshUser()
+      await login()
+      resolve({ data: { ...fakeUser, username: 'stale' } })
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.user?.username).toBe(fakeUser.username)
+    })
+
+    it('preserves session-changed errors but clears an ordinary current-session 401', async () => {
+      const store = await login()
+      mockGetCurrentUser.mockRejectedValueOnce({ status: 401, code: 'AUTH_SESSION_CHANGED' })
+      await expect(store.refreshUser()).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.isAuthenticated).toBe(true)
+      mockGetCurrentUser.mockRejectedValueOnce({ status: 401, code: 'TOKEN_EXPIRED' })
+      await expect(store.refreshUser()).rejects.toMatchObject({ code: 'TOKEN_EXPIRED' })
+      expect(store.isAuthenticated).toBe(false)
+    })
+
+    it('synchronizes peer account changes, rotation and logout immediately', async () => {
+      const store = await login()
+      localStorage.setItem('auth_token', 'peer-b')
+      localStorage.setItem('auth_user', JSON.stringify(fakeAdminUser))
+      window.dispatchEvent(new StorageEvent('storage', { key: 'auth_user', storageArea: localStorage }))
+      expect(store.token).toBe('peer-b')
+      expect(store.isAdmin).toBe(true)
+      localStorage.setItem('auth_token', 'rotated-b')
+      window.dispatchEvent(new StorageEvent('storage', { key: 'auth_token', storageArea: localStorage }))
+      expect(store.token).toBe('rotated-b')
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+      localStorage.clear()
+      window.dispatchEvent(new StorageEvent('storage', { key: null, storageArea: localStorage }))
+      expect(store.isAuthenticated).toBe(false)
+      expect(store.user).toBeNull()
+      mockGetCurrentUser.mockClear()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
+    })
+
+    it('does not clear a new login after an old OAuth hydration fails', async () => {
+      const store = useAuthStore()
+      let reject!: (error: unknown) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise((_res, rej) => { reject = rej }))
+      const pending = store.setToken('oauth-a')
+      await login(fakeAdminUser, 'session-b')
+      reject({ status: 401 })
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.token).toBe('session-b')
+    })
+
+    it('does not restore old proactive refresh tokens after switching accounts', async () => {
+      let resolve!: (value: unknown) => void
+      mockRefreshToken.mockImplementationOnce(() => new Promise(res => { resolve = res }))
+      mockLogin.mockResolvedValue({ ...fakeAuthResponse, expires_in: 121 })
+      const store = useAuthStore()
+      await store.login({ email: fakeUser.email, password: 'secret' })
+      await vi.advanceTimersByTimeAsync(1000)
+      expect(mockRefreshToken).toHaveBeenCalledTimes(1)
+      await login(fakeAdminUser, 'session-b')
+      resolve({ access_token: 'stale-token', refresh_token: 'stale-refresh', expires_in: 1 })
+      await Promise.resolve()
+      expect(store.token).toBe('session-b')
+      expect(localStorage.getItem('auth_token')).toBe('session-b')
+      expect(Number(localStorage.getItem('token_expires_at'))).toBeGreaterThan(Date.now() + 120_000)
+    })
+
+    it('does not revive a logged-out session when user data arrives late', async () => {
+      const store = await login()
+      let resolve!: (value: unknown) => void
+      mockGetCurrentUser.mockImplementationOnce(() => new Promise(res => { resolve = res }))
+      const pending = store.refreshUser()
+      mockLogout.mockResolvedValue(undefined)
+      await store.logout()
+      resolve({ data: fakeUser })
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.user).toBeNull()
+      expect(localStorage.getItem('auth_user')).toBeNull()
+    })
+
+    it.each(['login', '2fa', 'passkey', 'register'])('does not clear current identity for a canceled old %s', async method => {
+      const store = await login(fakeAdminUser, 'session-b')
+      const changed = { status: 401, code: 'AUTH_SESSION_CHANGED' }
+      mockLogin.mockRejectedValueOnce(changed)
+      mockLogin2FA.mockRejectedValueOnce(changed)
+      mockPasskeyLogin.mockRejectedValueOnce(changed)
+      mockRegister.mockRejectedValueOnce(changed)
+      const pending = method === 'login' ? store.login({ email: fakeUser.email, password: 'secret' })
+        : method === '2fa' ? store.login2FA('temp', '123456')
+        : method === 'passkey' ? store.loginWithPasskey()
+        : store.register({ email: fakeUser.email, password: 'secret' })
+      await expect(pending).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(store.token).toBe('session-b')
+      expect(store.user?.id).toBe(fakeAdminUser.id)
+    })
+
+    it('removes storage listeners when the store is disposed', async () => {
+      const store = await login()
+      store.$dispose()
+      localStorage.clear()
+      window.dispatchEvent(new StorageEvent('storage', { key: null }))
+      expect(store.token).toBe('session-a')
+      mockGetCurrentUser.mockClear()
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect(mockGetCurrentUser).not.toHaveBeenCalled()
     })
   })
 

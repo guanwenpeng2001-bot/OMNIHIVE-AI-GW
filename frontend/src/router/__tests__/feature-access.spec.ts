@@ -12,6 +12,9 @@ const routerHarness = vi.hoisted(() => ({
 
 const authStore = vi.hoisted(() => ({
   checkAuth: vi.fn(),
+  token: 'session-a',
+  sessionRevision: 'session-a',
+  user: { id: 1, role: 'admin' },
   isAuthenticated: true,
   isAdmin: false,
   isSimpleMode: false,
@@ -54,13 +57,13 @@ vi.mock('@/stores/adminSettings', () => ({
   useAdminSettingsStore: () => ({ customMenuItems: [] }),
 }))
 
-vi.mock('@/stores/adminCompliance', () => ({
-  useAdminComplianceStore: () => ({
-    initialized: true,
-    fetchStatus: vi.fn(),
-    requireAcknowledgement: vi.fn(),
-  }),
+const complianceStore = vi.hoisted(() => ({
+  status: { required: false } as { required: boolean } | null,
+  fetchStatus: vi.fn(),
+  getIdentityRevision: vi.fn(() => 0),
+  requireAcknowledgement: vi.fn(),
 }))
+vi.mock('@/stores/adminCompliance', () => ({ useAdminComplianceStore: () => complianceStore }))
 
 vi.mock('@/composables/useNavigationLoading', () => ({
   useNavigationLoadingState: () => ({
@@ -98,6 +101,7 @@ function runGuard(meta: Record<string, unknown>, path: string) {
       fullPath: path,
       name: 'FeatureRoute',
       params: {},
+      query: {},
       meta: { requiresAuth: true, ...meta },
     },
     {},
@@ -209,4 +213,92 @@ describe('subscription route guard (opt-out flag)', () => {
 
     expect(next).toHaveBeenCalledWith('/admin/dashboard')
   })
+})
+
+
+describe('mandatory compliance route gate', () => {
+  beforeEach(() => {
+    authStore.isAuthenticated = true
+    authStore.isAdmin = true
+    authStore.isSimpleMode = false
+    authStore.sessionRevision = 'session-a'
+    complianceStore.status = { required: false }
+    complianceStore.fetchStatus.mockReset().mockResolvedValue({ required: false })
+    complianceStore.getIdentityRevision.mockReturnValue(0)
+    complianceStore.requireAcknowledgement.mockReset().mockImplementation(() => {
+      complianceStore.status = { required: true }
+    })
+  })
+
+  it('waits for acknowledgement status and gates unaccepted admins', async () => {
+    const pending = createDeferred<void>()
+    complianceStore.fetchStatus.mockReturnValue(pending.promise)
+    const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/settings')
+    expect(next).not.toHaveBeenCalled()
+    complianceStore.status = { required: true }
+    pending.resolve()
+    await navigation
+    expect(next).toHaveBeenCalledWith({ path: '/admin/compliance', query: { redirect: '/admin/settings' } })
+  })
+
+  it.each([null, { required: true }])('blocks unknown or required status %j', async status => {
+    complianceStore.status = status
+    const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/dashboard')
+    await navigation
+    expect(next).toHaveBeenCalledWith({ path: '/admin/compliance', query: { redirect: '/admin/dashboard' } })
+  })
+
+  it('fails closed on network errors and leaves the gate reachable', async () => {
+    complianceStore.fetchStatus.mockRejectedValue(new Error('offline'))
+    const restricted = runGuard({ requiresAdmin: true }, '/admin/settings')
+    await restricted.navigation
+    expect(restricted.next).toHaveBeenCalledWith({ path: '/admin/compliance', query: { redirect: '/admin/settings' } })
+    const gate = runGuard({ requiresAdmin: true }, '/admin/compliance')
+    await gate.navigation
+    expect(gate.next).toHaveBeenCalledWith()
+  })
+
+  it.each(['logout', 'switch', 'switch-back'])('cancels an old navigation after %s', async change => {
+    const pending = createDeferred<void>()
+    complianceStore.fetchStatus.mockReturnValue(pending.promise)
+    const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/settings')
+    if (change === 'logout') authStore.isAuthenticated = false
+    if (change === 'switch') authStore.sessionRevision = 'session-b'
+    if (change === 'switch-back') complianceStore.getIdentityRevision.mockReturnValue(2)
+    pending.resolve()
+    await navigation
+    expect(next).toHaveBeenCalledWith(false)
+  })
+
+  it('allows an explicitly acknowledged current admin', async () => {
+    const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/settings')
+    await navigation
+    expect(next).toHaveBeenCalledWith()
+  })
+})
+
+it('redirects an acknowledged admin away from the empty gate', async () => {
+  authStore.isAdmin = true
+  authStore.isAuthenticated = true
+  complianceStore.status = { required: false }
+  complianceStore.fetchStatus.mockResolvedValue({ required: false })
+  const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/compliance')
+  await navigation
+  expect(next).toHaveBeenCalledWith('/admin/dashboard')
+})
+
+it('rechecks admin identity and acknowledgement after waiting for feature settings', async () => {
+  authStore.isAdmin = true
+  authStore.isAuthenticated = true
+  complianceStore.status = { required: false }
+  complianceStore.fetchStatus.mockResolvedValue({ required: false })
+  appStore.publicSettingsLoaded = false
+  const pending = createDeferred<void>()
+  appStore.fetchPublicSettings.mockReset().mockReturnValue(pending.promise)
+  const { navigation, next } = runGuard({ requiresAdmin: true, requiresPayment: true }, '/admin/orders')
+  await vi.waitFor(() => expect(appStore.fetchPublicSettings).toHaveBeenCalled())
+  complianceStore.status = { required: true }
+  pending.resolve()
+  await navigation
+  expect(next).toHaveBeenCalledWith(false)
 })

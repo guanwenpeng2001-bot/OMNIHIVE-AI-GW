@@ -131,6 +131,7 @@ import { useRoute } from 'vue-router'
 import { useResizeObserver } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
+import { captureAuthSession, isAuthSessionCurrent } from '@/api/tokenRefresh'
 import { useAuthStore } from '@/stores/auth'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -155,6 +156,7 @@ const adminSettingsStore = useAdminSettingsStore()
 const loading = ref(false)
 const pageTheme = ref<'light' | 'dark'>('light')
 const renderedHtml = ref('')
+let markdownRequest: AbortController | null = null
 const markdownContainer = ref<HTMLElement | null>(null)
 const tocItems = ref<TocItem[]>([])
 const tocVisible = ref(typeof window !== 'undefined' ? window.innerWidth > 768 : true)
@@ -290,18 +292,27 @@ function buildPageImageUrl(slug: string, src: string): string {
 }
 
 async function fetchAndRenderMarkdown(slug: string) {
+  markdownRequest?.abort()
+  const session = captureAuthSession()
+  const request = new AbortController()
+  markdownRequest = request
+  const isCurrent = () => isAuthSessionCurrent(session) && !request.signal.aborted && markdownRequest === request && markdownSlug.value === slug
   loading.value = true
+  renderedHtml.value = ''
   tocItems.value = []
   activeHeadingId.value = ''
   try {
     const resp = await fetch(buildApiUrl(`/pages/${encodeURIComponent(slug)}`), {
       headers: authStore.token ? { Authorization: `Bearer ${authStore.token}` } : {},
+      signal: request.signal,
     })
+    if (!isCurrent()) return
     if (!resp.ok) {
       renderedHtml.value = `<p class="text-red-500">${t('common.pageNotFound')}</p>`
       return
     }
     let raw = await resp.text()
+    if (!isCurrent()) return
 
     raw = raw.replace(
       /!\[([^\]]*)\]\(([^)]+)\)/g,
@@ -331,12 +342,14 @@ async function fetchAndRenderMarkdown(slug: string) {
     renderedHtml.value = withIds
     tocItems.value = toc
   } catch {
-    renderedHtml.value = '<p class="text-red-500">Failed to load page</p>'
+    if (isCurrent()) renderedHtml.value = '<p class="text-red-500">Failed to load page</p>'
   } finally {
-    loading.value = false
-    await nextTick()
-    await nextTick()
-    injectCopyButtons()
+    if (isCurrent()) {
+      loading.value = false
+      await nextTick()
+      await nextTick()
+      if (isCurrent()) injectCopyButtons()
+    }
   }
 }
 
@@ -402,10 +415,13 @@ function injectCopyButtons() {
   })
 }
 
-watch(markdownSlug, (slug) => {
+watch([markdownSlug, () => authStore.user?.id, () => authStore.user?.role, () => authStore.sessionRevision], ([slug]) => {
   if (slug) {
     fetchAndRenderMarkdown(slug)
   } else {
+    markdownRequest?.abort()
+    markdownRequest = null
+    loading.value = false
     renderedHtml.value = ''
     tocItems.value = []
   }
@@ -434,6 +450,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  markdownRequest?.abort()
   if (themeObserver) {
     themeObserver.disconnect()
     themeObserver = null

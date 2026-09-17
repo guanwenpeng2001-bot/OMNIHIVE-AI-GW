@@ -101,6 +101,7 @@ import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import { useI18n } from 'vue-i18n'
+import { useRoute, useRouter } from 'vue-router'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Input from '@/components/common/Input.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -110,6 +111,8 @@ import zhDocument from '../../../../docs/legal/admin-compliance.zh.md?raw'
 import enDocument from '../../../../docs/legal/admin-compliance.en.md?raw'
 
 const { t } = useI18n()
+const route = useRoute()
+const router = useRouter()
 const complianceStore = useAdminComplianceStore()
 const authStore = useAuthStore()
 const appStore = useAppStore()
@@ -121,7 +124,8 @@ marked.setOptions({
   gfm: true,
 })
 
-const visible = computed(() => authStore.isAuthenticated && authStore.isAdmin && complianceStore.shouldShow)
+const visible = computed(() => authStore.isAuthenticated && authStore.isAdmin &&
+  (complianceStore.shouldShow || !complianceStore.initialized))
 const expectedPhrase = computed(() => complianceStore.expectedPhrase)
 const canSubmit = computed(() => typedPhrase.value.trim() === expectedPhrase.value)
 const currentDocument = computed(() => getLocale() === 'zh' ? zhDocument : enDocument)
@@ -142,7 +146,7 @@ const renderedDocument = computed(() => {
   return DOMPurify.sanitize(html)
 })
 
-watch(expectedPhrase, () => {
+watch(() => [expectedPhrase.value, authStore.user?.id, authStore.sessionRevision], () => {
   typedPhrase.value = ''
   attemptedSubmit.value = false
 })
@@ -154,24 +158,41 @@ watch(visible, (isVisible) => {
   }
 })
 
+// A 423 received by an already mounted admin page must also leave that page.
+watch(() => [visible.value, route.fullPath], () => {
+  if (visible.value && route.meta.requiresAdmin && route.path !== '/admin/compliance') {
+    void router.replace({ path: '/admin/compliance', query: { redirect: route.fullPath } })
+  }
+}, { immediate: true })
+
 function noop(): void {
   // 强制确认弹窗不允许通过关闭按钮绕过。
 }
 
 async function submit(): Promise<void> {
   attemptedSubmit.value = true
-  if (!canSubmit.value) {
+  if (!visible.value || !canSubmit.value || complianceStore.submitting) {
     return
   }
 
+  const request = complianceStore.accept(typedPhrase.value.trim())
+  const revision = complianceStore.getRevision()
   try {
-    const status = await complianceStore.accept(typedPhrase.value.trim())
+    const status = await request
+    if (revision !== complianceStore.getRevision()) return
     if (!status.required) {
       appStore.showSuccess(t('adminCompliance.accepted'))
       typedPhrase.value = ''
       attemptedSubmit.value = false
+      if (route.path === '/admin/compliance') {
+        const redirect = route.query.redirect
+        const target = typeof redirect === 'string' && redirect.startsWith('/admin/') &&
+          !redirect.startsWith('/admin/compliance') ? redirect : '/admin/dashboard'
+        await router.replace(target)
+      }
     }
   } catch (error) {
+    if (revision !== complianceStore.getRevision()) return
     const message = (error as { message?: string })?.message || t('adminCompliance.acceptFailed')
     appStore.showError(message)
   }
@@ -179,7 +200,7 @@ async function submit(): Promise<void> {
 
 async function logout(): Promise<void> {
   await authStore.logout()
-  window.location.href = '/login'
+  await router.replace('/login')
 }
 </script>
 

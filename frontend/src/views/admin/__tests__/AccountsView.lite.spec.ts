@@ -261,6 +261,51 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it('does not overwrite a new filter result with an older automatic refresh', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    let finishRefresh!: (value: unknown) => void
+    listWithEtag.mockReturnValueOnce(new Promise(resolve => { finishRefresh = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(6000)
+    expect(listWithEtag).toHaveBeenCalledTimes(1)
+
+    const filteredRow = { ...listRow, id: 43, name: 'filtered account' }
+    listAccounts.mockResolvedValueOnce({ items: [filteredRow], total: 1, page: 1, page_size: 20, pages: 1 })
+    const filters = wrapper.findComponent({ name: 'AccountTableFilters' })
+    filters.vm.$emit('update:filters', { search: 'filtered' })
+    filters.vm.$emit('change')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
+    expect(wrapper.get('[data-account-name]').attributes('data-account-name')).toBe('filtered account')
+
+    finishRefresh({ notModified: false, etag: 'old-filter', data: { items: [listRow], total: 8, pages: 2 } })
+    await flushPromises()
+    expect(wrapper.get('[data-account-name]').attributes('data-account-name')).toBe('filtered account')
+    expect(wrapper.findComponent({ name: 'Pagination' }).props('total')).toBe(1)
+    wrapper.unmount()
+  })
+
+  it('does not register listeners or restart polling after unmount during initial loading', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    let finishGroups!: (value: unknown[]) => void
+    getAllGroups.mockReturnValueOnce(new Promise(resolve => { finishGroups = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.unmount()
+    const addListener = vi.spyOn(window, 'addEventListener')
+    const addDocumentListener = vi.spyOn(document, 'addEventListener')
+    const startInterval = vi.spyOn(globalThis, 'setInterval')
+    finishGroups([])
+    await flushPromises()
+    expect(addListener.mock.calls.some(([name]) => name === 'scroll' || name === 'resize')).toBe(false)
+    expect(addDocumentListener.mock.calls.some(([name]) => name === 'click')).toBe(false)
+    expect(startInterval).not.toHaveBeenCalled()
+  })
+
   it('shows the warning and patches the account after a partial Antigravity refresh', async () => {
     refreshCredentials.mockResolvedValue({
       account: { ...fullAccount, name: 'refreshed account' },

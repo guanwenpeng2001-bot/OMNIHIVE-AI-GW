@@ -80,6 +80,8 @@ function startSubscriptionSync() {
   subscriptionStore.startPolling()
 }
 
+let announcementLoginTimer: ReturnType<typeof setTimeout> | undefined
+
 watch(subscriptionFeatureEnabled, (enabled) => {
   if (!authStore.isAuthenticated) return
   if (enabled) {
@@ -90,8 +92,9 @@ watch(subscriptionFeatureEnabled, (enabled) => {
 })
 
 watch(
-  () => authStore.isAuthenticated,
-  (isAuthenticated, oldValue) => {
+  [() => authStore.isAuthenticated, () => authStore.user?.id, () => authStore.user?.role, () => authStore.sessionRevision],
+  ([isAuthenticated], [oldValue]) => {
+    clearTimeout(announcementLoginTimer)
     if (isAuthenticated) {
       if (authStore.isAdmin) {
         adminComplianceStore.fetchStatus().catch((error) => {
@@ -108,7 +111,7 @@ watch(
       // Announcements: new login vs page refresh restore
       if (oldValue === false) {
         // New login: delay 3s then force fetch
-        setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
+        announcementLoginTimer = setTimeout(() => announcementStore.fetchAnnouncements(true), 3000)
       } else {
         // Page refresh restore (oldValue was undefined)
         announcementStore.fetchAnnouncements()
@@ -128,13 +131,16 @@ watch(
 )
 
 // Route change trigger (throttled by store)
-router.afterEach(() => {
+const removeAnnouncementRouteHook = router.afterEach(() => {
   if (authStore.isAuthenticated) {
     announcementStore.fetchAnnouncements()
   }
 })
 
 onBeforeUnmount(() => {
+  clearTimeout(announcementLoginTimer)
+  removeAnnouncementRouteHook()
+  subscriptionStore.stopPolling()
   document.removeEventListener('visibilitychange', onVisibilityChange)
   window.removeEventListener('admin-compliance-required', onAdminComplianceRequired)
 })
