@@ -81,6 +81,8 @@ func TestGoPublicControlRoundTrip(t *testing.T) {
 		`{"reasoning_control":{"kind":"toggle","toggle_values":[false,true]}}`,
 		`{"reasoning_control":{"kind":"adaptive","adaptive":false,"supported_kinds":["adaptive","budget"]}}`,
 		`{"reasoning_control":{"kind":"fixed"}}`,
+		`{"reasoning_control":{"kind":"effort","effort_values":[]}}`,
+		`{"reasoning_control":{"kind":"toggle","toggle_values":[],"supported_kinds":[]}}`,
 	}
 	for _, input := range cases {
 		var before service.CapabilityRecord

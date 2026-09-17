@@ -455,6 +455,11 @@ func applyUpstreamModelMetadataToCodexDescriptor(
 		if !metadata.reasoningConflict && (metadata.Reasoning == nil || *metadata.Reasoning) {
 			levels := normalizeReasoningLevels(metadata.SupportedReasoningLevels)
 			defaultLevel := normalizeReasoningLevel(metadata.DefaultReasoningLevel)
+			// Keep the established fallback for legacy snapshots only. An explicit
+			// capability control must never acquire an invented default.
+			if len(metadata.ReasoningControl) == 0 && len(levels) > 0 && !stringSliceContains(levels, defaultLevel) {
+				defaultLevel = levels[0]
+			}
 			if stringSliceContains(levels, defaultLevel) {
 				descriptor.DefaultReasoningLevel = &defaultLevel
 			}

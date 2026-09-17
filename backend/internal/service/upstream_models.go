@@ -411,6 +411,9 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 
 // DiscoverModelCapabilities enriches native discoveries without persisting or authorizing models.
 func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, account *Account, provider ModelCapabilityProvider) (*UpstreamModelCatalog, error) {
+	if account == nil {
+		return nil, newUpstreamModelSyncConfigError("Account is required for capability discovery", nil)
+	}
 	declarations, err := accountDeclaredCapabilities(account)
 	if err != nil {
 		return nil, newUpstreamModelSyncConfigError("Invalid model capability declaration", err)
@@ -472,7 +475,10 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 		snapshot = provider.CapabilitySnapshot()
 	}
 	if snapshot == nil {
-		snapshot, _ = buildModelCapabilitySnapshot(nil)
+		snapshot, err = buildModelCapabilitySnapshot(nil)
+		if err != nil {
+			return nil, newUpstreamModelSyncInternalError("Failed to load capability baseline", err)
+		}
 	}
 	catalog.SchemaVersion, catalog.EnrichmentVersion = AccountModelCatalogSchemaVersion, "capability-v2"
 	catalog.SourceGeneration = snapshot.generation
@@ -563,7 +569,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 		catalog.Warnings = append([]UpstreamModelSyncWarning{{Code: UpstreamModelMetadataIncompleteCode, Message: "Native discovery is complete; some capability metadata is unknown."}}, catalog.Warnings...)
 	}
 	catalog.DiscoveredModels = dedupeAndSortModelIDs(models)
-	catalog.Complete = true
+	// Only catalog projection can establish scoped completeness and eligibility.
 	return catalog, nil
 }
 
@@ -2212,22 +2218,40 @@ func normalizeCodexInputModalities(modalities []string) []string {
 }
 
 func extractUpstreamModelIDsWithSelector(body []byte, selectID func(upstreamModelEntry) string) ([]string, error) {
-	entries, err := extractUpstreamModelRawEntries(body)
-	if err != nil {
-		return nil, err
+	var response struct {
+		Data   []upstreamModelEntry `json:"data"`
+		Models []upstreamModelEntry `json:"models"`
 	}
-	models := make([]string, 0, len(entries))
-	for _, raw := range entries {
-		var entry upstreamModelEntry
-		if err := json.Unmarshal(raw, &entry); err != nil {
-			return nil, err
+	if err := json.Unmarshal(body, &response); err != nil {
+		var arrayResponse []upstreamModelEntry
+		if arrayErr := json.Unmarshal(body, &arrayResponse); arrayErr != nil {
+			return nil, fmt.Errorf("parse upstream model list: %w", err)
 		}
-		id := strings.TrimSpace(selectID(entry))
-		if id == "" {
-			return nil, fmt.Errorf("model ID missing")
+
+		models := make([]string, 0, len(arrayResponse))
+		for _, entry := range arrayResponse {
+			models = append(models, selectID(entry))
 		}
-		models = append(models, id)
+		return dedupeAndSortModelIDs(models), nil
 	}
+
+	models := make([]string, 0, len(response.Data)+len(response.Models))
+	for _, entry := range response.Data {
+		models = append(models, selectID(entry))
+	}
+	for _, entry := range response.Models {
+		models = append(models, selectID(entry))
+	}
+
+	if len(models) == 0 {
+		var arrayResponse []upstreamModelEntry
+		if err := json.Unmarshal(body, &arrayResponse); err == nil {
+			for _, entry := range arrayResponse {
+				models = append(models, selectID(entry))
+			}
+		}
+	}
+
 	return dedupeAndSortModelIDs(models), nil
 }
 

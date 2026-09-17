@@ -5,7 +5,25 @@ import (
 	"encoding/json"
 	"github.com/stretchr/testify/require"
 	"testing"
+	"time"
 )
+
+func TestModelCatalogAllowlistAndCredentialRevocations(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "first", "second")
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"first", "not-discovered"}}
+	options := AccountModelBindingOptions{FinalModel: "second", Endpoint: "responses"}
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "second", options))
+	options.FinalModel = "first"
+	require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "first", options))
+	account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{Result: "credentials_invalid"}
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "first", options))
+	delete(account.Extra, UpstreamModelCatalogStateExtraKey)
+	account.ExpiresAt = new(time.Now().Add(-time.Minute))
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "first", options))
+	account.ExpiresAt = nil
+	account.Schedulable = false
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "first", options))
+}
 
 func catalogEvidenceAccount(id int64, platform string, models ...string) Account {
 	snapshot := &AccountModelCatalogSnapshot{Revision: 7, Complete: true, DiscoveryScope: "account", DiscoveredModels: models, EligibleModels: []AccountCatalogModel{}}

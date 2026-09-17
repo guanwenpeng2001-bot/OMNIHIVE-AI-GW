@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
@@ -78,4 +79,4 @@ func Release() ReleaseIdentity {
 	return identity
 }
 
-func ManifestJSON() []byte { return []byte(releaseManifest) }
+func ManifestJSON() []byte { return []byte(strings.ReplaceAll(releaseManifest, "\r\n", "\n")) }

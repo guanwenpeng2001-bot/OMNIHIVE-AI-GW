@@ -20,6 +20,31 @@ type ReasoningControl struct {
 	Adaptive       *bool           `json:"adaptive,omitempty"`
 	Default        json.RawMessage `json:"default,omitempty"`
 }
+
+// MarshalJSON preserves an explicit empty control domain instead of turning it
+// into an unknown domain on a snapshot round trip.
+func (control ReasoningControl) MarshalJSON() ([]byte, error) {
+	type plain ReasoningControl
+	body, err := json.Marshal(plain(control))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	if control.SupportedKinds != nil && len(control.SupportedKinds) == 0 {
+		fields["supported_kinds"] = json.RawMessage(`[]`)
+	}
+	if control.EffortValues != nil && len(control.EffortValues) == 0 {
+		fields["effort_values"] = json.RawMessage(`[]`)
+	}
+	if control.ToggleValues != nil && len(control.ToggleValues) == 0 {
+		fields["toggle_values"] = json.RawMessage(`[]`)
+	}
+	return json.Marshal(fields)
+}
+
 type ModelCapabilityEvidence struct {
 	Source          string `json:"source"`
 	SourceVersion   string `json:"source_version,omitempty"`

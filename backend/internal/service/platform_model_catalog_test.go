@@ -1,11 +1,34 @@
 package service
 
 import (
+	"context"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
+
+func TestPlatformModelPresetCoverageAndIsolation(t *testing.T) {
+	presets, err := PlatformModelPresets()
+	require.NoError(t, err)
+	require.NotEmpty(t, presets)
+	covered := map[string]bool{}
+	for _, preset := range presets {
+		covered[preset.Platform] = true
+		for _, model := range preset.Models {
+			account := &Account{Platform: preset.Platform, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+			require.False(t, AccountSupportsResolvedModel(context.Background(), account, model.ID, AccountModelBindingOptions{}), "a preset is never account entitlement")
+		}
+	}
+	for _, platform := range domain.ConcretePlatforms() {
+		require.True(t, covered[platform], platform)
+	}
+	original := presets[0].ProviderProfile
+	presets[0].ProviderProfile = "mutated"
+	again, err := PlatformModelPresets()
+	require.NoError(t, err)
+	require.Equal(t, original, again[0].ProviderProfile)
+}
 
 func TestPlatformModelCatalogDoesNotBorrowClaudeDefaults(t *testing.T) {
 	for _, descriptor := range domain.PlatformDescriptors() {
