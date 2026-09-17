@@ -2,9 +2,9 @@ import { describe, expect, it } from 'vitest'
 import { buildCursorCredentials } from '../credentialsBuilder'
 
 describe('Cursor credentials', () => {
-  it('imports auto tokens and machine IDs without relay residue', () => {
+  it('imports auto tokens and machine IDs while preserving the stored protocol', () => {
     const result = buildCursorCredentials({ mode: 'auto', apiKey: 'stale-key', baseUrl: 'https://stale.example', autoCredentials: { access_token: ' access ', refresh_token: ' refresh ', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) }, existing: { api_key: 'stale', api_protocol: 'adaptive', model_mapping: { chat: 'live' } } })
-    expect(result).toEqual({ access_token: 'access', refresh_token: 'refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '', model_mapping: { chat: 'live' } })
+    expect(result).toEqual({ api_protocol: 'adaptive', access_token: 'access', refresh_token: 'refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '', model_mapping: { chat: 'live' } })
   })
 
   it('does not echo stored tokens when editing auto credentials', () => {
