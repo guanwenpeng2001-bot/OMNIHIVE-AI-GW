@@ -1,0 +1,260 @@
+package service
+
+import (
+	"context"
+	"encoding/json"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/require"
+)
+
+const geminiParallelToolHistory = `{"model":"gemini-test","messages":[
+{"role":"assistant","content":[
+{"type":"tool_use","id":"call-a","name":"lookup","input":{"query":"same"}},
+{"type":"tool_use","id":"call-b","name":"lookup","input":{"query":"same"}}]},
+{"role":"user","content":[
+{"type":"tool_result","tool_use_id":"call-b","content":"second"},
+{"type":"tool_result","tool_use_id":"call-a","content":"first"}]}]}`
+
+func TestGeminiToolIDsProfilesAndOutOfOrderResults(t *testing.T) {
+	for _, profile := range []geminiToolIDProfile{geminiToolIDNative, geminiToolIDLegacy, geminiToolIDUnknown} {
+		t.Run(string(profile), func(t *testing.T) {
+			body, err := convertClaudeMessagesToGeminiGenerateContent([]byte(geminiParallelToolHistory), profile)
+			if profile == geminiToolIDUnknown {
+				require.ErrorContains(t, err, "unknown Gemini tool ID profile")
+				return
+			}
+			require.NoError(t, err)
+			var req map[string]any
+			require.NoError(t, json.Unmarshal(body, &req))
+			contents := req["contents"].([]any)
+			calls := contents[0].(map[string]any)["parts"].([]any)
+			results := contents[1].(map[string]any)["parts"].([]any)
+			for i, id := range []string{"call-a", "call-b"} {
+				call := calls[i].(map[string]any)["functionCall"].(map[string]any)
+				require.Equal(t, map[string]any{"query": "same"}, call["args"], "no schema-external ID injection")
+				if profile == geminiToolIDNative {
+					require.Equal(t, id, call["id"])
+				} else {
+					require.NotContains(t, call, "id")
+				}
+			}
+			first := results[0].(map[string]any)["functionResponse"].(map[string]any)
+			second := results[1].(map[string]any)["functionResponse"].(map[string]any)
+			if profile == geminiToolIDNative {
+				require.Equal(t, "call-b", first["id"])
+				require.Equal(t, "call-a", second["id"])
+				require.Equal(t, map[string]any{"content": "second"}, first["response"])
+			} else {
+				require.NotContains(t, first, "id")
+				require.NotContains(t, second, "id")
+				require.Equal(t, map[string]any{"content": "first"}, first["response"])
+				require.Equal(t, map[string]any{"content": "second"}, second["response"])
+			}
+		})
+	}
+}
+
+func TestGeminiToolIDsRejectUncorrelatedResults(t *testing.T) {
+	for name, body := range map[string]string{
+		"unknown":          strings.Replace(geminiParallelToolHistory, `"tool_use_id":"call-b"`, `"tool_use_id":"missing"`, 1),
+		"duplicate call":   strings.Replace(geminiParallelToolHistory, `"id":"call-b"`, `"id":"call-a"`, 1),
+		"duplicate result": strings.Replace(geminiParallelToolHistory, `"tool_use_id":"call-b"`, `"tool_use_id":"call-a"`, 1),
+		"missing call id":  strings.Replace(geminiParallelToolHistory, `"id":"call-b"`, `"id":""`, 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			_, err := convertClaudeMessagesToGeminiGenerateContent([]byte(body), geminiToolIDNative)
+			require.Error(t, err)
+		})
+	}
+	partial := strings.Replace(geminiParallelToolHistory, `,{"type":"tool_result","tool_use_id":"call-a","content":"first"}`, "", 1)
+	// The fixture has a newline after the comma.
+	partial = strings.Replace(partial, ",\n"+`{"type":"tool_result","tool_use_id":"call-a","content":"first"}`, "", 1)
+	_, err := convertClaudeMessagesToGeminiGenerateContent([]byte(partial), geminiToolIDLegacy)
+	require.ErrorContains(t, err, "complete call batch")
+	_, err = convertClaudeMessagesToGeminiGenerateContent([]byte(partial), geminiToolIDNative)
+	require.NoError(t, err)
+}
+
+func TestGeminiToolIDProfileSelection(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		account *Account
+		want    geminiToolIDProfile
+	}{
+		{"public", &Account{Type: AccountTypeAPIKey}, geminiToolIDNative},
+		{"public oauth", &Account{Type: AccountTypeOAuth}, geminiToolIDNative},
+		{"custom", &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "https://example.com"}}, geminiToolIDUnknown},
+		{"code assist", &Account{Type: AccountTypeOAuth, Credentials: map[string]any{"project_id": "project"}}, geminiToolIDUnknown},
+		{"explicit legacy", &Account{Extra: map[string]any{"gemini_tool_id_profile": "legacy_no_id"}}, geminiToolIDLegacy},
+		{"explicit native", &Account{Extra: map[string]any{"gemini_tool_id_profile": "native"}}, geminiToolIDNative},
+		{"invalid", &Account{Type: AccountTypeAPIKey, Extra: map[string]any{"gemini_tool_id_profile": "typo"}}, geminiToolIDUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) { require.Equal(t, tc.want, geminiToolIDProfileForAccount(tc.account)) })
+	}
+}
+
+func TestGeminiToolIDsUnknownRejectsDeclarationsButAllowsText(t *testing.T) {
+	_, err := convertClaudeMessagesToGeminiGenerateContent([]byte(`{"messages":[{"role":"user","content":"hi"}],"tools":[{"name":"lookup","input_schema":{"type":"object"}}]}`), geminiToolIDUnknown)
+	require.ErrorContains(t, err, "unknown Gemini tool ID profile")
+	_, err = convertClaudeMessagesToGeminiGenerateContent([]byte(`{"messages":[{"role":"user","content":"hi"}]}`), geminiToolIDUnknown)
+	require.NoError(t, err)
+}
+
+func TestGeminiToolIDsAmbiguousStreamFailsWithoutSuccess(t *testing.T) {
+	for _, payload := range []string{
+		`{"functionCall":{"name":"lookup","args":"{\"query\":"}}`,
+		`{"functionCall":{"id":"same","name":"lookup","args":{}}},{"functionCall":{"id":"other","name":"lookup","args":{}}},{"functionCall":{"id":"same","name":"lookup","args":{}}}`,
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		body := `data: {"candidates":[{"content":{"parts":[` + payload + `]}}]}` + "\n\n"
+		_, err := (&GeminiMessagesCompatService{}).handleStreamingResponse(c, &http.Response{Body: io.NopCloser(strings.NewReader(body))}, time.Now(), "test")
+		require.ErrorContains(t, err, "ambiguous")
+		require.Contains(t, w.Body.String(), "event: error")
+		require.NotContains(t, w.Body.String(), "event: message_stop")
+	}
+}
+
+func TestGeminiToolIDsDuplicateUpstreamIDFails(t *testing.T) {
+	body := `{"candidates":[{"content":{"parts":[{"functionCall":{"id":"duplicate","name":"lookup","args":{}}},{"functionCall":{"id":"duplicate","name":"lookup","args":{}}}]}}]}`
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	_, err := (&GeminiMessagesCompatService{}).handleNonStreamingResponse(c,
+		&http.Response{Body: io.NopCloser(strings.NewReader(body))}, "test")
+	require.ErrorContains(t, err, "ambiguous")
+	require.Equal(t, http.StatusBadGateway, w.Code)
+	var response map[string]any
+	require.NoError(t, json.Unmarshal([]byte(body), &response))
+	_, _, err = geminiResponseToChatCompletions(response, "test", []byte(body), nil)
+	require.ErrorContains(t, err, "ambiguous")
+}
+
+func TestGeminiToolIDsResponsePreservation(t *testing.T) {
+	for _, ids := range []bool{true, false} {
+		calls := []any{}
+		for _, id := range []string{"native-a", "native-b"} {
+			call := map[string]any{"name": "lookup", "args": map[string]any{"query": "same"}}
+			if ids {
+				call["id"] = id
+			}
+			calls = append(calls, map[string]any{"functionCall": call})
+		}
+		response := map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": calls}}}}
+		raw, err := json.Marshal(response)
+		require.NoError(t, err)
+		converted, _ := convertGeminiToClaudeMessage(response, "test", raw, false)
+		blocks := converted["content"].([]any)
+		require.Len(t, blocks, 2)
+		first := blocks[0].(map[string]any)["id"]
+		second := blocks[1].(map[string]any)["id"]
+		require.NotEqual(t, first, second)
+		if ids {
+			require.Equal(t, "native-a", first)
+			require.Equal(t, "native-b", second)
+		}
+
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		var events strings.Builder
+		for _, call := range calls {
+			chunk, marshalErr := json.Marshal(map[string]any{"candidates": []any{map[string]any{"content": map[string]any{"parts": []any{call}}}}})
+			require.NoError(t, marshalErr)
+			events.WriteString("data: " + string(chunk) + "\n\n")
+		}
+		upstream := &http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}
+		collected, _, collectErr := collectGeminiSSE(strings.NewReader(events.String()), false)
+		require.NoError(t, collectErr)
+		require.Len(t, extractGeminiParts(collected), 2, "SSE aggregation must retain both calls")
+		_, err = (&GeminiMessagesCompatService{}).handleStreamingResponse(c, upstream, time.Now(), "test")
+		require.NoError(t, err)
+		var streamIDs []string
+		for _, line := range strings.Split(w.Body.String(), "\n") {
+			if !strings.HasPrefix(line, "data: ") {
+				continue
+			}
+			var event map[string]any
+			require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &event))
+			if event["type"] == "content_block_start" {
+				block := event["content_block"].(map[string]any)
+				if block["type"] == "tool_use" {
+					streamIDs = append(streamIDs, block["id"].(string))
+				}
+			}
+		}
+		require.Len(t, streamIDs, 2)
+		require.NotEqual(t, streamIDs[0], streamIDs[1])
+		if ids {
+			require.Equal(t, []string{"native-a", "native-b"}, streamIDs)
+		}
+
+		chatWriter := httptest.NewRecorder()
+		chatContext, _ := gin.CreateTestContext(chatWriter)
+		_, err = (&GeminiMessagesCompatService{}).handleChatCompletionsStreamingResponseFromGemini(chatContext,
+			&http.Response{Body: io.NopCloser(strings.NewReader(events.String()))}, time.Now(), "test", false, false)
+		require.NoError(t, err)
+		var chatIDs []string
+		for _, line := range strings.Split(chatWriter.Body.String(), "\n") {
+			if !strings.HasPrefix(line, "data: ") || strings.Contains(line, "[DONE]") {
+				continue
+			}
+			var chunk struct {
+				Choices []struct {
+					Delta struct {
+						ToolCalls []struct {
+							ID string `json:"id"`
+						} `json:"tool_calls"`
+					} `json:"delta"`
+				} `json:"choices"`
+			}
+			require.NoError(t, json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &chunk))
+			for _, choice := range chunk.Choices {
+				for _, call := range choice.Delta.ToolCalls {
+					if call.ID != "" {
+						chatIDs = append(chatIDs, call.ID)
+					}
+				}
+			}
+		}
+		require.Len(t, chatIDs, 2)
+		require.NotEqual(t, chatIDs[0], chatIDs[1])
+		if ids {
+			require.Equal(t, []string{"native-a", "native-b"}, chatIDs)
+		}
+	}
+}
+
+func TestGeminiToolIDsForwardProfileBoundary(t *testing.T) {
+	for _, profile := range []geminiToolIDProfile{geminiToolIDNative, geminiToolIDLegacy, geminiToolIDUnknown} {
+		t.Run(string(profile), func(t *testing.T) {
+			stub := &geminiCompatHTTPUpstreamStub{response: &http.Response{StatusCode: 200, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(`{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}`))}}
+			svc := &GeminiMessagesCompatService{httpUpstream: stub, cfg: &config.Config{}}
+			account := &Account{Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test"}, Extra: map[string]any{"gemini_tool_id_profile": string(profile)}}
+			w := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(w)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			_, err := svc.Forward(context.Background(), c, account, []byte(geminiParallelToolHistory))
+			if profile == geminiToolIDUnknown {
+				require.Error(t, err)
+				require.Equal(t, 400, w.Code)
+				require.Nil(t, stub.lastReq)
+				return
+			}
+			require.NoError(t, err)
+			posted, err := io.ReadAll(stub.lastReq.Body)
+			require.NoError(t, err)
+			if profile == geminiToolIDNative {
+				require.Contains(t, string(posted), `"id":"call-a"`)
+			} else {
+				require.NotContains(t, string(posted), `"id":`)
+			}
+		})
+	}
+}

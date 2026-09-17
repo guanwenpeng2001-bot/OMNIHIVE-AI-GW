@@ -273,16 +273,18 @@ func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 func TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+	for _, path := range []string{"/v1/messages", "/messages"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
 
-	router.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
-	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "not supported")
-	require.NotContains(t, w.Body.String(), "OpenAI-compatible endpoint")
-	require.NotContains(t, w.Body.String(), "composite groups")
+		require.NotEqual(t, http.StatusNotFound, w.Code)
+		require.NotContains(t, w.Body.String(), "not supported")
+		require.NotContains(t, w.Body.String(), "OpenAI-compatible endpoint")
+		require.NotContains(t, w.Body.String(), "composite groups")
+	}
 }
 
 func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *testing.T) {
