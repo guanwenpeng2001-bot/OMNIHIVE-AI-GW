@@ -331,9 +331,8 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		})
 	}
 
-	// 上游提交（上传参考图 + 创建批任务）可能长达数分钟且不刷新 updated_at，
-	// 会被 stale 恢复扫描误判为滞留并退款。提交前转入 uploading 刷新时间戳，
-	// 提交期间用心跳持续续期。
+	// Persist the at-most-once submission claim before contacting the provider.
+	// Uploading without a receipt remains ambiguous after a crash.
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusUploading, BatchImageTransitionOptions{
 		EventType:    "upload_started",
 		EventPayload: map[string]any{"batch_id": job.BatchID},
@@ -356,26 +355,18 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	providerJob, err := provider.Submit(ctx, job, account, input)
 	hbCancel()
 	<-hbDone
-	if err != nil {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
-			return nil, releaseErr
-		}
-		publicErr := batchImageProviderSubmitPublicError(err)
-		reason := batchImageProviderSubmitRecordCode(publicErr)
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, reason, sanitizeBatchImagePublicMessage(err.Error()), true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
-		return nil, publicErr
-	}
-	if providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
-			return nil, releaseErr
-		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "PROVIDER_SUBMIT_FAILED", "provider job name missing", true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
+	if err != nil || providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
+		// No receipt does not prove rejection: the provider may have committed before
+		// the connection failed. Keep uploading and the hold for reconciliation.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_UNKNOWN", "upstream submission outcome requires reconciliation", false)
 		return nil, ErrBatchImageProviderSubmitFailed
 	}
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer persistCancel()
 
-	if err := s.Repo.UpdateBatchImageJobProviderSubmit(ctx, UpdateBatchImageJobProviderSubmitParams{
+	if err := s.Repo.UpdateBatchImageJobProviderSubmit(persistCtx, UpdateBatchImageJobProviderSubmitParams{
 		BatchID:           job.BatchID,
 		ProviderJobName:   providerJob.ProviderJobName,
 		ProviderInputRef:  providerJob.ProviderInputRef,
@@ -762,6 +753,9 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 			return nil, err
 		}
 		return BatchImageJobToPublic(updated), nil
+	}
+	if job.Status == BatchImageJobStatusUploading {
+		return nil, ErrBatchImageCancelFailed // no receipt is not proof of no upstream work
 	}
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusCancelled, BatchImageTransitionOptions{
 		EventType:    "job_cancelled",

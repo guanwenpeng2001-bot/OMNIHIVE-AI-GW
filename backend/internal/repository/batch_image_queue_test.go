@@ -179,7 +179,7 @@ func TestBatchImageQueue_JobLockRefreshExtendsTTLOnlyForHolder(t *testing.T) {
 
 	// token 不匹配时不得续期他人持有的锁。
 	require.NoError(t, queue.rdb.Set(ctx, queue.lockKey(batchID), "other-token", time.Minute).Err())
-	require.NoError(t, refresher.Refresh(ctx, 10*time.Minute))
+	require.ErrorIs(t, refresher.Refresh(ctx, 10*time.Minute), service.ErrBatchImageLockNotAcquired)
 	ttl = mr.TTL(queue.lockKey(batchID))
 	require.LessOrEqual(t, ttl, time.Minute)
 }
@@ -196,4 +196,28 @@ func newBatchImageQueueTest(t *testing.T) (*batchImageQueue, *miniredis.Miniredi
 		LockTTL:     time.Minute,
 	})
 	return queue, mr
+}
+
+func TestBatchImageQueue_ExpiredWorkerCannotCompleteNewReservation(t *testing.T) {
+	ctx := context.Background()
+	q, mr := newBatchImageQueueTest(t)
+	id := "imgbatch_fenced"
+	require.NoError(t, q.Enqueue(ctx, id))
+	_, err := q.Reserve(ctx, time.Millisecond)
+	require.NoError(t, err)
+	old, ok, err := q.TryAcquireJobLock(ctx, id, time.Second)
+	require.NoError(t, err)
+	require.True(t, ok)
+	mr.FastForward(2 * time.Second)
+	next, ok, err := q.TryAcquireJobLock(ctx, id, time.Minute)
+	require.NoError(t, err)
+	require.True(t, ok)
+	require.ErrorIs(t, old.(service.BatchImageJobLockCompletion).Complete(ctx, true, 0), service.ErrBatchImageLockNotAcquired)
+	require.ErrorIs(t, old.(service.BatchImageJobLockCompletion).Complete(ctx, false, time.Minute), service.ErrBatchImageLockNotAcquired)
+	require.NoError(t, old.Release(ctx))
+	require.True(t, mr.Exists(q.lockKey(id)))
+	require.True(t, mr.Exists(q.inflightKey(id)))
+	require.NoError(t, q.rdb.ZScore(ctx, q.activeKey, id).Err())
+	require.NoError(t, next.(service.BatchImageJobLockCompletion).Complete(ctx, true, 0))
+	require.False(t, mr.Exists(q.inflightKey(id)))
 }

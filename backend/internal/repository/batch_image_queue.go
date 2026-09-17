@@ -306,7 +306,7 @@ func (q *batchImageQueue) TryAcquireJobLock(ctx context.Context, batchID string,
 	if !ok {
 		return nil, false, nil
 	}
-	return &batchImageRedisJobLock{rdb: q.rdb, key: key, token: token}, true, nil
+	return &batchImageRedisJobLock{rdb: q.rdb, key: key, token: token, queue: q, batchID: batchID}, true, nil
 }
 
 func (q *batchImageQueue) inflightKey(batchID string) string {
@@ -318,9 +318,11 @@ func (q *batchImageQueue) lockKey(batchID string) string {
 }
 
 type batchImageRedisJobLock struct {
-	rdb   *redis.Client
-	key   string
-	token string
+	queue   *batchImageQueue
+	batchID string
+	rdb     *redis.Client
+	key     string
+	token   string
 }
 
 func (l *batchImageRedisJobLock) Release(ctx context.Context) error {
@@ -338,7 +340,14 @@ func (l *batchImageRedisJobLock) Refresh(ctx context.Context, ttl time.Duration)
 	if ttl <= 0 {
 		ttl = defaultBatchImageJobLockTTL
 	}
-	return batchImageRefreshLockScript.Run(ctx, l.rdb, []string{l.key}, l.token, ttl.Milliseconds()).Err()
+	renewed, err := batchImageRefreshLockScript.Run(ctx, l.rdb, []string{l.key}, l.token, ttl.Milliseconds()).Int()
+	if err != nil {
+		return err
+	}
+	if renewed != 1 {
+		return service.ErrBatchImageLockNotAcquired
+	}
+	return nil
 }
 
 var _ service.BatchImageJobLockRefresher = (*batchImageRedisJobLock)(nil)
@@ -352,3 +361,32 @@ func newBatchImageLockToken() (string, error) {
 }
 
 var _ service.BatchImageQueue = (*batchImageQueue)(nil)
+
+var batchImageCompleteScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call("ZREM", KEYS[2], ARGV[2])
+redis.call("ZREM", KEYS[3], ARGV[2])
+redis.call("LREM", KEYS[4], 0, ARGV[2])
+if ARGV[3] == "1" then
+ redis.call("DEL", KEYS[5])
+else
+ redis.call("ZADD", KEYS[3], ARGV[4], ARGV[2])
+end
+return 1
+`)
+
+func (l *batchImageRedisJobLock) Complete(ctx context.Context, terminal bool, delay time.Duration) error {
+	q := l.queue
+	done := "0"
+	if terminal {
+		done = "1"
+	}
+	n, err := batchImageCompleteScript.Run(ctx, l.rdb, []string{l.key, q.activeKey, q.delayedKey, q.readyKey, q.inflightKey(l.batchID)}, l.token, l.batchID, done, time.Now().Add(delay).UnixMilli()).Int()
+	if err != nil {
+		return err
+	}
+	if n != 1 {
+		return service.ErrBatchImageLockNotAcquired
+	}
+	return nil
+}

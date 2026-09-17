@@ -172,7 +172,7 @@ SET status = 'failed',
     updated_at = $4,
     version = version + 1
 WHERE batch_id = $1
-  AND status IN ('created', 'uploading')
+  AND status = 'created'
   AND provider_job_name IS NULL
   AND updated_at <= $5`, batchID, code, message, now, cutoff)
 	if err != nil {
@@ -358,6 +358,11 @@ func (r *batchImageRepository) transitionBatchImageJobStatusWithSQL(ctx context.
 	var current string
 	if err := sqlq.QueryRowContext(ctx, `SELECT status FROM batch_image_jobs WHERE batch_id = $1 FOR UPDATE`, batchID).Scan(&current); err != nil {
 		return translatePersistenceError(err, service.ErrBatchImageJobNotFound, nil)
+	}
+	// Cancel may have read "created" before the submitter committed its claim.
+	// Recheck under the row lock: uploading without a receipt cannot be refunded.
+	if current == service.BatchImageJobStatusUploading && toStatus == service.BatchImageJobStatusCancelled {
+		return service.ErrBatchImageInvalidTransition
 	}
 	if !service.CanTransitionBatchImageJob(current, toStatus) {
 		return service.ErrBatchImageInvalidTransition
@@ -609,7 +614,7 @@ func (r *batchImageRepository) ListStaleUnsubmittedBatchImageJobs(ctx context.Co
 		limit = 100
 	}
 	rows, err := r.sql.QueryContext(ctx, batchImageJobSelectSQL+`
- WHERE status IN ('created', 'uploading')
+ WHERE status = 'created'
    AND provider_job_name IS NULL
    AND COALESCE(hold_amount, estimated_cost, 0) > 0
    AND updated_at <= $1
@@ -986,3 +991,32 @@ func batchImageNullTimePtr(v sql.NullTime) *time.Time {
 }
 
 var _ service.BatchImageRepository = (*batchImageRepository)(nil)
+
+// ListRecoverableBatchImageJobs uses keyset pagination so blocked jobs cannot
+// starve later receipts. The committed job row is the durable queue source.
+func (r *batchImageRepository) ListRecoverableBatchImageJobs(ctx context.Context, after string, limit int) ([]string, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.sql.QueryContext(ctx, `SELECT batch_id FROM batch_image_jobs
+ WHERE batch_id > $1 AND (status IN ('submitted', 'running', 'indexing', 'settling')
+ OR (status IN ('failed', 'cancelled') AND COALESCE(hold_amount, estimated_cost, 0) > 0
+ AND NOT EXISTS (SELECT 1 FROM usage_billing_dedup d WHERE d.api_key_id = batch_image_jobs.api_key_id
+ AND d.request_id IN ('batch_image_capture:' || batch_id, 'batch_image_release:' || batch_id))
+ AND NOT EXISTS (SELECT 1 FROM usage_billing_dedup_archive d WHERE d.api_key_id = batch_image_jobs.api_key_id
+ AND d.request_id IN ('batch_image_capture:' || batch_id, 'batch_image_release:' || batch_id))))
+ ORDER BY batch_id LIMIT $2`, after, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var id string
+		if err := rows.Scan(&id); err != nil {
+			return nil, err
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
