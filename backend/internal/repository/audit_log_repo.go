@@ -321,14 +321,6 @@ func (r *auditLogRepository) Count(ctx context.Context) (int64, error) {
 	return total, nil
 }
 
-func (r *auditLogRepository) TruncateAll(ctx context.Context) error {
-	if r == nil || r.db == nil {
-		return fmt.Errorf("nil audit log repository")
-	}
-	_, err := r.db.ExecContext(ctx, "TRUNCATE TABLE audit_logs")
-	return err
-}
-
 func (r *auditLogRepository) ClearWithTrace(ctx context.Context, trace *service.AuditLog) (int64, error) {
 	if r == nil || r.db == nil || trace == nil {
 		return 0, fmt.Errorf("audit repository and clear trace are required")
