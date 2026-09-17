@@ -166,7 +166,8 @@ export default defineConfig(({ mode }) => {
           target: backendUrl,
           changeOrigin: true
         },
-        '/setup': {
+        // Keep the /setup SPA page in Vite; proxy only the backend setup APIs.
+        '^/setup/(status|test-db|test-redis|install)/?(?:\\?|$)': {
           target: backendUrl,
           changeOrigin: true
         }

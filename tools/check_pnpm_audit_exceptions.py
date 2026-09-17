@@ -106,9 +106,51 @@ def iter_vulns(data: dict):
             elif isinstance(via, str):
                 advisories.append(via)
                 titles.append(via)
-            title = "; ".join([t for t in titles if t])
-            for advisory_id in [a for a in advisories if a]:
+            title = "; ".join(str(t) for t in titles if t)
+            # A high-severity entry without via/advisory data is still a
+            # finding, never an empty/clean report.
+            for advisory_id in [a for a in advisories if a] or [None]:
                 yield name, severity, advisory_id, title
+
+
+def validate_audit_report(data: object) -> None:
+    """Reject scanner failures and unknown schemas before evaluating exceptions."""
+    if not isinstance(data, dict):
+        raise ValueError("audit report must be a JSON object")
+    if data.get("error") or data.get("errors"):
+        raise ValueError("audit command reported an error; vulnerability scan did not complete")
+    schemas = [key for key in ("advisories", "vulnerabilities") if key in data]
+    if not schemas:
+        raise ValueError("audit report has no recognized vulnerability collection")
+    for key in schemas:
+        if not isinstance(data[key], dict):
+            raise ValueError(f"audit {key} must be an object")
+        for name, finding in data[key].items():
+            if not isinstance(finding, dict):
+                raise ValueError(f"invalid audit finding: {name}")
+            severity = finding.get("severity")
+            if not isinstance(severity, str) or severity.lower() not in {
+                "info", "low", "moderate", "high", "critical"
+            }:
+                raise ValueError(f"invalid audit severity: {name}")
+            if key == "advisories" and not (finding.get("module_name") or finding.get("name")):
+                raise ValueError(f"audit advisory has no package: {name}")
+
+    # Some registry failures return only summary counts. Do not let a
+    # nonempty high/critical summary hide behind an empty findings object.
+    metadata = data.get("metadata", {})
+    if not isinstance(metadata, dict):
+        raise ValueError("audit metadata must be an object")
+    counts = metadata.get("vulnerabilities", {})
+    if not isinstance(counts, dict):
+        raise ValueError("audit vulnerability counts must be an object")
+    found_severities = {severity.lower() for _, severity, _, _ in iter_vulns(data)}
+    for severity in HIGH_SEVERITIES:
+        count = counts.get(severity, 0)
+        if not isinstance(count, int) or count < 0:
+            raise ValueError(f"invalid audit count: {severity}")
+        if count > 0 and severity not in found_severities:
+            raise ValueError(f"audit summary has {severity} findings without advisory details")
 
 
 def normalize_severity(severity: str) -> str:
@@ -145,8 +187,13 @@ def main() -> int:
     parser.add_argument("--exceptions", required=True)
     args = parser.parse_args()
 
-    with open(args.audit, "r", encoding="utf-8") as handle:
-        audit = json.load(handle)
+    try:
+        with open(args.audit, "r", encoding="utf-8") as handle:
+            audit = json.load(handle)
+        validate_audit_report(audit)
+    except (OSError, ValueError, TypeError) as exc:
+        sys.stderr.write(f"Invalid audit report: {exc}\n")
+        return 1
 
     # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
     exceptions = parse_exceptions(args.exceptions)
