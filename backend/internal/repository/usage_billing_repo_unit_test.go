@@ -78,6 +78,7 @@ func TestApplyUsageBillingEffects_FlagsBalanceOverdraft(t *testing.T) {
 	mock.ExpectBegin()
 	tx, err := db.BeginTx(ctx, nil)
 	require.NoError(t, err)
+	mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(42)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(42))
 	mock.ExpectQuery(conditionalBalanceDeductSQL).
 		WithArgs(10.0, int64(42)).
 		WillReturnError(sql.ErrNoRows)

@@ -57,6 +57,7 @@ func TestQianwenRealtimeAnchorAndChargeShareTransaction(t *testing.T) {
 			mock.ExpectBegin()
 			mock.ExpectQuery(`SELECT row_to_json\(upstreamJob\).*FOR UPDATE`).WithArgs("turn").WillReturnRows(sqlmock.NewRows([]string{"row_to_json"}).AddRow(raw))
 			mock.ExpectQuery(`INSERT INTO usage_logs`).WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(11, time.Now()))
+			mock.ExpectQuery(`SELECT id FROM users WHERE id=\$1 AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(1)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))
 			mock.ExpectQuery(conditionalBalanceDeductSQL).WithArgs(0.000325, int64(1)).WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(9.999675))
 			update := mock.ExpectExec(`UPDATE upstream_jobs SET`)
 			if fail {

@@ -119,11 +119,15 @@ func (r *usageSettlementReceiptRepository) ListPending(ctx context.Context, afte
 }
 
 func (r *usageSettlementReceiptRepository) Settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
-	return r.settle(ctx, key, fingerprint, false)
+	return withBillingAdmission(ctx, key.UserID, func(ctx context.Context) (*service.UsageSettlementResult, error) {
+		return r.settle(ctx, key, fingerprint, false)
+	})
 }
 
 func (r *usageSettlementReceiptRepository) ReconcileLegacy(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
-	return r.settle(ctx, key, fingerprint, true)
+	return withBillingAdmission(ctx, key.UserID, func(ctx context.Context) (*service.UsageSettlementResult, error) {
+		return r.settle(ctx, key, fingerprint, true)
+	})
 }
 
 func (r *usageSettlementReceiptRepository) settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string, reconcile bool) (*service.UsageSettlementResult, error) {

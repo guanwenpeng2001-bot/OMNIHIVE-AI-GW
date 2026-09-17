@@ -652,68 +652,91 @@ func (s *SubscriptionService) RestoreSubscription(ctx context.Context, subscript
 
 // ExtendSubscription 调整订阅时长（正数延长，负数缩短）
 func (s *SubscriptionService) ExtendSubscription(ctx context.Context, subscriptionID int64, days int) (*UserSubscription, error) {
-	sub, err := s.userSubRepo.GetByID(ctx, subscriptionID)
+	var userID, groupID int64
+	err := s.withSubscriptionUpdateTx(ctx, func(txCtx context.Context) error {
+		// Lock the row before reading its expiry. Without this lock, concurrent
+		// adjustments can both calculate from the same stale expiry and lose one
+		// of the updates when they write the absolute timestamp.
+		sub, err := s.userSubRepo.GetByIDForUpdate(txCtx, subscriptionID)
+		if err != nil {
+			return ErrSubscriptionNotFound
+		}
+
+		// 限制调整天数范围
+		userID, groupID = sub.UserID, sub.GroupID
+		if days > MaxValidityDays {
+			days = MaxValidityDays
+		}
+		if days < -MaxValidityDays {
+			days = -MaxValidityDays
+		}
+
+		now := time.Now()
+		if s.now != nil {
+			now = s.now()
+		}
+		isExpired := !sub.ExpiresAt.After(now)
+
+		// 如果订阅已过期，不允许负向调整
+		if isExpired && days < 0 {
+			return infraerrors.BadRequest("CANNOT_SHORTEN_EXPIRED", "cannot shorten an expired subscription")
+		}
+
+		// 计算新的过期时间
+		var newExpiresAt time.Time
+		if isExpired {
+			// 已过期：从当前时间开始增加天数
+			newExpiresAt = now.AddDate(0, 0, days)
+		} else {
+			// 未过期：从原过期时间增加/减少天数
+			newExpiresAt = sub.ExpiresAt.AddDate(0, 0, days)
+		}
+
+		if newExpiresAt.After(MaxExpiresAt) {
+			newExpiresAt = MaxExpiresAt
+		}
+
+		// 检查新的过期时间必须大于当前时间
+		if !newExpiresAt.After(now) {
+			return ErrAdjustWouldExpire
+		}
+
+		if err := s.userSubRepo.ExtendExpiry(txCtx, subscriptionID, newExpiresAt); err != nil {
+			return err
+		}
+
+		// 如果订阅已过期，恢复为active状态
+		if sub.Status == SubscriptionStatusExpired {
+			if err := s.userSubRepo.UpdateStatus(txCtx, subscriptionID, SubscriptionStatusActive); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, ErrSubscriptionNotFound
-	}
-
-	// 限制调整天数范围
-	if days > MaxValidityDays {
-		days = MaxValidityDays
-	}
-	if days < -MaxValidityDays {
-		days = -MaxValidityDays
-	}
-
-	now := time.Now()
-	isExpired := !sub.ExpiresAt.After(now)
-
-	// 如果订阅已过期，不允许负向调整
-	if isExpired && days < 0 {
-		return nil, infraerrors.BadRequest("CANNOT_SHORTEN_EXPIRED", "cannot shorten an expired subscription")
-	}
-
-	// 计算新的过期时间
-	var newExpiresAt time.Time
-	if isExpired {
-		// 已过期：从当前时间开始增加天数
-		newExpiresAt = now.AddDate(0, 0, days)
-	} else {
-		// 未过期：从原过期时间增加/减少天数
-		newExpiresAt = sub.ExpiresAt.AddDate(0, 0, days)
-	}
-
-	if newExpiresAt.After(MaxExpiresAt) {
-		newExpiresAt = MaxExpiresAt
-	}
-
-	// 检查新的过期时间必须大于当前时间
-	if !newExpiresAt.After(now) {
-		return nil, ErrAdjustWouldExpire
-	}
-
-	if err := s.userSubRepo.ExtendExpiry(ctx, subscriptionID, newExpiresAt); err != nil {
 		return nil, err
 	}
 
-	// 如果订阅已过期，恢复为active状态
-	if sub.Status == SubscriptionStatusExpired {
-		if err := s.userSubRepo.UpdateStatus(ctx, subscriptionID, SubscriptionStatusActive); err != nil {
-			return nil, err
+	// Invalidate from the locked row identity even if the response read fails.
+	// An outer transaction owns the commit boundary; rollback must keep caches.
+	invalidate := func() {
+		if err := s.invalidateSubscriptionCaches(userID, groupID); err != nil {
+			log.Printf("Warning: subscription extension cache invalidation failed: %v", err)
 		}
 	}
-
-	// 失效订阅缓存
-	s.InvalidateSubCache(sub.UserID, sub.GroupID)
-	if s.billingCacheService != nil {
-		userID, groupID := sub.UserID, sub.GroupID
-		go func() {
-			cacheCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			_ = s.billingCacheService.InvalidateSubscription(cacheCtx, userID, groupID)
-		}()
+	if tx := dbent.TxFromContext(ctx); tx != nil {
+		tx.OnCommit(func(next dbent.Committer) dbent.Committer {
+			return dbent.CommitFunc(func(commitCtx context.Context, tx *dbent.Tx) error {
+				if err := next.Commit(commitCtx, tx); err != nil {
+					return err
+				}
+				invalidate()
+				return nil
+			})
+		})
+	} else {
+		invalidate()
 	}
-
 	return s.userSubRepo.GetByID(ctx, subscriptionID)
 }
 

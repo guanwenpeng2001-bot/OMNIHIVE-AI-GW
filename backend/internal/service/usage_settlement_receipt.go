@@ -18,6 +18,7 @@ const (
 
 var ErrUsageSettlementNotFound = errors.New("usage settlement receipt not found")
 var ErrUsageSettlementNeedsReview = errors.New("usage settlement receipt needs review")
+var ErrUsageSettlementBackpressure = errors.New("billing payer queue is full; durable receipt remains pending")
 
 // UsageSettlementKey preserves the ordinary billing identity and its owner.
 type UsageSettlementKey struct {
@@ -74,6 +75,7 @@ type UsageSettlementStatusItem struct {
 }
 
 type UsageSettlementStatus struct {
+	Contention             *UsageSettlementContention  `json:"contention,omitempty"`
 	Pending                int64                       `json:"pending"`
 	NeedsReview            int64                       `json:"needs_review"`
 	HistoricalZeroReview   int64                       `json:"historical_zero_review"`
@@ -81,6 +83,25 @@ type UsageSettlementStatus struct {
 	RecoveryBoundary       string                      `json:"recovery_boundary"`
 	Items                  []UsageSettlementStatusItem `json:"items"`
 	HistoricalItems        []UsageSettlementStatusItem `json:"historical_items"`
+}
+
+// Process-local bounded samples, in milliseconds, including SQL round trips.
+type UsageSettlementLatency struct {
+	Samples uint64  `json:"samples"`
+	P50MS   float64 `json:"p50_ms"`
+	P95MS   float64 `json:"p95_ms"`
+	P99MS   float64 `json:"p99_ms"`
+}
+
+type UsageSettlementContention struct {
+	Active               int                    `json:"active"`
+	Waiting              int                    `json:"waiting"`
+	Rejected             uint64                 `json:"rejected"`
+	Deadlocks            uint64                 `json:"deadlock_retries"`
+	SerializationRetries uint64                 `json:"serialization_retries"`
+	Admission            UsageSettlementLatency `json:"admission"`
+	LockAcquisition      UsageSettlementLatency `json:"lock_acquisition"`
+	RetryBackoff         UsageSettlementLatency `json:"retry_backoff"`
 }
 
 type UsageSettlementStatusRepository interface {
