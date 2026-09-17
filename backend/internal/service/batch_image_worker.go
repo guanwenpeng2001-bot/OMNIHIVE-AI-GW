@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -142,6 +143,7 @@ func (w *BatchImageWorker) RunOnce(ctx context.Context) error {
 		return err
 	}
 
+	leaseStarted := time.Now()
 	lock, ok, err := w.queue.TryAcquireJobLock(ctx, reserved.BatchID, w.opts.JobLockTTL)
 	if err != nil {
 		if requeueErr := w.queue.RequeueAfter(ctx, reserved.BatchID, w.opts.LockConflictDelay); requeueErr != nil {
@@ -155,33 +157,78 @@ func (w *BatchImageWorker) RunOnce(ctx context.Context) error {
 		return w.queue.RequeueAfter(ctx, reserved.BatchID, w.opts.LockConflictDelay)
 	}
 	defer func() {
-		_ = lock.Release(ctx)
+		releaseCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		defer cancel()
+		_ = lock.Release(releaseCtx)
 	}()
 
 	// 处理期间持续心跳：刷新 active zset 时间戳防止 stale 恢复把在处理的
 	// job 重投给其他 worker，并对支持续期的锁实现延长锁 TTL。
+	processCtx, cancelProcess := context.WithCancel(ctx)
+	leaseCtx := processCtx
+	var leaseMu sync.Mutex
+	leaseUntil := leaseStarted.Add(w.opts.JobLockTTL)
+	validateLease := func() error {
+		leaseMu.Lock()
+		defer leaseMu.Unlock()
+		if leaseCtx.Err() != nil {
+			return leaseCtx.Err()
+		}
+		if !time.Now().Before(leaseUntil) {
+			cancelProcess()
+			return ErrBatchImageLockNotAcquired
+		}
+		if refresher, ok := lock.(BatchImageJobLockRefresher); ok {
+			started := time.Now()
+			checkCtx, cancel := context.WithDeadline(leaseCtx, leaseUntil)
+			defer cancel()
+			if err := refresher.Refresh(checkCtx, w.opts.JobLockTTL); err != nil {
+				cancelProcess()
+				return err
+			}
+			leaseUntil = started.Add(w.opts.JobLockTTL)
+		}
+		return nil
+	}
+	processCtx = context.WithValue(processCtx, batchImageLeaseContextKey{}, validateLease)
+	defer cancelProcess()
 	hbStop := make(chan struct{})
 	hbDone := make(chan struct{})
-	go w.runJobHeartbeat(ctx, reserved.BatchID, lock, hbStop, hbDone)
+	go w.runJobHeartbeat(processCtx, reserved.BatchID, hbStop, hbDone, cancelProcess)
 
-	result, err := w.processor.Process(ctx, reserved.BatchID)
+	var result BatchImageProcessResult
+	if err = validateLease(); err == nil {
+		result, err = w.processor.Process(processCtx, reserved.BatchID)
+	}
 	close(hbStop)
 	<-hbDone
+	if err := validateLease(); err != nil {
+		return err
+	}
+	finish := func(terminal bool, delay time.Duration) error {
+		if fenced, ok := lock.(BatchImageJobLockCompletion); ok {
+			return fenced.Complete(ctx, terminal, delay)
+		}
+		if terminal {
+			return w.queue.Ack(ctx, reserved.BatchID)
+		}
+		return w.queue.RequeueAfter(ctx, reserved.BatchID, delay)
+	}
 	if err != nil {
 		logger.L().Warn("batch_image.worker_process_failed",
 			zap.String("batch_id", reserved.BatchID),
 			zap.Error(err),
 		)
-		return w.queue.RequeueAfter(ctx, reserved.BatchID, w.opts.ErrorRetryDelay)
+		return finish(false, w.opts.ErrorRetryDelay)
 	}
 	if result.Terminal {
-		return w.queue.Ack(ctx, reserved.BatchID)
+		return finish(true, 0)
 	}
 	delay := result.RequeueAfter
 	if delay <= 0 {
 		delay = w.opts.DefaultRequeueDelay
 	}
-	return w.queue.RequeueAfter(ctx, reserved.BatchID, delay)
+	return finish(false, delay)
 }
 
 // BatchImageJobLockRefresher 是可选的锁续期能力；由具体锁实现按需提供。
@@ -195,16 +242,18 @@ func (w *BatchImageWorker) heartbeatInterval() time.Duration {
 		interval = w.opts.StaleActiveAfter
 	}
 	interval /= 3
-	if interval < time.Second {
-		interval = time.Second
+	if interval < time.Millisecond {
+		interval = time.Millisecond
 	}
 	return interval
 }
 
-func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, lock BatchImageJobLock, stop <-chan struct{}, done chan<- struct{}) {
+func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, stop <-chan struct{}, done chan<- struct{}, cancel context.CancelFunc) {
 	defer close(done)
 	ticker := time.NewTicker(w.heartbeatInterval())
 	defer ticker.Stop()
+	// Every operation must finish before the current lease can expire. Failure to
+	// prove ownership cancels processing and leaves the receipt for recovery.
 	for {
 		select {
 		case <-stop:
@@ -212,22 +261,23 @@ func (w *BatchImageWorker) runJobHeartbeat(ctx context.Context, batchID string, 
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := w.queue.Heartbeat(ctx, batchID); err != nil && ctx.Err() == nil {
-				logger.L().Warn("batch_image.worker_heartbeat_failed",
-					zap.String("batch_id", batchID),
-					zap.Error(err),
-				)
+			heartbeatCtx, heartbeatCancel := context.WithTimeout(ctx, w.heartbeatInterval())
+			err := checkBatchImageLease(ctx)
+			if err == nil {
+				err = w.queue.Heartbeat(heartbeatCtx, batchID)
 			}
-			if refresher, ok := lock.(BatchImageJobLockRefresher); ok {
-				if err := refresher.Refresh(ctx, w.opts.JobLockTTL); err != nil && ctx.Err() == nil {
-					logger.L().Warn("batch_image.worker_lock_refresh_failed",
-						zap.String("batch_id", batchID),
-						zap.Error(err),
-					)
-				}
+			heartbeatCancel()
+			if err != nil {
+				cancel()
+				return
 			}
 		}
 	}
+}
+
+// Complete atomically checks ownership before changing queue membership.
+type BatchImageJobLockCompletion interface {
+	Complete(context.Context, bool, time.Duration) error
 }
 
 func (w *BatchImageWorker) MoveDueDelayedOnce(ctx context.Context) (int, error) {
@@ -283,4 +333,18 @@ func sleepOrDone(ctx context.Context, d time.Duration) {
 	case <-ctx.Done():
 	case <-timer.C:
 	}
+}
+
+// A paused worker must prove its original lease is still live before persisting
+// provider results, indexing output or touching money, not only before Ack.
+type batchImageLeaseContextKey struct{}
+
+func checkBatchImageLease(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if check, ok := ctx.Value(batchImageLeaseContextKey{}).(func() error); ok {
+		return check()
+	}
+	return nil
 }

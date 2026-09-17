@@ -2,9 +2,12 @@ package service
 
 import (
 	"context"
+	"errors"
 	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
 type BatchImageWorkerRuntime struct {
@@ -12,9 +15,10 @@ type BatchImageWorkerRuntime struct {
 	billingRecovery *BatchImageBillingRecoveryService
 	cfg             *config.Config
 
-	mu     sync.Mutex
-	cancel context.CancelFunc
-	done   chan struct{}
+	mu            sync.Mutex
+	cancel        context.CancelFunc
+	done          chan struct{}
+	recoveryAfter string
 }
 
 func NewBatchImageWorkerRuntime(worker *BatchImageWorker, cfg *config.Config) *BatchImageWorkerRuntime {
@@ -109,6 +113,9 @@ func (r *BatchImageWorkerRuntime) runBillingRecovery(ctx context.Context) {
 		if err := ctx.Err(); err != nil {
 			return
 		}
+		if err := r.recoverQueueOnce(ctx); err != nil {
+			logger.L().Warn("batch_image.queue_recovery_failed", zap.Error(err))
+		}
 		_, _ = r.billingRecovery.ReleaseStaleUnsubmittedOnce(ctx)
 		sleepOrDone(ctx, interval)
 	}
@@ -140,4 +147,29 @@ func (r *BatchImageWorkerRuntime) Running() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	return r.cancel != nil
+}
+
+type batchImageRecoveryRepository interface {
+	ListRecoverableBatchImageJobs(context.Context, string, int) ([]string, error)
+}
+
+func (r *BatchImageWorkerRuntime) recoverQueueOnce(ctx context.Context) error {
+	repo, ok := r.billingRecovery.Repo.(batchImageRecoveryRepository)
+	if !ok || r.worker.queue == nil {
+		return nil
+	}
+	ids, err := repo.ListRecoverableBatchImageJobs(ctx, r.recoveryAfter, r.worker.opts.RecoverLimit)
+	if err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := r.worker.queue.Enqueue(ctx, id); err != nil && !errors.Is(err, ErrBatchImageAlreadyQueued) {
+			return err
+		}
+		r.recoveryAfter = id
+	}
+	if len(ids) < r.worker.opts.RecoverLimit {
+		r.recoveryAfter = ""
+	}
+	return nil
 }
