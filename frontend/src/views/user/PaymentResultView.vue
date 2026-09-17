@@ -104,7 +104,8 @@ import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   clearPaymentRecoverySnapshot,
-  readPaymentRecoverySnapshot,
+  usePaymentPageLifecycle,
+  readOwnedPaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { usePaymentStore } from '@/stores/payment'
 import { useAuthStore } from '@/stores/auth'
@@ -120,6 +121,7 @@ const route = useRoute()
 const router = useRouter()
 const paymentStore = usePaymentStore()
 const authStore = useAuthStore()
+const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query), clearStatusRefreshTimer)
 
 type ResolvedOrder = PaymentOrder | PublicOrderVerifyResult
 
@@ -196,6 +198,7 @@ function formatGatewayAmount(value: number): string {
 }
 
 function setResolvedOrder(nextOrder: ResolvedOrder | null): void {
+  if (!lifecycle.isCurrent()) return
   order.value = nextOrder
   if (nextOrder && 'currency' in nextOrder && nextOrder.currency) {
     currency.value = normalizePaymentCurrency(nextOrder.currency)
@@ -268,7 +271,7 @@ function restoreRecoverySnapshot(context: {
   }
 
   if (context.resumeToken) {
-    return readPaymentRecoverySnapshot(rawSnapshot, {
+    return readOwnedPaymentRecoverySnapshot(rawSnapshot, {
       resumeToken: context.resumeToken,
     })
   }
@@ -277,7 +280,7 @@ function restoreRecoverySnapshot(context: {
     return null
   }
 
-  const restored = readPaymentRecoverySnapshot(rawSnapshot)
+  const restored = readOwnedPaymentRecoverySnapshot(rawSnapshot)
   if (!restored) {
     return null
   }
@@ -295,7 +298,7 @@ function restoreRecoverySnapshot(context: {
 
 async function resolveOrderFromResumeToken(resumeToken: string): Promise<ResolvedOrder | null> {
   try {
-    const result = await paymentAPI.resolveOrderPublicByResumeToken(resumeToken)
+    const result = await paymentAPI.resolveOrderPublicByResumeToken(resumeToken, lifecycle.signal)
     return result.data
   } catch (_err: unknown) {
     return null
@@ -304,11 +307,12 @@ async function resolveOrderFromResumeToken(resumeToken: string): Promise<Resolve
 
 async function resolveOrderFromOutTradeNo(outTradeNo: string): Promise<ResolvedOrder | null> {
   try {
-    const result = await paymentAPI.verifyOrder(outTradeNo)
+    const result = await paymentAPI.verifyOrder(outTradeNo, lifecycle.signal)
     return result.data
   } catch (_err: unknown) {
+    if (!lifecycle.isCurrent()) return null
     try {
-      const result = await paymentAPI.verifyOrderPublic(outTradeNo)
+      const result = await paymentAPI.verifyOrderPublic(outTradeNo, lifecycle.signal)
       return result.data
     } catch (_innerErr: unknown) {
       return null
@@ -324,7 +328,7 @@ function clearStatusRefreshTimer(): void {
 }
 
 function clearRecoverySnapshot(): void {
-  if (typeof window === 'undefined') return
+  if (!lifecycle.isCurrent() || typeof window === 'undefined') return
   clearPaymentRecoverySnapshot(window.localStorage, PAYMENT_RECOVERY_STORAGE_KEY)
 }
 
@@ -337,13 +341,15 @@ function clearRecoverySnapshotForTerminalStatus(status: string | null | undefine
 
 function scheduleStatusRefresh(refreshOrder: (() => Promise<ResolvedOrder | null>) | null): void {
   clearStatusRefreshTimer()
-  if (!refreshOrder || !isPending.value || refreshAttempts.value >= STATUS_REFRESH_MAX_ATTEMPTS) {
+  if (!lifecycle.isCurrent() || !refreshOrder || !isPending.value || refreshAttempts.value >= STATUS_REFRESH_MAX_ATTEMPTS) {
     return
   }
 
   statusRefreshTimer = setTimeout(async () => {
+    if (!lifecycle.isCurrent()) return
     refreshAttempts.value += 1
     const refreshedOrder = await refreshOrder()
+    if (!lifecycle.isCurrent()) return
     if (refreshedOrder) {
       setResolvedOrder(refreshedOrder)
       clearRecoverySnapshotForTerminalStatus(refreshedOrder.status)
@@ -379,6 +385,7 @@ onMounted(async () => {
 
   if (resumeToken) {
     const resolvedOrder = await resolveOrderFromResumeToken(resumeToken)
+    if (!lifecycle.isCurrent()) return
     if (resolvedOrder) {
       setResolvedOrder(resolvedOrder)
       if (!orderId) {
@@ -399,14 +406,18 @@ onMounted(async () => {
 
   if (!order.value && orderId && (!resumeToken || routeOrderId > 0)) {
     try {
-      setResolvedOrder(await paymentStore.pollOrderStatus(orderId))
+      const polledOrder = await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
+      if (!lifecycle.isCurrent()) return
+      setResolvedOrder(polledOrder)
     } catch (_err: unknown) {
       // Order lookup failed, will try legacy fallback below when possible.
     }
   }
 
+  if (!lifecycle.isCurrent()) return
   if (!order.value && shouldUsePublicOutTradeNo && (!resumeToken || resumeTokenLookupFailed)) {
     const legacyOrder = await resolveOrderFromOutTradeNo(outTradeNo)
+    if (!lifecycle.isCurrent()) return
     if (legacyOrder) {
       setResolvedOrder(legacyOrder)
       if (!orderId) {
@@ -425,8 +436,10 @@ onMounted(async () => {
   }
 
   const refreshOrder = async (): Promise<ResolvedOrder | null> => {
+    if (!lifecycle.isCurrent()) return null
     if (resumeToken) {
       const resolvedOrder = await resolveOrderFromResumeToken(resumeToken)
+      if (!lifecycle.isCurrent()) return null
       if (resolvedOrder) {
         return resolvedOrder
       }
@@ -434,12 +447,13 @@ onMounted(async () => {
 
     if (orderId) {
       try {
-        return await paymentStore.pollOrderStatus(orderId)
+        return await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
       } catch (_err: unknown) {
         // Fall through to legacy public verification when order polling is unavailable.
       }
     }
 
+    if (!lifecycle.isCurrent()) return null
     if (shouldUsePublicOutTradeNo) {
       return await resolveOrderFromOutTradeNo(outTradeNo)
     }
@@ -454,7 +468,7 @@ onMounted(async () => {
   } else if (returnInfo.value) {
     clearRecoverySnapshot()
   }
-  loading.value = false
+  if (lifecycle.isCurrent()) loading.value = false
 })
 
 onBeforeUnmount(() => {
