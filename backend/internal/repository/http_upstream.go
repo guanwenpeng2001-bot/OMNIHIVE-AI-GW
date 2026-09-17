@@ -27,6 +27,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
@@ -126,6 +127,7 @@ type openAIHTTP2Settings struct {
 // upstreamClientEntry 上游客户端缓存条目
 // 记录客户端实例及其元数据，用于连接池管理和淘汰策略
 type upstreamClientEntry struct {
+	publicClient *http.Client // Separate pools pinned to validated public IPs.
 	client       *http.Client // HTTP 客户端实例
 	proxyKey     string       // 代理标识（用于检测代理变更）
 	poolKey      string       // 连接池配置标识（用于检测配置变更）
@@ -214,7 +216,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	}
 
 	// 执行请求
-	client := s.httpClientForUpstreamRequest(entry.client, req)
+	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
 	resp, err := servertiming.Do(client, req)
 	if err != nil {
@@ -278,7 +280,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		return nil, err
 	}
 
-	client := s.httpClientForUpstreamRequest(entry.client, req)
+	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
 	resp, err := servertiming.Do(client, req)
 	if err != nil {
@@ -298,8 +300,15 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	return resp, nil
 }
 
-// httpClientForUpstreamRequest 按请求上下文的标记派生客户端：禁用重定向，或对重定向的每一跳做主机校验。
-// 派生的克隆与缓存客户端共享 Transport；未打标记时原样返回。
+// requestClient keeps restricted requests out of unrestricted connection pools.
+func (s *httpUpstreamService) requestClient(entry *upstreamClientEntry, req *http.Request) *http.Client {
+	if s.shouldValidateResolvedIP() || (req != nil && service.HTTPUpstreamPublicHostsOnly(req.Context())) {
+		return entry.publicClient
+	}
+	return entry.client
+}
+
+// httpClientForUpstreamRequest applies redirect policy without changing pools.
 func (s *httpUpstreamService) httpClientForUpstreamRequest(client *http.Client, req *http.Request) *http.Client {
 	if client == nil || req == nil {
 		return client
@@ -574,9 +583,10 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 
 	entry := &upstreamClientEntry{
-		client:   client,
-		proxyKey: proxyKey,
-		poolKey:  poolKey,
+		client:       client,
+		publicClient: &http.Client{Transport: httpclient.NewPublicTransport(transport), CheckRedirect: s.redirectChecker},
+		proxyKey:     proxyKey,
+		poolKey:      poolKey,
 	}
 	atomic.StoreInt64(&entry.lastUsed, nowUnix)
 	if markInFlight {
@@ -729,6 +739,7 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 	}
 	entry := &upstreamClientEntry{
 		client:       client,
+		publicClient: &http.Client{Transport: httpclient.NewPublicTransport(transport), CheckRedirect: s.redirectChecker},
 		proxyKey:     proxyKey,
 		poolKey:      poolKey,
 		protocolMode: protocolMode,
@@ -773,6 +784,9 @@ func (s *httpUpstreamService) removeClientLocked(key string, entry *upstreamClie
 		// 关闭空闲连接，释放系统资源
 		// 注意：这不会中断活跃连接
 		entry.client.CloseIdleConnections()
+		if entry.publicClient != nil {
+			entry.publicClient.CloseIdleConnections()
+		}
 	}
 }
 
@@ -1369,6 +1383,12 @@ func enableHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, error) {
 	if h2 != nil {
 		h2.ReadIdleTimeout = longStreamHTTP2ReadIdleTimeout
 		h2.PingTimeout = longStreamHTTP2PingTimeout
+		// Preserve the native Go 1.27 settings when a public-host transport
+		// clones this transport; registered alternate protocols are not cloned.
+		transport.HTTP2 = &http.HTTP2Config{
+			SendPingTimeout: longStreamHTTP2ReadIdleTimeout,
+			PingTimeout:     longStreamHTTP2PingTimeout,
+		}
 	}
 	return h2, nil
 }
