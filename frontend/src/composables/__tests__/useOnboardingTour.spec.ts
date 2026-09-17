@@ -10,7 +10,8 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 const fixtures = vi.hoisted(() => ({ steps: [] as DriveStep[] }))
 const route = reactive({ fullPath: '/admin/dashboard' })
 const app = reactive({ sidebarCollapsed: false })
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ user: { id: 1, role: 'admin' }, isSimpleMode: false }) }))
+const auth = reactive({ user: { id: 1, role: 'admin' }, isSimpleMode: false, sessionRevision: 'login-1' })
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => auth }))
 vi.mock('@/stores', () => ({ useAppStore: () => app }))
 vi.mock('vue-router', () => ({ useRoute: () => route }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
@@ -40,6 +41,9 @@ beforeEach(() => {
   vi.useFakeTimers()
   setActivePinia(createPinia())
   localStorage.clear()
+  sessionStorage.clear()
+  auth.user.id = 1
+  auth.sessionRevision = 'login-1'
   fixtures.steps = [{ popover: { title: 'Welcome' } }, { element: '#target', popover: { title: 'Target', showButtons: ['next', 'previous'] } }]
   route.fullPath = '/admin/dashboard'
   app.sidebarCollapsed = false
@@ -57,7 +61,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 describe('onboarding cancellable lifecycle (real driver)', () => {
-  it('auto-starts again after Esc cancellation and remount', async () => {
+  it('remembers Esc cancellation across remount without recording completion', async () => {
     host(true)
     await advance(1100)
     expect(document.querySelector('.driver-overlay')).not.toBeNull()
@@ -65,6 +69,36 @@ describe('onboarding cancellable lifecycle (real driver)', () => {
     noOverlay()
     expect(tour.hasSeen()).toBe(false)
     wrapper!.unmount()
+    host(true)
+    await advance(1100)
+    noOverlay()
+    expect(tour.hasSeen()).toBe(false)
+  })
+  it.each(['Escape', 'Exit'])('keeps %s dismissal across consecutive AppLayout navigations and allows menu replay', async exit => {
+    wrapper = mount(AppLayout, { attachTo: document.body })
+    await advance(1100)
+    expect(store().isDriverActive()).toBe(true)
+    if (exit === 'Escape') document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    else document.querySelector<HTMLButtonElement>('.driver-popover-close-btn')!.click()
+    for (const path of ['/admin/accounts', '/admin/groups', '/admin/dashboard']) {
+      route.fullPath = path
+      wrapper.unmount()
+      wrapper = mount(AppLayout, { attachTo: document.body })
+      await advance(1100)
+      noOverlay()
+      expect(localStorage.length).toBe(0)
+    }
+    store().replay()
+    await nextTick()
+    expect(store().isDriverActive()).toBe(true)
+  })
+  it.each(['user', 'login'])('does not suppress auto-start for a different %s', async scope => {
+    host(true)
+    await advance(1100)
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+    wrapper!.unmount()
+    if (scope === 'user') auth.user.id = 2
+    else auth.sessionRevision = 'login-2'
     host(true)
     await advance(1100)
     expect(store().isDriverActive()).toBe(true)
