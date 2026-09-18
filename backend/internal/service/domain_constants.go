@@ -51,6 +51,7 @@ const (
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformCursor      = domain.PlatformCursor
 	PlatformQianwen     = domain.PlatformQianwen
+	PlatformVolcengine  = domain.PlatformVolcengine
 	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy

@@ -178,6 +178,14 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	if account.Platform == PlatformVolcengine {
+		prepared, prepareErr := s.prepareVolcengineChatRequest(account, upstreamBody, upstreamModel)
+		if prepareErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error())
+			return nil, prepareErr
+		}
+		targetURL, upstreamBody, token = prepared.TargetURL, prepared.Body, prepared.APIKey
+	}
 	upstreamBody, err = normalizeStrictChatDeveloperRoles(account, targetURL, upstreamBody)
 	if err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())

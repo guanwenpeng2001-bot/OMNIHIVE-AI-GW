@@ -1223,6 +1223,8 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.Platform == PlatformVolcengine:
+		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():

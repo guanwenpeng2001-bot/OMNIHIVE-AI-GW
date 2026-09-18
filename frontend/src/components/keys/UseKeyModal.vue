@@ -1256,6 +1256,7 @@ function generateRoutedCodexFiles(
     opencode_go: 'glm-5.3',
     qianwen: 'qwen-flash',
     commandcode: 'gpt-5.6-luna',
+    volcengine: '',
     cursor: 'default',
     composite: 'gpt-5.5'
   }
@@ -1274,6 +1275,7 @@ function generateRoutedCodexFiles(
     opencode_go: 'OpenCode',
     qianwen: '千问AI',
     commandcode: 'Command Code',
+    volcengine: 'Volcengine Ark',
     cursor: 'Cursor',
     composite: 'Composite'
   }

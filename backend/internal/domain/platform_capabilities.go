@@ -21,6 +21,7 @@ type PlatformDescriptor struct {
 	ResponsesCompact             bool            `json:"responsesCompact"`
 	NativeMultiProtocolResponses bool            `json:"nativeMultiProtocolResponses"`
 
+	ChatOnly            bool   `json:"chatOnly"`
 	ID                  string `json:"id"`
 	OAuth               bool   `json:"oauth"`
 	CNProvider          bool   `json:"cnProvider"`
@@ -33,6 +34,7 @@ type PlatformDescriptor struct {
 }
 
 var platformDescriptors = []PlatformDescriptor{
+	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformAnthropic, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformGemini, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenAI, ResponsesCompact: true, ResponsesWS: EndpointNative, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},

@@ -369,6 +369,21 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 		return []string{}
 	}
 	task := accountCatalogEndpointTask(account, modelID, metadata)
+	if IsChatOnlyPlatform(account.Platform) {
+		if task != "" && task != "text_generation" {
+			return []string{}
+		}
+		if metadata.SupportedMethods != nil {
+			for _, method := range metadata.SupportedMethods {
+				if method == CompositeRouteEndpointChatCompletions {
+					return []string{CompositeRouteEndpointChatCompletions}
+				}
+			}
+			return []string{}
+		}
+		return []string{CompositeRouteEndpointChatCompletions}
+	}
+
 	endpoints := []string{}
 	for _, method := range metadata.SupportedMethods {
 		switch method {

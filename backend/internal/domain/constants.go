@@ -33,6 +33,7 @@ const (
 	PlatformOpenCodeGo  = "opencode_go"
 	PlatformCursor      = "cursor"
 	PlatformQianwen     = "qianwen"
+	PlatformVolcengine  = "volcengine"
 	PlatformCommandCode = "commandcode"
 	PlatformComposite   = "composite"
 )

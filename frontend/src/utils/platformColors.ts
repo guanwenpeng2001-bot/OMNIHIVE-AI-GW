@@ -22,6 +22,7 @@ const BADGE: Record<Platform, string> = {
   minimax: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-400',
   qianwen: 'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
+  volcengine: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
   opencode_go: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-300',
   composite: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
 }
@@ -41,6 +42,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   minimax: 'bg-rose-500/10 text-rose-600 dark:bg-rose-500/10 dark:text-rose-300',
   qianwen: 'bg-violet-500/10 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
+  volcengine: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
   opencode_go: 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
   composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
 }
@@ -59,6 +61,7 @@ const BORDER: Record<Platform, string> = {
   minimax: 'border-rose-500/20 dark:border-rose-500/20',
   qianwen: 'border-violet-500/20 dark:border-violet-500/20',
   commandcode: 'border-cyan-500/20 dark:border-cyan-500/20',
+  volcengine: 'border-orange-500/20 dark:border-orange-500/20',
   opencode_go: 'border-amber-500/20 dark:border-amber-500/20',
   composite: 'border-cyan-500/20 dark:border-cyan-500/20',
 }
@@ -78,6 +81,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   minimax: 'border-rose-500/35 dark:border-rose-500/30',
   qianwen: 'border-violet-500/35 dark:border-violet-500/30',
   commandcode: 'border-cyan-500/35 dark:border-cyan-500/30',
+  volcengine: 'border-orange-500/35 dark:border-orange-500/30',
   opencode_go: 'border-amber-500/35 dark:border-amber-500/30',
   composite: 'border-cyan-500/35 dark:border-cyan-500/30',
 }
@@ -98,6 +102,7 @@ const ACCENT: Record<Platform, string> = {
   minimax: '#f43f5e', // rose-500
   qianwen: '#8b5cf6', // violet-500
   commandcode: '#06b6d4', // cyan-500
+  volcengine: '#f97316', // orange-500
   opencode_go: '#f59e0b', // amber-500
   composite: '#06b6d4', // cyan-500
 }
@@ -117,6 +122,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   minimax: 'bg-gradient-to-r from-rose-400 to-rose-500',
   qianwen: 'bg-gradient-to-r from-violet-400 to-violet-500',
   commandcode: 'bg-gradient-to-r from-cyan-400 to-cyan-500',
+  volcengine: 'bg-gradient-to-r from-orange-400 to-orange-500',
   opencode_go: 'bg-gradient-to-r from-amber-400 to-amber-500',
   composite: 'bg-gradient-to-r from-slate-500 to-cyan-500',
 }
@@ -136,6 +142,7 @@ const TEXT: Record<Platform, string> = {
   minimax: 'text-rose-600 dark:text-rose-400',
   qianwen: 'text-violet-700 dark:text-violet-300',
   commandcode: 'text-cyan-700 dark:text-cyan-300',
+  volcengine: 'text-orange-700 dark:text-orange-300',
   opencode_go: 'text-amber-700 dark:text-amber-300',
   composite: 'text-cyan-700 dark:text-cyan-300',
 }
@@ -155,6 +162,7 @@ const ICON: Record<Platform, string> = {
   minimax: 'text-rose-500 dark:text-rose-400',
   qianwen: 'text-violet-500 dark:text-violet-300',
   commandcode: 'text-cyan-500 dark:text-cyan-300',
+  volcengine: 'text-orange-500 dark:text-orange-300',
   opencode_go: 'text-amber-500 dark:text-amber-300',
   composite: 'text-cyan-600 dark:text-cyan-300',
 }
@@ -174,6 +182,7 @@ const BUTTON: Record<Platform, string> = {
   minimax: 'bg-rose-500 text-white hover:bg-rose-600 active:bg-rose-700 dark:bg-rose-500/80 dark:hover:bg-rose-500',
   qianwen: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
   commandcode: 'bg-cyan-500 text-white hover:bg-cyan-600 active:bg-cyan-700 dark:bg-cyan-500/80 dark:hover:bg-cyan-500',
+  volcengine: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   opencode_go: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 dark:bg-amber-500/80 dark:hover:bg-amber-500',
   composite: 'bg-cyan-700 text-white hover:bg-cyan-800 active:bg-cyan-900 dark:bg-cyan-600 dark:hover:bg-cyan-500',
 }
@@ -193,6 +202,7 @@ const DISCOUNT: Record<Platform, string> = {
   minimax: 'bg-rose-100 text-rose-700 dark:bg-rose-900/40 dark:text-rose-300',
   qianwen: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300',
   commandcode: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
+  volcengine: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
   opencode_go: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   composite: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
 }
@@ -212,6 +222,7 @@ const GRADIENT: Record<Platform, string> = {
   minimax: 'from-rose-500 to-rose-600',
   qianwen: 'from-violet-500 to-violet-600',
   commandcode: 'from-cyan-500 to-cyan-600',
+  volcengine: 'from-orange-500 to-orange-600',
   opencode_go: 'from-amber-500 to-amber-600',
   composite: 'from-slate-600 to-cyan-600',
 }
@@ -231,6 +242,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   minimax: 'text-rose-100',
   qianwen: 'text-violet-100',
   commandcode: 'text-cyan-100',
+  volcengine: 'text-orange-100',
   opencode_go: 'text-amber-100',
   composite: 'text-cyan-100',
 }
@@ -249,6 +261,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   minimax: 'text-rose-200',
   qianwen: 'text-violet-200',
   commandcode: 'text-cyan-200',
+  volcengine: 'text-orange-200',
   opencode_go: 'text-amber-200',
   composite: 'text-cyan-200',
 }

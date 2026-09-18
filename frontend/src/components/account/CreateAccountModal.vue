@@ -3830,7 +3830,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
 import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -4127,6 +4127,11 @@ function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['valu
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
   form.platform = platform
+  if (isChatOnlyPlatform(platform)) {
+    form.type = 'apikey'
+    accountCategory.value = 'apikey'
+    apiProtocol.value = 'chat_completions'
+  }
   if (platform === 'commandcode') {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
@@ -4750,13 +4755,13 @@ watch(
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
-        newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
+        CHAT_PLATFORM_BASE_URLS[newPlatform] ?? (newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
           ? 'https://api.openai.com'
           : newPlatform === 'gemini'
             ? 'https://generativelanguage.googleapis.com'
             : newPlatform === 'grok'
               ? 'https://api.x.ai/v1'
-              : 'https://api.anthropic.com'
+              : 'https://api.anthropic.com')
     }
     // Clear model-related settings
     allowedModels.value = []

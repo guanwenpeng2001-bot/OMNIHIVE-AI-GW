@@ -19,6 +19,7 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       newPlatforms: {
+      volcengineDescription: 'API key /api/v3 chat runtime; configure exact deployment targets and declare availability after saving. Automatic discovery, vendor SSE/error details and balances remain unverified.',
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
         "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
@@ -156,6 +157,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+      volcengine: 'Volcengine Ark',
         qianwen: 'Qianwen AI',
         commandcode: 'Command Code',
         cursor: 'Cursor',

@@ -3050,6 +3050,7 @@
 </template>
 
 <script setup lang="ts">
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
@@ -3886,6 +3887,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account && CHAT_PLATFORM_BASE_URLS[props.account.platform]) return CHAT_PLATFORM_BASE_URLS[props.account.platform]
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
