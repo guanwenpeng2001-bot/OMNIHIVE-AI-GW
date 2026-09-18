@@ -96,7 +96,7 @@ jobs:
           - test: TestAccountConfigurationPostgres
             package: ./internal/repository
             tag: unit
-            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,discovery_and_key_rotation_merge_only_changed_fields,explicit_null_mapping_is_treated_as_empty,failed_outbox_rolls_back_before_cache_refresh
+            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,manual_bulk_token_rotation_invalidates_stable_subject,same_baseline_first_commit_wins_and_preserves_aliases,rule_edits_conflict_with_pending_discovery,failed_outbox_rolls_back_before_cache_refresh
     services:
       postgres:
         image: postgres:16
