@@ -4,10 +4,8 @@
  */
 
 import { apiClient } from '../client'
-import type { UsageCoverage } from '../usage'
-export interface DashboardStats extends BaseDashboardStats { coverage?: UsageCoverage }
 import type {
-  DashboardStats as BaseDashboardStats,
+  DashboardStats,
   TrendDataPoint,
   ModelStat,
   GroupStat,

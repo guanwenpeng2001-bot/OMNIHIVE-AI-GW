@@ -358,7 +358,7 @@ import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
-import type { DashboardStats } from '@/api/admin/dashboard'
+import type { DashboardStats } from '@/types'
 import { adminAPI } from '@/api/admin'
 import type {
   TrendDataPoint,
