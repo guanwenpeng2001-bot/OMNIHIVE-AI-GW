@@ -91,3 +91,14 @@ describe('compliance identity lifecycle', () => {
     expect(store.required).toBe(true)
   })
 })
+
+it('retries a shared failed compliance request', async () => {
+  api.getStatus.mockRejectedValueOnce(new Error('offline')).mockResolvedValue(accepted)
+  const store = useAdminComplianceStore()
+  const results = await Promise.allSettled([store.fetchStatus(), store.fetchStatus(true)])
+  expect(results.map(result => result.status)).toEqual(['rejected', 'rejected'])
+  expect(api.getStatus).toHaveBeenCalledTimes(1)
+  expect(store.initialized).toBe(false)
+  await store.fetchStatus()
+  expect(api.getStatus).toHaveBeenCalledTimes(2)
+})

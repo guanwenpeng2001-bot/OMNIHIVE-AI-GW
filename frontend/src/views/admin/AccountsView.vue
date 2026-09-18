@@ -18,7 +18,7 @@
           >
             <template #after>
               <!-- Auto Refresh Dropdown -->
-              <div class="relative" ref="autoRefreshDropdownRef">
+              <div class="relative" ref="autoRefreshDropdownRef" @keydown.esc.stop.prevent="closeAutoRefreshDropdown">
                 <button
                   @click="
                     showAutoRefreshDropdown = !showAutoRefreshDropdown;
@@ -26,6 +26,10 @@
                   "
                   class="btn btn-secondary px-2 md:px-3"
                   :title="t('admin.accounts.autoRefresh')"
+                  :aria-label="t('admin.accounts.autoRefresh')"
+                  :aria-expanded="showAutoRefreshDropdown"
+                  aria-controls="account-auto-refresh-options"
+                  ref="autoRefreshTriggerRef"
                 >
                   <Icon name="refresh" size="sm" :class="[autoRefreshEnabled ? 'animate-spin' : '']" />
                   <span class="hidden md:inline">
@@ -38,11 +42,13 @@
                 </button>
                 <div
                   v-if="showAutoRefreshDropdown"
+                  id="account-auto-refresh-options"
                   class="absolute right-0 z-50 mt-2 w-56 origin-top-right rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-700 dark:bg-dark-800"
                 >
                   <div class="p-2">
                     <button
                       @click="setAutoRefreshEnabled(!autoRefreshEnabled)"
+                      :aria-pressed="autoRefreshEnabled"
                       class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
                     >
                       <span>{{ t('admin.accounts.enableAutoRefresh') }}</span>
@@ -53,6 +59,7 @@
                       v-for="sec in autoRefreshIntervals"
                       :key="sec"
                       @click="setAutoRefreshInterval(sec)"
+                      :aria-pressed="autoRefreshIntervalSeconds === sec"
                       class="flex w-full items-center justify-between rounded-md px-3 py-2 text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-200 dark:hover:bg-dark-700"
                     >
                       <span>{{ autoRefreshIntervalLabel(sec) }}</span>
@@ -450,16 +457,16 @@
       </template>
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
-    <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
-    <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
-    <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
-    <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
+    <CreateAccountModal v-if="showCreate" :show="showCreate" :proxies="proxies" :groups="groups" @close="showCreate = false" @created="reload" />
+    <EditAccountModal v-if="showEdit" :show="showEdit" :account="edAcc" :proxies="proxies" :groups="groups" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <ReAuthAccountModal v-if="showReAuth" :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
+    <AccountTestModal v-if="showTest" :show="showTest" :account="testingAcc" @close="closeTestModal" />
+    <AccountStatsModal v-if="showStats" :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <ScheduledTestsPanel v-if="showSchedulePanel" :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
     <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
-    <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
-    <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
-    <BulkEditAccountModal
+    <SyncFromCrsModal v-if="showSync" :show="showSync" @close="showSync = false" @synced="reload" />
+    <ImportDataModal v-if="showImportData" :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
+    <BulkEditAccountModal v-if="showBulkEdit"
       :show="showBulkEdit"
       :account-ids="selIds"
       :selected-platforms="selPlatforms"
@@ -470,7 +477,7 @@
       @close="showBulkEdit = false"
       @updated="handleBulkUpdated"
     />
-    <TempUnschedStatusModal :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
+    <TempUnschedStatusModal v-if="showTempUnsched" :show="showTempUnsched" :account="tempUnschedAcc" @close="showTempUnsched = false" @reset="handleTempUnschedReset" />
     <ConfirmDialog :show="showDeleteDialog" :title="t('admin.accounts.deleteAccount')" :message="t('admin.accounts.deleteConfirm', { name: deletingAcc?.name })" :confirm-text="t('common.delete')" :cancel-text="t('common.cancel')" :danger="true" @confirm="confirmDelete" @cancel="showDeleteDialog = false" />
     <ConfirmDialog :show="showCreateShadowDialog" :title="t('admin.accounts.createSparkShadow')" :message="t('admin.accounts.createSparkShadowConfirm', { name: creatingShadowAcc?.name })" @confirm="confirmCreateSparkShadow" @cancel="showCreateShadowDialog = false" />
     <ConfirmDialog :show="showExportDataDialog" :title="t('admin.accounts.dataExport')" :message="t('admin.accounts.dataExportConfirmMessage')" :confirm-text="t('admin.accounts.dataExportConfirm')" :cancel-text="t('common.cancel')" @confirm="handleExportData" @cancel="showExportDataDialog = false">
@@ -479,14 +486,14 @@
         <span>{{ t('admin.accounts.dataExportIncludeProxies') }}</span>
       </label>
     </ConfirmDialog>
-    <ErrorPassthroughRulesModal :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
-    <TLSFingerprintProfilesModal :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
+    <ErrorPassthroughRulesModal v-if="showErrorPassthrough" :show="showErrorPassthrough" @close="showErrorPassthrough = false" />
+    <TLSFingerprintProfilesModal v-if="showTLSFingerprintProfiles" :show="showTLSFingerprintProfiles" @close="showTLSFingerprintProfiles = false" />
     <TotpStepUpDialog :controller="accountExportStepUp" />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -503,16 +510,36 @@ import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import Pagination from '@/components/common/Pagination.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
-import { CreateAccountModal, EditAccountModal, BulkEditAccountModal, SyncFromCrsModal, TempUnschedStatusModal } from '@/components/account'
+// Existing dialogs initialize on a false -> true show transition. Preserve that
+// contract on the first lazy mount without changing the shared dialog owners.
+function lazyAccountDialog(load: () => Promise<{ default: Component }>) {
+  return defineAsyncComponent(async () => {
+    const component = (await load()).default
+    return defineComponent({
+      inheritAttrs: false,
+      setup(_props, { attrs }) {
+        const mounted = ref(false)
+        onMounted(() => { mounted.value = true })
+        return () => h(component, { ...attrs, show: mounted.value && attrs.show })
+      }
+    })
+  })
+}
+
+const CreateAccountModal = lazyAccountDialog(() => import('@/components/account/CreateAccountModal.vue'))
+const EditAccountModal = lazyAccountDialog(() => import('@/components/account/EditAccountModal.vue'))
+const BulkEditAccountModal = lazyAccountDialog(() => import('@/components/account/BulkEditAccountModal.vue'))
+const SyncFromCrsModal = lazyAccountDialog(() => import('@/components/account/SyncFromCrsModal.vue'))
+const TempUnschedStatusModal = lazyAccountDialog(() => import('@/components/account/TempUnschedStatusModal.vue'))
 import AccountTableActions from '@/components/admin/account/AccountTableActions.vue'
 import AccountTableFilters from '@/components/admin/account/AccountTableFilters.vue'
 import AccountBulkActionsBar from '@/components/admin/account/AccountBulkActionsBar.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
-import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
-import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
-import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
-import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
-import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
+const ImportDataModal = lazyAccountDialog(() => import('@/components/admin/account/ImportDataModal.vue'))
+const ReAuthAccountModal = lazyAccountDialog(() => import('@/components/admin/account/ReAuthAccountModal.vue'))
+const AccountTestModal = lazyAccountDialog(() => import('@/components/admin/account/AccountTestModal.vue'))
+const AccountStatsModal = lazyAccountDialog(() => import('@/components/admin/account/AccountStatsModal.vue'))
+const ScheduledTestsPanel = lazyAccountDialog(() => import('@/components/admin/account/ScheduledTestsPanel.vue'))
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
 import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
@@ -522,8 +549,8 @@ import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
-import ErrorPassthroughRulesModal from '@/components/admin/ErrorPassthroughRulesModal.vue'
-import TLSFingerprintProfilesModal from '@/components/admin/TLSFingerprintProfilesModal.vue'
+const ErrorPassthroughRulesModal = lazyAccountDialog(() => import('@/components/admin/ErrorPassthroughRulesModal.vue'))
+const TLSFingerprintProfilesModal = lazyAccountDialog(() => import('@/components/admin/TLSFingerprintProfilesModal.vue'))
 import { fetchAllAccountIds } from '@/utils/accountSelection'
 import { buildGrokUsageRefreshKey, buildOpenAIUsageRefreshKey } from '@/utils/accountUsageRefresh'
 import { formatDateTime, formatRelativeTime } from '@/utils/format'
@@ -687,6 +714,11 @@ const sortState = reactive<AccountSortState>(loadInitialAccountSortState())
 
 // Auto refresh settings
 const showAutoRefreshDropdown = ref(false)
+const autoRefreshTriggerRef = ref<HTMLButtonElement | null>(null)
+const closeAutoRefreshDropdown = () => {
+  showAutoRefreshDropdown.value = false
+  autoRefreshTriggerRef.value?.focus()
+}
 const autoRefreshDropdownRef = ref<HTMLElement | null>(null)
 const AUTO_REFRESH_STORAGE_KEY = 'account-auto-refresh'
 const autoRefreshIntervals = [5, 10, 15, 30] as const

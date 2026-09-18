@@ -31,3 +31,17 @@ export function identityScoped(component: Component, admin: boolean) {
     }
   })
 }
+
+/** Share prefetch/navigation and retain one wrapper type; failed chunks can retry. */
+export function lazyIdentityScoped(load: () => Promise<{ default: Component }>, admin: boolean) {
+  let pending: Promise<Component> | undefined
+  return () => {
+    if (!pending) {
+      pending = load().then(module => identityScoped(module.default, admin)).catch(error => {
+        pending = undefined
+        throw error
+      })
+    }
+    return pending
+  }
+}
