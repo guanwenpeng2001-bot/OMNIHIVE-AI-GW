@@ -131,6 +131,11 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
 	}
 
+	// Antigravity v1internal rejects built-in + functionDeclarations mixes (#6464).
+	if reconciled, err := enableMixedGeminiToolInvocations(injectedBody); err == nil {
+		injectedBody = reconciled
+	}
+
 	// 包装请求
 	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
 	if err != nil {
@@ -200,7 +205,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
-						fallbackResp, err := generationDo(s.httpUpstream, fallbackReq, proxyURL, account.ID, account.Concurrency)
+						fallbackResp, err := doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, fallbackReq, proxyURL, account)
 						if err == nil && fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
 							resp = fallbackResp

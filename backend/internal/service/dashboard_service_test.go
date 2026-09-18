@@ -145,7 +145,7 @@ func (c *dashboardCacheStub) readLastEntry(t *testing.T) dashboardStatsCacheEntr
 }
 
 func TestDashboardService_CacheHitFresh(t *testing.T) {
-	stats := &usagestats.DashboardStats{
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true},
 		TotalUsers:     10,
 		StatsUpdatedAt: time.Unix(0, 0).UTC().Format(time.RFC3339),
 		StatsStale:     true,
@@ -163,7 +163,7 @@ func TestDashboardService_CacheHitFresh(t *testing.T) {
 		},
 	}
 	repo := &usageRepoStub{
-		stats: &usagestats.DashboardStats{TotalUsers: 99},
+		stats: &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}, TotalUsers: 99},
 	}
 	aggRepo := &dashboardAggregationRepoStub{watermark: time.Unix(0, 0).UTC()}
 	cfg := &config.Config{
@@ -183,7 +183,7 @@ func TestDashboardService_CacheHitFresh(t *testing.T) {
 }
 
 func TestDashboardService_CacheMiss_StoresCache(t *testing.T) {
-	stats := &usagestats.DashboardStats{
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true},
 		TotalUsers:     7,
 		StatsUpdatedAt: time.Unix(0, 0).UTC().Format(time.RFC3339),
 		StatsStale:     true,
@@ -215,7 +215,7 @@ func TestDashboardService_CacheMiss_StoresCache(t *testing.T) {
 }
 
 func TestDashboardService_CacheDisabled_SkipsCache(t *testing.T) {
-	stats := &usagestats.DashboardStats{
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true},
 		TotalUsers:     3,
 		StatsUpdatedAt: time.Unix(0, 0).UTC().Format(time.RFC3339),
 		StatsStale:     true,
@@ -244,7 +244,7 @@ func TestDashboardService_CacheDisabled_SkipsCache(t *testing.T) {
 }
 
 func TestDashboardService_CacheHitStale_TriggersAsyncRefresh(t *testing.T) {
-	staleStats := &usagestats.DashboardStats{
+	staleStats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true},
 		TotalUsers:     11,
 		StatsUpdatedAt: time.Unix(0, 0).UTC().Format(time.RFC3339),
 		StatsStale:     true,
@@ -263,7 +263,7 @@ func TestDashboardService_CacheHitStale_TriggersAsyncRefresh(t *testing.T) {
 	}
 	refreshCh := make(chan struct{}, 1)
 	repo := &usageRepoStub{
-		stats:  &usagestats.DashboardStats{TotalUsers: 22},
+		stats:  &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}, TotalUsers: 22},
 		onCall: refreshCh,
 	}
 	aggRepo := &dashboardAggregationRepoStub{watermark: time.Unix(0, 0).UTC()}
@@ -295,7 +295,7 @@ func TestDashboardService_CacheParseError_EvictsAndRefetches(t *testing.T) {
 			return "not-json", nil
 		},
 	}
-	stats := &usagestats.DashboardStats{TotalUsers: 9}
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}, TotalUsers: 9}
 	repo := &usageRepoStub{stats: stats}
 	aggRepo := &dashboardAggregationRepoStub{watermark: time.Unix(0, 0).UTC()}
 	cfg := &config.Config{
@@ -335,7 +335,7 @@ func TestDashboardService_CacheParseError_RepoFailure(t *testing.T) {
 }
 
 func TestDashboardService_StatsUpdatedAtEpochWhenMissing(t *testing.T) {
-	stats := &usagestats.DashboardStats{}
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}}
 	repo := &usageRepoStub{stats: stats}
 	aggRepo := &dashboardAggregationRepoStub{watermark: time.Unix(0, 0).UTC()}
 	cfg := &config.Config{Dashboard: config.DashboardCacheConfig{Enabled: false}}
@@ -349,7 +349,7 @@ func TestDashboardService_StatsUpdatedAtEpochWhenMissing(t *testing.T) {
 
 func TestDashboardService_StatsStaleFalseWhenFresh(t *testing.T) {
 	aggNow := time.Now().UTC().Truncate(time.Second)
-	stats := &usagestats.DashboardStats{}
+	stats := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}}
 	repo := &usageRepoStub{stats: stats}
 	aggRepo := &dashboardAggregationRepoStub{watermark: aggNow}
 	cfg := &config.Config{
@@ -369,7 +369,7 @@ func TestDashboardService_StatsStaleFalseWhenFresh(t *testing.T) {
 }
 
 func TestDashboardService_AggDisabled_UsesUsageLogsFallback(t *testing.T) {
-	expected := &usagestats.DashboardStats{TotalUsers: 42}
+	expected := &usagestats.DashboardStats{Coverage: &usagestats.Coverage{Complete: true}, TotalUsers: 42}
 	repo := &usageRepoStub{
 		rangeStats: expected,
 		err:        errors.New("should not call aggregated stats"),
@@ -392,4 +392,72 @@ func TestDashboardService_AggDisabled_UsesUsageLogsFallback(t *testing.T) {
 	require.Equal(t, int32(1), atomic.LoadInt32(&repo.rangeCalls))
 	require.False(t, repo.rangeEnd.IsZero())
 	require.Equal(t, truncateToDayUTC(repo.rangeEnd.AddDate(0, 0, -7)), repo.rangeStart)
+}
+
+func TestDashboardServiceIgnoresLegacyCacheWithoutCoverage(t *testing.T) {
+	legacy := &usagestats.DashboardStats{TotalUsers: 99}
+	payload, err := json.Marshal(dashboardStatsCacheEntry{Stats: legacy, UpdatedAt: time.Now().Unix()})
+	require.NoError(t, err)
+	fresh := &usagestats.DashboardStats{TotalUsers: 2, Coverage: &usagestats.Coverage{Complete: false, Reason: "history_before_coverage_floor_unverified"}}
+	repo := &usageRepoStub{stats: fresh}
+	cache := &dashboardCacheStub{get: func(context.Context) (string, error) { return string(payload), nil }}
+	svc := NewDashboardService(repo, &dashboardAggregationRepoStub{}, cache, &config.Config{Dashboard: config.DashboardCacheConfig{Enabled: true}, DashboardAgg: config.DashboardAggregationConfig{Enabled: true}})
+	got, err := svc.GetDashboardStats(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(2), got.TotalUsers)
+	require.NotNil(t, got.Coverage)
+	require.Equal(t, int32(1), atomic.LoadInt32(&repo.calls))
+}
+
+func TestDashboardServiceClosedHourIsNotStaleDuringRawTail(t *testing.T) {
+	svc := &DashboardService{aggEnabled: true, aggInterval: time.Minute, aggLookback: 2 * time.Minute}
+	cursor := time.Date(2026, 9, 17, 9, 0, 0, 0, time.UTC)
+	require.False(t, svc.isAggregationStale(cursor, cursor.Add(59*time.Minute)), "a current closed cursor is fresh throughout its raw open hour")
+	require.False(t, svc.isAggregationStale(cursor, cursor.Add(63*time.Minute)), "keep the configured publication grace period")
+	require.True(t, svc.isAggregationStale(cursor, cursor.Add(64*time.Minute)), "a missed closed hour beyond grace is stale")
+}
+
+func TestDashboardServiceDirtyCoverageIsStaleEvenInsideGrace(t *testing.T) {
+	svc := &DashboardService{aggEnabled: true, aggInterval: time.Minute, aggLookback: 2 * time.Minute}
+	dirty := time.Now().UTC().Add(-time.Minute)
+	stats := &usagestats.DashboardStats{StatsUpdatedAt: dirty.Format(time.RFC3339), Coverage: &usagestats.Coverage{DirtyFrom: &dirty}}
+	svc.refreshAggregationStaleness(stats)
+	require.True(t, stats.StatsStale)
+}
+
+type coverageRevisionRepoStub struct {
+	*usageRepoStub
+	revision          string
+	changeDuringFetch bool
+}
+
+func (s *coverageRevisionRepoStub) DashboardCoverageRevision(context.Context) (string, error) {
+	return s.revision, nil
+}
+
+func (s *coverageRevisionRepoStub) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
+	stats, err := s.usageRepoStub.GetDashboardStats(ctx)
+	if s.changeDuringFetch {
+		s.revision = "corrected"
+	}
+	return stats, err
+}
+
+func TestDashboardServiceCoverageRevisionInvalidatesFreshCache(t *testing.T) {
+	old := &usagestats.DashboardStats{TotalRequests: 99, Coverage: &usagestats.Coverage{Complete: true}}
+	payload, err := json.Marshal(dashboardStatsCacheEntry{Stats: old, UpdatedAt: time.Now().Unix(), CoverageRevision: "before-retention"})
+	require.NoError(t, err)
+	repo := &coverageRevisionRepoStub{usageRepoStub: &usageRepoStub{stats: &usagestats.DashboardStats{TotalRequests: 2, Coverage: &usagestats.Coverage{Complete: false}}}, revision: "after-retention"}
+	cache := &dashboardCacheStub{get: func(context.Context) (string, error) { return string(payload), nil }}
+	svc := NewDashboardService(repo, &dashboardAggregationRepoStub{}, cache, &config.Config{Dashboard: config.DashboardCacheConfig{Enabled: true}, DashboardAgg: config.DashboardAggregationConfig{Enabled: true}})
+	got, err := svc.GetDashboardStats(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, int64(2), got.TotalRequests)
+	require.Equal(t, "after-retention", cache.readLastEntry(t).CoverageRevision)
+	// The fetch must never stamp pre-correction data with a post-correction revision.
+	repo.changeDuringFetch = true
+	_, err = svc.refreshDashboardStats(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "after-retention", cache.readLastEntry(t).CoverageRevision)
+	require.Equal(t, "corrected", repo.revision)
 }

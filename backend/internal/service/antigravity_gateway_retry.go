@@ -228,7 +228,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 				}
 			}
 
-			retryResp, retryErr := generationDo(p.httpUpstream, retryReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			retryResp, retryErr := doCatalogCheckedGeneration(p.httpUpstream, p.accountRepo, retryReq, p.proxyURL, p.account)
 			if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 				log.Printf("%s status=%d smart_retry_success attempt=%d/%d", p.prefix, retryResp.StatusCode, attempt, maxAttempts)
 				// 重试成功，清除 MODEL_CAPACITY_EXHAUSTED cooldown
@@ -403,7 +403,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 			break
 		}
 
-		retryResp, retryErr := generationDo(p.httpUpstream, retryReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+		retryResp, retryErr := doCatalogCheckedGeneration(p.httpUpstream, p.accountRepo, retryReq, p.proxyURL, p.account)
 		if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry_success attempt=%d/%d total_waited=%v",
 				p.prefix, retryResp.StatusCode, attempt, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited)
@@ -541,7 +541,7 @@ urlFallbackLoop:
 				return nil, err
 			}
 
-			resp, err = generationDo(p.httpUpstream, upstreamReq, p.proxyURL, p.account.ID, p.account.Concurrency)
+			resp, err = doCatalogCheckedGeneration(p.httpUpstream, p.accountRepo, upstreamReq, p.proxyURL, p.account)
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")
 			}

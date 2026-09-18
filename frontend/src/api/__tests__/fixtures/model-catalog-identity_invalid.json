@@ -1,0 +1,57 @@
+{
+  "baseline": {
+    "identity_revision": "3",
+    "rules_revision": "9007199254740993",
+    "snapshot_revision": "9007199254740993"
+  },
+  "complete": true,
+  "discovered_count": 2,
+  "effective_snapshot": null,
+  "eligible_count": 0,
+  "excluded_count": 1,
+  "last_attempt_at": null,
+  "last_error": "credentials_invalid",
+  "last_success_at": null,
+  "observed_at": "2026-09-16T01:00:00Z",
+  "snapshot": {
+    "complete": true,
+    "discovered_models": [
+      "native-target",
+      "pending-target"
+    ],
+    "discovery_scope": "account",
+    "eligible_models": [
+      {
+        "endpoints": [
+          "responses"
+        ],
+        "evidence_kind": "account_discovery",
+        "evidence_observed_at": "2026-09-16T01:00:00Z",
+        "id": "native-target"
+      }
+    ],
+    "excluded_models": [
+      {
+        "model": "pending-target",
+        "reason": "entitlement_unconfirmed"
+      }
+    ],
+    "identity_revision": "2",
+    "observed_at": "2026-09-16T01:00:00Z",
+    "provider_profile": "openai",
+    "revision": "9007199254740993",
+    "source_kind": "live"
+  },
+  "snapshot_revision": "9007199254740993",
+  "staleness": "unknown",
+  "state": {
+    "error": "credentials_invalid",
+    "identity_revision": "3",
+    "result": "credentials_invalid",
+    "rules_revision": "9007199254740993"
+  },
+  "synced": true,
+  "warnings": [
+    "identity_changed"
+  ]
+}

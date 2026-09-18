@@ -742,3 +742,82 @@ func TestCodexAliasFailoverMappingHonorsModelRouting(t *testing.T) {
 }
 
 // Scenario: mixed groups prefer capability metadata synced for the routed account.
+
+func TestCodexV2ControlProjection(t *testing.T) {
+	for _, tc := range []struct {
+		name, control string
+		efforts       []string
+		def           string
+	}{
+		{"effort", `{"kind":"effort","effort_values":["low","high"],"default":"high"}`, []string{"low", "high"}, "high"},
+		{"no invented default", `{"kind":"effort","effort_values":["low","high"]}`, []string{"low", "high"}, ""},
+		{"invalid default", `{"kind":"effort","effort_values":["low"],"default":"high"}`, []string{"low"}, ""},
+		{"none", `{"kind":"none"}`, nil, ""},
+		{"fixed", `{"kind":"fixed"}`, nil, ""},
+		{"toggle", `{"kind":"toggle","toggle_values":[false,true]}`, nil, ""},
+		{"budget", `{"kind":"budget","budget_min":1024,"budget_max":8192}`, nil, ""},
+		{"adaptive", `{"kind":"adaptive","adaptive":true}`, nil, ""},
+		{"unknown", `{"kind":"unknown"}`, nil, ""},
+		{"multiple forms", `{"kind":"adaptive","supported_kinds":["adaptive","effort"],"effort_values":["high"]}`, []string{"high"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			descriptor := newConfiguredCodexModelDescriptor("gpt-5.5")
+			applyUpstreamModelMetadataToCodexDescriptor(&descriptor, codexModelMetadataOverride{ReasoningControl: json.RawMessage(tc.control)})
+			require.Equal(t, tc.efforts, append([]string(nil), effortsFromConfiguredCodexLevels(descriptor.SupportedReasoningLevels)...))
+			if tc.def == "" {
+				require.Nil(t, descriptor.DefaultReasoningLevel)
+			} else {
+				require.Equal(t, tc.def, *descriptor.DefaultReasoningLevel)
+			}
+			require.NotNil(t, descriptor.SupportedReasoningLevels, "wire effort list must be [] rather than null")
+		})
+	}
+}
+
+func TestCodexV2IntersectionAndLimits(t *testing.T) {
+	decode := func(raw string) codexModelMetadataOverride {
+		var metadata codexModelMetadataOverride
+		require.NoError(t, json.Unmarshal([]byte(raw), &metadata))
+		return metadata
+	}
+	a := decode(`{"reasoning":true,"reasoning_control":{"kind":"effort","effort_values":["low","high"],"default":"low"},"max_output_tokens":16384,"supports_function_calling":true}`)
+	b := decode(`{"reasoning":true,"reasoning_control":{"kind":"effort","effort_values":["high","max"],"default":"high"},"max_output_tokens":8192,"supports_function_calling":false}`)
+	result := intersectCodexModelMetadata("alias", []codexModelMetadataOverride{a, b})
+	descriptor := newConfiguredCodexModelDescriptor("gpt-5.5")
+	applyUpstreamModelMetadataToCodexDescriptor(&descriptor, result)
+	require.Equal(t, []string{"high"}, effortsFromConfiguredCodexLevels(descriptor.SupportedReasoningLevels))
+	require.Nil(t, descriptor.DefaultReasoningLevel)
+	require.Equal(t, int64(8192), descriptor.MaxOutputTokens)
+	require.NotNil(t, descriptor.SupportsFunctionCalling)
+	require.False(t, *descriptor.SupportsFunctionCalling)
+	require.JSONEq(t, `{"kind":"effort","effort_values":["low","high"],"default":"low"}`, string(a.ReasoningControl), "intersection must not mutate source")
+}
+
+func TestCodexV2NonEffortIntersectionDoesNotFlagReasoningConflict(t *testing.T) {
+	for _, control := range []string{`{"kind":"fixed"}`, `{"kind":"budget","budget_min":1024,"budget_max":8192}`} {
+		metadata := codexModelMetadataOverride{ReasoningControl: json.RawMessage(control)}
+		result := intersectCodexModelMetadata("alias", []codexModelMetadataOverride{metadata, metadata})
+		require.False(t, result.reasoningConflict)
+		require.NotNil(t, result.Reasoning)
+		require.True(t, *result.Reasoning)
+		require.Empty(t, result.SupportedReasoningLevels)
+		require.JSONEq(t, control, string(result.ReasoningControl))
+	}
+	result := intersectCodexModelMetadata("alias", []codexModelMetadataOverride{
+		{ReasoningControl: json.RawMessage(`{"kind":"fixed"}`)},
+		{ReasoningControl: json.RawMessage(`{"kind":"effort","effort_values":["high"]}`)},
+	})
+	require.Equal(t, "unknown", decodeCodexReasoningControl(result.ReasoningControl).Kind)
+	require.Empty(t, result.SupportedReasoningLevels)
+	require.Empty(t, intersectUpstreamModelMetadata("empty", nil).SupportedReasoningLevels)
+}
+
+func TestCodexV2BudgetIntersection(t *testing.T) {
+	result := intersectCodexModelMetadata("alias", []codexModelMetadataOverride{
+		{ReasoningControl: json.RawMessage(`{"kind":"budget","budget_min":1024,"budget_max":8192}`)},
+		{ReasoningControl: json.RawMessage(`{"kind":"budget","budget_min":2048,"budget_max":4096}`)},
+	})
+	require.JSONEq(t, `{"kind":"budget","budget_min":2048,"budget_max":4096}`, string(result.ReasoningControl))
+	require.False(t, result.reasoningConflict)
+	require.Empty(t, result.SupportedReasoningLevels)
+}

@@ -169,6 +169,51 @@ jobs:
           print(f"Verified executed PASS events: {sorted(passed)}")
           PY
 
+  required-round:
+    name: Required round / ${{ matrix.gate }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [usage-coverage, catalog, affinity]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stats_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d stats_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Run required round tests (no skips)
+        env:
+          # Job-local disposable services, never a shared database or Redis.
+          USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
+          AFFINITY_REDIS_TEST_ADDR: localhost:6379
+        run: make test-required-${{ matrix.gate }}
+
   frontend:
     runs-on: ubuntu-latest
     steps:

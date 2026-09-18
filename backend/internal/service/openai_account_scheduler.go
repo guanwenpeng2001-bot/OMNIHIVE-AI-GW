@@ -508,7 +508,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	accountID := req.StickyAccountID
 	clearBinding := func() {
 		if !req.PreserveStickyBinding {
-			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+			_ = s.service.clearRequestStickySession(ctx, req.GroupID, sessionHash)
 		}
 	}
 	if accountID <= 0 {
@@ -1296,13 +1296,13 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 		if account == nil {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
-				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+				_ = s.service.clearRequestStickySession(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
 		}
 		if !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
-				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+				_ = s.service.clearRequestStickySession(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
 		}
@@ -1810,6 +1810,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 		return s.lookupShadowParentAccount(ctx, id)
 	}) {
 		return false, "shadow_parent_unhealthy"
+	}
+	if req.RequestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !s.service.supportsOpenAIAccountModel(ctx, account, req.RequestedModel, req.RequiredCapability) {
+		return false, "model_not_supported"
 	}
 	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
 		return false, "model_not_supported"

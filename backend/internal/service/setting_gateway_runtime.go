@@ -744,6 +744,9 @@ type gatewayForwardingSettingsResult struct {
 }
 
 func (s *SettingService) getGatewayForwardingSettingsCached(ctx context.Context) gatewayForwardingSettingsResult {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.forwarding != nil {
+		return *plan.forwarding
+	}
 	if cached, ok := gatewayForwardingCache.Load().(*cachedGatewayForwardingSettings); ok && cached != nil {
 		if time.Now().UnixNano() < cached.expiresAt {
 			return gatewayForwardingSettingsResult{

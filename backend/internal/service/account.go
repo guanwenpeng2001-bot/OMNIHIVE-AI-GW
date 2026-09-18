@@ -66,6 +66,9 @@ type Account struct {
 	GroupIDs      []int64
 	Groups        []*Group
 
+	// Request-local credential owner evidence, never persisted or serialized.
+	modelCatalogCredentialAccount *Account
+
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
 	modelMappingCacheReady          bool

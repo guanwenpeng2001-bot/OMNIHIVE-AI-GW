@@ -3,7 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -117,7 +117,12 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		IncludeUsersTrend:     includeUsersTrend,
 		UsersTrendLimit:       usersTrendLimit,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to get dashboard coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 
 	cached, hit, err := dashboardSnapshotV2Cache.GetOrLoad(cacheKey, func() (any, error) {
 		return h.buildSnapshotV2Response(
@@ -135,7 +140,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		)
 	})
 	if err != nil {
-		response.Error(c, 500, err.Error())
+		writeDashboardError(c, err, "Failed to get dashboard snapshot")
 		return
 	}
 	if cached.ETag != "" {
@@ -168,7 +173,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	if includeStats {
 		stats, err := h.dashboardService.GetDashboardStats(ctx)
 		if err != nil {
-			return nil, errors.New("failed to get dashboard statistics")
+			return nil, fmt.Errorf("failed to get dashboard statistics: %w", err)
 		}
 		resp.Stats = &dashboardSnapshotV2Stats{
 			DashboardStats: *stats,
@@ -194,7 +199,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get usage trend")
+			return nil, fmt.Errorf("failed to get usage trend: %w", err)
 		}
 		resp.Trend = trend
 	}
@@ -216,7 +221,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get model statistics")
+			return nil, fmt.Errorf("failed to get model statistics: %w", err)
 		}
 		resp.Models = models
 	}
@@ -237,7 +242,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get group statistics")
+			return nil, fmt.Errorf("failed to get group statistics: %w", err)
 		}
 		resp.Groups = groups
 	}
@@ -245,7 +250,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	if includeUsersTrend {
 		usersTrend, _, err := h.getUserUsageTrendCached(ctx, startTime, endTime, granularity, usersTrendLimit)
 		if err != nil {
-			return nil, errors.New("failed to get user usage trend")
+			return nil, fmt.Errorf("failed to get user usage trend: %w", err)
 		}
 		resp.UsersTrend = usersTrend
 	}

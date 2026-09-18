@@ -134,6 +134,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
 	configuredModels := openAIConfiguredCodexModelIDsForGroup(visible, group)
+	configuredModels = filterCatalogModelIDs(ctx, s.accountRepo, catalog, configuredModels, "responses")
 	if len(configuredModels) == 0 {
 		return nil, false, nil
 	}
@@ -210,6 +211,39 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
+	if reader, ok := s.accountRepo.(ModelCatalogAccountRepository); ok {
+		accounts, err := reader.ListModelCatalogAccounts(ctx, &group.ID, []string{PlatformOpenAI}, false)
+		if err != nil {
+			return err
+		}
+		envelope, entries, err := modelCatalogEntries(body, "models")
+		if err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(entries))
+		byID := make(map[string]json.RawMessage, len(entries))
+		for _, entry := range entries {
+			var item struct {
+				Slug string `json:"slug"`
+			}
+			if err := json.Unmarshal(entry, &item); err != nil {
+				return err
+			}
+			ids = append(ids, item.Slug)
+			byID[item.Slug] = entry
+		}
+		eligible := filterCatalogModelIDs(ctx, s.accountRepo, accounts, ids, "responses")
+		envelope["models"], err = json.Marshal(selectModelCatalogEntries(byID, eligible))
+		if err != nil {
+			return err
+		}
+		body, err = json.Marshal(envelope)
+		if err != nil {
+			return err
+		}
+		changed = true
+	}
+
 	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
@@ -378,57 +412,6 @@ type configuredCodexModelMessages struct {
 // understood by current Codex clients. Several nullable fields are intentionally
 // emitted: unlike ordinary OpenAI /v1/models entries, the Codex manifest parser
 // requires them to be present.
-type configuredCodexModelDescriptor struct {
-	Slug                              string                          `json:"slug"`
-	DisplayName                       string                          `json:"display_name"`
-	Description                       string                          `json:"description"`
-	DefaultReasoningLevel             *string                         `json:"default_reasoning_level,omitempty"`
-	SupportedReasoningLevels          []configuredCodexReasoningLevel `json:"supported_reasoning_levels"`
-	MultiAgentReasoningEffort         *string                         `json:"multi_agent_reasoning_effort,omitempty"`
-	ShellType                         string                          `json:"shell_type"`
-	Visibility                        string                          `json:"visibility"`
-	SupportedInAPI                    bool                            `json:"supported_in_api"`
-	Priority                          int                             `json:"priority"`
-	AdditionalSpeedTiers              []string                        `json:"additional_speed_tiers"`
-	ServiceTiers                      []configuredCodexServiceTier    `json:"service_tiers"`
-	DefaultServiceTier                any                             `json:"default_service_tier"`
-	AvailabilityNUX                   any                             `json:"availability_nux"`
-	Upgrade                           any                             `json:"upgrade"`
-	ModelMessages                     configuredCodexModelMessages    `json:"model_messages"`
-	IncludeSkillsUsageInstructions    bool                            `json:"include_skills_usage_instructions"`
-	IncludePluginUsageInstructions    bool                            `json:"include_plugin_usage_instructions"`
-	IncludeAppsUsageInstructions      bool                            `json:"include_apps_usage_instructions"`
-	SupportsReasoningSummaryParameter bool                            `json:"supports_reasoning_summary_parameter"`
-	DefaultReasoningSummary           string                          `json:"default_reasoning_summary"`
-	SupportVerbosity                  bool                            `json:"support_verbosity"`
-	DefaultVerbosity                  *string                         `json:"default_verbosity"`
-	ApplyPatchToolType                *string                         `json:"apply_patch_tool_type"`
-	WebSearchToolType                 string                          `json:"web_search_tool_type"`
-	TruncationPolicy                  configuredCodexTruncationPolicy `json:"truncation_policy"`
-	SupportsImageDetailOriginal       bool                            `json:"supports_image_detail_original"`
-	SupportsParallelToolCalls         bool                            `json:"supports_parallel_tool_calls"`
-	ContextWindow                     int64                           `json:"context_window"`
-	MaxContextWindow                  int64                           `json:"max_context_window"`
-	AutoCompactTokenLimit             any                             `json:"auto_compact_token_limit"`
-	CompHash                          any                             `json:"comp_hash"`
-	EffectiveContextWindowPercent     int64                           `json:"effective_context_window_percent"`
-	ExperimentalSupportedTools        []string                        `json:"experimental_supported_tools"`
-	InputModalities                   []string                        `json:"input_modalities"`
-	SupportsSearchTool                bool                            `json:"supports_search_tool"`
-	UseResponsesLite                  bool                            `json:"use_responses_lite"`
-	NodeREPLAutoReviewRequired        bool                            `json:"node_repl_auto_review_required"`
-	NodeREPLDisabled                  bool                            `json:"node_repl_disabled"`
-	AutoReviewModelOverride           any                             `json:"auto_review_model_override"`
-	ModelSpecialty                    any                             `json:"model_specialty"`
-	ToolMode                          any                             `json:"tool_mode"`
-	MultiAgentVersion                 any                             `json:"multi_agent_version"`
-}
-
-type codexModelMetadataOverride struct {
-	UpstreamModelMetadata
-	reasoningConflict       bool
-	inputModalitiesConflict bool
-}
 
 func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescriptor {
 	modelID = strings.TrimSpace(modelID)
@@ -822,6 +805,21 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
 	if err != nil {
 		return BuildCodexModelsManifest(modelIDs)
+	}
+	if allowed, err := s.CatalogModelIDs(ctx, &group.ID, effectivePlatform); err != nil {
+		return nil, err
+	} else if allowed != nil {
+		eligible := make(map[string]bool, len(allowed))
+		for _, id := range allowed {
+			eligible[id] = true
+		}
+		filtered := make([]string, 0, len(modelIDs))
+		for _, id := range modelIDs {
+			if eligible[id] {
+				filtered = append(filtered, id)
+			}
+		}
+		modelIDs = filtered
 	}
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true

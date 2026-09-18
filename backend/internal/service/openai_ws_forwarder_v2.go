@@ -330,6 +330,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
+	if err := validateAccountForwardModel(ctx, s.accountRepo, account, strings.TrimSpace(fmt.Sprint(payload["model"])), "responses"); err != nil {
+		return nil, err
+	}
 	if err := s.performOpenAIWSGeneratePrewarm(
 		ctx,
 		lease,

@@ -244,6 +244,12 @@ func newOpenAIModelMappedBodyCache(body []byte, replace openAIModelBodyReplaceFu
 }
 
 func usageRecordContext(parent context.Context, base context.Context) context.Context {
+	if plan := service.GatewayRequestPlanFromContext(parent); plan != nil {
+		if base == nil {
+			base = context.Background()
+		}
+		base = service.WithGatewayRequestPlan(base, plan)
+	}
 	if base == nil {
 		base = context.Background()
 	}
@@ -457,6 +463,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "responses", h.maxAccountSwitches)()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -605,7 +612,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// Generate session hash (header first; fallback to prompt_cache_key)
-	sessionHash := h.gatewayService.GenerateSessionHash(c, sessionHashBody)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c, sessionHashBody)
 	if h.rejectIfCyberSessionBlocked(c, apiKey, sessionHashBody, reqModel, cyberBlockFormatResponses) {
 		return
 	}
@@ -614,7 +621,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	))
 	requireCompact := legacyCompact
 
-	maxAccountSwitches := h.maxAccountSwitches
+	maxAccountSwitches := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot().MaxAccountSwitches
 	switchCount := 0
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
@@ -736,7 +743,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			)
 			continue
 		}
-		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		if h.cfg == nil || !h.cfg.Gateway.SessionAffinityEnabled {
+			sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		}
 		reqLog.Debug("openai.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		setOpsSelectedAccount(c, account.ID, account.Platform)
 
@@ -1187,6 +1196,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches)()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !openAICompatibleTextTargetAllowed(c, apiKey, reqModel) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -1240,9 +1250,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
-	sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
+	if h.cfg == nil || !h.cfg.Gateway.SessionAffinityEnabled {
+		sessionHash, promptCacheKey = resolveOpenAIMessagesMetadataSession(c, sessionHash, promptCacheKey, reqModel, body)
+	}
 	if h.rejectIfCyberSessionBlocked(c, apiKey, body, reqModel, cyberBlockFormatAnthropic) {
 		return
 	}
@@ -1319,7 +1331,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			return
 		}
 		account := selection.Account
-		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		if h.cfg == nil || !h.cfg.Gateway.SessionAffinityEnabled {
+			sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		}
 		reqLog.Debug("openai_messages.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -2462,6 +2476,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
+	wsSpec := service.GatewayRequestSpec{UserID: apiKey.UserID, APIKeyID: apiKey.ID, Route: c.Request.URL.Path, Protocol: "responses", Model: reqModel, MaxAccountSwitches: h.maxAccountSwitches}
+	if apiKey.GroupID != nil {
+		wsSpec.BillingGroupID = *apiKey.GroupID
+	}
+	ctx, firstPlan := h.gatewayService.CaptureRequestPlan(ctx, wsSpec)
+	var activePlan atomic.Pointer[service.GatewayRequestPlan]
+	activePlan.Store(firstPlan)
+	defer func() {
+		if plan := activePlan.Load(); plan != nil {
+			plan.Finalize(c.Writer.Written())
+		}
+	}()
+	c.Request = c.Request.WithContext(ctx)
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, reqModel)
 	wsForwardModel := openAIChannelForwardModel(channelMappingWS, reqModel)
 
@@ -2524,11 +2551,15 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(
-		c,
-		firstMessage,
-		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
-	)
+	var sessionHash string
+	if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+		sessionHash = h.gatewayService.GenerateRequestSessionHash(c, firstMessage)
+	} else {
+		sessionHash = h.gatewayService.GenerateSessionHashWithFallback(c, firstMessage, openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID))
+	}
+
+	var turnSessionHash atomic.Value
+	turnSessionHash.Store(sessionHash)
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -2782,6 +2813,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
 		hooks := &service.OpenAIWSIngressHooks{
+			RequestPlan:                 activePlan.Load,
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
@@ -2790,6 +2822,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			ReasoningEffortMappings:     reasoningEffortMappings,
 			TurnStarted:                 recordTurnStart,
 			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
+				if turn > 1 {
+					model := strings.TrimSpace(originalModel)
+					if model == "" {
+						model = reqModel
+					}
+					spec := wsSpec
+					spec.Model = model
+					_, plan := h.gatewayService.CaptureRequestTurn(ctx, spec)
+					activePlan.Store(plan)
+				}
+				c.Request = c.Request.WithContext(service.WithGatewayRequestPlan(ctx, activePlan.Load()))
+				if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+					turnSessionHash.Store(h.gatewayService.GenerateRequestSessionHash(c, payload))
+				}
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
@@ -2835,7 +2881,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = reqModel
 				}
 				setOpsRequestContext(c, model, true)
-				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, model)
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(service.WithGatewayRequestPlan(ctx, activePlan.Load()), apiKey.GroupID, model)
 				mappedModelUnchanged := false
 				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
@@ -2854,7 +2900,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 长连接跨峰谷/倍率刷新防护：每个 turn 按当前时刻重装门并复核
 				// 当前账号，越线即要求客户端重连重选（连接绑定单一上游账号，
 				// 无法中途换号）。本 turn 的准入与计费共用同一 pricingAt。
-				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(ctx, apiKey.GroupID)
+				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(service.WithGatewayRequestPlan(ctx, activePlan.Load()), apiKey.GroupID)
 				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
 					reqLog.Info("openai.websocket_turn_profit_vetoed",
 						zap.Int("turn", turn),
@@ -2889,12 +2935,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					}
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
 				}
-				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
-				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+				currentUserRelease = wrapReleaseOnDone(turnCtx, userReleaseFunc)
+				currentAccountRelease = wrapReleaseOnDone(turnCtx, accountReleaseFunc)
+				if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+					if hash, _ := turnSessionHash.Load().(string); hash != "" {
+						_ = h.gatewayService.BindStickySessionAfterProfitAdmission(turnCtx, apiKey.GroupID, hash, account.ID)
+					}
+				}
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)
+				if plan := activePlan.Load(); plan != nil && turnErr == nil {
+					defer plan.Finalize(true)
+				}
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
 				// 避免同一逻辑 turn 换号后重复落风控。CyberBlocked 必须在 submit 前
@@ -2917,7 +2971,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
 					turnMapping = snapshot.mapping
 				} else {
-					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, turnRequestedModel)
+					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(service.WithGatewayRequestPlan(ctx, activePlan.Load()), apiKey.GroupID, turnRequestedModel)
 				}
 				if turnUpstreamModel == "" {
 					turnUpstreamModel = turnRequestedModel
@@ -2971,7 +3025,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				sessionID := service.ExtractClientSessionID(c)
 				turnRecordPricingAt := turnPricing.currentOr(turnStart)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				h.submitOpenAIUsageRecordTask(ctx, result, func(taskCtx context.Context) {
+				h.submitOpenAIUsageRecordTask(service.WithGatewayRequestPlan(ctx, activePlan.Load()), result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
 						APIKey:             apiKey,
@@ -3275,7 +3329,7 @@ func (h *OpenAIGatewayHandler) submitOpenAIUsageRecordTask(parent context.Contex
 }
 
 func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
+	if task == nil || !claimGatewayUsage(parent) {
 		return
 	}
 	task = wrapUsageRecordTaskContext(parent, task)
@@ -4209,7 +4263,8 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	func() {
 		billingCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		if forwardErrored && gwSvc != nil {
+		billingCtx = usageRecordContext(requestCtx, billingCtx)
+		if forwardErrored && gwSvc != nil && claimGatewayUsage(requestCtx) {
 			gwSvc.RecordCyberPolicyUsageLog(billingCtx, service.CyberPolicyUsageInput{
 				APIKey:             apiKey,
 				Account:            account,

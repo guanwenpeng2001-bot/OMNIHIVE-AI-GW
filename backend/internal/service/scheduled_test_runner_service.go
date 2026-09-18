@@ -20,9 +20,11 @@ type ScheduledTestRunnerService struct {
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
 
-	cron      *cron.Cron
-	startOnce sync.Once
-	stopOnce  sync.Once
+	cron                  *cron.Cron
+	startOnce             sync.Once
+	stopOnce              sync.Once
+	catalogRefreshMu      sync.Mutex
+	catalogRefreshEnabled bool
 }
 
 // NewScheduledTestRunnerService creates a new runner.
@@ -40,6 +42,12 @@ func NewScheduledTestRunnerService(
 		rateLimitSvc:   rateLimitSvc,
 		cfg:            cfg,
 	}
+}
+
+// SetModelCatalogRefreshEnabled configures background adoption before Start.
+// It defaults to false; the configuration owner must explicitly opt in.
+func (s *ScheduledTestRunnerService) SetModelCatalogRefreshEnabled(enabled bool) {
+	s.catalogRefreshEnabled = enabled
 }
 
 // Start begins the cron ticker (every minute).
@@ -62,6 +70,9 @@ func (s *ScheduledTestRunnerService) Start() {
 			return
 		}
 		s.cron = c
+		if s.catalogRefreshEnabled {
+			_, _ = c.AddFunc("* * * * *", s.runCatalogRefresh)
+		}
 		s.cron.Start()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] started (tick=every minute)")
 	})

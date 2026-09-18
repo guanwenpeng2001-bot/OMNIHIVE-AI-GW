@@ -337,7 +337,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -818,7 +818,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1031,7 +1031,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" :account-id="account?.id" />
+                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1373,17 +1373,6 @@
         <div>
           <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
             <p class="text-xs text-purple-700 dark:text-purple-400">{{ t('admin.accounts.mapRequestModels') }}</p>
-          </div>
-
-          <div class="mb-3 flex flex-wrap gap-2">
-            <button
-              type="button"
-              @click="syncAntigravityUpstreamModels"
-              :disabled="isSyncingAntigravityUpstream || !account?.id"
-              class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
-            >
-              {{ isSyncingAntigravityUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
-            </button>
           </div>
 
           <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
@@ -3001,6 +2990,10 @@
         data-tour="account-form-groups"
       />
 
+      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
+      <ModelWhitelistSelector :active="show" :account-id="account.id" :platform="account.platform" :model-value="allowedModels" :model-mappings="modelMappings"
+        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration"
+        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only />
     </form>
 
     <template #footer>
@@ -3091,6 +3084,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
+import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
@@ -3154,7 +3149,7 @@ import {
   getPresetMappingsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
-  validateModelRestrictions,
+  validateModelRestrictions, translateModelRestrictionErrors,
   splitModelMappingObject,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3532,7 +3527,7 @@ const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
-const isSyncingAntigravityUpstream = ref(false)
+
 const tempUnschedEnabled = ref(false)
 const accountSchedulingThresholdOverrideEnabled = ref(false)
 const accountSchedulingThresholdOverrideValue = ref(100)
@@ -4002,7 +3997,27 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
+const capabilityDefaultsJSON = ref('')
+const savedModelGeneration = ref(0)
+const modelConnectionContext = computed(() => JSON.stringify([
+  form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
+  editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
+  editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
+  editBedrockRegion.value, editBedrockForceGlobal.value, editBedrockApiKeyValue.value, editVertexProjectId.value, editVertexClientEmail.value, editVertexLocation.value,
+  customBaseUrlEnabled.value, customBaseUrl.value, openAIEndpointCapabilities.value, openaiPassthroughEnabled.value, anthropicPassthroughEnabled.value,
+  antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
+  openAIResponsesMode.value, mixedScheduling.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value,
+  antigravityModelMappings.value, capabilityDefaultsJSON.value
+]))
+const savedModelConnection = ref('')
+const modelConfigurationDirty = computed(() => modelConnectionContext.value !== savedModelConnection.value)
+const markModelConfigurationSaved = () => {
+  savedModelConnection.value = modelConnectionContext.value
+  savedModelGeneration.value++
+}
+
 const syncFormFromAccount = (newAccount: Account | null) => {
+  capabilityDefaultsJSON.value = newAccount?.extra?.model_capability_defaults ? JSON.stringify(newAccount.extra.model_capability_defaults, null, 2) : ''
   loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
   if (!newAccount) {
     editApiKey.value = ''
@@ -4439,6 +4454,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     selectedErrorCodes.value = []
   }
   editApiKey.value = ''
+  markModelConfigurationSaved()
 }
 
 async function loadTLSProfiles() {
@@ -4506,71 +4522,6 @@ const addAntigravityPresetMapping = (from: string, to: string) => {
     return
   }
   antigravityModelMappings.value.push({ from, to })
-}
-
-let antigravitySyncGeneration = 0
-watch(() => [props.show, props.account?.id, props.account?.platform], () => {
-  antigravitySyncGeneration++
-  isSyncingAntigravityUpstream.value = false
-}, { flush: 'sync' })
-
-const syncAntigravityUpstreamModels = async () => {
-  if (!props.account?.id || isSyncingAntigravityUpstream.value) return
-
-  const request = ++antigravitySyncGeneration
-  isSyncingAntigravityUpstream.value = true
-  try {
-    const result = await adminAPI.accounts.syncUpstreamModels(props.account.id, false)
-    if (request !== antigravitySyncGeneration || !props.show) return
-    const upstreamModels = result.models.map((model) => model.trim()).filter(Boolean)
-    if (upstreamModels.length === 0) {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsEmpty'))
-      return
-    }
-
-    let addedCount = 0
-    for (const model of upstreamModels) {
-      const exists = antigravityModelMappings.value.some((mapping) => mapping.from === model)
-      if (!exists) {
-        antigravityModelMappings.value.push({ from: model, to: model })
-        addedCount += 1
-      }
-    }
-
-    const warnings = result.warnings ?? []
-    const hasPartialMetadata = warnings.some(
-      (warning) => warning.code === 'upstream_model_metadata_partial'
-    )
-    const hasIncompleteMetadata = warnings.some(
-      (warning) => warning.code === 'upstream_model_metadata_incomplete'
-    )
-    if (hasIncompleteMetadata) {
-      appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
-      return
-    }
-    if (addedCount > 0) {
-      appStore.showSuccess(t('admin.accounts.syncUpstreamModelsSuccess', { count: addedCount, total: upstreamModels.length }))
-    } else {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsNoChanges', { count: upstreamModels.length }))
-    }
-    if (hasPartialMetadata) {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
-    }
-  } catch (error) {
-    if (request !== antigravitySyncGeneration || !props.show) return
-    const reason = error && typeof error === 'object' && 'reason' in error ? String(error.reason) : ''
-    const keys: Record<string, string> = {
-      upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
-      upstream_model_sync_credentials: 'syncUpstreamModelsCredentials',
-      upstream_model_sync_unsupported: 'syncUpstreamModelsUnsupported',
-      upstream_model_sync_upstream: 'syncUpstreamModelsUnavailable',
-      upstream_model_sync_internal: 'syncUpstreamModelsFailed'
-    }
-    const message = t(`admin.accounts.${keys[reason] || 'syncUpstreamModelsFailed'}`)
-    appStore.showError(message)
-  } finally {
-    if (request === antigravitySyncGeneration) isSyncingAntigravityUpstream.value = false
-  }
 }
 
 // Error code toggle helper
@@ -5024,11 +4975,17 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
   submitting.value = true
   try {
+    const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+    const extra = { ...(props.account?.extra ?? {}), ...((updatePayload.extra as Record<string, unknown>) ?? {}) }
+    if (declaration || props.account?.extra?.model_capability_defaults) {
+      extra.model_capability_defaults = declaration
+      updatePayload.extra = extra
+    }
     let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)
-    handleClose()
+    syncFormFromAccount(updatedAccount)
   } catch (error: any) {
     if (error.status === 409 && error.error === 'mixed_channel_warning' && needsMixedChannelCheck()) {
       openMixedChannelDialog({
@@ -5048,7 +5005,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 
 const handleSubmit = async () => {
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
-  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
+  if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id
 

@@ -1,3 +1,4 @@
+import { withTrendGaps } from '@/views/trendGaps'
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 
@@ -132,5 +133,20 @@ it('preserves query-zone bucket labels and keeps token counts separate from exac
   expect(wrapper.get('h3').text()).toContain('America/New_York')
   const options = wrapper.findComponent('.chart-data').props('options')
   expect(options.plugins.tooltip.callbacks.footer([{ dataIndex: 0 }])).toBe('dashboard.actual: USD -0.00000001 | dashboard.standard: USD 0.00000001')
+  wrapper.unmount()
+})
+
+it('keeps every chart dataset broken at an unknown bucket', () => {
+  const point = (date: string) => ({ date, requests: 1, input_tokens: 10, output_tokens: 10,
+    cache_creation_tokens: 10, cache_read_tokens: 10, cost: 1, actual_cost: 1 })
+  const wrapper = mount(TokenUsageTrend, { props: { trendData: withTrendGaps([
+    point('2026-03-01'), point('2026-03-03')], 'day') } })
+  const data = wrapper.findComponent('.chart-data').props('data')
+  expect(data.datasets).toHaveLength(5)
+  for (const dataset of data.datasets) {
+    expect(Number.isNaN(dataset.data[1])).toBe(true)
+    expect(Number.isFinite(dataset.data[0])).toBe(true)
+    expect(Number.isFinite(dataset.data[2])).toBe(true)
+  }
   wrapper.unmount()
 })
