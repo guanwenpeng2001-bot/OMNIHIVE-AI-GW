@@ -334,11 +334,12 @@ func TestAntigravityCompatToolEntryMatrix(t *testing.T) {
 				function := map[string]any{"name": "shell", "input_schema": map[string]any{"type": "object"}}
 				search := map[string]any{"type": "web_search"}
 				code := map[string]any{"type": "code_execution"}
-				if protocol == "chat" {
+				switch protocol {
+				case "chat":
 					function = map[string]any{"type": "function", "function": map[string]any{"name": "shell", "parameters": map[string]any{"type": "object"}}}
-				} else if protocol == "responses" {
+				case "responses":
 					function = map[string]any{"type": "function", "name": "shell", "parameters": map[string]any{"type": "object"}}
-				} else if protocol == "gemini" {
+				case "gemini":
 					function = map[string]any{"functionDeclarations": []any{map[string]any{"name": "shell", "parameters": map[string]any{"type": "object"}}}}
 					search = map[string]any{"googleSearch": map[string]any{}}
 					code = map[string]any{"codeExecution": map[string]any{}}

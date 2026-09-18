@@ -137,7 +137,8 @@ func TestCapabilityDefaultsIdentityBindingAndReconfirmation(t *testing.T) {
 		Credentials: map[string]any{"api_key": "private-secret", "base_url": "https://private.example/v1"},
 		Extra:       map[string]any{modelCapabilityDefaultsKey: declaration}}
 	require.NoError(t, bindModelCapabilityDefaults(account, account.Extra, "admin:42"))
-	bound := account.Extra[modelCapabilityDefaultsKey].(map[string]any)
+	bound, ok := account.Extra[modelCapabilityDefaultsKey].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "admin:42", bound["confirmed_by"])
 	require.NotEmpty(t, bound["confirmed_at"])
 	require.Len(t, bound["identity_fingerprint"], 64)
@@ -201,11 +202,15 @@ func TestCapabilityDefaultsUpdateBindsBeforeWriteAndRejectsIdentityChange(t *tes
 	recorder := send([]byte(`{"extra":{"model_capability_defaults":{"schema_version":1,"reason":"owner verified","models":{"private-id":{"max_input_tokens":8192,"supports_function_calling":false}}}}}`))
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
 	require.Equal(t, 1, svc.updateAccountCalls)
-	saved := svc.lastUpdateAccountInput.Extra[modelCapabilityDefaultsKey].(map[string]any)
+	saved, ok := svc.lastUpdateAccountInput.Extra[modelCapabilityDefaultsKey].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "admin:0", saved["confirmed_by"])
 	require.NotEmpty(t, saved["confirmed_at"])
 	require.Equal(t, modelCapabilityIdentityFingerprint(&svc.account), saved["identity_fingerprint"])
-	model := saved["models"].(map[string]any)["private-id"].(map[string]any)
+	models, ok := saved["models"].(map[string]any)
+	require.True(t, ok)
+	model, ok := models["private-id"].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, false, model["supports_function_calling"])
 	require.Nil(t, svc.account.Extra, "binding must not mutate the loaded account")
 	body, err := json.Marshal(map[string]any{"credentials": map[string]any{"base_url": "https://changed.example/v1"}, "extra": map[string]any{modelCapabilityDefaultsKey: saved}})
@@ -236,7 +241,8 @@ func TestCapabilityDefaultsManualTokenReconfirmationUsesSavedRevision(t *testing
 	require.NoError(t, err)
 	extra := map[string]any{modelCapabilityDefaultsKey: declaration}
 	require.NoError(t, prepareUpdatedModelCapabilityDefaults(existing, "", map[string]any{"access_token": "new", "chatgpt_account_id": "stable"}, extra, "admin:42"))
-	bound := extra[modelCapabilityDefaultsKey].(map[string]any)
+	bound, ok := extra[modelCapabilityDefaultsKey].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, "4", bound["identity_revision"], "configuration writes increment stable-subject manual replacement")
 	saved := *existing
 	saved.Credentials = map[string]any{"access_token": "new", "chatgpt_account_id": "stable"}

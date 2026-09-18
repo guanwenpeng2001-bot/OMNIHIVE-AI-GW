@@ -2,47 +2,20 @@ package admin
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"entgo.io/ent/dialect"
-	entsql "entgo.io/ent/dialect/sql"
-	dbent "github.com/Wei-Shaw/sub2api/ent"
-	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	_ "github.com/lib/pq"
+	"github.com/Wei-Shaw/sub2api/internal/testutil"
 	"github.com/stretchr/testify/require"
 )
-
-// Uses only the exclusively assigned job_test database, never an application DB.
-func capabilityPostgres(t *testing.T) (*sql.DB, *dbent.Client, service.AccountRepository) {
-	t.Helper()
-	dsn := os.Getenv("UPSTREAM_JOB_TEST_DSN")
-	if dsn == "" {
-		t.Skip("set UPSTREAM_JOB_TEST_DSN to exclusive job_test")
-	}
-	db, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	var database string
-	require.NoError(t, db.QueryRowContext(ctx, `SELECT current_database()`).Scan(&database))
-	require.Equal(t, "job_test", database)
-	require.NoError(t, repository.ApplyMigrations(ctx, db))
-	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
-	return db, client, repository.NewAccountRepository(client, db, nil)
-}
 
 type capabilityPoolUpstream struct {
 	entered chan int64
@@ -67,7 +40,7 @@ func (u *capabilityPoolUpstream) DoWithTLS(req *http.Request, proxy string, id i
 }
 
 func TestAccountModelCatalogApplyPostgresPoolBudget(t *testing.T) {
-	db, client, repo := capabilityPostgres(t)
+	db, client, repo := testutil.NewCapabilityPostgres(t)
 	for _, size := range []int{2, 4} {
 		t.Run(fmt.Sprintf("pool_%d", size), func(t *testing.T) {
 			db.SetMaxOpenConns(size)
@@ -139,7 +112,7 @@ func TestAccountModelCatalogApplyPostgresPoolBudget(t *testing.T) {
 }
 
 func TestCapabilityDefaultsPostgresManualTokenReconfirmation(t *testing.T) {
-	_, client, repo := capabilityPostgres(t)
+	_, client, repo := testutil.NewCapabilityPostgres(t)
 	ctx := context.Background()
 	row, err := client.Account.Create().SetName("catalog-oauth").SetPlatform(service.PlatformOpenAI).SetType(service.AccountTypeOAuth).SetCredentials(map[string]any{"access_token": "old", "chatgpt_account_id": "stable"}).SetExtra(map[string]any{service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 7}}).Save(ctx)
 	require.NoError(t, err)
@@ -152,9 +125,10 @@ func TestCapabilityDefaultsPostgresManualTokenReconfirmation(t *testing.T) {
 	require.NoError(t, prepareUpdatedModelCapabilityDefaults(existing, "", credentials, extra, "admin:42"))
 	edit := *existing
 	edit.Credentials, edit.Extra = credentials, extra
-	writer := repo.(interface {
+	writer, ok := repo.(interface {
 		UpdateWithAccountBillingSettings(context.Context, *service.Account, *bool, *bool, *float64) error
 	})
+	require.True(t, ok)
 	require.NoError(t, writer.UpdateWithAccountBillingSettings(ctx, &edit, nil, nil, nil))
 	saved, err := repo.GetByID(ctx, row.ID)
 	require.NoError(t, err)

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -73,7 +73,7 @@ func TestDashboardHistoryErrors(t *testing.T) {
 		t.Run(path, func(t *testing.T) {
 			resetDashboardReadCachesForTest()
 			t.Cleanup(resetDashboardReadCachesForTest)
-			failure := fmt.Errorf("repository context: %w", repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"}))
+			failure := fmt.Errorf("repository context: %w", infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"}))
 			router := dashboardHistoryRouter(&dashboardHistoryRepo{failure: failure})
 			response := httptest.NewRecorder()
 			router.ServeHTTP(response, httptest.NewRequest("GET", path, nil))
@@ -81,7 +81,9 @@ func TestDashboardHistoryErrors(t *testing.T) {
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 			require.Equal(t, "USAGE_HISTORY_INCOMPLETE", body["reason"])
-			require.Equal(t, "2026-03-05T00:00:00Z", body["metadata"].(map[string]any)["raw_retained_from"])
+			metadata, ok := body["metadata"].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, "2026-03-05T00:00:00Z", metadata["raw_retained_from"])
 			require.NotContains(t, body, "data")
 		})
 	}
@@ -117,7 +119,7 @@ func TestDashboardCoverageRevisionInvalidatesCaches(t *testing.T) {
 			first := httptest.NewRecorder()
 			router.ServeHTTP(first, httptest.NewRequest("GET", path, nil))
 			require.Equal(t, 200, first.Code)
-			repo.failure = repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+			repo.failure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 			cached := httptest.NewRecorder()
 			router.ServeHTTP(cached, httptest.NewRequest("GET", path, nil))
 			require.Equal(t, 200, cached.Code)

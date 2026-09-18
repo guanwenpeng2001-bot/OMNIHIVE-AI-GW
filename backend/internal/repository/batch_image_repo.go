@@ -1009,7 +1009,9 @@ func (r *batchImageRepository) ListRecoverableBatchImageJobs(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	// Next closes exhausted rows and Rows.Err reports iteration/close errors.
+	// On an early Scan failure, preserve that primary error.
+	defer func() { _ = rows.Close() }()
 	var ids []string
 	for rows.Next() {
 		var id string
