@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -29,6 +30,9 @@ func NewGatewayCache(rdb *redis.Client) service.GatewayCache {
 // buildSessionKey 构建 session key，包含 groupID 实现分组隔离
 // 格式: sticky_session:{groupID}:{sessionHash}
 func buildSessionKey(groupID int64, sessionHash string) string {
+	if service.IsV2AffinityKey(sessionHash) {
+		return fmt.Sprintf("sticky_session_v2:%d:%s", groupID, sessionHash)
+	}
 	return fmt.Sprintf("%s%d:%s", stickySessionPrefix, groupID, sessionHash)
 }
 
@@ -38,6 +42,27 @@ func buildOpenAIResponsesSessionWindowKey(groupID int64, sessionHash string) str
 
 func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
 	key := buildSessionKey(groupID, sessionHash)
+	if service.IsV2AffinityKey(sessionHash) {
+		raw, err := c.rdb.Get(ctx, key).Result()
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return 0, err
+		}
+		if state := service.AffinityBindingStateFromContext(ctx); state != nil {
+			state.Versions.LoadOrStore(key, raw)
+		}
+		if errors.Is(err, redis.Nil) {
+			return 0, service.ErrStickySessionNotFound
+		}
+		parts := strings.Split(raw, ":")
+		if len(parts) != 3 || parts[0] != "v2" || parts[2] == "" {
+			return 0, errors.New("invalid affinity binding")
+		}
+		id, err := strconv.ParseInt(parts[1], 10, 64)
+		if err != nil || id <= 0 {
+			return 0, errors.New("invalid affinity account")
+		}
+		return id, nil
+	}
 	accountID, err := c.rdb.Get(ctx, key).Int64()
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
@@ -48,13 +73,46 @@ func (c *gatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, s
 	return accountID, nil
 }
 
+// SetSessionAccountID treats a lost affinity CAS as a benign no-op: this attempt
+// can still use its admitted account, but must preserve the winning binding.
+// A nil error does not assert that a binding was written. Only successful own
+// mutations advance the request's observed version; reads never advance it.
 func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
+	if service.IsV2AffinityKey(sessionHash) {
+		if !service.AffinityAdmitted(ctx) {
+			return nil
+		}
+		state := service.AffinityBindingStateFromContext(ctx)
+		if state == nil || accountID <= 0 || ttl < time.Millisecond {
+			return nil
+		}
+		expected, _ := state.Versions.LoadOrStore(key, "")
+		old := expected.(string)
+		// A temporarily skipped healthy account keeps its affinity for recovery.
+		if old != "" && !strings.HasPrefix(old, fmt.Sprintf("v2:%d:", accountID)) {
+			return nil
+		}
+		var nonce [16]byte
+		if _, err := rand.Read(nonce[:]); err != nil {
+			return err
+		}
+		next := fmt.Sprintf("v2:%d:%s", accountID, hex.EncodeToString(nonce[:]))
+		changed, err := affinityCompareSetScript.Run(ctx, c.rdb, []string{key}, old, next, ttl.Milliseconds()).Int()
+		if err == nil && changed == 1 {
+			state.Versions.CompareAndSwap(key, old, next)
+		}
+		return err
+	}
 	return c.rdb.Set(ctx, key, accountID, ttl).Err()
 }
 
 func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, sessionHash string, ttl time.Duration) error {
 	key := buildSessionKey(groupID, sessionHash)
+	// v2 rolls TTL only after final admission, through compare-and-set.
+	if service.IsV2AffinityKey(sessionHash) {
+		return nil
+	}
 	return c.rdb.Expire(ctx, key, ttl).Err()
 }
 
@@ -67,6 +125,21 @@ func (c *gatewayCache) RefreshSessionTTL(ctx context.Context, groupID int64, ses
 // or unschedulable), allowing subsequent requests to select a new available account.
 func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64, sessionHash string) error {
 	key := buildSessionKey(groupID, sessionHash)
+	if service.IsV2AffinityKey(sessionHash) {
+		state := service.AffinityBindingStateFromContext(ctx)
+		if state == nil {
+			return nil
+		}
+		expected, ok := state.Versions.Load(key)
+		if !ok || expected == "" {
+			return nil
+		}
+		changed, err := affinityCompareDeleteScript.Run(ctx, c.rdb, []string{key}, expected).Int()
+		if err == nil && changed == 1 {
+			state.Versions.CompareAndSwap(key, expected, "")
+		}
+		return err
+	}
 	return c.rdb.Del(ctx, key).Err()
 }
 
@@ -489,3 +562,20 @@ func (c *gatewayCache) MarkLiveCallClosed(ctx context.Context, callHash string, 
 	result, err := markLiveCallClosedScript.Run(ctx, c.rdb, []string{liveCallKey(callHash)}, int64(ttl.Seconds())).Int()
 	return result == 1, err
 }
+
+// Empty expected version means NX. A nonempty version must match byte-for-byte.
+var affinityCompareSetScript = redis.NewScript(`
+local current = redis.call('GET', KEYS[1])
+if ARGV[1] == '' then
+ if current then return 0 end
+elseif current ~= ARGV[1] then
+ return 0
+end
+redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+var affinityCompareDeleteScript = redis.NewScript(`
+if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
+redis.call('DEL', KEYS[1])
+return 1
+`)
