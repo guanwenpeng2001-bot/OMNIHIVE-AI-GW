@@ -215,3 +215,50 @@ func TestCapabilityDefaultsUpdateBindsBeforeWriteAndRejectsIdentityChange(t *tes
 	require.Contains(t, recorder.Body.String(), "different account identity")
 	require.Equal(t, 1, svc.updateAccountCalls, "stale declaration must never reach the writer")
 }
+
+func TestCapabilityDefaultsExplicitEmptyArraysRoundTrip(t *testing.T) {
+	raw := json.RawMessage(`{"schema_version":1,"reason":"verified","models":{"private-id":{"input_modalities":[],"output_modalities":[],"reasoning":true,"reasoning_control":{"kind":"unknown","effort_values":[]},"supports_function_calling":false}}}`)
+	for i := 0; i < 3; i++ {
+		decoded, err := decodeModelCapabilityDefaults(raw)
+		require.NoError(t, err)
+		encoded, err := json.Marshal(decoded)
+		require.NoError(t, err)
+		require.JSONEq(t, string(raw), string(encoded))
+		raw = encoded
+	}
+}
+
+func TestCapabilityDefaultsManualTokenReconfirmationUsesSavedRevision(t *testing.T) {
+	existing := &service.Account{ID: 48, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+		Credentials: map[string]any{"access_token": "old", "chatgpt_account_id": "stable"},
+		Extra:       map[string]any{service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 7}}}
+	declaration, err := decodeModelCapabilityDefaults(json.RawMessage(`{"schema_version":1,"reason":"reconfirmed","models":{"private-id":{"reasoning":false}}}`))
+	require.NoError(t, err)
+	extra := map[string]any{modelCapabilityDefaultsKey: declaration}
+	require.NoError(t, prepareUpdatedModelCapabilityDefaults(existing, "", map[string]any{"access_token": "new", "chatgpt_account_id": "stable"}, extra, "admin:42"))
+	bound := extra[modelCapabilityDefaultsKey].(map[string]any)
+	require.Equal(t, "4", bound["identity_revision"], "configuration writes increment stable-subject manual replacement")
+	saved := *existing
+	saved.Credentials = map[string]any{"access_token": "new", "chatgpt_account_id": "stable"}
+	saved.Extra = map[string]any{modelCapabilityDefaultsKey: bound, service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 4, RulesRevision: 8}}
+	require.NoError(t, validateSavedModelCapabilityIdentity(&saved))
+}
+
+func TestCapabilityDefaultsSavedEmptyArraysPreview(t *testing.T) {
+	declaration, err := decodeModelCapabilityDefaults(json.RawMessage(`{"schema_version":1,"reason":"verified","models":{"gpt-5.2":{"input_modalities":[],"output_modalities":[],"reasoning":true,"reasoning_control":{"kind":"unknown","effort_values":[]}}}}`))
+	require.NoError(t, err)
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 48, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "key", "base_url": "https://api.openai.com/v1"}, Extra: map[string]any{modelCapabilityDefaultsKey: declaration}}}
+	require.NoError(t, bindModelCapabilityDefaults(&svc.account, svc.account.Extra, "admin:42"))
+	saved, err := json.Marshal(svc.account.Extra)
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(saved, &svc.account.Extra))
+	upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"data":[{"id":"gpt-5.2"}]}`))}}
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/48/models/sync-upstream?apply=false", strings.NewReader(`{}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.Contains(t, recorder.Body.String(), `"input_modalities":[]`)
+	require.Contains(t, recorder.Body.String(), `"output_modalities":[]`)
+	require.Contains(t, recorder.Body.String(), `"effort_values":[]`)
+}

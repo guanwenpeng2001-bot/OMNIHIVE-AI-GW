@@ -2208,17 +2208,23 @@ func dedupeAndSortModelIDs(models []string) []string {
 // while [] continues to mean that the source explicitly supports no values.
 func (m UpstreamModelMetadata) MarshalJSON() ([]byte, error) {
 	type plain UpstreamModelMetadata
-	body, err := json.Marshal(plain(m))
+	return MarshalModelCapabilityLists(plain(m), map[string][]string{"supported_methods": m.SupportedMethods, "input_modalities": m.InputModalities, "output_modalities": m.OutputModalities, "supported_reasoning_levels": m.SupportedReasoningLevels})
+}
+
+// MarshalModelCapabilityLists shares the nil/empty presence contract between
+// validated account declarations and persisted capability metadata.
+func MarshalModelCapabilityLists(value any, lists map[string][]string) ([]byte, error) {
+	body, err := json.Marshal(value)
 	if err != nil {
 		return nil, err
 	}
 	var fields map[string]json.RawMessage
-	if err = json.Unmarshal(body, &fields); err != nil {
+	if err := json.Unmarshal(body, &fields); err != nil {
 		return nil, err
 	}
-	for key, list := range map[string][]string{"supported_methods": m.SupportedMethods, "input_modalities": m.InputModalities, "output_modalities": m.OutputModalities, "supported_reasoning_levels": m.SupportedReasoningLevels} {
+	for key, list := range lists {
 		if list != nil && len(list) == 0 {
-			fields[key] = json.RawMessage("[]")
+			fields[key] = json.RawMessage(`[]`)
 		}
 	}
 	return json.Marshal(fields)

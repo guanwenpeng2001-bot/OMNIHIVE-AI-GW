@@ -107,3 +107,30 @@ func (s *ScheduledTestRunnerService) refreshDueCatalogs(ctx context.Context, now
 		}(account)
 	}
 }
+
+// Bound both manual and scheduled apply before either pins an advisory-lock
+// connection. At most half the configured pool can be held by discovery, leaving
+// connections for reload/CAS and ordinary queries. A one-connection pool cannot
+// perform apply with a transaction-scoped lock.
+func (s *AccountTestService) acquireCatalogApplyBudget(ctx context.Context) (func(), error) {
+	s.catalogApplyOnce.Do(func() {
+		workers := 2
+		if s.cfg != nil && s.cfg.Database.MaxOpenConns > 0 {
+			workers = min(workers, s.cfg.Database.MaxOpenConns/2)
+		}
+		s.catalogApplyBudget = make(chan struct{}, workers)
+	})
+	if cap(s.catalogApplyBudget) == 0 {
+		return nil, newUpstreamModelSyncConfigError("Account model catalog apply requires at least two database connections", nil)
+	}
+	select {
+	case s.catalogApplyBudget <- struct{}{}:
+		if err := ctx.Err(); err != nil {
+			<-s.catalogApplyBudget
+			return nil, err
+		}
+		return func() { <-s.catalogApplyBudget }, nil
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}

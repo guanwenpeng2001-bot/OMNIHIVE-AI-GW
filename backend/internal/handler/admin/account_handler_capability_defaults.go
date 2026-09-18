@@ -53,15 +53,11 @@ type AccountDeclaredTools struct {
 	FunctionCalling *bool `json:"function_calling,omitempty"`
 }
 
-type AccountReasoningControl struct {
-	Kind           string          `json:"kind"`
-	SupportedKinds []string        `json:"supported_kinds,omitempty"`
-	EffortValues   []string        `json:"effort_values,omitempty"`
-	ToggleValues   []bool          `json:"toggle_values,omitempty"`
-	BudgetMin      *int64          `json:"budget_min,omitempty"`
-	BudgetMax      *int64          `json:"budget_max,omitempty"`
-	Default        json.RawMessage `json:"default,omitempty"`
-	Adaptive       *bool           `json:"adaptive,omitempty"`
+type AccountReasoningControl = service.ReasoningControl
+
+func (m AccountModelCapabilitySpec) MarshalJSON() ([]byte, error) {
+	type plain AccountModelCapabilitySpec
+	return service.MarshalModelCapabilityLists(plain(m), map[string][]string{"input_modalities": m.InputModalities, "output_modalities": m.OutputModalities})
 }
 
 // SyncUpstreamModelsRequest allows a declaration draft only for a read-only preview.
@@ -299,7 +295,7 @@ func prepareUpdatedModelCapabilityDefaults(existing *service.Account, accountTyp
 		next.Credentials = service.SanitizeStoredCredentials(next.Platform, next.Credentials)
 	}
 	next.Extra = maps.Clone(existing.Extra)
-	service.AdvanceAccountModelCatalogRevisions(existing, &next)
+	service.AdvanceAccountModelCatalogRevisionsForUpdate(existing, &next, true)
 	before, _ := json.Marshal(existing.Extra[modelCapabilityDefaultsKey])
 	incoming, _ := json.Marshal(extra[modelCapabilityDefaultsKey])
 	if err := bindModelCapabilityDefaults(&next, extra, actor); err != nil {

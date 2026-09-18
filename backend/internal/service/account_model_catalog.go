@@ -189,6 +189,13 @@ func AccountCatalogRuleExtraFields() []string {
 // AdvanceAccountModelCatalogRevisions runs under the account row lock.
 // Token rotation is ignored only when a stable subject is present and unchanged.
 func AdvanceAccountModelCatalogRevisions(current, incoming *Account) {
+	AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming, false)
+}
+
+// AdvanceAccountModelCatalogRevisionsForUpdate is shared by configuration preview
+// and the locked repository write. Manual token replacement invalidates identity
+// even when a stale edit retains a stable subject; automatic renewal does not.
+func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, configurationOnly bool) {
 	state := current.ModelCatalogState()
 	identityChanged := current.Platform != incoming.Platform || current.Type != incoming.Type || !reflect.DeepEqual(current.ParentAccountID, incoming.ParentAccountID)
 	for _, key := range AccountCatalogIdentityCredentialFields() {
@@ -198,7 +205,7 @@ func AdvanceAccountModelCatalogRevisions(current, incoming *Account) {
 	for _, key := range []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"} {
 		stableSubject = stableSubject || (current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key))
 	}
-	if !stableSubject && !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"]) {
+	if (configurationOnly || !stableSubject) && !reflect.DeepEqual(current.Credentials["access_token"], incoming.Credentials["access_token"]) {
 		identityChanged = true
 	}
 	rulesChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
@@ -487,6 +494,11 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 		return nil, ErrAccountModelCatalogConflict
 	}
 	defer service.catalogInFlight.Delete(account.ID)
+	releaseBudget, err := service.acquireCatalogApplyBudget(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer releaseBudget()
 	if locker, ok := service.accountRepo.(AccountModelCatalogLocker); ok {
 		release, err := locker.TryLockAccountModelCatalog(ctx, account.ID)
 		if err != nil {
