@@ -1,0 +1,21 @@
+{
+  "approved": false,
+  "content_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+  "observed_at": "2026-09-17",
+  "records": [
+    {
+      "field_evidence": {
+        "input_modalities": {
+          "value": [
+            "text"
+          ]
+        }
+      },
+      "model_id": "fixture-author/sample",
+      "rejected_fields": {},
+      "task_group": "text_generation"
+    }
+  ],
+  "schema_version": 1,
+  "source_url": "https://openrouter.ai/api/v1/models?output_modalities=all"
+}
