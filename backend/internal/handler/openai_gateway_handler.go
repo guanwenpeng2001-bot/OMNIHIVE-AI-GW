@@ -2558,6 +2558,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		sessionHash = h.gatewayService.GenerateSessionHashWithFallback(c, firstMessage, openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID))
 	}
 
+	var turnSessionHash atomic.Value
+	turnSessionHash.Store(sessionHash)
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
@@ -2831,6 +2833,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					activePlan.Store(plan)
 				}
 				c.Request = c.Request.WithContext(service.WithGatewayRequestPlan(ctx, activePlan.Load()))
+				if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+					turnSessionHash.Store(h.gatewayService.GenerateRequestSessionHash(c, payload))
+				}
 				c.Set(securityAuditWSTurnContextKey, turn)
 				service.BeginOpsStreamTurn(c, turn)
 				setCyberTurnBody(turn, payload)
@@ -2930,14 +2935,19 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					}
 					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
 				}
-				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
-				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+				currentUserRelease = wrapReleaseOnDone(turnCtx, userReleaseFunc)
+				currentAccountRelease = wrapReleaseOnDone(turnCtx, accountReleaseFunc)
+				if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+					if hash, _ := turnSessionHash.Load().(string); hash != "" {
+						_ = h.gatewayService.BindStickySessionAfterProfitAdmission(turnCtx, apiKey.GroupID, hash, account.ID)
+					}
+				}
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
 				turnStart := getTurnStart(turn)
-				if plan := activePlan.Load(); plan != nil {
-					defer plan.Finalize(turnErr == nil)
+				if plan := activePlan.Load(); plan != nil && turnErr == nil {
+					defer plan.Finalize(true)
 				}
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，

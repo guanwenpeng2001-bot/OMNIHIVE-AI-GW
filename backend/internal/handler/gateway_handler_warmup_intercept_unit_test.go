@@ -157,6 +157,12 @@ func (f *fakeConcurrencyCache) CleanupExpiredAccountSlotKeys(context.Context) er
 func (f *fakeConcurrencyCache) CleanupStaleProcessSlots(context.Context, string) error  { return nil }
 
 func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*service.Account) (*GatewayHandler, func()) {
+	for i, account := range accounts {
+		if account != nil {
+			copy := preparedGatewayFixtureAccount(*account)
+			accounts[i] = &copy
+		}
+	}
 	t.Helper()
 
 	schedulerCache := &fakeSchedulerCache{accounts: accounts}

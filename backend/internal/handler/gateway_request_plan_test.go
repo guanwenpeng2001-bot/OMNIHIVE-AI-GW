@@ -66,13 +66,13 @@ func preparedGatewayFixtureAccount(account service.Account) service.Account {
 	if _, exists := extra[service.UpstreamModelCatalogExtraKey]; exists {
 		return account
 	}
-	models := []string{"sol", "terra", "sol-channel", "terra-channel", "gpt-4.1", "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "grok-4", "grok-4.1-fast", "grok-4.20-beta", "grok-4.3"}
+	models := []string{"default", "claude-sonnet-4-5", "claude-sonnet-4-5-thinking", "gpt-6-astra", "sol", "terra", "sol-channel", "terra-channel", "gpt-4.1", "gpt-5.1", "gpt-5.2", "gpt-5.4", "gpt-5.5", "gpt-5.6-sol", "gpt-5.6-terra", "grok-4", "grok-4.1-fast", "grok-4.20-beta", "grok-4.3"}
 	for _, target := range account.GetModelMapping() {
 		models = append(models, target)
 	}
 	catalog := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: models, EligibleModels: []service.AccountCatalogModel{}}
 	for _, model := range models {
-		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: []string{"responses", "chat_completions", "messages"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-18T00:00:00Z"})
+		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: []string{"responses", "chat_completions", "messages", "generate_content"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-18T00:00:00Z"})
 	}
 	extra[service.UpstreamModelCatalogExtraKey] = catalog
 	account.Extra = extra

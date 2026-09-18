@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 )
 
 type forwardCatalogRepo struct {
@@ -89,4 +90,41 @@ func TestForwardModelPublicCatalogUsesSameEligibility(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, ids)
 	require.Empty(t, ids)
+}
+
+func (r *forwardCatalogRepo) GetByID(ctx context.Context, id int64) (*Account, error) {
+	return r.GetModelCatalogAccount(ctx, id)
+}
+func TestAffinityRequestPlanPreservesTransientBinding(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "m")
+	repo := &forwardCatalogRepo{current: &account}
+	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "m", Protocol: "responses"}))
+	later := time.Now().Add(time.Hour)
+	account.RateLimitResetAt = &later
+	account.OverloadUntil = &later
+	account.TempUnschedulableUntil = &later
+	require.True(t, shouldClearStickySession(&account, "m"), "legacy semantics remain unchanged")
+	require.False(t, requestAffinityPermanentlyInvalid(ctx, repo, 1), "429/timeout must preserve recovery binding")
+	account.Schedulable = false
+	require.True(t, requestAffinityPermanentlyInvalid(ctx, repo, 1))
+	account.Schedulable = true
+	account.Extra = nil
+	require.True(t, requestAffinityPermanentlyInvalid(ctx, repo, 1), "revoked evidence is permanent")
+	repo.err = errors.New("database unavailable")
+	require.False(t, requestAffinityPermanentlyInvalid(ctx, repo, 1), "read failure cannot establish revocation")
+}
+
+func TestForwardModelPublicCompositeAliasesUseExistingResolver(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "gpt-5.1")
+	repo := &forwardCatalogRepo{current: &account}
+	routes := compositeRouteRepoStub{routes: []CompositeModelRoute{{ID: 1, GroupID: 3, Enabled: true, MatchType: CompositeRouteMatchExact, PublicModel: "company", TargetPlatform: PlatformOpenAI, UpstreamModel: "gpt-5.1", Endpoint: CompositeRouteEndpointAny}}}
+	resolver := NewCompositeRouteResolver(routes)
+	resolver.SetModelOwnershipResolver(func(context.Context, int64, string) (CompositeModelOwnership, error) {
+		return CompositeModelOwnership{Ambiguous: true}, nil
+	})
+	svc := &GatewayService{accountRepo: repo, compositeResolver: resolver}
+	group := int64(3)
+	ids, err := svc.CatalogModelIDs(context.Background(), &group, PlatformComposite)
+	require.NoError(t, err)
+	require.Equal(t, []string{"company"}, ids, "explicit route wins; ambiguous implicit model remains hidden")
 }

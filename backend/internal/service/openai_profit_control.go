@@ -362,6 +362,7 @@ func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx contex
 // recovers.
 func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if IsV2AffinityKey(sessionHash) {
+		_, _ = s.getStickySessionAccountID(ctx, groupID, sessionHash)
 		group := derefGroupID(groupID)
 		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
 			return s.BindStickySession(admitted, &group, sessionHash, accountID)

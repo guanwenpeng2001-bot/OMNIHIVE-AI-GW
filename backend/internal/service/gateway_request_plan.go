@@ -2,12 +2,14 @@ package service
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/gin-gonic/gin"
+	"log/slog"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/gin-gonic/gin"
 )
 
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
@@ -48,6 +50,8 @@ type GatewayRequestPlan struct {
 	state            GatewayRequestState
 	leases           map[*gatewayPlanLease]struct{}
 	usage            atomic.Bool
+	catalogRepo      AccountRepository
+	affinityState    *AffinityBindingState
 	bindingAccountID int64
 	binding          func(context.Context) error
 }
@@ -76,6 +80,9 @@ func GatewayRequestPlanFromContext(ctx context.Context) *GatewayRequestPlan {
 }
 
 func WithGatewayRequestPlan(ctx context.Context, p *GatewayRequestPlan) context.Context {
+	if p != nil && p.affinityState != nil {
+		ctx = context.WithValue(ctx, affinityBindingStateKey{}, p.affinityState)
+	}
 	return context.WithValue(ctx, gatewayRequestPlanKey{}, p)
 }
 
@@ -187,15 +194,33 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		prices.mu.RUnlock()
 		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
 	}
-	return WithGatewayRequestPlan(WithAffinityBindingState(ctx), p), p
+	ctx = WithAffinityBindingState(ctx)
+	p.affinityState = AffinityBindingStateFromContext(ctx)
+	return WithGatewayRequestPlan(ctx, p), p
 }
 
 func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
-	return captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	if s == nil {
+		return captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
+	}
+	if existing := GatewayRequestPlanFromContext(ctx); existing != nil {
+		return ctx, existing
+	}
+	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	plan.catalogRepo = s.accountRepo
+	return ctx, plan
 }
 
 func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
-	return captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	if s == nil {
+		return captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
+	}
+	if existing := GatewayRequestPlanFromContext(ctx); existing != nil {
+		return ctx, existing
+	}
+	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	plan.catalogRepo = s.accountRepo
+	return ctx, plan
 }
 
 func (s *BillingService) forGatewayRequest(ctx context.Context) *BillingService {
@@ -280,7 +305,10 @@ func admitGatewayRequestBinding(ctx context.Context, accountID int64) error {
 	}
 	plan.mu.Unlock()
 	if bind != nil {
-		return bind(WithAffinityAdmission(ctx))
+		if err := bind(WithAffinityAdmission(ctx)); err != nil {
+			slog.Warn("gateway affinity binding unavailable", "account_id", accountID, "error", err)
+		}
+		return nil
 	}
 	return nil
 }
@@ -291,4 +319,53 @@ func (s *OpenAIGatewayService) CaptureRequestTurn(ctx context.Context, spec Gate
 	ctx = WithGatewayRequestPlan(ctx, nil)
 	ctx = context.WithValue(ctx, affinityBindingStateKey{}, &AffinityBindingState{})
 	return s.CaptureRequestPlan(ctx, spec)
+}
+
+// A transient scheduler veto can spill this request without destroying the
+// session's recovery binding. Permanent revocation still uses T6's version CAS.
+func requestAffinityPermanentlyInvalid(ctx context.Context, repo AccountRepository, accountID int64) bool {
+	if repo == nil || accountID <= 0 {
+		return false
+	}
+	account, err := repo.GetByID(ctx, accountID)
+	if err != nil {
+		return false
+	}
+	if account == nil || !catalogAccountEnabled(account) {
+		return true
+	}
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan == nil {
+		return false
+	}
+	parent, err := loadCatalogCredentialAccount(ctx, repo, account)
+	if err != nil {
+		return false
+	}
+	endpoint := gatewaySelectionCatalogEndpoint(ctx, account)
+	if account.IsOpenAICompatible() {
+		endpoint = CompositeRouteEndpointResponses
+	}
+	return !AccountSupportsResolvedModel(ctx, account, plan.Snapshot().Model, AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: parent})
+}
+func (s *GatewayService) clearRequestStickySession(ctx context.Context, groupID *int64, hash string) error {
+	if s.cache == nil {
+		return nil
+	}
+	if IsV2AffinityKey(hash) {
+		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), hash)
+		if err != nil || !requestAffinityPermanentlyInvalid(ctx, s.accountRepo, accountID) {
+			return nil
+		}
+	}
+	return s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), hash)
+}
+func (s *OpenAIGatewayService) clearRequestStickySession(ctx context.Context, groupID *int64, hash string) error {
+	if IsV2AffinityKey(hash) {
+		accountID, err := s.getStickySessionAccountID(ctx, groupID, hash)
+		if err != nil || !requestAffinityPermanentlyInvalid(ctx, s.accountRepo, accountID) {
+			return nil
+		}
+	}
+	return s.deleteStickySessionAccountID(ctx, groupID, hash)
 }

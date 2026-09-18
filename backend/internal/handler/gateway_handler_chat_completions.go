@@ -76,7 +76,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
-	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "openai", h.maxAccountSwitches)()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {

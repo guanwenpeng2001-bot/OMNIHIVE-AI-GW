@@ -43,37 +43,21 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 }
 
 func (s *OpenAIGatewayService) supportsOpenAIAccountModel(ctx context.Context, account *Account, model string, capability OpenAIEndpointCapability) bool {
-	options := AccountModelBindingOptions{Endpoint: string(capability)}
+	endpoint := string(capability)
+	if GatewayRequestPlanFromContext(ctx) != nil {
+		endpoint = CompositeRouteEndpointResponses
+	}
+	options := AccountModelBindingOptions{Endpoint: endpoint}
 	if account != nil && account.IsShadow() {
 		options.CredentialAccount = s.modelBindingCredentialAccount(ctx, account)
 	}
 	return AccountSupportsResolvedModel(ctx, account, model, options)
 }
 
-func (s *AntigravityGatewayService) doModelCheckedUpstream(request *http.Request, proxyURL string, account *Account, upstream HTTPUpstream) (*http.Response, error) {
-	if request.GetBody == nil {
-		return nil, ErrAccountModelUnsupported
-	}
-	body, err := request.GetBody()
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = body.Close() }()
-	data, err := io.ReadAll(body)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := "generate_content"
-	if strings.HasSuffix(request.URL.Path, "/messages") {
-		endpoint = "messages"
-	}
-	if err := validateAccountForwardModel(request.Context(), s.accountRepo, account, gjson.GetBytes(data, "model").String(), endpoint); err != nil {
-		return nil, err
-	}
-	return generationDo(upstream, request, proxyURL, account.ID, account.Concurrency)
-}
-
 func validateOpenAIForwardRequest(repo AccountRepository, account *Account, request *http.Request) error {
+	if GatewayRequestPlanFromContext(request.Context()) == nil {
+		return nil
+	}
 	if request.Method != http.MethodPost {
 		return nil
 	}
@@ -82,6 +66,8 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 	switch {
 	case strings.HasSuffix(path, ":rawPredict"), strings.HasSuffix(path, ":streamRawPredict"):
 		endpoint = "messages"
+	case account.Platform == PlatformQianwen && strings.HasSuffix(path, "/generation"):
+		endpoint = "chat_completions"
 	case strings.HasSuffix(path, "/responses/compact"):
 		endpoint = "responses/compact"
 	case strings.HasSuffix(path, "/responses"), strings.HasSuffix(path, "/responses/input_tokens"):
@@ -140,13 +126,6 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 		}
 	}
 	return validateAccountForwardModel(request.Context(), repo, account, model, endpoint)
-}
-
-func listModelCatalogAccounts(ctx context.Context, repo AccountRepository, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
-	if reader, ok := repo.(ModelCatalogAccountRepository); ok {
-		return reader.ListModelCatalogAccounts(ctx, groupID, platforms, includeGrouped)
-	}
-	return repo.ListModelAvailabilityCandidates(ctx, groupID, platforms, includeGrouped)
 }
 
 // validateAccountForwardModel checks the actual wire target without applying an
@@ -239,7 +218,10 @@ func requestCatalogEndpoint(ctx context.Context) string {
 
 // CatalogModelIDs returns nil only for legacy repository adapters. A production
 // catalog reader returns an authoritative (possibly empty) set, never defaults.
-func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, platform string) ([]string, error) {
+func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, platform string, mixedOnly ...bool) ([]string, error) {
+	if s == nil {
+		return nil, nil
+	}
 	reader, ok := s.accountRepo.(ModelCatalogAccountRepository)
 	if !ok {
 		return nil, nil
@@ -252,38 +234,140 @@ func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, pl
 	if err != nil {
 		return []string{}, err
 	}
-	ids := make(map[string]struct{})
+	candidates := make(map[string]struct{})
 	for i := range accounts {
 		account := &accounts[i]
+		if len(mixedOnly) > 0 && mixedOnly[0] && account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
+			continue
+		}
 		parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
 		if err != nil {
 			continue
 		}
+		account.modelCatalogCredentialAccount = parent
 		catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(parent)
 		if catalog == nil {
 			continue
 		}
-		candidates := make([]string, 0, len(catalog.EligibleModels))
 		for _, member := range catalog.EligibleModels {
-			candidates = append(candidates, member.ID)
+			candidates[member.ID] = struct{}{}
 		}
 		for alias := range account.GetModelMapping() {
 			if !strings.Contains(alias, "*") {
-				candidates = append(candidates, alias)
-			}
-		}
-		for _, model := range candidates {
-			if AccountSupportsResolvedModel(ctx, account, model, AccountModelBindingOptions{CredentialAccount: parent}) {
-				ids[model] = struct{}{}
+				candidates[alias] = struct{}{}
 			}
 		}
 	}
-	result := make([]string, 0, len(ids))
-	for id := range ids {
-		result = append(result, id)
+	var group *Group
+	if groupID != nil && s.groupRepo != nil {
+		group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
+		if err != nil {
+			return []string{}, err
+		}
+	}
+	if group != nil {
+		for _, model := range group.ModelAllowlist.Models {
+			if !strings.Contains(model, "*") {
+				candidates[model] = struct{}{}
+			}
+		}
+	}
+	if groupID != nil && s.channelService != nil {
+		channels, err := s.channelService.loadCache(ctx)
+		if err != nil {
+			return []string{}, err
+		}
+		for key := range channels.mappingByGroupModel {
+			if key.groupID == *groupID && (platform == PlatformComposite || platform == "" || key.platform == platform) {
+				candidates[key.model] = struct{}{}
+			}
+		}
+	}
+	resolver := s.compositeResolver
+	if platform == PlatformComposite {
+		if groupID == nil {
+			return []string{}, nil
+		}
+		if resolver == nil {
+			resolver = &CompositeRouteResolver{modelOwnershipResolver: s.resolveCompositeModelOwnership}
+		}
+		if resolver.repo != nil {
+			routes, err := resolver.repo.ListByGroup(ctx, *groupID, false)
+			if err != nil {
+				return []string{}, err
+			}
+			copy := *resolver
+			copy.repo = gatewayCatalogRoutes{CompositeModelRouteRepository: resolver.repo, routes: routes}
+			resolver = &copy
+			for _, route := range routes {
+				if route.MatchType == CompositeRouteMatchExact {
+					candidates[route.PublicModel] = struct{}{}
+				}
+			}
+		}
+	}
+	result := make([]string, 0, len(candidates))
+	for model := range candidates {
+		if group != nil && group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(model) {
+			continue
+		}
+		supported := false
+		for _, endpoint := range []string{CompositeRouteEndpointResponses, CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointGemini, CompositeRouteEndpointEmbeddings, CompositeRouteEndpointImages, string(OpenAIEndpointCapabilityLive)} {
+			candidateCtx := ctx
+			if platform == PlatformComposite {
+				decision, err := resolver.Resolve(ctx, *groupID, model, endpoint)
+				if err != nil {
+					return []string{}, err
+				}
+				if !decision.Matched {
+					continue
+				}
+				candidateCtx = WithCompositeRouteDecision(ctx, decision)
+			}
+			lookupModel := model
+			if resolved, ok := ResolvedUpstreamModelFromContext(candidateCtx); ok {
+				lookupModel = resolved
+			}
+			if s.channelService != nil && groupID != nil {
+				mapping := s.channelService.ResolveChannelMapping(candidateCtx, *groupID, lookupModel)
+				if mapping.Mapped {
+					candidateCtx = WithOpenAIForwardModel(candidateCtx, mapping.MappedModel, false)
+				}
+			}
+			for i := range accounts {
+				account := &accounts[i]
+				if len(mixedOnly) > 0 && mixedOnly[0] && account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
+					continue
+				}
+				options := AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: account.modelCatalogCredentialAccount}
+				if group != nil && endpoint == CompositeRouteEndpointMessages {
+					options.MessagesDispatchModel = group.ResolveMessagesDispatchModel(model)
+				}
+				if AccountSupportsResolvedModel(candidateCtx, account, model, options) {
+					supported = true
+					break
+				}
+			}
+			if supported {
+				break
+			}
+		}
+		if supported {
+			result = append(result, model)
+		}
 	}
 	sort.Strings(result)
 	return result, nil
+}
+
+// Reuse the existing resolver against this projection's single route snapshot.
+type gatewayCatalogRoutes struct {
+	CompositeModelRouteRepository
+	routes []CompositeModelRoute
+}
+
+func (r gatewayCatalogRoutes) ListByGroup(context.Context, int64, bool) ([]CompositeModelRoute, error) {
+	return r.routes, nil
 }
 func filterCatalogModelIDs(ctx context.Context, repo AccountRepository, accounts []Account, ids []string, endpoint string) []string {
 	if _, ok := repo.(ModelCatalogAccountRepository); !ok {
@@ -333,4 +417,28 @@ func filterCatalogModelsBody(ctx context.Context, repo AccountRepository, accoun
 		return nil, err
 	}
 	return json.Marshal(envelope)
+}
+
+func requestAccountCatalogSupports(ctx context.Context, account *Account, model, endpoint string) bool {
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan == nil {
+		return true
+	}
+	parent, err := loadCatalogCredentialAccount(ctx, plan.catalogRepo, account)
+	if err != nil {
+		return false
+	}
+	return AccountSupportsResolvedModel(ctx, account, model, AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: parent})
+}
+
+func gatewaySelectionCatalogEndpoint(ctx context.Context, account *Account) string {
+	if account != nil {
+		if account.Platform == PlatformGemini || account.Platform == PlatformAntigravity {
+			return "generate_content"
+		}
+		if account.Platform == PlatformCursor && account.Type != AccountTypeUpstream {
+			return "chat_completions"
+		}
+	}
+	return requestCatalogEndpoint(ctx)
 }

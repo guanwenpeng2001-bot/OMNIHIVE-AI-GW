@@ -183,6 +183,7 @@ func TestGatewayRequestPlanWebSocketTwoTurnsAndRetry(t *testing.T) {
 	next, second := svc.CaptureRequestTurn(ctx, spec)
 	require.NotSame(t, first, second)
 	require.NotSame(t, AffinityBindingStateFromContext(ctx), AffinityBindingStateFromContext(next))
+	require.Same(t, AffinityBindingStateFromContext(next), AffinityBindingStateFromContext(WithGatewayRequestPlan(ctx, second)), "transport overlays must carry this turn CAS state")
 	price, err = second.billing.GetModelPricing("m")
 	require.NoError(t, err)
 	require.Equal(t, 0.5, price.InputPricePerToken)

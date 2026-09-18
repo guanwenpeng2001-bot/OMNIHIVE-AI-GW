@@ -431,7 +431,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "quota_auto_pause"
 		}
 	}
-	if requestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !AccountSupportsResolvedModel(ctx, account, requestedModel, AccountModelBindingOptions{Endpoint: requestCatalogEndpoint(ctx), CredentialAccount: account.modelCatalogCredentialAccount}) {
+	if requestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !requestAccountCatalogSupports(ctx, account, requestedModel, CompositeRouteEndpointResponses) {
 		return "model_not_supported"
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
@@ -961,7 +961,7 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 	// 检查账号是否需要清理粘性会话
 	// Check if sticky session should be cleared
 	if shouldClearStickySession(account, requestedModel) {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 		return nil
 	}
 
@@ -971,21 +971,21 @@ func (s *OpenAIGatewayService) tryStickySessionHit(ctx context.Context, groupID 
 		return nil
 	}
 	if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 		return nil
 	}
 	if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 		return nil
 	}
 	account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 	if account == nil || !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 		return nil
 	}
 	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
 		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
-		_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+		_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 		return nil
 	}
 
@@ -1192,20 +1192,20 @@ func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Contex
 			if err == nil {
 				clearSticky := shouldClearStickySession(account, requestedModel)
 				if clearSticky {
-					_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+					_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 				}
 				if !clearSticky && isOpenAICompatibleAccountEligibleForRequest(ctx, account, platform, requestedModel, false, requiredCapability) {
 					account = s.recheckSelectedOpenAIAccountFromDB(ctx, account, groupID, platform, requestedModel, requireCompact, requiredCapability)
 					if account == nil {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 					} else if !s.openAIAccountMatchesSchedulingGroup(account, groupID) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 					} else if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 					} else if needsUpstreamCheck && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 					} else if !parentHealthyForShadow(account, s.parentAccountLookup(ctx)) {
-						_ = s.deleteStickySessionAccountID(ctx, groupID, sessionHash)
+						_ = s.clearRequestStickySession(ctx, groupID, sessionHash)
 					} else {
 						result, err := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency)
 						if err == nil && result != nil && result.Acquired {

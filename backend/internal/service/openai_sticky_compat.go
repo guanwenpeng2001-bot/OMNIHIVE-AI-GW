@@ -93,10 +93,16 @@ func (s *OpenAIGatewayService) openAISessionCacheKey(sessionHash string) string 
 	if normalized == "" {
 		return ""
 	}
+	if IsV2AffinityKey(normalized) {
+		return normalized
+	}
 	return "openai:" + normalized
 }
 
 func (s *OpenAIGatewayService) openAILegacySessionCacheKey(ctx context.Context, sessionHash string) string {
+	if IsV2AffinityKey(sessionHash) {
+		return ""
+	}
 	legacyHash := openAILegacySessionHashFromContext(ctx)
 	if legacyHash == "" {
 		return ""

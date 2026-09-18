@@ -46,14 +46,28 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
+	catalogIDs, catalogErr := h.geminiCatalogModelIDs(c, apiKey.GroupID, forcePlatform)
+	if catalogErr != nil {
+		googleError(c, http.StatusServiceUnavailable, "Model catalog unavailable")
+		return
+	}
+	catalogAllows := func(name string) bool {
+		if catalogIDs == nil {
+			return true
+		}
+		for _, id := range catalogIDs {
+			if strings.TrimPrefix(name, "models/") == strings.TrimPrefix(id, "models/") {
+				return true
+			}
+		}
+		return false
+	}
 	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
 	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
-			return models
-		}
+
 		filtered := make([]gemini.Model, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
+			if catalogAllows(model.Name) && (apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() || apiKey.Group.ModelAllowlist.Allows(model.Name)) {
 				filtered = append(filtered, model)
 			}
 		}
@@ -108,6 +122,14 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
 			res.Body = filtered
 		}
+	}
+	if catalogIDs != nil && res.StatusCode == http.StatusOK {
+		filtered, _, ok := filterUpstreamGeminiModelsBody(res.Body, service.GroupModelAllowlist{Enabled: true, Models: catalogIDs})
+		if !ok {
+			googleError(c, http.StatusBadGateway, "Invalid model list")
+			return
+		}
+		res.Body = filtered
 	}
 	writeUpstreamResponse(c, res)
 }
@@ -245,6 +267,25 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	}
 	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
 		modelName = strings.TrimSpace(resolvedModel)
+	}
+
+	catalogIDs, catalogErr := h.geminiCatalogModelIDs(c, apiKey.GroupID, forcePlatform)
+	if catalogErr != nil {
+		googleError(c, http.StatusServiceUnavailable, "Model catalog unavailable")
+		return
+	}
+	if catalogIDs != nil {
+		found := false
+		for _, id := range catalogIDs {
+			if strings.TrimPrefix(id, "models/") == modelName {
+				found = true
+				break
+			}
+		}
+		if !found {
+			googleError(c, http.StatusNotFound, "Model is not available")
+			return
+		}
 	}
 
 	// 强制 antigravity 模式：返回 antigravity 模型信息
@@ -395,22 +436,24 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	// 3) select account (sticky session based on request body)
 	// 优先使用 Gemini CLI 的会话标识（privileged-user-id + tmp 目录哈希）
-	sessionHash := extractGeminiCLISessionHash(c, body)
-	if sessionHash == "" {
-		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
-		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
-		if parsedReq != nil {
-			parsedReq.SessionContext = &service.SessionContext{
-				ClientIP:  ip.GetClientIP(c),
-				UserAgent: c.GetHeader("User-Agent"),
-				APIKeyID:  apiKey.ID,
-			}
-		}
-		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
-	}
+	var sessionHash string
 	if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
 		parsed, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
 		sessionHash = h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsed, extractGeminiCLISessionHash(c, body))
+	} else {
+		sessionHash = extractGeminiCLISessionHash(c, body)
+		if sessionHash == "" {
+			// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
+			parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
+			if parsedReq != nil {
+				parsedReq.SessionContext = &service.SessionContext{
+					ClientIP:  ip.GetClientIP(c),
+					UserAgent: c.GetHeader("User-Agent"),
+					APIKeyID:  apiKey.ID,
+				}
+			}
+			sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
+		}
 	}
 	sessionKey := sessionHash
 	if sessionHash != "" {
@@ -953,4 +996,22 @@ func derefGroupID(groupID *int64) int64 {
 		return 0
 	}
 	return *groupID
+}
+
+func (h *GatewayHandler) geminiCatalogModelIDs(c *gin.Context, groupID *int64, forcePlatform string) ([]string, error) {
+	if h.gatewayService == nil {
+		return nil, nil
+	}
+	if forcePlatform == service.PlatformAntigravity {
+		return h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformAntigravity)
+	}
+	native, err := h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformGemini)
+	if err != nil || native == nil {
+		return native, err
+	}
+	optional, err := h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformAntigravity, true)
+	if err == nil {
+		native = append(native, optional...)
+	}
+	return native, nil
 }
