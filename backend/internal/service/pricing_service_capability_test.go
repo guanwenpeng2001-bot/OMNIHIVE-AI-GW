@@ -38,27 +38,66 @@ func TestPricingCapabilityMetadataDoesNotChangePrices(t *testing.T) {
 	}
 }
 
-func TestPricingCapabilityInputRetainsOriginalCatalog(t *testing.T) {
+func TestPricingCapabilitySnapshotRetainsOriginalCatalog(t *testing.T) {
 	directory := t.TempDir()
 	fallback := filepath.Join(directory, "fallback.json")
 	svc := NewPricingService(&config.Config{Pricing: config.PricingConfig{FallbackFile: fallback}}, nil)
-	require.NotNil(t, svc.capabilityData)
-	require.Empty(t, svc.capabilityData.body)
-	body := []byte(`{"model":{"input_cost_per_token":0.001,"output_cost_per_token":0.002}}`)
-	input := svc.buildPricingCapabilityInput(body, "unverified-hash", "")
-	svc.publishPricingCapabilityInput(input)
+	baseline := svc.CapabilitySnapshot()
+	require.NotNil(t, baseline)
+	require.NotEmpty(t, baseline.Version())
+	require.Positive(t, baseline.Len())
+	body := []byte(`{"model":{"litellm_provider":"test","max_input_tokens":123,"input_modalities":[],"supports_reasoning":false,"input_cost_per_token":0.001,"output_cost_per_token":0.002}}`)
+	hash := capabilityHash(body)
+	require.Nil(t, svc.buildCapabilityCandidate(body, "unverified-hash"))
+	require.Same(t, baseline, svc.CapabilitySnapshot())
+	snapshot := svc.buildCapabilityCandidate(body, hash)
+	require.NotNil(t, snapshot)
+	svc.publishCapabilityCandidate(snapshot)
 	body[0] = ' '
-	require.Equal(t, byte('{'), svc.capabilityData.body[0])
-	require.Equal(t, "unverified-hash", svc.capabilityData.declaredHash)
-	svc.publishPricingCapabilityInput(svc.buildPricingCapabilityInput(body, "", fallback))
-	require.Same(t, input, svc.capabilityData)
+	require.Equal(t, hash, svc.CapabilitySnapshot().ContentHash())
+	record, ok := snapshot.LookupExact("test", "model")
+	require.True(t, ok)
+	require.EqualValues(t, 123, *record.MaxInputTokens)
+	require.False(t, *record.SupportsReasoning)
+	require.NotNil(t, record.InputModalities)
+	require.Empty(t, record.InputModalities)
+	*record.MaxInputTokens = 999
+	svc.publishCapabilityCandidate(svc.loadCapabilityCandidate(body, fallback))
+	require.Same(t, snapshot, svc.CapabilitySnapshot())
 
 	path := filepath.Join(directory, "catalog.json")
-	catalog := []byte(`{"model":{"input_cost_per_token":0.003,"output_cost_per_token":0.004,"supports_reasoning":false}}`)
+	catalog := []byte(`{"model":{"litellm_provider":"test","max_input_tokens":456,"input_modalities":[],"input_cost_per_token":0.003,"output_cost_per_token":0.004,"supports_reasoning":false}}`)
 	require.NoError(t, os.WriteFile(path, catalog, 0600))
 	require.NoError(t, svc.loadPricingData(path))
-	require.Equal(t, catalog, svc.capabilityData.body)
-	require.Equal(t, path, svc.capabilityData.sourcePath)
+	require.Equal(t, capabilityHash(catalog), svc.CapabilitySnapshot().ContentHash())
+	updated, ok := svc.CapabilitySnapshot().LookupExact("test", "model")
+	require.True(t, ok)
+	require.EqualValues(t, 456, *updated.MaxInputTokens)
+	require.Equal(t, "litellm:runtime", updated.FieldSources["max_input_tokens"].Source)
+	require.Equal(t, capabilityHash(catalog), updated.FieldSources["max_input_tokens"].ContentHash)
 	require.Equal(t, 0.003, svc.pricingData["model"].InputCostPerToken)
-	require.Equal(t, byte('{'), input.body[0], "previously captured input stays immutable")
+	previous, ok := snapshot.LookupExact("test", "model")
+	require.True(t, ok)
+	require.EqualValues(t, 123, *previous.MaxInputTokens, "previously captured snapshot stays immutable")
+	require.Equal(t, hash, snapshot.ContentHash())
+}
+
+func TestPricingCapabilityPromptCachingPreservesPriceSemantics(t *testing.T) {
+	for _, entry := range []struct {
+		name  string
+		field string
+		want  bool
+	}{
+		{name: "absent"},
+		{name: "null", field: `,"supports_prompt_caching":null`},
+		{name: "false", field: `,"supports_prompt_caching":false`},
+		{name: "true", field: `,"supports_prompt_caching":true`, want: true},
+	} {
+		t.Run(entry.name, func(t *testing.T) {
+			prices, err := (&PricingService{}).parsePricingData([]byte(`{"model":{"input_cost_per_token":0.001` + entry.field + `}}`))
+			require.NoError(t, err)
+			require.Contains(t, prices, "model")
+			require.Equal(t, entry.want, prices["model"].SupportsPromptCaching)
+		})
+	}
 }
