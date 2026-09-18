@@ -30,7 +30,20 @@ export interface PlatformDashboardStats {
   today_actual_cost: number
 }
 
+export interface UsageCoverage {
+  complete: boolean
+  reason?: string
+  raw_retained_from: string
+  hourly_retained_from?: string
+  daily_retained_from?: string
+  published_before: string
+  dirty_from?: string
+  timezone: string
+  projection_version: number
+}
+
 export interface UserDashboardStats {
+  coverage?: UsageCoverage
   total_api_keys: number
   active_api_keys: number
   total_requests: number

@@ -115,6 +115,47 @@ describe('admin DashboardView', () => {
     })
   })
 
+  it('clears obsolete snapshot charts on a history gap and recovers', async () => {
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-01', requests: 7 }], models: [{ model: 'old' }] })
+    await page.loadDashboardSnapshot(false)
+    expect(page.trendData).toHaveLength(1)
+    getSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await page.loadDashboardSnapshot(false)
+    expect(page.trendData).toEqual([])
+    expect(page.modelStats).toEqual([])
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    await page.loadDashboardSnapshot(false)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not let an obsolete snapshot failure replace newer charts', async () => {
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (reason: unknown) => void
+    getSnapshotV2.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadDashboardSnapshot(false)
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-06', requests: 9 }], models: [] })
+    await page.loadDashboardSnapshot(false)
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.trendData[0].requests).toBe(9)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('uses last 24 hours as default dashboard range', async () => {
     mount(DashboardView, {
       global: {

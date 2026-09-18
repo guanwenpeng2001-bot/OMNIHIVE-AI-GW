@@ -91,7 +91,11 @@ func (h *DashboardHandler) getUsageTrendCached(
 	billingType *int8,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.TrendDataPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardTrendCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		Granularity:           granularity,
@@ -131,7 +135,11 @@ func (h *DashboardHandler) getModelStatsCached(
 	billingType *int8,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.ModelStat, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		UserID:                userID,
@@ -169,7 +177,11 @@ func (h *DashboardHandler) getGroupStatsCached(
 	billingType *int8,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.GroupStat, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		UserID:                userID,
@@ -197,7 +209,11 @@ func (h *DashboardHandler) getGroupStatsCached(
 }
 
 func (h *DashboardHandler) getAPIKeyUsageTrendCached(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.APIKeyUsageTrendPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
 		StartTime:   startTime.UTC().Format(time.RFC3339),
 		EndTime:     endTime.UTC().Format(time.RFC3339),
 		Granularity: granularity,
@@ -214,7 +230,11 @@ func (h *DashboardHandler) getAPIKeyUsageTrendCached(ctx context.Context, startT
 }
 
 func (h *DashboardHandler) getUserUsageTrendCached(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.UserUsageTrendPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
 		StartTime:   startTime.UTC().Format(time.RFC3339),
 		EndTime:     endTime.UTC().Format(time.RFC3339),
 		Granularity: granularity,

@@ -238,7 +238,7 @@ func (s *DashboardService) getCachedDashboardStats(ctx context.Context) (*usages
 		return nil, false, ErrDashboardStatsCacheMiss
 	}
 
-	revision, err := s.dashboardCoverageRevision(ctx)
+	revision, err := s.DashboardCoverageRevision(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -443,7 +443,8 @@ func (s *DashboardService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyI
 	return stats, nil
 }
 
-func (s *DashboardService) dashboardCoverageRevision(ctx context.Context) (string, error) {
+// DashboardCoverageRevision identifies the verified history behind cached reads.
+func (s *DashboardService) DashboardCoverageRevision(ctx context.Context) (string, error) {
 	if repo, ok := s.usageRepo.(interface {
 		DashboardCoverageRevision(context.Context) (string, error)
 	}); ok {
@@ -455,7 +456,7 @@ func (s *DashboardService) dashboardCoverageRevision(ctx context.Context) (strin
 func (s *DashboardService) fetchDashboardStatsForCache(ctx context.Context) (*usagestats.DashboardStats, string, error) {
 	// Capture before the data snapshot. A concurrent state change causes a cache
 	// miss on the next read instead of stamping stale data with a newer revision.
-	revision, err := s.dashboardCoverageRevision(ctx)
+	revision, err := s.DashboardCoverageRevision(ctx)
 	if err != nil {
 		return nil, "", err
 	}
