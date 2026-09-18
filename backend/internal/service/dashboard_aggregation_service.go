@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/google/uuid"
 )
 
@@ -254,21 +255,24 @@ func (s *DashboardAggregationService) runScheduledAggregation() {
 		start = now.Add(-lookback)
 	}
 
-	if err := s.aggregateRange(ctx, start, now); err != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合失败: %v", err)
+	// The production repository commits buckets and the closed cursor together.
+	// Legacy/test repositories remain supported without claiming atomic publication.
+	var aggregateErr error
+	if publisher, ok := s.repo.(interface {
+		AggregateRangeAndPublish(context.Context, time.Time, time.Time) error
+	}); ok {
+		if err := s.repo.EnsureUsageLogsPartitions(ctx, now); err != nil {
+			logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 分区检查失败: %v", err)
+		}
+		aggregateErr = publisher.AggregateRangeAndPublish(ctx, start, now)
+	} else {
+		aggregateErr = s.aggregateRange(ctx, start, now)
+	}
+	if aggregateErr != nil {
+		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 聚合失败: %v", aggregateErr)
 		return
 	}
-
-	updateErr := s.repo.UpdateAggregationWatermark(ctx, now)
-	if updateErr != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 更新水位失败: %v", updateErr)
-	}
-	slog.Debug("[DashboardAggregation] 聚合完成",
-		"start", start.Format(time.RFC3339),
-		"end", now.Format(time.RFC3339),
-		"duration", time.Since(jobStart).String(),
-		"watermark_updated", updateErr == nil,
-	)
+	slog.Debug("[DashboardAggregation] 聚合完成", "start", start.Format(time.RFC3339), "end", now.Format(time.RFC3339), "duration", time.Since(jobStart).String())
 
 	s.maybeCleanupRetention(ctx, now)
 }
@@ -315,9 +319,9 @@ func (s *DashboardAggregationService) backfillRange(ctx context.Context, start, 
 		return errors.New("回填时间范围无效")
 	}
 
-	cursor := truncateToDayUTC(startUTC)
+	cursor := startUTC.In(timezone.Location())
 	for cursor.Before(endUTC) {
-		windowEnd := cursor.Add(24 * time.Hour)
+		windowEnd := time.Date(cursor.Year(), cursor.Month(), cursor.Day(), 0, 0, 0, 0, cursor.Location()).AddDate(0, 0, 1)
 		if windowEnd.After(endUTC) {
 			windowEnd = endUTC
 		}
@@ -327,18 +331,11 @@ func (s *DashboardAggregationService) backfillRange(ctx context.Context, start, 
 		cursor = windowEnd
 	}
 
-	updateErr := s.repo.UpdateAggregationWatermark(ctx, endUTC)
-	if updateErr != nil {
-		logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 更新水位失败: %v", updateErr)
-	}
-	logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 回填聚合完成 (start=%s end=%s duration=%s watermark_updated=%t)",
-		startUTC.Format(time.RFC3339),
-		endUTC.Format(time.RFC3339),
-		time.Since(jobStart).String(),
-		updateErr == nil,
-	)
-
-	s.maybeCleanupRetention(ctx, endUTC)
+	// A historical repair does not prove continuity from the published cursor.
+	// In particular, never move the live watermark backwards or across a gap,
+	// and never run retention using a caller-supplied (possibly future) date.
+	logger.LegacyPrintf("service.dashboard_aggregation", "[DashboardAggregation] 回填聚合完成 (start=%s end=%s duration=%s)",
+		startUTC.Format(time.RFC3339), endUTC.Format(time.RFC3339), time.Since(jobStart).String())
 	return nil
 }
 

@@ -216,6 +216,39 @@ describe('user UsageView', () => {
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
+  it('clears old chart data for a history gap and recovers on a valid range', async () => {
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-01', requests: 7 }], groups: [{ name: 'old' }] })
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    expect(page.trendData).toHaveLength(1)
+    getDashboardSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } })
+    await page.loadChartData()
+    expect(page.trendData).toEqual([])
+    expect(page.groupStats).toEqual([])
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [], groups: [] })
+    await page.loadChartData()
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('ignores an obsolete chart failure after a newer success', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (reason: unknown) => void
+    getDashboardSnapshotV2.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadChartData()
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-06', requests: 9 }], groups: [] })
+    await page.loadChartData()
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.trendData[0].requests).toBe(9)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('loads logs, stats, model stats, and snapshot on first render', async () => {
     mountUsageView()
     await flushPromises()

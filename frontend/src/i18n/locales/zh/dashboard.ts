@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: '历史覆盖不完整，该时间范围未返回统计结果。缺失历史不代表零用量。',
+    coverageIncomplete: '合计仅包含已验证的保留数据，缺失历史不代表零用量。',
+    coverageReason: '覆盖原因：{reason}',
+    rawRetainedFrom: '原始记录保留起点：{time}',
+
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
     balance: '余额',

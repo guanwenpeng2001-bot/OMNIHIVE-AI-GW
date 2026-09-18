@@ -26,7 +26,21 @@ func NormalizeModelSource(source string) string {
 }
 
 // DashboardStats 仪表盘统计
+// Coverage records verified data availability, independently of monetary totals.
+type Coverage struct {
+	Complete           bool       `json:"complete"`
+	Reason             string     `json:"reason,omitempty"`
+	RawRetainedFrom    time.Time  `json:"raw_retained_from"`
+	HourlyRetainedFrom *time.Time `json:"hourly_retained_from,omitempty"`
+	DailyRetainedFrom  *time.Time `json:"daily_retained_from,omitempty"`
+	PublishedBefore    time.Time  `json:"published_before"`
+	DirtyFrom          *time.Time `json:"dirty_from,omitempty"`
+	Timezone           string     `json:"timezone"`
+	ProjectionVersion  int        `json:"projection_version"`
+}
+
 type DashboardStats struct {
+	Coverage *Coverage `json:"coverage,omitempty"`
 	// 用户统计
 	TotalUsers    int64 `json:"total_users"`
 	TodayNewUsers int64 `json:"today_new_users"` // 今日新增用户数
@@ -221,6 +235,7 @@ type APIKeyDailyUsagePoint struct {
 
 // UserDashboardStats 用户仪表盘统计
 type UserDashboardStats struct {
+	Coverage *Coverage `json:"coverage,omitempty"`
 	// API Key 统计
 	TotalAPIKeys  int64 `json:"total_api_keys"`
 	ActiveAPIKeys int64 `json:"active_api_keys"`

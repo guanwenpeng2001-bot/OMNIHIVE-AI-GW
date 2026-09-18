@@ -1,6 +1,11 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
       <UsageStatsCards :stats="usageStats" />
       <UsageSettlementStatus />
       <!-- Charts Section -->
@@ -185,6 +190,7 @@
 </template>
 
 <script setup lang="ts">
+import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -212,6 +218,7 @@ import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
+const historyGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -517,9 +524,16 @@ const loadChartData = async () => {
       include_users_trend: false
     })
     if (seq !== chartReqSeq) return
-    trendData.value = snapshot.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(snapshot.trend || [], granularity.value)
     groupStats.value = snapshot.groups || []
-  } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
+  } catch (error) {
+    if (seq !== chartReqSeq) return
+    historyGap.value = historyGapFromError(error)
+    trendData.value = []
+    groupStats.value = []
+    console.error('Failed to load chart data:', error)
+  } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
 const applyFilters = () => {
   pagination.page = 1

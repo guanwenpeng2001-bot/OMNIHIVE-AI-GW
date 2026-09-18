@@ -97,6 +97,25 @@ type UsageLogFilters = usagestats.UsageLogFilters
 
 // ListWithFilters lists usage logs with optional filters (for admin)
 func (r *usageLogRepository) ListWithFilters(ctx context.Context, params pagination.PaginationParams, filters UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
+	if needsUsageSnapshot(r) {
+		type page struct {
+			logs       []service.UsageLog
+			pagination *pagination.PaginationResult
+		}
+		start := time.Unix(0, 0)
+		if filters.StartTime != nil {
+			start = *filters.StartTime
+		}
+		end := time.Now()
+		if filters.EndTime != nil {
+			end = *filters.EndTime
+		}
+		result, err := rawUsageReadSnapshot(ctx, r, start, end, func(snapshot *usageLogRepository) (page, error) {
+			logs, pagination, err := snapshot.ListWithFilters(ctx, params, filters)
+			return page{logs, pagination}, err
+		})
+		return result.logs, result.pagination, err
+	}
 	conditions := make([]string, 0, 9)
 	args := make([]any, 0, 9)
 
