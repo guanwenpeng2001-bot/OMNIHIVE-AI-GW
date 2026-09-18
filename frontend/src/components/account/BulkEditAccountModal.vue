@@ -341,7 +341,8 @@
                 </p>
               </div>
 
-              <ModelWhitelistSelector
+              <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
+              <ModelWhitelistSelector :active="show && enableModelRestriction" discovery-disabled
                 v-model="allowedModels"
                 :platforms="targetSelectedPlatforms"
               />
@@ -1493,6 +1494,7 @@ import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import BulkModelPreview from './BulkModelPreview.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,

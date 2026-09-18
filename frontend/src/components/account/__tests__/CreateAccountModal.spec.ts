@@ -60,6 +60,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ models: ['public-glm'], complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
@@ -72,6 +73,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -136,7 +139,7 @@ const ModelWhitelistSelectorStub = defineComponent({
   >models</button>`,
 })
 
-function mountModal(groups: any[] = []) {
+function mountModal(groups: any[] = [], realCatalog = false) {
   return mount(CreateAccountModal, {
     props: { show: true, proxies: [], groups },
     global: {
@@ -150,7 +153,7 @@ function mountModal(groups: any[] = []) {
         ProxySelector: true,
         ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
-        ModelWhitelistSelector: ModelWhitelistSelectorStub,
+        ModelWhitelistSelector: realCatalog ? false : ModelWhitelistSelectorStub,
         QuotaLimitCard: true,
       },
     },
@@ -245,6 +248,45 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0].credentials.tier_id).toBe('aistudio_paid')
+    wrapper.unmount()
+  })
+
+  it('saves draft selections, then requires saved review and retries conflict without recreating', async () => {
+    const wrapper = mountModal([], true)
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Reviewed account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.clearAllModels')!.trigger('click')
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'public-glm': 'public-glm' })
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
+    const review = { account_id: 42, digest: 'saved-identity', rules_revision: '9007199254740993' }
+    const preview = { models: ['saved-model'], complete: true, applied: false, rules_revision: review.rules_revision, review }
+    syncUpstreamModelsMock.mockResolvedValueOnce(preview).mockRejectedValueOnce({ status: 409 })
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, review)
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    const revisedReview = { ...review, digest: 'reconfirmed' }
+    syncUpstreamModelsMock.mockResolvedValueOnce({ ...preview, review: revisedReview }).mockResolvedValueOnce({ ...preview, applied: true })
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(wrapper.findAllComponents(ModelWhitelistSelector).some(selector => selector.props('accountId') === 42)).toBe(true)
     wrapper.unmount()
   })
 
@@ -412,7 +454,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.images_url_to_b64_json).toBe(true)
   })
 
-  it('persists upstream model metadata after creating an account from preview', async () => {
+  it('requires saved-identity confirmation after creating an account from preview', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -423,7 +465,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledOnce()
-    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   it('includes the current concrete model mapping in preview credentials', async () => {
@@ -439,7 +483,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
-  it('runs formal capability sync after creating an account with explicit mappings', async () => {
+  it('retains the created account ID for confirmation with explicit mappings', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -455,10 +499,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping).toEqual({
       'public-glm': 'glm-5.3'
     })
-    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
-  it('warns when post-create capability metadata remains incomplete', async () => {
+  it('does not automatically adopt incomplete post-create metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
       models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_incomplete', message: 'metadata incomplete' }],
@@ -472,12 +518,11 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(showWarningMock).toHaveBeenCalledWith(
-      'admin.accounts.syncUpstreamModelsMetadataIncomplete'
-    )
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
   })
 
-  it('shows neutral information when post-create capability metadata is partial', async () => {
+  it('requires confirmation instead of automatically adopting partial metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
       models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_partial', message: 'metadata incomplete' }],
@@ -491,9 +536,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(showInfoMock).toHaveBeenCalledWith(
-      'admin.accounts.syncUpstreamModelsMetadataPartial'
-    )
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
     expect(showWarningMock).not.toHaveBeenCalled()
   })
 
@@ -795,6 +839,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
     expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+  })
+
+  it('retains imported Codex account IDs for explicit catalog confirmation', async () => {
+    importCodexSessionMock.mockResolvedValueOnce({ total: 1, created: 1, updated: 0, skipped: 0, failed: 0, items: [{ index: 0, action: 'created', account_id: 81 }] })
+    const wrapper = await openCodexImportStep()
+    const declaration = { schema_version: 1, reason: 'verified', models: { Private: { supports_function_calling: false } } }
+    ;(wrapper.vm as unknown as { capabilityDefaultsJSON: string }).capabilityDefaultsJSON = JSON.stringify(declaration)
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    expect(importCodexSessionMock.mock.calls[0][0].extra.model_capability_defaults).toEqual(declaration)
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#81')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('retains a created Codex PAT account ID for explicit catalog confirmation', async () => {
+    createOpenAICodexPATMock.mockResolvedValueOnce({ id: 82 })
+    const wrapper = await openCodexImportStep()
+    await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#82')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('leaves Codex PAT import billing ownership to the backend', async () => {
