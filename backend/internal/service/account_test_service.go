@@ -149,6 +149,8 @@ type AccountTestService struct {
 	tlsFPProfileService       *TLSFingerprintProfileService
 	modelMetadataRegistryMu   sync.Mutex
 	catalogInFlight           sync.Map
+	catalogApplyOnce          sync.Once
+	catalogApplyBudget        chan struct{}
 	modelMetadataRegistry     map[string]modelsDevProvider
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager

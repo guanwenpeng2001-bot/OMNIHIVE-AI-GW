@@ -566,21 +566,7 @@ func (r *accountRepository) updateLockedAccount(
 		}
 	}
 	account.Extra = extra
-	service.AdvanceAccountModelCatalogRevisions(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account)
-	// A manually replaced token is not a proven same-subject renewal, even if
-	// the stale edit form retains the previous account/subject fields.
-	if configurationOnly && !reflect.DeepEqual(current.Credentials["access_token"], account.Credentials["access_token"]) {
-		previous := (&service.Account{Extra: current.Extra}).ModelCatalogState()
-		state := account.ModelCatalogState()
-		if state.IdentityRevision == previous.IdentityRevision {
-			state.IdentityRevision++
-			if state.RulesRevision == previous.RulesRevision {
-				state.RulesRevision++
-			}
-			state.Result = "identity_changed"
-			account.Extra[service.UpstreamModelCatalogStateExtraKey] = state
-		}
-	}
+	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
 
 	schedulable := account.Schedulable
 	if account.Status == service.StatusError {
