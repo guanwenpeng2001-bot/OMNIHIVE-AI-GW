@@ -1670,8 +1670,24 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 	}, nil
 }
 
+// DashboardCoverageRevision identifies the verified history behind cached reads.
+func (usageService *AccountUsageService) DashboardCoverageRevision(ctx context.Context) (string, error) {
+	if repo, ok := usageService.usageLogRepo.(interface {
+		DashboardCoverageRevision(context.Context) (string, error)
+	}); ok {
+		return repo.DashboardCoverageRevision(ctx)
+	}
+	return "", nil
+}
+
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	return s.GetTodayStatsBatchFrom(ctx, accountIDs, timezone.Today())
+}
+
+// GetTodayStatsBatchFrom uses the day boundary captured by the caller so cached
+// reads and their SQL window agree even when a request crosses midnight.
+func (s *AccountUsageService) GetTodayStatsBatchFrom(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*WindowStats, error) {
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -1690,7 +1706,6 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 		return result, nil
 	}
 
-	startTime := timezone.Today()
 	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {
