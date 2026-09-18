@@ -158,14 +158,21 @@ func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnap
 }
 
 func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount *Account) *AccountModelCatalogSnapshot {
-	snapshot := account.GetUpstreamModelCatalog()
-	if snapshot == nil || account.ModelCatalogState().Result == "credentials_invalid" || snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+	if account == nil || account.ModelCatalogState().Result == "credentials_invalid" {
 		return nil
 	}
-	if account.IsShadow() || snapshot.CredentialAccountID != 0 {
+	snapshot := account.GetUpstreamModelCatalog()
+	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+		snapshot = nil
+	}
+	if snapshot != nil && (account.IsShadow() || snapshot.CredentialAccountID != 0) {
 		if credentialAccount == nil || credentialAccount.ID != snapshot.CredentialAccountID || !credentialAccount.IsOpenAIOAuth() || credentialAccount.IsShadow() || credentialAccount.ModelCatalogState().IdentityRevision != snapshot.CredentialIdentityRevision {
-			return nil
+			snapshot = nil
 		}
+	}
+	snapshot = appendAvailabilityModels(account, credentialAccount, snapshot)
+	if snapshot == nil {
+		return nil
 	}
 	var allowlist AccountModelAllowlist
 	decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &allowlist)
@@ -332,7 +339,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	}
 	binding.SnapshotRevision = snapshot.Revision
 	for _, member := range snapshot.EligibleModels {
-		if member.ID != binding.UpstreamModel || member.EvidenceKind == "" || !slices.Contains(snapshot.DiscoveredModels, member.ID) {
+		if member.ID != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member)) {
 			continue
 		}
 		endpoint := options.Endpoint

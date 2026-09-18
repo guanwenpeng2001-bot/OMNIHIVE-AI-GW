@@ -168,7 +168,7 @@ func StripAccountModelCatalogExtra(extra map[string]any) map[string]any {
 	copyExtra := make(map[string]any, len(extra))
 	for key, value := range extra {
 		switch key {
-		case UpstreamModelCatalogExtraKey, UpstreamModelCatalogStateExtraKey, UpstreamModelAllowlistExtraKey, UpstreamModelMetadataExtraKey:
+		case UpstreamModelCatalogExtraKey, UpstreamModelCatalogStateExtraKey, UpstreamModelAllowlistExtraKey, UpstreamModelMetadataExtraKey, ModelAvailabilityExtraKey, ModelProbeBudgetExtraKey:
 		default:
 			copyExtra[key] = value
 		}
