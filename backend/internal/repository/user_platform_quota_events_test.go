@@ -18,6 +18,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -26,27 +27,53 @@ import (
 func TestUserPlatformQuotaEventsPostgres(t *testing.T) {
 	dsn := os.Getenv("UPSTREAM_JOB_TEST_DSN")
 	addr := os.Getenv("QUOTA_TEST_REDIS_ADDR")
+	if testresources.External() {
+		require.NoError(t, testresources.ValidatePostgres(dsn, "job_test"))
+		require.NoError(t, testresources.ValidateRedis(addr))
+	}
 	if dsn == "" || addr == "" {
 		t.Skip("requires isolated job_test PostgreSQL and QUOTA_TEST_REDIS_ADDR")
 	}
 	ctx := context.Background()
-	db, err := sql.Open("postgres", dsn)
+	db, err := openQuotaTestDatabase(t, dsn)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	var name string
 	require.NoError(t, db.QueryRow(`SELECT current_database()`).Scan(&name))
 	require.Equal(t, "job_test", name)
-	require.NoError(t, ApplyMigrations(ctx, db))
+	if testresources.External() {
+		var pendingEvents int
+		require.NoError(t, db.QueryRow(`SELECT count(*) FROM user_platform_quota_events WHERE cache_invalidated_at IS NULL`).Scan(&pendingEvents))
+		if pendingEvents != 0 {
+			t.Skipf("external services: %d pre-existing pending quota events; consumer needs exclusive empty event queue, preserved unchanged", pendingEvents)
+		}
+	} else {
+		require.NoError(t, ApplyMigrations(ctx, db))
+	}
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	repo := &userPlatformQuotaRepository{client: client}
-	rdb := redis.NewClient(&redis.Options{Addr: addr})
-	t.Cleanup(func() { require.NoError(t, rdb.Close()) })
+	namespace := "test:isolated-resource-adaptation:" + uuid.NewString() + ":"
+	t.Setenv("QUOTA_TEST_REDIS_NAMESPACE", namespace)
+	rdb := testresources.RedisClientWithNamespace(t, &redis.Options{Addr: addr}, namespace)
 	require.NoError(t, rdb.Ping(ctx).Err())
 	cache := &billingCache{rdb: rdb}
 	invalidate := cache.DeleteUserPlatformQuotaCache
 	fixture := func(at time.Time) *service.UsageSettlementReceipt {
 		var user, key, account int64
 		require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES($1,'test',100) RETURNING id`, uuid.NewString()+"@quota.test").Scan(&user))
+		t.Cleanup(func() {
+			// All predicates use IDs returned by this invocation's inserts.
+			for _, table := range []string{"user_platform_quota_events", "usage_settlement_receipts", "upstream_jobs", "usage_logs", "user_platform_quotas", "api_keys"} {
+				_, cleanupError := db.Exec("DELETE FROM "+table+" WHERE user_id=$1", user)
+				require.NoError(t, cleanupError)
+			}
+			_, cleanupError := db.Exec("DELETE FROM users WHERE id=$1", user)
+			require.NoError(t, cleanupError)
+			if account != 0 {
+				_, cleanupError = db.Exec("DELETE FROM accounts WHERE id=$1", account)
+				require.NoError(t, cleanupError)
+			}
+		})
 		require.NoError(t, db.QueryRow(`INSERT INTO api_keys(user_id,key,name) VALUES($1,$2,'quota') RETURNING id`, user, uuid.NewString()).Scan(&key))
 		require.NoError(t, db.QueryRow(`INSERT INTO accounts(name,platform,type) VALUES('quota','qianwen','apikey') RETURNING id`).Scan(&account))
 		_, err := db.Exec(`INSERT INTO user_platform_quotas(user_id,platform,daily_limit_usd,weekly_limit_usd,monthly_limit_usd,created_at) VALUES($1,'qianwen',100,100,100,$2)`, user, at.Add(-time.Hour))
@@ -99,7 +126,9 @@ func TestUserPlatformQuotaEventsPostgres(t *testing.T) {
 		for e := range errs {
 			require.NoError(t, e)
 		}
-		require.NoError(t, rdb.FlushDB(ctx).Err())
+		rawRedis := redis.NewClient(&redis.Options{Addr: addr})
+		require.NoError(t, testresources.ClearRedisNamespace(ctx, rawRedis, namespace))
+		require.NoError(t, rawRedis.Close())
 		drain()
 		usage(input, 1, 1, 1)
 		now := time.Now()
@@ -271,7 +300,7 @@ func TestQuotaEventCommitProcess(t *testing.T) {
 	}
 	var input service.UsageSettlementReceipt
 	require.NoError(t, json.Unmarshal([]byte(raw), &input))
-	db, err := sql.Open("postgres", os.Getenv("UPSTREAM_JOB_TEST_DSN"))
+	db, err := openQuotaTestDatabase(t, os.Getenv("UPSTREAM_JOB_TEST_DSN"))
 	require.NoError(t, err)
 	repo := NewUsageSettlementReceiptWithQuotaRepository(db)
 	ctx := context.Background()
@@ -285,14 +314,27 @@ func TestQuotaEventConsumerProcess(t *testing.T) {
 	if os.Getenv("QUOTA_PROCESS_CONSUMER") == "" {
 		t.Skip("subprocess helper")
 	}
-	db, err := sql.Open("postgres", os.Getenv("UPSTREAM_JOB_TEST_DSN"))
+	db, err := openQuotaTestDatabase(t, os.Getenv("UPSTREAM_JOB_TEST_DSN"))
 	require.NoError(t, err)
 	defer func() { require.NoError(t, db.Close()) }()
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
-	rdb := redis.NewClient(&redis.Options{Addr: os.Getenv("QUOTA_TEST_REDIS_ADDR")})
+	address := os.Getenv("QUOTA_TEST_REDIS_ADDR")
+	if testresources.External() {
+		require.NoError(t, testresources.ValidateRedis(address))
+	}
+	rdb := redis.NewClient(&redis.Options{Addr: address})
+	rdb.AddHook(testresources.RedisNamespaceHook(os.Getenv("QUOTA_TEST_REDIS_NAMESPACE")))
 	defer func() { require.NoError(t, rdb.Close()) }()
 	repo := &userPlatformQuotaRepository{client: client}
 	cache := &billingCache{rdb: rdb}
 	_, err = repo.ConsumeQuotaEvents(context.Background(), 100, cache.DeleteUserPlatformQuotaCache)
 	require.NoError(t, err)
+}
+
+func openQuotaTestDatabase(test *testing.T, connectionString string) (*sql.DB, error) {
+	test.Helper()
+	if testresources.External() {
+		return testresources.OpenPostgres(context.Background(), connectionString, "job_test")
+	}
+	return sql.Open("postgres", connectionString)
 }
