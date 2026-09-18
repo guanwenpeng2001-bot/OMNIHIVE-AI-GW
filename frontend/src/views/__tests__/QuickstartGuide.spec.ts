@@ -1,7 +1,10 @@
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount, flushPromises } from '@vue/test-utils'
 import { reactive, ref } from 'vue'
 import QuickstartGuide from '@/components/intro/QuickstartGuide.vue'
+const locale = ref<'en' | 'zh'>('en')
 const mocks = vi.hoisted(() => ({
   auth: {} as { user: { id: number; role: string }; token: string; sessionRevision: string },
   app: { apiBaseUrl: '' }, list: vi.fn(), getById: vi.fn(), settings: vi.fn(), fetch: vi.fn()
@@ -12,10 +15,11 @@ vi.mock('@/api/keys', () => ({ keysAPI: { list: mocks.list, getById: mocks.getBy
 vi.mock('@/api/client', () => ({ apiClient: { get: (path: string, options: unknown) =>
   path === '/settings/public' ? mocks.settings(options) : mocks.getById(path, options)
 } }))
-vi.mock('vue-i18n', async (original) => ({ ...await original<typeof import('vue-i18n')>(), useI18n: () => ({ locale: ref('en') }) }))
+vi.mock('vue-i18n', async (original) => ({ ...await original<typeof import('vue-i18n')>(), useI18n: () => ({ locale, t: (key: string) => key.split('.').reduce((value: any, part) => value[part], locale.value === 'en' ? en : zh) }) }))
 let wrapper: ReturnType<typeof mount>
 const mountGuide = () => mount(QuickstartGuide, { global: { stubs: { CodeBlock: { props: ['code'], template: '<pre>{{ code }}</pre>' } } } })
 beforeEach(() => {
+  locale.value = 'en'
   mocks.auth = reactive({ user: { id: 1, role: 'user' }, token: 'jwt-only', sessionRevision: 'session' })
   mocks.app = reactive({ apiBaseUrl: 'https://gateway.example/deploy/v1/' })
   mocks.list.mockResolvedValue({ items: [{ id: 1, name: 'My laptop', group_id: 2, group: { name: 'Text' }, status: 'active', key: 'private-secret' }], total: 1 })
@@ -36,6 +40,14 @@ async function loadCatalogue() {
   await flushPromises()
 }
 describe('authorized read-only onboarding', () => {
+  it.each(['en', 'zh'] as const)('renders localized metadata errors in %s', async language => {
+    locale.value = language
+    mocks.list.mockRejectedValueOnce(new Error('private internal detail'))
+    await wrapper.get('button').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[role="alert"]').text()).toBe((language === 'en' ? en : zh).quickstartGuide.keysFailed)
+  })
+
   it('never calls a model on mount; generated examples and storage contain no actual key', async () => {
     expect(mocks.list).not.toHaveBeenCalled()
     expect(mocks.fetch).not.toHaveBeenCalled()

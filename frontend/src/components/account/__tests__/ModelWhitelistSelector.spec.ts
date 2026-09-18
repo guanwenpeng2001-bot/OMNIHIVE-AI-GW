@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, ref, computed } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
+import en from '@/i18n/locales/en'
+import zh from '@/i18n/locales/zh'
+
+let realLocale: 'en' | 'zh' | null = null
 
 const {
   copyToClipboard,
@@ -34,7 +38,9 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => (key === 'common.copy' ? '复制' : key)
+      t: (key: string) => realLocale
+        ? key.split('.').reduce((value: any, part) => value?.[part], realLocale === 'en' ? en : zh) ?? key
+        : (key === 'common.copy' ? '复制' : key)
     })
   }
 })
@@ -144,6 +150,7 @@ describe('ModelWhitelistSelector', () => {
   })
 
   beforeEach(() => {
+    realLocale = null
     copyToClipboard.mockClear()
     showError.mockReset()
     showSuccess.mockReset()
@@ -151,6 +158,37 @@ describe('ModelWhitelistSelector', () => {
     showWarning.mockReset()
     syncUpstreamModels.mockReset()
     syncUpstreamModelsPreview.mockReset()
+  })
+
+  it.each(['en', 'zh'] as const)('localizes capability request errors in %s', async locale => {
+    realLocale = locale
+    syncUpstreamModels.mockRejectedValueOnce({ message: 'model_capability_defaults: identity_fingerprint mismatch' })
+    const wrapper = mountSelector({ accountId: 46 })
+    await flushPromises()
+    const messages = locale === 'en' ? en : zh
+    await wrapper.findAll('button').find(item => item.text() === messages.admin.accounts.syncUpstreamModels)!.trigger('click')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith(messages.capabilityMessages.invalid)
+    expect(wrapper.text()).toContain(messages.capabilityMessages.invalid)
+    expect(wrapper.text()).not.toContain('identity_fingerprint mismatch')
+    wrapper.unmount()
+    realLocale = null
+  })
+
+  it.each(['en', 'zh'] as const)('localizes capability gap summaries in %s', async locale => {
+    realLocale = locale
+    syncUpstreamModels.mockResolvedValueOnce({ models: ['private-model'], warnings: ['upstream_model_metadata_incomplete'],
+      metadata: { 'private-model': { missing_fields: ['max_input_tokens'], estimated_fields: ['reasoning'], conflicts: ['output_modalities'] } } })
+    const wrapper = mountSelector({ accountId: 46 })
+    await flushPromises()
+    const messages = locale === 'en' ? en : zh
+    await wrapper.findAll('button').find(item => item.text() === messages.admin.accounts.syncUpstreamModels)!.trigger('click')
+    await flushPromises()
+    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.missing))
+    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.estimated))
+    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.conflicts))
+    wrapper.unmount()
+    realLocale = null
   })
 
   it('copies a model ID without selecting the model', async () => {

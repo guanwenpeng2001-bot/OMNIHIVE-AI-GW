@@ -552,7 +552,12 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 		End:   endTime.UTC().Format(time.RFC3339),
 		Limit: limit,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardUsersRankingCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)
@@ -603,7 +608,12 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 		Day:     timezone.Today().Format("2006-01-02"),
 		UserIDs: userIDs,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardBatchUsersUsageCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)
@@ -647,7 +657,12 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 	}{
 		APIKeyIDs: apiKeyIDs,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardBatchAPIKeysUsageCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)

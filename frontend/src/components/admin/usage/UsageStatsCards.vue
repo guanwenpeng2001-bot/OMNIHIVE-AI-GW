@@ -1,5 +1,12 @@
 <template>
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div v-if="loading || error || historyGap || !stats" data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div v-for="label in ['usage.totalRequests', 'usage.totalTokens', 'usage.totalCost', 'usage.avgDuration']" :key="label" class="card p-4">
+      <p class="text-xs font-medium text-gray-500">{{ t(label) }}</p>
+      <p class="text-xl font-bold" role="status">{{ t(loading ? 'common.loading' : historyGap ? 'usage.statsUnknown' : 'usage.statsUnavailable') }}</p>
+      <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
+    </div>
+  </div>
+  <div v-else data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <div class="card p-4 flex items-center gap-3">
       <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30 text-blue-600">
         <Icon name="document" size="md" />
@@ -97,6 +104,9 @@ import Icon from '@/components/icons/Icon.vue'
 
 const props = withDefaults(defineProps<{
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
+  loading?: boolean
+  error?: boolean
+  historyGap?: { reason: string } | null
   showAccountCost?: boolean
   strikeStandardCost?: boolean
 }>(), {

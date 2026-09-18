@@ -1,6 +1,7 @@
+import zh from '@/i18n/locales/zh'
 import { describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key, te: () => true }) }))
+vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key.startsWith('capabilityCatalog.') ? key.split('.').reduce((value: any, part) => value[part], zh) : key, te: () => true }) }))
 import { formatDateTime } from '@/utils/format'
 import ModelCatalogDetails from '../ModelCatalogDetails.vue'
 import notSynced from '@/api/__tests__/fixtures/model-catalog-not_synced.json'

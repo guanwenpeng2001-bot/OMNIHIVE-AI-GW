@@ -6,7 +6,7 @@
         <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
         <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
       </div>
-      <UsageStatsCards :stats="usageStats" />
+      <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" />
       <UsageSettlementStatus />
       <!-- Charts Section -->
       <div class="space-y-4">
@@ -219,6 +219,8 @@ import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat,
 
 const { t } = useI18n()
 const historyGap = ref<HistoryGap | null>(null)
+const statsError = ref(false)
+const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -411,6 +413,9 @@ const loadLogs = async () => {
 }
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
+  usageStats.value = null
+  statsError.value = false
+  statsHistoryGap.value = null
   endpointStatsLoading.value = true
   try {
     const requestType = filters.value.request_type
@@ -427,6 +432,9 @@ const loadStats = async (force = false) => {
     endpointPathStats.value = s.endpoint_paths || []
   } catch (error) {
     if (seq !== statsReqSeq) return
+    usageStats.value = null
+    statsError.value = true
+    statsHistoryGap.value = historyGapFromError(error)
     console.error('Failed to load usage stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
