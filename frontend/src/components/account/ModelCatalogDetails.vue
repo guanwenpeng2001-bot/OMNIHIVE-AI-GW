@@ -27,8 +27,8 @@
       <div v-if="metadataRows.length > 20" class="flex flex-wrap gap-2">
         <input v-model="query" type="search" class="input" :aria-label="labels.search" :placeholder="labels.search" data-testid="capability-search" />
         <select v-model="statusFilter" class="input" :aria-label="labels.filter" data-testid="capability-filter">
-          <option value="all">{{ labels.all }}</option><option value="complete">complete</option>
-          <option value="estimated">estimated</option><option value="incomplete">{{ labels.missing }}</option>
+          <option value="all">{{ labels.all }}</option><option value="complete">{{ labels.complete }}</option>
+          <option value="estimated">{{ labels.estimated }}</option><option value="incomplete">{{ labels.missing }}</option>
           <option value="conflict">{{ labels.conflict }}</option>
         </select>
         <p role="status">{{ visibleMetadata.length }} / {{ filteredMetadata.length }}</p>
@@ -37,7 +37,7 @@
       <div class="max-h-[min(24rem,50vh)] space-y-2 overflow-y-auto">
         <details v-for="entry in visibleMetadata" :key="entry.id" :open="expanded.has(entry.id)" @toggle="toggleDetails(entry.id, $event)" data-testid="capability-row"
           class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
-          <summary class="cursor-pointer break-all font-medium">{{ entry.id }} · {{ entry.metadata_status || labels.unknown }}<span v-if="entry.conflicts?.length"> · {{ labels.conflict }}</span></summary>
+          <summary class="cursor-pointer break-all font-medium">{{ entry.id }} · {{ entry.metadata_status === 'complete' ? labels.complete : entry.metadata_status === 'estimated' ? labels.estimated : entry.metadata_status === 'incomplete' ? labels.missing : labels.unknown }}<span v-if="entry.conflicts?.length"> · {{ labels.conflict }}</span></summary>
           <div v-if="expanded.has(entry.id)" class="mt-2 space-y-1 break-words text-xs" data-testid="capability-fields">
             <p v-if="exclusions.get(entry.id)">{{ t('admin.accounts.modelSync.excluded') }}: {{ reasonText(exclusions.get(entry.id)!) }}</p>
             <p v-if="entry.missing_fields?.length" class="font-semibold text-amber-700 dark:text-amber-400">{{ labels.missing }}: {{ entry.missing_fields.join(', ') }}</p>
@@ -102,18 +102,32 @@ import { useI18n } from 'vue-i18n'
 import type { UpstreamModelMetadata } from '@/api/admin/accounts'
 import type { AccountModelCatalog, AccountModelCatalogDetails } from '@/types'
 const props = defineProps<{ mappingTargets?: string[]; creationContext?: boolean; stale?: boolean; result?: AccountModelCatalog | null; summary?: AccountModelCatalogDetails | null; candidateCount: number | null }>()
-const { t, te, locale } = useI18n()
-const labels = computed(() => (locale?.value ?? 'zh').startsWith('zh') ? {
-  sets: '模型集合', setsHint: 'D 上游发现 · M 映射目标 · U 能力目录（D ∪ M）· E 可路由资格；能力完整不等于有路由资格。', coverage: '能力完整', noDiscovery: '未发现模型', noEligibility: '已发现模型，但无路由资格', partial: '部分模型能力缺失或仅有估计依据', complete: '能力完整', unknownDiscovery: '发现状态未知', search: '筛选模型 ID 或名称', filter: '筛选能力状态', all: '全部状态', more: '显示更多',
-  title: '模型能力缺口与逐字段来源', missing: '缺失字段', estimated: '仅有估计依据', conflict: '冲突',
-  unknown: '状态未提供', unavailable: '上游未返回逐字段完整性结论，请重新预览；不能视为能力完整。',
-  source: '来源级别', version: '来源版本', match: '匹配依据', noSources: '尚无逐字段来源证据。', stale: '规格或账号配置已修改，以下结果来自旧预览。'
-} : {
-  sets: 'Model sets', setsHint: 'D discovered · M mapping targets · U capability catalog (D ∪ M) · E routing eligible; complete capabilities do not grant eligibility.', coverage: 'Complete capabilities', noDiscovery: 'No models discovered', noEligibility: 'Models discovered, none eligible', partial: 'Some capabilities are missing or estimated', complete: 'Capabilities complete', unknownDiscovery: 'Discovery status unknown', search: 'Filter model ID or name', filter: 'Filter capability status', all: 'All statuses', more: 'Show more',
-  title: 'Capability gaps and field sources', missing: 'Missing fields', estimated: 'Estimated fields', conflict: 'Conflict',
-  unknown: 'Status unavailable', unavailable: 'Field completeness was not returned. Preview again; completeness is unverified.',
-  source: 'Source tier', version: 'Source version', match: 'Match evidence', noSources: 'No field-level source evidence available.', stale: 'Specifications or account settings changed; these results belong to the previous preview.'
-})
+const { t, te } = useI18n()
+const labels = computed(() => ({
+  sets: t('capabilityCatalog.sets'),
+  setsHint: t('capabilityCatalog.setsHint'),
+  coverage: t('capabilityCatalog.coverage'),
+  noDiscovery: t('capabilityCatalog.noDiscovery'),
+  noEligibility: t('capabilityCatalog.noEligibility'),
+  partial: t('capabilityCatalog.partial'),
+  complete: t('capabilityCatalog.complete'),
+  unknownDiscovery: t('capabilityCatalog.unknownDiscovery'),
+  search: t('capabilityCatalog.search'),
+  filter: t('capabilityCatalog.filter'),
+  all: t('capabilityCatalog.all'),
+  more: t('capabilityCatalog.more'),
+  title: t('capabilityCatalog.title'),
+  missing: t('capabilityCatalog.missing'),
+  estimated: t('capabilityCatalog.estimated'),
+  conflict: t('capabilityCatalog.conflict'),
+  unknown: t('capabilityCatalog.unknown'),
+  unavailable: t('capabilityCatalog.unavailable'),
+  source: t('capabilityCatalog.source'),
+  version: t('capabilityCatalog.version'),
+  match: t('capabilityCatalog.match'),
+  noSources: t('capabilityCatalog.noSources'),
+  stale: t('capabilityCatalog.stale')
+}))
 const savedCapabilities = computed(() => props.summary?.snapshot?.capability_summary)
 const mappingTargets = computed(() => [...new Set((props.mappingTargets ?? []).map(id => id.trim()).filter(id => id && !/[*?]/.test(id)))])
 const discoveredCount = computed(() => props.result?.discovered_models ? new Set(props.result.discovered_models).size : '—')

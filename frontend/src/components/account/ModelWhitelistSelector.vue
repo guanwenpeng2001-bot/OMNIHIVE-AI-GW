@@ -566,7 +566,7 @@ const syncUpstreamModels = async (apply = false) => {
       warning => modelSyncWarningCode(warning) === 'upstream_model_metadata_incomplete'
     )
     if (hasIncompleteMetadata) {
-      appStore.showWarning(modelCapabilityGapSummary(result) || t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
+      appStore.showWarning(modelCapabilityGapSummary(result, t) || t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
       return
     }
     appStore.showInfo(t(`admin.accounts.modelSync.${result.applied === true ? 'synced' : 'previewOnly'}`))
@@ -577,7 +577,7 @@ const syncUpstreamModels = async (apply = false) => {
     if (disposed || request !== generation) return
     catalogState.value = catalog.value.length ? 'stale' : 'failed'
     needsPreview.value = true
-    syncError.value = modelCapabilityRequestError(error) || t(`admin.accounts.${modelSyncErrorKey(error)}`)
+    syncError.value = modelCapabilityRequestError(error, t) || t(`admin.accounts.${modelSyncErrorKey(error)}`)
     appStore.showError(syncError.value)
   } finally {
     if (!disposed && request === generation) isSyncingUpstream.value = false
