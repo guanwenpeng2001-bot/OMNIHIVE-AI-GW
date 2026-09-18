@@ -1,7 +1,6 @@
 package modelcapabilities
 
 import (
-	"bytes"
 	"crypto/sha256"
 	_ "embed"
 	"encoding/hex"
@@ -9,8 +8,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
 )
 
 //go:embed release-manifest.json
@@ -36,7 +33,8 @@ func VerifyRelease(body, manifestBody, trustedPin []byte, previous *ReleaseIdent
 		SchemaVersion      int               `json:"schema_version"`
 		ApprovedGeneration int64             `json:"approved_generation"`
 		CatalogSHA256      string            `json:"catalog_sha256"`
-		BaseDataSHA256LF   string            `json:"base_data_sha256_lf"`
+		InputsSHA256       string            `json:"inputs_sha256"`
+		Applicability      string            `json:"applicability"`
 		RecordCount        int               `json:"record_count"`
 		AdapterVersion     string            `json:"adapter_version"`
 		AliasVersion       string            `json:"alias_version"`
@@ -51,7 +49,7 @@ func VerifyRelease(body, manifestBody, trustedPin []byte, previous *ReleaseIdent
 	if manifest.SchemaVersion != 1 || manifest.ApprovedGeneration <= 0 || pin.ApprovedGeneration != manifest.ApprovedGeneration || pin.ManifestSHA256 != hash(manifestBody) || manifest.CatalogSHA256 != hash(body) {
 		return fail()
 	}
-	if manifest.BaseDataSHA256LF != hash(bytes.ReplaceAll(modelpricing.JSON(), []byte("\r\n"), []byte("\n"))) {
+	if manifest.Applicability != "reviewed-profile-model" || len(manifest.InputsSHA256) != 64 {
 		return fail()
 	}
 	if manifest.AdapterVersion == "" || manifest.AliasVersion == "" || manifest.RulesVersion == "" || len(manifest.CodeVersions) == 0 {

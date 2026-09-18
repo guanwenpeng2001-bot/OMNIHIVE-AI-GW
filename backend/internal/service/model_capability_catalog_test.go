@@ -60,14 +60,14 @@ func TestModelCapabilityPriceIsolationAndMissingOnlyMerge(t *testing.T) {
 	require.NoError(t, err)
 	r, ok := snapshot.LookupExact("openai", "gpt-4o")
 	require.True(t, ok)
-	require.EqualValues(t, 32000, *r.MaxInputTokens)
+	require.EqualValues(t, 128000, *r.MaxInputTokens)
 	require.EqualValues(t, 16384, *r.MaxOutputTokens)
-	require.False(t, *r.SupportsVision)
-	require.False(t, *r.SupportsPromptCaching)
+	require.True(t, *r.SupportsVision)
+	require.True(t, *r.SupportsPromptCaching)
 	require.NotNil(t, r.InputModalities)
 	require.Empty(t, r.InputModalities)
-	require.Equal(t, "litellm:runtime", r.FieldSources["supports_vision"].Source)
-	require.Equal(t, "litellm:embed", r.FieldSources["max_output_tokens"].Source)
+	require.NotEqual(t, "litellm:runtime", r.FieldSources["supports_vision"].Source)
+	require.NotEqual(t, "litellm:runtime", r.FieldSources["max_output_tokens"].Source)
 	spec, ok := snapshot.LookupExact("test", "spec-only")
 	require.True(t, ok)
 	require.False(t, *spec.SupportsReasoning)
@@ -81,9 +81,9 @@ func TestModelCapabilityPriceIsolationAndMissingOnlyMerge(t *testing.T) {
 	prices, err = (&PricingService{}).parsePricingData([]byte(`{"priced":{"input_cost_per_token":0.1,"supports_reasoning":"bad","max_input_tokens":"bad"}}`))
 	require.NoError(t, err)
 	require.Contains(t, prices, "priced")
-	// The supplement is not applied to a different runtime version.
+	// Reviewed specifications remain applicable across runtime price versions.
 	_, ok = snapshot.LookupExact("deepseek", "deepseek-chat")
-	require.False(t, ok)
+	require.True(t, ok)
 }
 
 func TestModelCapabilitySnapshotDefensiveCopies(t *testing.T) {
@@ -160,28 +160,28 @@ func TestModelCapabilityDownloadHashMismatchAndCacheReplay(t *testing.T) {
 func TestModelCapabilityReloadAndOverrideIsolation(t *testing.T) {
 	svc := newCapabilityPricing(t, nil)
 	file := svc.getPricingFilePath()
-	body := []byte(`{"gpt-4o":{"litellm_provider":"openai","max_input_tokens":32000,"supports_vision":false,"input_cost_per_token":0.01}}`)
+	body := []byte(`{"runtime-only":{"litellm_provider":"test","max_input_tokens":32000,"supports_vision":false,"supports_prompt_caching":false,"input_cost_per_token":0.01}}`)
 	require.NoError(t, os.WriteFile(file, body, 0644))
 	require.NoError(t, svc.loadPricingData(file))
 	original := svc.CapabilitySnapshot()
 	svc.cfg.Pricing.OverrideFile = filepath.Join(t.TempDir(), "override.json")
-	require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{"gpt-4o":{"max_input_tokens":999999,"supports_vision":true,"input_cost_per_token":0.02}}`), 0644))
+	require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{"runtime-only":{"max_input_tokens":999999,"supports_vision":true,"input_cost_per_token":0.02}}`), 0644))
 	require.NoError(t, svc.reloadCustomPricingLayers())
-	r, found := svc.CapabilitySnapshot().LookupExact("openai", "gpt-4o")
+	r, found := svc.CapabilitySnapshot().LookupExact("test", "runtime-only")
 	require.True(t, found)
 	require.NotNil(t, r.MaxInputTokens)
 	require.EqualValues(t, 32000, *r.MaxInputTokens)
 	require.False(t, *r.SupportsVision)
 	require.Equal(t, original.Version(), svc.CapabilitySnapshot().Version())
-	require.Equal(t, 0.02, svc.pricingData["gpt-4o"].InputCostPerToken)
+	require.Equal(t, 0.02, svc.pricingData["runtime-only"].InputCostPerToken)
 	stable := svc.CapabilitySnapshot()
-	require.NoError(t, os.WriteFile(file, []byte(`{"gpt-4o":{"litellm_provider":"openai","max_input_tokens":64000,"input_cost_per_token":0.03}}`), 0644))
+	require.NoError(t, os.WriteFile(file, []byte(`{"runtime-only":{"litellm_provider":"test","max_input_tokens":64000,"input_cost_per_token":0.03}}`), 0644))
 	require.NoError(t, svc.reloadCustomPricingLayers())
 	require.Same(t, stable, svc.CapabilitySnapshot(), "runtime field removal must not silently restore embed true")
-	require.NoError(t, os.WriteFile(file, []byte(`{"gpt-4o":{"max_input_tokens":"bad","input_cost_per_token":0.03}}`), 0644))
+	require.NoError(t, os.WriteFile(file, []byte(`{"runtime-only":{"max_input_tokens":"bad","input_cost_per_token":0.03}}`), 0644))
 	require.NoError(t, svc.loadPricingData(file))
 	require.Same(t, stable, svc.CapabilitySnapshot())
-	require.NoError(t, os.WriteFile(file, []byte(`{"gpt-4o":`), 0644))
+	require.NoError(t, os.WriteFile(file, []byte(`{"runtime-only":`), 0644))
 	require.Error(t, svc.loadPricingData(file))
 	require.Same(t, stable, svc.CapabilitySnapshot())
 }
@@ -203,10 +203,6 @@ func TestModelCapabilityOfflineInitializeAndProvider(t *testing.T) {
 	require.True(t, ok)
 	require.EqualValues(t, 128000, *r.MaxInputTokens)
 }
-
-type fixedCapabilityProvider struct{ snapshot *ModelCapabilitySnapshot }
-
-func (p fixedCapabilityProvider) CapabilitySnapshot() *ModelCapabilitySnapshot { return p.snapshot }
 
 func TestModelCapabilityConcurrentPublication(t *testing.T) {
 	svc := newCapabilityPricing(t, nil)

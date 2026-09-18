@@ -78,10 +78,13 @@ func TestAccountModelCatalogSchemaPersistenceEnvelopeRoundTrip(t *testing.T) {
 	var roundtrip UpstreamModelMetadataSnapshot
 	require.True(t, decodeCatalogExtra(account.Extra, UpstreamModelMetadataExtraKey, &roundtrip))
 	require.Equal(t, metadata.Models, roundtrip.Models)
-	envelope := account.Extra[UpstreamModelMetadataExtraKey].(map[string]any)
+	envelope, ok := account.Extra[UpstreamModelMetadataExtraKey].(map[string]any)
+	require.True(t, ok)
 	require.Equal(t, float64(2), envelope["schema_version"])
 	require.Equal(t, float64(8), envelope["identity_revision"])
 	require.Equal(t, float64(9), envelope["rules_revision"])
 	require.Equal(t, float64(10), envelope["snapshot_revision"])
-	require.Equal(t, "sha256:abc", envelope["source_versions"].(map[string]any)["catalog"])
+	versions, ok := envelope["source_versions"].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, "sha256:abc", versions["catalog"])
 }
