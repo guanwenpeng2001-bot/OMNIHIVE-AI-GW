@@ -189,10 +189,17 @@ func TestModelCapabilityReloadAndOverrideIsolation(t *testing.T) {
 func TestModelCapabilityOfflineInitializeAndProvider(t *testing.T) {
 	cfg := &config.Config{Pricing: config.PricingConfig{DataDir: t.TempDir(), FallbackFile: filepath.Join(t.TempDir(), "missing", "baseline.json")}}
 	svc := NewPricingService(cfg, nil)
-	require.NoError(t, svc.Initialize())
-	defer svc.Stop()
-	require.NotNil(t, svc.GetModelPricing("gpt-4o"))
-	r, ok := svc.CapabilitySnapshot().LookupExact("openai", "gpt-4o")
+	// Capability initialization is offline and independent of price loading,
+	// remote refresh, and the configured (deliberately missing) fallback file.
+	var provider ModelCapabilityProvider = svc
+	snapshot := provider.CapabilitySnapshot()
+	require.NotNil(t, snapshot)
+	require.NotEmpty(t, snapshot.Version())
+	require.Equal(t, capabilityHash(modelpricing.JSON()), snapshot.ContentHash())
+	require.Empty(t, svc.pricingData)
+	require.NoFileExists(t, svc.getPricingFilePath())
+	require.NoFileExists(t, cfg.Pricing.FallbackFile)
+	r, ok := snapshot.LookupExact("openai", "gpt-4o")
 	require.True(t, ok)
 	require.EqualValues(t, 128000, *r.MaxInputTokens)
 }

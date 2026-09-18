@@ -1607,7 +1607,13 @@ func buildOpenAIAPIKeyModelsRequest(ctx context.Context, account *Account, valid
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	// Official DashScope's compatible-mode catalog omits native model families.
 	// Keep custom relay endpoints intact; never redirect their credentials.
-
+	if account.Platform == PlatformQianwen && req.URL.Scheme == "https" &&
+		(req.URL.Host == "dashscope.aliyuncs.com" || req.URL.Host == "batch.dashscope.aliyuncs.com") {
+		req.URL.Host = "dashscope.aliyuncs.com"
+		req.URL.Path = "/api/v1/models"
+		req.URL.RawPath = ""
+		req.URL.RawQuery = "page_no=1&page_size=100&service_site=asia-pacific-china"
+	}
 	// 账号级请求头覆写：模型列表探测与真实转发保持一致的最终头
 	account.ApplyHeaderOverrides(req.Header)
 	return req, nil
