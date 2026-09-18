@@ -171,6 +171,7 @@ type PricingRemoteClient interface {
 
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	LiteLLMCapabilityFields
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64 `json:"output_cost_per_token"`
@@ -186,7 +187,6 @@ type LiteLLMRawEntry struct {
 	SupportsServiceTier                 bool     `json:"supports_service_tier"`
 	LiteLLMProvider                     string   `json:"litellm_provider"`
 	Mode                                string   `json:"mode"`
-	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
 	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token"`
@@ -195,12 +195,13 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	cfg            *config.Config
+	remoteClient   PricingRemoteClient
+	mu             sync.RWMutex
+	pricingData    map[string]*LiteLLMModelPricing
+	capabilityData *ModelCapabilitySnapshot
+	lastUpdated    time.Time
+	localHash      string
 	// fallback/override 文件在最近一次成功重建时的内容指纹，定时器据此判断是否
 	// 需要从本地目录缓存重建叠加层。
 	customFilesHash string
@@ -218,6 +219,7 @@ func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *Pr
 		pricingData:  make(map[string]*LiteLLMModelPricing),
 		stopCh:       make(chan struct{}),
 	}
+	s.capabilityData, _ = buildModelCapabilitySnapshot(nil)
 	return s
 }
 
@@ -470,6 +472,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	// 否则丢弃这次混合快照并重试，避免短暂应用不匹配的 fallback/override。
 	var data map[string]*LiteLLMModelPricing
 	var fingerprint string
+	var capability *ModelCapabilitySnapshot
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		if validateErr := s.validateCustomPricingFiles(); validateErr != nil {
@@ -480,6 +483,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 		if readErr != nil {
 			return fmt.Errorf("read file failed: %w", readErr)
 		}
+		capability = s.loadCapabilityCandidate(body, pricingFile)
 		data, fingerprint, err = s.buildPricingData(body)
 		if err != nil {
 			return fmt.Errorf("parse pricing data: %w", err)
@@ -499,6 +503,9 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
 
@@ -540,14 +547,16 @@ func (s *PricingService) downloadPricingData() error {
 			remoteHash[:min(8, len(remoteHash))], dataHashStr[:8])
 	}
 
+	capability := s.buildCapabilityCandidate(body, remoteHash)
 	data, customFilesHash, err := s.buildPricingData(body)
 	if err != nil {
+		s.publishCapabilityCandidate(capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, body, 0644); err != nil {
+	if err := s.persistPricingDownload(pricingFile, body, capability); err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save file: %v", err)
 	}
 
@@ -566,6 +575,9 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
 	s.customFilesHash = customFilesHash
@@ -596,7 +608,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 
 		// 尝试解析每个条目
 		var entry LiteLLMRawEntry
-		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+		if err := unmarshalPricingEntry(rawEntry, &entry); err != nil {
 			skipped++
 			continue
 		}
@@ -609,7 +621,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		pricing := &LiteLLMModelPricing{
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,
-			SupportsPromptCaching: entry.SupportsPromptCaching,
+			SupportsPromptCaching: entry.SupportsPromptCaching != nil && *entry.SupportsPromptCaching,
 			SupportsServiceTier:   entry.SupportsServiceTier,
 			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil,
 		}
@@ -978,8 +990,10 @@ func (s *PricingService) loadPricingData(filePath string) error {
 		return fmt.Errorf("read file failed: %w", err)
 	}
 
+	capability := s.loadCapabilityCandidate(data, filePath)
 	pricingData, customFilesHash, err := s.buildPricingData(data)
 	if err != nil {
+		s.publishCapabilityCandidate(capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
@@ -990,6 +1004,9 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
 	s.pricingData = pricingData
+	if capability != nil {
+		s.capabilityData = capability
+	}
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
 
@@ -1081,7 +1098,7 @@ func (s *PricingService) useFallbackPricing() error {
 	}
 
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, data, 0644); err != nil { //nolint:gosec // G703: 路径为配置的数据目录 + 硬编码文件名，非请求输入
+	if err := s.persistPricingDownload(pricingFile, data, nil); err != nil { //nolint:gosec // G703: 路径为配置的数据目录 + 硬编码文件名，非请求输入
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to copy fallback: %v", err)
 	}
 
