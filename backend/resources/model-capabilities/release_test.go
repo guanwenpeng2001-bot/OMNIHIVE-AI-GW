@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"os"
 	"reflect"
 	"testing"
 
@@ -14,14 +13,7 @@ import (
 )
 
 func TestRealReleaseOfflineAndImmutable(t *testing.T) {
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err = os.Chdir(t.TempDir()); err != nil {
-		t.Fatal(err)
-	}
-	defer os.Chdir(cwd)
+	t.Chdir(t.TempDir())
 	body := capabilities.JSON()
 	var c struct {
 		Records []service.CapabilityRecord `json:"records"`

@@ -88,7 +88,10 @@ func (c *gatewayCache) SetSessionAccountID(ctx context.Context, groupID int64, s
 			return nil
 		}
 		expected, _ := state.Versions.LoadOrStore(key, "")
-		old := expected.(string)
+		old, ok := expected.(string)
+		if !ok {
+			return errors.New("invalid affinity binding version")
+		}
 		// A temporarily skipped healthy account keeps its affinity for recovery.
 		if old != "" && !strings.HasPrefix(old, fmt.Sprintf("v2:%d:", accountID)) {
 			return nil

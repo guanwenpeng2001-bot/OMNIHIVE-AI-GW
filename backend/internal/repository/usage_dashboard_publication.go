@@ -69,7 +69,8 @@ func (r *dashboardAggregationRepository) publishDashboardDay(ctx context.Context
 	if err != nil {
 		return time.Time{}, err
 	}
-	defer tx.Rollback()
+	// Rollback is fallback cleanup; preserve the operation/commit error (or ErrTxDone after commit).
+	defer func() { _ = tx.Rollback() }()
 	if err = lockGroupUsageRollupState(ctx, tx); err != nil {
 		return time.Time{}, err
 	}

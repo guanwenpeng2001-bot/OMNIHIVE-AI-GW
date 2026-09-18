@@ -109,12 +109,16 @@ func (c dashboardCoverage) requireTrend(start, end time.Time, granularity string
 // Coverage and data must share a snapshot: otherwise a concurrent retention or
 // correction can turn a successful preflight into a silently truncated result.
 func usageReadSnapshot[T any](ctx context.Context, r *usageLogRepository, run func(*usageLogRepository, dashboardCoverage) (T, error)) (result T, err error) {
-	db := r.sql.(*sql.DB)
+	db, ok := r.sql.(*sql.DB)
+	if !ok || db == nil {
+		return result, fmt.Errorf("usage snapshot requires a database connection pool")
+	}
 	tx, err := db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true})
 	if err != nil {
 		return result, err
 	}
-	defer tx.Rollback()
+	// Rollback is fallback cleanup; preserve the operation/commit error (or ErrTxDone after commit).
+	defer func() { _ = tx.Rollback() }()
 	// MVCC retains deleted rows, but cannot resurrect a dropped partition.
 	// Lock the parent and its children before taking the coverage snapshot; this
 	// allows normal writers while keeping physical retention out until commit.

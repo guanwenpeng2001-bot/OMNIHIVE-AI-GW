@@ -3,15 +3,16 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"net/http/httptest"
+	"testing"
+	"time"
+
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
-	"net/http/httptest"
-	"testing"
-	"time"
 )
 
 type userHistoryRepo struct{ service.UsageLogRepository }
@@ -20,13 +21,13 @@ func (*userHistoryRepo) GetUserDashboardStats(context.Context, int64) (*usagesta
 	return &usagestats.UserDashboardStats{Coverage: &usagestats.Coverage{Complete: false, Reason: "raw_history_unavailable", RawRetainedFrom: time.Date(2026, 3, 5, 0, 0, 0, 0, time.UTC)}}, nil
 }
 func (*userHistoryRepo) GetUsageTrendWithUsageFilters(context.Context, time.Time, time.Time, string, usagestats.UsageLogFilters) ([]usagestats.TrendDataPoint, error) {
-	return nil, repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+	return nil, infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 }
 func (*userHistoryRepo) GetModelStatsWithUsageFiltersBySource(context.Context, time.Time, time.Time, usagestats.UsageLogFilters, string) ([]usagestats.ModelStat, error) {
-	return nil, repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+	return nil, infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 }
 func (*userHistoryRepo) GetGroupStatsWithUsageFilters(context.Context, time.Time, time.Time, usagestats.UsageLogFilters) ([]usagestats.GroupStat, error) {
-	return nil, repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+	return nil, infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 }
 func TestUsageDashboardHistoryContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
@@ -48,7 +49,9 @@ func TestUsageDashboardHistoryContract(t *testing.T) {
 			var body map[string]any
 			require.NoError(t, json.Unmarshal(response.Body.Bytes(), &body))
 			require.Equal(t, "USAGE_HISTORY_INCOMPLETE", body["reason"])
-			require.Equal(t, "2026-03-05T00:00:00Z", body["metadata"].(map[string]any)["raw_retained_from"])
+			metadata, ok := body["metadata"].(map[string]any)
+			require.True(t, ok)
+			require.Equal(t, "2026-03-05T00:00:00Z", metadata["raw_retained_from"])
 			require.NotContains(t, body, "data")
 		})
 	}

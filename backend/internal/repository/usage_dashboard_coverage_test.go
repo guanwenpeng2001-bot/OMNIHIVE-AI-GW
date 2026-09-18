@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"context"
 	"database/sql"
 	"testing"
 	"time"
@@ -9,6 +10,16 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
+
+func TestUsageSnapshotRequiresDatabasePool(t *testing.T) {
+	for _, repo := range []*usageLogRepository{{}, {sql: (*sql.DB)(nil)}} {
+		_, err := usageReadSnapshot(context.Background(), repo, func(*usageLogRepository, dashboardCoverage) (int, error) {
+			t.Fatal("snapshot callback must not run without a database pool")
+			return 0, nil
+		})
+		require.ErrorContains(t, err, "requires a database connection pool")
+	}
+}
 
 func TestUsageCoverageDoesNotTreatRetainedHourlyGapsAsZero(t *testing.T) {
 	previous := timezone.Name()

@@ -219,7 +219,6 @@ func (b *AttemptBudget) Snapshot() []AttemptRecord {
 // the actual send. Denials never enter the upstream telemetry denominator.
 func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, error), error) {
 	b := AttemptBudgetFromContext(ctx)
-	index := -1
 	var record *AttemptRecord
 	if b != nil {
 		b.mu.Lock()
@@ -227,7 +226,7 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 			b.mu.Unlock()
 			return nil, err
 		}
-		index = len(b.attempts)
+		index := len(b.attempts)
 		reason := "initial"
 		if index > 0 {
 			previous := b.attempts[index-1]

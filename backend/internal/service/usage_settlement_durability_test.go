@@ -213,7 +213,7 @@ func TestSettlementRejectsInvalidPersistenceAcknowledgement(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			repo := &invalidReceiptAcknowledgement{durableReceiptStore: &durableReceiptStore{}, alter: alter}
 			svc := NewUsageSettlementService(repo, nil, nil)
-			require.Error(t, svc.Submit(nil, durableReceiptFixture(), func(context.Context, *UsageSettlementResult) { t.Error("unconfirmed receipt finalized") }))
+			require.Error(t, svc.Submit(context.Background(), durableReceiptFixture(), func(context.Context, *UsageSettlementResult) { t.Error("unconfirmed receipt finalized") }))
 			require.Zero(t, repo.applied)
 		})
 	}
