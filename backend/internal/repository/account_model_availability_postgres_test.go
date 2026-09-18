@@ -130,7 +130,9 @@ func TestModelProbeBudgetPostgres(test *testing.T) {
 			}
 		}
 		require.Equal(test, 1, winners)
-		command := exec.Command(os.Args[0], "-test.run=^TestModelProbeBudgetPostgres$", "-test.v")
+		executable, err := os.Executable()
+		require.NoError(test, err)
+		command := exec.Command(executable, "-test.run=^TestModelProbeBudgetPostgres$", "-test.v")
 		command.Env = append(os.Environ(), "MODEL_PROBE_RESTART_ACCOUNT_ID="+strconv.FormatInt(account.ID, 10))
 		output, err := command.CombinedOutput()
 		require.NoError(test, err, string(output))
