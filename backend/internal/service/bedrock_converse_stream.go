@@ -49,7 +49,7 @@ func (decoder *bedrockEventStreamDecoder) DecodeConverse() (string, []byte, erro
 			exceptionType = extractEventStreamHeaderValue(headers, ":error-code")
 		}
 		// Do not echo upstream bodies, which can contain submitted content.
-		return "", nil, fmt.Errorf("Bedrock Converse stream exception: %s", exceptionType)
+		return "", nil, fmt.Errorf("bedrock Converse stream exception: %s", exceptionType)
 	}
 	if eventType == "" || messageType != "event" || !gjson.ValidBytes(payload) {
 		return "", nil, fmt.Errorf("invalid Converse event headers or JSON")
@@ -107,10 +107,10 @@ func ConvertBedrockConverseStream(ctx context.Context, body io.ReadCloser, write
 		}
 		event := gjson.ParseBytes(payload)
 		if metadataSeen {
-			return usage, fmt.Errorf("Converse event after metadata")
+			return usage, fmt.Errorf("converse event after metadata")
 		}
 		if eventType != "messageStart" && !started {
-			return usage, fmt.Errorf("Converse event before messageStart")
+			return usage, fmt.Errorf("converse event before messageStart")
 		}
 		switch eventType {
 		case "messageStart":
@@ -126,7 +126,7 @@ func ConvertBedrockConverseStream(ctx context.Context, body io.ReadCloser, write
 			}
 			index := int(indexValue.Int())
 			if closedBlocks[index] {
-				return usage, fmt.Errorf("Converse block already closed")
+				return usage, fmt.Errorf("converse block already closed")
 			}
 			block := blocks[index]
 			switch eventType {
@@ -148,12 +148,12 @@ func ConvertBedrockConverseStream(ctx context.Context, body io.ReadCloser, write
 						}
 					}
 					if block.kind != "text" {
-						return usage, fmt.Errorf("Converse block kind changed")
+						return usage, fmt.Errorf("converse block kind changed")
 					}
 					err = emit(map[string]any{"type": "content_block_delta", "index": index, "delta": map[string]any{"type": "text_delta", "text": text.String()}})
 				} else if input := delta.Get("toolUse.input"); input.Type == gjson.String && block != nil && block.kind == "tool_use" {
 					if len(block.arguments)+len(input.String()) > 16*1024*1024 {
-						return usage, fmt.Errorf("Converse tool arguments too large")
+						return usage, fmt.Errorf("converse tool arguments too large")
 					}
 					block.arguments += input.String()
 					err = emit(map[string]any{"type": "content_block_delta", "index": index, "delta": map[string]any{"type": "input_json_delta", "partial_json": input.String()}})
@@ -162,7 +162,7 @@ func ConvertBedrockConverseStream(ctx context.Context, body io.ReadCloser, write
 				}
 			case "contentBlockStop":
 				if block == nil {
-					return usage, fmt.Errorf("Converse stop without content")
+					return usage, fmt.Errorf("converse stop without content")
 				}
 				if block.kind == "tool_use" && (!gjson.Valid(block.arguments) || !gjson.Parse(block.arguments).IsObject()) {
 					return usage, fmt.Errorf("incomplete Converse tool arguments")

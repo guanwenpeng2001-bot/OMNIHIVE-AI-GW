@@ -87,7 +87,7 @@ func bedrockEscapeTarget(target string) string {
 // same account also has a runtime API key. The caller uses the existing transport.
 func BuildBedrockCatalogRequest(ctx context.Context, account *Account, action, modelID, nextToken string) (*http.Request, error) {
 	if account == nil {
-		return nil, fmt.Errorf("Bedrock account is required")
+		return nil, fmt.Errorf("bedrock account is required")
 	}
 	region := bedrockRuntimeRegion(account)
 	endpoint, err := bedrockEndpoint(region, false)

@@ -115,7 +115,7 @@ func bedrockConverseContent(content gjson.Result, role string, textOnly bool) ([
 	blocks := make([]any, 0, len(content.Array()))
 	for _, block := range content.Array() {
 		if block.Get("cache_control").Exists() {
-			return nil, fmt.Errorf("Converse cache control is not supported")
+			return nil, fmt.Errorf("converse cache control is not supported")
 		}
 		switch block.Get("type").String() {
 		case "text":
@@ -153,7 +153,7 @@ func bedrockConverseContent(content gjson.Result, role string, textOnly bool) ([
 // Claude callers explicitly select Invoke to preserve the existing preparation.
 func BuildBedrockAdapterRequest(ctx context.Context, account *Account, target string, body []byte, stream, claudeInvoke bool, betaHeader string) (*http.Request, error) {
 	if account == nil || strings.TrimSpace(target) == "" {
-		return nil, fmt.Errorf("Bedrock account and target required")
+		return nil, fmt.Errorf("bedrock account and target required")
 	}
 	endpoint, err := bedrockEndpoint(bedrockRuntimeRegion(account), true)
 	if err != nil {
@@ -172,7 +172,7 @@ func BuildBedrockAdapterRequest(ctx context.Context, account *Account, target st
 		prepared, err = PrepareBedrockRequestBody(body, target, betaHeader)
 	} else {
 		if betaHeader != "" {
-			return nil, fmt.Errorf("Anthropic beta unsupported for Converse")
+			return nil, fmt.Errorf("anthropic beta unsupported for Converse")
 		}
 		if stream {
 			operation = "converse-stream"
