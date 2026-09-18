@@ -255,6 +255,7 @@ func ProvideAccountUsageService(
 }
 
 func ProvideAccountTestService(
+	pricingService *PricingService,
 	cursorGatewayService *CursorGatewayService,
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
@@ -283,6 +284,7 @@ func ProvideAccountTestService(
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
+	service.SetModelCapabilityProvider(pricingService)
 	return service
 }
 
@@ -646,6 +648,7 @@ func ProvideScheduledTestRunnerService(
 	cfg *config.Config,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	svc.SetModelCatalogRefreshEnabled(cfg != nil && cfg.ModelCatalogRefreshEnabled)
 	svc.Start()
 	return svc
 }
