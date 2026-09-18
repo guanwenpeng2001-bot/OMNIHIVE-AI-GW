@@ -74,7 +74,7 @@
         <section v-for="group in (metadataRows.length > 50 ? [] : evidenceGroups)" :key="group.category" :data-model-category="group.category">
           <h3 class="font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
           <ul class="list-inside list-disc">
-            <li v-for="entry in group.models" :key="entry.id" class="break-all">{{ entry.id }} — {{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind || '—' }}<template v-if="entry.evidence_observed_at">; {{ t('admin.accounts.modelSync.evidenceObservedAt') }}: {{ formatDateTime(entry.evidence_observed_at) }}</template></li>
+            <li v-for="entry in group.models" :key="entry.id" class="break-all">{{ entry.id }} — {{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind || '—' }}<span v-if="entry.endpoints"> · {{ t('admin.accounts.modelAvailability.endpoint') }}: {{ entry.endpoints.join(', ') || '—' }}</span><template v-if="entry.evidence_observed_at">; {{ t('admin.accounts.modelSync.evidenceObservedAt') }}: {{ formatDateTime(entry.evidence_observed_at) }}</template></li>
           </ul>
         </section>
         <template v-if="!stale && result?.diff">
@@ -184,8 +184,10 @@ const reasonText = (reason: string) => {
   const key = `admin.accounts.modelSync.reasons.${reason}`
   return te?.(key) ? t(key) : reason
 }
-const evidence = computed<Array<Partial<UpstreamModelMetadata> & { id: string }>>(() => props.result
-  ? [...new Set([...(props.result.models ?? []), ...Object.keys(props.result.metadata ?? {})])].map(id => ({ id, ...props.result?.metadata?.[id] }))
+const evidence = computed<Array<Partial<UpstreamModelMetadata> & { id: string; endpoints?: string[] | null }>>(() => props.result
+  ? [...new Set([...(props.result.models ?? []), ...(props.result.eligible_models ?? []).map(model => model.id), ...Object.keys(props.result.metadata ?? {})])].map(id => ({
+    id, ...props.result?.metadata?.[id], ...props.result?.eligible_models?.find(model => model.id === id)
+  }))
   : props.summary?.snapshot?.eligible_models ?? [])
 const evidenceGroups = computed(() => groupModelsByCategory(evidence.value, model => model))
 const publicCount = '—'

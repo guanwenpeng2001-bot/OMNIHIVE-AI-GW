@@ -2990,9 +2990,11 @@
         data-tour="account-form-groups"
       />
 
+      <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
+        :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
       <ModelWhitelistSelector :active="show" :account-id="account.id" :platform="account.platform" :model-value="allowedModels" :model-mappings="modelMappings"
-        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration"
+        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
         :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only />
     </form>
 
@@ -3052,6 +3054,7 @@ import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3084,6 +3087,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelAvailabilityEditor from './ModelAvailabilityEditor.vue'
 import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
 import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
@@ -3999,6 +4003,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 
 const capabilityDefaultsJSON = ref('')
 const savedModelGeneration = ref(0)
+const availabilityGeneration = ref(0)
 const modelConnectionContext = computed(() => JSON.stringify([
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
@@ -4918,7 +4923,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: any) {
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
     return false
   }
 }
@@ -4997,7 +5002,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       })
       return
     }
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
   } finally {
     submitting.value = false
   }
@@ -5770,7 +5775,7 @@ const handleSubmit = async () => {
 
     await submitUpdateAccount(accountID, updatePayload)
   } catch (error: any) {
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
   }
 }
 

@@ -77,6 +77,7 @@ vi.mock('vue-i18n', async () => {
 
 import EditAccountModal from '../EditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
@@ -450,6 +451,7 @@ describe('EditAccountModal', () => {
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(account.id, true, '2', undefined, review)
     wrapper.unmount()

@@ -42,7 +42,7 @@ const preview = async (accountId?: number) => {
   stopRequested = false
   running.value = true
   if (accountId === undefined) {
-    for (const row of rows.value) { row.state = 'idle'; row.result = undefined; row.errorKey = undefined }
+    for (const row of rows.value) { row.state = 'idle'; row.errorKey = undefined }
   }
   try {
     for (const row of rows.value) {
@@ -50,7 +50,6 @@ const preview = async (accountId?: number) => {
       if (accountId !== undefined && row.accountId !== accountId) continue
       row.state = 'loading'
       row.errorKey = undefined
-      row.result = undefined
       try {
         const result = await accountsAPI.syncUpstreamModels(row.accountId, false)
         if (requestGeneration !== generation) return
@@ -93,7 +92,8 @@ const addCommonModels = () => {
         </div>
         <p v-if="row.errorKey" role="alert">{{ t(`admin.accounts.${row.errorKey}`) }}</p>
         <p v-if="row.result" class="break-all text-sm">{{ (row.result.models ?? []).join(', ') }}</p>
-        <ModelCatalogDetails v-if="row.result" :result="row.result" :candidate-count="null" />
+        <p v-if="row.result && row.state !== 'ready'" role="status">{{ t('admin.accounts.modelSync.previousPreview') }}</p>
+        <ModelCatalogDetails v-if="row.result" :stale="row.state !== 'ready'" :result="row.result" :candidate-count="null" />
       </div>
     </div>
   </section>
