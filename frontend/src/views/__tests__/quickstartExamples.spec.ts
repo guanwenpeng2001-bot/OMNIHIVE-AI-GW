@@ -3,9 +3,9 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { createServer, type IncomingHttpHeaders, type Server } from 'node:http'
 import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
-import { mkdir, mkdtemp, writeFile, rm } from 'node:fs/promises'
-import { dirname, join, resolve } from 'node:path'
-import { fileURLToPath } from 'node:url'
+import { mkdtemp, writeFile, rm } from 'node:fs/promises'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { existsSync } from 'node:fs'
 import { parseModels, protocols, publicRoot, requestExample } from '@/components/intro/quickstart'
 const run = promisify(execFile)
@@ -14,9 +14,7 @@ let root: string
 let dir: string
 const received: { url: string; headers: IncomingHttpHeaders; body: unknown }[] = []
 beforeAll(async () => {
-  const artifacts = resolve(dirname(fileURLToPath(import.meta.url)), '../../../../.pi/quickstart-fixtures')
-  await mkdir(artifacts, { recursive: true })
-  dir = await mkdtemp(join(artifacts, 'request-'))
+  dir = await mkdtemp(join(tmpdir(), 'sub2api-quickstart-'))
   server = createServer(async (req, res) => {
     const chunks: Buffer[] = []
     for await (const chunk of req) chunks.push(Buffer.from(chunk))
@@ -28,8 +26,11 @@ beforeAll(async () => {
   root = `http://127.0.0.1:${(server.address() as { port: number }).port}/deployment/prefix`
 })
 afterAll(async () => {
-  await new Promise<void>(resolve => server.close(() => resolve()))
-  await rm(dir, { recursive: true, force: true })
+  try {
+    if (server?.listening) await new Promise<void>(resolve => server.close(() => resolve()))
+  } finally {
+    if (dir) await rm(dir, { recursive: true, force: true })
+  }
 })
 
 describe('copyable quickstart examples against a local mock', () => {
