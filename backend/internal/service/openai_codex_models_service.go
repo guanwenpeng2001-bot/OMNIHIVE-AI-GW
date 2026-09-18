@@ -134,6 +134,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
 	configuredModels := openAIConfiguredCodexModelIDsForGroup(visible, group)
+	configuredModels = filterCatalogModelIDs(ctx, s.accountRepo, catalog, configuredModels, "responses")
 	if len(configuredModels) == 0 {
 		return nil, false, nil
 	}
@@ -210,6 +211,39 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
+	if reader, ok := s.accountRepo.(ModelCatalogAccountRepository); ok {
+		accounts, err := reader.ListModelCatalogAccounts(ctx, &group.ID, []string{PlatformOpenAI}, false)
+		if err != nil {
+			return err
+		}
+		envelope, entries, err := modelCatalogEntries(body, "models")
+		if err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(entries))
+		byID := make(map[string]json.RawMessage, len(entries))
+		for _, entry := range entries {
+			var item struct {
+				Slug string `json:"slug"`
+			}
+			if err := json.Unmarshal(entry, &item); err != nil {
+				return err
+			}
+			ids = append(ids, item.Slug)
+			byID[item.Slug] = entry
+		}
+		eligible := filterCatalogModelIDs(ctx, s.accountRepo, accounts, ids, "responses")
+		envelope["models"], err = json.Marshal(selectModelCatalogEntries(byID, eligible))
+		if err != nil {
+			return err
+		}
+		body, err = json.Marshal(envelope)
+		if err != nil {
+			return err
+		}
+		changed = true
+	}
+
 	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
@@ -771,6 +805,21 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
 	if err != nil {
 		return BuildCodexModelsManifest(modelIDs)
+	}
+	if allowed, err := s.CatalogModelIDs(ctx, &group.ID, effectivePlatform); err != nil {
+		return nil, err
+	} else if allowed != nil {
+		eligible := make(map[string]bool, len(allowed))
+		for _, id := range allowed {
+			eligible[id] = true
+		}
+		filtered := make([]string, 0, len(modelIDs))
+		for _, id := range modelIDs {
+			if eligible[id] {
+				filtered = append(filtered, id)
+			}
+		}
+		modelIDs = filtered
 	}
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true

@@ -94,3 +94,13 @@ func TestSnapshotOpenAICompatibilityFallbackMetrics(t *testing.T) {
 	require.GreaterOrEqual(t, after.MetadataLegacyFallbackTotal, before.MetadataLegacyFallbackTotal+1)
 	require.GreaterOrEqual(t, after.MetadataLegacyFallbackThinkingEnabledTotal, before.MetadataLegacyFallbackThinkingEnabledTotal+1)
 }
+
+func TestAffinityOpenAIWrapperKeepsCASNamespace(t *testing.T) {
+	svc := &OpenAIGatewayService{}
+	key := "v2:binding:hmac:test:fixture"
+	ctx := withOpenAILegacySessionHash(context.Background(), "old")
+	require.Equal(t, key, svc.openAISessionCacheKey(key))
+	require.Empty(t, svc.openAILegacySessionCacheKey(ctx, key))
+	require.Equal(t, "openai:old-hash", svc.openAISessionCacheKey("old-hash"))
+	require.Equal(t, "openai:old", svc.openAILegacySessionCacheKey(ctx, "old-hash"))
+}

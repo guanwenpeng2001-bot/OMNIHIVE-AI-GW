@@ -293,9 +293,19 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		return output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": delta, "finish_reason": nil}}})
 	}
 	ctx = cursor.WithGenerationSendHook(ctx, func(request *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+			if err := validateAccountForwardModel(request.Context(), plan.catalogRepo, account, model, "chat_completions"); err != nil {
+				return nil, err
+			}
+		}
 		return generationHTTP(request, account.ID, send)
 	})
 	run := func() (cursor.TokenUsage, error) {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+			if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, model, "chat_completions"); err != nil {
+				return cursor.TokenUsage{}, err
+			}
+		}
 		if len(definitions) == 0 {
 			return gateway.native.Run(ctx, credentials, request.Messages, model, writeEvent)
 		}

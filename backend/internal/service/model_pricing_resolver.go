@@ -70,6 +70,11 @@ type PricingInput struct {
 // 1. 获取基础定价（LiteLLM → Fallback）
 // 2. 如果指定了 GroupID，查找渠道定价并覆盖
 func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) *ResolvedPricing {
+	if billing := r.billingService.forGatewayRequest(ctx); billing != r.billingService {
+		frozen := *r
+		frozen.billingService = billing
+		r = &frozen
+	}
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
 	platform := ""
 	if input.Group != nil {
