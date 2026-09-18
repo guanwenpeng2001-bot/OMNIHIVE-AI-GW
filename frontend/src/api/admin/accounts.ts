@@ -1,3 +1,4 @@
+import type { ModelCategoryMetadata } from '@/utils/modelCategories'
 /**
  * Admin Accounts API endpoints
  * Handles AI platform account management for administrators
@@ -6,6 +7,10 @@
 import { apiClient } from '../client'
 import type {
   Account,
+  AccountModelCatalog,
+  AccountModelCatalogDetails,
+  UpdateModelAllowlistRequest,
+  UpdateModelAllowlistResponse,
   AccountListItem,
   CreateAccountRequest,
   UpdateAccountRequest,
@@ -604,18 +609,33 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
-export interface SyncUpstreamModelsResult {
-  models: string[]
-  metadata?: Record<string, UpstreamModelMetadata>
-  warnings?: UpstreamModelSyncWarning[]
+/** Account-scoped holder declaration. Confirmation and identity fields are server-generated. */
+export interface ModelCapabilityDefaults {
+  schema_version: 1
+  reason: string
+  models: Record<string, Pick<Partial<UpstreamModelMetadata>,
+    'display_name' | 'task_type' | 'category' | 'context_window' | 'context_limit_kind' | 'max_output_tokens' |
+    'input_modalities' | 'input_modalities_status' | 'output_modalities' | 'reasoning' | 'reasoning_control' |
+    'supports_function_calling' | 'supports_prompt_caching' | 'embedding_dimensions' | 'task_limits'> & {
+      max_input_tokens?: number
+      tools?: { function_calling?: boolean }
+    }>
+  confirmed_by?: string
+  confirmed_at?: string
+  identity_revision?: string
+  identity_fingerprint?: string
 }
+
+export type SyncUpstreamModelsResult = AccountModelCatalog
 
 export interface UpstreamModelSyncWarning {
   code: string
   message: string
 }
 
-export interface UpstreamModelMetadata {
+export interface UpstreamModelMetadata extends ModelCategoryMetadata {
+  evidence_kind?: string
+  evidence_observed_at?: string
   id: string
   display_name?: string
   description?: string
@@ -626,6 +646,40 @@ export interface UpstreamModelMetadata {
   context_window?: number
   max_context_window?: number
   max_output_tokens?: number
+  context_limit_kind?: string
+  supports_function_calling?: boolean
+  supports_prompt_caching?: boolean
+  input_modalities_status?: string
+  endpoint_status?: string
+  provider_profile?: string
+  embedding_dimensions?: number
+  task_limits?: Record<string, unknown>
+  context_hint?: string
+  family_hint?: string
+  metadata_status?: 'complete' | 'estimated' | 'incomplete'
+  missing_fields?: string[]
+  estimated_fields?: string[]
+  conflicts?: string[]
+  reasoning_control?: {
+    kind: 'none' | 'effort' | 'toggle' | 'budget' | 'adaptive' | 'fixed' | 'unknown'
+    supported_kinds?: string[]
+    toggle_values?: boolean[]
+    adaptive?: boolean
+    effort_values?: string[]
+    budget_min?: number
+    budget_max?: number
+    default?: unknown
+  }
+  field_evidence?: Record<string, {
+    source: string
+    source_version?: string
+    content_hash?: string
+    provider_profile?: string
+    matched_model_id?: string
+    match_rule?: string
+    observed_at?: string
+    confidence?: string
+  }>
 }
 
 /**
@@ -633,8 +687,21 @@ export interface UpstreamModelMetadata {
  * @param id - Account ID
  * @returns List of model IDs returned by the upstream
  */
-export async function syncUpstreamModels(id: number, apply = true): Promise<SyncUpstreamModelsResult> {
-  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, undefined, { params: { apply } })
+export async function syncUpstreamModels(id: number, apply = false, expectedRulesRevision?: string, modelCapabilityDefaults?: Record<string, unknown> | null, review?: AccountModelCatalog['review']): Promise<SyncUpstreamModelsResult> {
+  if (apply && !review) throw new Error('A complete catalog review is required')
+  const body = apply ? { review } : modelCapabilityDefaults === undefined ? undefined : { model_capability_defaults: modelCapabilityDefaults }
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, body, { params: { apply, ...(expectedRulesRevision !== undefined ? { expected_rules_revision: expectedRulesRevision } : {}) } })
+  return data
+}
+
+/** Explicit account restriction with optimistic concurrency and an operator reason. */
+export async function updateModelAllowlist(id: number, request: UpdateModelAllowlistRequest): Promise<UpdateModelAllowlistResponse> {
+  const { data } = await apiClient.put<UpdateModelAllowlistResponse>(`/admin/accounts/${id}/models/allowlist`, request)
+  return data
+}
+
+export async function getModelCatalog(id: number): Promise<AccountModelCatalogDetails> {
+  const { data } = await apiClient.get<AccountModelCatalogDetails>(`/admin/accounts/${id}/models/catalog`)
   return data
 }
 
@@ -645,6 +712,7 @@ export interface SyncUpstreamPreviewParams {
   api_key?: string
   credentials?: Record<string, unknown>
   model_mapping?: Record<string, string>
+  model_capability_defaults?: Record<string, unknown> | null
 }
 
 /**
@@ -1101,6 +1169,8 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getModelCatalog,
+  updateModelAllowlist,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,

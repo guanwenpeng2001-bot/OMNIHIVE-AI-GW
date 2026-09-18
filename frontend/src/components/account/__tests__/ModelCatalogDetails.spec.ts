@@ -1,0 +1,160 @@
+import { describe, expect, it, vi } from 'vitest'
+import { mount } from '@vue/test-utils'
+vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key, te: () => true }) }))
+import { formatDateTime } from '@/utils/format'
+import ModelCatalogDetails from '../ModelCatalogDetails.vue'
+import notSynced from '@/api/__tests__/fixtures/model-catalog-not_synced.json'
+import empty from '@/api/__tests__/fixtures/model-catalog-empty.json'
+import nonempty from '@/api/__tests__/fixtures/model-catalog-nonempty.json'
+import identityInvalid from '@/api/__tests__/fixtures/model-catalog-identity_invalid.json'
+import failedHistory from '@/api/__tests__/fixtures/model-catalog-failed_history.json'
+import type { AccountModelCatalogDetails } from '@/types'
+
+describe('model catalog evidence display', () => {
+  it('renders category blocks even when some models have no metadata', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 3, result: {
+      models: ['chat-model', 'image-model', 'unknown-model'],
+      metadata: { 'chat-model': { task_type: 'text_generation' }, 'image-model': { output_modalities: ['image'] } }
+    } } })
+    expect(wrapper.findAll('[data-model-category]').map(block => block.attributes('data-model-category'))).toEqual(['chat', 'image', 'other'])
+    expect(wrapper.get('[data-model-category="image"]').text()).toContain('image-model')
+    expect(wrapper.get('[data-model-category="other"]').text()).toContain('unknown-model')
+  })
+  it('warns about stale evidence while preserving effective counts', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 40, summary: { ...nonempty, staleness: 'stale' } } })
+    expect(wrapper.get('[role="alert"]').text()).toContain('modelCatalog.stale')
+    expect(wrapper.findAll('dd')[2].text()).toBe('1')
+  })
+  it('keeps platform, native, effective and public quantities distinct without inventing public bindings', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 40, result: {
+      models: ['native-target'], discovered_models: ['native-target', 'gpt-pending'], applied: false,
+      diff: { added: ['native-target'], removed: ['old-target'], retained: [] },
+      excluded_models: [{ model: 'gpt-pending', reason: 'entitlement_unconfirmed' }],
+      invalid_aliases: ['old-public'],
+      public_model_diff: { added: ['public-alias'], removed: [], retained: ['other-alias'], bindings: [{ public_model: 'public-alias', target_model: 'native-target' }] }
+    } } })
+    expect(wrapper.findAll('dd').map(element => element.text())).toEqual(['40', '2', '1', '—'])
+    expect(wrapper.text()).toContain('modelSync.publicDiffUnavailable')
+    expect(wrapper.text()).not.toContain('public-alias → native-target')
+    expect(wrapper.text()).toContain('admin.accounts.modelSync.reasons.entitlement_unconfirmed')
+    expect(wrapper.text()).toContain('old-public')
+    expect(wrapper.text()).toContain('modelSync.previewOnly')
+  })
+  it('distinguishes unsynchronized counts from a successfully empty snapshot', async () => {
+    const summary = notSynced
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 40, summary } })
+    expect(wrapper.findAll('dd').map(element => element.text())).toEqual(['40', '—', '—', '—'])
+    expect(wrapper.text()).toContain('modelSync.notSynced')
+    await wrapper.setProps({ summary: empty })
+    expect(wrapper.text()).toContain('modelSync.syncedEmpty')
+    expect(wrapper.findAll('dd').map(element => element.text())).toEqual(['40', '0', '0', '—'])
+  })
+  it.each([
+    [nonempty, 'synced', ['40', '2', '1', '—']],
+    [identityInvalid, 'reasons.identity_changed', ['40', '2', '0', '—']],
+    [failedHistory, 'failedPrevious', ['40', '2', '1', '—']]
+  ] as const)('renders handler history, effective counts and evidence %#', (fixture, status, counts) => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 40, summary: fixture as AccountModelCatalogDetails } })
+    expect(wrapper.findAll('dd').map(element => element.text())).toEqual(counts)
+    expect(wrapper.text()).toContain(`modelSync.${status}`)
+    expect(wrapper.text()).toContain('account_discovery')
+    expect(wrapper.text()).toContain(formatDateTime('2026-09-16T01:00:00Z'))
+    expect(wrapper.text()).toContain('modelSync.publicDiffUnavailable')
+    if (fixture.last_error) expect(wrapper.text()).toContain(fixture.last_error)
+    if (fixture === identityInvalid) expect(wrapper.text()).not.toContain('modelSync.syncedEmpty')
+  })
+  it('shows expired and invalid identity evidence from reason codes without inferring from names', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 40, result: { models: [], warnings: [{ code: 'identity_changed', message: '' }, { code: 'stale_evidence', message: '' }] } } })
+    expect(wrapper.text()).toContain('modelSync.reasons.identity_changed')
+    expect(wrapper.text()).toContain('modelSync.reasons.stale_evidence')
+  })
+})
+
+
+it('retains preview evidence but hides invalidated differences and effective counts', () => {
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 2, stale: true, result: {
+    models: ['candidate'], complete: true, applied: false,
+    diff: { added: ['old-added'], removed: ['old-removed'], retained: [] },
+    public_model_diff: { added: ['old-public'], removed: [], retained: [] }
+  } } })
+  expect(wrapper.text()).toContain('candidate')
+  expect(wrapper.text()).not.toContain('old-added')
+  expect(wrapper.text()).not.toContain('old-removed')
+  expect(wrapper.text()).not.toContain('old-public')
+  expect(wrapper.findAll('dd')[2].text()).toBe('—')
+})
+
+
+it('keeps creation diagnostics collapsed and risks visible without saved-account noise', () => {
+  const wrapper = mount(ModelCatalogDetails, { props: { creationContext: true, candidateCount: 8, result: {
+    models: ['preview-model'], complete: true, applied: false,
+    diff: { added: [], removed: ['old-model'], retained: [] }
+  } } })
+  // 能力档案 details（逐字段缺口）排在诊断区之前且有意展开；断言定位诊断区本身。
+  const diagnostics = wrapper.findAll('details').find(d => d.text().includes('modelSync.platformCandidates'))
+  expect(diagnostics, 'diagnostics details must exist').toBeTruthy()
+  expect(diagnostics!.attributes('open')).toBeUndefined()
+  expect(wrapper.get('[role="alert"]').element.closest('details')).toBeNull()
+  expect(wrapper.text()).toContain('modelSync.previewCount')
+  expect(wrapper.text()).not.toContain('modelSync.savedConfigHint')
+  expect(wrapper.text()).not.toContain('modelSync.publicDiffUnavailable')
+})
+
+it('does not render an unknown diagnostic card before discovery', () => {
+  const wrapper = mount(ModelCatalogDetails, { props: { creationContext: true, candidateCount: 8 } })
+  expect(wrapper.find('section').exists()).toBe(false)
+})
+
+it('retains discovered-only models in the saved coverage denominator before a new preview', () => {
+  const wrapper = mount(ModelCatalogDetails, { props: {
+    candidateCount: 0, mappingTargets: ['mapped-only'],
+    summary: nonempty as AccountModelCatalogDetails
+  } })
+  const rows = wrapper.findAll('[data-testid="capability-row"]').map(row => row.text())
+  expect(rows).toHaveLength(3)
+  expect(rows.some(row => row.includes('native-target'))).toBe(true)
+  expect(rows.some(row => row.includes('pending-target'))).toBe(true)
+  expect(rows.some(row => row.includes('mapped-only'))).toBe(true)
+  expect(rows.every(row => row.includes('状态未提供'))).toBe(true)
+})
+
+
+it.each([534, 1000])('bounds a %s model capability catalog and opens field evidence on demand', async count => {
+  const discovered = Array.from({ length: count }, (_, i) => `model-${String(i).padStart(4, '0')}`)
+  const result = {
+    models: discovered.slice(0, 12), discovered_models: discovered, complete: true,
+    metadata: Object.fromEntries(discovered.map((id, i) => [id, {
+      metadata_status: i === count - 1 ? 'incomplete' : 'complete',
+      conflicts: i === count - 1 ? ['context_window conflict'] : [],
+      supports_function_calling: false,
+      field_evidence: { supports_function_calling: { source: 'upstream' } }
+    }]))
+  } as any
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 5, mappingTargets: [discovered[0]!, 'mapping-only', '*'], result } })
+  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain(`D ${count} · M 2 · U ${count + 1} · E 12`)
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(50)
+  expect(wrapper.findAll('[data-testid="capability-fields"]')).toHaveLength(0)
+  await wrapper.get('[data-testid="capability-search"]').setValue(discovered[count - 1])
+  const row = wrapper.get<HTMLDetailsElement>('[data-testid="capability-row"]')
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(1)
+  row.element.open = true
+  await row.trigger('toggle')
+  expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('supports_function_calling: false')
+  expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('T1 · upstream')
+  expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('context_window conflict')
+  await wrapper.get('[data-testid="capability-search"]').setValue('')
+  await wrapper.get('[data-testid="capability-filter"]').setValue('conflict')
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(1)
+  await wrapper.get('[data-testid="capability-filter"]').setValue('all')
+  await wrapper.get('[data-testid="capability-more"]').trigger('click')
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(100)
+})
+
+it.each([
+  [[], [], '未发现模型'],
+  [['discovered'], [], '无路由资格'],
+  [['discovered'], ['discovered'], '部分模型能力'],
+])('distinguishes discovery, eligibility and capability coverage %#', (discovered, eligible, state) => {
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 0, mappingTargets: [], result: { models: eligible, discovered_models: discovered, complete: true } } })
+  expect(wrapper.get('[data-testid="capability-state"]').text()).toContain(state)
+})
