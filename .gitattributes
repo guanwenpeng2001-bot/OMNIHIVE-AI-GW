@@ -20,3 +20,7 @@ backend/migrations/*.sql text eol=lf
 
 # Dockerfile
 Dockerfile text eol=lf
+
+# Capability release hashes require byte-stable embedded JSON resources.
+backend/resources/model-capabilities/*.json text eol=lf
+backend/resources/model-pricing/*.json text eol=lf

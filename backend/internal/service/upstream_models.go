@@ -9,8 +9,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"os"
+	"reflect"
+	"slices"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -28,6 +32,31 @@ const (
 )
 
 type UpstreamModelMetadata struct {
+	SupportsPDF             *bool                              `json:"supports_pdf,omitempty"`
+	RejectedCandidates      []ModelCapabilityRejection         `json:"rejected_candidates,omitempty"`
+	SupportsVision          *bool                              `json:"supports_vision,omitempty"`
+	ProviderProfile         string                             `json:"provider_profile,omitempty"`
+	SupportsFunctionCalling *bool                              `json:"supports_function_calling,omitempty"`
+	SupportsPromptCaching   *bool                              `json:"supports_prompt_caching,omitempty"`
+	ReasoningControl        *ReasoningControl                  `json:"reasoning_control,omitempty"`
+	ContextLimitKind        string                             `json:"context_limit_kind,omitempty"`
+	InputModalitiesStatus   string                             `json:"input_modalities_status,omitempty"`
+	EndpointStatus          string                             `json:"endpoint_status,omitempty"`
+	EmbeddingDimensions     int64                              `json:"embedding_dimensions,omitempty"`
+	TaskLimits              map[string]json.RawMessage         `json:"task_limits,omitempty"`
+	FieldEvidence           map[string]ModelCapabilityEvidence `json:"field_evidence,omitempty"`
+	MetadataStatus          string                             `json:"metadata_status,omitempty"`
+	MissingFields           []string                           `json:"missing_fields,omitempty"`
+	EstimatedFields         []string                           `json:"estimated_fields,omitempty"`
+	Conflicts               []string                           `json:"conflicts,omitempty"`
+	ContextHint             string                             `json:"context_hint,omitempty"`
+	FamilyHint              string                             `json:"family_hint,omitempty"`
+
+	Category         string   `json:"category,omitempty"`
+	TaskType         string   `json:"task_type,omitempty"`
+	SupportedMethods []string `json:"supported_methods,omitempty"`
+	OutputModalities []string `json:"output_modalities,omitempty"`
+
 	ID                       string                     `json:"id"`
 	DisplayName              string                     `json:"display_name,omitempty"`
 	Description              string                     `json:"description,omitempty"`
@@ -48,6 +77,23 @@ type UpstreamModelMetadataSnapshot struct {
 }
 
 type UpstreamModelCatalog struct {
+	SchemaVersion     int               `json:"schema_version"`
+	EnrichmentVersion string            `json:"enrichment_version"`
+	SourceGeneration  int64             `json:"source_generation"`
+	SourceVersions    map[string]string `json:"source_versions"`
+	AccountModelCatalogBaseline
+	Applied          bool                    `json:"applied"`
+	DiscoveryScope   string                  `json:"discovery_scope"`
+	ProviderProfile  string                  `json:"provider_profile"`
+	Complete         bool                    `json:"complete"`
+	ObservedAt       string                  `json:"observed_at"`
+	DiscoveredModels []string                `json:"discovered_models"`
+	Diff             AccountModelCatalogDiff `json:"diff"`
+	ExcludedModels   []ExcludedCatalogModel  `json:"excluded_models"`
+	InvalidAliases   []string                `json:"invalid_aliases"`
+	EligibleModels   []AccountCatalogModel   `json:"eligible_models"`
+	snapshot         *AccountModelCatalogSnapshot
+
 	CatalogSource   string                           `json:"catalog_source"`
 	MetadataSources []string                         `json:"metadata_sources,omitempty"`
 	Models          []string                         `json:"models"`
@@ -61,13 +107,18 @@ type UpstreamModelSyncWarning struct {
 }
 
 type modelsDevProvider struct {
-	ID     string                    `json:"id"`
-	Name   string                    `json:"name"`
-	API    string                    `json:"api"`
-	Models map[string]modelsDevModel `json:"models"`
+	Version string                    `json:"-"`
+	Stale   bool                      `json:"-"`
+	ID      string                    `json:"id"`
+	Name    string                    `json:"name"`
+	API     string                    `json:"api"`
+	Models  map[string]modelsDevModel `json:"models"`
 }
 
 type modelsDevModel struct {
+	ToolCall         *bool                      `json:"tool_call"`
+	ReasoningControl *ReasoningControl          `json:"reasoning_control"`
+	TaskType         string                     `json:"task_type"`
 	ID               string                     `json:"id"`
 	Name             string                     `json:"name"`
 	Description      string                     `json:"description"`
@@ -78,8 +129,11 @@ type modelsDevModel struct {
 }
 
 type modelsDevReasoningOption struct {
-	Type   string `json:"type"`
-	Values []any  `json:"values"`
+	Type    string          `json:"type"`
+	Min     *int64          `json:"min"`
+	Max     *int64          `json:"max"`
+	Default json.RawMessage `json:"default"`
+	Values  []any           `json:"values"`
 }
 
 type modelsDevModalities struct {
@@ -201,8 +255,8 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	return models, err
 }
 
-// ApplyDiscoveredModelMapping retains the legacy immediate-apply action without
-// writing a credential snapshot obtained before the network request.
+// ApplyDiscoveredModelMapping retains the existing immediate mapping action until
+// reviewed catalog administration replaces its callers.
 func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, accountID int64, models []string) error {
 	merger, ok := s.accountRepo.(AccountModelMappingMerger)
 	if !ok {
@@ -211,16 +265,20 @@ func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, ac
 	return merger.MergeDiscoveredModelMapping(ctx, accountID, models)
 }
 
-// SyncUpstreamModelCatalog fetches the account's live model list, enriches
-// missing capability fields from the provider registry used by the upstream,
-// and persists a normalized account snapshot when complete metadata is available.
-//
-// Persistence is per-model: models with complete capability fields are saved even
-// when other IDs in the same sync remain incomplete. An incomplete warning is
-// still returned so admins can tell ID sync succeeded without a full capability
-// snapshot. When no model is complete, the existing account snapshot is left
-// untouched.
+// SyncUpstreamModelCatalog preserves legacy metadata synchronization and persistence.
+// New catalog administration should use DiscoverModelCapabilities before projection.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
+	// Preserve the legacy metadata persistence contract until the reviewed catalog
+	// administration replaces this entry point. Capability completeness is separate.
+	upstreamCatalogNeedsRegistry := func(models []string, metadata map[string]UpstreamModelMetadata) bool {
+		for _, id := range models {
+			if !upstreamModelMetadataIsComplete(metadata[strings.TrimSpace(id)]) {
+				return true
+			}
+		}
+		return false
+	}
+
 	models, body, err := s.fetchUpstreamModelList(ctx, account)
 	liveListAvailable := err == nil
 	if err != nil {
@@ -292,6 +350,10 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 		}
 	}
 
+	for id, metadata := range catalog.Metadata {
+		metadata.InputModalities = normalizeCodexInputModalities(metadata.InputModalities)
+		catalog.Metadata[id] = metadata
+	}
 	completeMetadata := completeUpstreamModelMetadataSubset(capabilityIDs, catalog.Metadata)
 	persistedCapabilities := false
 	if len(completeMetadata) > 0 && account != nil && account.ID > 0 && s.accountRepo != nil {
@@ -350,6 +412,170 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	return catalog, nil
 }
 
+// DiscoverModelCapabilities enriches native discoveries without persisting or authorizing models.
+func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, account *Account, provider ModelCapabilityProvider) (*UpstreamModelCatalog, error) {
+	if account == nil {
+		return nil, newUpstreamModelSyncConfigError("Account is required for capability discovery", nil)
+	}
+	declarations, err := accountDeclaredCapabilities(account)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid model capability declaration", err)
+	}
+	models, body, err := s.fetchUpstreamModelList(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
+	if len(body) > 0 {
+		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok(), account.Platform)
+		if parseErr == nil {
+			catalog.Metadata = directMetadata
+			if len(directMetadata) > 0 {
+				catalog.MetadataSources = append(catalog.MetadataSources, "upstream")
+			}
+		}
+	}
+
+	// Capability enrichment also covers concrete model_mapping targets. Admins may
+	// whitelist models that the live /models list omitted; those still need registry
+	// metadata so Codex catalogs can advertise reasoning and modalities.
+	enrichIDs := dedupeAndSortModelIDs(append(append([]string{}, models...), configuredUpstreamModelsForCapabilitySync(account)...))
+	// V2 retains all discovered and mapping models, including media tasks.
+	if len(models) == 0 {
+		enrichIDs = []string{}
+	}
+	capabilityIDs := enrichIDs
+	profile := resolveCapabilityProfile(account)
+	nativeVersion := capabilityHash(body)
+	for _, id := range enrichIDs {
+		m := catalog.Metadata[id]
+		m.ID = id
+		if m.DisplayName == "" {
+			m.DisplayName = id
+			if m.FieldEvidence == nil {
+				m.FieldEvidence = make(map[string]ModelCapabilityEvidence)
+			}
+			m.FieldEvidence["display_name"] = ModelCapabilityEvidence{Source: "derived", SourceVersion: "id-label-v1", ProviderProfile: profile, MatchedModelID: id, MatchRule: "display_id", Confidence: "derived"}
+		}
+		m.ProviderProfile = profile
+		m.ReasoningControl = normalizeReasoningControl(m)
+		stampCapabilityEvidence(&m, "upstream", nativeVersion, profile, id, "native_id", "verified")
+		catalog.Metadata[id] = m
+	}
+	// Account deployment facts are the first Tier 2 source, below native facts
+	// and above public catalogs. A declaration never adds a discovered model.
+	for _, id := range enrichIDs {
+		if fallback, ok := declarations[id]; ok {
+			merged, changed := mergeUpstreamModelMetadata(catalog.Metadata[id], fallback)
+			catalog.Metadata[id] = merged
+			if changed {
+				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "account-declaration"))
+			}
+		}
+	}
+	var snapshot *ModelCapabilitySnapshot
+	if provider != nil {
+		snapshot = provider.CapabilitySnapshot()
+	}
+	if snapshot == nil {
+		snapshot, err = buildModelCapabilitySnapshot(nil)
+		if err != nil {
+			return nil, newUpstreamModelSyncInternalError("Failed to load capability baseline", err)
+		}
+	}
+	catalog.SchemaVersion, catalog.EnrichmentVersion = AccountModelCatalogSchemaVersion, "capability-v2"
+	catalog.SourceGeneration = snapshot.generation
+	catalog.SourceVersions = map[string]string{"local_catalog": snapshot.Version(), "endpoint_rules": "endpoint-contract-v1", "heuristics": "name-rules-v1"}
+	// A pin approves a concrete content version and monotonic generation; a
+	// timestamp from this request must never make an old catalog look newer.
+	var pin AccountCapabilityRelease
+	if decodeCatalogExtra(account.Extra, ModelCapabilityReleaseExtraKey, &pin) && equalCatalogSourceVersions(pin.SourceVersions, catalog.SourceVersions) && pin.SourceGeneration > catalog.SourceGeneration {
+		catalog.SourceGeneration = pin.SourceGeneration
+	}
+	for _, id := range enrichIDs {
+		match := lookupCapabilityMetadata(snapshot, profile, id)
+		if match.Status == "ambiguous" {
+			m := catalog.Metadata[id]
+			m.Conflicts = append(m.Conflicts, "ambiguous_identity")
+			catalog.Metadata[id] = m
+		}
+		if match.Status != "matched" {
+			continue
+		}
+		merged, changed := mergeUpstreamModelMetadata(catalog.Metadata[id], match.Metadata)
+		catalog.Metadata[id] = merged
+		if changed {
+			catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "litellm"))
+		}
+	}
+
+	if account != nil && account.IsCursor() {
+		for id, fallback := range builtinCursorModelMetadata(enrichIDs) {
+			fallback.InputModalitiesStatus = "partial"
+			stampCapabilityEvidence(&fallback, "cursor-builtin", "cursor-builtin-v1", profile, id, "hosting_exact", "verified")
+			merged, changed := mergeUpstreamModelMetadata(catalog.Metadata[id], fallback)
+			catalog.Metadata[id] = merged
+			if changed {
+				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "cursor-builtin"))
+			}
+		}
+	}
+	for _, id := range enrichIDs {
+		m := catalog.Metadata[id]
+		catalog.Metadata[id] = m
+	}
+	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
+		if registryMetadata, registryErr := s.fetchModelsDevMetadata(ctx, account, enrichIDs); len(registryMetadata) > 0 || registryErr == nil {
+			if registryErr != nil {
+				catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{Code: "model_metadata_registry_stale", Message: registryErr.Error()})
+			}
+			for modelID, fallback := range registryMetadata {
+				current := catalog.Metadata[modelID]
+				merged, changed := mergeUpstreamModelMetadata(current, fallback)
+				catalog.Metadata[modelID] = merged
+				if changed {
+					catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "models.dev"))
+				}
+			}
+		} else {
+			catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{Code: "model_metadata_registry_unavailable", Message: registryErr.Error()})
+			slog.Warn("upstream model capability metadata enrichment failed",
+				"account_id", upstreamModelSyncAccountID(account),
+				"platform", upstreamModelSyncPlatform(account),
+				"error", registryErr,
+			)
+		}
+	}
+
+	for _, id := range enrichIDs {
+		hints := inferModelCapabilityHints(id)
+		for field, e := range hints.FieldEvidence {
+			e.ProviderProfile = profile
+			hints.FieldEvidence[field] = e
+		}
+		m, _ := mergeUpstreamModelMetadata(catalog.Metadata[id], hints)
+		m.ReasoningControl = normalizeReasoningControl(m)
+		status := evaluateModelMetadataCompleteness(m)
+		m.MetadataStatus = status.Status
+		m.MissingFields = status.MissingFields
+		m.EstimatedFields = status.EstimatedFields
+		m.Conflicts = status.Conflicts
+		catalog.Metadata[id] = m
+		for _, e := range m.FieldEvidence {
+			if e.Source == "heuristic" {
+				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "heuristic"))
+				break
+			}
+		}
+	}
+	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
+		catalog.Warnings = append([]UpstreamModelSyncWarning{{Code: UpstreamModelMetadataIncompleteCode, Message: "Native discovery is complete; some capability metadata is unknown."}}, catalog.Warnings...)
+	}
+	catalog.DiscoveredModels = dedupeAndSortModelIDs(models)
+	// Only catalog projection can establish scoped completeness and eligibility.
+	return catalog, nil
+}
+
 func upstreamModelSyncStatusCode(err error) int {
 	var syncErr *UpstreamModelSyncError
 	if errors.As(err, &syncErr) {
@@ -358,9 +584,32 @@ func upstreamModelSyncStatusCode(err error) int {
 	return 0
 }
 
-func upstreamModelListEndpointUnsupported(err error) bool {
-	statusCode := upstreamModelSyncStatusCode(err)
-	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed
+// Only explicit authentication failures invalidate the last successful catalog.
+// A generic access denial can be scoped to model listing or billing.
+func newUpstreamModelDiscoveryHTTPError(status int, body []byte) error {
+	kind := UpstreamModelSyncErrorUpstream
+	switch status {
+	case http.StatusNotFound, http.StatusMethodNotAllowed:
+		kind = UpstreamModelSyncErrorUnsupported
+	case http.StatusUnauthorized:
+		kind = UpstreamModelSyncErrorCredentials
+	case http.StatusForbidden:
+		var payload struct {
+			Error struct {
+				Code string `json:"code"`
+				Type string `json:"type"`
+			} `json:"error"`
+		}
+		if json.Unmarshal(body, &payload) == nil {
+			for _, code := range []string{payload.Error.Code, payload.Error.Type} {
+				switch code {
+				case "invalid_api_key", "invalid_token", "token_expired", "token_revoked", "authentication_error":
+					kind = UpstreamModelSyncErrorCredentials
+				}
+			}
+		}
+	}
+	return &UpstreamModelSyncError{Kind: kind, StatusCode: status, Message: fmt.Sprintf("Upstream model list request failed with HTTP %d", status)}
 }
 
 func configuredUpstreamModelsForCapabilitySync(account *Account) []string {
@@ -408,7 +657,7 @@ func upstreamCatalogNeedsRegistry(models []string, metadata map[string]UpstreamM
 	for _, modelID := range models {
 		modelID = strings.TrimSpace(modelID)
 		model, ok := metadata[modelID]
-		if !ok || !upstreamModelMetadataIsComplete(model) {
+		if !ok || evaluateModelMetadataCompleteness(model).Status != "complete" {
 			return true
 		}
 	}
@@ -416,11 +665,13 @@ func upstreamCatalogNeedsRegistry(models []string, metadata map[string]UpstreamM
 }
 
 func upstreamModelMetadataIsUseful(metadata UpstreamModelMetadata) bool {
-	return strings.TrimSpace(metadata.DisplayName) != "" ||
+	return metadata.SupportsFunctionCalling != nil || metadata.SupportsPromptCaching != nil || metadata.ReasoningControl != nil || strings.TrimSpace(metadata.Category) != "" || strings.TrimSpace(metadata.TaskType) != "" ||
+		strings.TrimSpace(metadata.DefaultReasoningLevel) != "" ||
+		metadata.SupportedMethods != nil || metadata.OutputModalities != nil || strings.TrimSpace(metadata.DisplayName) != "" ||
 		strings.TrimSpace(metadata.Description) != "" ||
 		metadata.Reasoning != nil ||
-		len(metadata.SupportedReasoningLevels) > 0 ||
-		len(metadata.InputModalities) > 0 ||
+		metadata.SupportedReasoningLevels != nil ||
+		metadata.InputModalities != nil ||
 		len(metadata.CodexToolCapabilities) > 0 ||
 		metadata.ContextWindow > 0 ||
 		metadata.MaxContextWindow > 0 ||
@@ -445,42 +696,60 @@ func upstreamModelMetadataIsComplete(metadata UpstreamModelMetadata) bool {
 	return true
 }
 
-func completeUpstreamModelMetadataSubset(
-	modelIDs []string,
-	metadata map[string]UpstreamModelMetadata,
-) map[string]UpstreamModelMetadata {
-	if len(metadata) == 0 {
-		return nil
-	}
-	complete := make(map[string]UpstreamModelMetadata)
-	for _, modelID := range modelIDs {
-		modelID = strings.TrimSpace(modelID)
-		if modelID == "" {
-			continue
-		}
-		entry, ok := metadata[modelID]
-		if !ok || !upstreamModelMetadataIsComplete(entry) {
-			continue
-		}
-		if strings.TrimSpace(entry.ID) == "" {
-			entry.ID = modelID
-		}
-		complete[modelID] = entry
-	}
-	if len(complete) == 0 {
-		return nil
-	}
-	return complete
-}
-
+// The boolean reports accepted capability changes; rejection diagnostics alone
+// do not mean the fallback supplied usable metadata.
 func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (UpstreamModelMetadata, bool) {
-	merged := primary
+	merged := cloneUpstreamModelMetadata(primary)
 	changed := false
+	for key, value := range fallback.TaskLimits {
+		if _, exists := merged.TaskLimits[key]; exists {
+			continue
+		}
+		if merged.TaskLimits == nil {
+			merged.TaskLimits = make(map[string]json.RawMessage)
+		}
+		merged.TaskLimits[key] = slices.Clone(value)
+		if merged.FieldEvidence == nil {
+			merged.FieldEvidence = make(map[string]ModelCapabilityEvidence)
+		}
+		e, ok := fallback.FieldEvidence["task_limits."+key]
+		if !ok {
+			e = fallback.FieldEvidence["task_limits"]
+		}
+		merged.FieldEvidence["task_limits."+key] = e
+		changed = true
+	}
+	if merged.Category == "" && fallback.Category != "" {
+		merged.Category = fallback.Category
+		changed = true
+	}
+	if merged.TaskType == "" && fallback.TaskType != "" {
+		merged.TaskType = fallback.TaskType
+		changed = true
+	}
+	if merged.OutputModalities == nil && fallback.OutputModalities != nil {
+		merged.OutputModalities = slices.Clone(fallback.OutputModalities)
+		changed = true
+	}
+	if merged.SupportedMethods == nil && fallback.SupportedMethods != nil {
+		merged.SupportedMethods = slices.Clone(fallback.SupportedMethods)
+		changed = true
+	}
+	for key, value := range fallback.CodexToolCapabilities {
+		if _, exists := merged.CodexToolCapabilities[key]; exists {
+			continue
+		}
+		if merged.CodexToolCapabilities == nil {
+			merged.CodexToolCapabilities = make(map[string]json.RawMessage)
+		}
+		merged.CodexToolCapabilities[key] = slices.Clone(value)
+		changed = true
+	}
 	if strings.TrimSpace(merged.ID) == "" && strings.TrimSpace(fallback.ID) != "" {
 		merged.ID = strings.TrimSpace(fallback.ID)
 		changed = true
 	}
-	if strings.TrimSpace(merged.DisplayName) == "" && strings.TrimSpace(fallback.DisplayName) != "" {
+	if (strings.TrimSpace(merged.DisplayName) == "" || primary.FieldEvidence["display_name"].Source == "derived") && strings.TrimSpace(fallback.DisplayName) != "" {
 		merged.DisplayName = strings.TrimSpace(fallback.DisplayName)
 		changed = true
 	}
@@ -493,16 +762,25 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.Reasoning = &reasoning
 		changed = true
 	}
-	if strings.TrimSpace(merged.DefaultReasoningLevel) == "" && strings.TrimSpace(fallback.DefaultReasoningLevel) != "" {
+	control := merged.ReasoningControl
+	if control == nil || control.Kind == "unknown" {
+		control = fallback.ReasoningControl
+	}
+	allowEffort := reasoningControlAllowsEffort(control)
+	allowEffortLevels := allowEffort && (control == nil || control.Kind == "unknown" || control.EffortValues == nil || reflect.DeepEqual(control.EffortValues, fallback.SupportedReasoningLevels))
+	if allowEffort && (merged.Reasoning == nil || *merged.Reasoning) &&
+		(control == nil || control.Kind == "unknown" || control.EffortValues == nil || slices.Contains(control.EffortValues, strings.TrimSpace(fallback.DefaultReasoningLevel))) &&
+		(merged.SupportedReasoningLevels == nil || slices.Contains(merged.SupportedReasoningLevels, strings.TrimSpace(fallback.DefaultReasoningLevel))) &&
+		strings.TrimSpace(merged.DefaultReasoningLevel) == "" && strings.TrimSpace(fallback.DefaultReasoningLevel) != "" {
 		merged.DefaultReasoningLevel = strings.TrimSpace(fallback.DefaultReasoningLevel)
 		changed = true
 	}
-	if len(merged.SupportedReasoningLevels) == 0 && len(fallback.SupportedReasoningLevels) > 0 {
-		merged.SupportedReasoningLevels = append([]string(nil), fallback.SupportedReasoningLevels...)
+	if allowEffortLevels && (merged.Reasoning == nil || *merged.Reasoning) && merged.SupportedReasoningLevels == nil && fallback.SupportedReasoningLevels != nil {
+		merged.SupportedReasoningLevels = slices.Clone(fallback.SupportedReasoningLevels)
 		changed = true
 	}
-	if len(merged.InputModalities) == 0 && len(fallback.InputModalities) > 0 {
-		merged.InputModalities = append([]string(nil), fallback.InputModalities...)
+	if merged.InputModalities == nil && fallback.InputModalities != nil && compatibleVisionDeclaration(primary, fallback.InputModalities) {
+		merged.InputModalities = slices.Clone(fallback.InputModalities)
 		changed = true
 	}
 	if merged.ContextWindow <= 0 && fallback.ContextWindow > 0 {
@@ -514,11 +792,111 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		}
 		changed = true
 	}
-	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 {
+	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 && !(merged.ContextLimitKind == "total" && merged.ContextWindow > 0 && fallback.MaxOutputTokens > merged.ContextWindow) {
 		merged.MaxOutputTokens = fallback.MaxOutputTokens
 		changed = true
 	}
-	return merged, changed
+	a, b := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(fallback)
+	for _, name := range []string{"ProviderProfile", "SupportsVision", "SupportsPDF", "SupportsFunctionCalling", "SupportsPromptCaching", "ReasoningControl", "ContextLimitKind", "InputModalitiesStatus", "EndpointStatus", "EmbeddingDimensions", "ContextHint", "FamilyHint"} {
+		x, y := a.FieldByName(name), b.FieldByName(name)
+		if (name == "SupportsVision" || name == "SupportsPDF") && merged.InputModalities != nil && merged.InputModalitiesStatus != "partial" {
+			modality, flag := "image", fallback.SupportsVision
+			if name == "SupportsPDF" {
+				modality, flag = "pdf", fallback.SupportsPDF
+			}
+			if flag != nil && *flag != slices.Contains(merged.InputModalities, modality) {
+				continue
+			}
+		}
+		if name == "ReasoningControl" && merged.Reasoning != nil && !*merged.Reasoning {
+			continue
+		}
+		if name == "ReasoningControl" && primary.SupportedReasoningLevels != nil && len(primary.SupportedReasoningLevels) == 0 && fallback.ReasoningControl != nil && fallback.ReasoningControl.Kind == "effort" {
+			continue
+		}
+		if name == "ReasoningControl" && fallback.ReasoningControl != nil && primary.SupportedReasoningLevels != nil {
+			if !reasoningControlAllowsEffort(fallback.ReasoningControl) && len(primary.SupportedReasoningLevels) > 0 || fallback.ReasoningControl.Kind == "effort" && !reflect.DeepEqual(primary.SupportedReasoningLevels, fallback.ReasoningControl.EffortValues) {
+				continue
+			}
+		}
+		if name == "ContextLimitKind" && primary.ContextWindow > 0 {
+			continue
+		}
+		if name == "InputModalitiesStatus" && !reflect.DeepEqual(merged.InputModalities, fallback.InputModalities) {
+			continue
+		}
+		if name == "ReasoningControl" && merged.ReasoningControl != nil && merged.ReasoningControl.Kind == "unknown" && fallback.ReasoningControl != nil && fallback.ReasoningControl.Kind != "unknown" {
+			x.Set(y)
+			changed = true
+		}
+		if x.IsZero() && !y.IsZero() {
+			x.Set(y)
+			changed = true
+		}
+	}
+	if primary.InputModalitiesStatus == "partial" && len(fallback.InputModalities) > 0 && fallback.InputModalitiesStatus != "partial" && compatibleVisionDeclaration(primary, fallback.InputModalities) {
+		merged.InputModalities = slices.Clone(fallback.InputModalities)
+		merged.InputModalitiesStatus = fallback.InputModalitiesStatus
+		changed = true
+	}
+	before, after := metadataFieldValues(primary), metadataFieldValues(merged)
+	for f, e := range fallback.FieldEvidence {
+		if f == "task_limits" || strings.HasPrefix(f, "task_limits.") {
+			continue // per-key evidence must not relabel retained native limits
+		}
+		if value, ok := after[f]; ok && !reflect.DeepEqual(before[f].Interface(), value.Interface()) {
+			if merged.FieldEvidence == nil {
+				merged.FieldEvidence = make(map[string]ModelCapabilityEvidence)
+			}
+			merged.FieldEvidence[f] = e
+		}
+	}
+	recordRejectedCapabilityCandidates(&merged, fallback)
+	return cloneUpstreamModelMetadata(merged), changed
+}
+
+// Clone even unchanged entries: callers must not mutate cached registry or
+// native snapshots through a merged pointer, slice, map, or RawMessage.
+func cloneUpstreamModelMetadata(metadata UpstreamModelMetadata) UpstreamModelMetadata {
+	for _, p := range []**bool{&metadata.SupportsVision, &metadata.SupportsPDF, &metadata.SupportsFunctionCalling, &metadata.SupportsPromptCaching} {
+		if *p != nil {
+			v := **p
+			*p = &v
+		}
+	}
+	metadata.ReasoningControl = cloneReasoningControl(metadata.ReasoningControl)
+	metadata.FieldEvidence = cloneCapabilityEvidence(metadata.FieldEvidence)
+	metadata.MissingFields = slices.Clone(metadata.MissingFields)
+	metadata.EstimatedFields = slices.Clone(metadata.EstimatedFields)
+	metadata.Conflicts = slices.Clone(metadata.Conflicts)
+	metadata.RejectedCandidates = slices.Clone(metadata.RejectedCandidates)
+	for i := range metadata.RejectedCandidates {
+		metadata.RejectedCandidates[i].Value = slices.Clone(metadata.RejectedCandidates[i].Value)
+	}
+	if metadata.TaskLimits != nil {
+		c := make(map[string]json.RawMessage)
+		for k, v := range metadata.TaskLimits {
+			c[k] = slices.Clone(v)
+		}
+		metadata.TaskLimits = c
+	}
+
+	if metadata.Reasoning != nil {
+		value := *metadata.Reasoning
+		metadata.Reasoning = &value
+	}
+	metadata.SupportedMethods = slices.Clone(metadata.SupportedMethods)
+	metadata.OutputModalities = slices.Clone(metadata.OutputModalities)
+	metadata.InputModalities = slices.Clone(metadata.InputModalities)
+	metadata.SupportedReasoningLevels = slices.Clone(metadata.SupportedReasoningLevels)
+	if metadata.CodexToolCapabilities != nil {
+		cloned := make(map[string]json.RawMessage, len(metadata.CodexToolCapabilities))
+		for key, value := range metadata.CodexToolCapabilities {
+			cloned[key] = slices.Clone(value)
+		}
+		metadata.CodexToolCapabilities = cloned
+	}
+	return metadata
 }
 
 func (s *AccountTestService) fetchModelsDevMetadata(
@@ -530,7 +908,7 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 		return nil, fmt.Errorf("model metadata registry is not configured")
 	}
 	registry, err := s.fetchModelsDevRegistry(ctx, account)
-	if err != nil {
+	if err != nil && len(registry) == 0 {
 		return nil, err
 	}
 	provider, ok := matchModelsDevProvider(registry, upstreamModelRegistryBaseURL(account))
@@ -538,40 +916,131 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 		return nil, fmt.Errorf("no model metadata provider matches account base URL")
 	}
 
+	profile := resolveCapabilityProfile(account)
+	if (profile == "grok-oauth" || profile == "antigravity" || profile == "openai-codex" || profile == "cursor" || profile == "commandcode") && provider.ID != profile {
+		return nil, fmt.Errorf("registry_hosting_profile_mismatch: %s", profile)
+	}
 	metadata := make(map[string]UpstreamModelMetadata)
+	byID, ambiguous := buildModelsDevIDIndex(provider)
 	for _, modelID := range modelIDs {
 		modelID = strings.TrimSpace(modelID)
 		model, found := provider.Models[modelID]
+		rule := "exact"
 		if !found {
-			for candidateID, candidate := range provider.Models {
-				if strings.EqualFold(strings.TrimSpace(candidateID), modelID) || strings.EqualFold(strings.TrimSpace(candidate.ID), modelID) {
-					model = candidate
-					found = true
-					break
-				}
+			if ambiguous[modelID] {
+				continue
 			}
+			model, found = byID[modelID]
+			rule = "record_id"
 		}
 		if !found {
 			continue
 		}
 		entry := upstreamMetadataFromModelsDevModel(modelID, model)
+		entry.ProviderProfile = resolveCapabilityProfile(account)
+		matchedID := strings.TrimSpace(model.ID)
+		if matchedID == "" {
+			matchedID = modelID
+		}
+		stampCapabilityEvidence(&entry, "models.dev", provider.Version, entry.ProviderProfile, matchedID, rule, "verified")
+		if provider.Stale {
+			for field, e := range entry.FieldEvidence {
+				e.Stale = true
+				entry.FieldEvidence[field] = e
+			}
+		}
 		if upstreamModelMetadataIsUseful(entry) {
 			metadata[modelID] = entry
 		}
 	}
-	return metadata, nil
+	return metadata, err
 }
 
+// In-flight work is isolated by service and network egress. Waiters may cancel
+// independently; the shared request has its own finite budget.
+type modelsDevFlightKey struct {
+	service *AccountTestService
+	proxy   string
+}
+type modelsDevFlight struct {
+	done     chan struct{}
+	registry map[string]modelsDevProvider
+	err      error
+}
+
+var modelsDevFlights = struct {
+	sync.Mutex
+	entries map[modelsDevFlightKey]*modelsDevFlight
+}{entries: make(map[modelsDevFlightKey]*modelsDevFlight)}
+
+const modelsDevOnlineBudget = 3 * time.Second
+const modelsDevStaleGrace = 72 * time.Hour
+
 func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
-	now := time.Now()
+	if s == nil || account == nil {
+		return nil, fmt.Errorf("registry_not_configured")
+	}
+	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
+		return nil, fmt.Errorf("registry_offline")
+	}
 	s.modelMetadataRegistryMu.Lock()
-	if len(s.modelMetadataRegistry) > 0 && now.Sub(s.modelMetadataRegistryAt) < modelsDevRegistryTTL {
-		cached := s.modelMetadataRegistry
-		s.modelMetadataRegistryMu.Unlock()
+	cached, at := s.modelMetadataRegistry, s.modelMetadataRegistryAt
+	s.modelMetadataRegistryMu.Unlock()
+	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
 	}
-	s.modelMetadataRegistryMu.Unlock()
+	key := modelsDevFlightKey{s, upstreamModelsProxyURL(account)}
+	modelsDevFlights.Lock()
+	flight, ok := modelsDevFlights.entries[key]
+	if !ok {
+		// A previous flight may have published between our first cache read and
+		// acquiring the flight mutex.
+		s.modelMetadataRegistryMu.Lock()
+		latest, loaded := s.modelMetadataRegistry, s.modelMetadataRegistryAt
+		s.modelMetadataRegistryMu.Unlock()
+		if len(latest) > 0 && time.Since(loaded) < modelsDevRegistryTTL {
+			modelsDevFlights.Unlock()
+			return latest, nil
+		}
+		flight = &modelsDevFlight{done: make(chan struct{})}
+		modelsDevFlights.entries[key] = flight
+		go func() {
+			requestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsDevOnlineBudget)
+			defer cancel()
+			registry, err := s.downloadModelsDevRegistry(requestCtx, account)
+			if err == nil {
+				s.modelMetadataRegistryMu.Lock()
+				s.modelMetadataRegistry = registry
+				s.modelMetadataRegistryAt = time.Now()
+				s.modelMetadataRegistryMu.Unlock()
+			} else if len(cached) > 0 && time.Since(at) <= modelsDevRegistryTTL+modelsDevStaleGrace {
+				registry = make(map[string]modelsDevProvider, len(cached))
+				for k, v := range cached {
+					v.Stale = true
+					registry[k] = v
+				}
+			}
+			modelsDevFlights.Lock()
+			flight.registry = registry
+			flight.err = err
+			delete(modelsDevFlights.entries, key)
+			close(flight.done)
+			modelsDevFlights.Unlock()
+		}()
+	}
+	modelsDevFlights.Unlock()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-flight.done:
+		return flight.registry, flight.err
+	}
+}
 
+func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
+	if s.httpUpstream == nil {
+		return nil, fmt.Errorf("registry_not_configured")
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevRegistryURL, nil)
 	if err != nil {
 		return nil, err
@@ -580,6 +1049,9 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	resp, err := s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
 	if err != nil {
 		return nil, err
+	}
+	if resp == nil || resp.Body == nil {
+		return nil, fmt.Errorf("registry_empty_response")
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
@@ -600,10 +1072,14 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 		return nil, fmt.Errorf("model metadata registry is empty")
 	}
 
-	s.modelMetadataRegistryMu.Lock()
-	s.modelMetadataRegistry = registry
-	s.modelMetadataRegistryAt = now
-	s.modelMetadataRegistryMu.Unlock()
+	version := capabilityHash(body)
+	for key, provider := range registry {
+		provider.Version = version
+		if provider.ID == "" {
+			provider.ID = key
+		}
+		registry[key] = provider
+	}
 	return registry, nil
 }
 
@@ -616,25 +1092,34 @@ func upstreamMetadataFromModelsDevModel(modelID string, model modelsDevModel) Up
 	}
 	metadata := UpstreamModelMetadata{
 		ID:                       strings.TrimSpace(modelID),
+		OutputModalities:         model.Modalities.Output,
 		DisplayName:              strings.TrimSpace(model.Name),
 		Description:              strings.TrimSpace(model.Description),
 		Reasoning:                reasoning,
 		SupportedReasoningLevels: levels,
-		InputModalities:          normalizeCodexInputModalities(model.Modalities.Input),
+		InputModalities:          slices.Clone(model.Modalities.Input),
+		SupportsFunctionCalling:  model.ToolCall,
+		ReasoningControl:         model.ReasoningControl,
+		ContextLimitKind:         "total",
+		InputModalitiesStatus:    "complete",
 		ContextWindow:            model.Limit.Context,
-		MaxContextWindow:         model.Limit.Context,
 		MaxOutputTokens:          model.Limit.Output,
 	}
-	if len(levels) > 0 {
-		metadata.DefaultReasoningLevel = levels[0]
+	metadata.ReasoningControl = reasoningControlFromOptions(metadata, model.ReasoningOptions)
+	projectReasoningEffort(&metadata)
+	if model.TaskType != "" {
+		metadata.TaskType = model.TaskType
 	}
-	if strings.TrimSpace(model.ID) != "" {
-		metadata.ID = strings.TrimSpace(model.ID)
+	if metadata.TaskType == "" && len(model.Modalities.Output) == 1 && model.Modalities.Output[0] == "text" {
+		metadata.TaskType = "text_generation"
 	}
 	return metadata
 }
 
 func reasoningLevelsFromModelsDevOptions(options []modelsDevReasoningOption) []string {
+	if options == nil {
+		return nil
+	}
 	levels := make([]string, 0)
 	for _, option := range options {
 		if !strings.EqualFold(strings.TrimSpace(option.Type), "effort") {
@@ -642,7 +1127,6 @@ func reasoningLevelsFromModelsDevOptions(options []modelsDevReasoningOption) []s
 		}
 		for _, value := range option.Values {
 			if value == nil {
-				levels = append(levels, "none")
 				continue
 			}
 			if effort, ok := value.(string); ok {
@@ -679,6 +1163,15 @@ func matchModelsDevProvider(registry map[string]modelsDevProvider, accountBaseUR
 	if provider, ok := matchModelsDevProviderByAPIURL(registry, accountBaseURL); ok {
 		return provider, true
 	}
+	// A matching API candidate with no winner means an ambiguous tie. Do not
+	// hide that ambiguity by falling through to a host default.
+	normalized := normalizeModelRegistryBaseURL(accountBaseURL)
+	for _, provider := range registry {
+		candidate := normalizeModelRegistryBaseURL(provider.API)
+		if candidate != "" && (normalized == candidate || strings.HasPrefix(normalized, candidate+"/") || strings.HasPrefix(candidate, normalized+"/")) {
+			return modelsDevProvider{}, false
+		}
+	}
 	return matchModelsDevProviderByKnownHost(registry, accountBaseURL)
 }
 
@@ -689,6 +1182,7 @@ func matchModelsDevProviderByAPIURL(registry map[string]modelsDevProvider, accou
 	}
 	var best modelsDevProvider
 	bestScore := -1
+	ambiguous := false
 	for _, provider := range registry {
 		providerBaseURL := normalizeModelRegistryBaseURL(provider.API)
 		if providerBaseURL == "" {
@@ -702,9 +1196,12 @@ func matchModelsDevProviderByAPIURL(registry map[string]modelsDevProvider, accou
 		if len(providerBaseURL) > bestScore {
 			best = provider
 			bestScore = len(providerBaseURL)
+			ambiguous = false
+		} else if len(providerBaseURL) == bestScore {
+			ambiguous = true
 		}
 	}
-	return best, bestScore >= 0
+	return best, bestScore >= 0 && !ambiguous
 }
 
 // matchModelsDevProviderByKnownHost covers first-party hosts whose models.dev
@@ -724,6 +1221,16 @@ func matchModelsDevProviderByKnownHost(registry map[string]modelsDevProvider, ac
 		providerID = "cursor"
 	case "opencode.ai":
 		providerID = "opencode-go"
+	case "api.x.ai":
+		providerID = "xai"
+	case "dashscope.aliyuncs.com":
+		providerID = "alibaba-cn"
+	case "dashscope-intl.aliyuncs.com":
+		providerID = "alibaba"
+	case "api.anthropic.com":
+		providerID = "anthropic"
+	case "generativelanguage.googleapis.com":
+		providerID = "google"
 	default:
 		return modelsDevProvider{}, false
 	}
@@ -1260,6 +1767,43 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 	return dedupeAndSortModelIDs(models), nil
 }
 
+// Turn the RPC's ID-keyed map into the common catalog envelope without reducing
+// ModelInfo to IDs. Prefer the raw object to preserve fields added upstream but
+// not yet represented by the client type (and retain null/false presence).
+func normalizeAntigravityUpstreamModels(infos map[string]antigravity.ModelInfo, raw map[string]any) ([]string, []byte, error) {
+	keys := make([]string, 0, len(infos))
+	for key := range infos {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	rawModels, _ := raw["models"].(map[string]any)
+	models := make([]string, 0, len(keys))
+	entries := make([]map[string]json.RawMessage, 0, len(keys))
+	for _, key := range keys {
+		id := strings.TrimSpace(key)
+		if id == "" {
+			continue
+		}
+		var source any = infos[key]
+		if value, ok := rawModels[key].(map[string]any); ok {
+			source = value
+		}
+		encoded, err := json.Marshal(source)
+		if err != nil {
+			return nil, nil, err
+		}
+		var entry map[string]json.RawMessage
+		if err := json.Unmarshal(encoded, &entry); err != nil {
+			return nil, nil, err
+		}
+		entry["id"], _ = json.Marshal(id)
+		models = append(models, id)
+		entries = append(entries, entry)
+	}
+	body, err := json.Marshal(map[string]any{"models": entries})
+	return dedupeAndSortModelIDs(models), body, err
+}
+
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
 	if s.tlsFPProfileService == nil {
 		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
@@ -1320,6 +1864,40 @@ type upstreamModelEntryMetadata struct {
 }
 
 type upstreamModelCapabilityEntry struct {
+	ThinkingBudget          *int64                     `json:"thinkingBudget"`
+	ToolCall                *bool                      `json:"tool_call"`
+	SupportsFunctionCalling *bool                      `json:"supports_function_calling,omitempty"`
+	SupportsPromptCaching   *bool                      `json:"supports_prompt_caching,omitempty"`
+	ReasoningControl        *ReasoningControl          `json:"reasoning_control,omitempty"`
+	ContextLimitKind        string                     `json:"context_limit_kind,omitempty"`
+	InputModalitiesStatus   string                     `json:"input_modalities_status,omitempty"`
+	EndpointStatus          string                     `json:"endpoint_status,omitempty"`
+	EmbeddingDimensions     int64                      `json:"embedding_dimensions,omitempty"`
+	TaskLimits              map[string]json.RawMessage `json:"task_limits,omitempty"`
+
+	Category                   string   `json:"category"`
+	TaskType                   string   `json:"task_type"`
+	SupportedMethods           []string `json:"supported_methods"`
+	OutputModalities           []string `json:"output_modalities"`
+	SupportedGenerationMethods []string `json:"supportedGenerationMethods"`
+	InputTokenLimit            int64    `json:"inputTokenLimit"`
+	OutputTokenLimit           int64    `json:"outputTokenLimit"`
+	DisplayNameCamel           string   `json:"displayName"`
+	SupportsThinking           *bool    `json:"supportsThinking"`
+	Thinking                   *bool    `json:"thinking"`
+	SupportsImages             *bool    `json:"supportsImages"`
+	MaxOutputTokensCamel       int64    `json:"maxOutputTokens"`
+	MaxInputTokens             int64    `json:"max_input_tokens"`
+	// Anthropic's max_tokens is an output limit. Antigravity's maxTokens
+	// deliberately has no projection: its context/output semantics are unverified.
+	MaxTokens    int64 `json:"max_tokens"`
+	Capabilities struct {
+		Thinking   upstreamSupportedCapability `json:"thinking"`
+		ImageInput upstreamSupportedCapability `json:"image_input"`
+		PDFInput   upstreamSupportedCapability `json:"pdf_input"`
+		Effort     map[string]json.RawMessage  `json:"effort"`
+	} `json:"capabilities"`
+
 	upstreamModelEntry
 	DisplayName              string                     `json:"display_name"`
 	Description              string                     `json:"description"`
@@ -1336,6 +1914,21 @@ type upstreamModelCapabilityEntry struct {
 	Limit                    modelsDevLimit             `json:"limit"`
 }
 
+// Older native schemas use booleans, newer schemas use {"supported": bool}.
+// Missing and null declarations both remain unknown, never false by default.
+type upstreamSupportedCapability struct {
+	Supported *bool                                  `json:"supported"`
+	Types     map[string]upstreamSupportedCapability `json:"types,omitempty"`
+}
+
+func (capability *upstreamSupportedCapability) UnmarshalJSON(body []byte) error {
+	if string(body) == "true" || string(body) == "false" || string(body) == "null" {
+		return json.Unmarshal(body, &capability.Supported)
+	}
+	type plain upstreamSupportedCapability
+	return json.Unmarshal(body, (*plain)(capability))
+}
+
 func extractUpstreamModelIDs(body []byte) ([]string, error) {
 	return extractUpstreamModelIDsWithSelector(body, upstreamModelEntryID)
 }
@@ -1344,7 +1937,7 @@ func extractGrokUpstreamModelIDs(body []byte) ([]string, error) {
 	return extractUpstreamModelIDsWithSelector(body, grokUpstreamModelEntryID)
 }
 
-func extractUpstreamModelCatalog(body []byte, grok bool) ([]string, map[string]UpstreamModelMetadata, error) {
+func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]string, map[string]UpstreamModelMetadata, error) {
 	entries, err := extractUpstreamModelRawEntries(body)
 	if err != nil {
 		return nil, nil, err
@@ -1361,6 +1954,11 @@ func extractUpstreamModelCatalog(body []byte, grok bool) ([]string, map[string]U
 		if err := json.Unmarshal(raw, &capability); err != nil {
 			continue
 		}
+		// max_tokens has incompatible meanings across APIs. Only the Anthropic
+		// model-list contract establishes that it is an output limit.
+		if len(platform) == 0 || platform[0] != PlatformAnthropic {
+			capability.MaxTokens = 0
+		}
 		modelID := strings.TrimSpace(selectID(capability.upstreamModelEntry))
 		if modelID == "" {
 			continue
@@ -1371,6 +1969,9 @@ func extractUpstreamModelCatalog(body []byte, grok bool) ([]string, map[string]U
 		if err := json.Unmarshal(raw, &fields); err == nil {
 			entry.CodexToolCapabilities = make(map[string]json.RawMessage)
 			applyCodexToolCapabilities(entry.CodexToolCapabilities, fields, true)
+			if len(entry.CodexToolCapabilities) == 0 {
+				entry.CodexToolCapabilities = nil
+			}
 		}
 		if upstreamModelMetadataIsUseful(entry) {
 			metadata[modelID] = entry
@@ -1391,60 +1992,169 @@ func extractUpstreamModelRawEntries(body []byte) ([]json.RawMessage, error) {
 		return entries, nil
 	}
 	var entries []json.RawMessage
-	if err := json.Unmarshal(body, &entries); err != nil {
+	if err := json.Unmarshal(body, &entries); err != nil || entries == nil {
 		return nil, fmt.Errorf("parse upstream model catalog: %w", err)
 	}
 	return entries, nil
 }
 
 func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapabilityEntry) UpstreamModelMetadata {
-	levels := reasoningLevelsFromRawEntries(entry.SupportedReasoningLevels)
-	if len(levels) == 0 {
+	var levels []string
+	if entry.SupportedReasoningLevels != nil {
+		levels = reasoningLevelsFromRawEntries(entry.SupportedReasoningLevels)
+	} else if entry.ReasoningOptions != nil {
 		levels = reasoningLevelsFromModelsDevOptions(entry.ReasoningOptions)
+	} else if entry.Capabilities.Effort != nil {
+		// Project only explicitly supported native effort values. A thinking
+		// toggle or budget alone cannot establish an effort list or default.
+		var supported *bool
+		_ = json.Unmarshal(entry.Capabilities.Effort["supported"], &supported)
+		if supported != nil && !*supported {
+			levels = []string{}
+		} else {
+			for _, level := range []string{"low", "medium", "high", "xhigh", "max"} {
+				var capability upstreamSupportedCapability
+				if json.Unmarshal(entry.Capabilities.Effort[level], &capability) == nil && capability.Supported != nil {
+					if levels == nil {
+						levels = []string{}
+					}
+					if *capability.Supported {
+						levels = append(levels, level)
+					}
+				}
+			}
+		}
 	}
 	reasoning := entry.Reasoning
+	if reasoning == nil {
+		reasoning = entry.SupportsThinking
+	}
+	if reasoning == nil {
+		reasoning = entry.Thinking
+	}
+	if reasoning == nil {
+		reasoning = entry.Capabilities.Thinking.Supported
+	}
 	if reasoning == nil && len(levels) > 0 {
 		inferred := len(levels) != 1 || levels[0] != "none"
 		reasoning = &inferred
 	}
 	modalities := entry.InputModalities
-	if len(modalities) == 0 {
+	if modalities == nil {
 		modalities = entry.Modalities.Input
 	}
-	contextWindow := entry.ContextWindow
-	if contextWindow <= 0 {
-		contextWindow = entry.MaxContextWindow
+	images := entry.SupportsImages
+	if images == nil {
+		images = entry.Capabilities.ImageInput.Supported
 	}
-	if contextWindow <= 0 {
-		contextWindow = entry.ContextLength
+	if modalities == nil && (images != nil || entry.Capabilities.PDFInput.Supported != nil) {
+		modalities = []string{"text"}
+		if images != nil && *images {
+			modalities = append(modalities, "image")
+		}
+		if pdf := entry.Capabilities.PDFInput.Supported; pdf != nil && *pdf {
+			modalities = append(modalities, "pdf")
+		}
 	}
-	if contextWindow <= 0 {
-		contextWindow = entry.Limit.Context
+	if modalities != nil {
+		modalities = slices.Clone(modalities)
 	}
-	maxOutputTokens := entry.MaxOutputTokens
-	if maxOutputTokens <= 0 {
-		maxOutputTokens = entry.Limit.Output
-	}
+	contextWindow := firstPositiveUpstreamLimit(entry.ContextWindow, entry.MaxContextWindow, entry.ContextLength, entry.Limit.Context, entry.InputTokenLimit, entry.MaxInputTokens)
+	maxOutputTokens := firstPositiveUpstreamLimit(entry.MaxOutputTokens, entry.MaxOutputTokensCamel, entry.Limit.Output, entry.OutputTokenLimit, entry.MaxTokens)
 	defaultReasoningLevel := normalizeReasoningLevel(entry.DefaultReasoningLevel)
-	if defaultReasoningLevel == "" && len(levels) > 0 {
-		defaultReasoningLevel = levels[0]
-	}
 	displayName := strings.TrimSpace(entry.DisplayName)
+	if displayName == "" {
+		displayName = strings.TrimSpace(entry.DisplayNameCamel)
+	}
 	if displayName == "" && strings.TrimSpace(entry.Name) != "" && strings.TrimSpace(entry.Name) != modelID {
 		displayName = strings.TrimSpace(entry.Name)
 	}
-	return UpstreamModelMetadata{
+	metadata := UpstreamModelMetadata{
 		ID:                       modelID,
+		Category:                 strings.TrimSpace(entry.Category),
+		TaskType:                 strings.TrimSpace(entry.TaskType),
+		SupportedMethods:         entry.SupportedMethods,
+		OutputModalities:         entry.OutputModalities,
 		DisplayName:              displayName,
 		Description:              strings.TrimSpace(entry.Description),
 		Reasoning:                reasoning,
 		DefaultReasoningLevel:    defaultReasoningLevel,
 		SupportedReasoningLevels: levels,
-		InputModalities:          normalizeCodexInputModalities(modalities),
+		InputModalities:          modalities,
 		ContextWindow:            contextWindow,
-		MaxContextWindow:         entry.MaxContextWindow,
+		MaxContextWindow:         firstPositiveUpstreamLimit(entry.MaxContextWindow),
 		MaxOutputTokens:          maxOutputTokens,
 	}
+	if metadata.SupportedMethods == nil {
+		metadata.SupportedMethods = entry.SupportedGenerationMethods
+	}
+	if metadata.OutputModalities == nil {
+		metadata.OutputModalities = entry.Modalities.Output
+	}
+	if metadata.TaskType == "" && len(metadata.OutputModalities) == 1 && metadata.OutputModalities[0] == "text" && !slices.Contains(metadata.InputModalities, "audio") {
+		metadata.TaskType = "text_generation"
+	}
+	metadata.SupportsVision = images
+	metadata.SupportsPDF = entry.Capabilities.PDFInput.Supported
+	metadata.SupportsFunctionCalling = entry.SupportsFunctionCalling
+	if metadata.SupportsFunctionCalling == nil {
+		metadata.SupportsFunctionCalling = entry.ToolCall
+	}
+	metadata.SupportsPromptCaching = entry.SupportsPromptCaching
+	metadata.ReasoningControl = entry.ReasoningControl
+	if metadata.ReasoningControl == nil && reasoning != nil && *reasoning && entry.Capabilities.Thinking.Types != nil {
+		c := &ReasoningControl{Kind: "unknown"}
+		for _, native := range []struct{ name, kind string }{{"adaptive", "adaptive"}, {"enabled", "budget"}} {
+			if supported := entry.Capabilities.Thinking.Types[native.name].Supported; supported != nil && *supported {
+				if c.Kind == "unknown" {
+					c.Kind = native.kind
+				}
+				c.SupportedKinds = append(c.SupportedKinds, native.kind)
+			}
+		}
+		if slices.Contains(c.SupportedKinds, "adaptive") {
+			yes := true
+			c.Adaptive = &yes
+		}
+		if len(levels) > 0 {
+			c.SupportedKinds = append(c.SupportedKinds, "effort")
+			c.EffortValues = slices.Clone(levels)
+		}
+		metadata.ReasoningControl = c
+	}
+	if metadata.ReasoningControl == nil && entry.ThinkingBudget != nil && metadata.Reasoning != nil && *metadata.Reasoning {
+		value, _ := json.Marshal(*entry.ThinkingBudget)
+		metadata.ReasoningControl = &ReasoningControl{Kind: "budget", Default: value}
+	}
+	metadata.ReasoningControl = reasoningControlFromOptions(metadata, entry.ReasoningOptions)
+	projectReasoningEffort(&metadata)
+	metadata.ContextLimitKind = entry.ContextLimitKind
+	if metadata.ContextLimitKind == "" && metadata.ContextWindow > 0 {
+		metadata.ContextLimitKind = "total"
+		if entry.ContextWindow <= 0 && entry.MaxContextWindow <= 0 && entry.ContextLength <= 0 && entry.Limit.Context <= 0 {
+			metadata.ContextLimitKind = "input"
+		}
+	}
+	metadata.InputModalitiesStatus = entry.InputModalitiesStatus
+	if metadata.InputModalitiesStatus == "" && modalities != nil {
+		metadata.InputModalitiesStatus = "complete"
+		if entry.InputModalities == nil && entry.Modalities.Input == nil {
+			metadata.InputModalitiesStatus = "partial"
+		}
+	}
+	metadata.EndpointStatus = entry.EndpointStatus
+	metadata.EmbeddingDimensions = entry.EmbeddingDimensions
+	metadata.TaskLimits = entry.TaskLimits
+	return cloneUpstreamModelMetadata(metadata)
+}
+
+func firstPositiveUpstreamLimit(limits ...int64) int64 {
+	for _, limit := range limits {
+		if limit > 0 {
+			return limit
+		}
+	}
+	return 0
 }
 
 func reasoningLevelsFromRawEntries(entries []json.RawMessage) []string {
@@ -1497,6 +2207,9 @@ func normalizeReasoningLevel(level string) string {
 }
 
 func normalizeCodexInputModalities(modalities []string) []string {
+	if modalities == nil {
+		return nil
+	}
 	seen := make(map[string]struct{}, len(modalities))
 	normalized := make([]string, 0, len(modalities))
 	for _, modality := range modalities {
@@ -1552,14 +2265,14 @@ func extractUpstreamModelIDsWithSelector(body []byte, selectID func(upstreamMode
 }
 
 func upstreamModelEntryID(entry upstreamModelEntry) string {
-	modelID := strings.TrimSpace(entry.ID)
-	if modelID == "" {
-		modelID = strings.TrimSpace(entry.Slug)
+	if modelID := strings.TrimSpace(entry.ID); modelID != "" {
+		return modelID
 	}
-	if modelID == "" {
-		modelID = strings.TrimSpace(entry.Name)
+	if slug := strings.TrimSpace(entry.Slug); slug != "" {
+		return slug
 	}
-	return strings.TrimPrefix(modelID, "models/")
+	// Gemini's resource-name field uses models/<id>; explicit IDs remain exact.
+	return strings.TrimPrefix(strings.TrimSpace(entry.Name), "models/")
 }
 
 func grokUpstreamModelEntryID(entry upstreamModelEntry) string {
@@ -1589,7 +2302,7 @@ func grokUpstreamModelEntryID(entry upstreamModelEntry) string {
 	for _, candidate := range candidates {
 		modelID := strings.TrimSpace(candidate)
 		if modelID != "" {
-			return strings.TrimPrefix(modelID, "models/")
+			return modelID
 		}
 	}
 	return ""
@@ -1611,4 +2324,57 @@ func dedupeAndSortModelIDs(models []string) []string {
 	}
 	sort.Strings(result)
 	return result
+}
+
+// Preserve explicit empty declarations across persistence. Nil remains omitted,
+// while [] continues to mean that the source explicitly supports no values.
+func (m UpstreamModelMetadata) MarshalJSON() ([]byte, error) {
+	type plain UpstreamModelMetadata
+	body, err := json.Marshal(plain(m))
+	if err != nil {
+		return nil, err
+	}
+	var fields map[string]json.RawMessage
+	if err = json.Unmarshal(body, &fields); err != nil {
+		return nil, err
+	}
+	for key, list := range map[string][]string{"supported_methods": m.SupportedMethods, "input_modalities": m.InputModalities, "output_modalities": m.OutputModalities, "supported_reasoning_levels": m.SupportedReasoningLevels} {
+		if list != nil && len(list) == 0 {
+			fields[key] = json.RawMessage("[]")
+		}
+	}
+	return json.Marshal(fields)
+}
+
+func upstreamModelListEndpointUnsupported(err error) bool {
+	statusCode := upstreamModelSyncStatusCode(err)
+	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed
+}
+
+func completeUpstreamModelMetadataSubset(
+	modelIDs []string,
+	metadata map[string]UpstreamModelMetadata,
+) map[string]UpstreamModelMetadata {
+	if len(metadata) == 0 {
+		return nil
+	}
+	complete := make(map[string]UpstreamModelMetadata)
+	for _, modelID := range modelIDs {
+		modelID = strings.TrimSpace(modelID)
+		if modelID == "" {
+			continue
+		}
+		entry, ok := metadata[modelID]
+		if !ok || !upstreamModelMetadataIsComplete(entry) {
+			continue
+		}
+		if strings.TrimSpace(entry.ID) == "" {
+			entry.ID = modelID
+		}
+		complete[modelID] = entry
+	}
+	if len(complete) == 0 {
+		return nil
+	}
+	return complete
 }
