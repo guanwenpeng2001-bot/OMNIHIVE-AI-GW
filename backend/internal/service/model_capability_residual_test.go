@@ -107,7 +107,12 @@ func TestModelCapabilityResidualKimiProfileReleaseScope(t *testing.T) {
 		require.Equal(t, "moonshot", resolveCapabilityProfile(a))
 		require.Equal(t, "matched", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(a), "kimi-k2.5").Status)
 	}
-	for _, url := range []string{"https://api.kimi.com/coding/v1", "https://private.example/v1", "https://api.moonshot.cn.example/v1"} {
+	coding := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": DefaultKimiCodingBaseURL}}
+	require.Equal(t, "kimi-for-coding", resolveCapabilityProfile(coding))
+	// Identity is known even before the generation chain publishes Coding facts.
+	// The PAYG release must never fill this separate deployment implicitly.
+	require.Equal(t, "not_found", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(coding), "kimi-k2.5").Status)
+	for _, url := range []string{"https://private.example/v1", "https://api.moonshot.cn.example/v1"} {
 		a := &Account{Platform: PlatformKimi, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": url}}
 		require.NotEqual(t, "moonshot", resolveCapabilityProfile(a))
 		require.Equal(t, "not_found", lookupCapabilityMetadata(snapshot, resolveCapabilityProfile(a), "kimi-k2.5").Status)

@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // CapabilityMatch retains the caller ID and makes ambiguity an explicit miss.
 type CapabilityMatch struct {
@@ -31,7 +34,8 @@ func resolveCapabilityProfile(account *Account) string {
 	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
 		return "openai-codex"
 	}
-	switch modelRegistryHostname(upstreamModelRegistryBaseURL(account)) {
+	baseURL := upstreamModelRegistryBaseURL(account)
+	switch modelRegistryHostname(baseURL) {
 	case "api.openai.com":
 		return "openai"
 	case "api.anthropic.com":
@@ -41,7 +45,21 @@ func resolveCapabilityProfile(account *Account) string {
 	case "api.deepseek.com":
 		return "deepseek"
 	case "api.moonshot.cn", "api.moonshot.ai":
-		return "moonshot"
+		parsed, err := url.Parse(baseURL)
+		if err == nil && account.GetAccountMode() != AccountModeCoding {
+			switch strings.TrimRight(parsed.Path, "/") {
+			case "", "/v1", "/anthropic":
+				return "moonshot"
+			}
+		}
+	case "api.kimi.com":
+		parsed, err := url.Parse(baseURL)
+		if err == nil && account.GetAccountMode() != AccountModePayG {
+			switch strings.TrimRight(parsed.Path, "/") {
+			case "/coding", "/coding/v1":
+				return "kimi-for-coding"
+			}
+		}
 	case "api.x.ai":
 		return "xai"
 	case "dashscope.aliyuncs.com":
@@ -51,7 +69,7 @@ func resolveCapabilityProfile(account *Account) string {
 	case "opencode.ai":
 		return "opencode-go"
 	}
-	return "custom:" + normalizeModelRegistryBaseURL(upstreamModelRegistryBaseURL(account))
+	return "custom:" + normalizeModelRegistryBaseURL(baseURL)
 }
 
 func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelID string) CapabilityMatch {

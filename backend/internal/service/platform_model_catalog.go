@@ -16,6 +16,8 @@ import (
 
 // DefaultModelIDsForPlatform returns the existing platform preset, never a
 // different provider's catalog. An unconfigured catalog is explicitly empty.
+// Domestic provider candidates stay in PlatformModelPresets, separated by
+// deployment and plan; they must not become this public Models fallback.
 func DefaultModelIDsForPlatform(platform string) []string {
 	if platform != PlatformComposite {
 		d, ok := domain.LookupPlatform(platform)
@@ -117,6 +119,9 @@ func PlatformModelPresets() ([]PlatformModelPreset, error) {
 			return nil, fmt.Errorf("invalid preset coverage")
 		}
 		profile := preset.Platform + ":" + preset.ProviderProfile
+		if preset.CoverageStatus != "unconfigured" && (len(preset.Models) == 0 || len(preset.SourceRefs) == 0) {
+			return nil, fmt.Errorf("configured preset has no candidates or sources: %s", profile)
+		}
 		if profiles[profile] {
 			return nil, fmt.Errorf("duplicate preset profile %s", profile)
 		}
