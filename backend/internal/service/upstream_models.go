@@ -77,10 +77,11 @@ type UpstreamModelMetadataSnapshot struct {
 }
 
 type UpstreamModelCatalog struct {
-	SchemaVersion     int               `json:"schema_version"`
-	EnrichmentVersion string            `json:"enrichment_version"`
-	SourceGeneration  int64             `json:"source_generation"`
-	SourceVersions    map[string]string `json:"source_versions"`
+	Review            *AccountCatalogReview `json:"review,omitempty"`
+	SchemaVersion     int                   `json:"schema_version"`
+	EnrichmentVersion string                `json:"enrichment_version"`
+	SourceGeneration  int64                 `json:"source_generation"`
+	SourceVersions    map[string]string     `json:"source_versions"`
 	AccountModelCatalogBaseline
 	Applied          bool                    `json:"applied"`
 	DiscoveryScope   string                  `json:"discovery_scope"`
@@ -248,167 +249,22 @@ func newUpstreamModelSyncInternalError(message string, err error) error {
 	return &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorInternal, Message: message, Err: err}
 }
 
-// FetchUpstreamSupportedModels fetches only live model IDs. The admin sync path
-// uses SyncUpstreamModelCatalog so capability metadata can also be persisted.
+// FetchUpstreamSupportedModels retains the legacy live-ID discovery contract.
+// Reviewed administration uses separate catalog projection and compare-and-swap.
 func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, account *Account) ([]string, error) {
 	models, _, err := s.fetchUpstreamModelList(ctx, account)
 	return models, err
 }
 
-// ApplyDiscoveredModelMapping retains the existing immediate mapping action until
-// reviewed catalog administration replaces its callers.
-func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, accountID int64, models []string) error {
-	merger, ok := s.accountRepo.(AccountModelMappingMerger)
-	if !ok {
-		return newUpstreamModelSyncInternalError("Account model mapping merge is not configured", nil)
-	}
-	return merger.MergeDiscoveredModelMapping(ctx, accountID, models)
-}
-
-// SyncUpstreamModelCatalog preserves legacy metadata synchronization and persistence.
-// New catalog administration should use DiscoverModelCapabilities before projection.
+// SyncUpstreamModelCatalog discovers and projects evidence without persisting account state.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
-	// Preserve the legacy metadata persistence contract until the reviewed catalog
-	// administration replaces this entry point. Capability completeness is separate.
-	upstreamCatalogNeedsRegistry := func(models []string, metadata map[string]UpstreamModelMetadata) bool {
-		for _, id := range models {
-			if !upstreamModelMetadataIsComplete(metadata[strings.TrimSpace(id)]) {
-				return true
-			}
-		}
-		return false
-	}
-
-	models, body, err := s.fetchUpstreamModelList(ctx, account)
-	liveListAvailable := err == nil
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
+	catalog, err := s.DiscoverModelCapabilities(context.WithValue(ctx, catalogDiscoveryKey{}, true), account, s.modelCapabilityProvider)
 	if err != nil {
-		configuredModels := configuredUpstreamModelsForCapabilitySync(account)
-		if !upstreamModelListEndpointUnsupported(err) || len(configuredModels) == 0 {
-			return nil, err
-		}
-		models = configuredModels
-		body = nil
-		slog.Info("upstream model list endpoint unavailable; using configured models for capability sync",
-			"account_id", upstreamModelSyncAccountID(account),
-			"platform", upstreamModelSyncPlatform(account),
-			"status_code", upstreamModelSyncStatusCode(err),
-			"model_count", len(models),
-		)
+		return nil, err
 	}
-	catalog := &UpstreamModelCatalog{Models: models, CatalogSource: "live", Metadata: make(map[string]UpstreamModelMetadata)}
-	if !liveListAvailable {
-		catalog.CatalogSource = "configured"
-		catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{Code: "model_list_endpoint_unsupported", Message: "Upstream model listing is unavailable (404/405); using configured mapping targets."})
-	}
-	if len(body) > 0 {
-		_, directMetadata, parseErr := extractUpstreamModelCatalog(body, account != nil && account.IsGrok())
-		if parseErr == nil {
-			catalog.Metadata = directMetadata
-			if len(directMetadata) > 0 {
-				catalog.MetadataSources = append(catalog.MetadataSources, "upstream")
-			}
-		}
-	}
-
-	// Capability enrichment also covers concrete model_mapping targets. Admins may
-	// whitelist models that the live /models list omitted; those still need registry
-	// metadata so Codex catalogs can advertise reasoning and modalities.
-	enrichIDs := dedupeAndSortModelIDs(append(append([]string{}, models...), configuredUpstreamModelsForCapabilitySync(account)...))
-	// Dedicated image/video generators are not Codex agent catalog entries and often
-	// omit context windows in public registries. Keep them out of completeness checks
-	// so they do not mask successful agent-model capability sync.
-	capabilityIDs := capabilitySyncModelIDs(enrichIDs)
-
-	source := "upstream"
-	if account != nil && account.IsCursor() {
-		for id, fallback := range builtinCursorModelMetadata(enrichIDs) {
-			merged, changed := mergeUpstreamModelMetadata(catalog.Metadata[id], fallback)
-			catalog.Metadata[id] = merged
-			if changed {
-				source = "cursor-builtin"
-				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "cursor-builtin"))
-			}
-		}
-	}
-	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
-		if registryMetadata, registryErr := s.fetchModelsDevMetadata(ctx, account, enrichIDs); registryErr == nil {
-			for modelID, fallback := range registryMetadata {
-				current := catalog.Metadata[modelID]
-				merged, changed := mergeUpstreamModelMetadata(current, fallback)
-				catalog.Metadata[modelID] = merged
-				if changed {
-					source = "models.dev"
-					catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "models.dev"))
-				}
-			}
-		} else {
-			slog.Warn("upstream model capability metadata enrichment failed",
-				"account_id", upstreamModelSyncAccountID(account),
-				"platform", upstreamModelSyncPlatform(account),
-				"error", registryErr,
-			)
-		}
-	}
-
-	for id, metadata := range catalog.Metadata {
-		metadata.InputModalities = normalizeCodexInputModalities(metadata.InputModalities)
-		catalog.Metadata[id] = metadata
-	}
-	completeMetadata := completeUpstreamModelMetadataSubset(capabilityIDs, catalog.Metadata)
-	persistedCapabilities := false
-	if len(completeMetadata) > 0 && account != nil && account.ID > 0 && s.accountRepo != nil {
-		// Retain known metadata only for models still listed or explicitly mapped.
-		if previous := account.GetUpstreamModelMetadataSnapshot(); previous != nil {
-			retainedModels := capabilityIDs
-			if !liveListAvailable {
-				retainedModels = append([]string(nil), capabilityIDs...)
-				for modelID := range previous.Models {
-					retainedModels = append(retainedModels, modelID)
-				}
-			}
-			for _, modelID := range retainedModels {
-				old, exists := previous.Models[modelID]
-				if !exists {
-					continue
-				}
-				if entry, ok := completeMetadata[modelID]; ok {
-					if entry.CodexToolCapabilities == nil {
-						entry.CodexToolCapabilities = make(map[string]json.RawMessage)
-					}
-					applyCodexToolCapabilities(entry.CodexToolCapabilities, old.CodexToolCapabilities, false)
-					completeMetadata[modelID] = entry
-				} else {
-					completeMetadata[modelID] = old
-				}
-			}
-		}
-		snapshot := UpstreamModelMetadataSnapshot{
-			Source:   source,
-			SyncedAt: time.Now().UTC().Format(time.RFC3339),
-			Models:   completeMetadata,
-		}
-		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{UpstreamModelMetadataExtraKey: snapshot}); err != nil {
-			return nil, newUpstreamModelSyncInternalError("Failed to save upstream model metadata", err)
-		}
-		account.SetUpstreamModelMetadataSnapshot(snapshot)
-		persistedCapabilities = true
-	}
-
-	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
-		if persistedCapabilities {
-			catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{
-				Code:    UpstreamModelMetadataPartialCode,
-				Message: "Some model capabilities were saved; remaining models are still incomplete.",
-			})
-		} else {
-			catalog.Warnings = append(catalog.Warnings, UpstreamModelSyncWarning{
-				Code:    UpstreamModelMetadataIncompleteCode,
-				Message: "Model IDs were synced, but capability metadata is incomplete.",
-			})
-		}
-	}
-	// 上游模型同步成功后立即失效网关模型列表缓存。
-	InvalidateAvailableModelsCacheForAccount(account)
+	catalog.snapshot = projectAccountModelCatalog(account, catalog)
 	return catalog, nil
 }
 
@@ -522,6 +378,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	}
 	for _, id := range enrichIDs {
 		m := catalog.Metadata[id]
+		applyCapabilityEndpointFacts(account, &m)
 		catalog.Metadata[id] = m
 	}
 	if upstreamCatalogNeedsRegistry(capabilityIDs, catalog.Metadata) {
@@ -555,6 +412,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 		}
 		m, _ := mergeUpstreamModelMetadata(catalog.Metadata[id], hints)
 		m.ReasoningControl = normalizeReasoningControl(m)
+		applyCapabilityEndpointFacts(account, &m)
 		status := evaluateModelMetadataCompleteness(m)
 		m.MetadataStatus = status.Status
 		m.MissingFields = status.MissingFields
@@ -1287,6 +1145,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		if strings.TrimSpace(account.GetCredential(key)) == "" {
 			return nil, nil, newUpstreamModelSyncConfigError("Cursor credentials are required", nil)
 		}
+		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery && account.Type == AccountTypeOAuth {
+			return s.fetchCursorOAuthCatalog(ctx, account)
+		}
 		models, err := s.cursorGatewayService.AvailableModels(ctx, account)
 		if err != nil {
 			if cursorAuthFailure(err) {
@@ -1297,6 +1158,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return models, nil, nil
 	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
+		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery {
+			return s.fetchAntigravityCatalog(ctx, account)
+		}
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, nil, err
 	}
@@ -1314,6 +1178,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return s.fetchQianwenModelPages(req, account)
 	}
 
+	if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery {
+		return s.fetchCompleteModelPages(req, account)
+	}
 	proxyURL := upstreamModelsProxyURL(account)
 	resp, err := s.doUpstreamModelsRequest(req, proxyURL, account)
 	if err != nil {
@@ -1402,10 +1269,15 @@ func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context,
 		}
 		normalizedBaseURL = validatedBaseURL
 	case AccountTypeOAuth:
-		if s.grokTokenProvider == nil {
-			return nil, newUpstreamModelSyncConfigError("Grok token provider is not configured", nil)
+		catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool)
+		accessToken := account.GetGrokAccessToken()
+		var err error
+		if !catalogDiscovery {
+			if s.grokTokenProvider == nil {
+				return nil, newUpstreamModelSyncConfigError("Grok token provider is not configured", nil)
+			}
+			accessToken, err = s.grokTokenProvider.GetAccessTokenForManualTest(ctx, account)
 		}
-		accessToken, err := s.grokTokenProvider.GetAccessTokenForManualTest(ctx, account)
 		if err != nil {
 			return nil, newUpstreamModelSyncUpstreamError("Failed to get Grok access token", err)
 		}
@@ -1472,7 +1344,8 @@ func (s *AccountTestService) buildAnthropicUpstreamModelsRequest(ctx context.Con
 
 	if account.IsOAuth() {
 		accessToken := strings.TrimSpace(account.GetCredential("access_token"))
-		if accessToken == "" && s.claudeTokenProvider != nil {
+		catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool)
+		if accessToken == "" && s.claudeTokenProvider != nil && !catalogDiscovery {
 			token, tokenErr := s.claudeTokenProvider.GetAccessToken(ctx, account)
 			if tokenErr != nil {
 				return nil, newUpstreamModelSyncUpstreamError("Failed to get Anthropic access token", tokenErr)
@@ -1708,10 +1581,15 @@ func (s *AccountTestService) buildGeminiUpstreamModelsRequest(ctx context.Contex
 		if strings.TrimSpace(account.GetCredential("project_id")) != "" {
 			return nil, newUpstreamModelSyncUnsupportedError("Gemini Code Assist model listing is not supported by this sync button", nil)
 		}
-		if s.geminiTokenProvider == nil {
-			return nil, newUpstreamModelSyncConfigError("Gemini token provider is not configured", nil)
+		catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool)
+		accessToken := account.GetCredential("access_token")
+		var tokenErr error
+		if !catalogDiscovery {
+			if s.geminiTokenProvider == nil {
+				return nil, newUpstreamModelSyncConfigError("Gemini token provider is not configured", nil)
+			}
+			accessToken, tokenErr = s.geminiTokenProvider.GetAccessToken(ctx, account)
 		}
-		accessToken, tokenErr := s.geminiTokenProvider.GetAccessToken(ctx, account)
 		if tokenErr != nil {
 			return nil, newUpstreamModelSyncUpstreamError("Failed to get Gemini access token", tokenErr)
 		}

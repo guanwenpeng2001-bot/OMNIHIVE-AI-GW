@@ -136,6 +136,7 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
+	modelCapabilityProvider   ModelCapabilityProvider
 	cursorGatewayService      *CursorGatewayService
 	accountRepo               AccountRepository
 	geminiTokenProvider       *GeminiTokenProvider
@@ -147,6 +148,7 @@ type AccountTestService struct {
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
 	modelMetadataRegistryMu   sync.Mutex
+	catalogInFlight           sync.Map
 	modelMetadataRegistry     map[string]modelsDevProvider
 	modelMetadataRegistryAt   time.Time
 	pluginManager             *PluginManager
@@ -156,6 +158,14 @@ type AccountTestService struct {
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+}
+
+// SetModelCapabilityProvider allows fixed snapshots in tests. Configure before
+// serving requests, like the other dependency setters.
+func (s *AccountTestService) SetModelCapabilityProvider(provider ModelCapabilityProvider) {
+	if s != nil {
+		s.modelCapabilityProvider = provider
+	}
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
