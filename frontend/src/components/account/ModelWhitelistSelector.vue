@@ -26,11 +26,6 @@
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-60 dark:text-emerald-300">
         {{ t(previewModels.length && !previewAdditions.length ? 'admin.accounts.modelSync.previewAlreadyAdded' : 'admin.accounts.modelSync.addPreviewModels', { count: previewAdditions.length }) }}
       </button>
-      <button v-if="accountId && syncResult && !syncResult.applied" type="button" data-testid="apply-model-snapshot"
-        :disabled="isSyncingUpstream || syncResult.complete !== true || !syncResult.review || needsPreview || configurationDirty || capabilityDefaultsDirty" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" @click="applyModelSnapshot"
-        class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 dark:text-emerald-300">
-        {{ t('admin.accounts.modelSync.apply') }}
-      </button>
       <button
         type="button"
         v-if="!catalogOnly"
@@ -190,6 +185,16 @@
       <label class="input-label">{{ t('admin.accounts.modelSync.allowlistReason') }}<input v-model="allowlistReason" class="input" data-testid="allowlist-reason" /></label>
       <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :disabled="!active || configurationDirty || allowlistBusy || !allowlistReason.trim() || (allowlistEnabled && !allowlistModels.trim())" @click="saveAllowlist">{{ t('common.save') }}</button>
     </details>
+    <section v-if="syncResult" class="mb-3 space-y-2" data-testid="snapshot-actions">
+      <p role="status">{{ t('admin.accounts.modelSync.previewCount', { count: previewModels.length }) }}</p>
+      <button v-if="accountId && syncResult && !syncResult.applied" type="button" data-testid="apply-model-snapshot"
+        :disabled="!canApplySnapshot" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" @click="confirmSnapshot = true"
+        class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 dark:text-emerald-300">
+        {{ t('admin.accounts.modelSync.apply') }}
+      </button>
+    </section>
+    <ConfirmDialog :show="confirmSnapshot" :title="t('admin.accounts.modelSync.apply')"
+      :message="t('admin.accounts.modelSync.applyConfirmation')" @confirm="applyModelSnapshot" @cancel="confirmSnapshot = false" />
     <ModelCatalogDetails :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="needsPreview" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
   </div>
 </template>
@@ -204,6 +209,7 @@ import { parseModelCapabilityDefaults, modelCapabilityGapSummary, modelCapabilit
 import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
 import type { AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { SyncUpstreamModelsResult, SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
@@ -309,7 +315,11 @@ const syncResult = ref<SyncUpstreamModelsResult | null>(null)
 const catalogSummary = ref<AccountModelCatalogDetails | null>(null)
 const syncError = ref('')
 const needsPreview = ref(false)
-const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready'>('idle')
+const confirmSnapshot = ref(false)
+const canApplySnapshot = computed(() => props.active && !isSyncingUpstream.value && syncResult.value?.complete === true &&
+  !!syncResult.value.review && !needsPreview.value && !props.configurationDirty && !props.capabilityDefaultsDirty)
+watch(canApplySnapshot, valid => { if (!valid) confirmSnapshot.value = false }, { flush: 'sync' })
+const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'>('idle')
 let generation = 0
 const context = computed(() => {
   const credentials = props.syncCredentials ? { ...props.syncCredentials } : undefined
@@ -382,6 +392,10 @@ const loadCatalog = async () => {
         catalog.value = summary.effective_snapshot?.eligible_models?.map(model => model.id) ?? []
         catalogState.value = catalog.value.length ? 'ready' : 'empty'
       }
+      needsPreview.value = summary.warnings?.includes('identity_changed') || !!summary.last_error || summary.staleness === 'stale'
+      if (summary.warnings?.includes('identity_changed')) catalogState.value = 'invalidIdentity'
+      else if (summary.last_error) catalogState.value = 'stale'
+      else if (!summary.synced) catalogState.value = 'unsynced'
     } catch {
       // Older servers may not expose the summary yet; unknown is not successful empty.
       if (disposed || request !== generation) return
@@ -396,6 +410,7 @@ const loadCatalog = async () => {
 let catalogLoadScheduled = false
 watch(context, () => {
   generation++
+  confirmSnapshot.value = false
   catalog.value = []
   catalogMetadata.value = {}
   syncResult.value = null
@@ -585,7 +600,8 @@ const syncUpstreamModels = async (apply = false) => {
 }
 
 const applyModelSnapshot = () => {
-  if (!syncResult.value || syncResult.value.complete !== true || !syncResult.value.review || needsPreview.value || props.configurationDirty || props.capabilityDefaultsDirty) return
+  if (!confirmSnapshot.value || !canApplySnapshot.value) return
+  confirmSnapshot.value = false
   return syncUpstreamModels(true)
 }
 

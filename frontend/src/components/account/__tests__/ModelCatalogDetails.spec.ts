@@ -12,6 +12,24 @@ import failedHistory from '@/api/__tests__/fixtures/model-catalog-failed_history
 import type { AccountModelCatalogDetails } from '@/types'
 
 describe('model catalog evidence display', () => {
+  it('preserves endpoint-specific authorization evidence separately from specification metadata', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: null, result: {
+      models: ['native', 'declared', 'probed'],
+      eligible_models: [
+        { id: 'native', endpoints: ['chat_completions'], evidence_kind: 'account_discovery' },
+        { id: 'declared', endpoints: ['responses'], evidence_kind: 'administrator_declaration' },
+        { id: 'probed', endpoints: ['images'], evidence_kind: 'probe_success' }
+      ],
+      metadata: { declared: { evidence_kind: 'specification_only' } }
+    } } })
+    const evidence = wrapper.findAll('[data-model-category] li').map(row => row.text())
+    expect(evidence.find(row => row.includes('native'))).toContain('chat_completions')
+    expect(evidence.find(row => row.includes('declared'))).toContain('administrator_declaration')
+    expect(evidence.find(row => row.includes('declared'))).toContain('responses')
+    expect(evidence.find(row => row.includes('probed'))).toContain('probe_success')
+    expect(evidence.find(row => row.includes('probed'))).toContain('images')
+    wrapper.unmount()
+  })
   it('renders category blocks even when some models have no metadata', () => {
     const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 3, result: {
       models: ['chat-model', 'image-model', 'unknown-model'],

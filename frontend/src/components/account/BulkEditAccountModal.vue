@@ -341,7 +341,7 @@
                 </p>
               </div>
 
-              <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
+              <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
               <ModelWhitelistSelector :active="show && enableModelRestriction" discovery-disabled
                 v-model="allowedModels"
                 :platforms="targetSelectedPlatforms"

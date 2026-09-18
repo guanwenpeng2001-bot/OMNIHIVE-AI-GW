@@ -74,6 +74,8 @@ vi.mock('vue-i18n', async () => {
 
 import CreateAccountModal from '../CreateAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import CursorBrowserAuthorization from '../CursorBrowserAuthorization.vue'
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
@@ -201,6 +203,22 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('retains the Cursor browser authorization receipt for saved model configuration without applying', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Cursor')
+    ;(wrapper.vm as unknown as { cursorKeyMode: string }).cursorKeyMode = 'auto'
+    await flushPromises()
+    wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('success', 93)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#93')
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('configureModels')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    expect(wrapper.find('[data-testid="created-catalog-accounts"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
@@ -274,6 +292,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, review)
     expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
@@ -282,6 +301,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
