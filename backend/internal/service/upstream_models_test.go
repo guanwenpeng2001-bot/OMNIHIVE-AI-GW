@@ -1187,5 +1187,9 @@ func TestMatchModelsDevProviderOfficialHostsWithoutAPI(t *testing.T) {
 	metadata := map[string]UpstreamModelMetadata{"gpt-6-astra": {
 		Reasoning: new(bool), InputModalities: []string{"text"}, ContextWindow: 1050000,
 	}}
-	require.False(t, upstreamCatalogNeedsRegistry(capabilitySyncModelIDs([]string{"gpt-6-astra", "gpt-image-2"}), metadata))
+	// V2 requires task, provider, endpoint and field evidence; the legacy three
+	// fields cannot suppress registry enrichment even when the host is known.
+	require.True(t, upstreamCatalogNeedsRegistry(capabilitySyncModelIDs([]string{"gpt-6-astra", "gpt-image-2"}), metadata))
+	require.Contains(t, evaluateModelMetadataCompleteness(metadata["gpt-6-astra"]).MissingFields, "provider_profile")
+	require.Contains(t, evaluateModelMetadataCompleteness(metadata["gpt-6-astra"]).MissingFields, "task_type")
 }
