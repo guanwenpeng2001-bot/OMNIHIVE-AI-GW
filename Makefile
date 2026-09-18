@@ -55,3 +55,19 @@ test-frontend:
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+
+# Required round gates reject skipped/missing tests as well as failures.
+# Set USAGE_STATS_TEST_DSN to a disposable stats_test database URL and
+# AFFINITY_REDIS_TEST_ADDR (optional AFFINITY_REDIS_TEST_PASSWORD) to isolated Redis.
+PYTHON ?= python3
+.PHONY: test-required-round test-required-usage-coverage test-required-catalog test-required-affinity
+test-required-round: test-required-usage-coverage test-required-catalog test-required-affinity
+
+test-required-usage-coverage:
+	@$(PYTHON) backend/scripts/required-round-tests.py usage-coverage
+
+test-required-catalog:
+	@$(PYTHON) backend/scripts/required-round-tests.py catalog
+
+test-required-affinity:
+	@$(PYTHON) backend/scripts/required-round-tests.py affinity
