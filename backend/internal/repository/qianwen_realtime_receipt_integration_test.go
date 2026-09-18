@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/google/uuid"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -35,6 +36,7 @@ func (boundary *realtimeReceiptCommitBoundary) InsertRealtimeReceipt(ctx context
 }
 
 func TestQianwenRealtimeReceiptPostgres(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "UPSTREAM_JOB_TEST_DSN")
 	dsn := os.Getenv("UPSTREAM_JOB_TEST_DSN")
 	if dsn == "" {
 		if os.Getenv("CI") != "" {

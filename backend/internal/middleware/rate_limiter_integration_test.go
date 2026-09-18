@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
@@ -90,6 +91,12 @@ func performRequest(router *gin.Engine) *httptest.ResponseRecorder {
 }
 
 func startRedis(t *testing.T, ctx context.Context) *redis.Client {
+	if testresources.External() {
+		client := testresources.RedisClient(t, &redis.Options{Addr: os.Getenv("AFFINITY_REDIS_TEST_ADDR")})
+		require.NoError(t, client.Ping(ctx).Err())
+		return client
+	}
+
 	t.Helper()
 	ensureDockerAvailable(t)
 
