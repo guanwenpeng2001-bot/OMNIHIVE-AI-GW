@@ -2608,6 +2608,14 @@ func summarizeSelectionFailureStats(stats selectionFailureStats) string {
 // isModelSupportedByAccountWithContext 根据账户平台检查模型支持（带 context）
 // 对于 Antigravity 平台，会先获取映射后的最终模型名（包括 thinking 后缀）再检查支持
 func (s *GatewayService) isModelSupportedByAccountWithContext(ctx context.Context, account *Account, requestedModel string) bool {
+	if GatewayRequestPlanFromContext(ctx) != nil {
+		parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
+		if err != nil {
+			return false
+		}
+		return AccountSupportsResolvedModel(ctx, account, requestedModel, AccountModelBindingOptions{Endpoint: requestCatalogEndpoint(ctx), CredentialAccount: parent})
+	}
+
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
 		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
 			return false

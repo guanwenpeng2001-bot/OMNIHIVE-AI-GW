@@ -46,7 +46,7 @@ func (r *grokCredentialHandlerRepo) ListSchedulableByPlatform(_ context.Context,
 	out := make([]service.Account, 0, len(r.accounts))
 	for _, account := range r.accounts {
 		if account.Platform == platform && account.IsSchedulable() {
-			out = append(out, account)
+			out = append(out, preparedGatewayFixtureAccount(account))
 		}
 	}
 	return out, nil
@@ -68,7 +68,7 @@ func (r *grokCredentialHandlerRepo) GetByID(_ context.Context, id int64) (*servi
 	}
 	for _, account := range r.accounts {
 		if account.ID == id {
-			copy := account
+			copy := preparedGatewayFixtureAccount(account)
 			copy.Credentials = cloneCredentialMap(account.Credentials)
 			return &copy, nil
 		}

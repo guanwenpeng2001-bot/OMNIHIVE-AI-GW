@@ -134,6 +134,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
 	configuredModels := openAIConfiguredCodexModelIDsForGroup(visible, group)
+	configuredModels = filterCatalogModelIDs(ctx, s.accountRepo, catalog, configuredModels, "responses")
 	if len(configuredModels) == 0 {
 		return nil, false, nil
 	}
@@ -772,6 +773,7 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	if err != nil {
 		return BuildCodexModelsManifest(modelIDs)
 	}
+	modelIDs = filterCatalogModelIDs(ctx, s.accountRepo, catalog, modelIDs, "responses")
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true
 	if effectivePlatform == PlatformComposite && s.compositeResolver != nil && s.compositeResolver.repo != nil {

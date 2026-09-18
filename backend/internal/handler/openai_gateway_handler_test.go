@@ -1952,7 +1952,7 @@ func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByPlatform(ctx cont
 	if s.account.Platform != platform {
 		return nil, nil
 	}
-	return []service.Account{s.account}, nil
+	return []service.Account{preparedGatewayFixtureAccount(s.account)}, nil
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]service.Account, error) {
@@ -1963,7 +1963,7 @@ func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id in
 	if s.account.ID != id {
 		return nil, nil
 	}
-	account := s.account
+	account := preparedGatewayFixtureAccount(s.account)
 	return &account, nil
 }
 
@@ -2065,7 +2065,7 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableByPlatform(ctx c
 	out := make([]service.Account, 0, len(s.accounts))
 	for _, account := range s.accounts {
 		if account.Platform == platform && account.IsSchedulable() {
-			out = append(out, account)
+			out = append(out, preparedGatewayFixtureAccount(account))
 		}
 	}
 	return out, nil
@@ -2082,7 +2082,7 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableUngroupedByPlatf
 func (s *openAIWSFailoverHandlerAccountRepoStub) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	for _, account := range s.accounts {
 		if account.ID == id {
-			acc := account
+			acc := preparedGatewayFixtureAccount(account)
 			return &acc, nil
 		}
 	}
@@ -2898,6 +2898,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 				turn,
 				gjson.GetBytes(payload, "model").String(),
 			)
+			if gjson.GetBytes(payload, "type").String() == "session.update" {
+				response = `{"type":"session.updated"}`
+			}
 			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(response))
 			cancelWrite()
@@ -3071,7 +3074,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.midPayload))
 		cancelWrite()
 		require.NoError(t, err)
-		readCompleted()
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+		_, event, readErr := clientConn.Read(readCtx)
+		cancelRead()
+		require.NoError(t, readErr)
+		require.Equal(t, "session.updated", gjson.GetBytes(event, "type").String())
 	}
 	if strings.TrimSpace(tc.secondPayload) != "" && (turnCount >= 2) {
 		writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
@@ -3094,8 +3101,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
 
-	usageLogs := make([]*service.UsageLog, 0, turnCount)
-	for len(usageLogs) < turnCount {
+	usageCount := turnCount
+	if strings.TrimSpace(tc.midPayload) != "" {
+		usageCount--
+	}
+	usageLogs := make([]*service.UsageLog, 0, usageCount)
+	for len(usageLogs) < usageCount {
 		select {
 		case usageLog := <-usageRepo.created:
 			require.NotNil(t, usageLog)

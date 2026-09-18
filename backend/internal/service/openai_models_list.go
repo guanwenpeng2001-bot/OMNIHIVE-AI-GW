@@ -287,6 +287,9 @@ func (s *OpenAIGatewayService) FetchPinnedOpenAIModelsList(ctx context.Context, 
 			return nil, err
 		}
 		response.Body, err = projectAccountModelsBody(response.Body, account, group, false)
+		if err == nil {
+			response.Body, err = filterCatalogModelsBody(ctx, s.accountRepo, account, response.Body, false)
+		}
 		return response, err
 	}
 	results, err := s.fetchPinnedOpenAIModels(ctx, group, fetch)

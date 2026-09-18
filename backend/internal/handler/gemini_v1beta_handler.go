@@ -343,6 +343,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, modelName, "gemini", h.maxAccountSwitches)()
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
 
@@ -406,6 +407,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			}
 		}
 		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
+	}
+	if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+		parsed, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
+		sessionHash = h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsed, extractGeminiCLISessionHash(c, body))
 	}
 	sessionKey := sessionHash
 	if sessionHash != "" {

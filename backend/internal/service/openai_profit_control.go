@@ -133,6 +133,9 @@ type openAIProfitControlGate struct {
 // 只固定 pricingAt、不装门。handler 各文本入口应在选号循环前调用一次。
 func (s *OpenAIGatewayService) WithOpenAIRequestPricingContext(ctx context.Context, groupID *int64) (context.Context, time.Time) {
 	pricingAt := timezone.Now()
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		pricingAt = plan.Snapshot().PricingAt
+	}
 	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
 	return s.withOpenAIProfitControlGate(ctx, groupID), pricingAt
 }
@@ -151,6 +154,9 @@ func WithOpenAIProfitControlSuppressed(ctx context.Context) context.Context {
 // 连接从未装门时才回退入口分组。抑制标记下只刷新 pricingAt。
 func (s *OpenAIGatewayService) WithOpenAITurnPricingContext(ctx context.Context, groupID *int64) (context.Context, time.Time) {
 	pricingAt := timezone.Now()
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		pricingAt = plan.Snapshot().PricingAt
+	}
 	ctx = context.WithValue(ctx, openAIPricingAtCtxKey{}, pricingAt)
 	if _, suppressed := ctx.Value(openAIProfitControlSuppressCtxKey{}).(struct{}); suppressed {
 		return ctx, pricingAt
@@ -355,6 +361,14 @@ func (s *OpenAIGatewayService) bindOpenAIStickySessionDuringSelection(ctx contex
 // remains sticky and becomes eligible again automatically after its rate
 // recovers.
 func (s *OpenAIGatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
+	if IsV2AffinityKey(sessionHash) {
+		group := derefGroupID(groupID)
+		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
+			return s.BindStickySession(admitted, &group, sessionHash, accountID)
+		})
+		return nil
+	}
+
 	if sessionHash == "" || accountID <= 0 {
 		return nil
 	}

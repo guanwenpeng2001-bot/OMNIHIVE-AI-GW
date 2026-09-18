@@ -952,7 +952,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil &&
 			resolved.Mode == BillingModePerRequest {
 			gid := apiKey.Group.ID
-			cost, err := s.billingService.CalculateCostUnified(CostInput{
+			cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 				Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 				UsageUnits: result.AudioUsage.DurationOrUnits, SizeTier: result.AudioUsage.Mode,
 				RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
@@ -962,7 +962,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 			}
 		}
 		cfg := groupAudioPriceConfigFromAPIKey(apiKey)
-		return s.billingService.CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier)
+		return s.billingService.forGatewayRequest(ctx).CalculateAudioCost(result.AudioUsage.Mode, result.AudioUsage.DurationOrUnits, cfg, multiplier)
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
@@ -972,7 +972,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 		if price != nil && *price == 0 {
 			logger.LegacyPrintf("service.gateway", "[Billing] search_price_per_1k explicit 0; search free group_model=%s count=%d", billingModel, result.SearchCount)
 		}
-		searchCost := s.billingService.CalculateSearchCost(result.SearchCount, price, multiplier)
+		searchCost := s.billingService.forGatewayRequest(ctx).CalculateSearchCost(result.SearchCount, price, multiplier)
 		if searchCost != nil && (searchCost.TotalCost > 0 || searchCost.ActualCost > 0) {
 			if tokenCost == nil {
 				return searchCost
@@ -1031,7 +1031,7 @@ func (s *GatewayService) hasResolvableTokenPricing(ctx context.Context, model st
 	if s.billingService == nil {
 		return false
 	}
-	_, err := s.billingService.GetModelPricing(model)
+	_, err := s.billingService.forGatewayRequest(ctx).GetModelPricing(model)
 	return err == nil
 }
 
@@ -1048,7 +1048,7 @@ func (s *GatewayService) hasIdentifiedResponseModelPricing(ctx context.Context, 
 	if s.resolveChannelPricing(ctx, model, apiKey) != nil {
 		return true, true
 	}
-	return s.billingService.HasIdentifiedTokenPricing(model), false
+	return s.billingService.forGatewayRequest(ctx).HasIdentifiedTokenPricing(model), false
 }
 
 // resolveChannelPricing 检查指定模型是否存在渠道级别定价。
@@ -1077,7 +1077,7 @@ func (s *GatewayService) calculateImageCost(
 	resolved := s.resolveChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup {
 		gid := apiKey.Group.ID
-		cost, err := s.billingService.CalculateCostUnified(CostInput{
+		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 			Ctx: ctx, Model: billingModel, GroupID: &gid, Group: apiKey.Group,
 			RequestCount: result.ImageCount, SizeTier: sizeTier,
 			RateMultiplier: multiplier, Resolver: s.resolver, Resolved: resolved,
@@ -1089,7 +1089,7 @@ func (s *GatewayService) calculateImageCost(
 	}
 	groupConfig := imagePriceConfigFromAPIKey(apiKey)
 	if apiKeyHasConfiguredImagePrice(apiKey, sizeTier) {
-		return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+		return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 	}
 	if resolved != nil && resolved.Source == PricingSourceChannel {
 		tokens := UsageTokens{
@@ -1098,7 +1098,7 @@ func (s *GatewayService) calculateImageCost(
 			ImageOutputTokens: result.Usage.ImageOutputTokens,
 		}
 		gid := apiKey.Group.ID
-		cost, err := s.billingService.CalculateCostUnified(CostInput{
+		cost, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
 			Ctx:            ctx,
 			Model:          billingModel,
 			GroupID:        &gid,
@@ -1117,7 +1117,7 @@ func (s *GatewayService) calculateImageCost(
 		return cost
 	}
 
-	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
+	return s.billingService.forGatewayRequest(ctx).CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 
 // calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 内置定价）
@@ -1164,7 +1164,7 @@ func (s *GatewayService) calculateTokenCost(
 		}
 	}
 
-	cost, err := s.billingService.CalculateTokenCostForRequest(TokenCostRequest{
+	cost, err := s.billingService.forGatewayRequest(ctx).CalculateTokenCostForRequest(TokenCostRequest{
 		Ctx:             ctx,
 		Model:           billingModel,
 		Group:           apiKey.Group,

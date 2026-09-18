@@ -189,6 +189,9 @@ func wrapReleaseOnDone(ctx context.Context, releaseFunc func()) func() {
 	if releaseFunc == nil {
 		return nil
 	}
+	if plan := service.GatewayRequestPlanFromContext(ctx); plan != nil {
+		releaseFunc = plan.Acquire(releaseFunc)
+	}
 	var once sync.Once
 	releaseOnce := func() {
 		once.Do(releaseFunc)

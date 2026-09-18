@@ -197,6 +197,9 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
+		if err := validateAccountForwardModel(ctx, s.accountRepo, account, modelID, "messages"); err != nil {
+			return nil, err
+		}
 		resp, err = generationDoWithTLS(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
