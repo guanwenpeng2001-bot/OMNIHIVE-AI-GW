@@ -53,9 +53,9 @@ func TestAccountModelCatalogPlatformDefaultsAndConfiguredAliases(t *testing.T) {
 
 type availableModelsAdminService struct {
 	*stubAdminService
-	account      service.Account
-	mergedModels []string
-	mergeCalls   int
+	account     service.Account
+	mergeCalls  int
+	commitCalls int
 }
 
 func (s *availableModelsAdminService) GetAccount(_ context.Context, id int64) (*service.Account, error) {
@@ -103,11 +103,19 @@ type discoveryMappingRepo struct {
 	admin *availableModelsAdminService
 }
 
-func (r *discoveryMappingRepo) MergeDiscoveredModelMapping(_ context.Context, _ int64, models []string) error {
-	r.admin.mergeCalls++
-	r.admin.mergedModels = append([]string(nil), models...)
-	return r.admin.updateAccountErr
+func (r *discoveryMappingRepo) CommitAccountModelCatalog(_ context.Context, _ int64, _ service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, _ *service.UpstreamModelMetadataSnapshot) error {
+	r.admin.commitCalls++
+	if r.admin.updateAccountErr != nil {
+		return r.admin.updateAccountErr
+	}
+	if r.admin.account.Extra == nil {
+		r.admin.account.Extra = map[string]any{}
+	}
+	r.admin.account.Extra[service.UpstreamModelCatalogExtraKey] = snapshot
+	r.admin.account.Extra[service.UpstreamModelCatalogStateExtraKey] = state
+	return nil
 }
+
 func (r *discoveryMappingRepo) UpdateExtra(context.Context, int64, map[string]any) error { return nil }
 
 func setupSyncUpstreamModelsRouter(adminSvc service.AdminService, upstream service.HTTPUpstream) *gin.Engine {
@@ -441,7 +449,7 @@ func TestAccountHandlerSyncUpstreamModelsReturnsCapabilityMetadata(t *testing.T)
 		Data service.UpstreamModelCatalog `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, []string{"custom-thinking-model"}, resp.Data.Models)
+	require.Equal(t, []string{"custom-thinking-model"}, resp.Data.DiscoveredModels)
 	metadata := resp.Data.Metadata["custom-thinking-model"]
 	require.NotNil(t, metadata.Reasoning)
 	require.True(t, *metadata.Reasoning)
@@ -493,13 +501,10 @@ func TestAccountHandlerSyncUpstreamModelsPreviewUsesProvidedModelMapping(t *test
 	req.Header.Set("Content-Type", "application/json")
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusOK, rec.Code)
-	var resp struct {
-		Data service.UpstreamModelCatalog `json:"data"`
-	}
-	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, []string{"glm-5.3"}, resp.Data.Models)
-	require.Equal(t, []string{"low", "high"}, resp.Data.Metadata["glm-5.3"].SupportedReasoningLevels)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "upstream_model_sync_unsupported")
+	require.Len(t, upstream.requests, 1)
+	require.NotContains(t, rec.Body.String(), "glm-5.3")
 }
 
 func TestAccountHandlerSyncUpstreamModels_UpstreamErrorDoesNotExposeBody(t *testing.T) {
@@ -570,16 +575,19 @@ func TestAccountHandlerSyncUpstreamModels_MetadataEnrichmentFailureReturnsWarnin
 	require.Equal(t, http.StatusOK, rec.Code)
 	var resp struct {
 		Data struct {
-			Models   []string `json:"models"`
-			Warnings []struct {
+			DiscoveredModels []string `json:"discovered_models"`
+			Warnings         []struct {
 				Code string `json:"code"`
 			} `json:"warnings"`
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, []string{"x-preview-f-free"}, resp.Data.Models)
-	require.Len(t, resp.Data.Warnings, 1)
+	require.Equal(t, []string{"x-preview-f-free"}, resp.Data.DiscoveredModels)
+	// Discovery still succeeds, with both the incomplete metadata summary and
+	// the registry failure diagnostic exposed to the caller.
+	require.Len(t, resp.Data.Warnings, 2)
 	require.Equal(t, "upstream_model_metadata_incomplete", resp.Data.Warnings[0].Code)
+	require.Equal(t, "model_metadata_registry_unavailable", resp.Data.Warnings[1].Code)
 }
 
 func TestSyncPreviewQianwenProtocolAndPagination(t *testing.T) {
@@ -594,7 +602,7 @@ func TestSyncPreviewQianwenProtocolAndPagination(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	require.Equal(t, 200, w.Code, w.Body.String())
-	require.JSONEq(t, `["first","second"]`, string(gjson.Get(w.Body.String(), "data.models").Raw))
+	require.JSONEq(t, `["first","second"]`, string(gjson.Get(w.Body.String(), "data.discovered_models").Raw))
 	require.Equal(t, "https://relay.example/v1/models", upstream.requests[0].URL.String())
 	require.Equal(t, "page-1", upstream.requests[1].URL.Query().Get("after"))
 	require.Equal(t, "Bearer preview-secret", upstream.requests[1].Header.Get("Authorization"))
@@ -609,7 +617,7 @@ func TestSyncPreviewErrorReasons(t *testing.T) {
 		{"missing credentials", "qianwen", "", "configuration", 200, 400},
 		{"unsupported", "unknown", "key", "unsupported", 200, 400},
 		{"authentication", "qianwen", "key", "credentials", 401, 400},
-		{"authorization", "qianwen", "key", "credentials", 403, 400},
+		{"authorization", "qianwen", "key", "upstream", 403, 502},
 		{"unavailable", "qianwen", "key", "upstream", 503, 502},
 		{"malformed", "qianwen", "key", "upstream", 200, 502},
 	} {
@@ -628,26 +636,49 @@ func TestSyncPreviewErrorReasons(t *testing.T) {
 	}
 }
 
-func TestSyncQianwenNativeCatalogPersistsMapping(t *testing.T) {
+func TestAccountModelCatalogQianwenNativeCatalogAppliesIndependentSnapshot(t *testing.T) {
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
 	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{
-		ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey,
+		ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Status: service.StatusActive,
 		Credentials: map[string]any{"api_key": "secret", "model_mapping": map[string]any{"qwen-plus": "custom-target", "alias": "qwen-plus"}},
 	}}
 	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
-		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":3,"page_no":1,"models":[{"model":"qwen-plus"},{"model":"ZHIPU/GLM-5.3-Flash"},{"model":"wanx-3d"}]}}`))},
+		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":3,"page_no":1,"models":[{"model":"qwen-plus","modalities":{"output":["text"]}},{"model":"ZHIPU/GLM-5.3-Flash"},{"model":"wanx-3d"}]}}`))},
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
 	}}
+	firstBody, err := io.ReadAll(upstream.responses[0].Body)
+	require.NoError(t, err)
+	upstream.responses[0].Body = io.NopCloser(strings.NewReader(string(firstBody)))
+	upstream.responses = append(upstream.responses[:1], &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(firstBody)))})
 	router := setupSyncUpstreamModelsRouter(svc, upstream)
+	preview := httptest.NewRecorder()
+	router.ServeHTTP(preview, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	require.Equal(t, 200, preview.Code, preview.Body.String())
+	require.Zero(t, svc.commitCalls)
+	reviewBody := `{"review":` + gjson.Get(preview.Body.String(), "data.review").Raw + `}`
 	w := httptest.NewRecorder()
-	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream?apply=true", strings.NewReader(reviewBody)))
 	require.Equal(t, 200, w.Code, w.Body.String())
 	require.Zero(t, svc.updateAccountCalls, "discovery must never send an entire credentials snapshot")
-	require.Equal(t, 1, svc.mergeCalls)
-	require.ElementsMatch(t, []string{"qwen-plus", "ZHIPU/GLM-5.3-Flash", "wanx-3d"}, svc.mergedModels)
-	require.NotContains(t, w.Body.String(), "secret")
+	require.Equal(t, 1, svc.commitCalls)
+	require.Zero(t, svc.mergeCalls)
+	require.Equal(t, map[string]any{"alias": "qwen-plus", "qwen-plus": "custom-target"}, svc.account.Credentials["model_mapping"])
+	require.Len(t, svc.account.EffectiveUpstreamModelCatalog().EligibleModels, 1)
+	require.Equal(t, "qwen-plus", svc.account.EffectiveUpstreamModelCatalog().EligibleModels[0].ID)
+	require.Len(t, svc.account.GetUpstreamModelCatalog().DiscoveredModels, 3)
+	require.Equal(t, `"1"`, gjson.Get(w.Body.String(), "data.snapshot_revision").Raw)
+	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.identity_revision").Raw)
+	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.rules_revision").Raw)
+	require.Equal(t, `["qwen-plus"]`, gjson.Get(w.Body.String(), "data.invalid_aliases").Raw)
+	require.Equal(t, `["qwen-plus"]`, gjson.Get(w.Body.String(), "data.models").Raw)
+	for _, excluded := range gjson.Get(w.Body.String(), "data.excluded_models").Array() {
+		require.NotEmpty(t, excluded.Get("model").String())
+		require.False(t, excluded.Get("id").Exists())
+		require.Equal(t, "metadata_incomplete", excluded.Get("reason").String())
+	}
 }
 
-func TestSyncQianwenCatalogDoesNotPersistIncompletePages(t *testing.T) {
+func TestAccountModelCatalogQianwenCatalogDoesNotPersistIncompletePages(t *testing.T) {
 	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "secret"}}}
 	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":2,"page_no":1,"models":[{"model":"first"}]}}`))},
@@ -660,21 +691,32 @@ func TestSyncQianwenCatalogDoesNotPersistIncompletePages(t *testing.T) {
 	require.NotContains(t, w.Body.String(), "private upstream body")
 }
 
-func TestSyncQianwenCatalogPersistenceFailure(t *testing.T) {
-	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "secret"}}}
+func TestAccountModelCatalogQianwenCatalogPersistenceFailure(t *testing.T) {
+	t.Setenv("MODEL_CAPABILITY_OFFLINE", "true")
+	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Credentials: map[string]any{"api_key": "secret"}}}
 	svc.updateAccountErr = io.ErrClosedPipe
 	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"qwen-plus"}]}}`))},
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{}`))},
 	}}
+	firstBody, err := io.ReadAll(upstream.responses[0].Body)
+	require.NoError(t, err)
+	upstream.responses[0].Body = io.NopCloser(strings.NewReader(string(firstBody)))
+	upstream.responses = append(upstream.responses[:1], &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(string(firstBody)))})
+	router := setupSyncUpstreamModelsRouter(svc, upstream)
+	preview := httptest.NewRecorder()
+	router.ServeHTTP(preview, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	require.Equal(t, 200, preview.Code, preview.Body.String())
+	require.Zero(t, svc.commitCalls)
+	reviewBody := `{"review":` + gjson.Get(preview.Body.String(), "data.review").Raw + `}`
 	w := httptest.NewRecorder()
-	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream?apply=true", strings.NewReader(reviewBody)))
 	require.Equal(t, 500, w.Code, w.Body.String())
-	require.Equal(t, 1, svc.mergeCalls)
+	require.Equal(t, 1, svc.commitCalls)
 	require.Zero(t, svc.updateAccountCalls)
 }
 
-func TestSyncQianwenPreviewDoesNotApplyMapping(t *testing.T) {
+func TestAccountModelCatalogQianwenPreviewDoesNotApplyMapping(t *testing.T) {
 	svc := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "synthetic"}}}
 	upstream := &syncUpstreamHTTPUpstream{responses: []*http.Response{
 		{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"qwen-plus"}]}}`))},
@@ -686,4 +728,32 @@ func TestSyncQianwenPreviewDoesNotApplyMapping(t *testing.T) {
 	require.Zero(t, svc.mergeCalls)
 	require.Zero(t, svc.updateAccountCalls)
 	require.Contains(t, w.Body.String(), "qwen-plus")
+}
+
+func TestModelCatalogDefaultPreviewAndApplyRequiresReview(t *testing.T) {
+	for _, query := range []string{"", "?apply=false", "?apply=true"} {
+		t.Run(query, func(t *testing.T) {
+			adminService := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}}
+			adminService.updateAccountErr = service.ErrAccountModelCatalogConflict
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`))}}
+			recorder := httptest.NewRecorder()
+			setupSyncUpstreamModelsRouter(adminService, upstream).ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream"+query, nil))
+			if query == "?apply=true" {
+				require.Equal(t, http.StatusBadRequest, recorder.Code)
+				require.Contains(t, recorder.Body.String(), "review")
+				require.Zero(t, adminService.commitCalls)
+				require.Empty(t, upstream.requests)
+			} else {
+				require.Equal(t, http.StatusOK, recorder.Code)
+				require.Zero(t, adminService.commitCalls)
+				require.False(t, gjson.Get(recorder.Body.String(), "data.applied").Bool())
+				require.Equal(t, "[]", gjson.Get(recorder.Body.String(), "data.models").Raw)
+				require.Equal(t, `"0"`, gjson.Get(recorder.Body.String(), "data.snapshot_revision").Raw)
+				require.Equal(t, `"0"`, gjson.Get(recorder.Body.String(), "data.identity_revision").Raw)
+				require.Equal(t, `"0"`, gjson.Get(recorder.Body.String(), "data.rules_revision").Raw)
+				require.Equal(t, "[]", gjson.Get(recorder.Body.String(), "data.invalid_aliases").Raw)
+				require.Equal(t, "[]", gjson.Get(recorder.Body.String(), "data.excluded_models").Raw)
+			}
+		})
+	}
 }
