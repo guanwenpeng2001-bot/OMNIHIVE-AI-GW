@@ -1914,7 +1914,21 @@ export interface RedeemCodeRequest {
 
 // ==================== Dashboard & Statistics ====================
 
+// Matches usagestats.Coverage; timestamps are RFC3339 strings.
+export interface UsageCoverage {
+  complete: boolean
+  reason?: string
+  raw_retained_from: string
+  hourly_retained_from?: string
+  daily_retained_from?: string
+  published_before: string
+  dirty_from?: string
+  timezone: string
+  projection_version: number
+}
+
 export interface DashboardStats {
+  coverage?: UsageCoverage
   // 用户统计
   total_users: number
   today_new_users: number // 今日新增用户数
