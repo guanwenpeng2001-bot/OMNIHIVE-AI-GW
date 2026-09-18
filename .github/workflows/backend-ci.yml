@@ -207,10 +207,14 @@ jobs:
           check-latest: false
           cache: true
           cache-dependency-path: backend/go.sum
+      - name: Create catalog test database
+        if: matrix.gate == 'catalog'
+        run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres job_test
       - name: Run required round tests (no skips)
         env:
           # Job-local disposable services, never a shared database or Redis.
           USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
+          UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
           AFFINITY_REDIS_TEST_ADDR: localhost:6379
         run: make test-required-${{ matrix.gate }}
 
