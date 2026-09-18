@@ -209,6 +209,12 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # Opt into scoped session hashing and binding; disabled by default.
+  session_affinity_enabled: false
+  # Configure both together. Both empty permits development SHA fallback;
+  # configuring only one rejects startup.
+  affinity_hmac_key: ""
+  affinity_hmac_key_version: ""
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
@@ -1066,6 +1072,9 @@ plugins:
 # Pricing Data Source (Optional)
 # 定价数据源（可选）
 # =============================================================================
+# Periodic outbound model catalog refresh requires explicit opt-in.
+model_catalog_refresh_enabled: false
+
 pricing:
   # URL to fetch model pricing data (default: model-price-repo main branch)
   # 获取模型定价数据的 URL（默认：model-price-repo main 分支）
