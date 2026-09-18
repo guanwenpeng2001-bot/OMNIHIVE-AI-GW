@@ -133,29 +133,6 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 	return CapabilityMatch{Metadata: cloneUpstreamModelMetadata(m), CanonicalID: r.ModelID, Rule: rule, Status: "matched"}
 }
 
-// models.dev IDs are exact. No case folding is enabled without a provider
-// contract; aliases expressed as record IDs must still be unique.
-func lookupModelsDevModel(provider modelsDevProvider, modelID string) (modelsDevModel, string) {
-	if m, ok := provider.Models[modelID]; ok {
-		return m, "exact"
-	}
-	var found modelsDevModel
-	count := 0
-	for _, m := range provider.Models {
-		if strings.TrimSpace(m.ID) == modelID {
-			found = m
-			count++
-		}
-	}
-	if count == 1 {
-		return found, "record_id"
-	}
-	if count > 1 {
-		return modelsDevModel{}, "ambiguous"
-	}
-	return modelsDevModel{}, "not_found"
-}
-
 func buildCapabilityAliasIndex(records map[string]CapabilityRecord) map[string][]string {
 	index := make(map[string][]string)
 	for _, r := range records {
