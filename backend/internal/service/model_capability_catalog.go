@@ -473,8 +473,7 @@ func (s *PricingService) publishCapabilityCandidate(candidate *ModelCapabilitySn
 	s.mu.Unlock()
 }
 
-// Accept P0's string form and P1's structured form without changing the P0 Go
-// field type used by existing callers.
+// MarshalJSON emits the public schema and preserves explicit empty declarations.
 func (r CapabilityRecord) MarshalJSON() ([]byte, error) {
 	type plain CapabilityRecord
 	body, err := json.Marshal(plain(r))
@@ -504,6 +503,8 @@ func (r CapabilityRecord) MarshalJSON() ([]byte, error) {
 	return json.Marshal(fields)
 }
 
+// UnmarshalJSON accepts string and structured reasoning controls without changing
+// the string field used by existing callers.
 func (r *CapabilityRecord) UnmarshalJSON(body []byte) error {
 	type plain CapabilityRecord
 	var fields map[string]json.RawMessage

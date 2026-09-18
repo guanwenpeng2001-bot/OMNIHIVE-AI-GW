@@ -255,7 +255,8 @@ func (s *AccountTestService) FetchUpstreamSupportedModels(ctx context.Context, a
 	return models, err
 }
 
-// SyncUpstreamModelCatalog discovers and enriches a catalog without writing account state.
+// ApplyDiscoveredModelMapping retains the existing immediate mapping action until
+// reviewed catalog administration replaces its callers.
 func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, accountID int64, models []string) error {
 	merger, ok := s.accountRepo.(AccountModelMappingMerger)
 	if !ok {
@@ -264,6 +265,8 @@ func (s *AccountTestService) ApplyDiscoveredModelMapping(ctx context.Context, ac
 	return merger.MergeDiscoveredModelMapping(ctx, accountID, models)
 }
 
+// SyncUpstreamModelCatalog preserves legacy metadata synchronization and persistence.
+// New catalog administration should use DiscoverModelCapabilities before projection.
 func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
 	// Preserve the legacy metadata persistence contract until the reviewed catalog
 	// administration replaces this entry point. Capability completeness is separate.

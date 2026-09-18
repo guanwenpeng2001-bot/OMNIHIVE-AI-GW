@@ -3,10 +3,11 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 )
 
 const (
@@ -220,6 +221,8 @@ func catalogProtocolEndpoint(protocol string) string {
 	return protocol
 }
 
+// AccountModelBinding is internal evidence for a concrete outbound target.
+// It must never be serialized into a public model-list response.
 type AccountModelBinding struct {
 	PublicModel         string
 	AccountID           int64
@@ -233,6 +236,8 @@ type AccountModelBinding struct {
 	Supported           bool
 }
 
+// AccountModelBindingOptions carries resolved request decisions. FinalModel
+// bypasses name rewriting so a later forwarding caller can validate exactly once.
 type AccountModelBindingOptions struct {
 	Endpoint              string
 	FinalModel            string
