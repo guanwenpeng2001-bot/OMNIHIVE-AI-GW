@@ -1,10 +1,10 @@
 {
   "adapter_version": "capability-v2",
   "alias_version": "exact-profile-id-v1",
-  "approval_basis": "P2-01 reviewed subset: four exact Beijing embedding specifications; official legacy/workspace domain equivalence verified; 23 candidates withheld including 9 reasoning-only records blocked by context-kind adapter bug; reports/p2-01-publication-review.json and .pi/plans/project-review/p2-01-publish-report.md",
+  "approval_basis": "P2-01 reviewed subset: four exact Beijing embedding specifications; official legacy/workspace domain equivalence verified; 23 candidates withheld including 9 reasoning-only records blocked by context-kind adapter bug; reports/p2-01-publication-review.json and .pi/plans/project-review/p2-01-publish-report.md; Source-release maintenance review: unchanged 252 capability records, exact reviewed profile/model applicability independent of price bytes; audited actual parser/catalog/profile/matcher/rules dependencies, no newly collected evidence approved.",
   "approved_inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
   "description": "Pinned local observations, not current official specifications or account authorization. Conflicting fields are omitted; runtime/embed keep their respective observed limits. Unknown reasoning controls remain unknown under P0 schema. No model aliases or prices. Includes reviewed DashScope embedding API observations; text output modality is the catalog convention for text embeddings, whose API output is a numeric vector. P2-01 adds four exact Beijing embedding supplements; reasoning-only and media candidates remain unpublished.",
-  "generated_at": "2026-09-17T06:40:11Z",
+  "generated_at": "2026-09-18T18:44:53Z",
   "records": [
     {
       "applicable_content_hashes": [

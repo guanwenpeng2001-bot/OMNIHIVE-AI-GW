@@ -77,6 +77,13 @@ class OfflineCLITests(unittest.TestCase):
         self.assertIn('missing release dependency: ' + release.VERSION_FILES[0], result.stderr)
         self.assertIn('code_versions.' + release.VERSION_FILES[1], result.stderr)
 
+    def test_price_only_changes_do_not_invalidate_reviewed_release(self):
+        self.prepare_report()
+        prices = self.backend / 'resources/model-pricing/model_prices_and_context_window.json'
+        prices.write_text('{"model":{"input_cost_per_token":123.456}}\n')
+        result = self.run_command('validate', '--check-artifacts')
+        self.assertEqual(0, result.returncode, result.stderr)
+
     def test_stale_and_missing_report_artifacts_are_rejected(self):
         self.prepare_report()
         coverage = self.output / 'coverage.json'

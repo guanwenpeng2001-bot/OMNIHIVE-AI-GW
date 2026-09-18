@@ -10,7 +10,9 @@ VERSION_FILES = (
     "internal/service/model_capability_profile.go",
     "internal/service/model_capability_matcher.go",
     "internal/service/model_capability_heuristics.go",
-    "internal/service/openrouter_capability_provider.go",
+    "internal/pkg/capabilitysources/sources.go",
+    "internal/pkg/capabilitysources/collect.go",
+    "resources/model-capabilities/release.go",
 )
 
 
@@ -28,7 +30,7 @@ def manifest_for(value, review):
     return {"schema_version": 1,
             "approved_generation": int(datetime.strptime(value["generated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()),
             "catalog_sha256": catalog.digest(catalog.encode(value)),
-            "base_data_sha256_lf": catalog.digest((BACKEND / "resources/model-pricing/model_prices_and_context_window.json").read_bytes().replace(b"\r\n", b"\n")),
+            "applicability": "reviewed-profile-model",
             "review_sha256": catalog.digest(catalog.encode(review)),
             "inputs_sha256": review["approved_inputs_sha256"],
             "alias_version": review["alias_version"],

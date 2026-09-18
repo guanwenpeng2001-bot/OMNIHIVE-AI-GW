@@ -1,8 +1,9 @@
 # Offline capability maintenance
 
-Python 3.10+ standard library only. Commands read local files; no command fetches
-models, contacts an account, grants eligibility, publishes a release, or writes a
-trust pin. Script-relative inputs work from any current directory.
+Python 3.10+ standard library only for catalog.py: its commands read local files,
+never fetch models, contact an account, grant eligibility, publish a release, or
+write a trust pin. The separate collect.py command is described below.
+Script-relative inputs work from any current directory.
 
 `inputs.json` is the reviewed price-free projection, not a raw registry response.
 `reviewed.json` retains the existing reviewed decisions unchanged, including their
@@ -38,14 +39,45 @@ keep the reviewed inputs byte-stable in Windows checkouts.
 - `--require-complete` fails while the source union is incomplete or current
   account scope has not been verified.
 
-The imported baseline catalog and pin agree, but its release manifest references
-an absent `internal/service/openrouter_capability_provider.go` and older hashes
-for `model_capability_catalog.go` and `model_capability_profile.go`. Consequently,
-`validate --check-artifacts` currently exits 1 and names these differences. This is
-an explicit failed release validation, not a successful release approval. The
-subsequent source/release task must review actual dependencies and a newer release
-generation; this tool must not silently replace that trust root. Tests exercise
-both a fully consistent synthetic release and tampered/missing dependencies.
+The independent release manifest binds the reviewed input hash, exact profile/model
+applicability, catalog bytes, aliases, review, and actual parser/rule dependencies.
+Price bytes are not an applicability condition. Changing prices cannot remove
+reviewed specifications; registry values only fill fields absent in that release.
+Publishing remains an explicit source review: review the input diff and deployment
+identities, advance `reviewed.json`'s generation, reproduce the catalog, review
+`release.manifest_for(...)`, and commit the manifest plus independently checked pin.
+No candidate, collection, report or validation command performs these steps.
+Rollback likewise requires a new reviewed generation; older pins are rejected.
+
+## Three-source collection
+
+`collect.py` invokes `go run ./cmd/capability-collect` in the backend checkout,
+reusing `internal/pkg/capabilitysources` for offline fixtures and future read-only
+runtime enrichment. This command requires the repository's Go toolchain; the
+existing offline catalog commands still use Python's standard library only.
+
+```sh
+python backend/resources/model-capabilities/scripts/collect.py --source models.dev --input backend/internal/pkg/capabilitysources/testdata/models.dev.json --verified-at 2026-09-19 --output .pi/candidates/models-dev.json
+python backend/resources/model-capabilities/scripts/catalog.py candidate --inputs .pi/candidates/models-dev.json --output-dir .pi/candidates/models-dev
+```
+
+The source allowlist is `models.dev`, `openrouter`, `litellm`. Only an explicit
+`--network` in place of `--input` fetches the fixed public endpoint. `--dry-run`
+writes the proposed action without fetching or registering a schedule. Collection
+outputs must be inside this checkout's `.pi`; no scheduler is installed. HTTP is
+bounded by 10 seconds and 32 MiB, redirects cannot leave the exact endpoint,
+partial pagination and malformed typed fields fail the whole capture, and failure
+preserves prior output. ETags are used only when a prior successful capture
+returned one; 304 preserves the original observation timestamp.
+
+Source profiles are registry namespaces, never authorization or automatic native
+alias evidence. OpenRouter provider-union parameters do not prove native tools or
+reasoning controls. Total context limits remain `context_window` plus
+`context_limit_kind=total` in candidate inputs, and are not converted into input
+limits by the publication generator. False/empty/missing remain distinct, prices
+are stripped, and raw observations never enter the published catalog automatically.
+The synthetic fixtures test parser contracts; they do not prove current vendor
+availability or real-account coverage.
 
 ## Optional historical evidence
 

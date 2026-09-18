@@ -329,15 +329,8 @@ func buildModelCapabilitySnapshot(runtime []byte) (*ModelCapabilitySnapshot, err
 		if _, err := time.Parse("2006-01-02", r.VerifiedAt); err != nil {
 			return nil, err
 		}
-		applies := false
-		for _, h := range r.ApplicableContentHashes {
-			if h == contentHash {
-				applies = true
-			}
-		}
-		if !applies {
-			continue
-		}
+		// The independently pinned release approves exact profile/model identities.
+		// Historical input hashes are provenance, never a live pricing predicate.
 		r.FieldSources = make(map[string]CapabilityFieldSource)
 		v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 		for i := 0; i < v.NumField(); i++ {
@@ -400,17 +393,17 @@ func writePricingFileAtomically(path string, body []byte) error {
 		return err
 	}
 	name := file.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if err = file.Chmod(0644); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if _, err = file.Write(body); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err = file.Sync(); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err = file.Close(); err != nil {

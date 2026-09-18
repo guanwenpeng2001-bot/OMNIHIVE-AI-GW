@@ -650,7 +650,7 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		}
 		changed = true
 	}
-	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 && !(merged.ContextLimitKind == "total" && merged.ContextWindow > 0 && fallback.MaxOutputTokens > merged.ContextWindow) {
+	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 && (merged.ContextLimitKind != "total" || merged.ContextWindow <= 0 || fallback.MaxOutputTokens <= merged.ContextWindow) {
 		merged.MaxOutputTokens = fallback.MaxOutputTokens
 		changed = true
 	}
@@ -2228,37 +2228,4 @@ func MarshalModelCapabilityLists(value any, lists map[string][]string) ([]byte, 
 		}
 	}
 	return json.Marshal(fields)
-}
-
-func upstreamModelListEndpointUnsupported(err error) bool {
-	statusCode := upstreamModelSyncStatusCode(err)
-	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed
-}
-
-func completeUpstreamModelMetadataSubset(
-	modelIDs []string,
-	metadata map[string]UpstreamModelMetadata,
-) map[string]UpstreamModelMetadata {
-	if len(metadata) == 0 {
-		return nil
-	}
-	complete := make(map[string]UpstreamModelMetadata)
-	for _, modelID := range modelIDs {
-		modelID = strings.TrimSpace(modelID)
-		if modelID == "" {
-			continue
-		}
-		entry, ok := metadata[modelID]
-		if !ok || !upstreamModelMetadataIsComplete(entry) {
-			continue
-		}
-		if strings.TrimSpace(entry.ID) == "" {
-			entry.ID = modelID
-		}
-		complete[modelID] = entry
-	}
-	if len(complete) == 0 {
-		return nil
-	}
-	return complete
 }
