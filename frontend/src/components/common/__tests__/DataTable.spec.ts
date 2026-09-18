@@ -358,3 +358,47 @@ describe('DataTable', () => {
     expect(wrapper.emitted('update:selectedKeys')?.at(-1)?.[0]).toEqual([99, 1, 2])
   })
 })
+
+
+describe('DataTable accessible controls', () => {
+  it('exposes sortable headers as focusable named native buttons', async () => {
+    stubDesktopMatchMedia()
+    const wrapper = mount(DataTable, { attachTo: document.body, props: {
+      columns: [{ key: 'name', label: 'Account name', sortable: true }, { key: 'id', label: 'ID' }],
+      data: [{ id: 1, name: 'Beta' }, { id: 2, name: 'Alpha' }]
+    } })
+    const headers = wrapper.findAll('th')
+    const sortButton = headers[0].get<HTMLButtonElement>('button')
+    expect(sortButton.text()).toBe('Account name')
+    expect(sortButton.attributes('type')).toBe('button')
+    sortButton.element.focus()
+    expect(document.activeElement).toBe(sortButton.element)
+    expect(headers[1].find('button').exists()).toBe(false)
+    await sortButton.trigger('click')
+    expect(headers[0].attributes('aria-sort')).toBe('ascending')
+    expect(wrapper.findAll('tbody tr')[0].text()).toContain('Alpha')
+    await sortButton.trigger('click')
+    expect(headers[0].attributes('aria-sort')).toBe('descending')
+    wrapper.unmount()
+  })
+
+  it.each(['desktop', 'mobile'])('preserves named native mixed selection on %s', async (viewport) => {
+    if (viewport === 'desktop') stubDesktopMatchMedia()
+    else stubMobileMatchMedia()
+    const wrapper = mount(DataTable, { props: {
+      columns: [{ key: 'name', label: 'Account name' }],
+      data: [{ id: 1, name: 'Alpha' }, { id: 2, name: 'Beta' }],
+      selectable: true, selectedKeys: [1, 99], selectionLabel: (row: { name: string }) => `Select ${row.name}`
+    } })
+    const selectAll = wrapper.get<HTMLInputElement>(viewport === 'desktop' ? '[data-test="select-all"]' : '[data-test="select-all-mobile"]')
+    expect(selectAll.element.indeterminate).toBe(true)
+    expect(selectAll.element.checked).toBe(false)
+    expect(wrapper.get('[data-test="select-row"]').attributes('aria-label')).toBe('Select Alpha')
+    await selectAll.setValue(true)
+    expect(wrapper.emitted('update:selectedKeys')?.at(-1)).toEqual([[1, 99, 2]])
+    await wrapper.setProps({ loading: true })
+    expect(wrapper.get('[role="status"]').text()).toBe('common.loading')
+    expect(wrapper.find('[aria-busy="true"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})

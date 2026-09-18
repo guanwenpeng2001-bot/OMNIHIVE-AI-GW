@@ -1,5 +1,6 @@
 <template>
-  <div v-if="!isDesktopViewport" class="space-y-3">
+  <div v-if="!isDesktopViewport" class="space-y-3" :aria-busy="loading">
+    <span v-if="loading" role="status" class="sr-only">{{ t('common.loading') }}</span>
     <template v-if="loading">
       <div v-for="i in 5" :key="i" class="rounded-lg border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
         <div class="space-y-3">
@@ -36,7 +37,7 @@
         <label class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">
           <input
             type="checkbox"
-            class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+            class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
             :checked="allVisibleSelected"
             :indeterminate="someVisibleSelected"
             data-test="select-all-mobile"
@@ -59,7 +60,7 @@
           <div v-if="selectable" class="flex justify-end">
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
               :checked="isRowSelected(row, index)"
               :aria-label="getRowSelectionLabel(row, index)"
               data-test="select-row"
@@ -99,7 +100,8 @@
       'is-scrollable': isScrollable
     }"
   >
-    <table class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
+    <span v-if="loading" role="status" class="sr-only">{{ t('common.loading') }}</span>
+    <table :aria-busy="loading" class="w-full min-w-max divide-y divide-gray-200 dark:divide-dark-700">
       <thead class="table-header bg-gray-50 dark:bg-dark-800">
         <tr>
           <th
@@ -109,7 +111,7 @@
           >
             <input
               type="checkbox"
-              class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+              class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
               :checked="allVisibleSelected"
               :indeterminate="someVisibleSelected"
               :aria-label="t('common.selectAll')"
@@ -131,7 +133,11 @@
             ]"
             @click="column.sortable && handleSort(column.key)"
           >
-            <div :class="['flex items-center space-x-1', getHeaderContentAlignmentClass(column)]">
+            <component
+              :is="column.sortable ? 'button' : 'div'"
+              :type="column.sortable ? 'button' : undefined"
+              :class="['flex w-full items-center space-x-1 text-left', getHeaderContentAlignmentClass(column), column.sortable && 'rounded focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-700 dark:focus-visible:outline-primary-300']"
+            >
               <slot
                 :name="`header-${column.key}`"
                 :column="column"
@@ -162,7 +168,7 @@
                   <path d="M5 8L1.5 3.5h7L5 8z" />
                 </svg>
               </span>
-            </div>
+            </component>
           </th>
         </tr>
       </thead>
@@ -223,7 +229,7 @@
             <td v-if="selectable" class="w-11 min-w-11 px-3 py-4 text-center">
               <input
                 type="checkbox"
-                class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
+                class="h-4 w-4 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400 dark:bg-dark-800"
                 :checked="isRowSelected(item.row, item.index)"
                 :aria-label="getRowSelectionLabel(item.row, item.index)"
                 data-test="select-row"

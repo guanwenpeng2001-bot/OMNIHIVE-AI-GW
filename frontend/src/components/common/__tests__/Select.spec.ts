@@ -294,11 +294,73 @@ describe('Select accessible field and value', () => {
   })
   it('combines an external field label with a referenced current value', async () => {
     document.body.innerHTML = '<span id="platform-label">Platform</span>'
-    const wrapper = mount(Select, { attachTo: document.body, props: { ariaLabelledby: 'platform-label', modelValue: 'a', options: [{ value: 'a', label: 'Alpha' }] } })
+    const wrapper = mount(Select, { attachTo: document.body, props: { clearable: true, ariaLabelledby: 'platform-label', modelValue: 'a', options: [{ value: 'a', label: 'Alpha' }] } })
     unmountWrapper = () => wrapper.unmount()
     const references = wrapper.get('button').attributes('aria-labelledby').split(' ')
     expect(references.map(id => document.getElementById(id)?.textContent?.trim())).toEqual(['Platform', 'Alpha'])
+    const clearReferences = wrapper.get('.select-clear').attributes('aria-labelledby').split(' ')
+    expect(clearReferences.map(id => document.getElementById(id)?.textContent?.trim())).toEqual(['common.clear', 'Platform'])
     await wrapper.get('button').trigger('click')
     expect(document.querySelector('[role="listbox"]')?.getAttribute('aria-labelledby')).toBe('platform-label')
+  })
+})
+
+
+describe('Select keyboard actions and validation', () => {
+  it('exposes a separate named native clear button and restores trigger focus', async () => {
+    const wrapper = mount(Select, { attachTo: document.body, props: {
+      modelValue: 'openai', label: 'Platform', clearable: true,
+      options: [{ value: 'openai', label: 'OpenAI' }], error: true, ariaDescribedby: 'platform-error'
+    } })
+    unmountWrapper = () => wrapper.unmount()
+    const trigger = wrapper.get<HTMLButtonElement>('.select-trigger')
+    const clear = wrapper.get<HTMLButtonElement>('button.select-clear')
+    expect(clear.attributes('aria-label')).toBe('common.clear: Platform')
+    expect(clear.element.tabIndex).toBe(0)
+    expect(trigger.find('button, [role="button"]').exists()).toBe(false)
+    expect(trigger.attributes('aria-invalid')).toBe('true')
+    expect(trigger.attributes('aria-describedby')).toBe('platform-error')
+    clear.element.focus()
+    await clear.trigger('click')
+    expect(wrapper.emitted('update:modelValue')).toEqual([[null]])
+    expect(document.activeElement).toBe(trigger.element)
+    await wrapper.setProps({ disabled: true, error: false })
+    expect(wrapper.find('.select-clear').exists()).toBe(false)
+    expect(trigger.attributes('aria-invalid')).toBeUndefined()
+  })
+
+  it.each([false, true])('leaves native Tab navigation available (shift=%s)', async (shiftKey) => {
+    const wrapper = mount(Select, { attachTo: document.body, props: {
+      modelValue: null, label: 'Platform', options: [{ value: 'openai', label: 'OpenAI' }]
+    } })
+    unmountWrapper = () => wrapper.unmount()
+    const trigger = wrapper.get('button')
+    await trigger.trigger('keydown', { key: 'ArrowDown' })
+    await nextTick()
+    const listbox = document.querySelector<HTMLElement>('[role="listbox"]')!
+    expect(document.activeElement).toBe(listbox)
+    const tab = new KeyboardEvent('keydown', { key: 'Tab', shiftKey, bubbles: true, cancelable: true })
+    listbox.dispatchEvent(tab)
+    await nextTick()
+    expect(tab.defaultPrevented).toBe(false)
+    expect(trigger.attributes('aria-expanded')).toBe('false')
+    expect(document.activeElement).toBe(trigger.element)
+  })
+
+  it('confirms a non-editable listbox with Space but preserves spaces in search', async () => {
+    const wrapper = mount(Select, { props: {
+      modelValue: null, options: [{ value: 'openai', label: 'OpenAI' }], searchable: false
+    } })
+    unmountWrapper = () => wrapper.unmount()
+    await wrapper.get('button').trigger('click')
+    document.querySelector('[role="listbox"]')!.dispatchEvent(new KeyboardEvent('keydown', { key: ' ', bubbles: true }))
+    await nextTick()
+    expect(wrapper.emitted('update:modelValue')).toEqual([['openai']])
+    await wrapper.setProps({ searchable: true })
+    await wrapper.get('button').trigger('click')
+    const space = new KeyboardEvent('keydown', { key: ' ', bubbles: true, cancelable: true })
+    document.querySelector('[role="combobox"]')!.dispatchEvent(space)
+    expect(space.defaultPrevented).toBe(false)
+    expect(wrapper.emitted('update:modelValue')).toHaveLength(1)
   })
 })
