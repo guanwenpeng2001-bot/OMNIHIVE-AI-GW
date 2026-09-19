@@ -22,6 +22,7 @@
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { confirmPlazaModels, getPlazaCandidates, type PlazaCandidateIdentity, type PlazaCandidateView } from '@/api/admin/channels'
+import { extractApiErrorCode, extractApiErrorStatus } from '@/utils/apiError'
 import { useAuthStore } from '@/stores/auth'
 onBeforeUnmount(() => { generation++ })
 const props = defineProps<{ channelId: number; groupId: number; groupName?: string }>()
@@ -66,8 +67,7 @@ async function save() {
     if (current === generation) { saving.value = false; await load() }
   } catch (failure) {
     if (current !== generation) return
-    const status = (failure as { response?: { status?: number } }).response?.status
-    stale.value = status === 409
+    stale.value = extractApiErrorStatus(failure) === 409 || extractApiErrorCode(failure) === 'PLAZA_CONFIRMATION_CONFLICT'
     error.value = t(stale.value ? 'modelPlaza.confirmation.conflict' : 'modelPlaza.confirmation.saveError')
   } finally { if (current === generation) saving.value = false }
 }

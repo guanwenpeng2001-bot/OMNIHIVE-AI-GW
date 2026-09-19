@@ -161,9 +161,9 @@ func TestBedrockAdapterContract(t *testing.T) {
 		var output bytes.Buffer
 		usage, err := ConvertBedrockConverseStream(contextRoot, io.NopCloser(iotest.OneByteReader(bytes.NewReader(frames))), &output, "request-id", "alias")
 		require.NoError(t, err)
-		require.Equal(t, float64(11), usage["input_tokens"])
-		require.Equal(t, float64(4), usage["output_tokens"])
-		require.Equal(t, float64(0), usage["cache_read_input_tokens"])
+		require.Equal(t, int64(11), usage["input_tokens"])
+		require.Equal(t, int64(4), usage["output_tokens"])
+		require.Equal(t, int64(0), usage["cache_read_input_tokens"])
 		require.NotContains(t, usage, "cache_creation_input_tokens")
 		require.Contains(t, output.String(), `"type":"text_delta"`)
 		require.Contains(t, output.String(), `"partial_json":"{\"city\":"`)

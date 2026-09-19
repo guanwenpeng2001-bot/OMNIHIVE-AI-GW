@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"math"
 	"sort"
-	"strings"
 	"time"
 )
 
@@ -97,16 +96,35 @@ func pricingEntryQuotes(model string, raw json.RawMessage) map[string]PricingQuo
 		_ = json.Unmarshal(value, &currency)
 	}
 	conditions := map[string]json.RawMessage{}
-	for key, value := range entry {
-		if key == "mode" || key == "region" || key == "supported_regions" || key == "service_tier" ||
-			key == "pricing_conditions" || key == "price_unit" || key == "plan" ||
-			strings.HasPrefix(key, "long_context_") || strings.Contains(key, "_above_") {
+	// Explicit condition schema. Price dimension names (including the 1-hour
+	// cache write price) are not billing conditions.
+	for _, key := range []string{"mode", "region", "supported_regions", "service_tier",
+		"pricing_conditions", "price_unit", "plan", "long_context_input_token_threshold",
+		"long_context_input_cost_multiplier", "long_context_output_cost_multiplier"} {
+		if value, found := entry[key]; found {
 			conditions[key] = value
 		}
 	}
-	conditionJSON, _ := json.Marshal(conditions)
-	quotes := make(map[string]PricingQuote, len(pricingPreviewUnits))
+	// Tiered price keys encode real thresholds. Preserve the tier schema as a
+	// condition, but compare its prices as independent dimensions, not conditions.
+	units := make(map[string]string, len(pricingPreviewUnits))
 	for field, unit := range pricingPreviewUnits {
+		units[field] = unit
+	}
+	var tiers []string
+	for field := range entry {
+		if aboveTierPricePattern.MatchString(field) || cacheTierPricePattern.MatchString(field) {
+			units[field] = "token"
+			tiers = append(tiers, field)
+		}
+	}
+	if len(tiers) > 0 {
+		sort.Strings(tiers)
+		conditions["token_price_tiers"], _ = json.Marshal(tiers)
+	}
+	conditionJSON, _ := json.Marshal(conditions)
+	quotes := make(map[string]PricingQuote, len(units))
+	for field, unit := range units {
 		var value *float64
 		if rawValue, found := entry[field]; found {
 			_ = json.Unmarshal(rawValue, &value)

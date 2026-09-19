@@ -64,14 +64,21 @@ func (service *GatewayService) forwardBedrockPlatform(ctx context.Context, reque
 			// Existing Messages stream reader owns its idle timeout and client framing.
 			reader, writer := io.Pipe()
 			defer func() { _ = reader.Close() }()
+			converted := make(chan error, 1)
 			go func() {
 				_, convertErr := ConvertBedrockConverseStream(upstreamContext, originalBody, writer, response.Header.Get("x-request-id"), parsed.Model)
 				_ = writer.CloseWithError(convertErr)
+				converted <- convertErr
 			}()
 			response.Body = reader
 			result, streamErr := service.handleStreamingResponse(upstreamContext, response, requestContext, account, start, parsed.Model, target, false)
 			if streamErr != nil {
-				return nil, streamErr
+				// The upstream accepted this inference. Do not expose the generic
+				// reader's retryable error even if no client bytes were written.
+				return nil, fmt.Errorf("bedrock Converse response failed after acceptance: %v", streamErr)
+			}
+			if convertErr := <-converted; convertErr != nil {
+				return nil, fmt.Errorf("bedrock Converse conversion failed: %v", convertErr)
 			}
 			usage, firstToken, disconnected = result.usage, result.firstTokenMs, result.clientDisconnect
 		}

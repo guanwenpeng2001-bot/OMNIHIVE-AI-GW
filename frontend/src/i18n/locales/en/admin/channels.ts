@@ -53,8 +53,9 @@ export default {
         sourcePreview: 'Preview source change', candidate: 'Candidate LiteLLM catalog JSON', group: 'Saved group', inputTokens: 'Sample input tokens', outputTokens: 'Sample output tokens',
         sampleHint: 'New text request, standard tier, no cache or reasoning surcharge. Uses saved group/channel configuration and the group multiplier at preview time; unsaved draft prices are excluded. This sample is not a full billing forecast.',
         referenceHint: 'Reference: current effective pricing catalog (may include local overrides), not a verified provider quote. Percent = absolute difference / baseline; warnings require >10%. Unknown scope, currency, units or conditions are not compared.',
-        reference_to_reference: 'Current reference → candidate reference', channel_to_reference: 'Reference → channel draft',
+        reference_to_reference: 'Current reference → candidate reference', channel_to_reference: 'Channel draft → reference',
         comparable: 'Comparable', incomparable: 'Not comparable', missing: 'Price missing / inherited', new_charge: 'New charge from zero baseline',
+        channelBaseline: 'Channel draft / denominator', referenceCompared: 'Reference price',
         baseline: 'Baseline / denominator', compared: 'Compared price', savedCharge: 'Saved configuration sample charge', added: 'Added', removed: 'Removed',
         fields: { context_window: 'Context / input limit', max_context_window: 'Total context limit', max_output_tokens: 'Output limit', input_modalities: 'Input modalities', output_modalities: 'Output modalities', supports_function_calling: 'Tools', reasoning: 'Reasoning', reasoning_control: 'Reasoning control / levels / budget', supported_reasoning_levels: 'Reasoning levels', embedding_dimensions: 'Embedding dimensions', task_limits: 'Task-specific limits' }
       },

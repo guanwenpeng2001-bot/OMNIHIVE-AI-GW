@@ -147,9 +147,11 @@ func TestQianfanAdapterContract(t *testing.T) {
 		}
 		var stream strings.Builder
 		for _, frame := range frames {
-			stream.WriteString("data: " + frame + "\n\n")
+			_, err := stream.WriteString("data: " + frame + "\n\n")
+			require.NoError(t, err)
 		}
-		stream.WriteString("data: [DONE]\n\n")
+		_, err = stream.WriteString("data: [DONE]\n\n")
+		require.NoError(t, err)
 		recorder = httptest.NewRecorder()
 		ginContext, _ = gin.CreateTestContext(recorder)
 		ginContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
@@ -167,7 +169,14 @@ func TestQianfanAdapterContract(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 			writer.Header().Set("Content-Type", "text/event-stream")
 			writer.WriteHeader(200)
-			writer.(http.Flusher).Flush()
+			flusher, ok := writer.(http.Flusher)
+			if !ok {
+				t.Error("response writer does not support flushing")
+				close(started)
+				close(cancelled)
+				return
+			}
+			flusher.Flush()
 			close(started)
 			<-request.Context().Done()
 			close(cancelled)
@@ -179,7 +188,7 @@ func TestQianfanAdapterContract(t *testing.T) {
 		require.NoError(t, err)
 		response, err := server.Client().Do(request)
 		require.NoError(t, err)
-		defer response.Body.Close()
+		defer func() { require.NoError(t, response.Body.Close()) }()
 		<-started
 		cancel()
 		_, err = io.ReadAll(response.Body)

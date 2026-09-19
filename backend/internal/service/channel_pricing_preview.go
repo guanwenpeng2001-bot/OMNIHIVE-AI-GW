@@ -43,8 +43,8 @@ func (pricingService *PricingService) CompareChannelPricing(model, profile, task
 		if taskType == "text_generation" && card.BillingMode == BillingModeToken && len(card.Intervals) == 0 && card.TimePricing == nil {
 			channel.Conditions = `{"mode":"chat"}`
 		}
-		// The catalog quote is the denominator of channel-to-reference deviation.
-		result = append(result, ComparePricingQuotes("channel_to_reference", model, field, reference, channel))
+		// The channel selling price is the denominator of channel-to-reference deviation.
+		result = append(result, ComparePricingQuotes("channel_to_reference", model, field, channel, reference))
 	}
 	sort.Slice(result, func(left, right int) bool { return result[left].Field < result[right].Field })
 	return result
