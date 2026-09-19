@@ -1,6 +1,7 @@
 """CLI regression tests use a disposable, explicitly synthetic release tree."""
 import copy
 from pathlib import Path
+import runpy
 import shutil
 import subprocess
 import sys
@@ -76,6 +77,35 @@ class OfflineCLITests(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn('missing release dependency: ' + release.VERSION_FILES[0], result.stderr)
         self.assertIn('code_versions.' + release.VERSION_FILES[1], result.stderr)
+
+    def test_required_catalog_rejects_drift_before_go_and_resumes_after_restore(self):
+        runner = self.backend / 'scripts/required-round-tests.py'
+        runner.parent.mkdir()
+        shutil.copyfile(release.BACKEND / 'scripts/required-round-tests.py', runner)
+        run = runpy.run_path(str(runner))['run']
+        dependency = self.backend / release.VERSION_FILES[0]
+        original = dependency.read_bytes()
+        dependency.write_bytes(original + b'// Unreviewed drift.\n')
+        execute = subprocess.run
+
+        def offline_then_listing(command, **kwargs):
+            if command[0] == 'go':
+                raise RuntimeError('Go listing reached after offline verification')
+            return execute(command, **kwargs, capture_output=True, text=True)
+
+        with patch('subprocess.run', side_effect=offline_then_listing) as commands:
+            with self.assertRaises(subprocess.CalledProcessError) as rejected:
+                run('catalog')
+            self.assertIn('code_versions.' + release.VERSION_FILES[0], rejected.exception.stderr)
+            self.assertEqual(1, commands.call_count)
+            self.assertEqual(self.pin, (self.resource / 'release-pin.json').read_bytes())
+
+            dependency.write_bytes(original)
+            commands.reset_mock()
+            with self.assertRaisesRegex(RuntimeError, 'Go listing reached after offline verification'):
+                run('catalog')
+            self.assertEqual(2, commands.call_count)
+            self.assertEqual(self.pin, (self.resource / 'release-pin.json').read_bytes())
 
     def test_price_only_changes_do_not_invalidate_reviewed_release(self):
         self.prepare_report()
