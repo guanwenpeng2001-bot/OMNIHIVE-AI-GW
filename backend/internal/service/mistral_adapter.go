@@ -60,13 +60,13 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 		}
 		for _, key := range []string{"error", "message", "detail"} {
 			if value, present := envelope[key]; present && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				return nil, fmt.Errorf("Mistral model response contains an error")
+				return nil, fmt.Errorf("mistral model response contains an error")
 			}
 		}
 		body = bytes.TrimSpace(envelope["data"])
 	}
 	if len(body) == 0 || body[0] != '[' {
-		return nil, fmt.Errorf("Mistral model response must contain an array")
+		return nil, fmt.Errorf("mistral model response must contain an array")
 	}
 	var cards []MistralModelCard
 	if err := json.Unmarshal(body, &cards); err != nil {
@@ -75,7 +75,7 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 	seen := make(map[string]struct{}, len(cards))
 	for _, card := range cards {
 		if card.ID == "" || card.ID != strings.TrimSpace(card.ID) {
-			return nil, fmt.Errorf("Mistral model card has an invalid ID")
+			return nil, fmt.Errorf("mistral model card has an invalid ID")
 		}
 		if _, exists := seen[card.ID]; exists {
 			return nil, fmt.Errorf("Mistral model response has duplicate IDs")
