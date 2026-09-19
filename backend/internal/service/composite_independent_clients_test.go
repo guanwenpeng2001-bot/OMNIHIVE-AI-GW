@@ -87,6 +87,7 @@ func TestCompositeGroupIndependentClients(test *testing.T) {
 				require.NoError(test, err)
 			case "select":
 				observed = service.WithAffinityBindingState(ctx)
+				observed = service.WithGatewayRequestPlan(observed, service.NewGatewayRequestPlan(service.GatewayRequestSpec{Route: "/v1/chat/completions", Protocol: "openai", Model: "composite-fixture", BillingGroupID: groupID}))
 				excluded := map[int64]struct{}{}
 				if request.ExcludedID != 0 {
 					excluded[request.ExcludedID] = struct{}{}
@@ -214,7 +215,7 @@ func TestCompositeGroupIndependentClients(test *testing.T) {
 		writer := accounts.(interface {
 			UpdateCredentials(context.Context, int64, map[string]any) error
 		})
-		require.NoError(test, writer.UpdateCredentials(ctx, accountIDs[0], map[string]any{"api_key": "rotated", "model_mapping": map[string]any{"different-target": "different-target"}}))
+		require.NoError(test, writer.UpdateCredentials(ctx, accountIDs[0], map[string]any{"api_key": "rotated", "model_mapping": map[string]any{"fixture-target": "fixture-target"}}))
 		selectAccount(second, 0, accountIDs[1])
 		selectAccount(first, 0, accountIDs[1])
 		require.Equal(test, "conflict", exchange(first, compositeProcessRequest{Operation: "publish"}).Error)
