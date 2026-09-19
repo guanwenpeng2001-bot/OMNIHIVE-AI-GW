@@ -25,6 +25,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'commandcode', label: 'Command Code' },
   { value: 'qianfan', label: 'Qianfan' },
   { value: 'hunyuan', label: 'Hunyuan' },
+  { value: 'mistral', label: 'Mistral' },
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
 ] as const satisfies readonly PlatformOption[]
@@ -43,7 +44,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
-    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'volcengine'].includes(platform)
+    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'volcengine'].includes(platform)
 }
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
@@ -63,6 +64,7 @@ export function getPlatformLabel(platform: string, translate?: (key: string) => 
 
 /** Explicit defaults for providers with a verified chat-only runtime contract. */
 export const CHAT_PLATFORM_BASE_URLS: Record<string, string> = {
+  mistral: 'https://api.mistral.ai/v1',
   hunyuan: 'https://api.hunyuan.cloud.tencent.com/v1',
   qianfan: 'https://qianfan.baidubce.com/v2',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3'

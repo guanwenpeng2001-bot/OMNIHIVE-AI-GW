@@ -19,6 +19,7 @@ export default {
         "details": "来源、汇率、逐模型价格与原因"
 },
       newPlatforms: {
+      mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
       hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
       qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
       volcengineDescription: 'API key /api/v3 文本入口；填写精确部署目标，保存后声明可用性。自动发现、厂商 SSE/错误细节与额度尚未验证。',
@@ -362,6 +363,7 @@ export default {
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
+      mistral: 'Mistral',
       hunyuan: 'Hunyuan',
       qianfan: 'Qianfan',
       volcengine: 'Volcengine Ark',

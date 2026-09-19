@@ -19,6 +19,7 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       newPlatforms: {
+      mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
       hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
       qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
       volcengineDescription: 'API key /api/v3 chat runtime; configure exact deployment targets and declare availability after saving. Automatic discovery, vendor SSE/error details and balances remain unverified.',
@@ -159,6 +160,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+      mistral: 'Mistral',
       hunyuan: 'Hunyuan',
       qianfan: 'Qianfan',
       volcengine: 'Volcengine Ark',

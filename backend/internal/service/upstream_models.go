@@ -1174,6 +1174,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if account.Platform == PlatformMistral {
+		return s.fetchMistralModels(req, account)
+	}
 	if account.Platform == PlatformQianfan {
 		return s.fetchQianfanModels(req, account)
 	}
@@ -1231,6 +1234,8 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	case account.Platform == PlatformHunyuan:
 		_, err := hunyuanDiscoveredModels()
 		return nil, newUpstreamModelSyncUnsupportedError("Hunyuan automatic discovery is unverified; use account declarations", err)
+	case account.Platform == PlatformMistral:
+		return s.buildMistralModelsRequest(ctx, account)
 	case account.Platform == PlatformVolcengine:
 		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:
@@ -1838,6 +1843,15 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 	models := make([]string, 0, len(entries))
 	metadata := make(map[string]UpstreamModelMetadata)
 	for _, raw := range entries {
+		if len(platform) > 0 && platform[0] == PlatformMistral {
+			var card MistralModelCard
+			if err := json.Unmarshal(raw, &card); err != nil || card.ID == "" {
+				return nil, nil, fmt.Errorf("invalid Mistral card")
+			}
+			models = append(models, card.ID)
+			metadata[card.ID] = card.metadata(UpstreamModelMetadata{})
+			continue
+		}
 		var capability upstreamModelCapabilityEntry
 		if err := json.Unmarshal(raw, &capability); err != nil {
 			continue

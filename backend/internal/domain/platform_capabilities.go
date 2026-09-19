@@ -34,6 +34,7 @@ type PlatformDescriptor struct {
 }
 
 var platformDescriptors = []PlatformDescriptor{
+	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},

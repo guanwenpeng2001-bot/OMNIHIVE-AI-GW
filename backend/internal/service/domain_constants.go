@@ -53,6 +53,7 @@ const (
 	PlatformQianwen     = domain.PlatformQianwen
 	PlatformQianfan     = domain.PlatformQianfan
 	PlatformHunyuan     = domain.PlatformHunyuan
+	PlatformMistral     = domain.PlatformMistral
 	PlatformVolcengine  = domain.PlatformVolcengine
 	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformComposite   = domain.PlatformComposite

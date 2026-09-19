@@ -1393,6 +1393,8 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return qianfanDefaultBaseURL
 	case PlatformHunyuan:
 		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
 	case PlatformVolcengine:
 		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
@@ -1596,6 +1598,8 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return qianfanDefaultBaseURL
 	case PlatformHunyuan:
 		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
 	case PlatformVolcengine:
 		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
