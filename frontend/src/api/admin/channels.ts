@@ -6,6 +6,40 @@
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
 
+export interface PricingQuote {
+  value: number | null
+  currency: string
+  unit: string
+  scope: string
+  conditions: string
+}
+
+export interface PricingDifference {
+  id: string
+  basis: 'reference_to_reference' | 'channel_to_reference'
+  model: string
+  field: string
+  baseline: PricingQuote
+  candidate: PricingQuote
+  status: 'comparable' | 'missing' | 'incomparable' | 'new_charge'
+  absolute_percent: number | null
+  warning: boolean
+}
+
+export interface ChannelPricingPreview {
+  differences: PricingDifference[]
+  source?: { candidate_hash: string; before_count: number; after_count: number; added: string[]; removed: string[]; differences: PricingDifference[] }
+  impacts?: Array<{ model: string; group_id: number; comparable: boolean; charge_changed: boolean; before: { ActualCost: number } | null; after: { ActualCost: number } | null; before_error?: string; after_error?: string }>
+}
+
+export async function previewPricing(request: {
+  model: string; profile: string; task_type: string; pricing: ChannelModelPricing
+  candidate?: unknown; group_id?: number; input_tokens?: number; output_tokens?: number
+}): Promise<ChannelPricingPreview> {
+  const { data } = await apiClient.post<ChannelPricingPreview>('/admin/channels/pricing/preview', request)
+  return data
+}
+
 export type { BillingMode } from '@/constants/channel'
 
 export interface PricingInterval {
