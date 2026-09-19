@@ -10995,5 +10995,65 @@
       "No verified public catalog for this connection; use account-native discovery."
     ],
     "models": []
+  },
+  {
+    "platform": "volcengine",
+    "provider_profile": "native",
+    "revision": "4f53cda18c2baa0c",
+    "coverage_status": "unconfigured",
+    "checked_at": "2026-09-19T07:22:57.533076+00:00",
+    "source_refs": [],
+    "gaps": [
+      "No reviewed model presets; use account-native discovery or explicit account-target availability declarations. Live vendor verification is pending."
+    ],
+    "models": []
+  },
+  {
+    "platform": "qianfan",
+    "provider_profile": "native",
+    "revision": "4f53cda18c2baa0c",
+    "coverage_status": "unconfigured",
+    "checked_at": "2026-09-19T07:22:57.533090+00:00",
+    "source_refs": [],
+    "gaps": [
+      "No reviewed model presets; use account-native discovery or explicit account-target availability declarations. Live vendor verification is pending."
+    ],
+    "models": []
+  },
+  {
+    "platform": "hunyuan",
+    "provider_profile": "native",
+    "revision": "4f53cda18c2baa0c",
+    "coverage_status": "unconfigured",
+    "checked_at": "2026-09-19T07:22:57.533093+00:00",
+    "source_refs": [],
+    "gaps": [
+      "No reviewed model presets; use account-native discovery or explicit account-target availability declarations. Live vendor verification is pending."
+    ],
+    "models": []
+  },
+  {
+    "platform": "mistral",
+    "provider_profile": "native",
+    "revision": "4f53cda18c2baa0c",
+    "coverage_status": "unconfigured",
+    "checked_at": "2026-09-19T07:22:57.533095+00:00",
+    "source_refs": [],
+    "gaps": [
+      "No reviewed model presets; use account-native discovery or explicit account-target availability declarations. Live vendor verification is pending."
+    ],
+    "models": []
+  },
+  {
+    "platform": "bedrock",
+    "provider_profile": "native",
+    "revision": "4f53cda18c2baa0c",
+    "coverage_status": "unconfigured",
+    "checked_at": "2026-09-19T07:22:57.533097+00:00",
+    "source_refs": [],
+    "gaps": [
+      "No reviewed model presets; use account-native discovery or explicit account-target availability declarations. Live vendor verification is pending."
+    ],
+    "models": []
   }
 ]

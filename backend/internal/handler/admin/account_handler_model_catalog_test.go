@@ -215,3 +215,28 @@ func TestGetModelCatalogValidatesCurrentShadowParent(t *testing.T) {
 		}
 	}
 }
+
+func TestModelCatalogDisplayProjection(test *testing.T) {
+	test.Setenv("MODEL_CAPABILITY_OFFLINE", "1")
+	account := service.Account{ID: 42, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"alias": "private-target"}}, Extra: map[string]any{}}
+	adminService := &availableModelsAdminService{stubAdminService: newStubAdminService(), account: account}
+	handler := NewAccountHandler(adminService, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	handler.accountTestService = service.ProvideAccountTestService(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, &service.OpenAIGatewayService{}, nil, nil)
+	router := gin.New()
+	router.GET("/accounts/:id/models/catalog", handler.GetModelCatalog)
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/accounts/42/models/catalog", nil))
+	require.Equal(test, http.StatusOK, recorder.Code)
+	var response struct {
+		Data struct {
+			Display map[string]service.UpstreamModelMetadata `json:"display_metadata"`
+			Synced  bool                                     `json:"synced"`
+			Count   int                                      `json:"eligible_count"`
+		} `json:"data"`
+	}
+	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &response))
+	require.Contains(test, response.Data.Display, "private-target")
+	require.False(test, response.Data.Synced)
+	require.Zero(test, response.Data.Count)
+	require.Empty(test, adminService.account.Extra)
+}

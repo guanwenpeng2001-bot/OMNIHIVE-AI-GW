@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
 
@@ -59,13 +60,13 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 		}
 		for _, key := range []string{"error", "message", "detail"} {
 			if value, present := envelope[key]; present && !bytes.Equal(bytes.TrimSpace(value), []byte("null")) {
-				return nil, fmt.Errorf("Mistral model response contains an error")
+				return nil, fmt.Errorf("mistral model response contains an error")
 			}
 		}
 		body = bytes.TrimSpace(envelope["data"])
 	}
 	if len(body) == 0 || body[0] != '[' {
-		return nil, fmt.Errorf("Mistral model response must contain an array")
+		return nil, fmt.Errorf("mistral model response must contain an array")
 	}
 	var cards []MistralModelCard
 	if err := json.Unmarshal(body, &cards); err != nil {
@@ -74,14 +75,14 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 	seen := make(map[string]struct{}, len(cards))
 	for _, card := range cards {
 		if card.ID == "" || card.ID != strings.TrimSpace(card.ID) {
-			return nil, fmt.Errorf("Mistral model card has an invalid ID")
+			return nil, fmt.Errorf("mistral model card has an invalid ID")
 		}
 		if _, exists := seen[card.ID]; exists {
-			return nil, fmt.Errorf("Mistral model response has duplicate IDs")
+			return nil, fmt.Errorf("mistral model response has duplicate IDs")
 		}
 		seen[card.ID] = struct{}{}
 		if card.MaxContextLength != nil && *card.MaxContextLength <= 0 {
-			return nil, fmt.Errorf("Mistral model card has an invalid context length")
+			return nil, fmt.Errorf("mistral model card has an invalid context length")
 		}
 	}
 	return cards, nil
@@ -160,8 +161,42 @@ func prepareMistralChatRequest(body []byte) ([]byte, error) {
 	}
 	for _, tool := range request.Tools {
 		if tool.Type != "function" {
-			return nil, fmt.Errorf("Mistral chat supports only function tools")
+			return nil, fmt.Errorf("mistral chat supports only function tools")
 		}
 	}
 	return sjson.DeleteBytes(body, "stream_options")
+}
+
+func mistralChatUsageKnown(body []byte) bool {
+	for _, field := range []string{"usage.prompt_tokens", "usage.completion_tokens"} {
+		value := gjson.GetBytes(body, field)
+		if value.Type != gjson.Number || value.Float() < 0 || value.Float() != float64(value.Int()) {
+			return false
+		}
+	}
+	return true
+}
+
+func (service *AccountTestService) fetchMistralModels(request *http.Request, account *Account) ([]string, []byte, error) {
+	response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Mistral discovery request failed", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := readUpstreamResponseBodyLimited(response.Body, resolveModelsListReadLimit(service.cfg))
+	if err != nil {
+		return nil, nil, err
+	}
+	cards, err := parseMistralModelsResponse(response.StatusCode, body)
+	if err != nil {
+		return nil, nil, err
+	}
+	if gjson.GetBytes(body, "has_more").Bool() || gjson.GetBytes(body, "next").String() != "" || gjson.GetBytes(body, "next_cursor").String() != "" {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Mistral pagination is unverified", nil)
+	}
+	models := make([]string, 0, len(cards))
+	for _, card := range cards {
+		models = append(models, card.ID)
+	}
+	return models, body, nil
 }

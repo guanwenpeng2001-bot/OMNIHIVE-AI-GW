@@ -66,6 +66,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	BoundedModelProbesEnabled bool `mapstructure:"bounded_model_probes_enabled"`
 	// ModelCatalogRefreshEnabled opts into periodic outbound catalog refreshes.
 	ModelCatalogRefreshEnabled bool `mapstructure:"model_catalog_refresh_enabled"`
 
@@ -2376,6 +2377,7 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
 	viper.SetDefault("model_catalog_refresh_enabled", false)
+	viper.SetDefault("bounded_model_probes_enabled", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久

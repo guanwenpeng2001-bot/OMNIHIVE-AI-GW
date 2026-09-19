@@ -191,7 +191,7 @@ func BuildBedrockAdapterRequest(ctx context.Context, account *Account, target st
 	if stream {
 		request.Header.Set("Accept", "application/vnd.amazon.eventstream")
 	}
-	if apiKey := account.GetCredential("api_key"); apiKey != "" {
+	if apiKey := account.GetCredential("api_key"); apiKey != "" && (account.Platform != PlatformBedrock || account.IsBedrockAPIKey()) {
 		request.Header.Set("Authorization", "Bearer "+apiKey)
 	} else {
 		signer, err := NewBedrockSignerFromAccount(account)

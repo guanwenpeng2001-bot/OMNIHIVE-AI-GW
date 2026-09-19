@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 )
 
 // AccountCatalogReview binds an operator's approval to a full preview, including
@@ -37,6 +38,10 @@ func (s *AccountTestService) PreviewAccountModelCatalog(ctx context.Context, acc
 	}
 	catalog, err := s.SyncUpstreamModelCatalog(ctx, account)
 	if err != nil {
+		var partial *UpstreamModelSyncError
+		if errors.As(err, &partial) && partial.PartialCatalog != nil {
+			return partial.PartialCatalog, nil
+		}
 		return nil, err
 	}
 	catalog.Review, err = newAccountCatalogReview(account.ID, baseline, catalog)

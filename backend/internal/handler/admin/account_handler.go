@@ -119,7 +119,7 @@ func NewAccountHandler(
 type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
-	Platform                string         `json:"platform" binding:"required"`
+	Platform                string         `json:"platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode volcengine qianfan hunyuan mistral bedrock"`
 	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
@@ -3527,7 +3527,7 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 	extra["base_rpm"] = v
 }
 
-// GetModelCatalog reads applied evidence without initiating upstream traffic.
+// GetModelCatalog reads applied evidence and a separate, non-blocking public capability display projection.
 func (h *AccountHandler) GetModelCatalog(c *gin.Context) {
 	h.getModelCatalog(c, time.Now())
 }
@@ -3566,6 +3566,9 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		"invalid_aliases": service.InvalidAccountCatalogAliases(account, effective),
 		"alias_endpoint":  service.CompositeRouteEndpointAny,
 		"eligible_models": []service.AccountCatalogModel{},
+	}
+	if display := h.accountTestService.ReadOnlyModelCapabilities(account); len(display) > 0 {
+		summary["display_metadata"] = display
 	}
 	if lastSuccess != "" {
 		summary["last_success_at"] = lastSuccess

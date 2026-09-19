@@ -138,8 +138,9 @@ const metadataRows = computed(() => [...new Set([
   ...(props.result?.discovered_models ?? props.summary?.snapshot?.discovered_models ?? []),
   ...mappingTargets.value,
   ...(props.result?.models ?? props.summary?.snapshot?.eligible_models?.map(model => model.id) ?? []),
+  ...Object.keys(props.summary?.display_metadata ?? {}),
   ...Object.keys(props.result?.metadata ?? {})
-])].sort().map(id => ({ ...props.result?.metadata?.[id], id })))
+])].sort().map(id => ({ ...props.summary?.display_metadata?.[id], ...props.result?.metadata?.[id], id })))
 const query = ref('')
 const statusFilter = ref('all')
 const visibleLimit = ref(50)

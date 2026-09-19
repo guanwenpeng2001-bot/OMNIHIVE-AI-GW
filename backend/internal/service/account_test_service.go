@@ -136,27 +136,28 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	modelCapabilityProvider   ModelCapabilityProvider
-	cursorGatewayService      *CursorGatewayService
-	accountRepo               AccountRepository
-	geminiTokenProvider       *GeminiTokenProvider
-	claudeTokenProvider       *ClaudeTokenProvider
-	grokTokenProvider         *GrokTokenProvider
-	antigravityGatewayService *AntigravityGatewayService
-	httpUpstream              HTTPUpstream
-	cfg                       *config.Config
-	settingService            *SettingService
-	tlsFPProfileService       *TLSFingerprintProfileService
-	modelMetadataRegistryMu   sync.Mutex
-	catalogInFlight           sync.Map
-	catalogApplyOnce          sync.Once
-	catalogApplyBudget        chan struct{}
-	modelMetadataRegistry     map[string]modelsDevProvider
-	modelMetadataRegistryAt   time.Time
-	pluginManager             *PluginManager
-	openaiGatewayService      *OpenAIGatewayService
-	agentIdentityTaskMu       sync.Mutex
-	agentIdentityWS           agentIdentityWSConnectionInvalidator
+	modelCapabilityProvider    ModelCapabilityProvider
+	capabilityReadOnlyEnricher *CapabilityReadOnlyEnricher
+	cursorGatewayService       *CursorGatewayService
+	accountRepo                AccountRepository
+	geminiTokenProvider        *GeminiTokenProvider
+	claudeTokenProvider        *ClaudeTokenProvider
+	grokTokenProvider          *GrokTokenProvider
+	antigravityGatewayService  *AntigravityGatewayService
+	httpUpstream               HTTPUpstream
+	cfg                        *config.Config
+	settingService             *SettingService
+	tlsFPProfileService        *TLSFingerprintProfileService
+	modelMetadataRegistryMu    sync.Mutex
+	catalogInFlight            sync.Map
+	catalogApplyOnce           sync.Once
+	catalogApplyBudget         chan struct{}
+	modelMetadataRegistry      map[string]modelsDevProvider
+	modelMetadataRegistryAt    time.Time
+	pluginManager              *PluginManager
+	openaiGatewayService       *OpenAIGatewayService
+	agentIdentityTaskMu        sync.Mutex
+	agentIdentityWS            agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer

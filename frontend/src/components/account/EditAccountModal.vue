@@ -26,6 +26,7 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <NewPlatformNotice v-if="account.platform === 'bedrock'" :platform="account.platform" :api-key="editBedrockApiKeyValue" />
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -1201,8 +1202,8 @@
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
-        <!-- Shared: Force Global -->
-        <div>
+        <!-- Legacy Anthropic Bedrock region-prefix rewrite -->
+        <div v-if="account.platform === 'anthropic'">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="editBedrockForceGlobal"
@@ -3050,6 +3051,7 @@
 </template>
 
 <script setup lang="ts">
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
@@ -3886,6 +3888,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account && CHAT_PLATFORM_BASE_URLS[props.account.platform]) return CHAT_PLATFORM_BASE_URLS[props.account.platform]
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -5247,7 +5250,7 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       newCredentials.aws_region = editBedrockRegion.value.trim()
-      if (editBedrockForceGlobal.value) {
+      if (props.account.platform === 'anthropic' && editBedrockForceGlobal.value) {
         newCredentials.aws_force_global = 'true'
       } else {
         delete newCredentials.aws_force_global

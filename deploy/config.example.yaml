@@ -7,6 +7,10 @@
 # Documentation / 文档: https://github.com/Wei-Shaw/sub2api
 
 # =============================================================================
+# Scheduled availability probes require explicit opt-in; changes take effect after restart.
+# 有界模型探测默认关闭；配置或环境变量变更后重启生效。
+bounded_model_probes_enabled: false
+
 # Server Configuration
 # 服务器配置
 # =============================================================================

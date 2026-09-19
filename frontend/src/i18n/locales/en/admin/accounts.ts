@@ -19,6 +19,11 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       newPlatforms: {
+      bedrockDescription: 'Region-specific IAM or runtime API key; Claude Invoke and text/tools Converse. Catalog visibility does not establish Invoke permission; declare exact profile/ARN targets. Live AWS and balances remain unverified.',
+      mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
+      hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
+      qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
+      volcengineDescription: 'API key /api/v3 chat runtime; configure exact deployment targets and declare availability after saving. Automatic discovery, vendor SSE/error details and balances remain unverified.',
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
         "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
@@ -156,6 +161,11 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+      bedrock: 'Amazon Bedrock',
+      mistral: 'Mistral',
+      hunyuan: 'Hunyuan',
+      qianfan: 'Qianfan',
+      volcengine: 'Volcengine Ark',
         qianwen: 'Qianwen AI',
         commandcode: 'Command Code',
         cursor: 'Cursor',

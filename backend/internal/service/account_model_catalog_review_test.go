@@ -70,7 +70,7 @@ func TestAccountModelCatalogReviewedRejectsStaleApproval(t *testing.T) {
 }
 
 func TestAccountModelCatalogReviewedAllPlatformProfileEvidence(t *testing.T) {
-	require.Len(t, ConcretePlatforms(), 13)
+	require.Len(t, ConcretePlatforms(), 18)
 	for _, platform := range ConcretePlatforms() {
 		for _, profile := range []struct{ kind, region, base string }{{AccountTypeAPIKey, "", ""}, {AccountTypeOAuth, "us-east-1", ""}, {AccountTypeAPIKey, "cn-hangzhou", "https://custom.example/v1"}} {
 			t.Run(platform+"/"+profile.kind+"/"+profile.region, func(t *testing.T) {

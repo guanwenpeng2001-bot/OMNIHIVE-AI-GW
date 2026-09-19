@@ -177,3 +177,14 @@ it.each([
   const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 0, mappingTargets: [], result: { models: eligible, discovered_models: discovered, complete: true } } })
   expect(wrapper.get('[data-testid="capability-state"]').text()).toContain(state)
 })
+
+it('shows mapped-only read projection without changing discovery or eligibility', () => {
+  const summary = { ...notSynced, display_metadata: { 'private-target': { id: 'private-target', metadata_status: 'incomplete', context_window: 8192 } } } as AccountModelCatalogDetails
+  const before = JSON.stringify(summary)
+  const wrapper = mount(ModelCatalogDetails, { props: { summary, candidateCount: 0, mappingTargets: ['private-target'] } })
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(1)
+  expect(wrapper.text()).toContain('private-target')
+  expect(JSON.stringify(summary)).toBe(before)
+  expect(summary.synced).toBe(false)
+  expect(summary.eligible_count).toBe(0)
+})

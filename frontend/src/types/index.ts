@@ -1016,6 +1016,7 @@ export interface AccountModelCatalogSummary {
 
 /** Historical evidence remains visible when the effective snapshot is invalid. */
 export interface AccountModelCatalogDetails extends AccountModelCatalogSummary {
+  display_metadata?: Record<string, Partial<import('@/api/admin/accounts').UpstreamModelMetadata>>
   snapshot: AccountModelCatalogSnapshot | null
   effective_snapshot: AccountModelCatalogSnapshot | null
   state: AccountModelCatalogState

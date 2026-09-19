@@ -202,10 +202,11 @@ const (
 
 // UpstreamModelSyncError keeps internal failure details wrapped while exposing a safe client message.
 type UpstreamModelSyncError struct {
-	Kind       UpstreamModelSyncErrorKind
-	Message    string
-	StatusCode int
-	Err        error
+	PartialCatalog *UpstreamModelCatalog
+	Kind           UpstreamModelSyncErrorKind
+	Message        string
+	StatusCode     int
+	Err            error
 }
 
 func (e *UpstreamModelSyncError) Error() string {
@@ -296,10 +297,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	// whitelist models that the live /models list omitted; those still need registry
 	// metadata so Codex catalogs can advertise reasoning and modalities.
 	enrichIDs := dedupeAndSortModelIDs(append(append([]string{}, models...), configuredUpstreamModelsForCapabilitySync(account)...))
-	// V2 retains all discovered and mapping models, including media tasks.
-	if len(models) == 0 {
-		enrichIDs = []string{}
-	}
+	// Concrete mapping targets remain in the capability denominator even for an empty native list.
 	capabilityIDs := enrichIDs
 	profile := resolveCapabilityProfile(account)
 	nativeVersion := capabilityHash(body)
@@ -1134,6 +1132,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
+	if account.Platform == PlatformBedrock {
+		return s.fetchBedrockModels(ctx, account)
+	}
 	if account.IsCursor() {
 		if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth && account.Type != AccountTypeUpstream {
 			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Cursor account type", nil)
@@ -1174,6 +1175,15 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if discovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); discovery && account.Platform == PlatformAntigravity && account.Type == AccountTypeAPIKey {
+		return s.fetchAntigravityAPIKeyCatalog(req, account)
+	}
+	if account.Platform == PlatformMistral {
+		return s.fetchMistralModels(req, account)
+	}
+	if account.Platform == PlatformQianfan {
+		return s.fetchQianfanModels(req, account)
+	}
 	if account.Platform == PlatformQianwen {
 		return s.fetchQianwenModelPages(req, account)
 	}
@@ -1223,6 +1233,15 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.Platform == PlatformQianfan:
+		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
+	case account.Platform == PlatformHunyuan:
+		_, err := hunyuanDiscoveredModels()
+		return nil, newUpstreamModelSyncUnsupportedError("Hunyuan automatic discovery is unverified; use account declarations", err)
+	case account.Platform == PlatformMistral:
+		return s.buildMistralModelsRequest(ctx, account)
+	case account.Platform == PlatformVolcengine:
+		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
@@ -1828,6 +1847,15 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 	models := make([]string, 0, len(entries))
 	metadata := make(map[string]UpstreamModelMetadata)
 	for _, raw := range entries {
+		if len(platform) > 0 && platform[0] == PlatformMistral {
+			var card MistralModelCard
+			if err := json.Unmarshal(raw, &card); err != nil || card.ID == "" {
+				return nil, nil, fmt.Errorf("invalid Mistral card")
+			}
+			models = append(models, card.ID)
+			metadata[card.ID] = card.metadata(UpstreamModelMetadata{})
+			continue
+		}
 		var capability upstreamModelCapabilityEntry
 		if err := json.Unmarshal(raw, &capability); err != nil {
 			continue
@@ -1843,6 +1871,23 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		}
 		models = append(models, modelID)
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if len(platform) > 0 && platform[0] == PlatformQianfan {
+			var model qianfanModel
+			if err := json.Unmarshal(raw, &model); err == nil {
+				if model.MaxCompletionsTokens != nil {
+					entry.MaxOutputTokens = *model.MaxCompletionsTokens
+				}
+				var architecture struct {
+					InputModalities  []string `json:"input_modalities"`
+					OutputModalities []string `json:"output_modalities"`
+				}
+				if json.Unmarshal(model.Architecture, &architecture) == nil {
+					entry.InputModalities = architecture.InputModalities
+					entry.OutputModalities = architecture.OutputModalities
+				}
+			}
+		}
+
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err == nil {
 			entry.CodexToolCapabilities = make(map[string]json.RawMessage)
@@ -2228,4 +2273,64 @@ func MarshalModelCapabilityLists(value any, lists map[string][]string) ([]byte, 
 		}
 	}
 	return json.Marshal(fields)
+}
+
+// ReadOnlyModelCapabilities is a display projection, separate from discovery,
+// review digests, CAS and pricing. Offline disables only public network refresh.
+func (service *AccountTestService) ReadOnlyModelCapabilities(account *Account) map[string]UpstreamModelMetadata {
+	if service == nil || service.capabilityReadOnlyEnricher == nil {
+		return map[string]UpstreamModelMetadata{}
+	}
+	offline := strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1"
+	return service.capabilityReadOnlyEnricher.Project(account, !offline)
+}
+
+// Both paths belong to the saved compatible /antigravity gateway. Its v1beta
+// route uses APIKeyAuthWithSubscriptionGoogle, which accepts x-goog-api-key.
+// This does not extend OAuth/CloudCode credentials to another host or endpoint.
+func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest *http.Request, account *Account) ([]string, []byte, error) {
+	geminiRequest := messagesRequest.Clone(messagesRequest.Context())
+	geminiRequest.URL.Path = strings.TrimSuffix(messagesRequest.URL.Path, "/v1/models") + "/v1beta/models"
+	geminiRequest.Header.Del("x-api-key")
+	geminiRequest.Header.Del("anthropic-version")
+	geminiRequest.Header.Del("anthropic-beta")
+	geminiRequest.Header.Set("x-goog-api-key", strings.TrimSpace(account.GetCredential("api_key")))
+	models := []string{}
+	entries := []json.RawMessage{}
+	var failed error
+	successfulPaths := 0
+	for _, request := range []*http.Request{messagesRequest, geminiRequest} {
+		ids, body, err := service.fetchCompleteModelPages(request, account)
+		if err != nil {
+			failed = err
+			continue
+		}
+		rawEntries, err := extractUpstreamModelRawEntries(body)
+		if err != nil {
+			failed = err
+			continue
+		}
+		successfulPaths++
+		models = append(models, ids...)
+		entries = append(entries, rawEntries...)
+	}
+	merged, err := json.Marshal(map[string]any{"data": entries})
+	if err != nil {
+		return nil, nil, err
+	}
+	models = dedupeAndSortModelIDs(models)
+	if failed != nil {
+		if successfulPaths == 0 {
+			return nil, nil, failed
+		}
+		failure := &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: "Antigravity dual-path catalog is incomplete; previous snapshot retained", Err: failed}
+		if successfulPaths > 0 {
+			_, metadata, parseErr := extractUpstreamModelCatalog(merged, false, PlatformAntigravity)
+			if parseErr == nil {
+				failure.PartialCatalog = &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, Metadata: metadata, CatalogSource: "partial", Complete: false, Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "A catalog path failed; partial results are preview-only and cannot be applied"}}}
+			}
+		}
+		return nil, nil, failure
+	}
+	return models, merged, nil
 }

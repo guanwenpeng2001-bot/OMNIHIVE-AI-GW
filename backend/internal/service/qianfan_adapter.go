@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -24,7 +25,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 	switch endpoint {
 	case "models":
 		if len(body) != 0 {
-			return nil, errors.New("Qianfan models request must not have a body")
+			return nil, errors.New("qianfan models request must not have a body")
 		}
 	case "chat/completions":
 		method = http.MethodPost
@@ -33,7 +34,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 			Messages []json.RawMessage `json:"messages"`
 		}
 		if json.Unmarshal(body, &request) != nil || strings.TrimSpace(request.Model) == "" || len(request.Messages) == 0 {
-			return nil, errors.New("Qianfan chat requires model and messages")
+			return nil, errors.New("qianfan chat requires model and messages")
 		}
 	default:
 		return nil, newUpstreamModelSyncUnsupportedError("Unsupported Qianfan endpoint", nil)
@@ -163,4 +164,30 @@ func parseQianfanModelsResponse(response *http.Response) (*qianfanModelList, err
 func qianfanHasValue(value json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(value))
 	return trimmed != "" && trimmed != "null" && trimmed != `""`
+}
+
+func (service *AccountTestService) fetchQianfanModels(request *http.Request, account *Account) ([]string, []byte, error) {
+	response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Qianfan discovery request failed", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := readUpstreamResponseBodyLimited(response.Body, resolveModelsListReadLimit(service.cfg))
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, nil, newUpstreamModelDiscoveryHTTPError(response.StatusCode, body)
+	}
+	parsedResponse := *response
+	parsedResponse.Body = io.NopCloser(bytes.NewReader(body))
+	list, err := parseQianfanModelsResponse(&parsedResponse)
+	if err != nil {
+		return nil, nil, err
+	}
+	models := make([]string, 0, len(list.Models))
+	for _, model := range list.Models {
+		models = append(models, model.ID)
+	}
+	return models, body, nil
 }

@@ -369,6 +369,21 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 		return []string{}
 	}
 	task := accountCatalogEndpointTask(account, modelID, metadata)
+	if IsChatOnlyPlatform(account.Platform) {
+		if task != "" && task != "text_generation" {
+			return []string{}
+		}
+		if metadata.SupportedMethods != nil {
+			for _, method := range metadata.SupportedMethods {
+				if method == CompositeRouteEndpointChatCompletions {
+					return []string{CompositeRouteEndpointChatCompletions}
+				}
+			}
+			return []string{}
+		}
+		return []string{CompositeRouteEndpointChatCompletions}
+	}
+
 	endpoints := []string{}
 	for _, method := range metadata.SupportedMethods {
 		switch method {
@@ -621,6 +636,9 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
+	if account.Platform == PlatformBedrock {
+		return []string{CompositeRouteEndpointMessages}
+	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
 		// An unobserved permissive forwarding default is not Responses evidence.
 		if openai_compat.ResolveResponsesSupport(account.Extra) == openai_compat.ResponsesSupportYes {
