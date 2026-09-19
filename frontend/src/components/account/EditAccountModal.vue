@@ -26,6 +26,7 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <NewPlatformNotice v-if="account.platform === 'bedrock'" :platform="account.platform" :api-key="editBedrockApiKeyValue" />
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>

@@ -23,6 +23,7 @@ const BADGE: Record<Platform, string> = {
   qianwen: 'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
   volcengine: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
+  bedrock: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
   mistral: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
   hunyuan: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
   qianfan: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
@@ -46,6 +47,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   qianwen: 'bg-violet-500/10 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
   volcengine: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
+  bedrock: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
   mistral: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
   hunyuan: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
   qianfan: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
@@ -68,6 +70,7 @@ const BORDER: Record<Platform, string> = {
   qianwen: 'border-violet-500/20 dark:border-violet-500/20',
   commandcode: 'border-cyan-500/20 dark:border-cyan-500/20',
   volcengine: 'border-orange-500/20 dark:border-orange-500/20',
+  bedrock: 'border-orange-500/20 dark:border-orange-500/20',
   mistral: 'border-orange-500/20 dark:border-orange-500/20',
   hunyuan: 'border-orange-500/20 dark:border-orange-500/20',
   qianfan: 'border-orange-500/20 dark:border-orange-500/20',
@@ -91,6 +94,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   qianwen: 'border-violet-500/35 dark:border-violet-500/30',
   commandcode: 'border-cyan-500/35 dark:border-cyan-500/30',
   volcengine: 'border-orange-500/35 dark:border-orange-500/30',
+  bedrock: 'border-orange-500/35 dark:border-orange-500/30',
   mistral: 'border-orange-500/35 dark:border-orange-500/30',
   hunyuan: 'border-orange-500/35 dark:border-orange-500/30',
   qianfan: 'border-orange-500/35 dark:border-orange-500/30',
@@ -115,6 +119,7 @@ const ACCENT: Record<Platform, string> = {
   qianwen: '#8b5cf6', // violet-500
   commandcode: '#06b6d4', // cyan-500
   volcengine: '#f97316', // orange-500
+  bedrock: '#f97316', // orange-500
   mistral: '#f97316', // orange-500
   hunyuan: '#f97316', // orange-500
   qianfan: '#f97316', // orange-500
@@ -138,6 +143,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   qianwen: 'bg-gradient-to-r from-violet-400 to-violet-500',
   commandcode: 'bg-gradient-to-r from-cyan-400 to-cyan-500',
   volcengine: 'bg-gradient-to-r from-orange-400 to-orange-500',
+  bedrock: 'bg-gradient-to-r from-orange-400 to-orange-500',
   mistral: 'bg-gradient-to-r from-orange-400 to-orange-500',
   hunyuan: 'bg-gradient-to-r from-orange-400 to-orange-500',
   qianfan: 'bg-gradient-to-r from-orange-400 to-orange-500',
@@ -161,6 +167,7 @@ const TEXT: Record<Platform, string> = {
   qianwen: 'text-violet-700 dark:text-violet-300',
   commandcode: 'text-cyan-700 dark:text-cyan-300',
   volcengine: 'text-orange-700 dark:text-orange-300',
+  bedrock: 'text-orange-700 dark:text-orange-300',
   mistral: 'text-orange-700 dark:text-orange-300',
   hunyuan: 'text-orange-700 dark:text-orange-300',
   qianfan: 'text-orange-700 dark:text-orange-300',
@@ -184,6 +191,7 @@ const ICON: Record<Platform, string> = {
   qianwen: 'text-violet-500 dark:text-violet-300',
   commandcode: 'text-cyan-500 dark:text-cyan-300',
   volcengine: 'text-orange-500 dark:text-orange-300',
+  bedrock: 'text-orange-500 dark:text-orange-300',
   mistral: 'text-orange-500 dark:text-orange-300',
   hunyuan: 'text-orange-500 dark:text-orange-300',
   qianfan: 'text-orange-500 dark:text-orange-300',
@@ -207,6 +215,7 @@ const BUTTON: Record<Platform, string> = {
   qianwen: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
   commandcode: 'bg-cyan-500 text-white hover:bg-cyan-600 active:bg-cyan-700 dark:bg-cyan-500/80 dark:hover:bg-cyan-500',
   volcengine: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
+  bedrock: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   mistral: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   hunyuan: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   qianfan: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
@@ -230,6 +239,7 @@ const DISCOUNT: Record<Platform, string> = {
   qianwen: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300',
   commandcode: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
   volcengine: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+  bedrock: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
   mistral: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
   hunyuan: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
   qianfan: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
@@ -253,6 +263,7 @@ const GRADIENT: Record<Platform, string> = {
   qianwen: 'from-violet-500 to-violet-600',
   commandcode: 'from-cyan-500 to-cyan-600',
   volcengine: 'from-orange-500 to-orange-600',
+  bedrock: 'from-orange-500 to-orange-600',
   mistral: 'from-orange-500 to-orange-600',
   hunyuan: 'from-orange-500 to-orange-600',
   qianfan: 'from-orange-500 to-orange-600',
@@ -276,6 +287,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   qianwen: 'text-violet-100',
   commandcode: 'text-cyan-100',
   volcengine: 'text-orange-100',
+  bedrock: 'text-orange-100',
   mistral: 'text-orange-100',
   hunyuan: 'text-orange-100',
   qianfan: 'text-orange-100',
@@ -298,6 +310,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   qianwen: 'text-violet-200',
   commandcode: 'text-cyan-200',
   volcengine: 'text-orange-200',
+  bedrock: 'text-orange-200',
   mistral: 'text-orange-200',
   hunyuan: 'text-orange-200',
   qianfan: 'text-orange-200',

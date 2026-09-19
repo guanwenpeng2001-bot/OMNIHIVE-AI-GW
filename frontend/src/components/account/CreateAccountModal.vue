@@ -1758,7 +1758,7 @@
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
-      <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
+      <div v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockAuthMode') }}</label>
@@ -2498,7 +2498,7 @@
 
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -3022,7 +3022,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3051,7 +3051,7 @@
       </div>
 
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3070,7 +3070,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -4127,6 +4127,7 @@ function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['valu
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
   form.platform = platform
+  if (platform === 'bedrock') { form.type = 'bedrock'; accountCategory.value = 'bedrock' }
   if (isChatOnlyPlatform(platform)) {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
@@ -4652,7 +4653,7 @@ const isOAuthFlow = computed(() => {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     return false
   }
   return accountCategory.value === 'oauth-based'
@@ -4727,7 +4728,7 @@ watch(
       return
     }
     // Bedrock 类型
-    if (form.platform === 'anthropic' && category === 'bedrock') {
+    if (['anthropic', 'bedrock'].includes(form.platform) && category === 'bedrock') {
       form.type = 'bedrock' as AccountType
       return
     }
@@ -4792,7 +4793,7 @@ watch(
     if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }
-    if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+    if (!['anthropic', 'bedrock'].includes(newPlatform) && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -5614,7 +5615,7 @@ const handleSubmit = async () => {
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5671,7 +5672,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
+    await createAccountAndFinish(form.platform, 'bedrock' as AccountType, credentials)
     return
   }
 

@@ -36,6 +36,7 @@ const (
 	PlatformQianfan     = "qianfan"
 	PlatformHunyuan     = "hunyuan"
 	PlatformMistral     = "mistral"
+	PlatformBedrock     = "bedrock"
 	PlatformVolcengine  = "volcengine"
 	PlatformCommandCode = "commandcode"
 	PlatformComposite   = "composite"

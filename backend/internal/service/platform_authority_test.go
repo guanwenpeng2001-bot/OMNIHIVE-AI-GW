@@ -13,7 +13,7 @@ func TestMonitorAndQuotaPlatformAuthorities(t *testing.T) {
 	require.ElementsMatch(t, concrete, AllowedQuotaPlatforms)
 	expectedMonitors := make([]string, 0, len(concrete)-1)
 	for _, platform := range concrete {
-		if platform != PlatformCursor && !IsChatOnlyPlatform(platform) {
+		if platform != PlatformCursor && platform != PlatformBedrock && !IsChatOnlyPlatform(platform) {
 			expectedMonitors = append(expectedMonitors, platform)
 		}
 	}

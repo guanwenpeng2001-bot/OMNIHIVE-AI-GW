@@ -609,6 +609,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
   })
 
+  it('creates independent Bedrock with the existing regional credential form', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="bedrock-platform"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Bedrock fixture')
+    await wrapper.get('input[type="radio"][value="apikey"]').setValue()
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'bedrock', type: 'bedrock', credentials: { auth_mode: 'apikey', api_key: 'fixture-key', aws_region: 'us-east-1' } })
+  })
+
   it.each(Object.entries(CHAT_PLATFORM_BASE_URLS))('creates %s with exact chat credentials', async (platform, baseURL) => {
     const wrapper = mountModal()
     await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')

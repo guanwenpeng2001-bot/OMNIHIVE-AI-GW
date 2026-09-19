@@ -714,11 +714,15 @@ func compositeRouteEndpointForPath(path string) string {
 
 // chatOnlyPlatformGuard rejects unimplemented protocols before scheduling or billing.
 func chatOnlyPlatformGuard(c *gin.Context) {
-	if !service.IsChatOnlyPlatform(getGroupPlatform(c)) {
+	if !service.IsChatOnlyPlatform(getGroupPlatform(c)) && getGroupPlatform(c) != service.PlatformBedrock {
 		c.Next()
 		return
 	}
 	path := strings.TrimSuffix(c.Request.URL.Path, "/")
+	if getGroupPlatform(c) == service.PlatformBedrock && c.Request.Method == http.MethodPost && (strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/responses")) {
+		c.Next()
+		return
+	}
 	if c.Request.Method == http.MethodPost && strings.HasSuffix(path, "/chat/completions") {
 		c.Next()
 		return

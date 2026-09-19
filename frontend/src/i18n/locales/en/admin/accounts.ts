@@ -19,6 +19,7 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       newPlatforms: {
+      bedrockDescription: 'Region-specific IAM or runtime API key; Claude Invoke and text/tools Converse. Catalog visibility does not establish Invoke permission; declare exact profile/ARN targets. Live AWS and balances remain unverified.',
       mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
       hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
       qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
@@ -160,6 +161,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+      bedrock: 'Amazon Bedrock',
       mistral: 'Mistral',
       hunyuan: 'Hunyuan',
       qianfan: 'Qianfan',

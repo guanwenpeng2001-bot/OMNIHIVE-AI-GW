@@ -1134,6 +1134,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
+	if account.Platform == PlatformBedrock {
+		return s.fetchBedrockModels(ctx, account)
+	}
 	if account.IsCursor() {
 		if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth && account.Type != AccountTypeUpstream {
 			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Cursor account type", nil)

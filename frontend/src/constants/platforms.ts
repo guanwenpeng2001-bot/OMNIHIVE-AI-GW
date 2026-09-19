@@ -26,6 +26,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'qianfan', label: 'Qianfan' },
   { value: 'hunyuan', label: 'Hunyuan' },
   { value: 'mistral', label: 'Mistral' },
+  { value: 'bedrock', label: 'Amazon Bedrock' },
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
 ] as const satisfies readonly PlatformOption[]
@@ -44,7 +45,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
-    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'volcengine'].includes(platform)
+    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'hunyuan', 'mistral', 'bedrock', 'volcengine'].includes(platform)
 }
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
