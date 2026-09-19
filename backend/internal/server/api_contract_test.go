@@ -5,7 +5,9 @@ package server_test
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
 	adminhandler "github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -28,6 +31,15 @@ import (
 
 func TestAPIContracts(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+
+	// Derive platform membership from the registry while keeping the wire fields
+	// and their unlimited defaults explicit in the contract expectation.
+	defaultPlatformQuotas := make(map[string]map[string]any)
+	for _, platform := range domain.ConcretePlatforms() {
+		defaultPlatformQuotas[platform] = map[string]any{"daily": nil, "weekly": nil, "monthly": nil}
+	}
+	defaultPlatformQuotasJSON, err := json.Marshal(defaultPlatformQuotas)
+	require.NoError(t, err)
 
 	tests := []struct {
 		name       string
@@ -710,7 +722,7 @@ func TestAPIContracts(t *testing.T) {
 			method:     http.MethodGet,
 			path:       "/api/v1/admin/settings",
 			wantStatus: http.StatusOK,
-			wantJSON: `{
+			wantJSON: fmt.Sprintf(`{
 				"code": 0,
 				"message": "success",
 				"data": {
@@ -863,7 +875,7 @@ func TestAPIContracts(t *testing.T) {
 					"force_email_on_third_party_signup": false,
 					"default_concurrency": 5,
 					"default_balance": 1.25,
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"minimax":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null}, "cursor": {"daily":null,"weekly":null,"monthly":null},"qianwen":{"daily":null,"weekly":null,"monthly":null},"commandcode":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": %s,
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -1023,7 +1035,7 @@ func TestAPIContracts(t *testing.T) {
 					"wechat_connect_scopes": "snsapi_login",
 					"allow_user_view_error_requests": false
 				}
-			}`,
+			}`, defaultPlatformQuotasJSON),
 		},
 		{
 			name: "GET /api/v1/admin/settings falls back to config oauth defaults",
@@ -1062,7 +1074,7 @@ func TestAPIContracts(t *testing.T) {
 			method:     http.MethodGet,
 			path:       "/api/v1/admin/settings",
 			wantStatus: http.StatusOK,
-			wantJSON: `{
+			wantJSON: fmt.Sprintf(`{
 				"code": 0,
 				"message": "success",
 				"data": {
@@ -1183,7 +1195,7 @@ func TestAPIContracts(t *testing.T) {
 					"purchase_subscription_url": "",
 					"table_default_page_size": 20,
 					"table_page_size_options": [10, 20, 50],
-					"default_platform_quotas": {"anthropic":{"daily":null,"weekly":null,"monthly":null},"antigravity":{"daily":null,"weekly":null,"monthly":null},"deepseek":{"daily":null,"weekly":null,"monthly":null},"gemini":{"daily":null,"weekly":null,"monthly":null},"grok":{"daily":null,"weekly":null,"monthly":null},"kimi":{"daily":null,"weekly":null,"monthly":null},"minimax":{"daily":null,"weekly":null,"monthly":null},"openai":{"daily":null,"weekly":null,"monthly":null},"opencode_go":{"daily":null,"weekly":null,"monthly":null}, "cursor": {"daily":null,"weekly":null,"monthly":null},"qianwen":{"daily":null,"weekly":null,"monthly":null},"commandcode":{"daily":null,"weekly":null,"monthly":null},"zhipu":{"daily":null,"weekly":null,"monthly":null}},
+					"default_platform_quotas": %s,
 					"auth_source_default_email_platform_quotas": null,
 					"auth_source_default_github_platform_quotas": null,
 					"auth_source_default_google_platform_quotas": null,
@@ -1375,7 +1387,7 @@ func TestAPIContracts(t *testing.T) {
 					"force_email_on_third_party_signup": false,
 					"allow_user_view_error_requests": false
 				}
-			}`,
+			}`, defaultPlatformQuotasJSON),
 		},
 		{
 			name:   "POST /api/v1/admin/accounts/bulk-update",
