@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -1345,22 +1344,6 @@ func batchImageGCSRef(provider, ref string) string {
 	return ""
 }
 
-func batchImageProviderSubmitPublicError(err error) error {
-	reason := strings.TrimSpace(infraerrors.Reason(err))
-	switch reason {
-	case "VERTEX_MANAGED_GCS_BUCKET_MISSING":
-		return ErrBatchImageVertexGCSBucketMissing
-	case "BATCH_IMAGE_PROVIDER_MISSING_API_KEY":
-		return ErrBatchImageProviderMissingAPIKey
-	case "BATCH_IMAGE_PROVIDER_MISSING_SERVICE_ACCOUNT":
-		return ErrBatchImageProviderMissingServiceAccount
-	case "BATCH_IMAGE_PROVIDER_UNSUPPORTED_ACCOUNT":
-		return ErrBatchImageProviderUnsupportedAccount
-	default:
-		return ErrBatchImageProviderSubmitFailed
-	}
-}
-
 func batchImagePublicTaskName(job *BatchImageJob) string {
 	if job == nil {
 		return ""
@@ -1376,14 +1359,6 @@ func defaultBatchImageTaskName(now time.Time) string {
 		now = time.Now()
 	}
 	return now.Format("2006-01-02 15:04:05")
-}
-
-func batchImageProviderSubmitRecordCode(err error) string {
-	reason := strings.TrimSpace(infraerrors.Reason(err))
-	if reason == "" || reason == "BATCH_IMAGE_PROVIDER_SUBMIT_FAILED" {
-		return "PROVIDER_SUBMIT_FAILED"
-	}
-	return reason
 }
 
 func parseBatchImageListTime(raw string) *time.Time {

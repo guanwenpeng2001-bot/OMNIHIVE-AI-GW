@@ -408,3 +408,11 @@ func TestHandleResponsesStreamingResponse_CompactSSEFormat(t *testing.T) {
 	require.Equal(t, 6, result.Usage.OutputTokens)
 	require.Contains(t, rec.Body.String(), `response.completed`)
 }
+
+func parseAnthropicSSEField(line, field string) (string, bool) {
+	prefix := field + ":"
+	if !strings.HasPrefix(line, prefix) {
+		return "", false
+	}
+	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
+}

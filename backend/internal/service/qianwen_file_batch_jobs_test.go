@@ -337,3 +337,10 @@ func TestQianwenBatchPollValidatesResultsAndContent(t *testing.T) {
 	_, err = s.QianwenResourceContent(context.Background(), j)
 	require.ErrorContains(t, err, "integrity")
 }
+
+func validateQianwenBatchResult(j *UpstreamJob, raw []byte) (json.RawMessage, error) {
+	if j.Billing.FileBatch == nil {
+		return nil, ErrUpstreamJobUnsupportedUsage
+	}
+	return validateQianwenBatchItems(j, raw, len(j.Billing.FileBatch.CustomIDHashes))
+}

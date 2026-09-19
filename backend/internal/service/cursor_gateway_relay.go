@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,9 +19,10 @@ import (
 
 func cursorRelayURL(account *Account, endpoint string) string {
 	protocol := APIProtocolChatCompletions
-	if endpoint == "/messages" {
+	switch endpoint {
+	case "/messages":
 		protocol = APIProtocolAnthropic
-	} else if endpoint == "/responses" {
+	case "/responses":
 		protocol = APIProtocolResponses
 	}
 	base := strings.TrimSpace(account.GetCredential("base_url"))
@@ -165,7 +167,11 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor relay response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		return nil, cursorFailover(&cursor.HTTPError{Status: response.StatusCode})
 	}

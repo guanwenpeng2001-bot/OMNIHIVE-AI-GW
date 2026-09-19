@@ -114,7 +114,10 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	}
 	cachedUsage := func() *UsageInfo {
 		if cached, ok := s.cache.cursorCache.Load(key); ok {
-			entry := cached.(*antigravityUsageCache)
+			entry, valid := cached.(*antigravityUsageCache)
+			if !valid || entry == nil || entry.usageInfo == nil {
+				return nil
+			}
 			ttl := apiCacheTTL
 			if entry.usageInfo.ErrorCode != "" {
 				ttl = apiErrorCacheTTL
@@ -154,7 +157,11 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	case <-ctx.Done():
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query cancelled"}
 	case result := <-pending:
-		return result.Val.(*UsageInfo)
+		info, ok := result.Val.(*UsageInfo)
+		if result.Err != nil || !ok || info == nil {
+			return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
+		}
+		return info
 	}
 }
 
@@ -176,7 +183,11 @@ func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token 
 	if err != nil {
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor usage response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		code := "upstream_error"
 		if response.StatusCode == http.StatusUnauthorized {
@@ -267,9 +278,13 @@ func (s *AccountUsageService) fetchCursorDashboard(ctx context.Context, token, m
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor usage response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("Cursor dashboard HTTP %d", response.StatusCode)
+		return fmt.Errorf("cursor dashboard HTTP %d", response.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(target)
 }

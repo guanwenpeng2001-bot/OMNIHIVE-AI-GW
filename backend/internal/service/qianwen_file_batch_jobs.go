@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -67,7 +68,7 @@ func ValidateQianwenBatchFile(raw []byte) ([]byte, *QianwenFileBatchSnapshot, er
 		}
 		model, endpoint := row.Get("body.model").String(), row.Get("url").String()
 		_, _, paid := qianwenFileBatchTariff(model)
-		if row.Get("method").String() != "POST" || row.Get("body.stream").Bool() || !row.Get("body.messages").IsArray() || !((model == QianwenBatchTestModel && endpoint == "/v1/chat/ds-test") || (paid && endpoint == "/v1/chat/completions")) {
+		if row.Get("method").String() != "POST" || row.Get("body.stream").Bool() || !row.Get("body.messages").IsArray() || ((model != QianwenBatchTestModel || endpoint != "/v1/chat/ds-test") && (!paid || endpoint != "/v1/chat/completions")) {
 			return nil, nil, errors.New("only non-streaming diagnostic or explicitly priced text file batches are supported")
 		}
 		if snapshot.Model != "" && (snapshot.Model != model || snapshot.Endpoint != endpoint) {
@@ -106,8 +107,9 @@ func ValidateQianwenBatchFile(raw []byte) ([]byte, *QianwenFileBatchSnapshot, er
 		snapshot.Model, snapshot.Endpoint = model, endpoint
 		seen[id.String()] = true
 		snapshot.CustomIDHashes = append(snapshot.CustomIDHashes, fileBatchHash([]byte(id.String())))
-		normalized.Write(canonical)
-		normalized.WriteByte('\n')
+		// bytes.Buffer writes always return a nil error.
+		_, _ = normalized.Write(canonical)
+		_ = normalized.WriteByte('\n')
 	}
 	if normalized.Len() > QianwenFileLimit {
 		return nil, nil, errors.New("normalized file exceeds 1 MiB")
@@ -167,7 +169,7 @@ func (s *OpenAIGatewayService) QianwenResourceAccount(ctx context.Context, j *Up
 // content URLs are never followed; the existing validated base/proxy is reused.
 func (s *OpenAIGatewayService) qianwenResourceRequest(ctx context.Context, a *Account, method, path, contentType string, body []byte) ([]byte, int, error) {
 	if a == nil || a.Platform != PlatformQianwen || a.Type != AccountTypeAPIKey || a.GetCNAPIKey() == "" {
-		return nil, 0, errors.New("Qianwen API-key account required")
+		return nil, 0, errors.New("qianwen API-key account required")
 	}
 	base := a.GetCNProtocolBaseURL(APIProtocolChatCompletions)
 	if base == "" {
@@ -191,7 +193,11 @@ func (s *OpenAIGatewayService) qianwenResourceRequest(ctx context.Context, a *Ac
 	if err != nil {
 		return nil, 0, err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			slog.Warn("Qianwen resource response cleanup failed")
+		}
+	}()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4*QianwenFileLimit+1))
 	if err != nil {
 		return nil, resp.StatusCode, err
@@ -355,12 +361,6 @@ func (s *OpenAIGatewayService) PollQianwenJob(ctx context.Context, j *UpstreamJo
 		return u, nil
 	}
 	return u, nil
-}
-func validateQianwenBatchResult(j *UpstreamJob, raw []byte) (json.RawMessage, error) {
-	if j.Billing.FileBatch == nil {
-		return nil, ErrUpstreamJobUnsupportedUsage
-	}
-	return validateQianwenBatchItems(j, raw, len(j.Billing.FileBatch.CustomIDHashes))
 }
 
 func validateQianwenBatchItems(j *UpstreamJob, raw []byte, completed int) (json.RawMessage, error) {
