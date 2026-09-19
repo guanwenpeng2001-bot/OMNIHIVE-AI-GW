@@ -296,10 +296,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	// whitelist models that the live /models list omitted; those still need registry
 	// metadata so Codex catalogs can advertise reasoning and modalities.
 	enrichIDs := dedupeAndSortModelIDs(append(append([]string{}, models...), configuredUpstreamModelsForCapabilitySync(account)...))
-	// V2 retains all discovered and mapping models, including media tasks.
-	if len(models) == 0 {
-		enrichIDs = []string{}
-	}
+	// Concrete mapping targets remain in the capability denominator even for an empty native list.
 	capabilityIDs := enrichIDs
 	profile := resolveCapabilityProfile(account)
 	nativeVersion := capabilityHash(body)
@@ -2272,4 +2269,14 @@ func MarshalModelCapabilityLists(value any, lists map[string][]string) ([]byte, 
 		}
 	}
 	return json.Marshal(fields)
+}
+
+// ReadOnlyModelCapabilities is a display projection, separate from discovery,
+// review digests, CAS and pricing. Offline disables only public network refresh.
+func (service *AccountTestService) ReadOnlyModelCapabilities(account *Account) map[string]UpstreamModelMetadata {
+	if service == nil || service.capabilityReadOnlyEnricher == nil {
+		return map[string]UpstreamModelMetadata{}
+	}
+	offline := strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1"
+	return service.capabilityReadOnlyEnricher.Project(account, !offline)
 }

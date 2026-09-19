@@ -3527,7 +3527,7 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 	extra["base_rpm"] = v
 }
 
-// GetModelCatalog reads applied evidence without initiating upstream traffic.
+// GetModelCatalog reads applied evidence and a separate, non-blocking public capability display projection.
 func (h *AccountHandler) GetModelCatalog(c *gin.Context) {
 	h.getModelCatalog(c, time.Now())
 }
@@ -3566,6 +3566,9 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		"invalid_aliases": service.InvalidAccountCatalogAliases(account, effective),
 		"alias_endpoint":  service.CompositeRouteEndpointAny,
 		"eligible_models": []service.AccountCatalogModel{},
+	}
+	if display := h.accountTestService.ReadOnlyModelCapabilities(account); len(display) > 0 {
+		summary["display_metadata"] = display
 	}
 	if lastSuccess != "" {
 		summary["last_success_at"] = lastSuccess
