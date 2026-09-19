@@ -1,6 +1,6 @@
 {
   "description": "Pinned local observations, not current official specifications or account authorization. Conflicting fields are omitted; runtime/embed keep their respective observed limits. Unknown reasoning controls remain unknown under P0 schema. No model aliases or prices. Includes reviewed DashScope embedding API observations; text output modality is the catalog convention for text embeddings, whose API output is a numeric vector. P2-01 adds four exact Beijing embedding supplements; reasoning-only and media candidates remain unpublished.",
-  "generated_at": "2026-09-18T19:38:18Z",
+  "generated_at": "2026-09-19T19:38:16Z",
   "records": [
     {
       "applicable_content_hashes": [
