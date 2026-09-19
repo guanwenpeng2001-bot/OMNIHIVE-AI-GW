@@ -612,6 +612,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   it('creates independent Bedrock with the existing regional credential form', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="bedrock-platform"]').trigger('click')
+    expect(wrapper.text()).not.toContain('admin.accounts.bedrockForceGlobal')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Bedrock fixture')
     await wrapper.get('input[type="radio"][value="apikey"]').setValue()
     await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')

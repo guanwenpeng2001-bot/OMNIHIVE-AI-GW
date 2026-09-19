@@ -1834,8 +1834,8 @@
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
-        <!-- Shared: Force Global -->
-        <div>
+        <!-- Legacy Anthropic Bedrock region-prefix rewrite -->
+        <div v-if="form.platform === 'anthropic'">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="bedrockForceGlobal"
@@ -5648,7 +5648,7 @@ const handleSubmit = async () => {
       credentials.api_key = bedrockApiKeyValue.value.trim()
     }
 
-    if (bedrockForceGlobal.value) {
+    if (form.platform === 'anthropic' && bedrockForceGlobal.value) {
       credentials.aws_force_global = 'true'
     }
 
