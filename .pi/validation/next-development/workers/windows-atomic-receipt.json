@@ -1,0 +1,44 @@
+{
+  "taskId": "task_8c1a9b20c86c",
+  "dispatchId": "ctx_9474c7bac874",
+  "outcome": "succeeded",
+  "branch": "guanwenpeng2001-bot/fix-windows-atomic-replace",
+  "baseCommit": "d26e1cf9ebc2158f8e809188b3681ce106e57cac",
+  "platform": "windows/amd64",
+  "maxAttempts": 5,
+  "backoffMilliseconds": [25, 50, 75, 100],
+  "totalBackoffMilliseconds": 250,
+  "retryableWindowsErrors": [5, 32],
+  "testClock": "testing/synctest virtual time",
+  "validation": [
+    {
+      "command": "go test -json -mod=readonly -tags=unit -run 'TestModelCapability|TestPricing' -count=3 ./internal/service",
+      "exitCode": 0,
+      "run": 1236, "pass": 1236, "skip": 0, "fail": 0
+    },
+    {
+      "command": "go test -json -mod=readonly -tags=unit -p=1 -count=1 -timeout=30m ./internal/service",
+      "exitCode": 0,
+      "run": 15870, "pass": 15867, "skip": 3, "fail": 0,
+      "elapsedSeconds": 194.637
+    },
+    {
+      "command": "golangci-lint run --build-tags=unit --new-from-rev=d26e1cf9e ./internal/service/...",
+      "exitCode": 0,
+      "output": "0 issues."
+    },
+    {
+      "command": "go build -mod=readonly ./...",
+      "exitCode": 0,
+      "output": ""
+    }
+  ],
+  "existingTestsUnmodified": true,
+  "originalFailingTestPassed": true,
+  "externalDatabaseOrRedisUsed": false,
+  "reportPath": ".pi/validation/next-development/workers/windows-atomic-report.md",
+  "sourceFilesModified": [
+    "backend/internal/service/model_capability_catalog.go",
+    "backend/internal/service/model_capability_catalog_atomic_test.go"
+  ]
+}
