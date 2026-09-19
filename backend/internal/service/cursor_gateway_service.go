@@ -52,7 +52,10 @@ type cursorNativeSlots struct {
 
 func (gateway *CursorGatewayService) acquireNativeSlot(ctx context.Context, account *Account) (func(), error) {
 	value, _ := gateway.locks.LoadOrStore(account.ID, &cursorNativeSlots{changed: make(chan struct{})})
-	slots := value.(*cursorNativeSlots)
+	slots, ok := value.(*cursorNativeSlots)
+	if !ok || slots == nil {
+		return nil, errors.New("cursor: invalid native slot state")
+	}
 	for {
 		slots.mu.Lock()
 		if err := ctx.Err(); err != nil {
@@ -234,9 +237,10 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		return nil, err
 	}
 	completionID := "chatcmpl-" + uuid.NewString()
-	if output.protocol == APIProtocolAnthropic {
+	switch output.protocol {
+	case APIProtocolAnthropic:
 		completionID = "msg-" + uuid.NewString()
-	} else if output.protocol == APIProtocolResponses {
+	case APIProtocolResponses:
 		completionID = "resp_" + uuid.NewString()
 	}
 	var text, thinking strings.Builder
@@ -270,9 +274,11 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 			seenCalls[call.CallID] = true
 			toolCalls = append(toolCalls, gin.H{"id": gateway.publicToolID(ctx, *call), "type": "function", "function": gin.H{"name": name, "arguments": string(call.Arguments)}})
 		} else if event.Type == "thinking" {
-			thinking.WriteString(event.Text)
+			// strings.Builder writes always return a nil error.
+			_, _ = thinking.WriteString(event.Text)
 		} else {
-			text.WriteString(event.Text)
+			// strings.Builder writes always return a nil error.
+			_, _ = text.WriteString(event.Text)
 		}
 		if !request.Stream {
 			return nil
@@ -293,9 +299,19 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		return output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": delta, "finish_reason": nil}}})
 	}
 	ctx = cursor.WithGenerationSendHook(ctx, func(request *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+			if err := validateAccountForwardModel(request.Context(), plan.catalogRepo, account, model, "chat_completions"); err != nil {
+				return nil, err
+			}
+		}
 		return generationHTTP(request, account.ID, send)
 	})
 	run := func() (cursor.TokenUsage, error) {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+			if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, model, "chat_completions"); err != nil {
+				return cursor.TokenUsage{}, err
+			}
+		}
 		if len(definitions) == 0 {
 			return gateway.native.Run(ctx, credentials, request.Messages, model, writeEvent)
 		}

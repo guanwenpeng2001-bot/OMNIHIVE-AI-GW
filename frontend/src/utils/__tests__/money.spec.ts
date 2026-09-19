@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { formatLedgerAmount, formatBalanceAmount, formatMoney, accountBilledAmount } from '../money'
-import { formatCurrency, formatDateTimeWithZone, formatDateTime, formatRelativeTime, formatRelativeWithDateTime } from '../format'
+import { formatCurrency, formatDateTimeWithZone, formatDateTime, formatRelativeTime, formatRelativeWithDateTime, resolveReportTimeZone, formatReportDateInput, formatAccountStatsCurrency } from '../format'
 import { formatScaled } from '../pricing'
 import { formatTokenPricePerMillion } from '../usagePricing'
 import { billingExplanationValues } from '../usageBillingExplanation'
@@ -47,6 +47,25 @@ describe('amount and unit contract', () => {
 })
 
 describe('visible display time zone contract', () => {
+  it.each([
+    ['Asia/Shanghai', '2026-03-08T07:30:00Z', '2026-03-08', '15:30'],
+    ['UTC', '2026-03-08T07:30:00Z', '2026-03-08', '07:30'],
+    ['America/Los_Angeles', '2026-03-08T07:30:00Z', '2026-03-07', '23:30'],
+    ['America/Los_Angeles', '2026-03-08T09:59:00Z', '2026-03-08', '01:59'],
+    ['America/Los_Angeles', '2026-03-08T10:00:00Z', '2026-03-08', '03:00'],
+  ])('uses %s for date controls and the same instant in table/export', (zone, instant, date, time) => {
+    expect(resolveReportTimeZone(zone)).toBe(zone)
+    expect(formatReportDateInput(new Date(instant), zone)).toBe(date)
+    expect(formatDateTimeWithZone(instant, zone)).toContain(time)
+    expect(formatDateTimeWithZone(instant, zone)).toContain(zone)
+  })
+  it('disambiguates the repeated Los Angeles hour and retains the account currency format', () => {
+    expect(formatDateTimeWithZone('2026-11-01T08:30:00Z', 'America/Los_Angeles')).toContain('GMT-07:00')
+    expect(formatDateTimeWithZone('2026-11-01T09:30:00Z', 'America/Los_Angeles')).toContain('GMT-08:00')
+    expect(formatAccountStatsCurrency(0.000001)).toContain('0.000001')
+    expect(formatAccountStatsCurrency(null)).toBe('$0.00')
+    expect(resolveReportTimeZone('invalid')).toBe('UTC')
+  })
   it.each([
     ['2026-01-31T16:00:00Z', 'Asia/Shanghai', '2026-02-01 00:00 (Asia/Shanghai, GMT+08:00)'],
     ['2026-03-08T06:59:00Z', 'America/New_York', '2026-03-08 01:59 (America/New_York, GMT-05:00)'],

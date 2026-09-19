@@ -355,6 +355,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
+	admin.GET("/platform-model-presets", h.Admin.Account.GetPlatformModelPresets)
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
@@ -405,6 +406,11 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		accounts.POST("/:id/schedulable", h.Admin.Account.SetSchedulable)
 		accounts.POST("/models/sync-upstream-preview", h.Admin.Account.SyncUpstreamModelsPreview)
 		accounts.GET("/:id/models", h.Admin.Account.GetAvailableModels)
+		accounts.GET("/:id/models/catalog", h.Admin.Account.GetModelCatalog)
+		accounts.GET("/:id/model-availability", h.Admin.Account.GetModelAvailability)
+		accounts.PUT("/:id/model-availability", h.Admin.Account.DeclareModelAvailability)
+		accounts.DELETE("/:id/model-availability", h.Admin.Account.RevokeModelAvailability)
+		accounts.PUT("/:id/models/allowlist", h.Admin.Account.UpdateModelAllowlist)
 		accounts.POST("/:id/models/sync-upstream", h.Admin.Account.SyncUpstreamModels)
 		accounts.POST("/:id/pricing/sync-qianwen", h.Admin.Account.SyncQianwenPricing)
 		accounts.POST("/batch", h.Admin.Account.BatchCreate)
@@ -775,6 +781,7 @@ func registerChannelRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		channels.GET("", h.Admin.Channel.List)
 		channels.GET("/model-pricing", h.Admin.Channel.GetModelDefaultPricing)
 		channels.GET("/pricing/sync-models", h.Admin.Channel.SyncPricingModels)
+		channels.POST("/pricing/preview", h.Admin.Channel.PreviewPricing)
 		channels.GET("/:id", h.Admin.Channel.GetByID)
 		channels.POST("", h.Admin.Channel.Create)
 		channels.PUT("/:id", h.Admin.Channel.Update)

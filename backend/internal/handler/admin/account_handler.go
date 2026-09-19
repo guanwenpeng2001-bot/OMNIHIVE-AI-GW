@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -118,7 +119,7 @@ func NewAccountHandler(
 type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
-	Platform                string         `json:"platform" binding:"required"`
+	Platform                string         `json:"platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode volcengine qianfan hunyuan mistral bedrock"`
 	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
@@ -1010,6 +1011,10 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	if err := validateModelCapabilityDefaultsExtra(req.Extra); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -1023,13 +1028,23 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var createdAccount *service.Account
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
+		var extra map[string]any
+		if req.Extra != nil {
+			extra = make(map[string]any, len(req.Extra))
+		}
+		for key, value := range req.Extra {
+			extra[key] = value
+		}
+		if err := bindModelCapabilityDefaults(&service.Account{Platform: req.Platform, Type: req.Type, Credentials: service.SanitizeStoredCredentials(req.Platform, req.Credentials)}, extra, adminActorScope(c)); err != nil {
+			return nil, infraerrors.BadRequest("INVALID_MODEL_CAPABILITY_DEFAULTS", err.Error())
+		}
 		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
 			Name:                  req.Name,
 			Notes:                 req.Notes,
 			Platform:              req.Platform,
 			Type:                  req.Type,
 			Credentials:           req.Credentials,
-			Extra:                 req.Extra,
+			Extra:                 extra,
 			ProxyID:               req.ProxyID,
 			Concurrency:           req.Concurrency,
 			Priority:              req.Priority,
@@ -1147,9 +1162,25 @@ func (h *AccountHandler) Update(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	if err := validateModelCapabilityDefaultsExtra(req.Extra); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
 		response.ErrorFrom(c, err)
 		return
+	}
+
+	if req.Extra[modelCapabilityDefaultsKey] != nil {
+		existing, lookupErr := h.adminService.GetAccount(c.Request.Context(), accountID)
+		if lookupErr != nil {
+			response.NotFound(c, "Account not found")
+			return
+		}
+		if err := prepareUpdatedModelCapabilityDefaults(existing, req.Type, req.Credentials, req.Extra, adminActorScope(c)); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
 	}
 
 	// 确定是否跳过混合渠道检查
@@ -1627,6 +1658,10 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 	}
 	if err := service.ValidateOpenAILongContextBillingExtra(existing.Platform, req.Extra); err != nil {
 		response.ErrorFrom(c, err)
+		return
+	}
+	if err := validateModelCapabilityDefaultsExtra(req.Extra); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
@@ -2317,6 +2352,10 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	}
 	// base_rpm 输入校验：负值归零，超过 10000 截断
 	sanitizeExtraBaseRPM(req.Extra)
+	if err := validateModelCapabilityDefaultsExtra(req.Extra); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
 	if err := service.ValidateUpstreamRequestIDHeaderExtra(req.Extra); err != nil {
 		response.ErrorFrom(c, err)
 		return
@@ -2699,35 +2738,39 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs)
-	if cached, ok := accountTodayStatsBatchCache.Get(cacheKey); ok {
-		if cached.ETag != "" {
-			c.Header("ETag", cached.ETag)
-			c.Header("Vary", "If-None-Match")
-			if ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
-				c.Status(http.StatusNotModified)
-				return
-			}
-		}
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	stats, err := h.accountUsageService.GetTodayStatsBatch(c.Request.Context(), accountIDs)
+	dayStart := timezone.Today()
+	revision, err := h.accountUsageService.DashboardCoverageRevision(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	payload := gin.H{"stats": stats}
-	cached := accountTodayStatsBatchCache.Set(cacheKey, payload)
+	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs, dayStart, revision)
+	cached, hit, err := accountTodayStatsBatchCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, err := h.accountUsageService.GetTodayStatsBatchFrom(c.Request.Context(), accountIDs, dayStart)
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{"stats": stats}, nil
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	if cached.ETag != "" {
 		c.Header("ETag", cached.ETag)
 		c.Header("Vary", "If-None-Match")
+		if hit && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+			c.Status(http.StatusNotModified)
+			return
+		}
 	}
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	if hit {
+		c.Header("X-Snapshot-Cache", "hit")
+	} else {
+		c.Header("X-Snapshot-Cache", "miss")
+	}
+	response.Success(c, cached.Payload)
 }
 
 // GetBatchUsage 批量获取多个账号的 current usage。
@@ -2804,6 +2847,27 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	if c.Query("view") == "supported" {
+		models := make([]map[string]string, 0)
+		snapshot := account.EffectiveUpstreamModelCatalog()
+		if account.IsShadow() {
+			credentialAccount, lookupErr := h.adminService.GetAccount(c.Request.Context(), *account.ParentAccountID)
+			if lookupErr != nil {
+				response.ErrorFrom(c, lookupErr)
+				return
+			}
+			snapshot = account.EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount)
+		}
+		if snapshot != nil {
+			for _, model := range snapshot.EligibleModels {
+				models = append(models, map[string]string{"id": model.ID, "display_name": model.ID, "catalog_source": "applied", "category": service.ModelDisplayCategory(service.UpstreamModelMetadata{Category: model.Category}), "evidence_kind": model.EvidenceKind, "evidence_observed_at": model.EvidenceObservedAt})
+			}
+		}
+		c.Header("X-Model-Catalog-Source", "applied")
+		response.Success(c, models)
+		return
+	}
+
 	catalogSource := "preset"
 	if raw, ok := account.Credentials["model_mapping"]; ok {
 		switch mapping := raw.(type) {
@@ -2841,6 +2905,11 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			}
 			id, _ := entry["id"].(string)
 			entry["probe_supported"] = service.AccountModelProbeSupported(account, id)
+			metadata := service.UpstreamModelMetadata{}
+			if snapshot != nil {
+				metadata = snapshot.Models[account.GetMappedModel(id)]
+			}
+			entry["category"] = service.ModelDisplayCategory(metadata)
 			if snapshot != nil {
 				if _, found := snapshot.Models[account.GetMappedModel(id)]; found {
 					entry["metadata_source"] = snapshot.Source
@@ -3058,18 +3127,78 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 		return
 	}
 
-	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), account)
+	apply := false
+	if raw, exists := c.GetQuery("apply"); exists {
+		apply, err = strconv.ParseBool(raw)
+		if err != nil {
+			response.BadRequest(c, "Invalid apply parameter")
+			return
+		}
+	}
+	var expected *int64
+	if raw, exists := c.GetQuery("expected_rules_revision"); exists {
+		value, parseErr := strconv.ParseInt(raw, 10, 64)
+		if parseErr != nil || value < 0 {
+			response.BadRequest(c, "Invalid expected_rules_revision")
+			return
+		}
+		expected = &value
+	}
+	var req SyncUpstreamModelsRequest
+	if c.Request.Body != nil && c.Request.ContentLength != 0 {
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "Invalid model capability declaration request")
+			return
+		}
+	}
+	if apply && req.Review == nil {
+		response.BadRequest(c, "A complete review is required; preview the account catalog before applying")
+		return
+	}
+	if len(req.ModelCapabilityDefaults) > 0 {
+		if apply {
+			response.BadRequest(c, "Save model_capability_defaults on the account before applying its catalog")
+			return
+		}
+		declaration, decodeErr := decodeModelCapabilityDefaults(req.ModelCapabilityDefaults)
+		if decodeErr != nil {
+			response.BadRequest(c, decodeErr.Error())
+			return
+		}
+		// Never mutate the repository-owned account or its shared Extra map in preview.
+		previewAccount := *account
+		previewAccount.Extra = make(map[string]any, len(account.Extra)+1)
+		for key, value := range account.Extra {
+			previewAccount.Extra[key] = value
+		}
+		previewAccount.Extra["model_capability_defaults"] = declaration
+		if err := bindModelCapabilityDefaults(&previewAccount, previewAccount.Extra, adminActorScope(c)); err != nil {
+			response.BadRequest(c, err.Error())
+			return
+		}
+		account = &previewAccount
+	} else if err := validateSavedModelCapabilityIdentity(account); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	if expected != nil && req.Review != nil && *expected != req.Review.RulesRevision {
+		response.BadRequest(c, "expected_rules_revision must match review")
+		return
+	}
+	var catalog *service.UpstreamModelCatalog
+	if apply {
+		if req.Review != nil {
+			catalog, err = h.accountTestService.ApplyReviewedAccountModelCatalog(c.Request.Context(), account, req.Review)
+		} else {
+			response.BadRequest(c, "A complete review is required; preview the account catalog before applying")
+			return
+		}
+	} else {
+		catalog, err = h.accountTestService.PreviewAccountModelCatalog(c.Request.Context(), account)
+	}
 	if err != nil {
 		writeUpstreamModelSyncError(c, err)
 		return
-	}
-	// Existing API callers retain immediate application. The modal explicitly
-	// requests preview, which persists capabilities but leaves restrictions alone.
-	if account.Platform == service.PlatformQianwen && c.Query("apply") != "false" {
-		if err := h.accountTestService.ApplyDiscoveredModelMapping(c.Request.Context(), accountID, catalog.Models); err != nil {
-			response.ErrorFrom(c, err)
-			return
-		}
 	}
 
 	response.Success(c, catalog)
@@ -3078,16 +3207,14 @@ func (h *AccountHandler) SyncUpstreamModels(c *gin.Context) {
 // SyncUpstreamModelsPreview handles syncing live supported models using provided credentials (no account ID needed).
 // POST /api/v1/admin/accounts/models/sync-upstream-preview
 func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
-	var req struct {
-		Platform     string            `json:"platform" binding:"required"`
-		Type         string            `json:"type" binding:"required"`
-		BaseURL      string            `json:"base_url"`
-		APIKey       string            `json:"api_key"`
-		Credentials  map[string]any    `json:"credentials"`
-		ModelMapping map[string]string `json:"model_mapping"`
-	}
+	var req SyncUpstreamModelsPreviewRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	declaration, err := decodeModelCapabilityDefaults(req.ModelCapabilityDefaults)
+	if err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 	modelMapping := make(map[string]any, len(req.ModelMapping))
@@ -3113,13 +3240,28 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		credentials["model_mapping"] = modelMapping
 	}
 	tempAccount := &service.Account{
+		ProxyID:     req.ProxyID,
 		Platform:    req.Platform,
 		Type:        req.Type,
 		Credentials: credentials,
+		Extra:       map[string]any{"model_capability_defaults": declaration},
 	}
 
+	if req.ProxyID != nil && *req.ProxyID > 0 {
+		proxy, lookupErr := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
+		if lookupErr != nil {
+			response.ErrorFrom(c, lookupErr)
+			return
+		}
+		tempAccount.Proxy = proxy
+	}
 	if h.accountTestService == nil {
 		response.InternalError(c, "Account test service is not configured")
+		return
+	}
+
+	if err := bindModelCapabilityDefaults(tempAccount, tempAccount.Extra, adminActorScope(c)); err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -3133,6 +3275,10 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 }
 
 func writeUpstreamModelSyncError(c *gin.Context, err error) {
+	if errors.Is(err, service.ErrAccountModelCatalogConflict) {
+		response.ErrorWithDetails(c, http.StatusConflict, "Account configuration or catalog changed; preview again", "upstream_model_sync_conflict", nil)
+		return
+	}
 	status, kind, message := http.StatusBadGateway, service.UpstreamModelSyncErrorUpstream, "Failed to sync upstream models from upstream"
 	var syncErr *service.UpstreamModelSyncError
 	if errors.As(err, &syncErr) {
@@ -3143,8 +3289,7 @@ func writeUpstreamModelSyncError(c *gin.Context, err error) {
 		case service.UpstreamModelSyncErrorInternal:
 			status = http.StatusInternalServerError
 		}
-		if syncErr.StatusCode == http.StatusUnauthorized || syncErr.StatusCode == http.StatusForbidden {
-			status, kind = http.StatusBadRequest, service.UpstreamModelSyncErrorCredentials
+		if kind == service.UpstreamModelSyncErrorCredentials {
 			message = "Upstream rejected the account credentials"
 		}
 	}
@@ -3380,4 +3525,154 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 		v = 10000
 	}
 	extra["base_rpm"] = v
+}
+
+// GetModelCatalog reads applied evidence and a separate, non-blocking public capability display projection.
+func (h *AccountHandler) GetModelCatalog(c *gin.Context) {
+	h.getModelCatalog(c, time.Now())
+}
+
+func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	snapshot := account.GetUpstreamModelCatalog()
+	effective := account.EffectiveUpstreamModelCatalog()
+	if snapshot != nil && account.IsShadow() {
+		credentialAccount, lookupErr := h.adminService.GetAccount(c.Request.Context(), *account.ParentAccountID)
+		if lookupErr != nil {
+			response.ErrorFrom(c, lookupErr)
+			return
+		}
+		effective = account.EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount)
+	}
+	state := account.ModelCatalogState()
+	staleness, lastSuccess := account.ModelCatalogFreshness(now)
+	summary := gin.H{
+		"snapshot": modelCatalogSnapshotResponse(snapshot), "effective_snapshot": modelCatalogSnapshotResponse(effective),
+		"state":    modelCatalogStateResponse{AccountModelCatalogState: state, IdentityRevision: strconv.FormatInt(state.IdentityRevision, 10), RulesRevision: strconv.FormatInt(state.RulesRevision, 10)},
+		"baseline": account.ModelCatalogBaseline(), "synced": snapshot != nil,
+		"complete": false, "observed_at": nil, "snapshot_revision": nil,
+		"discovered_count": 0, "eligible_count": 0, "excluded_count": 0,
+		"last_error": nil, "warnings": []string{},
+		"staleness": staleness, "last_success_at": nil, "last_attempt_at": nil,
+		"invalid_aliases": service.InvalidAccountCatalogAliases(account, effective),
+		"alias_endpoint":  service.CompositeRouteEndpointAny,
+		"eligible_models": []service.AccountCatalogModel{},
+	}
+	if display := h.accountTestService.ReadOnlyModelCapabilities(account); len(display) > 0 {
+		summary["display_metadata"] = display
+	}
+	if lastSuccess != "" {
+		summary["last_success_at"] = lastSuccess
+	}
+	if state.AttemptedAt != "" {
+		summary["last_attempt_at"] = state.AttemptedAt
+	}
+	if state.Error != "" {
+		summary["last_error"] = state.Error
+	}
+	if snapshot != nil {
+		summary["complete"] = snapshot.Complete
+		summary["observed_at"] = snapshot.ObservedAt
+		summary["snapshot_revision"] = strconv.FormatInt(snapshot.Revision, 10)
+		summary["discovered_count"] = len(snapshot.DiscoveredModels)
+		summary["excluded_count"] = len(snapshot.ExcludedModels)
+		if effective == nil {
+			summary["warnings"] = []string{string(service.CatalogReasonIdentityChanged)}
+		}
+	}
+	if effective != nil {
+		summary["eligible_count"] = len(effective.EligibleModels)
+		summary["eligible_models"] = effective.EligibleModels
+	}
+	if staleness == "stale" {
+		warnings, _ := summary["warnings"].([]string)
+		summary["warnings"] = append(warnings, string(service.CatalogReasonStaleEvidence))
+	}
+	response.Success(c, summary)
+}
+
+// Keep storage revisions numeric internally and expose lossless decimal strings at the HTTP boundary.
+type modelCatalogSnapshotDTO struct {
+	*service.AccountModelCatalogSnapshot
+	Revision                   string `json:"revision"`
+	RulesRevision              string `json:"rules_revision"`
+	IdentityRevision           string `json:"identity_revision"`
+	CredentialIdentityRevision string `json:"credential_identity_revision,omitempty"`
+}
+
+func modelCatalogSnapshotResponse(snapshot *service.AccountModelCatalogSnapshot) *modelCatalogSnapshotDTO {
+	if snapshot == nil {
+		return nil
+	}
+	result := &modelCatalogSnapshotDTO{AccountModelCatalogSnapshot: snapshot, Revision: strconv.FormatInt(snapshot.Revision, 10), RulesRevision: strconv.FormatInt(snapshot.RulesRevision, 10), IdentityRevision: strconv.FormatInt(snapshot.IdentityRevision, 10)}
+	if snapshot.CredentialIdentityRevision != 0 {
+		result.CredentialIdentityRevision = strconv.FormatInt(snapshot.CredentialIdentityRevision, 10)
+	}
+	return result
+}
+
+type modelCatalogStateResponse struct {
+	service.AccountModelCatalogState
+	IdentityRevision string `json:"identity_revision"`
+	RulesRevision    string `json:"rules_revision"`
+}
+
+func (h *AccountHandler) GetPlatformModelPresets(c *gin.Context) {
+	presets, err := service.PlatformModelPresets()
+	if err != nil {
+		response.InternalError(c, "Platform presets unavailable")
+		return
+	}
+	response.Success(c, presets)
+}
+
+func (h *AccountHandler) UpdateModelAllowlist(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid account ID")
+		return
+	}
+	subject, ok := middleware.GetAuthSubjectFromContext(c)
+	if !ok || subject.UserID <= 0 {
+		response.Unauthorized(c, "Unauthorized")
+		return
+	}
+	var request struct {
+		Enabled               bool         `json:"enabled"`
+		Models                []string     `json:"models"`
+		Reason                string       `json:"reason"`
+		ExpectedRulesRevision *json.Number `json:"expected_rules_revision"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil || request.ExpectedRulesRevision == nil {
+		response.BadRequest(c, "Scope and expected_rules_revision are required")
+		return
+	}
+	expectedRevision, parseErr := request.ExpectedRulesRevision.Int64()
+	if parseErr != nil || expectedRevision < 0 || expectedRevision == int64(^uint64(0)>>1) {
+		response.BadRequest(c, "Invalid expected_rules_revision")
+		return
+	}
+	account, err := h.adminService.GetAccount(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.accountTestService == nil {
+		response.InternalError(c, "Account test service unavailable")
+		return
+	}
+	if err := h.accountTestService.ConfigureAccountModelAllowlist(c.Request.Context(), account, request.Enabled, request.Models, request.Reason, subject.UserID, expectedRevision); err != nil {
+		writeUpstreamModelSyncError(c, err)
+		return
+	}
+	response.Success(c, gin.H{"rules_revision": strconv.FormatInt(expectedRevision+1, 10)})
 }

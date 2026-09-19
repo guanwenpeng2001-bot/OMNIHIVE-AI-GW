@@ -1,0 +1,18 @@
+{
+  "data": [
+    {
+      "id": "author/fixture-model",
+      "context_length": 8192,
+      "architecture": {
+        "input_modalities": [],
+        "output_modalities": [
+          "text"
+        ]
+      },
+      "supported_parameters": [],
+      "pricing": {
+        "prompt": "99"
+      }
+    }
+  ]
+}

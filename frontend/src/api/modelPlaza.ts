@@ -1,6 +1,6 @@
 /**
  * Model Plaza API（公开端点，可匿名访问）
- * 以分组为中心的模型价目：分组信息 + 模型渠道定价 + LiteLLM 官方参考价。
+ * 以分组为中心的模型价目：分组信息 + 模型渠道定价。
  * 带 token 请求时后端会额外返回专属分组与用户专属倍率。
  */
 
@@ -48,6 +48,7 @@ export interface PlazaModel {
   platform: string
   /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
   pricing: UserSupportedModelPricing | null
+  /** @deprecated Ignored even when talking to an older server. */
   official_pricing: PlazaOfficialPricing | null
   /** 仅多档模型返回。 */
   long_context_basis?: PlazaLongContextBasis
@@ -73,7 +74,7 @@ export interface ModelPlazaGroup {
   /** 生图独立倍率：true 时图片计费模型的实付倍率取 image_rate_multiplier，不取分组/专属倍率。 */
   image_rate_independent: boolean
   image_rate_multiplier: number
-  /** 分组是否启用长上下文阶梯计费；false 时实付列只展示最低档，官方阶梯仅供参考。 */
+  /** 分组是否启用长上下文阶梯计费；false 时实付列只展示最低档。 */
   long_context_pricing_enabled: boolean
   models: PlazaModel[]
 }

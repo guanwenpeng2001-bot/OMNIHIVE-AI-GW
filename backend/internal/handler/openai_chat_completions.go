@@ -82,6 +82,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if native != "" && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformQianwen {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "DashScope requires a Qianwen group or an explicit Qianwen model route")
@@ -180,7 +181,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 
 	maxAccountSwitches := h.maxAccountSwitches
@@ -249,7 +250,9 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			return
 		}
 		account := selection.Account
-		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		if h.cfg == nil || !h.cfg.Gateway.SessionAffinityEnabled {
+			sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		}
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)

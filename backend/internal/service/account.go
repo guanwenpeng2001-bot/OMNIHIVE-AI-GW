@@ -66,6 +66,9 @@ type Account struct {
 	GroupIDs      []int64
 	Groups        []*Group
 
+	// Request-local credential owner evidence, never persisted or serialized.
+	modelCatalogCredentialAccount *Account
+
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
 	modelMappingCacheReady          bool
@@ -298,7 +301,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode() || IsChatOnlyPlatform(a.Platform))
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -1280,7 +1283,7 @@ func (a *Account) IsInterceptWarmupEnabled() bool {
 }
 
 func (a *Account) IsBedrock() bool {
-	return a.Platform == PlatformAnthropic && a.Type == AccountTypeBedrock
+	return (a.Platform == PlatformAnthropic || a.Platform == PlatformBedrock) && a.Type == AccountTypeBedrock
 }
 
 func (a *Account) IsBedrockAPIKey() bool {
@@ -1353,7 +1356,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() && !IsChatOnlyPlatform(a.Platform) {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1386,6 +1389,14 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
+	case PlatformQianfan:
+		return qianfanDefaultBaseURL
+	case PlatformHunyuan:
+		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
+	case PlatformVolcengine:
+		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
 	case PlatformOpenCodeGo:
@@ -1583,6 +1594,14 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return DefaultQianwenAnthropicBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
+	case PlatformQianfan:
+		return qianfanDefaultBaseURL
+	case PlatformHunyuan:
+		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
+	case PlatformVolcengine:
+		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
 	case PlatformOpenCodeGo:
@@ -1790,7 +1809,7 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsMultiProtocolAPIKey() {
+	if a.IsMultiProtocolAPIKey() || IsChatOnlyPlatform(a.Platform) {
 		if a.Type != AccountTypeAPIKey {
 			return ""
 		}
@@ -1864,6 +1883,9 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	}
 	if !a.IsOpenAICompatible() {
 		return false
+	}
+	if IsChatOnlyPlatform(a.Platform) {
+		return a.Type == AccountTypeAPIKey && capability == OpenAIEndpointCapabilityChatCompletions
 	}
 	if a.IsGrok() {
 		switch capability {

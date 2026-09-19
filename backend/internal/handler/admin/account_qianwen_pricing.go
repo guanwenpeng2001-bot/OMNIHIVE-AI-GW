@@ -63,10 +63,13 @@ func (h *AccountHandler) SyncQianwenPricing(c *gin.Context) {
 		response.ErrorFrom(c, infraerrors.BadRequest("QIANWEN_PRICING_FETCH_FAILED", err.Error()))
 		return
 	}
-	// Even unsupported FX has durable explicit source status, never price rows.
-	if err := h.adminService.UpdateAccountExtra(ctx, id, map[string]any{"qianwen_pricing_sync": result}); err != nil {
-		response.ErrorFrom(c, err)
-		return
+	// Preview is read-only, including unsupported FX/source results. Supplying
+	// a target group is the existing explicit apply action.
+	if group != nil {
+		if err := h.adminService.UpdateAccountExtra(ctx, id, map[string]any{"qianwen_pricing_sync": result}); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
 	}
 	written := 0
 	if group != nil && result.Status == "ready" {

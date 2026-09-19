@@ -85,10 +85,18 @@ apiClient.interceptors.request.use(
 
     // Attach timezone for all GET requests (backend may use it for default date ranges)
     if (config.method === 'get') {
-      if (!config.params) {
-        config.params = {}
+      // Normalize tuple parameters so Axios serializes them as query pairs.
+      if (Array.isArray(config.params)) config.params = new URLSearchParams(config.params)
+      if (config.params instanceof URLSearchParams) {
+        const params = new URLSearchParams(config.params)
+        if (!params.has('timezone')) params.set('timezone', getUserTimezone())
+        config.params = params
+      } else {
+        config.params = { ...config.params }
+        if (!Object.prototype.hasOwnProperty.call(config.params, 'timezone')) {
+          config.params.timezone = getUserTimezone()
+        }
       }
-      config.params.timezone = getUserTimezone()
     }
 
     if (config.headers) {

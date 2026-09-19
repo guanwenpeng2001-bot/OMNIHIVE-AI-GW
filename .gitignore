@@ -2,6 +2,10 @@
 /docs-local/
 .codex
 
+# Local process artifacts, including nested collector output.
+/.pi/
+**/.pi/
+
 # ===================
 # Go 后端
 # ===================

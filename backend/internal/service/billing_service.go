@@ -1487,7 +1487,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	}
 
 	pricingContext := totalContext
-	if !contextTierPricingEnabled && !(resolved.channelPricing != nil && resolved.channelPricing.NativePricingSource == QianwenPricingSource && len(resolved.channelPricing.Intervals) > 0) {
+	if !contextTierPricingEnabled && (resolved.channelPricing == nil || resolved.channelPricing.NativePricingSource != QianwenPricingSource || len(resolved.channelPricing.Intervals) == 0) {
 		// 渠道可能显式配置了第一档，也可能只配置高上下文档。用 1 token
 		// 选择最低档；未命中时自然回退到渠道基础价。
 		pricingContext = 1

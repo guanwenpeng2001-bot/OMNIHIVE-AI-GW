@@ -1,3 +1,4 @@
+import { CHAT_PLATFORM_BASE_URLS, CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -60,6 +61,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ models: ['public-glm'], complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
@@ -72,6 +74,11 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
+import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import CursorBrowserAuthorization from '../CursorBrowserAuthorization.vue'
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -136,9 +143,10 @@ const ModelWhitelistSelectorStub = defineComponent({
   >models</button>`,
 })
 
-function mountModal(groups: any[] = []) {
+function mountModal(groups: any[] = [], realCatalog = false, attachTo?: HTMLElement) {
   return mount(CreateAccountModal, {
     props: { show: true, proxies: [], groups },
+    attachTo,
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -146,11 +154,11 @@ function mountModal(groups: any[] = []) {
         ConfirmDialog: true,
         Select: true,
         Icon: true,
-        PlatformIcon: true,
+        PlatformIcon: false,
         ProxySelector: true,
         ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
-        ModelWhitelistSelector: ModelWhitelistSelectorStub,
+        ModelWhitelistSelector: realCatalog ? false : ModelWhitelistSelectorStub,
         QuotaLimitCard: true,
       },
     },
@@ -198,6 +206,22 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('retains the Cursor browser authorization receipt for saved model configuration without applying', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Cursor')
+    ;(wrapper.vm as unknown as { cursorKeyMode: string }).cursorKeyMode = 'auto'
+    await flushPromises()
+    wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('success', 93)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#93')
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('configureModels')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    expect(wrapper.find('[data-testid="created-catalog-accounts"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
@@ -217,6 +241,92 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('mounts all catalog platforms as a named radio group with real decorative icons', () => {
+    const wrapper = mountModal()
+    const group = wrapper.get('[role="radiogroup"]')
+    expect(group.attributes('aria-label')).toBe('admin.accounts.platform')
+    expect(group.attributes('data-tour')).toBe('account-form-platform')
+    expect(group.classes()).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'rounded-lg', 'p-1', 'bg-gray-100']))
+    const radios = group.findAll('[role="radio"]')
+    expect(radios).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length)
+    CONCRETE_PLATFORM_OPTIONS.forEach((option, index) => {
+      const radio = radios[index]!
+      expect(radio.attributes('data-testid')).toBe(`${option.value}-platform`)
+      expect(radio.attributes('type')).toBe('button')
+      expect(radio.attributes('aria-checked')).toBe(String(index === 0))
+      expect(radio.attributes('tabindex')).toBe(index === 0 ? '0' : '-1')
+      expect(radio.getComponent(PlatformIcon).props('platform')).toBe(option.value)
+      expect(radio.get('svg').attributes('aria-hidden')).toBe('true')
+      expect(radio.classes()).toContain('focus-visible:ring-2')
+      expect(radio.text()).toBe(option.value === 'commandcode' ? `CC${option.label}` : option.label)
+    })
+    expect(radios[0]!.classes()).toEqual(expect.arrayContaining(['bg-white', 'text-primary-600', 'shadow-sm']))
+    wrapper.unmount()
+  })
+
+  it('moves selection and focus with arrows, Home and End, wrapping at both ends', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const wrapper = mountModal([], false, host)
+    try {
+      const radio = (index: number) => wrapper.get(`[data-testid="${CONCRETE_PLATFORM_OPTIONS[index]!.value}-platform"]`)
+      const last = CONCRETE_PLATFORM_OPTIONS.length - 1
+      for (const [from, key, to] of [
+        [0, 'ArrowRight', 1], [1, 'ArrowDown', 2], [2, 'ArrowLeft', 1],
+        [1, 'ArrowUp', 0], [0, 'ArrowLeft', last], [last, 'ArrowRight', 0],
+        [0, 'End', last], [last, 'Home', 0],
+      ] as const) {
+        await radio(from).trigger('keydown', { key })
+        expect(radio(to).attributes('aria-checked')).toBe('true')
+        expect(radio(to).attributes('tabindex')).toBe('0')
+        expect(document.activeElement).toBe(radio(to).element)
+        expect(wrapper.findAll('[role="radio"][tabindex="0"]')).toHaveLength(1)
+      }
+      const ignored = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      radio(0).element.dispatchEvent(ignored)
+      expect(ignored.defaultPrevented).toBe(false)
+      expect(createAccountMock).not.toHaveBeenCalled()
+      expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+      expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      host.remove()
+    }
+  })
+
+  it.each([' ', 'Enter'])('uses native %s activation once through click and retains the platform reset flow', async key => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+    const endpoint = '[data-testid="cn-adaptive-base-url-chat_completions"]'
+    await wrapper.get(endpoint).setValue('https://edited.example/v1')
+    const selected = wrapper.get('[data-testid="qianwen-platform"]')
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    selected.element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    await flushPromises()
+    // JSDOM does not synthesize the native button click for keyboard activation.
+    // No reset on keydown; the browser-generated click runs selectPlatform exactly once.
+    expect((wrapper.get(endpoint).element as HTMLInputElement).value).toBe('https://edited.example/v1')
+    await selected.trigger('click')
+    expect((wrapper.get(endpoint).element as HTMLInputElement).value).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('applies the same protocol and endpoint reset for arrow selection and mouse selection', async () => {
+    const keyboard = mountModal()
+    const mouse = mountModal()
+    await keyboard.get('[data-testid="opencode_go-platform"]').trigger('click')
+    await keyboard.get('[data-testid="opencode_go-platform"]').trigger('keydown', { key: 'ArrowRight' })
+    await mouse.get('[data-testid="qianwen-platform"]').trigger('click')
+    expect(keyboard.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toEqual(
+      mouse.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')
+    )
+    expect(keyboard.get('[data-testid="qianwen-platform"]').attributes('aria-checked')).toBe('true')
+    keyboard.unmount()
+    mouse.unmount()
+  })
 
   it('persists a create-time scheduling override and image-tool policy on API keys', async () => {
     const wrapper = mountModal()
@@ -245,6 +355,47 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0].credentials.tier_id).toBe('aistudio_paid')
+    wrapper.unmount()
+  })
+
+  it('saves draft selections, then requires saved review and retries conflict without recreating', async () => {
+    const wrapper = mountModal([], true)
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Reviewed account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.clearAllModels')!.trigger('click')
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'public-glm': 'public-glm' })
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.emitted('close')).toBeUndefined()
+    const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
+    const review = { account_id: 42, digest: 'saved-identity', rules_revision: '9007199254740993' }
+    const preview = { models: ['saved-model'], complete: true, applied: false, rules_revision: review.rules_revision, review }
+    syncUpstreamModelsMock.mockResolvedValueOnce(preview).mockRejectedValueOnce({ status: 409 })
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, review)
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    const revisedReview = { ...review, digest: 'reconfirmed' }
+    syncUpstreamModelsMock.mockResolvedValueOnce({ ...preview, review: revisedReview }).mockResolvedValueOnce({ ...preview, applied: true })
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(createAccountMock).toHaveBeenCalledOnce()
+    expect(wrapper.findAllComponents(ModelWhitelistSelector).some(selector => selector.props('accountId') === 42)).toBe(true)
     wrapper.unmount()
   })
 
@@ -412,7 +563,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.images_url_to_b64_json).toBe(true)
   })
 
-  it('persists upstream model metadata after creating an account from preview', async () => {
+  it('requires saved-identity confirmation after creating an account from preview', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -423,7 +574,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledOnce()
-    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
   it('includes the current concrete model mapping in preview credentials', async () => {
@@ -439,7 +592,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     })
   })
 
-  it('runs formal capability sync after creating an account with explicit mappings', async () => {
+  it('retains the created account ID for confirmation with explicit mappings', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
@@ -455,10 +608,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping).toEqual({
       'public-glm': 'glm-5.3'
     })
-    expect(syncUpstreamModelsMock).toHaveBeenCalledWith(42)
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
+    expect(wrapper.emitted('close')).toBeUndefined()
   })
 
-  it('warns when post-create capability metadata remains incomplete', async () => {
+  it('does not automatically adopt incomplete post-create metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
       models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_incomplete', message: 'metadata incomplete' }],
@@ -472,12 +627,11 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(showWarningMock).toHaveBeenCalledWith(
-      'admin.accounts.syncUpstreamModelsMetadataIncomplete'
-    )
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
   })
 
-  it('shows neutral information when post-create capability metadata is partial', async () => {
+  it('requires confirmation instead of automatically adopting partial metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
       models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_partial', message: 'metadata incomplete' }],
@@ -491,9 +645,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
     await flushPromises()
 
-    expect(showInfoMock).toHaveBeenCalledWith(
-      'admin.accounts.syncUpstreamModelsMetadataPartial'
-    )
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#42')
     expect(showWarningMock).not.toHaveBeenCalled()
   })
 
@@ -542,6 +695,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
+  it('creates independent Bedrock with the existing regional credential form', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="bedrock-platform"]').trigger('click')
+    expect(wrapper.text()).not.toContain('admin.accounts.bedrockForceGlobal')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Bedrock fixture')
+    await wrapper.get('input[type="radio"][value="apikey"]').setValue()
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'bedrock', type: 'bedrock', credentials: { auth_mode: 'apikey', api_key: 'fixture-key', aws_region: 'us-east-1' } })
+  })
+
+  it.each(Object.entries(CHAT_PLATFORM_BASE_URLS))('creates %s with exact chat credentials', async (platform, baseURL) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('runtime fixture')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform, type: 'apikey', credentials: { api_key: 'fixture-key', base_url: baseURL } })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toBeUndefined()
   })
 
   it.each(['qianwen', 'commandcode'] as const)('creates %s as API-key-only with protocol defaults', async (platform) => {
@@ -795,6 +973,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
     expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBeUndefined()
+  })
+
+  it('retains imported Codex account IDs for explicit catalog confirmation', async () => {
+    importCodexSessionMock.mockResolvedValueOnce({ total: 1, created: 1, updated: 0, skipped: 0, failed: 0, items: [{ index: 0, action: 'created', account_id: 81 }] })
+    const wrapper = await openCodexImportStep()
+    const declaration = { schema_version: 1, reason: 'verified', models: { Private: { supports_function_calling: false } } }
+    ;(wrapper.vm as unknown as { capabilityDefaultsJSON: string }).capabilityDefaultsJSON = JSON.stringify(declaration)
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    expect(importCodexSessionMock.mock.calls[0][0].extra.model_capability_defaults).toEqual(declaration)
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#81')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('retains a created Codex PAT account ID for explicit catalog confirmation', async () => {
+    createOpenAICodexPATMock.mockResolvedValueOnce({ id: 82 })
+    const wrapper = await openCodexImportStep()
+    await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#82')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('leaves Codex PAT import billing ownership to the backend', async () => {

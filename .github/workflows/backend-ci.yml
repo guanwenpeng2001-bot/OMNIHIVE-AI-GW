@@ -12,6 +12,16 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+      - name: Reject tracked process artifacts
+        shell: bash
+        run: |
+          set -eu
+          tracked_pi="$(git ls-files -- '.pi' ':(glob)**/.pi/**')" || exit $?
+          if [ -n "$tracked_pi" ]; then
+            printf '%s\n' '::error::Tracked .pi process artifacts detected' "$tracked_pi"
+            exit 1
+          fi
+          printf '%s\n' 'No tracked .pi process artifacts'
       - name: Check deployment scripts
         run: |
           /bin/bash -n deploy/apple-container.sh
@@ -96,7 +106,7 @@ jobs:
           - test: TestAccountConfigurationPostgres
             package: ./internal/repository
             tag: unit
-            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,discovery_and_key_rotation_merge_only_changed_fields,explicit_null_mapping_is_treated_as_empty,failed_outbox_rolls_back_before_cache_refresh
+            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,manual_bulk_token_rotation_invalidates_stable_subject,same_baseline_first_commit_wins_and_preserves_aliases,rule_edits_conflict_with_pending_discovery,failed_outbox_rolls_back_before_cache_refresh
     services:
       postgres:
         image: postgres:16
@@ -169,6 +179,55 @@ jobs:
           print(f"Verified executed PASS events: {sorted(passed)}")
           PY
 
+  required-round:
+    name: Required round / ${{ matrix.gate }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [usage-coverage, catalog, affinity]
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stats_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d stats_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Create catalog test database
+        if: matrix.gate == 'catalog'
+        run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres job_test
+      - name: Run required round tests (no skips)
+        env:
+          # Job-local disposable services, never a shared database or Redis.
+          USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
+          UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          AFFINITY_REDIS_TEST_ADDR: localhost:6379
+        run: make test-required-${{ matrix.gate }}
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -199,9 +258,9 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Frontend typecheck and critical vitest
         run: make test-frontend
-      - name: Full frontend regression suite
+      - name: Full frontend regression suite and coverage
         working-directory: frontend
-        run: pnpm run test:run
+        run: pnpm run test:coverage
 
   golangci-lint:
     runs-on: ubuntu-latest

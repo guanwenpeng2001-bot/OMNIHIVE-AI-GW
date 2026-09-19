@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: 'No statistics were returned for this range because historical coverage is incomplete. Missing history does not mean zero usage.',
+    coverageIncomplete: 'Totals include only verified retained data. Missing history does not mean zero usage.',
+    coverageReason: 'Coverage reason: {reason}',
+    rawRetainedFrom: 'Raw records retained from: {time}',
+
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
     balance: 'Balance',
@@ -362,6 +367,8 @@ export default {
     cacheTtlOverriddenLabel: 'TTL Override',
     cacheTtlOverridden5m: 'Billed as 5m',
     cacheTtlOverridden1h: 'Billed as 1h',
+    statsUnknown: 'Unknown',
+    statsUnavailable: 'Unavailable',
     totalRequests: 'Total Requests',
     totalTokens: 'Total Tokens',
     cacheTotal: 'Cache',
@@ -672,6 +679,18 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
+    confirmation: {
+      title: "Plaza model confirmation",
+      description: "Controls display for the saved channel and group. Candidates come from linked account discovery and mappings; confirmation does not authorize calls or change prices.",
+      empty: "No candidates. Sync linked accounts or configure concrete mappings first.",
+      legacy: "Historical configuration, confirmation not recorded",
+      confirmed: "Administrator {actor} · {time}",
+      save: "Confirm and save display selection",
+      loadError: "Could not load candidates. Saved configuration is unchanged.",
+      saveError: "Could not save confirmation. Your draft is retained; retry.",
+      conflict: "Configuration or candidates changed. Refresh and select again.",
+    },
+
     title: 'Model Plaza',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
@@ -719,7 +738,6 @@ export default {
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
       paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
       rate: 'Rate',
       unitPerMillion: 'USD / 1M tokens',
       perUnitRequest: '/ request',

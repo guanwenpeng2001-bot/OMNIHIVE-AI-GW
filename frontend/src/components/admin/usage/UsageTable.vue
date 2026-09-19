@@ -1,6 +1,7 @@
 <template>
   <div :class="flat ? '' : 'card overflow-hidden'">
-    <p class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{{ t('common.displayTimeZone', { timezone: getBrowserTimeZone() }) }}</p>
+    <p class="px-4 py-2 text-xs text-gray-500 dark:text-gray-400">{{ t('common.displayTimeZone', { timezone: timeZone || getBrowserTimeZone() }) }}</p>
+    <p class="px-4 pb-2 text-xs text-gray-500 dark:text-gray-400">{{ t('usage.userBilled') }}<template v-if="showAccountBilling"> / {{ t('usage.accountBilled') }}</template> · USD · {{ t('usage.perRequest') }}</p>
     <div
       v-if="showIpGeoToolbar"
       class="flex items-center justify-end gap-2 border-b border-gray-200 px-4 py-2 dark:border-dark-700"
@@ -254,7 +255,7 @@
         </template>
 
         <template #cell-created_at="{ value }">
-          <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTimeWithZone(value) }}</span>
+          <span class="text-sm text-gray-600 dark:text-gray-400">{{ formatDateTimeWithZone(value, timeZone) }}</span>
         </template>
 
         <template #cell-request_id="{ row }">
@@ -583,6 +584,7 @@ import type { AdminUsageLog } from '@/types'
 import type { Column } from '@/components/common/types'
 
 interface Props {
+  timeZone?: string
   data: AdminUsageLog[]
   loading?: boolean
   columns: Column[]

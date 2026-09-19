@@ -1,3 +1,5 @@
+import { formatDateTimeWithZone } from '@/utils/format'
+import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { defineComponent, ref } from 'vue'
@@ -96,7 +98,8 @@ vi.mock('@/stores/app', () => ({
   }),
 }))
 
-vi.mock('@/utils/format', () => ({
+vi.mock('@/utils/format', async () => ({
+  ...await vi.importActual<typeof import('@/utils/format')>('@/utils/format'),
   formatReasoningEffort: (value: string | null | undefined) => value ?? '-',
 }))
 
@@ -164,9 +167,10 @@ const GroupDistributionChartStub = {
   `,
 }
 
-const mountRouteFilteredUsageView = () => mount(UsageView, {
+const mountRouteFilteredUsageView = (timeZone?: string) => mount(UsageView, {
+  props: { timeZone },
   global: { stubs: {
-    AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+    AppLayout: AppLayoutStub, UsageStatsCards: false, UsageFilters: UsageFiltersStub,
     UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
     UserBalanceHistoryModal: true, Pagination: true, Select: true,
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
@@ -198,6 +202,91 @@ describe('admin UsageView route filters', () => {
   afterEach(() => {
     Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
     vi.useRealTimers()
+  })
+
+  it('renders unknown on first stats failure and recovers to known zero', async () => {
+    getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const cards = wrapper.getComponent(UsageStatsCards)
+    expect(cards.text()).toContain('usage.statsUnknown')
+    expect(cards.text()).not.toContain('0ms')
+    getStats.mockResolvedValueOnce({ total_requests: 0 })
+    await (wrapper.vm as any).loadStats()
+    expect(cards.text()).not.toContain('usage.statsUnknown')
+    expect(cards.text()).toContain('0')
+    wrapper.unmount()
+  })
+
+  it('clears prior range stats and ignores obsolete success and failure responses', async () => {
+    getStats.mockResolvedValueOnce({ total_requests: 777 })
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const page = wrapper.vm as any
+    const cards = wrapper.getComponent(UsageStatsCards)
+    expect(cards.text()).toContain('777')
+    let resolveOld!: (value: unknown) => void
+    getStats.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const old = page.loadStats()
+    await flushPromises()
+    expect(cards.text()).not.toContain('777')
+    expect(cards.text()).toContain('common.loading')
+    getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await page.loadStats()
+    expect(cards.text()).toContain('usage.statsUnknown')
+    resolveOld({ total_requests: 777 })
+    await old
+    expect(cards.text()).not.toContain('777')
+    let rejectOld!: (error: unknown) => void
+    getStats.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const obsolete = page.loadStats()
+    getStats.mockResolvedValueOnce({ total_requests: 123 })
+    await page.loadStats()
+    rejectOld(new Error('old failure'))
+    await obsolete
+    expect(cards.text()).toContain('123')
+    getStats.mockRejectedValueOnce(new Error('network'))
+    await page.loadStats()
+    expect(cards.text()).toContain('usage.statsUnavailable')
+    expect(cards.text()).not.toContain('123')
+    wrapper.unmount()
+  })
+
+  it('clears old chart data for a history gap and recovers on a valid range', async () => {
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-01', requests: 7 }], groups: [{ name: 'old' }] })
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const page = wrapper.vm as any
+    expect(page.trendData).toHaveLength(1)
+    getSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } })
+    await page.loadChartData()
+    expect(page.trendData).toEqual([])
+    expect(page.groupStats).toEqual([])
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    getSnapshotV2.mockResolvedValueOnce({ trend: [], groups: [] })
+    await page.loadChartData()
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('ignores an obsolete chart failure after a newer success', async () => {
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (reason: unknown) => void
+    getSnapshotV2.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadChartData()
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-06', requests: 9 }], groups: [] })
+    await page.loadChartData()
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.trendData[0].requests).toBe(9)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('shows the routed user while applying user_id to usage requests', async () => {
@@ -294,7 +383,7 @@ describe('admin UsageView native compaction filter', () => {
     vi.useRealTimers()
   })
 
-  it('propagates the filter to list/stats/model/snapshot requests and clears it on reset', async () => {
+  it.each([true, false])('propagates compaction filter %s to list/stats/model/snapshot requests and clears it on reset', async nativeCompaction => {
     const wrapper = mountRouteFilteredUsageView()
     vi.advanceTimersByTime(120)
     await flushPromises()
@@ -304,18 +393,18 @@ describe('admin UsageView native compaction filter', () => {
     getModelStats.mockClear()
     getSnapshotV2.mockClear()
 
-    ;(wrapper.vm as any).filters.native_compaction_v2 = true
+    ;(wrapper.vm as any).filters.native_compaction_v2 = nativeCompaction
     ;(wrapper.vm as any).applyFilters()
     await flushPromises()
 
-    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(true)
+    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(nativeCompaction)
     expect(list).toHaveBeenCalledWith(
-      expect.objectContaining({ native_compaction_v2: true }),
+      expect.objectContaining({ native_compaction_v2: nativeCompaction }),
       expect.anything()
     )
-    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
 
     list.mockClear()
     getStats.mockClear()
@@ -379,7 +468,7 @@ describe('admin UsageView distribution metric toggles', () => {
 
     const wrapper = mount(UsageView, {
       global: { stubs: {
-        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        AppLayout: AppLayoutStub, UsageStatsCards: false, UsageFilters: UsageFiltersStub,
         UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
         UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
@@ -409,7 +498,7 @@ describe('admin UsageView distribution metric toggles', () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
-          UsageStatsCards: true,
+          UsageStatsCards: false,
           UsageFilters: UsageFiltersStub,
           UsageTable: true,
           UsageExportProgress: true,
@@ -484,7 +573,7 @@ describe('admin UsageView request ID column visibility', () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
-          UsageStatsCards: true,
+          UsageStatsCards: false,
           UsageFilters: UsageFiltersStub,
           UsageTable: UsageTableStub,
           UsageExportProgress: true,
@@ -529,7 +618,7 @@ describe('admin UsageView request ID column visibility', () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
-          UsageStatsCards: true,
+          UsageStatsCards: false,
           UsageFilters: UsageFiltersStub,
           UsageTable: UsageTableStub,
           UsageExportProgress: true,
@@ -593,7 +682,7 @@ describe('admin UsageView handleUserClick', () => {
       global: {
         stubs: {
           AppLayout: AppLayoutStub,
-          UsageStatsCards: true,
+          UsageStatsCards: false,
           UsageFilters: UsageFiltersStub,
           UsageTable: UsageTableStub,
           UsageExportProgress: true,
@@ -649,7 +738,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
   it('forwards model/account_id/group_id to listErrorLogs on the errors tab', async () => {
     const wrapper = mount(UsageView, {
       global: { stubs: {
-        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        AppLayout: AppLayoutStub, UsageStatsCards: false, UsageFilters: UsageFiltersStub,
         UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
         UserBalanceHistoryModal: true, AuditLogModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
@@ -705,7 +794,7 @@ describe('admin UsageView ranking tab', () => {
   it('mounts ranking lazily and drill-down sets user filter then jumps back to usage tab', async () => {
     const wrapper = mount(UsageView, {
       global: { stubs: {
-        AppLayout: AppLayoutStub, UsageStatsCards: true, UsageFilters: UsageFiltersStub,
+        AppLayout: AppLayoutStub, UsageStatsCards: false, UsageFilters: UsageFiltersStub,
         UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
         UserBalanceHistoryModal: true, Pagination: true, Select: true,
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
@@ -816,7 +905,7 @@ describe('ledger export formatting', () => {
     await flushPromises()
     await (wrapper.vm as any).exportToExcel()
     const row = sheetAddAoa.mock.calls[0][1][0]
-    expect(row[0]).toBe('2026-11-01T05:30:00Z')
+    expect(row[0]).toBe(formatDateTimeWithZone('2026-11-01T05:30:00Z'))
     expect(row[4]).toBe('model-original-ID')
     expect(row[14]).toBe(23)
     expect(row.slice(24, 27)).toEqual(Array(3).fill(amount == null ? '-' : amount.toFixed(8)))
@@ -824,3 +913,22 @@ describe('ledger export formatting', () => {
     vi.useRealTimers()
   })
 })
+
+ it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('admin report passes explicit %s to all reads and export', async timeZone => {
+    list.mockResolvedValue({ items: [], total: 0 })
+    exportList.mockResolvedValue({ items: [{ created_at: '2026-11-01T09:30:00Z', model: 'model' }], total: 1 })
+    const wrapper = mountRouteFilteredUsageView(timeZone)
+    await flushPromises()
+    await (wrapper.vm as any).loadChartData()
+    await (wrapper.vm as any).loadModelStats()
+    await (wrapper.vm as any).loadStats()
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getModelStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    await (wrapper.vm as any).exportToExcel()
+    expect(exportList).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(sheetAddAoa.mock.calls.at(-1)![1][0][0]).toBe(formatDateTimeWithZone('2026-11-01T09:30:00Z', timeZone))
+    expect(wrapper.findComponent({ name: 'UsageTable' }).props('timeZone')).toBe(timeZone)
+    wrapper.unmount()
+  })

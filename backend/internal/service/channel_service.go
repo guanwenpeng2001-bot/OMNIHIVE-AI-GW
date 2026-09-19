@@ -185,6 +185,9 @@ func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCa
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
+		return plan.channelSnapshot, plan.channelError
+	}
 	if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
 		if time.Since(cached.loadedAt) < channelCacheTTL {
 			return cached, nil
@@ -854,6 +857,10 @@ func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) 
 		return nil, err
 	}
 
+	if channel.FeaturesConfig == nil {
+		channel.FeaturesConfig = map[string]any{}
+	}
+	channel.FeaturesConfig[PlazaConfirmationConfigKey] = PlazaConfirmationConfig{Groups: map[string][]PlazaConfirmedModel{}}
 	if err := s.repo.Create(ctx, channel); err != nil {
 		return nil, fmt.Errorf("create channel: %w", err)
 	}
@@ -885,6 +892,7 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 		return nil, fmt.Errorf("get channel: %w", err)
 	}
 
+	plazaConfig := ChannelPlazaConfirmation(channel)
 	if err := s.applyUpdateInput(ctx, channel, input); err != nil {
 		return nil, err
 	}
@@ -895,6 +903,11 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 	if err := validateAccountStatsPricingRules(channel.AccountStatsPricingRules); err != nil {
 		return nil, err
 	}
+
+	if channel.FeaturesConfig == nil {
+		channel.FeaturesConfig = map[string]any{}
+	}
+	channel.FeaturesConfig[PlazaConfirmationConfigKey] = plazaConfig
 
 	oldGroupIDs := s.getOldGroupIDs(ctx, id)
 

@@ -987,6 +987,15 @@ func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Con
 // account remains bound and automatically becomes eligible again if its
 // account rate recovers.
 func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
+	if IsV2AffinityKey(sessionHash) {
+		_, _ = s.GetCachedSessionAccountID(ctx, groupID, sessionHash)
+		group := derefGroupID(groupID)
+		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
+			return s.BindStickySession(admitted, &group, sessionHash, accountID)
+		})
+		return nil
+	}
+
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
@@ -1147,32 +1156,6 @@ func appendFirstUserTextFromRaw(builder *strings.Builder, raw []byte) {
 			})
 		}
 		return false
-	})
-}
-
-func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
-	if builder == nil || len(raw) == 0 {
-		return
-	}
-	messages := parseRawJSONView(raw)
-	if !messages.IsArray() {
-		return
-	}
-	messages.ForEach(func(_, msg gjson.Result) bool {
-		if content := msg.Get("content"); content.Exists() {
-			_, _ = builder.WriteString(extractTextFromContentRaw(content))
-			return true
-		}
-		parts := msg.Get("parts")
-		if parts.IsArray() {
-			parts.ForEach(func(_, part gjson.Result) bool {
-				if text := part.Get("text").String(); text != "" {
-					_, _ = builder.WriteString(text)
-				}
-				return true
-			})
-		}
-		return true
 	})
 }
 
@@ -1424,6 +1407,9 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
+	if models, err := s.CatalogModelIDs(ctx, groupID, platform); models != nil || err != nil {
+		return models
+	}
 	cacheKey := modelsListCacheKey(groupID, platform)
 	if s.modelsListCache != nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {

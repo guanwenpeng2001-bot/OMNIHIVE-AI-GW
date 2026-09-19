@@ -180,7 +180,7 @@ describe('restriction validation', () => {
     [[], [{ from: 'source', to: 'one' }, { from: 'source', to: 'two' }]],
     [['source'], [{ from: 'source', to: 'other' }]]
   ])('reports the offending row for %j / %j', (allowed, mappings) => {
-    expect(validateModelRestrictions('combined', allowed, mappings)[0]).toMatch(/row \d+/)
+    expect(validateModelRestrictions('combined', allowed, mappings)[0]).toMatchObject({ row: expect.any(Number), code: expect.any(String) })
   })
   it('accepts case-sensitive identities and aliases', () => {
     expect(validateModelRestrictions('combined', ['Model'], [{ from: 'model-*', to: 'Model' }])).toEqual([])

@@ -29,6 +29,7 @@ type UsageLogRepoSuite struct {
 }
 
 func (s *UsageLogRepoSuite) SetupTest() {
+	prepareRepositoryFixtures(s.T())
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.tx = tx
@@ -769,7 +770,15 @@ func (s *UsageLogRepoSuite) TestDashboardStats_TodayTotalsAndPerformance() {
 	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
 	aggStart := todayStart.Add(-2 * time.Hour)
 	aggEnd := now.Add(2 * time.Minute)
-	s.Require().NoError(aggRepo.AggregateRange(s.ctx, aggStart, aggEnd), "AggregateRange")
+	s.setRawRetentionFloor(truncateToDayUTC(aggStart))
+	for cursor := aggStart; cursor.Before(aggEnd); {
+		next := truncateToDayUTC(cursor).AddDate(0, 0, 1)
+		if next.After(aggEnd) {
+			next = aggEnd
+		}
+		s.Require().NoError(aggRepo.AggregateRange(s.ctx, cursor, next), "AggregateRange")
+		cursor = next
+	}
 
 	stats, err := s.repo.GetDashboardStats(s.ctx)
 	s.Require().NoError(err, "GetDashboardStats")
@@ -809,6 +818,10 @@ func (s *UsageLogRepoSuite) TestDashboardStatsWithRange_Fallback() {
 	todayStart := truncateToDayUTC(now)
 	rangeStart := todayStart.Add(-24 * time.Hour)
 	rangeEnd := now.Add(1 * time.Second)
+	s.setRawRetentionFloor(rangeStart)
+	var existing int
+	s.Require().NoError(scanSingleRow(s.ctx, s.tx, "SELECT count(*) FROM usage_logs WHERE created_at >= $1 AND created_at < $2", []any{rangeStart, rangeEnd}, &existing))
+	s.Require().Zero(existing, "fallback range must be clean")
 
 	user1 := mustCreateUser(s.T(), s.client, &service.User{Email: "range-u1@test.com"})
 	user2 := mustCreateUser(s.T(), s.client, &service.User{Email: "range-u2@test.com"})
@@ -948,18 +961,10 @@ func (s *UsageLogRepoSuite) TestGetAccountTodayStats() {
 }
 
 func (s *UsageLogRepoSuite) TestDashboardAggregationConsistency() {
-	now := time.Now().UTC().Truncate(time.Second)
-	// 使用固定的时间偏移确保 hour1 和 hour2 在同一天且都在过去
-	// 选择当天 02:00 和 03:00 作为测试时间点（基于 now 的日期）
-	dayStart := truncateToDayUTC(now)
-	hour1 := dayStart.Add(2 * time.Hour) // 当天 02:00
-	hour2 := dayStart.Add(3 * time.Hour) // 当天 03:00
-	// 如果当前时间早于 hour2，则使用昨天的时间
-	if now.Before(hour2.Add(time.Hour)) {
-		dayStart = dayStart.Add(-24 * time.Hour)
-		hour1 = dayStart.Add(2 * time.Hour)
-		hour2 = dayStart.Add(3 * time.Hour)
-	}
+	// A daily aggregate requires an entire closed calendar day.
+	dayStart := truncateToDayUTC(time.Now()).AddDate(0, 0, -1)
+	hour1 := dayStart.Add(2 * time.Hour)
+	hour2 := dayStart.Add(3 * time.Hour)
 
 	user1 := mustCreateUser(s.T(), s.client, &service.User{Email: "agg-u1@test.com"})
 	user2 := mustCreateUser(s.T(), s.client, &service.User{Email: "agg-u2@test.com"})
@@ -1016,8 +1021,9 @@ func (s *UsageLogRepoSuite) TestDashboardAggregationConsistency() {
 	s.Require().NoError(err)
 
 	aggRepo := newDashboardAggregationRepositoryWithSQL(s.tx)
-	aggStart := hour1.Add(-5 * time.Minute)
-	aggEnd := hour2.Add(time.Hour) // 确保覆盖 hour2 的所有数据
+	aggStart := dayStart
+	aggEnd := dayStart.AddDate(0, 0, 1)
+	s.setRawRetentionFloor(dayStart)
 	s.Require().NoError(aggRepo.AggregateRange(s.ctx, aggStart, aggEnd))
 
 	type hourlyRow struct {
@@ -1676,4 +1682,11 @@ func (s *UsageLogRepoSuite) TestListWithFilters_CombinedFilters() {
 	s.Require().NoError(err, "ListWithFilters combined")
 	s.Require().Len(logs, 2)
 	s.Require().Equal(int64(2), page.Total)
+}
+
+// The fixture owns all raw rows in this transaction. Rollback restores the real
+// retention floor along with its historical rows; shared coverage is not widened.
+func (s *UsageLogRepoSuite) setRawRetentionFloor(start time.Time) {
+	_, err := s.tx.ExecContext(s.ctx, "UPDATE usage_dashboard_aggregation_watermark SET raw_retained_from = $1 WHERE id = 1", start)
+	s.Require().NoError(err)
 }

@@ -66,6 +66,10 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	BoundedModelProbesEnabled bool `mapstructure:"bounded_model_probes_enabled"`
+	// ModelCatalogRefreshEnabled opts into periodic outbound catalog refreshes.
+	ModelCatalogRefreshEnabled bool `mapstructure:"model_catalog_refresh_enabled"`
+
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
@@ -946,6 +950,11 @@ const (
 
 // GatewayConfig API网关相关配置
 type GatewayConfig struct {
+	// SessionAffinityEnabled opts into scoped session hashing and binding.
+	SessionAffinityEnabled bool `mapstructure:"session_affinity_enabled"`
+	// Both HMAC settings must be supplied together; both empty permits development SHA fallback.
+	AffinityHMACKey        string `mapstructure:"affinity_hmac_key"`
+	AffinityHMACKeyVersion string `mapstructure:"affinity_hmac_key_version"`
 	// 等待上游响应头的超时时间（秒），0表示无超时
 	// 注意：这不影响流式数据传输，只控制等待响应头的时间
 	ResponseHeaderTimeout int `mapstructure:"response_header_timeout"`
@@ -2293,8 +2302,8 @@ func setDefaults() {
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
 
 	// Pricing - 从 model-price-repo main 分支同步模型定价和上下文窗口数据
-	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
-	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256")
+	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")
+	viper.SetDefault("pricing.hash_url", "")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.override_file", "")
@@ -2367,8 +2376,14 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
+	viper.SetDefault("model_catalog_refresh_enabled", false)
+	viper.SetDefault("bounded_model_probes_enabled", false)
+
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
+	viper.SetDefault("gateway.session_affinity_enabled", false)
+	viper.SetDefault("gateway.affinity_hmac_key", "")
+	viper.SetDefault("gateway.affinity_hmac_key_version", "")
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
 	viper.SetDefault("gateway.grok_response_header_timeout", 120)
 	viper.SetDefault("gateway.openai_first_output_timeout_seconds", 0)
@@ -2656,6 +2671,12 @@ func setEnvReachableDefaults() {
 }
 
 func (c *Config) Validate() error {
+	if c.Gateway.AffinityHMACKey != "" && c.Gateway.AffinityHMACKeyVersion == "" {
+		return fmt.Errorf("gateway.affinity_hmac_key_version is required when gateway.affinity_hmac_key is set")
+	}
+	if c.Gateway.AffinityHMACKey == "" && c.Gateway.AffinityHMACKeyVersion != "" {
+		return fmt.Errorf("gateway.affinity_hmac_key is required when gateway.affinity_hmac_key_version is set")
+	}
 	forwardedClientIPHeaders, err := NormalizeForwardedClientIPHeaders(c.Security.ForwardedClientIPHeaders)
 	if err != nil {
 		return fmt.Errorf("security.forwarded_client_ip_headers: %w", err)

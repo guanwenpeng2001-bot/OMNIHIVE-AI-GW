@@ -7,6 +7,10 @@
 # Documentation / 文档: https://github.com/Wei-Shaw/sub2api
 
 # =============================================================================
+# Scheduled availability probes require explicit opt-in; changes take effect after restart.
+# 有界模型探测默认关闭；配置或环境变量变更后重启生效。
+bounded_model_probes_enabled: false
+
 # Server Configuration
 # 服务器配置
 # =============================================================================
@@ -209,6 +213,12 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # Opt into scoped session hashing and binding; disabled by default.
+  session_affinity_enabled: false
+  # Configure both together. Both empty permits development SHA fallback;
+  # configuring only one rejects startup.
+  affinity_hmac_key: ""
+  affinity_hmac_key_version: ""
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
@@ -1066,13 +1076,16 @@ plugins:
 # Pricing Data Source (Optional)
 # 定价数据源（可选）
 # =============================================================================
+# Periodic outbound model catalog refresh requires explicit opt-in.
+model_catalog_refresh_enabled: false
+
 pricing:
-  # URL to fetch model pricing data (default: model-price-repo main branch)
-  # 获取模型定价数据的 URL（默认：model-price-repo main 分支）
-  remote_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.json"
-  # Hash verification URL (optional)
-  # 哈希校验 URL（可选）
-  hash_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.sha256"
+  # URL to fetch model pricing data (default: official LiteLLM main branch)
+  # 获取模型定价数据的 URL（默认：LiteLLM 官方 main 分支）
+  remote_url: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+  # Optional sync hash URL; official LiteLLM uses interval refresh without one.
+  # 可选同步哈希 URL；LiteLLM 官方源不配置，按更新周期刷新。
+  hash_url: ""
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"

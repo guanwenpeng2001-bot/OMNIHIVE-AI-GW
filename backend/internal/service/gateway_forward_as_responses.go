@@ -138,7 +138,7 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 
 	// 11. Send request
-	resp, err := generationDoWithTLS(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.doModelCheckedUpstream(upstreamReq, proxyURL, account, "", s.tlsFPProfileService.ResolveTLSProfile(account))
 	headersReceived()
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -323,17 +323,6 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
 	}
-}
-
-// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
-// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
-// the space after the colon is optional. This function handles both formats.
-func parseAnthropicSSEField(line, field string) (string, bool) {
-	prefix := field + ":"
-	if !strings.HasPrefix(line, prefix) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
 }
 
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from

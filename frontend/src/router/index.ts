@@ -13,7 +13,7 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
-import { identityScoped } from './identityScope'
+import { lazyIdentityScoped } from './identityScope'
 
 /**
  * Route definitions with lazy loading
@@ -210,6 +210,12 @@ const routes: RouteRecordRaw[] = [
       titleKey: 'dashboard.title',
       descriptionKey: 'dashboard.welcomeMessage'
     }
+  },
+  {
+    path: '/help',
+    name: 'HelpGuide',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
   },
   {
     path: '/keys',
@@ -739,7 +745,7 @@ for (const route of routes) {
   if (route.meta?.requiresAuth !== true || typeof route.component !== 'function') continue
   const load = route.component as () => Promise<{ default: import('vue').Component }>
   const admin = route.meta.requiresAdmin === true
-  route.component = async () => identityScoped((await load()).default, admin)
+  route.component = lazyIdentityScoped(load, admin)
 }
 
 /**
@@ -752,6 +758,9 @@ const router = createRouter({
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
+    }
+    if (_to.path === '/help' && /^#(?:quick|keys|models|clients|usage|billing|faq)$/.test(_to.hash)) {
+      return { el: _to.hash, top: 96 }
     }
     // Scroll to top for new routes
     return { top: 0 }
@@ -1032,13 +1041,19 @@ router.beforeEach(async (to, _from, next) => {
 /**
  * Navigation guard: End loading and trigger prefetch
  */
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
   // 结束导航加载状态
   navigationLoading.endNavigation()
 
+  if (failure) return
+
   // 懒初始化预加载（首次导航时创建，传入 router 实例）
   if (!routePrefetch) {
-    routePrefetch = useRoutePrefetch(router)
+    routePrefetch = useRoutePrefetch(router, (route) => {
+      const auth = useAuthStore()
+      return auth.isAuthenticated && (!route.meta.requiresAdmin ||
+        (auth.isAdmin && useAdminComplianceStore().status?.required === false))
+    })
   }
   // 触发路由预加载（在浏览器空闲时执行）
   routePrefetch.triggerPrefetch(to)

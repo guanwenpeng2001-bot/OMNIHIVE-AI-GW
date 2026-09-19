@@ -51,6 +51,12 @@ type SessionContext struct {
 	ClientIP  string
 	UserAgent string
 	APIKeyID  int64
+
+	// Authenticated routing scope for opt-in affinity; IP and UA are legacy only.
+	OwnerID                int64
+	RouteScope             string
+	AffinityHMACKey        []byte
+	AffinityHMACKeyVersion string
 }
 
 type jsonRange struct {

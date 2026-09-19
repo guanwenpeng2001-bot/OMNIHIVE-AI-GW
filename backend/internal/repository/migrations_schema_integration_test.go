@@ -4,11 +4,15 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,10 +36,39 @@ func TestMigrationsRunner_ConcurrentInstancesSerializeOnSessionLock(t *testing.T
 }
 
 func TestMigrationsRunner_IsIdempotent_AndSchemaIsUpToDate(t *testing.T) {
-	tx := testTx(t)
+	// Snapshot real baseline records before replay. No synthetic changes to public
+	// migration state are needed to prove an already-applied 258 is not replayed.
+	snapshot := func() []string {
+		var result []string
+		for _, table := range []string{"usage_dashboard_aggregation_watermark", "usage_group_rollup_state", "groups", "settings", "ops_alert_rules"} {
+			var value string
+			err := integrationDB.QueryRowContext(context.Background(), "SELECT COALESCE(jsonb_agg(to_jsonb(r) ORDER BY to_jsonb(r)::text), '[]'::jsonb)::text FROM "+table+" r").Scan(&value)
+			require.NoError(t, err, table)
+			result = append(result, value)
+		}
+		return result
+	}
+	before := snapshot()
 
 	// Re-apply migrations to verify idempotency (no errors, no duplicate rows).
 	require.NoError(t, ApplyMigrations(context.Background(), integrationDB))
+
+	require.Equal(t, before, snapshot(), "runner replay preserves coverage, baseline groups and settings")
+	tx := testTx(t)
+	for _, filename := range []string{
+		"258_usage_dashboard_coverage.sql", "259_volcengine_platform.sql", "260_qianfan_platform.sql",
+		"261_hunyuan_platform.sql", "262_mistral_platform.sql", "263_bedrock_platform.sql", "264_platform_monitor_storage.sql",
+	} {
+		body, err := migrations.FS.ReadFile(filename)
+		require.NoError(t, err)
+		want := fmt.Sprintf("%x", sha256.Sum256([]byte(strings.TrimSpace(string(body)))))
+		var checksum string
+		var count int
+		require.NoError(t, tx.QueryRowContext(context.Background(), "SELECT count(*), min(checksum) FROM schema_migrations WHERE filename=$1", filename).Scan(&count, &checksum))
+		require.Equal(t, 1, count, filename)
+		require.Equal(t, want, checksum, filename)
+		t.Logf("ledger/checksum verified: %s", filename)
+	}
 
 	// schema_migrations should have at least the current migration set.
 	var applied int

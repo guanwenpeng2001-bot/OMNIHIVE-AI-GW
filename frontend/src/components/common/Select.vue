@@ -12,8 +12,10 @@
       :aria-label="ariaLabelledby ? undefined : `${fieldLabel}: ${selectedLabel}`"
       :aria-labelledby="ariaLabelledby ? `${ariaLabelledby} ${instanceId}-value` : undefined"
       :aria-describedby="ariaDescribedby"
+      :aria-invalid="error || undefined"
       :class="[
         'select-trigger',
+        clearable && hasValue && !disabled && 'select-trigger-clearable',
         isOpen && 'select-trigger-open',
         error && 'select-trigger-error',
         disabled && 'select-trigger-disabled'
@@ -25,18 +27,6 @@
           {{ selectedLabel }}
         </slot>
       </span>
-      <span
-        v-if="clearable && hasValue && !disabled"
-        class="select-clear"
-        role="button"
-        tabindex="-1"
-        aria-label="Clear selection"
-        @click.stop="clearSelection"
-        @mousedown.stop
-        @keydown.enter.stop.prevent="clearSelection"
-      >
-        <Icon name="x" size="sm" />
-      </span>
       <span class="select-icon">
         <Icon
           name="chevronDown"
@@ -44,6 +34,17 @@
           :class="['transition-transform duration-200', isOpen && 'rotate-180']"
         />
       </span>
+    </button>
+    <button
+      v-if="clearable && hasValue && !disabled"
+      type="button"
+      class="select-clear"
+      :aria-label="ariaLabelledby ? undefined : `${t('common.clear')}: ${fieldLabel}`"
+      :aria-labelledby="ariaLabelledby ? `${instanceId}-clear-label ${ariaLabelledby}` : undefined"
+      @click="clearSelection"
+    >
+      <span :id="`${instanceId}-clear-label`" class="sr-only">{{ t('common.clear') }}</span>
+      <Icon name="x" size="sm" />
     </button>
 
     <!-- Teleport dropdown to body to escape stacking context -->
@@ -121,7 +122,7 @@
             </div>
 
             <!-- Empty state -->
-            <div v-if="filteredOptions.length === 0" class="select-empty">
+            <div v-if="filteredOptions.length === 0" class="select-empty" role="status">
               {{ props.loading ? t('common.loading') : emptyTextDisplay }}
             </div>
           </div>
@@ -463,6 +464,7 @@ const onTriggerKeyDown = (event: KeyboardEvent) => {
 
 const onDropdownKeyDown = (e: KeyboardEvent) => {
   if (e.isComposing) return
+  if (e.key === ' ' && e.target === searchInputRef.value) return
   switch (e.key) {
     case 'ArrowDown':
       e.preventDefault()
@@ -474,6 +476,7 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       focusedIndex.value = findPrevEnabledIndex(focusedIndex.value - 1)
       if (focusedIndex.value >= 0) scrollToFocused()
       break
+    case ' ':
     case 'Enter':
       e.preventDefault()
       if (focusedIndex.value >= 0 && focusedIndex.value < filteredOptions.value.length) {
@@ -488,7 +491,7 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       triggerRef.value?.focus()
       break
     case 'Tab':
-      e.preventDefault()
+      // Restore the trigger before the native Tab step leaves the portal.
       isOpen.value = false
       triggerRef.value?.focus()
       break
@@ -548,16 +551,16 @@ onUnmounted(() => {
   @apply flex w-full items-center justify-between gap-2;
   @apply rounded-xl px-4 py-2.5 text-sm;
   @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
+  @apply border border-gray-500 dark:border-dark-400;
   @apply text-gray-900 dark:text-gray-100;
   @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
+  @apply focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-700 dark:focus:border-primary-300 dark:focus:ring-primary-300;
+  @apply hover:border-gray-600 dark:hover:border-dark-300;
   @apply cursor-pointer;
 }
 
 .select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
+  @apply border-primary-700 ring-2 ring-primary-700 dark:border-primary-300 dark:ring-primary-300;
 }
 
 .select-trigger-error {
@@ -576,10 +579,15 @@ onUnmounted(() => {
   @apply flex-shrink-0 text-gray-400 dark:text-dark-400;
 }
 
+.select-trigger-clearable {
+  @apply pr-16;
+}
+
 .select-clear {
-  @apply flex flex-shrink-0 cursor-pointer items-center justify-center;
-  @apply rounded text-gray-400 transition-colors;
-  @apply hover:text-gray-600 dark:hover:text-gray-200;
+  @apply absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center;
+  @apply rounded text-gray-600 transition-colors dark:text-dark-300;
+  @apply hover:bg-gray-100 dark:hover:bg-dark-700;
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-700 dark:focus-visible:outline-primary-300;
 }
 </style>
 
@@ -602,7 +610,7 @@ onUnmounted(() => {
 .select-dropdown-portal .select-search-input {
   @apply flex-1 bg-transparent text-sm;
   @apply text-gray-900 dark:text-gray-100;
-  @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
+  @apply placeholder:text-gray-500 dark:placeholder:text-dark-400;
   @apply focus:outline-none;
 }
 
@@ -644,7 +652,8 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-option-label {
-  @apply flex-1 min-w-0 truncate text-left;
+  @apply flex-1 min-w-0 break-words text-left;
+  overflow-wrap: anywhere;
 }
 
 .select-dropdown-portal .select-empty {

@@ -5,7 +5,8 @@ import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import { adminAPI } from '@/api/admin'
 
-const { showError, showSuccess, translate } = vi.hoisted(() => ({
+const { showError, showSuccess, translate, catalogPreview } = vi.hoisted(() => ({
+  catalogPreview: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   translate: vi.fn((key: string) => key)
@@ -28,7 +29,10 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([{ platform: 'antigravity', coverage_status: 'complete', models: [{ id: 'gemini-3.1-flash-image' }, { id: 'gemini-2.5-flash-image' }] }]) }))
+
 vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels: catalogPreview },
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
@@ -81,6 +85,19 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
+    catalogPreview.mockReset().mockResolvedValue({ models: ['shared'], complete: true })
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('#bulk-edit-header-override-enabled').setValue(true)
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bulk-model-preview"]').text()).toContain('bulkSavedScope')
+    expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.mocked(adminAPI.accounts.bulkUpdate).mockReset()
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset()
@@ -125,8 +142,31 @@ describe('BulkEditAccountModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.bulkEdit.rateSyncConflict')
   })
 
+  it('saves only a complete explicit-set preview intersection through the real bulk form', async () => {
+    catalogPreview.mockReset().mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockRejectedValueOnce({ status: 502 })
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockResolvedValue({ success: 2, failed: 0 } as any)
+    vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({ has_risk: false } as any)
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    catalogPreview.mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockResolvedValueOnce({ models: ['common', 'only-second'], complete: true })
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="add-common-models"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { credentials: { model_mapping: { common: 'common' } } })
+    wrapper.unmount()
+  })
+
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {
     const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
     const selector = wrapper.findComponent(ModelWhitelistSelector)
     expect(selector.exists()).toBe(true)
 

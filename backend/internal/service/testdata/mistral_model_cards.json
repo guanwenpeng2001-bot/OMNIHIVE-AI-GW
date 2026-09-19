@@ -1,0 +1,21 @@
+{
+  "object": "list",
+  "data": [
+    {
+      "id": "mistral-small-example",
+      "name": "Synthetic chat model",
+      "max_context_length": 32768,
+      "aliases": ["mistral-small-latest"],
+      "capabilities": {"completion_chat": true, "function_calling": true, "vision": false}
+    },
+    {
+      "id": "ft:mistral-small:synthetic:example",
+      "TYPE": "fine-tuned",
+      "root": "mistral-small-example",
+      "archived": true,
+      "aliases": [],
+      "capabilities": {"completion_chat": true, "function_calling": false}
+    },
+    {"id": "mistral-unknown-example"}
+  ]
+}

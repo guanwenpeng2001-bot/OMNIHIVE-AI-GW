@@ -1,7 +1,13 @@
 <template>
   <AppLayout>
+    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
+      <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" />
       <UsageSettlementStatus />
       <!-- Charts Section -->
       <div class="space-y-4">
@@ -62,7 +68,7 @@
             :end-date="endDate"
             :filters="breakdownFilters"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
@@ -124,7 +130,7 @@
         </UsageFilters>
 
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
-          <UsageTable
+          <UsageTable :time-zone="reportTimeZone"
             flat
             :data="usageLogs"
             :loading="loading"
@@ -185,6 +191,13 @@
 </template>
 
 <script setup lang="ts">
+import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
+import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+
+import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -212,6 +225,9 @@ import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
+const historyGap = ref<HistoryGap | null>(null)
+const statsError = ref(false)
+const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -244,15 +260,15 @@ const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
 
 const breakdownFilters = computed(() => {
-  const f: Record<string, any> = {}
-  if (filters.value.user_id) f.user_id = filters.value.user_id
-  if (filters.value.api_key_id) f.api_key_id = filters.value.api_key_id
-  if (filters.value.account_id) f.account_id = filters.value.account_id
-  if (filters.value.group_id) f.group_id = filters.value.group_id
-  if (filters.value.request_type != null) f.request_type = filters.value.request_type
-  if (filters.value.native_compaction_v2 != null) f.native_compaction_v2 = filters.value.native_compaction_v2
-  if (filters.value.billing_type != null) f.billing_type = filters.value.billing_type
-  return f
+  const breakdownQuery: Record<string, any> = { ...reportQueryContext }
+  if (filters.value.user_id) breakdownQuery.user_id = filters.value.user_id
+  if (filters.value.api_key_id) breakdownQuery.api_key_id = filters.value.api_key_id
+  if (filters.value.account_id) breakdownQuery.account_id = filters.value.account_id
+  if (filters.value.group_id) breakdownQuery.group_id = filters.value.group_id
+  if (filters.value.request_type != null) breakdownQuery.request_type = filters.value.request_type
+  if (filters.value.native_compaction_v2 != null) breakdownQuery.native_compaction_v2 = filters.value.native_compaction_v2
+  if (filters.value.billing_type != null) breakdownQuery.billing_type = filters.value.billing_type
+  return breakdownQuery
 })
 
 const modelNameOptions = computed(() =>
@@ -280,12 +296,7 @@ const handleRankingSelectUser = (userId: number, email: string) => {
 
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
 // Use local timezone to avoid UTC timezone issues
-const formatLD = (d: Date) => {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+const formatLD = (date: Date) => formatReportDateInput(date, reportTimeZone)
 const getLast24HoursRangeDates = (): { start: string; end: string } => {
   const end = new Date()
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
@@ -302,7 +313,7 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
-const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, start_date: startDate.value, end_date: endDate.value })
+const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, ...reportQueryContext, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
@@ -336,7 +347,7 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
-    start_date: startDate.value,
+    ...reportQueryContext, start_date: startDate.value,
     end_date: endDate.value
   }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
@@ -386,6 +397,7 @@ const buildUsageListParams = (
     page_size: pageSize,
     exact_total: exactTotal,
     ...filters.value,
+    timezone: reportTimeZone,
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -404,12 +416,16 @@ const loadLogs = async () => {
 }
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
+  usageStats.value = null
+  statsError.value = false
+  statsHistoryGap.value = null
   endpointStatsLoading.value = true
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
       ...filters.value,
+      timezone: reportTimeZone,
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -420,6 +436,9 @@ const loadStats = async (force = false) => {
     endpointPathStats.value = s.endpoint_paths || []
   } catch (error) {
     if (seq !== statsReqSeq) return
+    usageStats.value = null
+    statsError.value = true
+    statsHistoryGap.value = historyGapFromError(error)
     console.error('Failed to load usage stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
@@ -447,7 +466,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const baseParams = {
-      start_date: filters.value.start_date || startDate.value,
+      ...reportQueryContext, start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
       user_id: filters.value.user_id,
       model: filters.value.model,
@@ -497,7 +516,7 @@ const loadChartData = async () => {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const snapshot = await adminAPI.dashboard.getSnapshotV2({
-      start_date: filters.value.start_date || startDate.value,
+      ...reportQueryContext, start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
       granularity: granularity.value,
       user_id: filters.value.user_id,
@@ -517,9 +536,16 @@ const loadChartData = async () => {
       include_users_trend: false
     })
     if (seq !== chartReqSeq) return
-    trendData.value = snapshot.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(snapshot.trend || [], granularity.value)
     groupStats.value = snapshot.groups || []
-  } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
+  } catch (error) {
+    if (seq !== chartReqSeq) return
+    historyGap.value = historyGapFromError(error)
+    trendData.value = []
+    groupStats.value = []
+    console.error('Failed to load chart data:', error)
+  } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
 const applyFilters = () => {
   pagination.page = 1
@@ -548,7 +574,7 @@ const resetFilters = () => {
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
-  filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined }
+  filters.value = { ...reportQueryContext, start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
 }
@@ -579,6 +605,8 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
 const exportToExcel = async () => {
   if (exporting.value) return; exporting.value = true; exportProgress.show = true
   const c = new AbortController(); exportAbortController = c
+  const exportTimeZone = reportTimeZone
+  const exportParams = buildUsageListParams(1, 100, true)
   try {
     let p = 1; let total = pagination.total; let exportedCount = 0
     const XLSX = await import('xlsx')
@@ -599,12 +627,12 @@ const exportToExcel = async () => {
     const ws = XLSX.utils.aoa_to_sheet([headers])
     while (true) {
       const res = await adminUsageAPI.list(
-        buildUsageListParams(p, 100, true),
+        { ...exportParams, page: p },
         { signal: c.signal }
       )
       if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
       const rows = (res.items || []).map((log: AdminUsageLog) => [
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
+        formatDateTimeWithZone(log.created_at, exportTimeZone), log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
         log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
         log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
         log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,

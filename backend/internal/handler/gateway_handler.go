@@ -169,6 +169,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	body = parsedReq.Body.Bytes()
 	reqModel := parsedReq.Model
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches, h.maxAccountSwitchesGemini)()
+	requestBudget := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot()
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
@@ -273,7 +275,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}
-	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsedReq, "")
 
 	// [DEBUG-STICKY] 打印会话 hash 生成结果
 	reqLog.Info("sticky.session_hash_generated",
@@ -319,7 +321,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 
 	if platform == service.PlatformGemini {
-		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+		fs := NewFailoverState(requestBudget.MaxAccountSwitchesGemini, hasBoundSession)
 
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -642,7 +644,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}()
 
 	for {
-		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		fs := NewFailoverState(requestBudget.MaxAccountSwitches, hasBoundSession)
 		retryWithFallback := false
 
 		for {
@@ -1145,6 +1147,18 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
+	if models, metadata, err := h.gatewayService.CatalogModelsWithMetadata(c.Request.Context(), groupID, platform); models != nil || err != nil {
+		if err != nil {
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
+			return
+		}
+		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
+			models = apiKey.Group.ModelAllowlist.FilterForListing(models)
+		}
+		c.Set(publicModelMetadataContextKey, metadata)
+		writeModelsList(c, platform, models)
+		return
+	}
 	if platform == service.PlatformComposite {
 		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
@@ -1282,7 +1296,7 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCursor, service.PlatformQianwen, service.PlatformCommandCode} {
+	for _, platform := range service.ConcretePlatforms() {
 		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
 		if len(platformModels) == 0 {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
@@ -1452,6 +1466,9 @@ func defaultCodexModelIDsForPlatform(platform string) []string {
 }
 
 func defaultModelIDsForPlatform(platform string) []string {
+	if service.IsChatOnlyPlatform(platform) || platform == service.PlatformBedrock {
+		return nil
+	}
 	return service.DefaultModelIDsForPlatform(platform)
 }
 
@@ -2508,7 +2525,7 @@ func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task serv
 
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.
 func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
+	if task == nil || !claimGatewayUsage(parent) {
 		return
 	}
 	task = wrapUsageRecordTaskContext(parent, task)

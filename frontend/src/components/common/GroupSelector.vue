@@ -1,10 +1,10 @@
 <template>
-  <div>
-    <label class="input-label">
+  <fieldset class="min-w-0">
+    <legend class="input-label">
       {{ t('admin.users.groups') }}
-      <span class="font-normal text-gray-400">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
-    </label>
-    <p v-if="warnWhenEmpty && modelValue.length === 0" role="status" class="mb-2 text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.noGroupWarning') }}</p>
+      <span class="font-normal text-gray-600 dark:text-dark-300">{{ t('common.selectedCount', { count: modelValue.length }) }}</span>
+    </legend>
+    <p v-if="warnWhenEmpty && modelValue.length === 0" role="status" class="mb-2 text-xs text-amber-800 dark:text-amber-400">{{ t('admin.accounts.noGroupWarning') }}</p>
     <div
       v-if="isSearchable"
       class="flex items-center gap-2 rounded-t-lg border border-b-0 border-gray-200 bg-gray-50 px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
@@ -14,7 +14,8 @@
         v-model="searchText"
         type="text"
         :placeholder="t('common.searchPlaceholder')"
-        class="flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-400 focus:outline-none dark:text-gray-100 dark:placeholder:text-dark-400"
+        :aria-label="`${t('common.search')}: ${t('admin.users.groups')}`"
+        class="min-w-0 flex-1 bg-transparent text-sm text-gray-900 placeholder:text-gray-500 focus:outline focus:outline-2 focus:outline-offset-2 focus:outline-primary-700 dark:focus:outline-primary-300 dark:text-gray-100 dark:placeholder:text-dark-400"
       />
     </div>
     <div
@@ -33,10 +34,11 @@
       >
         <input
           type="checkbox"
+          :aria-label="`${group.name} (${group.platform})`"
           :value="group.id"
           :checked="modelValue.includes(group.id)"
           @change="handleChange(group.id, ($event.target as HTMLInputElement).checked)"
-          class="h-3.5 w-3.5 shrink-0 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+          class="h-3.5 w-3.5 shrink-0 rounded border-gray-500 text-primary-700 focus:ring-primary-700 dark:focus:ring-primary-300 dark:border-dark-400"
         />
         <GroupBadge
           :name="group.name"
@@ -45,7 +47,7 @@
           :rate-multiplier="group.rate_multiplier == null ? undefined : group.rate_multiplier"
           class="min-w-0 flex-1"
         />
-        <span class="shrink-0 text-xs text-gray-400">{{ group.account_count || 0 }}</span>
+        <span class="shrink-0 text-xs text-gray-600 dark:text-dark-300">{{ group.account_count || 0 }}</span>
       </label>
       <div
         v-if="filteredGroups.length === 0"
@@ -54,7 +56,7 @@
         {{ t('common.noGroupsAvailable') }}
       </div>
     </div>
-  </div>
+  </fieldset>
 </template>
 
 <script setup lang="ts">
