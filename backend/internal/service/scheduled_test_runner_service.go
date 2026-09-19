@@ -20,11 +20,13 @@ type ScheduledTestRunnerService struct {
 	rateLimitSvc   *RateLimitService
 	cfg            *config.Config
 
-	cron                  *cron.Cron
-	startOnce             sync.Once
-	stopOnce              sync.Once
-	catalogRefreshMu      sync.Mutex
-	catalogRefreshEnabled bool
+	cron                      *cron.Cron
+	startOnce                 sync.Once
+	stopOnce                  sync.Once
+	catalogRefreshMu          sync.Mutex
+	catalogRefreshEnabled     bool
+	boundedModelProbesEnabled bool
+	boundedModelProbesMu      sync.Mutex
 }
 
 // NewScheduledTestRunnerService creates a new runner.
@@ -72,6 +74,9 @@ func (s *ScheduledTestRunnerService) Start() {
 		s.cron = c
 		if s.catalogRefreshEnabled {
 			_, _ = c.AddFunc("* * * * *", s.runCatalogRefresh)
+		}
+		if s.boundedModelProbesEnabled {
+			_, _ = c.AddFunc("* * * * *", s.runBoundedModelProbeQueue)
 		}
 		s.cron.Start()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] started (tick=every minute)")
