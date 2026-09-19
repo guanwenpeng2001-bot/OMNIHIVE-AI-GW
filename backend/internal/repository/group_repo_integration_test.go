@@ -39,6 +39,7 @@ func (s *forbidSQLExecutor) QueryContext(ctx context.Context, query string, args
 }
 
 func (s *GroupRepoSuite) SetupTest() {
+	prepareRepositoryFixtures(s.T())
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.tx = tx
@@ -347,7 +348,7 @@ func TestBindAccountsToGroupWaitingBehindGuardedDeleteCannotCommit(t *testing.T)
 // --- List / ListWithFilters ---
 
 func (s *GroupRepoSuite) TestList() {
-	baseGroups, basePage, err := s.repo.List(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10})
+	_, basePage, err := s.repo.List(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10})
 	s.Require().NoError(err, "List base")
 
 	s.Require().NoError(s.repo.Create(s.ctx, &service.Group{
@@ -369,12 +370,13 @@ func (s *GroupRepoSuite) TestList() {
 
 	groups, page, err := s.repo.List(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10})
 	s.Require().NoError(err, "List")
-	s.Require().Len(groups, len(baseGroups)+2)
+	s.Require().Equal(10, page.PageSize)
+	s.Require().Len(groups, min(page.PageSize, int(page.Total)))
 	s.Require().Equal(basePage.Total+2, page.Total)
 }
 
 func (s *GroupRepoSuite) TestListWithFilters_Platform() {
-	baseGroups, _, err := s.repo.ListWithFilters(
+	_, basePage, err := s.repo.ListWithFilters(
 		s.ctx,
 		pagination.PaginationParams{Page: 1, PageSize: 10},
 		service.PlatformOpenAI,
@@ -401,9 +403,11 @@ func (s *GroupRepoSuite) TestListWithFilters_Platform() {
 		SubscriptionType: service.SubscriptionTypeStandard,
 	}))
 
-	groups, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.PlatformOpenAI, "", "", nil)
+	groups, page, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, service.PlatformOpenAI, "", "", nil)
 	s.Require().NoError(err)
-	s.Require().Len(groups, len(baseGroups)+1)
+	s.Require().Equal(basePage.Total+1, page.Total)
+	s.Require().Equal(10, page.PageSize)
+	s.Require().Len(groups, min(page.PageSize, int(page.Total)))
 	// Verify all groups are OpenAI platform
 	for _, g := range groups {
 		s.Require().Equal(service.PlatformOpenAI, g.Platform)
@@ -735,6 +739,8 @@ func (s *GroupRepoSuite) TestListBindableWithFiltersAppliesFilterBeforePaginatio
 }
 
 func (s *GroupRepoSuite) TestListActiveByPlatform() {
+	base, err := s.repo.ListActiveByPlatform(s.ctx, service.PlatformAnthropic)
+	s.Require().NoError(err)
 	s.Require().NoError(s.repo.Create(s.ctx, &service.Group{
 		Name:             "g1",
 		Platform:         service.PlatformAnthropic,
@@ -762,8 +768,8 @@ func (s *GroupRepoSuite) TestListActiveByPlatform() {
 
 	groups, err := s.repo.ListActiveByPlatform(s.ctx, service.PlatformAnthropic)
 	s.Require().NoError(err, "ListActiveByPlatform")
-	// 1 default anthropic group + 1 test active anthropic group = 2 total
-	s.Require().Len(groups, 2)
+	// Count actual baseline records, which need not include a default group.
+	s.Require().Len(groups, len(base)+1)
 	// Verify our test group is in the results
 	var found bool
 	for _, g := range groups {

@@ -22,6 +22,7 @@ type UserSubscriptionRepoSuite struct {
 }
 
 func (s *UserSubscriptionRepoSuite) SetupTest() {
+	prepareRepositoryFixtures(s.T())
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
@@ -859,8 +860,11 @@ func (s *UserSubscriptionRepoSuite) TestIncrementUsage_Concurrent() {
 	}
 
 	// 等待所有 goroutine 完成
-	for i := 0; i < numGoroutines; i++ {
-		err := <-errCh
+	results := make([]error, numGoroutines)
+	for i := range results {
+		results[i] = <-errCh
+	}
+	for _, err := range results {
 		s.Require().NoError(err, "IncrementUsage should succeed")
 	}
 
