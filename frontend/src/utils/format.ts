@@ -261,6 +261,25 @@ export function getBrowserTimeZone(): string {
   }
 }
 
+/** One effective zone for report queries, calendar controls, cells and exports. */
+export function resolveReportTimeZone(explicit?: string): string {
+  const zone = explicit || getBrowserTimeZone()
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone }).format()
+    return zone
+  } catch {
+    return 'UTC'
+  }
+}
+
+export function formatReportDateInput(date: Date, timeZone: string): string {
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: resolveReportTimeZone(timeZone), year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date)
+  return ['year', 'month', 'day'].map(type => parts.find(part => part.type === type)?.value).join('-')
+}
+
 /**
  * 格式化 OpenAI reasoning effort（用于使用记录展示）
  * @param effort 原始 effort（如 "low" / "medium" / "high" / "xhigh"）

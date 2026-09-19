@@ -136,26 +136,39 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	cursorGatewayService      *CursorGatewayService
-	accountRepo               AccountRepository
-	geminiTokenProvider       *GeminiTokenProvider
-	claudeTokenProvider       *ClaudeTokenProvider
-	grokTokenProvider         *GrokTokenProvider
-	antigravityGatewayService *AntigravityGatewayService
-	httpUpstream              HTTPUpstream
-	cfg                       *config.Config
-	settingService            *SettingService
-	tlsFPProfileService       *TLSFingerprintProfileService
-	modelMetadataRegistryMu   sync.Mutex
-	modelMetadataRegistry     map[string]modelsDevProvider
-	modelMetadataRegistryAt   time.Time
-	pluginManager             *PluginManager
-	openaiGatewayService      *OpenAIGatewayService
-	agentIdentityTaskMu       sync.Mutex
-	agentIdentityWS           agentIdentityWSConnectionInvalidator
+	modelCapabilityProvider    ModelCapabilityProvider
+	capabilityReadOnlyEnricher *CapabilityReadOnlyEnricher
+	cursorGatewayService       *CursorGatewayService
+	accountRepo                AccountRepository
+	geminiTokenProvider        *GeminiTokenProvider
+	claudeTokenProvider        *ClaudeTokenProvider
+	grokTokenProvider          *GrokTokenProvider
+	antigravityGatewayService  *AntigravityGatewayService
+	httpUpstream               HTTPUpstream
+	cfg                        *config.Config
+	settingService             *SettingService
+	tlsFPProfileService        *TLSFingerprintProfileService
+	modelMetadataRegistryMu    sync.Mutex
+	catalogInFlight            sync.Map
+	catalogApplyOnce           sync.Once
+	catalogApplyBudget         chan struct{}
+	modelMetadataRegistry      map[string]modelsDevProvider
+	modelMetadataRegistryAt    time.Time
+	pluginManager              *PluginManager
+	openaiGatewayService       *OpenAIGatewayService
+	agentIdentityTaskMu        sync.Mutex
+	agentIdentityWS            agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+}
+
+// SetModelCapabilityProvider allows fixed snapshots in tests. Configure before
+// serving requests, like the other dependency setters.
+func (s *AccountTestService) SetModelCapabilityProvider(provider ModelCapabilityProvider) {
+	if s != nil {
+		s.modelCapabilityProvider = provider
+	}
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {

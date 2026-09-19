@@ -255,6 +255,7 @@ func ProvideAccountUsageService(
 }
 
 func ProvideAccountTestService(
+	pricingService *PricingService,
 	cursorGatewayService *CursorGatewayService,
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
@@ -283,6 +284,13 @@ func ProvideAccountTestService(
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
+	service.SetModelCapabilityProvider(pricingService)
+	enricher, err := NewCapabilityReadOnlyEnricher(pricingService, nil)
+	if err != nil {
+		logger.L().Warn("capability display enrichment unavailable", zap.Error(err))
+	} else {
+		service.capabilityReadOnlyEnricher = enricher
+	}
 	return service
 }
 
@@ -646,6 +654,8 @@ func ProvideScheduledTestRunnerService(
 	cfg *config.Config,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	svc.SetModelCatalogRefreshEnabled(cfg != nil && cfg.ModelCatalogRefreshEnabled)
+	svc.SetBoundedModelProbesEnabled(cfg != nil && cfg.BoundedModelProbesEnabled)
 	svc.Start()
 	return svc
 }

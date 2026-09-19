@@ -18,6 +18,23 @@ Composite groups can route to these concrete account platforms:
 - Zhipu GLM
 - DeepSeek
 - MiniMax
+- OpenCode Go / Zen (`opencode_go`)
+- Cursor
+- Qianwen
+- CommandCode
+- Volcengine
+- Qianfan
+- Hunyuan
+- Mistral
+- Bedrock (separate platform; legacy Anthropic Bedrock accounts remain supported)
+
+This list follows the concrete platform descriptor set. It does not grant every
+platform every protocol: Volcengine, Qianfan, Hunyuan and Mistral currently admit
+Chat Completions only; Hunyuan's unverified stream path remains rejected. Bedrock
+also admits Messages and Responses POST through its existing adapters. Account
+model evidence, endpoint eligibility, mode and credentials still decide each
+request. See the [gateway platform/protocol matrix](gateway-platform-protocol-matrix.md)
+for exact registered methods, individual proprietary actions and known limits.
 
 The selected concrete platform is used for account selection, user platform
 quota checks, post-usage billing, ops error platform attribution, channel
@@ -79,6 +96,25 @@ Composite routing detects common public model IDs and provider-prefixed IDs:
 
 Unknown or ambiguous model names fail closed with a client error instead of
 guessing a provider.
+
+Shared vendor model names on hosted platforms require an explicit route or
+unambiguous existing account ownership; a capability specification never chooses
+the provider. WorkBuddy is not a registered platform and remains future scope.
+
+## Public model specifications
+
+Catalog-backed `/models` and `/v1/models` responses preserve their existing
+members, order and fields, with an optional read-only `capabilities` object.
+It projects a small specification whitelist from the same account snapshots used
+by the listing; it cannot create members, routes, endpoint rights or prices.
+Unknown/conflicting fields are omitted, while explicit `false` and empty arrays
+remain distinguishable. Account IDs, private source URLs, declaration reasons,
+raw diagnostics and binding evidence are never part of this public object.
+
+The existing pinned upstream list, Codex `client_version` manifest, native Gemini
+and dedicated Antigravity serializers keep their original shapes. A model's
+public specifications do not promise availability on every protocol; the exact
+endpoint still goes through the original Composite and account qualification.
 
 ## Admin Workflows
 

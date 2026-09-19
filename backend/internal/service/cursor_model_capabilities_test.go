@@ -26,10 +26,23 @@ func TestCursorBuiltinMetadataSyncAndUnknowns(t *testing.T) {
 			catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 			require.NoError(t, err)
 			if id == "claude-sonnet-5" {
-				require.Empty(t, catalog.Warnings)
+				// Builtin context and reasoning evidence do not make the capability
+				// profile complete: input modalities are partial and output limits
+				// remain unknown, so the unconfigured registry must still warn.
+				require.Equal(t, "partial", catalog.Metadata[id].InputModalitiesStatus)
+				require.Contains(t, catalog.Metadata[id].MissingFields, "input_modalities")
+				require.Contains(t, catalog.Metadata[id].MissingFields, "task_type")
+				require.Zero(t, catalog.Metadata[id].MaxOutputTokens)
+				require.Len(t, catalog.Warnings, 2, "incomplete builtin metadata and unavailable registry both need diagnostics")
+				require.Equal(t, UpstreamModelMetadataIncompleteCode, catalog.Warnings[0].Code)
+				require.Equal(t, "model_metadata_registry_unavailable", catalog.Warnings[1].Code)
+				require.Equal(t, "model metadata registry is not configured", catalog.Warnings[1].Message)
 				require.Equal(t, int64(1000000), catalog.Metadata[id].ContextWindow)
 				require.NotEmpty(t, catalog.Metadata[id].SupportedReasoningLevels)
-				require.Equal(t, "cursor-builtin", account.GetUpstreamModelMetadataSnapshot().Source)
+				require.Equal(t, "cursor-builtin", catalog.Metadata[id].FieldEvidence["context_window"].Source)
+				require.Equal(t, "cursor-builtin", catalog.Metadata[id].FieldEvidence["supported_reasoning_levels"].Source)
+				// Discovery projects evidence; the reviewed apply flow owns persistence.
+				require.Nil(t, account.GetUpstreamModelMetadataSnapshot())
 			} else {
 				require.NotEmpty(t, catalog.Warnings)
 				require.Nil(t, account.GetUpstreamModelMetadataSnapshot())

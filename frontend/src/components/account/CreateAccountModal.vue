@@ -3,8 +3,16 @@
     :show="show"
     :title="t('admin.accounts.createAccount')"
     width="wide"
-    @close="handleClose"
+    @close="handleClose(true)"
   >
+    <section v-if="createdCatalogAccounts.length" data-testid="created-catalog-accounts" class="space-y-4">
+      <p role="status">{{ t('admin.accounts.modelSync.savedReviewRequired') }}</p>
+      <div v-for="saved in createdCatalogAccounts" :key="saved.id">
+        <h3 class="font-medium">#{{ saved.id }} · {{ t('admin.accounts.modelSync.configureModels') }}</h3>
+        <ModelWhitelistSelector :active="show" :account-id="saved.id" :platform="saved.platform" :model-value="[]" catalog-only @catalog-applied="emit('created')" />
+      </div>
+    </section>
+    <div v-show="!createdCatalogAccounts.length">
     <!-- Step Indicator for OAuth accounts -->
     <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
@@ -70,10 +78,12 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" role="radiogroup" :aria-label="t('admin.accounts.platform')" data-tour="account-form-platform">
           <button v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value"
             type="button" :data-testid="`${option.value}-platform`" @click="selectPlatform(option.value)"
-            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            role="radio" :aria-checked="form.platform === option.value" :tabindex="form.platform === option.value ? 0 : -1"
+            @keydown="onPlatformKeydown($event, option.value)"
+            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon :platform="option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
           </button>
         </div>
@@ -87,7 +97,7 @@
         </div>
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="rememberCatalogAccount($event, 'cursor'); emit('created')" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -933,8 +943,8 @@
       </div>
       <div v-if="accountCategory === 'service_account'" class="space-y-3">
         <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="form.platform" />
+        <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length" v-model="allowedModels" :platform="form.platform" />
         <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
           <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
           <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
@@ -1420,12 +1430,11 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector
-                :active="show"
+              <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
                 v-model="allowedModels"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
-                @upstream-synced="upstreamModelsPreviewed = true"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -1751,7 +1760,7 @@
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
-      <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
+      <div v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockAuthMode') }}</label>
@@ -1827,8 +1836,8 @@
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
-        <!-- Shared: Force Global -->
-        <div>
+        <!-- Legacy Anthropic Bedrock region-prefix rewrite -->
+        <div v-if="form.platform === 'anthropic'">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="bedrockForceGlobal"
@@ -1874,12 +1883,11 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
+            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -2216,12 +2224,11 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
+            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -2493,7 +2500,7 @@
 
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -3017,7 +3024,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3046,7 +3053,7 @@
       </div>
 
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3065,7 +3072,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3406,6 +3413,8 @@
         />
       </div>
 
+      <p v-if="form.proxy_id || headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [form.proxy_id ? t('admin.accounts.modelSync.scopeProxy') : '', headerOverrideEnabled ? t('admin.accounts.modelSync.scopeHeaders') : ''].filter(Boolean).join(', ') }) }}</p>
+      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
     </form>
 
     <!-- Step 2: OAuth Authorization -->
@@ -3447,9 +3456,11 @@
 
     </div>
 
+    </div>
     <template #footer>
-      <div v-if="step === 1" class="flex justify-end gap-3">
-        <button @click="handleClose" type="button" class="btn btn-secondary">
+      <button v-if="createdCatalogAccounts.length" type="button" class="btn btn-secondary" @click="handleClose(true)">{{ t('common.close') }}</button>
+      <div v-else-if="step === 1" class="flex justify-end gap-3">
+        <button @click="handleClose(true)" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
         <button
@@ -3763,6 +3774,7 @@
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3776,6 +3788,7 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   validateModelRestrictions,
+  translateModelRestrictionErrors,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3813,11 +3826,13 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
+import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
 import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
@@ -4110,10 +4125,46 @@ const cnAccentActiveClass = computed(() => platformSelectionClass(form.platform)
 const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platform))
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
+// Native button clicks handle Space/Enter once; navigation keys select and move focus.
+function onPlatformKeydown(event: KeyboardEvent, platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
+  const index = CONCRETE_PLATFORM_OPTIONS.findIndex(option => option.value === platform)
+  let nextIndex: number
+  switch (event.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      nextIndex = (index + 1) % CONCRETE_PLATFORM_OPTIONS.length
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      nextIndex = (index - 1 + CONCRETE_PLATFORM_OPTIONS.length) % CONCRETE_PLATFORM_OPTIONS.length
+      break
+    case 'Home':
+      nextIndex = 0
+      break
+    case 'End':
+      nextIndex = CONCRETE_PLATFORM_OPTIONS.length - 1
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  const nextOption = CONCRETE_PLATFORM_OPTIONS[nextIndex]
+  if (!nextOption) return
+  selectPlatform(nextOption.value)
+  const button = event.currentTarget as HTMLButtonElement
+  button.parentElement?.querySelector<HTMLButtonElement>(`[data-testid="${nextOption.value}-platform"]`)?.focus()
+}
+
 function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
   form.platform = platform
+  if (platform === 'bedrock') { form.type = 'bedrock'; accountCategory.value = 'bedrock' }
+  if (isChatOnlyPlatform(platform)) {
+    form.type = 'apikey'
+    accountCategory.value = 'apikey'
+    apiProtocol.value = 'chat_completions'
+  }
   if (platform === 'commandcode') {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
@@ -4237,7 +4288,11 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
-const upstreamModelsPreviewed = ref(false)
+const capabilityDefaultsJSON = ref('')
+const createdCatalogAccounts = ref<Array<{ id: number; platform: string }>>([])
+const rememberCatalogAccount = (id: number | undefined, platform: string) => {
+  if (id && !createdCatalogAccounts.value.some(account => account.id === id)) createdCatalogAccounts.value.push({ id, platform })
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4630,7 +4685,7 @@ const isOAuthFlow = computed(() => {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     return false
   }
   return accountCategory.value === 'oauth-based'
@@ -4705,7 +4760,7 @@ watch(
       return
     }
     // Bedrock 类型
-    if (form.platform === 'anthropic' && category === 'bedrock') {
+    if (['anthropic', 'bedrock'].includes(form.platform) && category === 'bedrock') {
       form.type = 'bedrock' as AccountType
       return
     }
@@ -4733,17 +4788,16 @@ watch(
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
-        newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
+        CHAT_PLATFORM_BASE_URLS[newPlatform] ?? (newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
           ? 'https://api.openai.com'
           : newPlatform === 'gemini'
             ? 'https://generativelanguage.googleapis.com'
             : newPlatform === 'grok'
               ? 'https://api.x.ai/v1'
-              : 'https://api.anthropic.com'
+              : 'https://api.anthropic.com')
     }
     // Clear model-related settings
     allowedModels.value = []
-    upstreamModelsPreviewed.value = false
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
@@ -4771,7 +4825,7 @@ watch(
     if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }
-    if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+    if (!['anthropic', 'bedrock'].includes(newPlatform) && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -5127,7 +5181,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
     return false
   }
 }
@@ -5150,9 +5204,11 @@ watch(() => props.show, (show) => {
   createAutoReset.value = false
   createResetThresholds['5h'] = createResetThresholds['7d'] = 100
 })
-const createWithOptions = (payload: CreateAccountRequest) => {
+const createWithOptions = async (payload: CreateAccountRequest) => {
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (['openai', 'anthropic', 'grok'].includes(payload.platform) && createSchedulingThreshold.value != null && String(createSchedulingThreshold.value).trim() !== '') {
     const threshold = Number(createSchedulingThreshold.value)
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) throw new Error(t('admin.accounts.accountSchedulingThresholdOverrideHint'))
@@ -5183,33 +5239,15 @@ const createWithOptions = (payload: CreateAccountRequest) => {
       if (createAutoReset.value) extra.auto_reset_credit_enabled = true
     }
   }
-  return adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+  const account = await adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+  rememberCatalogAccount(account.id, account.platform || payload.platform)
+  return account
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
     const account = await createWithOptions(withAntigravityConfirmFlag(payload))
-    const modelMapping = payload.credentials.model_mapping
-    const hasConcreteMappedTarget = payload.type === 'apikey' &&
-      typeof modelMapping === 'object' &&
-      modelMapping !== null &&
-      Object.values(modelMapping).some((target) =>
-        typeof target === 'string' && target.trim() !== '' && !target.includes('*')
-      )
-    if (upstreamModelsPreviewed.value || hasConcreteMappedTarget) {
-      try {
-        const result = await adminAPI.accounts.syncUpstreamModels(account.id)
-        const warnings = result.warnings ?? []
-        if (warnings.some(warning => warning.code === 'upstream_model_metadata_incomplete')) {
-          appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
-        } else if (warnings.some(warning => warning.code === 'upstream_model_metadata_partial')) {
-          appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
-        }
-      } catch {
-        appStore.showWarning(t('admin.accounts.syncUpstreamModelsFailed'))
-      }
-    }
     if (
       (payload.type === 'apikey' || (payload.platform === 'cursor' && payload.type === 'upstream')) &&
       payload.upstream_billing_probe_enabled === true
@@ -5234,7 +5272,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
       })
       return
     }
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
   } finally {
     submitting.value = false
   }
@@ -5242,6 +5280,8 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  createdCatalogAccounts.value = []
+  capabilityDefaultsJSON.value = ''
   cursorAutoCredentials.value = {}
   cursorKeyMode.value = 'official'
   cursorClientVersion.value = ''
@@ -5358,11 +5398,11 @@ const resetForm = () => {
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
-  upstreamModelsPreviewed.value = false
   clearMixedChannelDialog()
 }
 
-const handleClose = () => {
+const handleClose = (explicit = false) => {
+  if (createdCatalogAccounts.value.length && !explicit) return
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -5445,10 +5485,9 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
-  const extra = buildOpenAIExtra()
-  if (!extra) {
-    return undefined
-  }
+  const extra = { ...buildOpenAIExtra() }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
   }
@@ -5572,8 +5611,10 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (createdCatalogAccounts.value.length || submitting.value) return
+  try { parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } catch { appStore.showError(t('admin.accounts.modelSync.invalidDeclaration')); return }
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
-  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
+  if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
     if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
@@ -5606,7 +5647,7 @@ const handleSubmit = async () => {
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
@@ -5639,7 +5680,7 @@ const handleSubmit = async () => {
       credentials.api_key = bedrockApiKeyValue.value.trim()
     }
 
-    if (bedrockForceGlobal.value) {
+    if (form.platform === 'anthropic' && bedrockForceGlobal.value) {
       credentials.aws_force_global = 'true'
     }
 
@@ -5663,7 +5704,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
+    await createAccountAndFinish(form.platform, 'bedrock' as AccountType, credentials)
     return
   }
 
@@ -6006,7 +6047,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], form.proxy_id)
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${grokOAuth.error.value || t('admin.accounts.oauth.authFailed')}`)
           grokOAuth.error.value = ''
           continue
         }
@@ -6043,7 +6084,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6095,6 +6136,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   try {
     const result = await adminAPI.grok.createFromSSO({
       sso_tokens: ssoTokens,
+      ...(capabilityDefaultsJSON.value.trim() ? { extra: { model_capability_defaults: parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } } : {}),
       name: form.name || undefined,
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,
@@ -6108,6 +6150,10 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       auto_pause_on_expired: autoPauseOnExpired.value
     })
 
+    for (const item of result.created ?? []) {
+      const saved = item.account as { id?: number } | undefined
+      rememberCatalogAccount(saved?.id, 'grok')
+    }
     const successCount = result.created?.length || 0
     const failedCount = result.failed?.length || 0
     if (successCount > 0 && failedCount === 0) {
@@ -6134,7 +6180,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       appStore.showError(t('admin.accounts.oauth.batchFailed'))
     }
   } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || error.message || t('admin.accounts.oauth.grok.failedToConvertSSO')
+    grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.grok.failedToConvertSSO'))
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -6220,7 +6266,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6322,7 +6368,7 @@ const handleOpenAIExchange = async (authCode: string) => {
     emit('created')
     handleClose()
   } catch (error: any) {
-    oauthClient.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    oauthClient.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6425,6 +6471,9 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       update_existing: true
     })
 
+    for (const item of result.items ?? []) {
+      if (item.action === 'created' || item.action === 'updated') rememberCatalogAccount(item.account_id, 'openai')
+    }
     const successCount = result.created + result.updated
     const params = {
       created: result.created,
@@ -6458,10 +6507,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
     appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
   } catch (error: any) {
     oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      t('admin.accounts.oauth.openai.codexSessionImportFailed')
+      extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6486,7 +6532,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 
   try {
     const extra = buildOpenAICodexImportExtra()
-    await adminAPI.accounts.createOpenAICodexPAT({
+    const account = await adminAPI.accounts.createOpenAICodexPAT({
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
@@ -6502,15 +6548,13 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       extra: withUpstreamRequestIdHeader(extra)
     })
 
+    rememberCatalogAccount(account.id, 'openai')
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()
   } catch (error: any) {
     oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      t('admin.accounts.oauth.openai.codexPatImportFailed')
+      extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexPatImportFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6550,7 +6594,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         )
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${oauthClient.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${oauthClient.error.value || t('admin.accounts.oauth.authFailed')}`)
           oauthClient.error.value = ''
           continue
         }
@@ -6602,7 +6646,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6668,7 +6712,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         )
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${antigravityOAuth.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${antigravityOAuth.error.value || t('admin.accounts.oauth.authFailed')}`)
           antigravityOAuth.error.value = ''
           continue
         }
@@ -6700,7 +6744,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         successCount++
       } catch (error: any) {
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
@@ -6759,7 +6803,7 @@ const handleGeminiExchange = async (authCode: string) => {
     const extra = geminiOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('gemini', 'oauth', credentials, extra)
   } catch (error: any) {
-    geminiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    geminiOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(geminiOAuth.error.value)
   } finally {
     geminiOAuth.loading.value = false
@@ -6805,7 +6849,7 @@ const handleAntigravityExchange = async (authCode: string) => {
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)
   } catch (error: any) {
-    antigravityOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    antigravityOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(antigravityOAuth.error.value)
   } finally {
     antigravityOAuth.loading.value = false
@@ -6842,7 +6886,7 @@ const handleGrokExchange = async (authCode: string) => {
     const extra = grokOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('grok', 'oauth', credentials, extra)
   } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -6931,7 +6975,7 @@ const handleAnthropicExchange = async (authCode: string) => {
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
   } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauth.error.value)
   } finally {
     oauth.loading.value = false
@@ -7084,7 +7128,7 @@ const handleCookieAuth = async (sessionKey: string) => {
         errors.push(
           t('admin.accounts.oauth.keyAuthFailed', {
             index: i + 1,
-            error: error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+            error: extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
           })
         )
       }
@@ -7104,7 +7148,7 @@ const handleCookieAuth = async (sessionKey: string) => {
       oauth.error.value = errors.join('\n')
     }
   } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.cookieAuthFailed'))
   } finally {
     oauth.loading.value = false
   }

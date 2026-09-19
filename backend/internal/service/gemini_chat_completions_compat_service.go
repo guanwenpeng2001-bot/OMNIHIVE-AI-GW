@@ -51,6 +51,9 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if err := apicompat.PreserveResponsesToolIDs(responsesReq, anthropicReq); err != nil {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+	}
 	anthropicReq.Stream = clientStream
 
 	claudeBody, err := json.Marshal(anthropicReq)
@@ -123,7 +126,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		requestIDHeader = idHeader
 
-		resp, err = generationDo(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{

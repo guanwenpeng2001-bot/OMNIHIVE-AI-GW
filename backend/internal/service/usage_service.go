@@ -461,3 +461,13 @@ func (s *UsageService) GetStatsWithFilters(ctx context.Context, filters usagesta
 	}
 	return stats, nil
 }
+
+// DashboardCoverageRevision identifies the verified history behind cached reads.
+func (s *UsageService) DashboardCoverageRevision(ctx context.Context) (string, error) {
+	if repo, ok := s.usageRepo.(interface {
+		DashboardCoverageRevision(context.Context) (string, error)
+	}); ok {
+		return repo.DashboardCoverageRevision(ctx)
+	}
+	return "", nil
+}

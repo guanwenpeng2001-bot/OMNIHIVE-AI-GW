@@ -91,6 +91,30 @@ describe('API Client', () => {
       expect(config.params).toHaveProperty('timezone')
     })
 
+    it.each(['object', 'search', 'tuples'])('preserves explicit timezone for %s params', async shape => {
+      const entries = [['timezone', 'America/Los_Angeles'], ['page', '2']]
+      const params = shape === 'object' ? Object.fromEntries(entries) : shape === 'search' ? new URLSearchParams(entries) : entries
+      const adapter = vi.fn().mockImplementation(config => Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }))
+      apiClient.defaults.adapter = adapter
+      await apiClient.get('/test', { params })
+      const actual = adapter.mock.calls[0][0].params
+      const query = actual instanceof URLSearchParams ? actual : new URLSearchParams(actual)
+      expect(query.get('timezone')).toBe('America/Los_Angeles')
+      expect(query.get('page')).toBe('2')
+    })
+
+    it.each(['object', 'search', 'tuples'])('adds missing timezone for %s params without mutating the caller', async shape => {
+      const entries = [['page', '2']]
+      const params = shape === 'object' ? Object.fromEntries(entries) : shape === 'search' ? new URLSearchParams(entries) : entries
+      const adapter = vi.fn().mockImplementation(config => Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }))
+      apiClient.defaults.adapter = adapter
+      await apiClient.get('/test', { params })
+      const actual = adapter.mock.calls[0][0].params
+      const query = actual instanceof URLSearchParams ? actual : new URLSearchParams(actual)
+      expect(query.get('timezone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+      expect(new URLSearchParams(params).has('timezone')).toBe(false)
+    })
+
     it('POST 请求不附加 timezone 参数', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,

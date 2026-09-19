@@ -1,3 +1,5 @@
+import { formatDateTimeWithZone } from '@/utils/format'
+import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 
@@ -149,8 +151,9 @@ const usageLog = {
   native_compaction_v2: false,
 }
 
-function mountUsageView() {
+function mountUsageView(timeZone?: string) {
   return mount(UsageView, {
+    props: { timeZone },
     global: {
       stubs: {
         AppLayout: simpleStub,
@@ -158,7 +161,7 @@ function mountUsageView() {
         Select: true,
         DateRangePicker: true,
         Icon: true,
-        UsageStatsCards: chartStub,
+        UsageStatsCards: false,
         UsageTable: chartStub,
         UserErrorRequestsTable: chartStub,
         ModelDistributionChart: chartStub,
@@ -214,6 +217,89 @@ describe('user UsageView', () => {
     listMyErrorRequests.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 0 })
     list.mockResolvedValue({ items: [{ id: 1, name: 'demo-key' }], total: 1, page: 1, page_size: 100, pages: 1 })
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
+  })
+
+  it('renders unknown on first stats failure and recovers to known zero', async () => {
+    getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    const wrapper = mountUsageView()
+
+    await flushPromises()
+    const cards = wrapper.getComponent(UsageStatsCards)
+    expect(cards.text()).toContain('usage.statsUnknown')
+    expect(cards.text()).not.toContain('0ms')
+    getStats.mockResolvedValueOnce({ total_requests: 0 })
+    await (wrapper.vm as any).loadStats()
+    expect(cards.text()).not.toContain('usage.statsUnknown')
+    expect(cards.text()).toContain('0')
+    wrapper.unmount()
+  })
+
+  it('clears prior range stats and ignores obsolete success and failure responses', async () => {
+    getStats.mockResolvedValueOnce({ total_requests: 777 })
+    const wrapper = mountUsageView()
+
+    await flushPromises()
+    const page = wrapper.vm as any
+    const cards = wrapper.getComponent(UsageStatsCards)
+    expect(cards.text()).toContain('777')
+    let resolveOld!: (value: unknown) => void
+    getStats.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const old = page.loadStats()
+    await flushPromises()
+    expect(cards.text()).not.toContain('777')
+    expect(cards.text()).toContain('common.loading')
+    getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await page.loadStats()
+    expect(cards.text()).toContain('usage.statsUnknown')
+    resolveOld({ total_requests: 777 })
+    await old
+    expect(cards.text()).not.toContain('777')
+    let rejectOld!: (error: unknown) => void
+    getStats.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const obsolete = page.loadStats()
+    getStats.mockResolvedValueOnce({ total_requests: 123 })
+    await page.loadStats()
+    rejectOld(new Error('old failure'))
+    await obsolete
+    expect(cards.text()).toContain('123')
+    getStats.mockRejectedValueOnce(new Error('network'))
+    await page.loadStats()
+    expect(cards.text()).toContain('usage.statsUnavailable')
+    expect(cards.text()).not.toContain('123')
+    wrapper.unmount()
+  })
+
+  it('clears old chart data for a history gap and recovers on a valid range', async () => {
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-01', requests: 7 }], groups: [{ name: 'old' }] })
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    expect(page.trendData).toHaveLength(1)
+    getDashboardSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } })
+    await page.loadChartData()
+    expect(page.trendData).toEqual([])
+    expect(page.groupStats).toEqual([])
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [], groups: [] })
+    await page.loadChartData()
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('ignores an obsolete chart failure after a newer success', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (reason: unknown) => void
+    getDashboardSnapshotV2.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadChartData()
+    getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-06', requests: 9 }], groups: [] })
+    await page.loadChartData()
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.trendData[0].requests).toBe(9)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('loads logs, stats, model stats, and snapshot on first render', async () => {
@@ -400,7 +486,7 @@ describe('user UsageView', () => {
     expect(csvContent.slice(1)).toBe([
       'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost (USD),Original Cost (USD),First Token (ms),Duration (ms),' +
         ['pricingState', 'settlementState', 'completionState', 'source', 'version', 'conditions', 'quantity', 'unit', 'unitPrice', 'charged', 'requestId', 'jobId', 'sessionId', 'turnId', 'snapshot'].map(field => `usage.evidence.${field}`).join(','),
-      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,' +
+      `"${formatDateTimeWithZone('2026-03-08T00:00:00Z')}",demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,` +
         [...Array<string>(10).fill('usage.evidence.unknown'), 'req-user-export', ...Array<string>(4).fill('usage.evidence.unknown')].join(','),
     ].join('\n'))
     expect(csvContent).toContain('IP Address')
@@ -416,8 +502,8 @@ describe('user UsageView', () => {
       query.mockResolvedValueOnce({ items: [{ model: 'model-original-ID', created_at: '2026-11-01T05:30:00Z',
         input_tokens: 23, actual_cost: amount, total_cost: amount }], total: 1, pages: 1 })
       await (wrapper.vm as any).exportToCSV()
-      const row = csvContent.split('\n')[1].split(',')
-      expect(row[0]).toBe('2026-11-01T05:30:00Z')
+      const row = csvContent.split('\n')[1].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+      expect(row[0]).toBe(`"${formatDateTimeWithZone('2026-11-01T05:30:00Z')}"`)
       expect(row[2]).toBe('model-original-ID')
       expect(row[8]).toBe('23')
       // CSV formula-injection escaping is retained for negative/unknown strings.
@@ -558,6 +644,17 @@ describe('UsageView subscription feature flag', () => {
       select.props('options').some((option: SelectOption) => option.label === 'Subscription')
     )
   }
+
+  it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('passes explicit %s to every report request and projection', async timeZone => {
+    const wrapper = mountUsageView(timeZone)
+    await flushPromises()
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getDashboardModels).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(wrapper.findAll('[time-zone]').map(node => node.attributes('time-zone'))).toContain(timeZone)
+    wrapper.unmount()
+  })
 
   it('offers the balance / subscription billing-type filter by default', async () => {
     const wrapper = mountUsageView()

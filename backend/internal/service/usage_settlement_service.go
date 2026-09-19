@@ -115,6 +115,9 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 		return ErrUsageBillingRequestConflict
 	}
 	if stored.State == UsageSettlementNeedsReview {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+			plan.acknowledgeReceipt(stored)
+		}
 		return ErrUsageSettlementNeedsReview
 	}
 	if stored.State != UsageSettlementPending && stored.State != UsageSettlementSettled {
@@ -126,11 +129,18 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	// receipt pointer. The optional post-commit callback is best-effort only;
 	// recovery and every financial effect depend exclusively on the repository.
 	key, fingerprint := stored.Key, stored.Command.RequestFingerprint
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan != nil {
+		plan.acknowledgeReceipt(stored)
+	}
 	task := func(ctx context.Context) {
 		result, err := s.settleIdentity(ctx, key, fingerprint)
 		if err != nil {
 			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
 			return
+		}
+		if plan != nil {
+			plan.setReceiptState(result.Receipt.State)
 		}
 		if after != nil && result.Billing != nil && result.Billing.Applied {
 			after(ctx, result)

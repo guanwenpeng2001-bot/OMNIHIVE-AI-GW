@@ -138,7 +138,7 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 
 	// 11. Send request
-	resp, err := generationDoWithTLS(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.doModelCheckedUpstream(upstreamReq, proxyURL, account, "", s.tlsFPProfileService.ResolveTLSProfile(account))
 	headersReceived()
 	if err != nil {
 		if resp != nil && resp.Body != nil {

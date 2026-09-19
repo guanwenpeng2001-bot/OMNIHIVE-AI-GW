@@ -6,6 +6,40 @@
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
 
+export interface PricingQuote {
+  value: number | null
+  currency: string
+  unit: string
+  scope: string
+  conditions: string
+}
+
+export interface PricingDifference {
+  id: string
+  basis: 'reference_to_reference' | 'channel_to_reference'
+  model: string
+  field: string
+  baseline: PricingQuote
+  candidate: PricingQuote
+  status: 'comparable' | 'missing' | 'incomparable' | 'new_charge'
+  absolute_percent: number | null
+  warning: boolean
+}
+
+export interface ChannelPricingPreview {
+  differences: PricingDifference[]
+  source?: { candidate_hash: string; before_count: number; after_count: number; added: string[]; removed: string[]; differences: PricingDifference[] }
+  impacts?: Array<{ model: string; group_id: number; comparable: boolean; charge_changed: boolean; before: { ActualCost: number } | null; after: { ActualCost: number } | null; before_error?: string; after_error?: string }>
+}
+
+export async function previewPricing(request: {
+  model: string; profile: string; task_type: string; pricing: ChannelModelPricing
+  candidate?: unknown; group_id?: number; input_tokens?: number; output_tokens?: number
+}): Promise<ChannelPricingPreview> {
+  const { data } = await apiClient.post<ChannelPricingPreview>('/admin/channels/pricing/preview', request)
+  return data
+}
+
 export type { BillingMode } from '@/constants/channel'
 
 export interface PricingInterval {
@@ -220,3 +254,15 @@ export async function syncPricingModels(platform: string): Promise<SyncPricingMo
 
 const channelsAPI = { list, getById, create, update, remove, getModelDefaultPricing, syncPricingModels }
 export default channelsAPI
+export interface PlazaCandidateIdentity { platform: string; name: string }
+export interface PlazaSelectedModel extends PlazaCandidateIdentity { confirmed_by?: number; confirmed_at?: string }
+export interface PlazaCandidateView { group_id: number; revision: string; candidates: PlazaCandidateIdentity[]; selected: PlazaSelectedModel[] }
+
+export async function getPlazaCandidates(channelID: number, groupID: number): Promise<PlazaCandidateView> {
+  const { data } = await apiClient.get<PlazaCandidateView>(`/admin/channels/${channelID}`, { params: { plaza_group_id: groupID } })
+  return data
+}
+
+export async function confirmPlazaModels(channelID: number, groupID: number, revision: string, models: PlazaCandidateIdentity[]): Promise<void> {
+  await apiClient.put(`/admin/channels/${channelID}`, { group_id: groupID, revision, models }, { params: { plaza_confirmation: true } })
+}

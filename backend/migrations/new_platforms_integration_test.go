@@ -12,37 +12,50 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/repository"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
-// Only disposable databases are changed, never the database in the supplied DSN.
+// Managed mode uses disposable databases; external mode runs schema-local upgrade fixtures only.
 func TestNewPlatformMigrations(t *testing.T) {
 	dsn := os.Getenv("NEW_PLATFORMS_TEST_POSTGRES_DSN")
+	if testresources.External() {
+		require.NoError(t, testresources.ValidatePostgres(dsn, "job_test"))
+	}
 	if dsn == "" {
 		t.Skip("set NEW_PLATFORMS_TEST_POSTGRES_DSN for isolated PostgreSQL migration tests")
 	}
-	admin, err := sql.Open("postgres", dsn)
-	require.NoError(t, err)
-	defer admin.Close()
 	for _, fresh := range []bool{false, true} {
 		t.Run(fmt.Sprintf("fresh=%t", fresh), func(t *testing.T) {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 			defer cancel()
-			name := fmt.Sprintf("sub2api_platform_m1_%d", time.Now().UnixNano())
-			_, err := admin.ExecContext(ctx, `CREATE DATABASE "`+name+`"`)
-			require.NoError(t, err)
-			defer func() {
-				_, err := admin.ExecContext(context.Background(), `DROP DATABASE "`+name+`" WITH (FORCE)`)
+			var db *sql.DB
+			var err error
+			if testresources.External() {
+				if fresh {
+					t.Skip("external services: fresh full migration chain requires a disposable database")
+				}
+				db = testresources.OpenSchema(t, dsn)
+			} else {
+				admin, openError := sql.Open("postgres", dsn)
+				require.NoError(t, openError)
+				defer func() { _ = admin.Close() }()
+				name := fmt.Sprintf("sub2api_platform_m1_%d", time.Now().UnixNano())
+				_, err := admin.ExecContext(ctx, `CREATE DATABASE "`+name+`"`)
 				require.NoError(t, err)
-			}()
-			parsed, err := url.Parse(dsn)
-			require.NoError(t, err)
-			parsed.Path = "/" + name
-			db, err := sql.Open("postgres", parsed.String())
-			require.NoError(t, err)
-			defer db.Close()
+				defer func() {
+					_, err := admin.ExecContext(context.Background(), `DROP DATABASE "`+name+`" WITH (FORCE)`)
+					require.NoError(t, err)
+				}()
+				parsed, err := url.Parse(dsn)
+				require.NoError(t, err)
+				parsed.Path = "/" + name
+				db, err = sql.Open("postgres", parsed.String())
+				require.NoError(t, err)
+				defer func() { _ = db.Close() }()
+			}
 			apply := func(file string) {
 				body, err := migrations.FS.ReadFile(file)
 				require.NoError(t, err)
@@ -51,7 +64,7 @@ func TestNewPlatformMigrations(t *testing.T) {
 			}
 			definition := func(constraint string) string {
 				var value string
-				require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=$1", constraint).Scan(&value))
+				require.NoError(t, db.QueryRowContext(ctx, "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=$1 AND connamespace=current_schema()::regnamespace", constraint).Scan(&value))
 				return value
 			}
 			monitorConstraints := []string{"channel_monitors_provider_check", "channel_monitor_request_templates_provider_check"}

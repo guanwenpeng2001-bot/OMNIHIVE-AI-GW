@@ -16,6 +16,23 @@
     >
       {{ t('admin.dashboard.noDataAvailable') }}
     </div>
+    <div v-if="!loading && chartData" class="mt-4 max-h-64 overflow-auto">
+      <table class="w-full whitespace-nowrap text-right text-xs" data-testid="trend-data-table">
+        <caption class="mb-2 text-left text-gray-600 dark:text-gray-400">{{ tableDescription }}</caption>
+        <thead><tr>
+          <th scope="col" class="p-2 text-left">{{ t('usage.time') }} ({{ timeZone || getBrowserTimeZone() }})</th>
+          <th v-for="dataset in chartData.datasets" :key="dataset.label" scope="col" class="p-2">{{ dataset.label }}</th>
+          <th scope="col" class="p-2">{{ t('dashboard.actual') }} (USD)</th>
+          <th scope="col" class="p-2">{{ t('dashboard.standard') }} (USD)</th>
+        </tr></thead>
+        <tbody><tr v-for="(point, index) in trendData" :key="`${point.date}-${index}`" class="border-t border-gray-100 dark:border-dark-700">
+          <th scope="row" class="p-2 text-left font-normal">{{ chartData.labels[index] }}</th>
+          <td v-for="dataset in chartData.datasets" :key="dataset.label" class="p-2">{{ formatTableValue(dataset.data[index], dataset.yAxisID === 'yPercent') }}</td>
+          <td class="p-2">{{ formatCost(point.actual_cost) }}</td>
+          <td class="p-2">{{ formatCost(point.cost) }}</td>
+        </tr></tbody>
+      </table>
+    </div>
   </div>
 </template>
 
@@ -23,6 +40,7 @@
 import { formatLedgerAmount as formatCost } from '@/utils/money'
 import { getBrowserTimeZone } from '@/utils/format'
 import { computed } from 'vue'
+import { getLocale } from '@/i18n'
 import { useI18n } from 'vue-i18n'
 import {
   Chart as ChartJS,
@@ -51,6 +69,11 @@ ChartJS.register(
 )
 
 const { t } = useI18n()
+const tableDescription = computed(() => getLocale().startsWith('zh')
+  ? '同源数据表：金额为每个时间段合计（USD）；缓存命中率 = 缓存读取 /（输入 + 缓存创建 + 缓存读取）；未知显示 -。'
+  : 'Chart data: amounts are totals per time bucket (USD); cache hit rate = cache read / (input + cache creation + cache read); unknown is -.')
+const formatTableValue = (value: number, percent: boolean): string => Number.isFinite(value)
+  ? (percent ? `${value.toFixed(1)}%` : String(value)) : '-'
 
 const props = defineProps<{
   trendData: TrendDataPoint[]
@@ -114,6 +137,7 @@ const chartData = computed(() => {
       {
         label: 'Cache Hit Rate',
         data: props.trendData.map((d) => {
+          if (![d.input_tokens, d.cache_read_tokens, d.cache_creation_tokens].every(Number.isFinite)) return NaN
           const totalPromptTokens = d.input_tokens + d.cache_read_tokens + d.cache_creation_tokens
           return totalPromptTokens > 0 ? (d.cache_read_tokens / totalPromptTokens) * 100 : 0
         }),

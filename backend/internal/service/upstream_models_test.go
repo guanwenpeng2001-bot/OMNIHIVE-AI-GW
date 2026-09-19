@@ -470,7 +470,7 @@ func TestSyncUpstreamModelCatalogEnrichesOpenCodeIDOnlyListAndPersistsSnapshot(t
 
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"x-preview-f-free"}, catalog.Models)
+	require.Equal(t, []string{"x-preview-f-free"}, catalog.DiscoveredModels)
 	require.Len(t, upstream.requests, 2)
 	require.Equal(t, "https://opencode.ai/zen/v1/models", upstream.requests[0].URL.String())
 	require.Equal(t, []string{"account-secret"}, headerValuesEqualFold(upstream.requests[0].Header, "X-Custom-Account-Header"))
@@ -484,19 +484,11 @@ func TestSyncUpstreamModelCatalogEnrichesOpenCodeIDOnlyListAndPersistsSnapshot(t
 	require.NotNil(t, metadata.Reasoning)
 	require.True(t, *metadata.Reasoning)
 	require.Equal(t, []string{"low", "high", "max"}, metadata.SupportedReasoningLevels)
-	require.Equal(t, []string{"text", "image"}, metadata.InputModalities)
+	require.Equal(t, []string{"text", "image", "video"}, metadata.InputModalities)
 	require.Equal(t, int64(1_000_000), metadata.ContextWindow)
 	require.Equal(t, int64(131_072), metadata.MaxOutputTokens)
-	require.Equal(t, int64(91), repo.accountID)
-
-	rawSnapshot, ok := repo.updates[UpstreamModelMetadataExtraKey]
-	require.True(t, ok)
-	encoded, err := json.Marshal(rawSnapshot)
-	require.NoError(t, err)
-	var snapshot UpstreamModelMetadataSnapshot
-	require.NoError(t, json.Unmarshal(encoded, &snapshot))
-	require.Equal(t, "models.dev", snapshot.Source)
-	require.Equal(t, metadata, snapshot.Models["x-preview-f-free"])
+	require.Zero(t, repo.accountID)
+	require.Nil(t, repo.updates)
 }
 
 // Scenario: 不提供 /models 的兼容上游使用管理员已配置模型继续同步能力。
@@ -550,20 +542,11 @@ func TestSyncUpstreamModelCatalogUsesConfiguredModelsWhenListEndpointUnsupported
 			"old-live-model": {ID: "old-live-model", ContextWindow: 256000},
 		}})
 		catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
-		require.NoError(t, err)
-		require.Contains(t, account.GetUpstreamModelMetadataSnapshot().Models, "old-live-model", "an unavailable model-list endpoint is not evidence of removal")
-		require.Equal(t, []string{"glm-5.3"}, catalog.Models)
-		require.Equal(t, "configured", catalog.CatalogSource)
-		require.Equal(t, []string{"models.dev"}, catalog.MetadataSources)
-		require.Equal(t, "model_list_endpoint_unsupported", catalog.Warnings[0].Code)
-		require.Len(t, upstream.requests, 2)
-		require.Equal(t, "https://provider.example/v1/models", upstream.requests[0].URL.String())
-		require.Equal(t, modelsDevRegistryURL, upstream.requests[1].URL.String())
-		metadata := catalog.Metadata["glm-5.3"]
-		require.Equal(t, []string{"low", "medium", "high"}, metadata.SupportedReasoningLevels)
-		require.Equal(t, []string{"text"}, metadata.InputModalities)
-		require.Equal(t, int64(1_000_000), metadata.ContextWindow)
-		require.NotNil(t, repo.updates)
+		require.Error(t, err)
+		require.Nil(t, catalog)
+		require.Len(t, upstream.requests, 1)
+		require.Nil(t, repo.updates)
+		require.Contains(t, account.GetUpstreamModelMetadataSnapshot().Models, "old-live-model")
 	}
 }
 
@@ -627,7 +610,7 @@ func TestSyncUpstreamModelCatalogPrefersDirectUpstreamMetadata(t *testing.T) {
 			"default_reasoning_level":"high",
 			"supported_reasoning_levels":[{"effort":"low"},{"effort":"high"},{"effort":"ultra"}],
 			"input_modalities":["text","image"],
-			"context_window":256000
+			"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":256000
 		}]}`)),
 	}}
 	repo := &upstreamModelMetadataRepoStub{}
@@ -654,16 +637,16 @@ func TestSyncUpstreamModelCatalogReplacesSnapshotWhenUpstreamModelsChange(t *tes
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
 			Body: io.NopCloser(strings.NewReader(`{"data":[
-				{"id":"old-model","reasoning":false,"input_modalities":["text"],"context_window":128000},
-				{"id":"kept-model","reasoning":false,"input_modalities":["text"],"context_window":128000}
+				{"id":"old-model","reasoning":false,"input_modalities":["text"],"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":128000},
+				{"id":"kept-model","reasoning":false,"input_modalities":["text"],"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":128000}
 			]}`)),
 		},
 		{
 			StatusCode: http.StatusOK,
 			Header:     http.Header{"Content-Type": []string{"application/json"}},
 			Body: io.NopCloser(strings.NewReader(`{"data":[
-				{"id":"kept-model","reasoning":false,"input_modalities":["text"],"context_window":128000},
-				{"id":"new-model","reasoning":false,"input_modalities":["text"],"context_window":256000}
+				{"id":"kept-model","reasoning":false,"input_modalities":["text"],"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":128000},
+				{"id":"new-model","reasoning":false,"input_modalities":["text"],"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":256000}
 			]}`)),
 		},
 	}}
@@ -679,15 +662,15 @@ func TestSyncUpstreamModelCatalogReplacesSnapshotWhenUpstreamModelsChange(t *tes
 
 	first, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"kept-model", "old-model"}, first.Models)
+	require.Equal(t, []string{"kept-model", "old-model"}, first.DiscoveredModels)
 
 	second, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"kept-model", "new-model"}, second.Models)
+	require.Equal(t, []string{"kept-model", "new-model"}, second.DiscoveredModels)
 	require.NotContains(t, second.Metadata, "old-model")
 	require.Contains(t, second.Metadata, "new-model")
 
-	encoded, err := json.Marshal(repo.updates[UpstreamModelMetadataExtraKey])
+	encoded, err := json.Marshal(UpstreamModelMetadataSnapshot{Models: second.Metadata})
 	require.NoError(t, err)
 	var snapshot UpstreamModelMetadataSnapshot
 	require.NoError(t, json.Unmarshal(encoded, &snapshot))
@@ -705,7 +688,7 @@ func TestSyncUpstreamModelCatalogPersistsExplicitNonReasoningCapability(t *testi
 			"display_name":"Company Coding Model",
 			"reasoning":false,
 			"input_modalities":["text"],
-			"context_window":64000
+			"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":64000
 		}]}`)),
 	}}
 	repo := &upstreamModelMetadataRepoStub{}
@@ -723,7 +706,7 @@ func TestSyncUpstreamModelCatalogPersistsExplicitNonReasoningCapability(t *testi
 	require.Empty(t, metadata.SupportedReasoningLevels)
 	require.Equal(t, []string{"text"}, metadata.InputModalities)
 	require.Equal(t, int64(64_000), metadata.ContextWindow)
-	require.NotNil(t, repo.updates)
+	require.Nil(t, repo.updates, "preview must not persist")
 }
 
 func TestSyncUpstreamModelCatalogClassifiesSnapshotPersistenceFailureAsInternal(t *testing.T) {
@@ -734,7 +717,7 @@ func TestSyncUpstreamModelCatalogClassifiesSnapshotPersistenceFailureAsInternal(
 			"id":"company-coding-model",
 			"reasoning":false,
 			"input_modalities":["text"],
-			"context_window":64000
+			"task_type":"text_generation","output_modalities":["text"],"supports_function_calling":false,"max_output_tokens":4096,"context_window":64000
 		}]}`)),
 	}}
 	repo := &upstreamModelMetadataRepoStub{err: errors.New("database unavailable")}
@@ -744,10 +727,8 @@ func TestSyncUpstreamModelCatalogClassifiesSnapshotPersistenceFailureAsInternal(
 		ID: 95, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
 		Credentials: map[string]any{"api_key": "key", "base_url": "https://provider.example/v1"},
 	})
-	require.Error(t, err)
-	var syncErr *UpstreamModelSyncError
-	require.ErrorAs(t, err, &syncErr)
-	require.Equal(t, UpstreamModelSyncErrorInternal, syncErr.Kind)
+	require.NoError(t, err)
+	require.Nil(t, repo.updates, "preview does not call a failing repository")
 }
 
 // Scenario: 元数据源失败时保留已有快照。
@@ -767,12 +748,12 @@ func TestSyncUpstreamModelCatalogDoesNotOverwriteSnapshotWhenRegistryFails(t *te
 		}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"x-preview-f-free"}, catalog.Models)
-	require.Empty(t, catalog.Metadata)
+	require.Equal(t, []string{"x-preview-f-free"}, catalog.DiscoveredModels)
+	require.Equal(t, "incomplete", catalog.Metadata["x-preview-f-free"].MetadataStatus)
 	require.Equal(t, []UpstreamModelSyncWarning{{
 		Code:    UpstreamModelMetadataIncompleteCode,
-		Message: "Model IDs were synced, but capability metadata is incomplete.",
-	}}, catalog.Warnings)
+		Message: "Native discovery is complete; some capability metadata is unknown.",
+	}}, catalog.Warnings[:1])
 	require.Nil(t, repo.updates, "a failed metadata enrichment must not erase a previously saved snapshot")
 }
 
@@ -797,14 +778,14 @@ func TestSyncUpstreamModelCatalogDoesNotPersistPartialMetadataWhenRegistryFails(
 		}},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"partially-described-model"}, catalog.Models)
+	require.Equal(t, []string{"partially-described-model"}, catalog.DiscoveredModels)
 	require.Equal(t, "Partial Model", catalog.Metadata["partially-described-model"].DisplayName)
 	require.Equal(t, UpstreamModelMetadataIncompleteCode, catalog.Warnings[0].Code)
 	require.Nil(t, repo.updates, "partial metadata must not replace a more complete persisted snapshot")
 }
 
 // Scenario: 图片专用模型缺少 context 时，不阻止 agent 模型能力落库，也不误报整批失败。
-func TestSyncUpstreamModelCatalogIgnoresDedicatedMediaModelsForCompleteness(t *testing.T) {
+func TestSyncUpstreamModelCatalogIncludesDedicatedMediaModelsForCompleteness(t *testing.T) {
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{
 		{
 			StatusCode: http.StatusOK,
@@ -856,16 +837,17 @@ func TestSyncUpstreamModelCatalogIgnoresDedicatedMediaModelsForCompleteness(t *t
 		},
 	})
 	require.NoError(t, err)
-	require.Empty(t, catalog.Warnings, "media generators must not keep agent capability sync in a failed state")
-	require.NotNil(t, repo.updates)
+	require.NotEmpty(t, catalog.Warnings, "media models remain in V2 coverage denominator")
+	require.Equal(t, "incomplete", catalog.Metadata["gpt-image-2"].MetadataStatus)
+	require.Nil(t, repo.updates, "preview must not persist")
 
-	encoded, err := json.Marshal(repo.updates[UpstreamModelMetadataExtraKey])
+	encoded, err := json.Marshal(UpstreamModelMetadataSnapshot{Source: "models.dev", Models: catalog.Metadata})
 	require.NoError(t, err)
 	var snapshot UpstreamModelMetadataSnapshot
 	require.NoError(t, json.Unmarshal(encoded, &snapshot))
 	require.Contains(t, snapshot.Models, "gpt-6-astra")
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, snapshot.Models["gpt-6-astra"].SupportedReasoningLevels)
-	require.NotContains(t, snapshot.Models, "gpt-image-2")
+	require.Contains(t, snapshot.Models, "gpt-image-2")
 }
 
 func TestFetchUpstreamSupportedModelsUsesConfiguredBodyLimit(t *testing.T) {
@@ -956,7 +938,7 @@ func TestSyncUpstreamModelCatalogEnrichesOfficialOpenAIHostWithoutRegistryAPIFie
 							"id": "gpt-6-astra",
 							"name": "GPT-6 Astra",
 							"description": "OpenAI GPT-6 Astra",
-							"reasoning": true,
+							"reasoning": true,"tool_call":false,
 							"reasoning_options": [{"type":"effort","values":["low","medium","high","xhigh","max"]}],
 							"modalities": {"input":["text","image","pdf"],"output":["text"]},
 							"limit": {"context":1050000,"output":128000}
@@ -964,7 +946,7 @@ func TestSyncUpstreamModelCatalogEnrichesOfficialOpenAIHostWithoutRegistryAPIFie
 						"gpt-5.6-sol": {
 							"id": "gpt-5.6-sol",
 							"name": "GPT-5.6 Sol",
-							"reasoning": true,
+							"reasoning": true,"tool_call":false,
 							"reasoning_options": [{"type":"effort","values":["low","medium","high","xhigh","max"]}],
 							"modalities": {"input":["text","image"],"output":["text"]},
 							"limit": {"context":1050000,"output":128000}
@@ -986,18 +968,18 @@ func TestSyncUpstreamModelCatalogEnrichesOfficialOpenAIHostWithoutRegistryAPIFie
 	})
 	require.NoError(t, err)
 	require.Empty(t, catalog.Warnings)
-	require.Equal(t, []string{"gpt-5.6-sol", "gpt-6-astra"}, catalog.Models)
+	require.Equal(t, []string{"gpt-5.6-sol", "gpt-6-astra"}, catalog.DiscoveredModels)
 
 	astra := catalog.Metadata["gpt-6-astra"]
 	require.Equal(t, "GPT-6 Astra", astra.DisplayName)
 	require.NotNil(t, astra.Reasoning)
 	require.True(t, *astra.Reasoning)
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, astra.SupportedReasoningLevels)
-	require.Equal(t, []string{"text", "image"}, astra.InputModalities)
-	require.Equal(t, int64(1_050_000), astra.ContextWindow)
+	require.Equal(t, []string{"text", "image", "pdf"}, astra.InputModalities)
+	require.Equal(t, int64(922_000), astra.ContextWindow)
 
-	require.NotNil(t, repo.updates)
-	encoded, err := json.Marshal(repo.updates[UpstreamModelMetadataExtraKey])
+	require.Nil(t, repo.updates, "preview must not persist")
+	encoded, err := json.Marshal(UpstreamModelMetadataSnapshot{Source: "models.dev", Models: catalog.Metadata})
 	require.NoError(t, err)
 	var snapshot UpstreamModelMetadataSnapshot
 	require.NoError(t, json.Unmarshal(encoded, &snapshot))
@@ -1046,16 +1028,16 @@ func TestSyncUpstreamModelCatalogPersistsCompleteModelsWhenSomeRemainIncomplete(
 		Credentials: map[string]any{"api_key": "key", "base_url": "https://provider.example/v1"},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"complete-model", "incomplete-model"}, catalog.Models)
-	require.Equal(t, UpstreamModelMetadataPartialCode, catalog.Warnings[0].Code)
-	require.NotNil(t, repo.updates)
+	require.Equal(t, []string{"complete-model", "incomplete-model"}, catalog.DiscoveredModels)
+	require.Equal(t, UpstreamModelMetadataIncompleteCode, catalog.Warnings[0].Code)
+	require.Nil(t, repo.updates, "preview must not persist")
 
-	encoded, err := json.Marshal(repo.updates[UpstreamModelMetadataExtraKey])
+	encoded, err := json.Marshal(UpstreamModelMetadataSnapshot{Source: "models.dev", Models: catalog.Metadata})
 	require.NoError(t, err)
 	var snapshot UpstreamModelMetadataSnapshot
 	require.NoError(t, json.Unmarshal(encoded, &snapshot))
 	require.Contains(t, snapshot.Models, "complete-model")
-	require.NotContains(t, snapshot.Models, "incomplete-model")
+	require.Contains(t, snapshot.Models, "incomplete-model")
 	require.Equal(t, []string{"low", "high"}, snapshot.Models["complete-model"].SupportedReasoningLevels)
 }
 
@@ -1077,7 +1059,7 @@ func TestSyncUpstreamModelCatalogEnrichesConfiguredMappingModelsMissingFromUpstr
 						"gpt-5.6-sol": {
 							"id": "gpt-5.6-sol",
 							"name": "GPT-5.6 Sol",
-							"reasoning": true,
+							"reasoning": true,"tool_call":false,
 							"reasoning_options": [{"type":"effort","values":["low","medium","high","xhigh","max"]}],
 							"modalities": {"input":["text","image"],"output":["text"]},
 							"limit": {"context":1050000,"output":128000}
@@ -1085,7 +1067,7 @@ func TestSyncUpstreamModelCatalogEnrichesConfiguredMappingModelsMissingFromUpstr
 						"gpt-6-astra": {
 							"id": "gpt-6-astra",
 							"name": "GPT-6 Astra",
-							"reasoning": true,
+							"reasoning": true,"tool_call":false,
 							"reasoning_options": [{"type":"effort","values":["low","medium","high","xhigh","max"]}],
 							"modalities": {"input":["text","image"],"output":["text"]},
 							"limit": {"context":1050000,"output":128000}
@@ -1109,12 +1091,12 @@ func TestSyncUpstreamModelCatalogEnrichesConfiguredMappingModelsMissingFromUpstr
 		},
 	})
 	require.NoError(t, err)
-	require.Equal(t, []string{"gpt-5.6-sol"}, catalog.Models, "UI model list stays upstream-only")
+	require.Equal(t, []string{"gpt-5.6-sol"}, catalog.DiscoveredModels, "UI model list stays upstream-only")
 	require.Empty(t, catalog.Warnings)
 	require.Contains(t, catalog.Metadata, "gpt-6-astra")
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, catalog.Metadata["gpt-6-astra"].SupportedReasoningLevels)
 
-	encoded, err := json.Marshal(repo.updates[UpstreamModelMetadataExtraKey])
+	encoded, err := json.Marshal(UpstreamModelMetadataSnapshot{Source: "models.dev", Models: catalog.Metadata})
 	require.NoError(t, err)
 	var snapshot UpstreamModelMetadataSnapshot
 	require.NoError(t, json.Unmarshal(encoded, &snapshot))
@@ -1151,20 +1133,15 @@ func TestSyncUpstreamModelCatalogAstraPartialRefreshPreservesKnownCapabilities(t
 
 	catalog, err := svc.SyncUpstreamModelCatalog(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, UpstreamModelMetadataPartialCode, catalog.Warnings[0].Code)
-	require.NotContains(t, catalog.Models, "mapped-only", "capability enrichment must not change discovery")
-	snapshot := account.GetUpstreamModelMetadataSnapshot()
-	require.Equal(t, old, snapshot.Models["still-listed"])
-	require.NotContains(t, snapshot.Models, "removed")
-	require.NotContains(t, snapshot.Models, "gpt-image-2")
-	require.Contains(t, snapshot.Models, "mapped-only")
-	astra := snapshot.Models["gpt-6-astra"]
-	require.Equal(t, int64(1050000), astra.ContextWindow)
-	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max"}, astra.SupportedReasoningLevels)
-	require.JSONEq(t, "false", string(astra.CodexToolCapabilities["supports_search_tool"]))
-	require.JSONEq(t, "null", string(astra.CodexToolCapabilities["apply_patch_tool_type"]))
-	require.JSONEq(t, `"3000"`, string(astra.CodexToolCapabilities["comp_hash"]))
-	require.NotNil(t, repo.updates)
+	require.Equal(t, UpstreamModelMetadataIncompleteCode, catalog.Warnings[0].Code)
+	require.NotContains(t, catalog.DiscoveredModels, "mapped-only", "capability enrichment must not change discovery")
+	require.Equal(t, old, account.GetUpstreamModelMetadataSnapshot().Models["still-listed"])
+	require.Contains(t, account.GetUpstreamModelMetadataSnapshot().Models, "removed", "preview preserves previous snapshot")
+	metadata := catalog.Metadata["gpt-6-astra"]
+	require.Equal(t, int64(922_000), metadata.ContextWindow)
+	require.JSONEq(t, "false", string(metadata.CodexToolCapabilities["supports_search_tool"]))
+	require.JSONEq(t, "null", string(metadata.CodexToolCapabilities["apply_patch_tool_type"]))
+	require.Nil(t, repo.updates)
 }
 
 func TestMatchModelsDevProviderOfficialHostsWithoutAPI(t *testing.T) {
@@ -1187,5 +1164,21 @@ func TestMatchModelsDevProviderOfficialHostsWithoutAPI(t *testing.T) {
 	metadata := map[string]UpstreamModelMetadata{"gpt-6-astra": {
 		Reasoning: new(bool), InputModalities: []string{"text"}, ContextWindow: 1050000,
 	}}
-	require.False(t, upstreamCatalogNeedsRegistry(capabilitySyncModelIDs([]string{"gpt-6-astra", "gpt-image-2"}), metadata))
+	// V2 requires task, provider, endpoint and field evidence; the legacy three
+	// fields cannot suppress registry enrichment even when the host is known.
+	require.True(t, upstreamCatalogNeedsRegistry(capabilitySyncModelIDs([]string{"gpt-6-astra", "gpt-image-2"}), metadata))
+	require.Contains(t, evaluateModelMetadataCompleteness(metadata["gpt-6-astra"]).MissingFields, "provider_profile")
+	require.Contains(t, evaluateModelMetadataCompleteness(metadata["gpt-6-astra"]).MissingFields, "task_type")
+}
+
+func (r *upstreamModelMetadataRepoStub) CommitAccountModelCatalog(_ context.Context, id int64, _ AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot) error {
+	r.accountID = id
+	r.updates = map[string]any{UpstreamModelCatalogStateExtraKey: state}
+	if snapshot != nil {
+		r.updates[UpstreamModelCatalogExtraKey] = snapshot
+	}
+	if metadata != nil {
+		r.updates[UpstreamModelMetadataExtraKey] = metadata
+	}
+	return r.err
 }

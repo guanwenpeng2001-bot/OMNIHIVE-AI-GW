@@ -1,0 +1,192 @@
+{
+  "adapter_version": "capability-v2",
+  "alias_version": "exact-profile-id-v1",
+  "approval_basis": "P2-01 reviewed subset: four exact Beijing embedding specifications; official legacy/workspace domain equivalence verified; 23 candidates withheld including 9 reasoning-only records blocked by context-kind adapter bug; reports/p2-01-publication-review.json and .pi/plans/project-review/p2-01-publish-report.md; Source-release maintenance review: unchanged 252 capability records, exact reviewed profile/model applicability independent of price bytes; audited actual parser/catalog/profile/matcher/rules dependencies, no newly collected evidence approved. Read-only capability review: unchanged 252 reviewed records and source input hash; media specifications remain incomplete without required limits even for unsupported endpoints, derived/stale evidence cannot imply complete; detached seven-day public observations are exact-profile display-only and never published as reviewed evidence.",
+  "approved_inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
+  "description": "Pinned local observations, not current official specifications or account authorization. Conflicting fields are omitted; runtime/embed keep their respective observed limits. Unknown reasoning controls remain unknown under P0 schema. No model aliases or prices. Includes reviewed DashScope embedding API observations; text output modality is the catalog convention for text embeddings, whose API output is a numeric vector. P2-01 adds four exact Beijing embedding supplements; reasoning-only and media candidates remain unpublished.",
+  "generated_at": "2026-09-18T19:38:18Z",
+  "records": [
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 128000,
+      "mode": "embedding",
+      "model_id": "qwen3.7-text-embedding",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
+      "source_content_hash": "9f1028d948a8c606b4c0a3f0325522162f7acc96d725e357cbe87f9fade3205d",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 128000,
+      "mode": "embedding",
+      "model_id": "qwen3.7-text-embedding-flash",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
+      "source_content_hash": "9f1028d948a8c606b4c0a3f0325522162f7acc96d725e357cbe87f9fade3205d",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1536,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 2048,
+      "mode": "embedding",
+      "model_id": "text-embedding-v1",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1536,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 2048,
+      "mode": "embedding",
+      "model_id": "text-embedding-v2",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "text-embedding-v3",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    },
+    {
+      "applicable_content_hashes": [
+        "23478ac6e4bb677f9786884ebb0317a6ec755c66360fa7f52b8ebded71414cb4",
+        "5b3bcc8a42c74c313245704cef7475a8dc42f64b9c5da676bbfe826df05d4e14",
+        "5e8609e74b77244fdc399d65b3fa6cc05b639096e915f351bdaf7691c76e5c5f",
+        "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
+        "9514cdd90df24707da39b67bbffc79562313891a7403f0eba34fd7616b952f25",
+        "cd3f6cd912be961dac12863258ab31aa9aa0eba3421b06a43565aac558fec730"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "text-embedding-v4",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "alibaba-cn",
+      "protocol": "openai",
+      "provider": "alibaba",
+      "region": "cn-beijing",
+      "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
+      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-17"
+    }
+  ],
+  "rules_version": "endpoint-contract-v1+name-rules-v1",
+  "schema_version": 1
+}

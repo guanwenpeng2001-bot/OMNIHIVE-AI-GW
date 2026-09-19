@@ -549,18 +549,33 @@ export function splitModelMappingObject(
   return { allowedModels, modelMappings }
 }
 
+export interface ModelRestrictionError {
+  code: 'exactIdRequired' | 'idsRequired' | 'invalidWildcard' | 'conflictingTarget'
+  row: number
+  model: string
+  from: string
+  to: string
+}
+
+export function translateModelRestrictionErrors(
+  errors: ModelRestrictionError[],
+  translate: (key: string, values: Record<string, string | number>) => string
+): string {
+  return errors.map(error => translate(`admin.accounts.modelValidation.${error.code}`, { ...error })).join('\n')
+}
+
 // Validate before serialization so an invalid restriction never becomes unrestricted.
 export function validateModelRestrictions(
   mode: ModelRestrictionMode,
   allowedModels: string[],
   modelMappings: ModelMappingEntry[]
-): string[] {
-  const errors: string[] = []
+): ModelRestrictionError[] {
+  const errors: ModelRestrictionError[] = []
   const targets = new Map<string, string>()
   if (mode !== 'mapping') {
     allowedModels.forEach((model, index) => {
       const value = model.trim()
-      if (!value || value.includes('*')) errors.push(`Whitelist row ${index + 1}: an exact model ID is required (${model}).`)
+      if (!value || value.includes('*')) errors.push({ code: 'exactIdRequired', row: index + 1, model, from: '', to: '' })
       else targets.set(value, value)
     })
   }
@@ -568,10 +583,10 @@ export function validateModelRestrictions(
     modelMappings.forEach((entry, index) => {
       const from = entry.from.trim()
       const to = entry.to.trim()
-      const location = `Mapping row ${index + 1} (${from || 'empty'} → ${to || 'empty'})`
-      if (!from || !to) errors.push(`${location}: both model IDs are required.`)
-      else if (!isValidWildcardPattern(from) || to.includes('*')) errors.push(`${location}: only one trailing source wildcard is allowed.`)
-      else if (targets.has(from) && targets.get(from) !== to) errors.push(`${location}: conflicting target for ${from}.`)
+      const location = { row: index + 1, model: from, from: entry.from, to: entry.to }
+      if (!from || !to) errors.push({ code: 'idsRequired', ...location })
+      else if (!isValidWildcardPattern(from) || to.includes('*')) errors.push({ code: 'invalidWildcard', ...location })
+      else if (targets.has(from) && targets.get(from) !== to) errors.push({ code: 'conflictingTarget', ...location })
       else targets.set(from, to)
     })
   }
@@ -618,4 +633,25 @@ export function buildModelMappingObject(
   }
 
   return Object.keys(mapping).length > 0 ? mapping : null
+}
+
+
+export function modelSyncWarningCode(warning: string | { code: string }): string {
+  return typeof warning === 'string' ? warning : warning.code
+}
+
+export function modelSyncErrorKey(error: unknown): string {
+  const failure = error as { status?: number; reason?: string; response?: { status?: number; data?: { reason?: string } } } | null
+  if (failure?.status === 409 || failure?.response?.status === 409) return 'modelSync.conflict'
+  const reason = failure?.reason ?? failure?.response?.data?.reason ?? ''
+  const reasons = ['not_synced', 'identity_changed', 'entitlement_unconfirmed', 'not_discovered', 'account_restricted', 'route_ambiguous', 'route_target_unavailable', 'endpoint_unsupported', 'retired', 'group_restricted', 'stale_evidence', 'metadata_incomplete']
+  if (reasons.includes(reason)) return `modelSync.reasons.${reason}`
+  const keys: Record<string, string> = {
+    upstream_model_sync_configuration: 'syncUpstreamModelsConfiguration',
+    upstream_model_sync_credentials: 'syncUpstreamModelsCredentials',
+    upstream_model_sync_unsupported: 'syncUpstreamModelsUnsupported',
+    upstream_model_sync_upstream: 'syncUpstreamModelsUnavailable',
+    upstream_model_sync_internal: 'syncUpstreamModelsFailed'
+  }
+  return keys[reason] || 'syncUpstreamModelsFailed'
 }

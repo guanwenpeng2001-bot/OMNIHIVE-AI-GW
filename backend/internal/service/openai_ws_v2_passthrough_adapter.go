@@ -23,9 +23,21 @@ import (
 type attemptFrameConn struct {
 	openaiwsv2.FrameConn
 	accountID int64
+	repo      AccountRepository
+	account   *Account
+	plan      func() *GatewayRequestPlan
 }
 
 func (c *attemptFrameConn) WriteFrame(ctx context.Context, kind coderws.MessageType, payload []byte) error {
+	if c.plan != nil {
+		ctx = WithGatewayRequestPlan(ctx, c.plan())
+	}
+	if gjson.GetBytes(payload, "type").String() == "response.create" {
+		if err := validateAccountForwardModel(ctx, c.repo, c.account, gjson.GetBytes(payload, "model").String(), "responses"); err != nil {
+			return err
+		}
+	}
+
 	return generationWS(ctx, c.accountID, json.RawMessage(payload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
 }
 
@@ -940,7 +952,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if !ok {
 		return errors.New("openai ws passthrough upstream connection does not support frame relay")
 	}
-	upstreamFrameConn = &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID}
+	var requestPlan func() *GatewayRequestPlan
+	if hooks != nil {
+		requestPlan = hooks.RequestPlan
+	}
+	upstreamFrameConn = &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID, repo: s.accountRepo, account: account, plan: requestPlan}
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
 		inner:             upstreamFrameConn,
 		activeReadTimeout: attemptTimeout(ctx, s.openAIWSPassthroughIdleTimeout()),

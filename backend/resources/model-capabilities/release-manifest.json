@@ -1,0 +1,23 @@
+{
+  "adapter_version": "capability-v2",
+  "alias_version": "exact-profile-id-v1",
+  "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+  "applicability": "reviewed-profile-model",
+  "approved_generation": 1789760298,
+  "catalog_sha256": "9a050769d876ef76f79cbe7e824fedb47034d3a1a2be3a15232257920d8aa4e6",
+  "code_versions": {
+    "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
+    "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
+    "internal/service/model_capability_catalog.go": "699b635fd3c5f6b6cc599127c0c1634d36e5d6122c0c2c9e237774e79bf3197e",
+    "internal/service/model_capability_heuristics.go": "13a3435db09aacb6e14f33d62fad83654f31388bef32e435dba31bd115b22441",
+    "internal/service/model_capability_matcher.go": "c88a896f2feeb576855b09e7678faec609860e387097ad5e60ecec051c16dc4f",
+    "internal/service/model_capability_profile.go": "650a54578801011e171742042c92ad623cc48eabfc3b63dc215f6f6d0b033baf",
+    "internal/service/model_capability_readonly.go": "9c50631d44f0de6ea5910164b73d19eb6e292ba9f73db4429016f60be846409b",
+    "resources/model-capabilities/release.go": "ddfd32cb712c0025832d0c1c7256abe1ae98bda8c35428070810ae61aa80ade9"
+  },
+  "inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
+  "record_count": 252,
+  "review_sha256": "1d47bb355c43ab2726ef14aa7570d420494fb6205f98d1dc860db6648907d46f",
+  "rules_version": "endpoint-contract-v1+name-rules-v1",
+  "schema_version": 1
+}
