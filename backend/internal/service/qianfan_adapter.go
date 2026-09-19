@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -163,4 +164,30 @@ func parseQianfanModelsResponse(response *http.Response) (*qianfanModelList, err
 func qianfanHasValue(value json.RawMessage) bool {
 	trimmed := strings.TrimSpace(string(value))
 	return trimmed != "" && trimmed != "null" && trimmed != `""`
+}
+
+func (service *AccountTestService) fetchQianfanModels(request *http.Request, account *Account) ([]string, []byte, error) {
+	response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+	if err != nil {
+		return nil, nil, newUpstreamModelSyncUpstreamError("Qianfan discovery request failed", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+	body, err := readUpstreamResponseBodyLimited(response.Body, resolveModelsListReadLimit(service.cfg))
+	if err != nil {
+		return nil, nil, err
+	}
+	if response.StatusCode != http.StatusOK {
+		return nil, nil, newUpstreamModelDiscoveryHTTPError(response.StatusCode, body)
+	}
+	parsedResponse := *response
+	parsedResponse.Body = io.NopCloser(bytes.NewReader(body))
+	list, err := parseQianfanModelsResponse(&parsedResponse)
+	if err != nil {
+		return nil, nil, err
+	}
+	models := make([]string, 0, len(list.Models))
+	for _, model := range list.Models {
+		models = append(models, model.ID)
+	}
+	return models, body, nil
 }

@@ -1,3 +1,4 @@
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -606,6 +607,18 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
+  it.each(Object.entries(CHAT_PLATFORM_BASE_URLS))('creates %s with exact chat credentials', async (platform, baseURL) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('runtime fixture')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform, type: 'apikey', credentials: { api_key: 'fixture-key', base_url: baseURL } })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toBeUndefined()
   })
 
   it.each(['qianwen', 'commandcode'] as const)('creates %s as API-key-only with protocol defaults', async (platform) => {

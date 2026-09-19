@@ -19,6 +19,7 @@ export default {
         "details": "来源、汇率、逐模型价格与原因"
 },
       newPlatforms: {
+      qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
       volcengineDescription: 'API key /api/v3 文本入口；填写精确部署目标，保存后声明可用性。自动发现、厂商 SSE/错误细节与额度尚未验证。',
         "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
@@ -360,6 +361,7 @@ export default {
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
+      qianfan: 'Qianfan',
       volcengine: 'Volcengine Ark',
         qianwen: '千问AI',
         commandcode: 'Command Code',

@@ -51,6 +51,7 @@ const (
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformCursor      = domain.PlatformCursor
 	PlatformQianwen     = domain.PlatformQianwen
+	PlatformQianfan     = domain.PlatformQianfan
 	PlatformVolcengine  = domain.PlatformVolcengine
 	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformComposite   = domain.PlatformComposite

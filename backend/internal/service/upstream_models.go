@@ -1174,6 +1174,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if account.Platform == PlatformQianfan {
+		return s.fetchQianfanModels(req, account)
+	}
 	if account.Platform == PlatformQianwen {
 		return s.fetchQianwenModelPages(req, account)
 	}
@@ -1223,6 +1226,8 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.Platform == PlatformQianfan:
+		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
 	case account.Platform == PlatformVolcengine:
 		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:
@@ -1845,6 +1850,23 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		}
 		models = append(models, modelID)
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if len(platform) > 0 && platform[0] == PlatformQianfan {
+			var model qianfanModel
+			if err := json.Unmarshal(raw, &model); err == nil {
+				if model.MaxCompletionsTokens != nil {
+					entry.MaxOutputTokens = *model.MaxCompletionsTokens
+				}
+				var architecture struct {
+					InputModalities  []string `json:"input_modalities"`
+					OutputModalities []string `json:"output_modalities"`
+				}
+				if json.Unmarshal(model.Architecture, &architecture) == nil {
+					entry.InputModalities = architecture.InputModalities
+					entry.OutputModalities = architecture.OutputModalities
+				}
+			}
+		}
+
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err == nil {
 			entry.CodexToolCapabilities = make(map[string]json.RawMessage)

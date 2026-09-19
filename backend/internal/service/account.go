@@ -1389,6 +1389,8 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
+	case PlatformQianfan:
+		return qianfanDefaultBaseURL
 	case PlatformVolcengine:
 		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
@@ -1588,6 +1590,8 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return DefaultQianwenAnthropicBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
+	case PlatformQianfan:
+		return qianfanDefaultBaseURL
 	case PlatformVolcengine:
 		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:

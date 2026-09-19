@@ -23,6 +23,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'opencode_go', label: 'OpenCode' },
   { value: 'qianwen', label: '千问AI' },
   { value: 'commandcode', label: 'Command Code' },
+  { value: 'qianfan', label: 'Qianfan' },
   { value: 'volcengine', label: 'Volcengine Ark' },
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
 ] as const satisfies readonly PlatformOption[]
@@ -41,7 +42,7 @@ export function platformSupportsOAuth(platform: string): boolean {
 /** No verified pricing provider mapping exists for these platforms. */
 export function platformSupportsPricingSync(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform) &&
-    !['qianwen', 'commandcode', 'cursor', 'volcengine'].includes(platform)
+    !['qianwen', 'commandcode', 'cursor', 'qianfan', 'volcengine'].includes(platform)
 }
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
@@ -61,6 +62,7 @@ export function getPlatformLabel(platform: string, translate?: (key: string) => 
 
 /** Explicit defaults for providers with a verified chat-only runtime contract. */
 export const CHAT_PLATFORM_BASE_URLS: Record<string, string> = {
+  qianfan: 'https://qianfan.baidubce.com/v2',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3'
 }
 export function isChatOnlyPlatform(platform: string): boolean {

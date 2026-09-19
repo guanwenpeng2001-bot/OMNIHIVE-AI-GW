@@ -178,6 +178,13 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	if account.Platform == PlatformQianfan {
+		prepared, prepareErr := buildQianfanRequest(ctx, account, "chat/completions", upstreamBody, s.validateUpstreamBaseURL)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		targetURL = prepared.URL.String()
+	}
 	if account.Platform == PlatformVolcengine {
 		prepared, prepareErr := s.prepareVolcengineChatRequest(account, upstreamBody, upstreamModel)
 		if prepareErr != nil {

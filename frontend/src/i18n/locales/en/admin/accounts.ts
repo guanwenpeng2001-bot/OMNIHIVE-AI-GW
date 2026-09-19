@@ -19,6 +19,7 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       newPlatforms: {
+      qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
       volcengineDescription: 'API key /api/v3 chat runtime; configure exact deployment targets and declare availability after saving. Automatic discovery, vendor SSE/error details and balances remain unverified.',
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
@@ -157,6 +158,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
+      qianfan: 'Qianfan',
       volcengine: 'Volcengine Ark',
         qianwen: 'Qianwen AI',
         commandcode: 'Command Code',
