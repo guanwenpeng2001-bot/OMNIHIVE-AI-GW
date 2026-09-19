@@ -34,11 +34,6 @@ type PlatformDescriptor struct {
 }
 
 var platformDescriptors = []PlatformDescriptor{
-	{ID: PlatformBedrock, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformAnthropic, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformGemini, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenAI, ResponsesCompact: true, ResponsesWS: EndpointNative, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
@@ -52,6 +47,11 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformBedrock, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
 
 // PlatformDescriptors returns a copy so callers cannot mutate the authority.
