@@ -44,6 +44,15 @@ const stats = {
 }
 
 describe('UsageStatsCards', () => {
+  it.each([null, undefined, NaN, 0, 1e-8, -1e-8])('keeps %s precise and unknown distinct with permanent units', amount => {
+    const wrapper = mount(UsageStatsCards, { props: { stats: { ...stats, total_actual_cost: amount as number, total_cost: amount as number } }, global: { stubs: { Icon: true } } })
+    const costCard = wrapper.findAll('.card')[2]
+    expect(costCard.text()).toContain('USD')
+    expect(costCard.text()).toContain('usage.userBilled')
+    expect(costCard.text()).toContain('in selected range')
+    expect(costCard.get('.text-xl').text()).toBe(typeof amount === 'number' && Number.isFinite(amount) ? amount.toFixed(8) : '-')
+    wrapper.unmount()
+  })
   it('shows cache token breakdown values', () => {
     const wrapper = mount(UsageStatsCards, {
       props: {
