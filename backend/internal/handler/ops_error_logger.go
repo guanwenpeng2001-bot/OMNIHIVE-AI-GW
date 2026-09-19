@@ -1919,12 +1919,7 @@ func parseOpsSSEFailure(body []byte) (parsedOpsError, bool) {
 				parsed.ErrorType = ""
 			}
 			parsed.Message, _ = errObj["message"].(string)
-			switch code := errObj["code"].(type) {
-			case string:
-				parsed.Code = strings.TrimSpace(code)
-			case float64:
-				parsed.Code = strconvItoa(int(code))
-			}
+			parsed.Code = opsJSONScalarString(errObj["code"])
 			parsed.StatusCode = opsJSONInt(errObj["status_code"])
 			if parsed.StatusCode == 0 {
 				parsed.StatusCode = opsJSONInt(errObj["status"])
