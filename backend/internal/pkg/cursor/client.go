@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
@@ -40,17 +41,14 @@ func newClientWithDial(dial func(context.Context, string, string) (net.Conn, err
 		}
 		host, _, err := net.SplitHostPort(address)
 		if err != nil {
-			connection.Close()
-			return nil, err
+			return nil, errors.Join(err, connection.Close())
 		}
 		secured := utls.UClient(connection, &utls.Config{ServerName: host}, utls.HelloChrome_Auto)
 		if err := secured.HandshakeContext(ctx); err != nil {
-			connection.Close()
-			return nil, err
+			return nil, errors.Join(err, connection.Close())
 		}
 		if secured.ConnectionState().NegotiatedProtocol != "h2" {
-			connection.Close()
-			return nil, fmt.Errorf("cursor: HTTP/2 negotiation failed")
+			return nil, errors.Join(fmt.Errorf("cursor: HTTP/2 negotiation failed"), connection.Close())
 		}
 		return secured, nil
 	}}
@@ -84,9 +82,14 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	reader, writer := io.Pipe()
-	defer reader.Close()
-	defer writer.Close()
-	stop := context.AfterFunc(ctx, func() { writer.CloseWithError(ctx.Err()); reader.CloseWithError(ctx.Err()) })
+	// io.Pipe Close and CloseWithError always return nil; the supplied error
+	// is delivered to the peer, including when cancellation interrupts a write.
+	defer func() { _ = reader.Close() }()
+	defer func() { _ = writer.Close() }()
+	stop := context.AfterFunc(ctx, func() {
+		_ = writer.CloseWithError(ctx.Err())
+		_ = reader.CloseWithError(ctx.Err())
+	})
 	defer stop()
 	payload, runID := encodeRun(messages, model, options.Definitions...)
 	var writeMu sync.Mutex
@@ -98,7 +101,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	}
 	go func() {
 		if err := write(payload); err != nil {
-			writer.CloseWithError(err)
+			_ = writer.CloseWithError(err)
 			return
 		}
 		ticker := time.NewTicker(5 * time.Second)
@@ -125,7 +128,11 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 	if err != nil {
 		return TokenUsage{}, fmt.Errorf("cursor: Run transport failed")
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor Run response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		return TokenUsage{}, &HTTPError{Status: response.StatusCode}
 	}

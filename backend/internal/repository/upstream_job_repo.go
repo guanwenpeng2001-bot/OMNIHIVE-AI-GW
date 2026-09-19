@@ -80,7 +80,7 @@ func (repository *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Conte
 func (r *upstreamJobRepository) Get(ctx context.Context, id string, userID, keyID int64) (*service.UpstreamJob, error) {
 	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
 }
-func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit int) ([]string, error) {
+func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit int) (ids []string, resultErr error) {
 	if limit <= 0 || limit > 100 {
 		limit = 20
 	}
@@ -88,8 +88,7 @@ func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-	var ids []string
+	defer func() { resultErr = errors.Join(resultErr, rows.Close()) }()
 	for rows.Next() {
 		var id string
 		if err := rows.Scan(&id); err != nil {
@@ -99,12 +98,16 @@ func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit in
 	}
 	return ids, rows.Err()
 }
-func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn func(*service.UpstreamJob, service.UpstreamJobTx) error) (*service.UpstreamJob, error) {
+func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn func(*service.UpstreamJob, service.UpstreamJobTx) error) (_ *service.UpstreamJob, resultErr error) {
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() {
+		if err := tx.Rollback(); err != nil && !errors.Is(err, sql.ErrTxDone) {
+			resultErr = errors.Join(resultErr, err)
+		}
+	}()
 	upstreamJob, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 FOR UPDATE`, id))
 	if err != nil {
 		return nil, err

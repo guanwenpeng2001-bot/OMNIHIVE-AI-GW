@@ -1159,32 +1159,6 @@ func appendFirstUserTextFromRaw(builder *strings.Builder, raw []byte) {
 	})
 }
 
-func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
-	if builder == nil || len(raw) == 0 {
-		return
-	}
-	messages := parseRawJSONView(raw)
-	if !messages.IsArray() {
-		return
-	}
-	messages.ForEach(func(_, msg gjson.Result) bool {
-		if content := msg.Get("content"); content.Exists() {
-			_, _ = builder.WriteString(extractTextFromContentRaw(content))
-			return true
-		}
-		parts := msg.Get("parts")
-		if parts.IsArray() {
-			parts.ForEach(func(_, part gjson.Result) bool {
-				if text := part.Get("text").String(); text != "" {
-					_, _ = builder.WriteString(text)
-				}
-				return true
-			})
-		}
-		return true
-	})
-}
-
 func appendResponsesSessionAnchorFromRaw(builder *strings.Builder, raw []byte) {
 	if builder == nil || len(raw) == 0 {
 		return
