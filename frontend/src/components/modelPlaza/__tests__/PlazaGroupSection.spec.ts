@@ -100,11 +100,11 @@ describe('PlazaGroupSection 长上下文说明', () => {
     expect(wrapper.text()).not.toContain(NOTE)
   })
 
-  it('分组关闭但没有官方阶梯模型时不显示', () => {
+  it('分组关闭说明不依赖旧参考价', () => {
     const wrapper = mountSection(
       group({ long_context_pricing_enabled: false, models: [ladderModel(1)] })
     )
-    expect(wrapper.text()).not.toContain(NOTE)
+    expect(wrapper.text()).toContain(NOTE)
   })
 
   it('旧后端缺少开关字段时不显示', () => {
