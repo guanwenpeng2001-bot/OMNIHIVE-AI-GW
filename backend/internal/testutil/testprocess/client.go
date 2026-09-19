@@ -72,7 +72,7 @@ func Start(test *testing.T, role string) *Client {
 			if payload, ok := strings.CutPrefix(scanner.Text(), messagePrefix); ok {
 				client.responses <- []byte(payload)
 			} else {
-				transcript.WriteString(scanner.Text() + "\n")
+				_, _ = transcript.WriteString(scanner.Text() + "\n")
 			}
 		}
 	}()
