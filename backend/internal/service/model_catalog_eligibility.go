@@ -352,13 +352,13 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 			switch {
 			case account.IsOpenCodeGo() || account.IsCommandCode():
 				endpoint = catalogProtocolEndpoint(modelRoutedNativeProtocol(account, binding.UpstreamModel))
-			case account.IsAnthropicProtocol() || account.IsAnthropic():
+			case account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock():
 				endpoint = CompositeRouteEndpointMessages
 			case account.IsOpenAICompatible() && shouldForwardOpenAIResponsesViaRawChatCompletions(account):
 				endpoint = CompositeRouteEndpointChatCompletions
 			}
 		}
-		if options.FinalModel == "" && endpoint == CompositeRouteEndpointChatCompletions && (account.IsAnthropicProtocol() || account.IsAnthropic()) {
+		if options.FinalModel == "" && endpoint == CompositeRouteEndpointChatCompletions && (account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock()) {
 			endpoint = CompositeRouteEndpointMessages
 		}
 		if endpoint == CompositeRouteEndpointGemini {

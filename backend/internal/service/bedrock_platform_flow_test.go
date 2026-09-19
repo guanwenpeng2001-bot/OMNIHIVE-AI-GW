@@ -22,8 +22,15 @@ func TestBedrockPlatformRuntime(test *testing.T) {
 			target := "arn:aws:bedrock:eu-west-1:123456789012:inference-profile/private-profile"
 			account := catalogEvidenceAccount(101, PlatformBedrock, target)
 			account.Type = AccountTypeBedrock
+			snapshot := account.GetUpstreamModelCatalog()
+			snapshot.EligibleModels[0].Endpoints = []string{CompositeRouteEndpointMessages}
+			account.Extra[UpstreamModelCatalogExtraKey] = snapshot
 			account.Credentials = map[string]any{"api_key": "fixture-key", "auth_mode": "apikey", "aws_region": "eu-west-1", "model_mapping": map[string]any{"alias": target}}
 			require.True(test, account.IsBedrock())
+			for _, endpoint := range []string{CompositeRouteEndpointMessages, CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses} {
+				require.True(test, AccountSupportsResolvedModel(context.Background(), &account, "alias", AccountModelBindingOptions{Endpoint: endpoint}), endpoint)
+			}
+			require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "alias", AccountModelBindingOptions{Endpoint: CompositeRouteEndpointChatCompletions, FinalModel: target}), "native outbounds still require Messages evidence")
 			resolved, ok := ResolveBedrockModelID(&account, "alias")
 			require.True(test, ok)
 			require.Equal(test, target, resolved)
