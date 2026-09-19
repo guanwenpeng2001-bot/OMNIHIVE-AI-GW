@@ -130,7 +130,7 @@ func (r *channelRepository) Update(ctx context.Context, channel *service.Channel
 			return err
 		}
 		result, err := tx.ExecContext(ctx,
-			`UPDATE channels SET name = $1, description = $2, status = $3, model_mapping = $4, billing_model_source = $5, restrict_models = $6, features = $7, features_config = $8, apply_pricing_to_account_stats = $9, updated_at = NOW()
+			`UPDATE channels SET name = $1, description = $2, status = $3, model_mapping = $4, billing_model_source = $5, restrict_models = $6, features = $7, features_config = $8::jsonb || CASE WHEN features_config ? 'model_plaza_confirmation' THEN jsonb_build_object('model_plaza_confirmation', features_config->'model_plaza_confirmation') ELSE '{}'::jsonb END, apply_pricing_to_account_stats = $9, updated_at = NOW()
 			 WHERE id = $10`,
 			channel.Name, channel.Description, channel.Status, modelMappingJSON, channel.BillingModelSource, channel.RestrictModels, channel.Features, featuresConfigJSON, channel.ApplyPricingToAccountStats, channel.ID,
 		)

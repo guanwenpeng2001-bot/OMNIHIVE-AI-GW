@@ -96,10 +96,6 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 				BillingMode: service.BillingModeToken,
 				InputPrice:  testPtr(3e-6),
 			},
-			OfficialPricing: &service.PlazaOfficialPricing{
-				InputPrice:     testPtr(3e-6),
-				CacheReadPrice: testPtr(3e-7),
-			},
 		}},
 	}
 
@@ -127,13 +123,7 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	model := models[0].(map[string]any)
 	require.Contains(t, model, "pricing")
 	require.Contains(t, model, "official_pricing")
-	official := model["official_pricing"].(map[string]any)
-	require.Contains(t, official, "input_price")
-	require.Contains(t, official, "cache_read_price")
-	_, has1h := official["cache_write_1h_price"]
-	require.False(t, has1h, "1h 缓存写价为 nil 时应 omitempty")
-	_, hasOfficialIntervals := official["intervals"]
-	require.False(t, hasOfficialIntervals, "官方无阶梯时 intervals 应 omitempty")
+	require.Nil(t, model["official_pricing"])
 	_, hasBasis := model["long_context_basis"]
 	require.False(t, hasBasis, "单档模型不输出 long_context_basis")
 	_, hasTimePricing := model["time_pricing"]
@@ -149,10 +139,6 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	require.False(t, hasRate, "无专属倍率时 user_rate_multiplier 应 omitempty")
 }
 
-func TestToModelPlazaOfficialPricing_NilPassthrough(t *testing.T) {
-	require.Nil(t, toModelPlazaOfficialPricing(nil))
-}
-
 func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	maxTokens := 272000
 	g := service.PlazaGroup{
@@ -164,13 +150,6 @@ func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 			Pricing: &service.ChannelModelPricing{
 				BillingMode: service.BillingModeToken,
 				InputPrice:  testPtr(2.5e-6),
-				Intervals: []service.PricingInterval{
-					{MinTokens: 0, MaxTokens: &maxTokens, TierLabel: "≤272K", InputPrice: testPtr(2.5e-6)},
-					{MinTokens: 272000, TierLabel: ">272K", InputPrice: testPtr(5e-6)},
-				},
-			},
-			OfficialPricing: &service.PlazaOfficialPricing{
-				InputPrice: testPtr(2.5e-6),
 				Intervals: []service.PricingInterval{
 					{MinTokens: 0, MaxTokens: &maxTokens, TierLabel: "≤272K", InputPrice: testPtr(2.5e-6)},
 					{MinTokens: 272000, TierLabel: ">272K", InputPrice: testPtr(5e-6)},
@@ -194,13 +173,8 @@ func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	require.Len(t, paidTiers, 2)
 	require.Equal(t, ">272K", paidTiers[1].(map[string]any)["tier_label"])
 
-	official := model["official_pricing"].(map[string]any)
-	officialTiers := official["intervals"].([]any)
-	require.Len(t, officialTiers, 2)
-	first := officialTiers[0].(map[string]any)
-	require.Equal(t, "≤272K", first["tier_label"])
-	require.InDelta(t, 272000, first["max_tokens"].(float64), 0)
-	require.Contains(t, first, "cache_write_price", "区间 DTO 字段齐全（nil 输出 null）")
+	require.Contains(t, model, "official_pricing")
+	require.Nil(t, model["official_pricing"])
 }
 
 func testPtr(v float64) *float64 { return &v }
