@@ -64,6 +64,9 @@ def run(suite):
             raise SystemExit("AFFINITY_REDIS_TEST_ADDR must identify an isolated real Redis")
 
     backend = Path(__file__).resolve().parents[1]
+    if suite == "catalog":
+        subprocess.run([sys.executable, str(backend / "resources/model-capabilities/scripts/release.py")],
+                       cwd=backend, env=env, check=True)
     totals = {"pass": 0, "fail": 0, "skip": 0}
     errors = []
     for package, (pattern, sentinels) in SUITES[suite].items():
