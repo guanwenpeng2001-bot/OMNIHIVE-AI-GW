@@ -222,8 +222,15 @@ func TestUsageDashboardRebuildPressure(test *testing.T) {
 	measure := func(rebuild bool) ([]int64, int64, int64, uint64) {
 		// Five full reader rounds before EACH phase, using the same distribution.
 		for warmup := 0; warmup < 5; warmup++ {
+			var warming sync.WaitGroup
+			warmupErrors := make(chan error, usagePressureReaders)
 			for reader := 0; reader < usagePressureReaders; reader++ {
-				require.NoError(test, read(reader+warmup))
+				warming.Go(func() { warmupErrors <- read(reader + warmup) })
+			}
+			warming.Wait()
+			close(warmupErrors)
+			for warmupError := range warmupErrors {
+				require.NoError(test, warmupError)
 			}
 		}
 		var failures, rebuilds atomic.Int64
