@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"reflect"
 	"slices"
@@ -24,25 +25,29 @@ type ReasoningControl struct {
 // MarshalJSON preserves an explicit empty control domain instead of turning it
 // into an unknown domain on a snapshot round trip.
 func (control ReasoningControl) MarshalJSON() ([]byte, error) {
-	type plain ReasoningControl
-	body, err := json.Marshal(plain(control))
-	if err != nil {
-		return nil, err
+	// Match the former map encoder's lexical field order, including explicit
+	// empty domains, without encoding and decoding the control a second time.
+	var supportedKinds, effortValues *[]string
+	var toggleValues *[]bool
+	if control.SupportedKinds != nil {
+		supportedKinds = &control.SupportedKinds
 	}
-	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(body, &fields); err != nil {
-		return nil, err
+	if control.EffortValues != nil {
+		effortValues = &control.EffortValues
 	}
-	if control.SupportedKinds != nil && len(control.SupportedKinds) == 0 {
-		fields["supported_kinds"] = json.RawMessage(`[]`)
+	if control.ToggleValues != nil {
+		toggleValues = &control.ToggleValues
 	}
-	if control.EffortValues != nil && len(control.EffortValues) == 0 {
-		fields["effort_values"] = json.RawMessage(`[]`)
-	}
-	if control.ToggleValues != nil && len(control.ToggleValues) == 0 {
-		fields["toggle_values"] = json.RawMessage(`[]`)
-	}
-	return json.Marshal(fields)
+	return json.Marshal(struct {
+		Adaptive       *bool           `json:"adaptive,omitempty"`
+		BudgetMax      *int64          `json:"budget_max,omitempty"`
+		BudgetMin      *int64          `json:"budget_min,omitempty"`
+		Default        json.RawMessage `json:"default,omitempty"`
+		EffortValues   *[]string       `json:"effort_values,omitempty"`
+		Kind           string          `json:"kind"`
+		SupportedKinds *[]string       `json:"supported_kinds,omitempty"`
+		ToggleValues   *[]bool         `json:"toggle_values,omitempty"`
+	}{control.Adaptive, control.BudgetMax, control.BudgetMin, control.Default, effortValues, control.Kind, supportedKinds, toggleValues})
 }
 
 type ModelCapabilityEvidence struct {
@@ -76,8 +81,11 @@ func reasoningControlAllowsEffort(c *ReasoningControl) bool {
 	return c == nil || c.Kind == "unknown" || c.Kind == "effort" || slices.Contains(c.SupportedKinds, "effort")
 }
 
-func recordRejectedCapabilityCandidates(m *UpstreamModelMetadata, fallback UpstreamModelMetadata) {
-	accepted, candidate := metadataFieldValues(*m), metadataFieldValues(fallback)
+func recordRejectedCapabilityCandidates(m *UpstreamModelMetadata, fallback *UpstreamModelMetadata) {
+	// Buffer this merge's diagnostics so several rejections grow the owned
+	// result slice once, while preserving order and nil when none are added.
+	var buffer [8]ModelCapabilityRejection
+	pending := buffer[:0]
 	record := func(field string, value any, reason string) {
 		raw, err := json.Marshal(value)
 		if err != nil {
@@ -89,19 +97,23 @@ func recordRejectedCapabilityCandidates(m *UpstreamModelMetadata, fallback Upstr
 		}
 		r := ModelCapabilityRejection{Field: field, Reason: reason, Value: raw, Evidence: e}
 		for _, prior := range m.RejectedCandidates {
-			if reflect.DeepEqual(prior, r) {
+			if prior.Field == r.Field && prior.Reason == r.Reason && prior.Evidence == r.Evidence && (prior.Value == nil) == (r.Value == nil) && bytes.Equal(prior.Value, r.Value) {
 				return
 			}
 		}
-		m.RejectedCandidates = append(m.RejectedCandidates, r)
+		for _, prior := range pending {
+			if prior.Field == r.Field && prior.Reason == r.Reason && prior.Evidence == r.Evidence && (prior.Value == nil) == (r.Value == nil) && bytes.Equal(prior.Value, r.Value) {
+				return
+			}
+		}
+		pending = append(pending, r)
 	}
 	for _, field := range []string{"task_type", "input_modalities", "output_modalities", "supported_methods", "context_window", "max_context_window", "max_output_tokens", "context_limit_kind", "reasoning", "reasoning_control", "supported_reasoning_levels", "default_reasoning_level", "supports_vision", "supports_pdf", "supports_function_calling", "supports_prompt_caching", "embedding_dimensions"} {
-		v := candidate[field]
-		if v.IsZero() || reflect.DeepEqual(v.Interface(), accepted[field].Interface()) {
+		if rejectedCapabilityFieldIsZero(fallback, field) || metadataFieldEqual(m, fallback, field) {
 			continue
 		}
 		reason := "higher_priority_declaration"
-		if accepted[field].IsZero() {
+		if rejectedCapabilityFieldIsZero(m, field) {
 			reason = "incompatible_related_declaration"
 		}
 		if field == "max_output_tokens" && m.ContextLimitKind == "total" && m.ContextWindow > 0 && fallback.MaxOutputTokens > m.ContextWindow {
@@ -110,7 +122,7 @@ func recordRejectedCapabilityCandidates(m *UpstreamModelMetadata, fallback Upstr
 		if (field == "supported_reasoning_levels" || field == "default_reasoning_level") && !reasoningControlAllowsEffort(m.ReasoningControl) {
 			reason = "control_does_not_support_effort"
 		}
-		record(field, v.Interface(), reason)
+		record(field, rejectedCapabilityFieldValue(fallback, field), reason)
 	}
 	keys := make([]string, 0, len(fallback.TaskLimits))
 	for key := range fallback.TaskLimits {
@@ -122,6 +134,10 @@ func recordRejectedCapabilityCandidates(m *UpstreamModelMetadata, fallback Upstr
 			record("task_limits."+key, fallback.TaskLimits[key], "higher_priority_declaration")
 		}
 	}
+	if len(pending) > 0 {
+		m.RejectedCandidates = append(m.RejectedCandidates, pending...)
+	}
+
 }
 
 func normalizeReasoningControl(m UpstreamModelMetadata) *ReasoningControl {
@@ -271,20 +287,26 @@ func evaluateModelMetadataCompleteness(m UpstreamModelMetadata) ModelMetadataCom
 	return r
 }
 
-func metadataFieldValues(m UpstreamModelMetadata) map[string]reflect.Value {
-	v := reflect.ValueOf(m)
-	result := make(map[string]reflect.Value)
-	for i := 0; i < v.NumField(); i++ {
-		name := strings.Split(v.Type().Field(i).Tag.Get("json"), ",")[0]
-		result[name] = v.Field(i)
+// These indexes describe the fixed Go schema only; no request data is retained.
+var metadataJSONFieldIndexes = func() map[string]int {
+	schema := reflect.TypeOf(UpstreamModelMetadata{})
+	jsonFields := make(map[string]int, schema.NumField())
+	for index := 0; index < schema.NumField(); index++ {
+		field := schema.Field(index)
+		name, _, _ := strings.Cut(field.Tag.Get("json"), ",")
+		jsonFields[name] = index
 	}
-	return result
-}
+	return jsonFields
+}()
+
 func stampCapabilityEvidence(m *UpstreamModelMetadata, source, version, profile, matched, rule, confidence string) {
 	if m.FieldEvidence == nil {
 		m.FieldEvidence = make(map[string]ModelCapabilityEvidence)
 	}
-	for f, v := range metadataFieldValues(*m) {
+	value := reflect.ValueOf(*m)
+	observedAt := time.Now().UTC().Format(time.RFC3339)
+	for f, index := range metadataJSONFieldIndexes {
+		v := value.Field(index)
 		switch f {
 		case "field_evidence", "metadata_status", "missing_fields", "estimated_fields", "conflicts", "rejected_candidates":
 			continue
@@ -293,7 +315,7 @@ func stampCapabilityEvidence(m *UpstreamModelMetadata, source, version, profile,
 			continue
 		}
 		if _, ok := m.FieldEvidence[f]; !ok {
-			m.FieldEvidence[f] = ModelCapabilityEvidence{Source: source, SourceVersion: version, ProviderProfile: profile, MatchedModelID: matched, MatchRule: rule, ObservedAt: time.Now().UTC().Format(time.RFC3339), Confidence: confidence}
+			m.FieldEvidence[f] = ModelCapabilityEvidence{Source: source, SourceVersion: version, ProviderProfile: profile, MatchedModelID: matched, MatchRule: rule, ObservedAt: observedAt, Confidence: confidence}
 		}
 	}
 }
@@ -418,4 +440,164 @@ func capabilityTaskLimitPresent(key string, raw json.RawMessage) bool {
 func compatibleVisionDeclaration(m UpstreamModelMetadata, modalities []string) bool {
 	return (m.SupportsVision == nil || *m.SupportsVision == slices.Contains(modalities, "image")) &&
 		(m.SupportsPDF == nil || *m.SupportsPDF == slices.Contains(modalities, "pdf"))
+}
+
+// metadataFieldEqual preserves DeepEqual's presence semantics without boxing
+// entire metadata values for the scalar and string-list fields on the hot path.
+func metadataFieldEqual(left, right *UpstreamModelMetadata, field string) bool {
+	switch field {
+	case "supports_pdf":
+		return left.SupportsPDF == right.SupportsPDF || left.SupportsPDF != nil && right.SupportsPDF != nil && *left.SupportsPDF == *right.SupportsPDF
+	case "rejected_candidates":
+		return reflect.DeepEqual(left.RejectedCandidates, right.RejectedCandidates)
+	case "supports_vision":
+		return left.SupportsVision == right.SupportsVision || left.SupportsVision != nil && right.SupportsVision != nil && *left.SupportsVision == *right.SupportsVision
+	case "provider_profile":
+		return left.ProviderProfile == right.ProviderProfile
+	case "supports_function_calling":
+		return left.SupportsFunctionCalling == right.SupportsFunctionCalling || left.SupportsFunctionCalling != nil && right.SupportsFunctionCalling != nil && *left.SupportsFunctionCalling == *right.SupportsFunctionCalling
+	case "supports_prompt_caching":
+		return left.SupportsPromptCaching == right.SupportsPromptCaching || left.SupportsPromptCaching != nil && right.SupportsPromptCaching != nil && *left.SupportsPromptCaching == *right.SupportsPromptCaching
+	case "reasoning_control":
+		return reflect.DeepEqual(left.ReasoningControl, right.ReasoningControl)
+	case "context_limit_kind":
+		return left.ContextLimitKind == right.ContextLimitKind
+	case "input_modalities_status":
+		return left.InputModalitiesStatus == right.InputModalitiesStatus
+	case "endpoint_status":
+		return left.EndpointStatus == right.EndpointStatus
+	case "embedding_dimensions":
+		return left.EmbeddingDimensions == right.EmbeddingDimensions
+	case "task_limits":
+		return reflect.DeepEqual(left.TaskLimits, right.TaskLimits)
+	case "field_evidence":
+		return reflect.DeepEqual(left.FieldEvidence, right.FieldEvidence)
+	case "metadata_status":
+		return left.MetadataStatus == right.MetadataStatus
+	case "missing_fields":
+		return (left.MissingFields == nil) == (right.MissingFields == nil) && slices.Equal(left.MissingFields, right.MissingFields)
+	case "estimated_fields":
+		return (left.EstimatedFields == nil) == (right.EstimatedFields == nil) && slices.Equal(left.EstimatedFields, right.EstimatedFields)
+	case "conflicts":
+		return (left.Conflicts == nil) == (right.Conflicts == nil) && slices.Equal(left.Conflicts, right.Conflicts)
+	case "context_hint":
+		return left.ContextHint == right.ContextHint
+	case "family_hint":
+		return left.FamilyHint == right.FamilyHint
+	case "category":
+		return left.Category == right.Category
+	case "task_type":
+		return left.TaskType == right.TaskType
+	case "supported_methods":
+		return (left.SupportedMethods == nil) == (right.SupportedMethods == nil) && slices.Equal(left.SupportedMethods, right.SupportedMethods)
+	case "output_modalities":
+		return (left.OutputModalities == nil) == (right.OutputModalities == nil) && slices.Equal(left.OutputModalities, right.OutputModalities)
+	case "id":
+		return left.ID == right.ID
+	case "display_name":
+		return left.DisplayName == right.DisplayName
+	case "description":
+		return left.Description == right.Description
+	case "reasoning":
+		return left.Reasoning == right.Reasoning || left.Reasoning != nil && right.Reasoning != nil && *left.Reasoning == *right.Reasoning
+	case "default_reasoning_level":
+		return left.DefaultReasoningLevel == right.DefaultReasoningLevel
+	case "supported_reasoning_levels":
+		return (left.SupportedReasoningLevels == nil) == (right.SupportedReasoningLevels == nil) && slices.Equal(left.SupportedReasoningLevels, right.SupportedReasoningLevels)
+	case "input_modalities":
+		return (left.InputModalities == nil) == (right.InputModalities == nil) && slices.Equal(left.InputModalities, right.InputModalities)
+	case "context_window":
+		return left.ContextWindow == right.ContextWindow
+	case "max_context_window":
+		return left.MaxContextWindow == right.MaxContextWindow
+	case "max_output_tokens":
+		return left.MaxOutputTokens == right.MaxOutputTokens
+	case "codex_tool_capabilities":
+		return reflect.DeepEqual(left.CodexToolCapabilities, right.CodexToolCapabilities)
+	default:
+		return false
+	}
+}
+
+// Only rejected, nonzero fields are boxed for JSON diagnostics; accepted
+// fields never require interface copies of the whole metadata object.
+func rejectedCapabilityFieldIsZero(metadata *UpstreamModelMetadata, field string) bool {
+	switch field {
+	case "task_type":
+		return metadata.TaskType == ""
+	case "input_modalities":
+		return metadata.InputModalities == nil
+	case "output_modalities":
+		return metadata.OutputModalities == nil
+	case "supported_methods":
+		return metadata.SupportedMethods == nil
+	case "context_window":
+		return metadata.ContextWindow == 0
+	case "max_context_window":
+		return metadata.MaxContextWindow == 0
+	case "max_output_tokens":
+		return metadata.MaxOutputTokens == 0
+	case "context_limit_kind":
+		return metadata.ContextLimitKind == ""
+	case "reasoning":
+		return metadata.Reasoning == nil
+	case "reasoning_control":
+		return metadata.ReasoningControl == nil
+	case "supported_reasoning_levels":
+		return metadata.SupportedReasoningLevels == nil
+	case "default_reasoning_level":
+		return metadata.DefaultReasoningLevel == ""
+	case "supports_vision":
+		return metadata.SupportsVision == nil
+	case "supports_pdf":
+		return metadata.SupportsPDF == nil
+	case "supports_function_calling":
+		return metadata.SupportsFunctionCalling == nil
+	case "supports_prompt_caching":
+		return metadata.SupportsPromptCaching == nil
+	case "embedding_dimensions":
+		return metadata.EmbeddingDimensions == 0
+	default:
+		return true
+	}
+}
+func rejectedCapabilityFieldValue(metadata *UpstreamModelMetadata, field string) any {
+	switch field {
+	case "task_type":
+		return metadata.TaskType
+	case "input_modalities":
+		return metadata.InputModalities
+	case "output_modalities":
+		return metadata.OutputModalities
+	case "supported_methods":
+		return metadata.SupportedMethods
+	case "context_window":
+		return metadata.ContextWindow
+	case "max_context_window":
+		return metadata.MaxContextWindow
+	case "max_output_tokens":
+		return metadata.MaxOutputTokens
+	case "context_limit_kind":
+		return metadata.ContextLimitKind
+	case "reasoning":
+		return metadata.Reasoning
+	case "reasoning_control":
+		return metadata.ReasoningControl
+	case "supported_reasoning_levels":
+		return metadata.SupportedReasoningLevels
+	case "default_reasoning_level":
+		return metadata.DefaultReasoningLevel
+	case "supports_vision":
+		return metadata.SupportsVision
+	case "supports_pdf":
+		return metadata.SupportsPDF
+	case "supports_function_calling":
+		return metadata.SupportsFunctionCalling
+	case "supports_prompt_caching":
+		return metadata.SupportsPromptCaching
+	case "embedding_dimensions":
+		return metadata.EmbeddingDimensions
+	default:
+		return nil
+	}
 }
