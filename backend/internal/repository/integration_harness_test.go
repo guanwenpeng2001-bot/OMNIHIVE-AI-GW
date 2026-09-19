@@ -61,8 +61,10 @@ func runExternalIntegration(m *testing.M) int {
 		return 1
 	}
 	defer func() { _ = integrationDB.Close() }()
-	// Existing isolated database only: full migration initialization belongs to
-	// suites that explicitly own their database fixtures.
+	if err := ApplyMigrations(ctx, integrationDB); err != nil {
+		log.Printf("failed to apply isolated db migrations: %v", err)
+		return 1
+	}
 	integrationEntClient = dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, integrationDB)))
 	defer func() { _ = integrationEntClient.Close() }()
 	integrationRedis = redisclient.NewClient(&redisclient.Options{Addr: address})

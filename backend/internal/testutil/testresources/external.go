@@ -6,8 +6,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -33,10 +35,9 @@ func ValidatePostgres(connectionString, database string) error {
 	}
 	parsed, err := url.Parse(connectionString)
 	if err != nil || parsed == nil || (parsed.Scheme != "postgres" && parsed.Scheme != "postgresql") ||
-		(parsed.Hostname() != "localhost" && parsed.Hostname() != "127.0.0.1") ||
-		parsed.Port() != "5433" || parsed.Path != "/"+database || parsed.Fragment != "" ||
+		!explicitLocalAddress(parsed.Host) || parsed.Path != "/"+database || parsed.Fragment != "" ||
 		parsed.User == nil || parsed.User.Username() == "" {
-		return errors.New("expected explicit localhost:5433 isolated test database URI")
+		return errors.New("expected explicit local host and port with isolated test database URI")
 	}
 	query, err := url.ParseQuery(parsed.RawQuery)
 	if err != nil {
@@ -56,10 +57,21 @@ func ValidatePostgres(connectionString, database string) error {
 }
 
 func ValidateRedis(address string) error {
-	if address != "localhost:6380" && address != "127.0.0.1:6380" {
-		return errors.New("expected explicit localhost:6380 test Redis address")
+	if !explicitLocalAddress(address) {
+		return errors.New("expected explicit local host and port for test Redis")
 	}
 	return nil
+}
+
+// Ports belong to the caller's isolated environment: CI services and local test
+// instances use different ports. Keep routing explicit and loopback-only.
+func explicitLocalAddress(address string) bool {
+	host, port, err := net.SplitHostPort(address)
+	if err != nil || (host != "localhost" && host != "127.0.0.1") {
+		return false
+	}
+	number, err := strconv.ParseUint(port, 10, 16)
+	return err == nil && number > 0
 }
 
 func OpenPostgres(ctx context.Context, connectionString, database string) (*sql.DB, error) {

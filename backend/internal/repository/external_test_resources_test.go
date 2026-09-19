@@ -28,7 +28,7 @@ func TestExternalTestResourceMode(test *testing.T) {
 	test.Run("reject_implicit_and_overridden_connections", func(test *testing.T) {
 		for _, invalid := range []string{
 			"", "dbname=job_test", "postgres://tester@localhost:5433/sub2api",
-			"postgres://tester@localhost:5432/job_test", "postgres://tester@remote.invalid:5433/job_test",
+			"postgres://tester@localhost/job_test", "postgres://tester@localhost:0/job_test", "postgres://tester@localhost:65536/job_test", "postgres://tester@remote.invalid:5433/job_test",
 			"postgres://tester@localhost:5433/job_test?dbname=sub2api",
 			"postgres://tester@localhost:5433/job_test?host=remote.invalid",
 			"postgres://tester@localhost:5433/job_test?port=5432",
@@ -41,10 +41,25 @@ func TestExternalTestResourceMode(test *testing.T) {
 			require.Error(test, err)
 			require.Nil(test, connection)
 		}
-		for _, invalid := range []string{"", "localhost:6379", "remote.invalid:6380", "redis://localhost:6380"} {
+		for _, invalid := range []string{"", "localhost", "localhost:", "localhost:0", "localhost:65536", "localhost:abc", "remote.invalid:6380", "redis://localhost:6380"} {
 			require.Error(test, testresources.ValidateRedis(invalid))
 		}
 		require.Error(test, testresources.ValidatePostgres(connectionString, "sub2api"))
+	})
+
+	test.Run("accept_explicit_local_ports_without_connecting", func(test *testing.T) {
+		// Validation only: never connect to the developer's default-port services.
+		for _, valid := range []string{
+			"postgres://tester@localhost:5432/job_test",
+			"postgres://tester@127.0.0.1:5433/job_test?sslmode=disable",
+			"postgresql://tester@localhost:15432/job_test?TimeZone=UTC&connect_timeout=5",
+		} {
+			require.NoError(test, testresources.ValidatePostgres(valid, "job_test"))
+		}
+		require.NoError(test, testresources.ValidatePostgres("postgres://tester@localhost:5432/stats_test", "stats_test"))
+		for _, valid := range []string{"localhost:6379", "127.0.0.1:6380", "localhost:16379"} {
+			require.NoError(test, testresources.ValidateRedis(valid))
+		}
 	})
 	test.Run("external_lifecycle_never_enters_managed_callbacks", func(test *testing.T) {
 		callbacks := map[string]int{"start": 0, "stop": 0, "create_database": 0, "drop_database": 0}
@@ -66,8 +81,12 @@ func TestExternalTestResourceMode(test *testing.T) {
 		require.Equal(test, 1, managedCalls)
 	})
 	test.Run("reject_environment_routing_override", func(test *testing.T) {
-		test.Setenv("PGOPTIONS", "-c search_path=public")
-		require.Error(test, testresources.ValidatePostgres(connectionString, "job_test"))
+		for _, name := range []string{"PGHOSTADDR", "PGSERVICE", "PGSERVICEFILE", "PGOPTIONS"} {
+			test.Run(name, func(test *testing.T) {
+				test.Setenv(name, "unsupported-override")
+				require.Error(test, testresources.ValidatePostgres(connectionString, "job_test"))
+			})
+		}
 	})
 	test.Run("postgres_owns_only_its_fixture_schema", func(test *testing.T) {
 		connection, err := testresources.OpenPostgres(ctx, connectionString, "job_test")
