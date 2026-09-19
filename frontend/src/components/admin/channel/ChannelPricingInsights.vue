@@ -47,7 +47,7 @@
         <p v-if="result.source">{{ result.source.before_count }} → {{ result.source.after_count }} · {{ t('admin.channels.insights.added') }}: {{ result.source.added.length }} · {{ t('admin.channels.insights.removed') }}: {{ result.source.removed.length }}</p>
         <div v-for="difference in differences" :key="difference.id" :role="difference.warning ? 'alert' : undefined" :class="{ 'text-amber-700 dark:text-amber-400': difference.warning }">
           <p>{{ t(`admin.channels.insights.${difference.basis}`) }} · {{ difference.model }} · {{ difference.field }}: {{ t(`admin.channels.insights.${difference.status}`) }}<span v-if="difference.absolute_percent != null"> · {{ difference.absolute_percent.toFixed(2) }}%</span></p>
-          <p>{{ t('admin.channels.insights.baseline') }}: {{ quoteText(difference.baseline) }} → {{ t('admin.channels.insights.compared') }}: {{ quoteText(difference.candidate) }}</p>
+          <p>{{ t(difference.basis === 'channel_to_reference' ? 'admin.channels.insights.channelBaseline' : 'admin.channels.insights.baseline') }}: {{ quoteText(difference.baseline) }} → {{ t(difference.basis === 'channel_to_reference' ? 'admin.channels.insights.referenceCompared' : 'admin.channels.insights.compared') }}: {{ quoteText(difference.candidate) }}</p>
         </div>
         <p v-for="impact in result.impacts || []" :key="`${impact.group_id}:${impact.model}`">#{{ impact.group_id }} {{ impact.model }} · {{ t('admin.channels.insights.savedCharge') }} (USD): {{ impact.comparable ? `${impact.before?.ActualCost} → ${impact.after?.ActualCost}` : t('admin.channels.insights.incomparable') }}</p>
       </div>

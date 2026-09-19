@@ -91,14 +91,16 @@ describe('ChannelsView capability pricing contract', () => {
     expect(wrapper.text()).not.toContain('Embedding dimensions')
   })
 
-  it('shows the warning denominator and native unit once and never mutates the draft', async () => {
+  it('C02 labels the channel denominator and reference comparison without mutating the draft', async () => {
     const wrapper = await openPanel()
     await wrapper.get('[data-testid="insight-account"]').setValue('11'); await flushPromises()
     const original = JSON.stringify(wrapper.props('entry'))
     await wrapper.get('[data-testid="compare-pricing"]').trigger('click'); await flushPromises()
     expect(preview).toHaveBeenCalledWith(expect.objectContaining({ profile: 'openai', pricing: expect.objectContaining({ input_price: 0.0000012, output_price: 0.000002 }) }))
     expect(wrapper.findAll('[role="alert"]')).toHaveLength(1)
-    expect(wrapper.text()).toContain('Baseline / denominator')
+    expect(wrapper.text()).toContain('Channel draft → reference')
+    expect(wrapper.text()).toContain('Channel draft / denominator: 0.000001 USD/token')
+    expect(wrapper.text()).toContain('Reference price: 0.0000012 USD/token')
     expect(wrapper.text()).toContain('0.000001 USD/token')
     expect(wrapper.text()).toContain('20.00%')
     expect(wrapper.text()).toContain('openai/model')

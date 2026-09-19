@@ -181,7 +181,10 @@ func ConvertBedrockConverseStream(ctx context.Context, body io.ReadCloser, write
 			if !stopped || !event.Get("usage").IsObject() {
 				return usage, fmt.Errorf("invalid Converse metadata")
 			}
-			usage = bedrockConverseUsage(event.Get("usage"))
+			usage, err = bedrockConverseUsage(event.Get("usage"))
+			if err != nil {
+				return nil, err
+			}
 			metadataSeen = true
 			err = emit(map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stopReason, "stop_sequence": nil}, "usage": usage})
 		default:

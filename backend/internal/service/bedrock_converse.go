@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/tidwall/gjson"
@@ -205,14 +206,28 @@ func BuildBedrockAdapterRequest(ctx context.Context, account *Account, target st
 	return request, nil
 }
 
-func bedrockConverseUsage(usage gjson.Result) map[string]any {
+// Validate at the Converse boundary, without changing legacy Invoke parsing.
+// Missing usage is unknown, never a known zero. Optional cache/total counters
+// must satisfy the same integer contract when supplied.
+func bedrockConverseUsage(usage gjson.Result) (map[string]any, error) {
+	if !usage.IsObject() {
+		return nil, fmt.Errorf("missing Converse usage")
+	}
 	result := make(map[string]any)
 	for source, target := range map[string]string{"inputTokens": "input_tokens", "outputTokens": "output_tokens", "totalTokens": "total_tokens", "cacheReadInputTokens": "cache_read_input_tokens", "cacheWriteInputTokens": "cache_creation_input_tokens"} {
-		if value := usage.Get(source); value.Exists() {
-			result[target] = value.Value()
+		value := usage.Get(source)
+		if !value.Exists() && source != "inputTokens" && source != "outputTokens" {
+			continue
 		}
+		// Parse the raw JSON integer to avoid floating-point rounding accepting
+		// fractional or overflowing values before ClaudeUsage converts to int.
+		count, err := strconv.ParseInt(value.Raw, 10, strconv.IntSize)
+		if value.Type != gjson.Number || err != nil || count < 0 {
+			return nil, fmt.Errorf("invalid Converse usage counter: %s", source)
+		}
+		result[target] = count
 	}
-	return result
+	return result, nil
 }
 
 func bedrockConverseStopReason(reason string) (string, error) {
@@ -252,8 +267,10 @@ func ConvertBedrockConverseResponse(body []byte, requestID, model string) ([]byt
 		return nil, err
 	}
 	result := map[string]any{"id": requestID, "type": "message", "role": "assistant", "model": model, "content": content, "stop_reason": stopReason, "stop_sequence": nil}
-	if usage := response.Get("usage"); usage.IsObject() {
-		result["usage"] = bedrockConverseUsage(usage)
+	usage, err := bedrockConverseUsage(response.Get("usage"))
+	if err != nil {
+		return nil, err
 	}
+	result["usage"] = usage
 	return json.Marshal(result)
 }

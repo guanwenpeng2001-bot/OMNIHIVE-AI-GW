@@ -29,8 +29,8 @@ func TestChannelPricingComparisonReadOnly(test *testing.T) {
 				case "input_cost_per_token":
 					require.Equal(test, scenario.status, difference.Status)
 					if scenario.status == "comparable" {
-						require.True(test, difference.Warning)
-						require.InDelta(test, 10.01, *difference.AbsolutePercent, 1e-8)
+						require.False(test, difference.Warning)
+						require.InDelta(test, (1.1001-1)/1.1001*100, *difference.AbsolutePercent, 1e-8)
 						require.Equal(test, "USD", difference.Baseline.Currency)
 						require.Equal(test, "token", difference.Baseline.Unit)
 					} else {
@@ -38,7 +38,9 @@ func TestChannelPricingComparisonReadOnly(test *testing.T) {
 					}
 				case "output_cost_per_token":
 					if scenario.status == "comparable" {
-						require.Equal(test, "new_charge", difference.Status)
+						require.Equal(test, "comparable", difference.Status)
+						require.InDelta(test, 100, *difference.AbsolutePercent, 1e-8)
+						require.True(test, difference.Warning)
 					}
 				default:
 					require.Equal(test, "missing", difference.Status)
@@ -64,8 +66,8 @@ func TestChannelPricingComparisonReadOnly(test *testing.T) {
 		mediaCard := ChannelModelPricing{BillingMode: BillingModeImage, PerRequestPrice: testPtrFloat64(0.02)}
 		differences := mediaPricing.CompareChannelPricing("image-model", "openai", "image_generation", mediaCard)
 		require.Len(test, differences, 1)
-		require.Equal(test, "image", differences[0].Baseline.Unit)
-		require.Equal(test, "request", differences[0].Candidate.Unit)
+		require.Equal(test, "request", differences[0].Baseline.Unit)
+		require.Equal(test, "image", differences[0].Candidate.Unit)
 		require.Equal(test, "incomparable", differences[0].Status)
 		require.Nil(test, differences[0].AbsolutePercent)
 		require.False(test, differences[0].Warning)
