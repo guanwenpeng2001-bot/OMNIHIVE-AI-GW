@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/capabilitysources"
 )
@@ -176,22 +177,11 @@ func (enricher *CapabilityReadOnlyEnricher) refresh(source string, previous capa
 // Convert only the common parser's capability whitelist. Registry namespaces
 // remain exact: an OpenRouter ID does not prove a native OpenAI deployment fact.
 func capabilityObservationIndex(observation capabilitysources.Observation) map[string]UpstreamModelMetadata {
-	// Do not promote CapabilityRecord.UnmarshalJSON: it would swallow the
-	// registry's total context fields, which are deliberately separate from input.
-	type observationRecord CapabilityRecord
 	index := make(map[string]UpstreamModelMetadata)
 	ambiguous := make(map[string]bool)
 	for _, record := range observation.Records {
-		body, err := json.Marshal(record)
-		if err != nil {
-			continue
-		}
-		var fields struct {
-			observationRecord
-			ContextWindow    int64  `json:"context_window"`
-			ContextLimitKind string `json:"context_limit_kind"`
-		}
-		if json.Unmarshal(body, &fields) != nil {
+		fields, ok := decodeCapabilityObservation(record)
+		if !ok {
 			continue
 		}
 		profile, id := fields.Profile, fields.ModelID
@@ -234,4 +224,135 @@ func capabilityObservationIndex(observation capabilitysources.Observation) map[s
 		index[key] = metadata
 	}
 	return index
+}
+
+// Do not embed CapabilityRecord's custom unmarshaler: total context and input
+// limits are separate observations. The fast path covers the common parser's
+// whitelist; all other representations retain encoding/json's exact behavior.
+type capabilityObservationRecord CapabilityRecord
+
+type capabilityObservationFields struct {
+	capabilityObservationRecord
+	ContextWindow    int64  `json:"context_window"`
+	ContextLimitKind string `json:"context_limit_kind"`
+}
+
+func decodeCapabilityObservation(record map[string]any) (capabilityObservationFields, bool) {
+	if fields, ok := decodeCommonCapabilityObservation(record); ok {
+		return fields, true
+	}
+	body, err := json.Marshal(record)
+	if err != nil {
+		return capabilityObservationFields{}, false
+	}
+	var fields capabilityObservationFields
+	err = json.Unmarshal(body, &fields)
+	return fields, err == nil
+}
+
+func decodeCommonCapabilityObservation(record map[string]any) (capabilityObservationFields, bool) {
+	var fields capabilityObservationFields
+	for key, value := range record {
+		switch key {
+		case "provider", "profile", "model_id", "mode", "context_limit_kind":
+			if value == nil {
+				continue
+			}
+			text, ok := value.(string)
+			if !ok || !utf8.ValidString(text) {
+				return fields, false
+			}
+			switch key {
+			case "provider":
+				fields.Provider = text
+			case "profile":
+				fields.Profile = text
+			case "model_id":
+				fields.ModelID = text
+			case "mode":
+				fields.Mode = text
+			case "context_limit_kind":
+				fields.ContextLimitKind = text
+			}
+		case "max_input_tokens", "max_output_tokens", "context_window":
+			if value == nil {
+				continue
+			}
+			// The collector emits int64; json.Number retains exact integer
+			// syntax and range checks for observations decoded with UseNumber.
+			var number int64
+			switch value := value.(type) {
+			case int64:
+				number = value
+			case json.Number:
+				parsed, err := value.Int64()
+				if err != nil || !json.Valid([]byte(value)) {
+					return fields, false
+				}
+				number = parsed
+			default:
+				return fields, false
+			}
+			switch key {
+			case "max_input_tokens":
+				fields.MaxInputTokens = &number
+			case "max_output_tokens":
+				fields.MaxOutputTokens = &number
+			case "context_window":
+				fields.ContextWindow = number
+			}
+		case "supports_reasoning", "supports_vision", "supports_function_calling", "supports_prompt_caching":
+			if value == nil {
+				continue
+			}
+			flag, ok := value.(bool)
+			if !ok {
+				return fields, false
+			}
+			switch key {
+			case "supports_reasoning":
+				fields.SupportsReasoning = &flag
+			case "supports_vision":
+				fields.SupportsVision = &flag
+			case "supports_function_calling":
+				fields.SupportsFunctionCalling = &flag
+			case "supports_prompt_caching":
+				fields.SupportsPromptCaching = &flag
+			}
+		case "input_modalities", "output_modalities", "supported_parameters":
+			if value == nil {
+				continue
+			}
+			items, ok := value.([]any)
+			if !ok {
+				return fields, false
+			}
+			var texts []string
+			if items != nil {
+				texts = make([]string, len(items))
+			}
+			for index, item := range items {
+				// JSON null in a string slice decodes to its zero value.
+				if item == nil {
+					continue
+				}
+				text, ok := item.(string)
+				if !ok || !utf8.ValidString(text) {
+					return fields, false
+				}
+				texts[index] = text
+			}
+			switch key {
+			case "input_modalities":
+				fields.InputModalities = texts
+			case "output_modalities":
+				fields.OutputModalities = texts
+			}
+		default:
+			// This includes case-insensitive JSON field aliases and unknown
+			// values which may fail marshaling; never partially accept a row.
+			return fields, false
+		}
+	}
+	return fields, true
 }

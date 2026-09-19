@@ -534,24 +534,6 @@ func upstreamModelMetadataIsUseful(metadata UpstreamModelMetadata) bool {
 		metadata.MaxOutputTokens > 0
 }
 
-// upstreamModelMetadataIsComplete reports whether a snapshot entry is safe to
-// persist and later prefer over local Codex name-based fallbacks.
-func upstreamModelMetadataIsComplete(metadata UpstreamModelMetadata) bool {
-	if metadata.Reasoning == nil {
-		return false
-	}
-	if len(normalizeCodexInputModalities(metadata.InputModalities)) == 0 {
-		return false
-	}
-	if metadata.ContextWindow <= 0 {
-		return false
-	}
-	if *metadata.Reasoning && len(normalizeReasoningLevels(metadata.SupportedReasoningLevels)) == 0 {
-		return false
-	}
-	return true
-}
-
 // The boolean reports accepted capability changes; rejection diagnostics alone
 // do not mean the fallback supplied usable metadata.
 func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (UpstreamModelMetadata, bool) {
@@ -652,9 +634,7 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.MaxOutputTokens = fallback.MaxOutputTokens
 		changed = true
 	}
-	a, b := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(fallback)
 	for _, name := range []string{"ProviderProfile", "SupportsVision", "SupportsPDF", "SupportsFunctionCalling", "SupportsPromptCaching", "ReasoningControl", "ContextLimitKind", "InputModalitiesStatus", "EndpointStatus", "EmbeddingDimensions", "ContextHint", "FamilyHint"} {
-		x, y := a.FieldByName(name), b.FieldByName(name)
 		if (name == "SupportsVision" || name == "SupportsPDF") && merged.InputModalities != nil && merged.InputModalitiesStatus != "partial" {
 			modality, flag := "image", fallback.SupportsVision
 			if name == "SupportsPDF" {
@@ -681,12 +661,7 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		if name == "InputModalitiesStatus" && !reflect.DeepEqual(merged.InputModalities, fallback.InputModalities) {
 			continue
 		}
-		if name == "ReasoningControl" && merged.ReasoningControl != nil && merged.ReasoningControl.Kind == "unknown" && fallback.ReasoningControl != nil && fallback.ReasoningControl.Kind != "unknown" {
-			x.Set(y)
-			changed = true
-		}
-		if x.IsZero() && !y.IsZero() {
-			x.Set(y)
+		if mergeMetadataField(&merged, &fallback, name) {
 			changed = true
 		}
 	}
@@ -695,20 +670,24 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.InputModalitiesStatus = fallback.InputModalitiesStatus
 		changed = true
 	}
-	before, after := metadataFieldValues(primary), metadataFieldValues(merged)
+	// Snapshot the evidence map header before provenance updates, just as the
+	// old reflected value copy did (including a nil header).
+	after := merged
 	for f, e := range fallback.FieldEvidence {
 		if f == "task_limits" || strings.HasPrefix(f, "task_limits.") {
 			continue // per-key evidence must not relabel retained native limits
 		}
-		if value, ok := after[f]; ok && !reflect.DeepEqual(before[f].Interface(), value.Interface()) {
+		if _, ok := metadataJSONFieldIndexes[f]; ok && !metadataFieldEqual(&primary, &after, f) {
 			if merged.FieldEvidence == nil {
 				merged.FieldEvidence = make(map[string]ModelCapabilityEvidence)
 			}
 			merged.FieldEvidence[f] = e
 		}
 	}
-	recordRejectedCapabilityCandidates(&merged, fallback)
-	return cloneUpstreamModelMetadata(merged), changed
+	recordRejectedCapabilityCandidates(&merged, &fallback)
+	// Primary was cloned on entry, accepted fallback references were cloned at
+	// assignment, and rejection values are newly marshaled owned buffers.
+	return merged, changed
 }
 
 // Clone even unchanged entries: callers must not mutate cached registry or
@@ -2333,4 +2312,76 @@ func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest
 		return nil, nil, failure
 	}
 	return models, merged, nil
+}
+
+// The caller checks related-field compatibility before assigning. Pointer
+// fields always acquire independent ownership; scalar fields need only a copy.
+func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) bool {
+	switch field {
+	case "ProviderProfile":
+		if merged.ProviderProfile == "" && fallback.ProviderProfile != "" {
+			merged.ProviderProfile = fallback.ProviderProfile
+			return true
+		}
+	case "SupportsVision":
+		if merged.SupportsVision == nil && fallback.SupportsVision != nil {
+			flag := *fallback.SupportsVision
+			merged.SupportsVision = &flag
+			return true
+		}
+	case "SupportsPDF":
+		if merged.SupportsPDF == nil && fallback.SupportsPDF != nil {
+			flag := *fallback.SupportsPDF
+			merged.SupportsPDF = &flag
+			return true
+		}
+	case "SupportsFunctionCalling":
+		if merged.SupportsFunctionCalling == nil && fallback.SupportsFunctionCalling != nil {
+			flag := *fallback.SupportsFunctionCalling
+			merged.SupportsFunctionCalling = &flag
+			return true
+		}
+	case "SupportsPromptCaching":
+		if merged.SupportsPromptCaching == nil && fallback.SupportsPromptCaching != nil {
+			flag := *fallback.SupportsPromptCaching
+			merged.SupportsPromptCaching = &flag
+			return true
+		}
+	case "ReasoningControl":
+		if fallback.ReasoningControl != nil && (merged.ReasoningControl == nil || merged.ReasoningControl.Kind == "unknown" && fallback.ReasoningControl.Kind != "unknown") {
+			merged.ReasoningControl = cloneReasoningControl(fallback.ReasoningControl)
+			return true
+		}
+	case "ContextLimitKind":
+		if merged.ContextLimitKind == "" && fallback.ContextLimitKind != "" {
+			merged.ContextLimitKind = fallback.ContextLimitKind
+			return true
+		}
+	case "InputModalitiesStatus":
+		if merged.InputModalitiesStatus == "" && fallback.InputModalitiesStatus != "" {
+			merged.InputModalitiesStatus = fallback.InputModalitiesStatus
+			return true
+		}
+	case "EndpointStatus":
+		if merged.EndpointStatus == "" && fallback.EndpointStatus != "" {
+			merged.EndpointStatus = fallback.EndpointStatus
+			return true
+		}
+	case "EmbeddingDimensions":
+		if merged.EmbeddingDimensions == 0 && fallback.EmbeddingDimensions != 0 {
+			merged.EmbeddingDimensions = fallback.EmbeddingDimensions
+			return true
+		}
+	case "ContextHint":
+		if merged.ContextHint == "" && fallback.ContextHint != "" {
+			merged.ContextHint = fallback.ContextHint
+			return true
+		}
+	case "FamilyHint":
+		if merged.FamilyHint == "" && fallback.FamilyHint != "" {
+			merged.FamilyHint = fallback.FamilyHint
+			return true
+		}
+	}
+	return false
 }
