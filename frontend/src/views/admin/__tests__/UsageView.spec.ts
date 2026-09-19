@@ -383,7 +383,7 @@ describe('admin UsageView native compaction filter', () => {
     vi.useRealTimers()
   })
 
-  it('propagates the filter to list/stats/model/snapshot requests and clears it on reset', async () => {
+  it.each([true, false])('propagates compaction filter %s to list/stats/model/snapshot requests and clears it on reset', async nativeCompaction => {
     const wrapper = mountRouteFilteredUsageView()
     vi.advanceTimersByTime(120)
     await flushPromises()
@@ -393,18 +393,18 @@ describe('admin UsageView native compaction filter', () => {
     getModelStats.mockClear()
     getSnapshotV2.mockClear()
 
-    ;(wrapper.vm as any).filters.native_compaction_v2 = true
+    ;(wrapper.vm as any).filters.native_compaction_v2 = nativeCompaction
     ;(wrapper.vm as any).applyFilters()
     await flushPromises()
 
-    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(true)
+    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(nativeCompaction)
     expect(list).toHaveBeenCalledWith(
-      expect.objectContaining({ native_compaction_v2: true }),
+      expect.objectContaining({ native_compaction_v2: nativeCompaction }),
       expect.anything()
     )
-    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
 
     list.mockClear()
     getStats.mockClear()

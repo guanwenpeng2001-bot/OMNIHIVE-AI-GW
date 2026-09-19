@@ -1059,6 +1059,12 @@ export default {
         incomplete: "发现结果不完整，不能应用",
         observedAt: "上游观察时间",
         evidenceKind: "证据类型",
+        evidenceSources: {
+          upstream: "上游响应",
+          supplemental: "补充元数据",
+          publicCatalog: "公共模型目录",
+          heuristic: "启发式估算",
+        },
         evidenceObservedAt: "证据观察时间",
         publicDiffUnavailable: "此账号响应未提供分组公共模型数量与变更。",
         source: "来源 / 发现范围",

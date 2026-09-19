@@ -48,7 +48,7 @@
             <dl class="space-y-2">
               <div v-for="(source, field) in entry.field_evidence" :key="field" class="border-t border-gray-100 pt-1 dark:border-dark-600">
                 <dt class="font-medium">{{ field }}: {{ fieldValue(entry, field) }}</dt>
-                <dd>{{ labels.source }}: {{ sourceTier(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
+                <dd>{{ labels.source }}: {{ sourceLabel(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
                 <dd v-if="source.source_version || source.content_hash">{{ labels.version }}: {{ source.source_version || source.content_hash }}</dd>
                 <dd v-if="source.provider_profile || source.matched_model_id || source.match_rule">{{ labels.match }}: {{ [source.provider_profile, source.matched_model_id, source.match_rule].filter(Boolean).join(' · ') }}</dd>
                 <dd v-if="source.observed_at">{{ formatDateTime(source.observed_at) }}</dd>
@@ -174,11 +174,11 @@ const fieldValue = (entry: object, field: string) => {
   const value = (entry as Record<string, unknown>)[field]
   return value === undefined ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
-const sourceTier = (source: string) => {
-  if (source === 'upstream') return `T1 · ${source}`
-  if (/^(litellm|supplement|account|cursor-builtin)/.test(source)) return `T2 · ${source}`
-  if (source === 'models.dev') return `T3 · ${source}`
-  if (source.startsWith('heuristic')) return `T4 · ${source}`
+const sourceLabel = (source: string) => {
+  if (source === 'upstream') return `${t('admin.accounts.modelSync.evidenceSources.upstream')} · ${source}`
+  if (/^(litellm|supplement|account|cursor-builtin)/.test(source)) return `${t('admin.accounts.modelSync.evidenceSources.supplemental')} · ${source}`
+  if (source === 'models.dev') return `${t('admin.accounts.modelSync.evidenceSources.publicCatalog')} · ${source}`
+  if (source.startsWith('heuristic')) return `${t('admin.accounts.modelSync.evidenceSources.heuristic')} · ${source}`
   return source
 }
 const reasonText = (reason: string) => {
