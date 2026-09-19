@@ -149,7 +149,7 @@ func normalizeReasoningControl(m UpstreamModelMetadata) *ReasoningControl {
 	return nil
 }
 
-// V2 evaluates task-specific facts without conferring account authorization.
+// Evaluate task-specific facts without conferring account authorization.
 func evaluateModelMetadataCompleteness(m UpstreamModelMetadata) ModelMetadataCompleteness {
 	r := ModelMetadataCompleteness{Status: "complete", Conflicts: slices.Clone(m.Conflicts)}
 	required := []string{"id", "provider_profile", "task_type", "input_modalities", "output_modalities"}
@@ -200,23 +200,20 @@ func evaluateModelMetadataCompleteness(m UpstreamModelMetadata) ModelMetadataCom
 	case "rerank":
 		required = append(required, "context_window")
 	case "image_generation", "audio_generation", "speech", "transcription", "video_generation":
-		// An unsupported adapter is an explicit endpoint fact. Supported media
-		// requires the interface constraints supplied by that adapter/source.
-		if m.EndpointStatus != "unsupported" {
-			limits := []string{"output_formats"}
-			switch m.TaskType {
-			case "image_generation":
-				limits = append(limits, "resolutions")
-			case "transcription":
-				limits = []string{"input_formats", "max_duration_seconds"}
-			case "video_generation":
-				limits = append(limits, "resolutions", "max_duration_seconds")
-			}
-			for _, key := range limits {
-				field := "task_limits." + key
-				required = append(required, field)
-				present[field] = capabilityTaskLimitPresent(key, m.TaskLimits[key])
-			}
+		// Unsupported endpoints do not make unknown media specifications complete.
+		limits := []string{"output_formats"}
+		switch m.TaskType {
+		case "image_generation":
+			limits = append(limits, "resolutions")
+		case "transcription":
+			limits = []string{"input_formats", "max_duration_seconds"}
+		case "video_generation":
+			limits = append(limits, "resolutions", "max_duration_seconds")
+		}
+		for _, key := range limits {
+			field := "task_limits." + key
+			required = append(required, field)
+			present[field] = capabilityTaskLimitPresent(key, m.TaskLimits[key])
 		}
 	default:
 		present["task_type"] = false
@@ -259,7 +256,9 @@ func evaluateModelMetadataCompleteness(m UpstreamModelMetadata) ModelMetadataCom
 		}
 		if !ok || e.Source == "" || e.SourceVersion == "" && e.ContentHash == "" || e.MatchRule == "" || e.Confidence == "" || e.ProviderProfile == "" || e.MatchedModelID == "" {
 			r.MissingFields = append(r.MissingFields, f+".evidence")
-		} else if e.Confidence == "estimated" {
+		} else if e.Stale {
+			r.MissingFields = append(r.MissingFields, f+".freshness")
+		} else if e.Confidence == "estimated" || e.Confidence == "derived" {
 			r.EstimatedFields = append(r.EstimatedFields, f)
 		}
 	}

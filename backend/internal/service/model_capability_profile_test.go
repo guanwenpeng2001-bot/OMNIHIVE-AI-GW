@@ -84,10 +84,11 @@ func TestModelCapabilityV2NonTextProfiles(t *testing.T) {
 	m.SupportedMethods = nil
 	m.EndpointStatus = "unsupported"
 	stampCapabilityEvidence(&m, "fixture", "v1", "openai", "sample", "exact", "verified")
-	// Explicit unsupported endpoints satisfy endpoint knowledge, not eligibility.
+	// Endpoint knowledge does not replace media format, resolution or duration facts.
 	e := m.FieldEvidence["endpoint_status"]
 	m.FieldEvidence["supported_methods"] = e
-	require.Equal(t, "complete", evaluateModelMetadataCompleteness(m).Status)
+	require.Equal(t, "incomplete", evaluateModelMetadataCompleteness(m).Status)
+	require.Contains(t, evaluateModelMetadataCompleteness(m).MissingFields, "task_limits.max_duration_seconds")
 }
 func TestModelCapabilityHintsAreNotSpecifications(t *testing.T) {
 	for _, id := range []string{"private-256k", "private-1m", "asr-flash", "private-unknown", "private-non-reasoning"} {
