@@ -148,7 +148,8 @@ func TestMistralAdapterContract(t *testing.T) {
 				var finishReason string
 				for _, line := range strings.Split(recorder.Body.String(), "\n") {
 					payload := strings.TrimPrefix(line, "data: ")
-					arguments.WriteString(gjson.Get(payload, "choices.0.delta.tool_calls.0.function.arguments").String())
+					_, err := arguments.WriteString(gjson.Get(payload, "choices.0.delta.tool_calls.0.function.arguments").String())
+					require.NoError(t, err)
 					if tool := gjson.Get(payload, "choices.0.delta.tool_calls.0"); tool.Exists() {
 						require.True(t, tool.Get("index").Exists())
 						require.EqualValues(t, 0, tool.Get("index").Int())
