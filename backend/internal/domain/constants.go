@@ -34,6 +34,7 @@ const (
 	PlatformCursor      = "cursor"
 	PlatformQianwen     = "qianwen"
 	PlatformQianfan     = "qianfan"
+	PlatformHunyuan     = "hunyuan"
 	PlatformVolcengine  = "volcengine"
 	PlatformCommandCode = "commandcode"
 	PlatformComposite   = "composite"

@@ -1228,6 +1228,9 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 	switch {
 	case account.Platform == PlatformQianfan:
 		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
+	case account.Platform == PlatformHunyuan:
+		_, err := hunyuanDiscoveredModels()
+		return nil, newUpstreamModelSyncUnsupportedError("Hunyuan automatic discovery is unverified; use account declarations", err)
 	case account.Platform == PlatformVolcengine:
 		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:

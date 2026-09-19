@@ -178,6 +178,14 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	if err != nil {
 		return nil, err
 	}
+	if account.Platform == PlatformHunyuan {
+		prepared, prepareErr := buildHunyuanChatRequest(ctx, account, upstreamBody, upstreamModel)
+		if prepareErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error())
+			return nil, prepareErr
+		}
+		targetURL = prepared.URL.String()
+	}
 	if account.Platform == PlatformQianfan {
 		prepared, prepareErr := buildQianfanRequest(ctx, account, "chat/completions", upstreamBody, s.validateUpstreamBaseURL)
 		if prepareErr != nil {
@@ -242,6 +250,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if account.Platform == PlatformHunyuan {
+			scope := hunyuanHTTPErrorScope(resp.StatusCode)
+			writeChatCompletionsError(c, resp.StatusCode, "upstream_error", "Hunyuan upstream rejected the request")
+			return nil, fmt.Errorf("Hunyuan HTTP %d (%s)", resp.StatusCode, scope)
+		}
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
 			kind := "http_error"
@@ -625,6 +638,14 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	if account.Platform == PlatformHunyuan {
+		reported, usageErr := parseHunyuanChatUsage(respBody)
+		if usageErr != nil || reported == nil {
+			writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream usage is unknown")
+			return nil, fmt.Errorf("Hunyuan usage unknown or invalid: %v", usageErr)
+		}
+		usage = *reported
 	}
 	responseModel := gjson.GetBytes(respBody, "model").String()
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
