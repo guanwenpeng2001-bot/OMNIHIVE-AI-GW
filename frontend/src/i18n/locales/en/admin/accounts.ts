@@ -982,6 +982,12 @@ export default {
         incomplete: "Discovery is incomplete and cannot be applied",
         observedAt: "Upstream observation time",
         evidenceKind: "Evidence kind",
+        evidenceSources: {
+          upstream: "Upstream response",
+          supplemental: "Supplemental metadata",
+          publicCatalog: "Public model catalog",
+          heuristic: "Heuristic estimate",
+        },
         evidenceObservedAt: "Evidence observation time",
         publicDiffUnavailable: "Group public model counts and changes are unavailable in this account response.",
         source: "Source / discovery scope",

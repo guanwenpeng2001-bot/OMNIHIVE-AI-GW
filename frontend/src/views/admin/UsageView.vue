@@ -260,15 +260,15 @@ const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
 
 const breakdownFilters = computed(() => {
-  const f: Record<string, any> = { ...reportQueryContext }
-  if (filters.value.user_id) f.user_id = filters.value.user_id
-  if (filters.value.api_key_id) f.api_key_id = filters.value.api_key_id
-  if (filters.value.account_id) f.account_id = filters.value.account_id
-  if (filters.value.group_id) f.group_id = filters.value.group_id
-  if (filters.value.request_type != null) f.request_type = filters.value.request_type
-  if (filters.value.native_compaction_v2 != null) f.native_compaction_v2 = filters.value.native_compaction_v2
-  if (filters.value.billing_type != null) f.billing_type = filters.value.billing_type
-  return f
+  const breakdownQuery: Record<string, any> = { ...reportQueryContext }
+  if (filters.value.user_id) breakdownQuery.user_id = filters.value.user_id
+  if (filters.value.api_key_id) breakdownQuery.api_key_id = filters.value.api_key_id
+  if (filters.value.account_id) breakdownQuery.account_id = filters.value.account_id
+  if (filters.value.group_id) breakdownQuery.group_id = filters.value.group_id
+  if (filters.value.request_type != null) breakdownQuery.request_type = filters.value.request_type
+  if (filters.value.native_compaction_v2 != null) breakdownQuery.native_compaction_v2 = filters.value.native_compaction_v2
+  if (filters.value.billing_type != null) breakdownQuery.billing_type = filters.value.billing_type
+  return breakdownQuery
 })
 
 const modelNameOptions = computed(() =>
