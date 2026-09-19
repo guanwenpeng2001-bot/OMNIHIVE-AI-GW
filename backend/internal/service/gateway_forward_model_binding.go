@@ -219,6 +219,18 @@ func requestCatalogEndpoint(ctx context.Context) string {
 // CatalogModelIDs returns nil only for legacy repository adapters. A production
 // catalog reader returns an authoritative (possibly empty) set, never defaults.
 func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, platform string, mixedOnly ...bool) ([]string, error) {
+	return s.catalogModelListing(ctx, groupID, platform, nil, mixedOnly...)
+}
+
+// CatalogModelsWithMetadata projects specifications from the same account read
+// and bindings as membership. Metadata is never an input to eligibility.
+func (s *GatewayService) CatalogModelsWithMetadata(ctx context.Context, groupID *int64, platform string) ([]string, map[string][]UpstreamModelMetadata, error) {
+	metadata := make(map[string][]UpstreamModelMetadata)
+	models, err := s.catalogModelListing(ctx, groupID, platform, metadata)
+	return models, metadata, err
+}
+
+func (s *GatewayService) catalogModelListing(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, mixedOnly ...bool) ([]string, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -307,6 +319,21 @@ func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, pl
 		}
 	}
 	result := make([]string, 0, len(candidates))
+	// Decode each account's stored specification snapshot at most once. Reads
+	// never refresh upstream facts, parse public registries, or persist anything.
+	var specifications map[int64]*UpstreamModelMetadataSnapshot
+	var profiles map[int64]string
+	if metadata != nil {
+		specifications = make(map[int64]*UpstreamModelMetadataSnapshot, len(accounts))
+		profiles = make(map[int64]string, len(accounts))
+		for index := range accounts {
+			account := &accounts[index]
+			if !account.IsShadow() {
+				specifications[account.ID] = account.GetUpstreamModelMetadataSnapshot()
+				profiles[account.ID] = resolveCapabilityProfile(account)
+			}
+		}
+	}
 	for model := range candidates {
 		if group != nil && group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(model) {
 			continue
@@ -343,9 +370,22 @@ func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, pl
 				if group != nil && endpoint == CompositeRouteEndpointMessages {
 					options.MessagesDispatchModel = group.ResolveMessagesDispatchModel(model)
 				}
-				if AccountSupportsResolvedModel(candidateCtx, account, model, options) {
+				binding := ResolveAccountModelBinding(candidateCtx, account, model, options)
+				if binding.Supported {
 					supported = true
-					break
+					if metadata == nil {
+						break
+					}
+					// Unknown facts on an exit for this listing endpoint remain unknown;
+					// the handler intersects only an explicit safe field whitelist.
+					projection := UpstreamModelMetadata{}
+					if snapshot := specifications[account.ID]; snapshot != nil {
+						candidate := snapshot.Models[binding.UpstreamModel]
+						if candidate.ProviderProfile != "" && candidate.ProviderProfile == profiles[account.ID] {
+							projection = candidate
+						}
+					}
+					metadata[model] = append(metadata[model], projection)
 				}
 			}
 			if supported {

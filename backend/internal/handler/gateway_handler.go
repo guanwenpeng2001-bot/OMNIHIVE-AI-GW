@@ -1147,7 +1147,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	if models, err := h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, platform); models != nil || err != nil {
+	if models, metadata, err := h.gatewayService.CatalogModelsWithMetadata(c.Request.Context(), groupID, platform); models != nil || err != nil {
 		if err != nil {
 			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
 			return
@@ -1155,6 +1155,7 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			models = apiKey.Group.ModelAllowlist.FilterForListing(models)
 		}
+		c.Set(publicModelMetadataContextKey, metadata)
 		writeModelsList(c, platform, models)
 		return
 	}
