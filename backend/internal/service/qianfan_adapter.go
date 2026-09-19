@@ -25,7 +25,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 	switch endpoint {
 	case "models":
 		if len(body) != 0 {
-			return nil, errors.New("Qianfan models request must not have a body")
+			return nil, errors.New("qianfan models request must not have a body")
 		}
 	case "chat/completions":
 		method = http.MethodPost
@@ -34,7 +34,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 			Messages []json.RawMessage `json:"messages"`
 		}
 		if json.Unmarshal(body, &request) != nil || strings.TrimSpace(request.Model) == "" || len(request.Messages) == 0 {
-			return nil, errors.New("Qianfan chat requires model and messages")
+			return nil, errors.New("qianfan chat requires model and messages")
 		}
 	default:
 		return nil, newUpstreamModelSyncUnsupportedError("Unsupported Qianfan endpoint", nil)

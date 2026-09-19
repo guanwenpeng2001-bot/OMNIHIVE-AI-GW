@@ -78,11 +78,11 @@ func parseMistralModelCards(body []byte) ([]MistralModelCard, error) {
 			return nil, fmt.Errorf("mistral model card has an invalid ID")
 		}
 		if _, exists := seen[card.ID]; exists {
-			return nil, fmt.Errorf("Mistral model response has duplicate IDs")
+			return nil, fmt.Errorf("mistral model response has duplicate IDs")
 		}
 		seen[card.ID] = struct{}{}
 		if card.MaxContextLength != nil && *card.MaxContextLength <= 0 {
-			return nil, fmt.Errorf("Mistral model card has an invalid context length")
+			return nil, fmt.Errorf("mistral model card has an invalid context length")
 		}
 	}
 	return cards, nil
@@ -161,7 +161,7 @@ func prepareMistralChatRequest(body []byte) ([]byte, error) {
 	}
 	for _, tool := range request.Tools {
 		if tool.Type != "function" {
-			return nil, fmt.Errorf("Mistral chat supports only function tools")
+			return nil, fmt.Errorf("mistral chat supports only function tools")
 		}
 	}
 	return sjson.DeleteBytes(body, "stream_options")

@@ -23,7 +23,7 @@ func TestPlatformExpansionMigrations(test *testing.T) {
 		test.Run(scenario, func(test *testing.T) {
 			database := testresources.OpenSchema(test, dsn)
 			ctx := context.Background()
-			_, err := database.ExecContext(ctx, `CREATE TABLE user_platform_quotas(platform text); CREATE TABLE composite_model_routes(target_platform text); CREATE TABLE accounts(platform text, type text); INSERT INTO accounts VALUES ('anthropic','bedrock');`)
+			_, err := database.ExecContext(ctx, `CREATE TABLE user_platform_quotas(platform text); CREATE TABLE composite_model_routes(target_platform text); CREATE TABLE channel_monitors(provider text); CREATE TABLE channel_monitor_request_templates(provider text); CREATE TABLE accounts(platform text, type text); INSERT INTO accounts VALUES ('anthropic','bedrock');`)
 			require.NoError(test, err)
 			if scenario == "legacy rows" {
 				body, readErr := migrations.FS.ReadFile("242_command_code_platform.sql")
@@ -51,8 +51,14 @@ func TestPlatformExpansionMigrations(test *testing.T) {
 					}
 				}
 			}
+			monitorBody, readErr := migrations.FS.ReadFile("264_platform_monitor_storage.sql")
+			require.NoError(test, readErr)
+			for repeat := 0; repeat < 2; repeat++ {
+				_, err = database.ExecContext(ctx, string(monitorBody))
+				require.NoError(test, err)
+			}
 			expected := append(append([]string{}, legacy...), added...)
-			for _, constraint := range []string{"user_platform_quotas_platform_check", "composite_model_routes_target_platform_check"} {
+			for _, constraint := range []string{"user_platform_quotas_platform_check", "composite_model_routes_target_platform_check", "channel_monitors_provider_check", "channel_monitor_request_templates_provider_check"} {
 				var definition string
 				require.NoError(test, database.QueryRowContext(ctx, "SELECT pg_get_constraintdef(oid) FROM pg_constraint WHERE conname=$1 AND connamespace=current_schema()::regnamespace", constraint).Scan(&definition))
 				matches := regexp.MustCompile(`'([^']+)'`).FindAllStringSubmatch(definition, -1)

@@ -259,7 +259,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 		if account.Platform == PlatformHunyuan {
 			scope := hunyuanHTTPErrorScope(resp.StatusCode)
 			writeChatCompletionsError(c, resp.StatusCode, "upstream_error", "Hunyuan upstream rejected the request")
-			return nil, fmt.Errorf("Hunyuan HTTP %d (%s)", resp.StatusCode, scope)
+			return nil, fmt.Errorf("hunyuan HTTP %d (%s)", resp.StatusCode, scope)
 		}
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
@@ -535,7 +535,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	// 客户端取消/断开后上游读失败与上游截断不可区分（取消会连带取消上游请求），
 	// 沿用既有语义：按已收到的用量正常收尾计费，不判为上游故障。
 	if account.Platform == PlatformMistral && !mistralUsageKnown {
-		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("Mistral usage is unknown"))
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
 	}
 	clientAborted := clientDisconnected || c.Request.Context().Err() != nil
 
@@ -657,13 +657,13 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	}
 	if account.Platform == PlatformMistral && !mistralChatUsageKnown(respBody) {
 		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Mistral usage is unknown")
-		return nil, fmt.Errorf("Mistral usage is unknown")
+		return nil, fmt.Errorf("mistral usage is unknown")
 	}
 	if account.Platform == PlatformHunyuan {
 		reported, usageErr := parseHunyuanChatUsage(respBody)
 		if usageErr != nil || reported == nil {
 			writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream usage is unknown")
-			return nil, fmt.Errorf("Hunyuan usage unknown or invalid: %v", usageErr)
+			return nil, fmt.Errorf("hunyuan usage unknown or invalid: %v", usageErr)
 		}
 		usage = *reported
 	}
