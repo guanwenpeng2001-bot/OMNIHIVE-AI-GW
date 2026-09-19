@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -70,7 +71,7 @@ func TestAccountModelCatalogReviewedRejectsStaleApproval(t *testing.T) {
 }
 
 func TestAccountModelCatalogReviewedAllPlatformProfileEvidence(t *testing.T) {
-	require.Len(t, ConcretePlatforms(), 18)
+	require.ElementsMatch(t, domain.ConcretePlatforms(), ConcretePlatforms())
 	for _, platform := range ConcretePlatforms() {
 		for _, profile := range []struct{ kind, region, base string }{{AccountTypeAPIKey, "", ""}, {AccountTypeOAuth, "us-east-1", ""}, {AccountTypeAPIKey, "cn-hangzhou", "https://custom.example/v1"}} {
 			t.Run(platform+"/"+profile.kind+"/"+profile.region, func(t *testing.T) {

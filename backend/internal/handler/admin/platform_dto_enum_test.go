@@ -51,7 +51,7 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 	for _, value := range strings.Split(match[1], ",") {
 		monitors = append(monitors, strings.Trim(strings.TrimSpace(value), "'"))
 	}
-	require.Len(t, concrete, 18)
+	require.ElementsMatch(t, domain.ConcretePlatforms(), concrete)
 	// Storage preserves historical Cursor rows, but V1 monitor DTOs must not
 	// grant permission to create/edit them or enable unsupported active probes.
 	require.ElementsMatch(t, concrete, monitors, "monitor storage must retain every concrete platform")

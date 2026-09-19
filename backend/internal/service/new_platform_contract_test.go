@@ -6,12 +6,13 @@ import (
 
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
 func TestConcretePlatformContracts(t *testing.T) {
 	platforms := ConcretePlatforms()
-	require.Len(t, platforms, 18)
+	require.ElementsMatch(t, domain.ConcretePlatforms(), platforms)
 	require.ElementsMatch(t, platforms, AllowedQuotaPlatforms)
 	require.Equal(t, platforms, schedulerSnapshotPlatforms())
 	require.ElementsMatch(t, platforms, matchingPlatforms(PlatformComposite))
