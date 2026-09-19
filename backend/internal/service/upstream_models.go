@@ -202,10 +202,11 @@ const (
 
 // UpstreamModelSyncError keeps internal failure details wrapped while exposing a safe client message.
 type UpstreamModelSyncError struct {
-	Kind       UpstreamModelSyncErrorKind
-	Message    string
-	StatusCode int
-	Err        error
+	PartialCatalog *UpstreamModelCatalog
+	Kind           UpstreamModelSyncErrorKind
+	Message        string
+	StatusCode     int
+	Err            error
 }
 
 func (e *UpstreamModelSyncError) Error() string {
@@ -1174,6 +1175,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if discovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); discovery && account.Platform == PlatformAntigravity && account.Type == AccountTypeAPIKey {
+		return s.fetchAntigravityAPIKeyCatalog(req, account)
+	}
 	if account.Platform == PlatformMistral {
 		return s.fetchMistralModels(req, account)
 	}
@@ -2279,4 +2283,54 @@ func (service *AccountTestService) ReadOnlyModelCapabilities(account *Account) m
 	}
 	offline := strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1"
 	return service.capabilityReadOnlyEnricher.Project(account, !offline)
+}
+
+// Both paths belong to the saved compatible /antigravity gateway. Its v1beta
+// route uses APIKeyAuthWithSubscriptionGoogle, which accepts x-goog-api-key.
+// This does not extend OAuth/CloudCode credentials to another host or endpoint.
+func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest *http.Request, account *Account) ([]string, []byte, error) {
+	geminiRequest := messagesRequest.Clone(messagesRequest.Context())
+	geminiRequest.URL.Path = strings.TrimSuffix(messagesRequest.URL.Path, "/v1/models") + "/v1beta/models"
+	geminiRequest.Header.Del("x-api-key")
+	geminiRequest.Header.Del("anthropic-version")
+	geminiRequest.Header.Del("anthropic-beta")
+	geminiRequest.Header.Set("x-goog-api-key", strings.TrimSpace(account.GetCredential("api_key")))
+	models := []string{}
+	entries := []json.RawMessage{}
+	var failed error
+	successfulPaths := 0
+	for _, request := range []*http.Request{messagesRequest, geminiRequest} {
+		ids, body, err := service.fetchCompleteModelPages(request, account)
+		if err != nil {
+			failed = err
+			continue
+		}
+		rawEntries, err := extractUpstreamModelRawEntries(body)
+		if err != nil {
+			failed = err
+			continue
+		}
+		successfulPaths++
+		models = append(models, ids...)
+		entries = append(entries, rawEntries...)
+	}
+	merged, err := json.Marshal(map[string]any{"data": entries})
+	if err != nil {
+		return nil, nil, err
+	}
+	models = dedupeAndSortModelIDs(models)
+	if failed != nil {
+		if successfulPaths == 0 {
+			return nil, nil, failed
+		}
+		failure := &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: "Antigravity dual-path catalog is incomplete; previous snapshot retained", Err: failed}
+		if successfulPaths > 0 {
+			_, metadata, parseErr := extractUpstreamModelCatalog(merged, false, PlatformAntigravity)
+			if parseErr == nil {
+				failure.PartialCatalog = &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, Metadata: metadata, CatalogSource: "partial", Complete: false, Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "A catalog path failed; partial results are preview-only and cannot be applied"}}}
+			}
+		}
+		return nil, nil, failure
+	}
+	return models, merged, nil
 }
