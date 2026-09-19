@@ -727,9 +727,14 @@ func chatOnlyPlatformGuard(c *gin.Context) {
 		c.Next()
 		return
 	}
-	if c.Request.Method == http.MethodGet && (strings.HasSuffix(path, "/models") || strings.Contains(path, "/models/") || strings.HasSuffix(path, "/usage")) {
-		c.Next()
-		return
+	if c.Request.Method == http.MethodGet {
+		// Match registered catalog routes, never arbitrary nested /models paths.
+		switch c.FullPath() {
+		case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+			"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
+			c.Next()
+			return
+		}
 	}
 	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
 	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "This platform currently supports Chat Completions only"}})

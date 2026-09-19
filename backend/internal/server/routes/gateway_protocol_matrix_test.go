@@ -92,8 +92,12 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 			if strings.HasPrefix(path, "/antigravity/") || path == "/v1/sub2api/billing" {
 				continue
 			}
-			if route.Method == http.MethodGet && (strings.HasSuffix(path, "/models") || strings.Contains(path, "/models/") || strings.HasSuffix(path, "/usage")) {
-				continue
+			if route.Method == http.MethodGet {
+				switch route.Path {
+				case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+					"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
+					continue // Supported catalog and usage contracts are tested by the guard suite.
+				}
 			}
 			if route.Method == http.MethodPost && (strings.HasSuffix(path, "/chat/completions") || platform == service.PlatformBedrock && (strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/responses"))) {
 				continue

@@ -117,7 +117,8 @@ func (h namespaceHook) prefixCmd(cmd redis.Cmder) error {
 		return nil
 	}
 	switch command {
-	case "hello", "auth", "ping", "quit":
+	// Explicitly keyless commands only; unknown commands still fail closed.
+	case "hello", "auth", "ping", "quit", "time", "multi", "exec", "discard", "unwatch":
 		return nil
 	case "client":
 		if len(args) > 1 && (fmt.Sprint(args[1]) == "setinfo" || fmt.Sprint(args[1]) == "setname" || fmt.Sprint(args[1]) == "maint_notifications") {
