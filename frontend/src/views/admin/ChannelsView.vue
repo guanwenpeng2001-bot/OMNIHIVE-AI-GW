@@ -453,7 +453,11 @@
                   enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
-                />
+                >
+                  <template #insights>
+                    <ChannelPricingInsights :entry="entry" :platform="section.platform" :group-ids="section.group_ids" />
+                  </template>
+                </PricingEntryCard>
               </div>
             </div>
 
@@ -633,6 +637,7 @@
 
 <script setup lang="ts">
 import ModelPlazaConfirmation from '@/components/modelPlaza/ModelPlazaConfirmation.vue'
+import ChannelPricingInsights from '@/components/admin/channel/ChannelPricingInsights.vue'
 import { CONCRETE_PLATFORM_OPTIONS, platformSupportsPricingSync } from '@/constants/platforms'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
