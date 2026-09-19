@@ -209,7 +209,7 @@ func TestListPlazaGroups_SortedByRateMultiplierAsc(t *testing.T) {
 	require.Equal(t, "b-standard", out[2].Name)
 }
 
-func TestListPlazaGroups_OfficialPricingFill(t *testing.T) {
+func TestListPlazaGroups_ReferencePricingRemoved(t *testing.T) {
 	pricingSvc := newStubPricingServiceFromMap(map[string]*LiteLLMModelPricing{
 		"claude-sonnet": {
 			Mode:                                "chat",
@@ -238,16 +238,7 @@ func TestListPlazaGroups_OfficialPricingFill(t *testing.T) {
 	for _, m := range out[0].Models {
 		byName[m.Name] = m
 	}
-	// 命中:填充完整官方价(含 1h 缓存写入)
-	official := byName["claude-sonnet"].OfficialPricing
-	require.NotNil(t, official)
-	require.InDelta(t, 3e-6, *official.InputPrice, 1e-12)
-	require.InDelta(t, 6e-6, *official.CacheWrite1hPrice, 1e-12)
-	require.InDelta(t, 3e-7, *official.CacheReadPrice, 1e-12)
-	// 未命中:nil(GetModelPricing 的 claude 系列模糊匹配对非 claude 名不生效)
-	require.Nil(t, byName["unknown-model"].OfficialPricing)
-	// TokenPricingAbsent 条目不作为官方 token 价展示
-	require.Nil(t, byName["token-absent"].OfficialPricing)
+	require.NotNil(t, byName["claude-sonnet"].Pricing)
 }
 
 func TestListPlazaGroups_GroupImagePriceOverridesChannelPricing(t *testing.T) {
@@ -401,12 +392,6 @@ func TestListGroups_TokenLadderFollowsGroupToggle(t *testing.T) {
 	require.Empty(t, offModel.Pricing.Intervals)
 	require.InDelta(t, 2.5e-6, *offModel.Pricing.InputPrice, 1e-15)
 
-	for _, m := range []PlazaModel{onModel, offModel} {
-		require.NotNil(t, m.OfficialPricing)
-		require.Len(t, m.OfficialPricing.Intervals, 2, "官方阶梯不受分组开关影响")
-		require.InDelta(t, 5e-6, *m.OfficialPricing.Intervals[1].InputPrice, 1e-15)
-		require.InDelta(t, 2.5e-6, *m.OfficialPricing.InputPrice, 1e-15)
-	}
 }
 
 func TestListGroups_GeminiCatalogLadderShownWholeRequest(t *testing.T) {
@@ -428,8 +413,6 @@ func TestListGroups_GeminiCatalogLadderShownWholeRequest(t *testing.T) {
 	require.InDelta(t, 2.5e-6, *m.Pricing.Intervals[1].InputPrice, 1e-15)
 	require.InDelta(t, 15e-6, *m.Pricing.Intervals[1].OutputPrice, 1e-15)
 	// 官方参考价与实付同源：都来自目录数据的阶梯字段
-	require.NotNil(t, m.OfficialPricing)
-	require.Len(t, m.OfficialPricing.Intervals, 2)
 }
 
 func TestListGroups_GroupTokenCardOverridesChannelPricing(t *testing.T) {
@@ -482,7 +465,6 @@ func TestListGroups_CatalogMissingStillShowsChannelFlatPricing(t *testing.T) {
 	require.InDelta(t, 3e-6, *m.Pricing.InputPrice, 1e-15)
 	require.Empty(t, m.Pricing.Intervals)
 	require.Nil(t, m.Pricing.CacheWritePrice, "目录无价且渠道未配置 → 无价")
-	require.Nil(t, m.OfficialPricing)
 }
 
 func TestListGroups_TimePricingPassthrough(t *testing.T) {

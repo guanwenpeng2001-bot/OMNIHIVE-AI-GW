@@ -8,6 +8,7 @@ PIN = catalog.ROOT.parent / "release-pin.json"
 VERSION_FILES = (
     "internal/service/model_capability_catalog.go",
     "internal/service/model_capability_profile.go",
+    "internal/service/model_capability_readonly.go",
     "internal/service/model_capability_matcher.go",
     "internal/service/model_capability_heuristics.go",
     "internal/pkg/capabilitysources/sources.go",

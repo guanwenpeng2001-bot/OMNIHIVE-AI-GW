@@ -4,11 +4,13 @@ package admin
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -18,10 +20,47 @@ type qianwenPricingAdminStub struct {
 	service.AdminService
 	snapshot    *service.QianwenPricingResult
 	groupWrites int
+	account     *service.Account
 }
 
 func (s *qianwenPricingAdminStub) GetAccount(context.Context, int64) (*service.Account, error) {
+	if s.account != nil {
+		return s.account, nil
+	}
 	return &service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey}, nil
+}
+
+func TestOfficialPricingPreviewHasNoWrites(t *testing.T) {
+	for _, fixture := range []struct {
+		name     string
+		body     string
+		status   string
+		requests int
+	}{
+		{name: "supported native units", body: `{"region":"asia-pacific-china","usd_per_cny":0.125,"fx_source":"fixture","fx_effective_at":"2026-09-19T00:00:00Z"}`, status: "ready", requests: 1},
+		{name: "missing FX", body: `{"region":"asia-pacific-china"}`, status: "unsupported"},
+		{name: "unverified international region", body: `{"region":"international","usd_per_cny":0.125,"fx_source":"fixture","fx_effective_at":"2026-09-19T00:00:00Z"}`, status: "unsupported"},
+	} {
+		t.Run(fixture.name, func(t *testing.T) {
+			admin := &qianwenPricingAdminStub{account: &service.Account{ID: 19, Platform: service.PlatformQianwen, Type: service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "fixture", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1", "model_mapping": map[string]any{"qwen-plus": "qwen-plus"}}, Extra: map[string]any{"sentinel": "unchanged"}}}
+			upstream := &syncUpstreamHTTPUpstream{resp: &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"qwen-plus","prices":[{"range_name":"Default","prices":[{"type":"input_token","price":"12","price_unit":"每百万tokens"},{"type":"output_token","price":"36","price_unit":"每百万tokens"}]}]}]}}`))}}
+			handler := &AccountHandler{adminService: admin, accountTestService: service.NewAccountTestService(nil, nil, nil, nil, nil, upstream, &config.Config{}, nil)}
+			router := gin.New()
+			router.POST("/accounts/:id/pricing/sync-qianwen", handler.SyncQianwenPricing)
+			request := httptest.NewRequest(http.MethodPost, "/accounts/19/pricing/sync-qianwen", strings.NewReader(fixture.body))
+			request.Header.Set("Content-Type", "application/json")
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, request)
+			require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+			require.Contains(t, recorder.Body.String(), `"status":"`+fixture.status+`"`)
+			require.Contains(t, recorder.Body.String(), `"written":0`)
+			require.Len(t, upstream.requests, fixture.requests)
+			require.Nil(t, admin.snapshot, "preview must not write account extra")
+			require.Zero(t, admin.groupWrites)
+			require.Equal(t, map[string]any{"sentinel": "unchanged"}, admin.account.Extra)
+		})
+	}
 }
 func (s *qianwenPricingAdminStub) GetGroup(context.Context, int64) (*service.Group, error) {
 	return &service.Group{ID: 7, Platform: service.PlatformQianwen}, nil

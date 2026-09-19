@@ -136,6 +136,9 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	// sourceQuotes retain missing versus explicit zero for read-only comparisons.
+	// They never participate in billing or capability approval.
+	sourceQuotes                        map[string]PricingQuote
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
@@ -557,7 +560,7 @@ func (s *PricingService) downloadPricingData() error {
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
 	if err := s.persistPricingDownload(pricingFile, body, capability); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save file: %v", err)
+		return fmt.Errorf("save pricing file: %w", err)
 	}
 
 	// 使用远程哈希作为同步锚点，防止重复下载
@@ -568,7 +571,7 @@ func (s *PricingService) downloadPricingData() error {
 	}
 	hashFile := s.getHashFilePath()
 	if err := os.WriteFile(hashFile, []byte(syncHash+"\n"), 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save hash: %v", err)
+		return fmt.Errorf("save pricing hash: %w", err)
 	}
 
 	// 更新内存数据
@@ -619,6 +622,7 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		pricing := &LiteLLMModelPricing{
+			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,
 			SupportsPromptCaching: entry.SupportsPromptCaching != nil && *entry.SupportsPromptCaching,

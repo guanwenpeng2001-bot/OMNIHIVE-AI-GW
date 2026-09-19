@@ -22,7 +22,7 @@ const routerHarness = vi.hoisted(() => ({ options: null as RouterOptions | null,
 vi.mock('vue-router', async original => ({
   ...await original<typeof import('vue-router')>(),
   useRoute: () => ({ path: '/help' }),
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), resolve: (path: string) => ({ path, matched: [], params: {}, query: {}, hash: '' }) }),
   createRouter: (options: RouterOptions) => {
     routerHarness.options = options
     return { beforeEach: (guard: NavigationGuard) => { routerHarness.guard = guard }, afterEach: vi.fn(), onError: vi.fn() }

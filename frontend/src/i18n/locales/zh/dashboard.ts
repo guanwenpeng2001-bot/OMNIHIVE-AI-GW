@@ -684,6 +684,18 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
+    confirmation: {
+      title: "广场模型确认",
+      description: "仅管理当前已保存渠道及分组的广场展示。候选来自关联账号发现与映射；确认不授权调用、不修改售价。",
+      empty: "暂无候选模型。请先同步关联账号或配置具体映射。",
+      legacy: "历史配置，未记录确认",
+      confirmed: "操作人 {actor} · {time}",
+      save: "确认并保存展示名单",
+      loadError: "候选读取失败，已保存配置保持不变。",
+      saveError: "确认保存失败，请重试；草稿已保留。",
+      conflict: "配置或候选已变化，请刷新后重新勾选确认。",
+    },
+
     title: '模型广场',
     description: '按分组浏览可用模型与价格',
     loading: '加载中...',
@@ -707,7 +719,7 @@ export default {
       noModels: '该分组暂未配置模型',
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}',
-      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费，官方阶梯仅供参考'
+      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费'
     },
     table: {
       model: '模型',
@@ -730,7 +742,6 @@ export default {
       timePricingWeekdays: '工作日',
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
       paidPrice: '实付价格(折后)',
-      officialPrice: '官方价格',
       rate: '折扣倍率',
       unitPerMillion: 'USD / 1M token',
       perUnitRequest: '/ 次',

@@ -589,6 +589,9 @@
               </div>
             </div>
           </div>
+          <template v-if="editingChannel">
+            <ModelPlazaConfirmation v-for="groupID in editingChannel.group_ids" :key="`${editingChannel.id}:${groupID}`" :channel-id="editingChannel.id" :group-id="groupID" :group-name="getGroupNameById(groupID)" />
+          </template>
         </form>
       </div>
 
@@ -629,6 +632,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelPlazaConfirmation from '@/components/modelPlaza/ModelPlazaConfirmation.vue'
 import { CONCRETE_PLATFORM_OPTIONS, platformSupportsPricingSync } from '@/constants/platforms'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'

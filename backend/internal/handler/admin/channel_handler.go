@@ -442,6 +442,10 @@ func (h *ChannelHandler) List(c *gin.Context) {
 // GetByID handles getting a channel by ID
 // GET /api/v1/admin/channels/:id
 func (h *ChannelHandler) GetByID(c *gin.Context) {
+	if c.Query("plaza_group_id") != "" {
+		h.plazaCandidates(c)
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))
@@ -515,6 +519,10 @@ func (h *ChannelHandler) Create(c *gin.Context) {
 // Update handles updating a channel
 // PUT /api/v1/admin/channels/:id
 func (h *ChannelHandler) Update(c *gin.Context) {
+	if c.Query("plaza_confirmation") == "true" {
+		h.confirmPlazaModels(c)
+		return
+	}
 	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.BadRequest("INVALID_CHANNEL_ID", "Invalid channel ID"))

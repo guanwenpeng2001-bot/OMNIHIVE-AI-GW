@@ -148,5 +148,23 @@ it('keeps every chart dataset broken at an unknown bucket', () => {
     expect(Number.isFinite(dataset.data[0])).toBe(true)
     expect(Number.isFinite(dataset.data[2])).toBe(true)
   }
+  const rows = wrapper.get('[data-testid="trend-data-table"]').findAll('tbody tr')
+  expect(rows).toHaveLength(3)
+  expect(rows[1].findAll('td').map(cell => cell.text())).toEqual(Array(7).fill('-'))
+  expect(rows[0].findAll('td').slice(0, 4).map(cell => cell.text())).toEqual(['10', '10', '10', '10'])
+  wrapper.unmount()
+})
+
+it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('projects the identical chart labels and values in %s without fetching', async timeZone => {
+  const point = { date: '2026-11-01 01:00', requests: 1, input_tokens: 2, output_tokens: 3,
+    cache_creation_tokens: 1, cache_read_tokens: 1, cost: 1e-8, actual_cost: -1e-8 }
+  const wrapper = mount(TokenUsageTrend, { props: { timeZone, trendData: [point] } })
+  const table = wrapper.get('[data-testid="trend-data-table"]')
+  expect(table.text()).toContain(timeZone)
+  expect(table.findAll('tbody th').map(cell => cell.text())).toEqual([point.date])
+  expect(table.findAll('tbody td').map(cell => cell.text())).toEqual(['2', '3', '1', '1', '25.0%', '-0.00000001', '0.00000001'])
+  await wrapper.setProps({ trendData: [{ ...point, input_tokens: 6 }] })
+  expect(table.findAll('tbody td')[0].text()).toBe('6')
+  expect(wrapper.findComponent('.chart-data').props('data').datasets[0].data).toEqual([6])
   wrapper.unmount()
 })

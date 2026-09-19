@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { defineComponent, h, nextTick, onUnmounted, reactive, ref } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createMemoryHistory, createRouter, RouterView } from 'vue-router'
-import { identityScoped, watchIdentityRouteRecovery } from '../identityScope'
+import { identityScoped, lazyIdentityScoped, watchIdentityRouteRecovery } from '../identityScope'
 const { state } = vi.hoisted(() => ({ state: { current: null as any } }))
 vi.mock('@/stores/auth', () => ({ useAuthStore: () => state.current }))
 
@@ -110,5 +110,23 @@ describe('route identity boundary', () => {
     expect(mounts).toBe(1)
     expect((wrapper.get('input').element as HTMLInputElement).value).toBe('unsaved-account-edit')
     wrapper.unmount()
+  })
+})
+
+describe('lazy identity component', () => {
+  it('shares concurrent intent and keeps the same wrapper after resolution', async () => {
+    const load = vi.fn().mockResolvedValue({ default: defineComponent({ render: () => null }) })
+    const importer = lazyIdentityScoped(load, true)
+    const [prefetched, navigated] = await Promise.all([importer(), importer()])
+    expect(load).toHaveBeenCalledTimes(1)
+    expect(prefetched).toBe(navigated)
+    expect(await importer()).toBe(prefetched)
+  })
+  it('retries a failed chunk', async () => {
+    const load = vi.fn().mockRejectedValueOnce(new Error('offline')).mockResolvedValue({ default: {} })
+    const importer = lazyIdentityScoped(load, true)
+    await expect(importer()).rejects.toThrow('offline')
+    await importer()
+    expect(load).toHaveBeenCalledTimes(2)
   })
 })
