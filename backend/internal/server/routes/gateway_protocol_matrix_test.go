@@ -39,7 +39,7 @@ func protocolMatrixRouter(platform string) *gin.Engine {
 
 // The registered-route inventory and the account evidence gate are separate
 // contracts: a registered route alone is never a promise of upstream support.
-func TestGatewayPlatformProtocolMatrix(t *testing.T) {
+func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 	for _, descriptor := range domain.PlatformDescriptors() {
 		accountTypes := []string{service.AccountTypeAPIKey}
 		if descriptor.OAuth {
@@ -50,29 +50,29 @@ func TestGatewayPlatformProtocolMatrix(t *testing.T) {
 		}
 		for _, accountType := range accountTypes {
 			for _, endpoint := range []string{"messages", "responses", "chat_completions", "generate_content", "embeddings", "images", "live"} {
-				t.Run(descriptor.ID+"/"+accountType+"/"+endpoint, func(t *testing.T) {
+				test.Run(descriptor.ID+"/"+accountType+"/"+endpoint, func(test *testing.T) {
 					account := &service.Account{ID: 1, Platform: descriptor.ID, Type: accountType, Status: service.StatusActive, Schedulable: true}
 					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{endpoint}, EvidenceKind: "synthetic-contract"}}}
 					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
 					options := service.AccountModelBindingOptions{Endpoint: endpoint, FinalModel: "fixture-model"}
-					require.True(t, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
+					require.True(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
 					catalog.EligibleModels[0].Endpoints = []string{"unrelated-endpoint"}
 					account.Extra[service.UpstreamModelCatalogExtraKey] = catalog
-					require.False(t, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
+					require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
 					account.Extra = nil
-					require.False(t, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
+					require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
 				})
 			}
 		}
 	}
 	// Existing tests exercise the actual dispatch branches and preserve their
 	// protocol-specific errors, rather than rewriting them to match descriptors.
-	t.Run("pinned-and-client-version", TestGatewayRoutesPinnedModelsDispatchesOrdinaryAndCodexRequests)
-	t.Run("composite-messages", TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway)
-	t.Run("composite-chat", TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway)
-	t.Run("composite-video-lookups", TestGatewayRoutesCompositeVideoLookupsUseGrokHandler)
-	t.Run("composite-openai-only", TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget)
-	t.Run("grok-cli-compatibility", TestGatewayRoutesGrokAllowsCLICompatibilityEntrypoints)
+	test.Run("pinned-and-client-version", TestGatewayRoutesPinnedModelsDispatchesOrdinaryAndCodexRequests)
+	test.Run("composite-messages", TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway)
+	test.Run("composite-chat", TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway)
+	test.Run("composite-video-lookups", TestGatewayRoutesCompositeVideoLookupsUseGrokHandler)
+	test.Run("composite-openai-only", TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget)
+	test.Run("grok-cli-compatibility", TestGatewayRoutesGrokAllowsCLICompatibilityEntrypoints)
 }
 
 func concreteMatrixPath(path string) string {
@@ -84,7 +84,7 @@ func concreteMatrixPath(path string) string {
 	return strings.ReplaceAll(path, "*nativePath", "unsupported-action")
 }
 
-func TestGatewayUnsupportedProtocolContracts(t *testing.T) {
+func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	for _, platform := range []string{service.PlatformVolcengine, service.PlatformQianfan, service.PlatformHunyuan, service.PlatformMistral, service.PlatformBedrock} {
 		router := protocolMatrixRouter(platform)
 		for _, route := range router.Routes() {
@@ -100,20 +100,20 @@ func TestGatewayUnsupportedProtocolContracts(t *testing.T) {
 			}
 			for _, stream := range []bool{false, true} {
 				for _, withTools := range []bool{false, true} {
-					t.Run(fmt.Sprintf("%s/%s%s/stream=%t/tools=%t", platform, route.Method, path, stream, withTools), func(t *testing.T) {
+					test.Run(fmt.Sprintf("%s/%s%s/stream=%t/tools=%t", platform, route.Method, path, stream, withTools), func(test *testing.T) {
 						payload := gin.H{"model": "fixture-model", "stream": stream}
 						if withTools {
 							payload["tools"] = []gin.H{{"type": "function", "function": gin.H{"name": "fixture"}}}
 						}
 						body, err := json.Marshal(payload)
-						require.NoError(t, err)
+						require.NoError(test, err)
 						recorder := httptest.NewRecorder()
 						request := httptest.NewRequest(route.Method, path, strings.NewReader(string(body)))
 						request.Header.Set("Content-Type", "application/json")
 						request.Header.Set("Authorization", "Bearer matrix-key")
 						router.ServeHTTP(recorder, request)
-						require.Equal(t, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						require.Contains(t, recorder.Body.String(), "not_found_error")
+						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
+						require.Contains(test, recorder.Body.String(), "not_found_error")
 						// The real router has no transport or billing services. Reaching
 						// either would panic instead of returning this local rejection.
 					})
@@ -121,10 +121,10 @@ func TestGatewayUnsupportedProtocolContracts(t *testing.T) {
 			}
 		}
 	}
-	t.Run("dashscope-resources", TestQianwenNativeUnsupportedFamilies)
-	t.Run("dashscope-owned-resource-gates", TestQianwenNativeResourceLifecycleRoutes)
-	t.Run("responses-actions", TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths)
-	t.Run("other-platform-videos", TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate)
+	test.Run("dashscope-resources", TestQianwenNativeUnsupportedFamilies)
+	test.Run("dashscope-owned-resource-gates", TestQianwenNativeResourceLifecycleRoutes)
+	test.Run("responses-actions", TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths)
+	test.Run("other-platform-videos", TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate)
 	for _, platform := range service.ConcretePlatforms() {
 		router := protocolMatrixRouter(platform)
 		for _, feature := range []struct {
@@ -148,13 +148,13 @@ func TestGatewayUnsupportedProtocolContracts(t *testing.T) {
 			}
 			for _, prefix := range []string{"", "/v1"} {
 				for _, body := range []string{`{"model":"fixture-model","stream":false}`, `{"model":"fixture-model","stream":true,"tools":[{"type":"function","function":{"name":"fixture"}}]}`} {
-					t.Run("feature-gate/"+platform+"/"+feature.method+prefix+feature.path, func(t *testing.T) {
+					test.Run("feature-gate/"+platform+"/"+feature.method+prefix+feature.path, func(test *testing.T) {
 						recorder := httptest.NewRecorder()
 						request := httptest.NewRequest(feature.method, prefix+feature.path, strings.NewReader(body))
 						request.Header.Set("Content-Type", "application/json")
 						router.ServeHTTP(recorder, request)
-						require.Equal(t, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						require.Contains(t, recorder.Body.String(), "not_found_error")
+						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
+						require.Contains(test, recorder.Body.String(), "not_found_error")
 					})
 				}
 			}
@@ -172,13 +172,13 @@ func TestGatewayUnsupportedProtocolContracts(t *testing.T) {
 		requestContext.Status(http.StatusOK)
 	})
 	router.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, "/v1/responses", strings.NewReader(`{"model":"fixture"}`)))
-	require.Zero(t, upstreamCalls)
-	require.Zero(t, billingCalls)
+	require.Zero(test, upstreamCalls)
+	require.Zero(test, billingCalls)
 }
 
-func TestGatewayProtocolMatrixDocumentation(t *testing.T) {
+func TestGatewayProtocolMatrixDocumentation(test *testing.T) {
 	body, err := os.ReadFile(filepath.Join("..", "..", "..", "..", "docs", "gateway-platform-protocol-matrix.md"))
-	require.NoError(t, err)
+	require.NoError(test, err)
 	document := string(body)
 	var registered []string
 	for _, route := range newGatewayRoutesTestRouter().Routes() {
@@ -186,7 +186,7 @@ func TestGatewayProtocolMatrixDocumentation(t *testing.T) {
 	}
 	slices.Sort(registered)
 	for _, route := range registered {
-		require.Contains(t, document, "| `"+route+"` |", "registered method/path absent from maintained matrix")
+		require.Contains(test, document, "| `"+route+"` |", "registered method/path absent from maintained matrix")
 	}
 	var documented []string
 	for _, line := range strings.Split(document, "\n") {
@@ -198,9 +198,9 @@ func TestGatewayProtocolMatrixDocumentation(t *testing.T) {
 		}
 	}
 	slices.Sort(documented)
-	require.Equal(t, registered, documented, "documentation must not advertise unregistered routes")
+	require.Equal(test, registered, documented, "documentation must not advertise unregistered routes")
 	for _, platform := range domain.ConcretePlatforms() {
-		require.Contains(t, document, "| "+platform+" |")
+		require.Contains(test, document, "| "+platform+" |")
 	}
-	require.False(t, domain.IsConcretePlatform("workbuddy"))
+	require.False(test, domain.IsConcretePlatform("workbuddy"))
 }
