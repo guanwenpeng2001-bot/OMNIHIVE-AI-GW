@@ -4,12 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -386,6 +389,8 @@ func (s *PricingService) buildCapabilityCandidate(body []byte, declaredHash stri
 	return candidate
 }
 
+var renamePricingFile = os.Rename
+
 // Replace a complete file in its own directory so readers cannot see half JSON.
 func writePricingFileAtomically(path string, body []byte) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".pricing-*")
@@ -409,7 +414,22 @@ func writePricingFileAtomically(path string, body []byte) error {
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	const maxAttempts = 5
+	for attempt := 1; ; attempt++ {
+		err = renamePricingFile(name, path)
+		// Windows readers may temporarily deny replacement. Keep POSIX and
+		// all other errors unchanged; never remove the destination to retry.
+		// Win32 ERROR_ACCESS_DENIED = 5, ERROR_SHARING_VIOLATION = 32.
+		if err == nil || runtime.GOOS != "windows" ||
+			(!errors.Is(err, syscall.Errno(5)) && !errors.Is(err, syscall.Errno(32))) {
+			return err
+		}
+		if attempt == maxAttempts {
+			return fmt.Errorf("replace pricing file after %d attempts: %w", attempt, err)
+		}
+		// Four bounded backoffs: 25 + 50 + 75 + 100 = 250 ms total.
+		time.Sleep(time.Duration(attempt) * 25 * time.Millisecond)
+	}
 }
 
 // Invalid capability fields cannot change the pre-existing price admission rules.
