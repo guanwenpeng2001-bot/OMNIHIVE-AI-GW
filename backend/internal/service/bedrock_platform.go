@@ -19,7 +19,7 @@ import (
 func (service *GatewayService) forwardBedrockPlatform(ctx context.Context, requestContext *gin.Context, account *Account, parsed *ParsedRequest, start time.Time) (*ForwardResult, error) {
 	target, valid := ResolveBedrockModelID(account, parsed.Model)
 	if !valid {
-		return nil, fmt.Errorf("Bedrock target is required")
+		return nil, fmt.Errorf("bedrock target is required")
 	}
 	if err := validateAccountForwardModel(ctx, service.accountRepo, account, target, CompositeRouteEndpointMessages); err != nil {
 		return nil, err
@@ -93,7 +93,7 @@ func (service *GatewayService) forwardBedrockPlatform(ctx context.Context, reque
 		}
 	}
 	if usage == nil {
-		return nil, fmt.Errorf("Bedrock usage is unknown")
+		return nil, fmt.Errorf("bedrock usage is unknown")
 	}
 	return &ForwardResult{RequestID: response.Header.Get("x-request-id"), UpstreamHeaders: response.Header, Usage: *usage, Model: parsed.Model, UpstreamModel: target, Stream: parsed.Stream, Duration: time.Since(start), FirstTokenMs: firstToken, ClientDisconnect: disconnected}, nil
 }
@@ -150,7 +150,7 @@ func (service *AccountTestService) fetchBedrockModels(ctx context.Context, accou
 			return nil, nil, parseErr
 		}
 		if availability.ModelID != model.ModelID {
-			return nil, nil, fmt.Errorf("Bedrock availability identity mismatch")
+			return nil, nil, fmt.Errorf("bedrock availability identity mismatch")
 		}
 		methods := []string{}
 		if availability.AuthorizationStatus == "AUTHORIZED" && availability.AgreementAvailability.Status == "AVAILABLE" && availability.EntitlementAvailability == "AVAILABLE" && availability.RegionAvailability == "AVAILABLE" && slices.Contains(model.InferenceTypesSupported, "ON_DEMAND") && slices.Contains(model.OutputModalities, "TEXT") {

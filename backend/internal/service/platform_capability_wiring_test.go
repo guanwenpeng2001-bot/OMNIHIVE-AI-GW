@@ -42,3 +42,18 @@ func TestMappedOnlyCapabilityDiscovery(test *testing.T) {
 	require.Contains(test, catalog.Metadata, "private-target")
 	require.Empty(test, account.GetUpstreamModelCatalog())
 }
+
+func TestExpandedPlatformAccountShape(test *testing.T) {
+	for _, platform := range []string{PlatformVolcengine, PlatformQianfan, PlatformHunyuan, PlatformMistral, PlatformBedrock} {
+		for _, kind := range []string{AccountTypeAPIKey, AccountTypeOAuth, AccountTypeBedrock} {
+			err := validateExpandedPlatformAccount(&Account{Platform: platform, Type: kind})
+			valid := kind == AccountTypeAPIKey
+			if platform == PlatformBedrock {
+				valid = kind == AccountTypeBedrock
+			}
+			require.Equal(test, valid, err == nil, platform+"/"+kind)
+		}
+	}
+	require.Error(test, validateExpandedPlatformAccount(&Account{Platform: PlatformComposite, Type: AccountTypeAPIKey}))
+	require.NoError(test, validateExpandedPlatformAccount(&Account{Platform: PlatformAnthropic, Type: AccountTypeBedrock}))
+}
