@@ -78,10 +78,12 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
+        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" role="radiogroup" :aria-label="t('admin.accounts.platform')" data-tour="account-form-platform">
           <button v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value"
             type="button" :data-testid="`${option.value}-platform`" @click="selectPlatform(option.value)"
-            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
+            role="radio" :aria-checked="form.platform === option.value" :tabindex="form.platform === option.value ? 0 : -1"
+            @keydown="onPlatformKeydown($event, option.value)"
+            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
             <PlatformIcon :platform="option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
           </button>
         </div>
@@ -4123,6 +4125,36 @@ const cnAccentActiveClass = computed(() => platformSelectionClass(form.platform)
 const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platform))
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
+// Native button clicks handle Space/Enter once; navigation keys select and move focus.
+function onPlatformKeydown(event: KeyboardEvent, platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
+  const index = CONCRETE_PLATFORM_OPTIONS.findIndex(option => option.value === platform)
+  let nextIndex: number
+  switch (event.key) {
+    case 'ArrowRight':
+    case 'ArrowDown':
+      nextIndex = (index + 1) % CONCRETE_PLATFORM_OPTIONS.length
+      break
+    case 'ArrowLeft':
+    case 'ArrowUp':
+      nextIndex = (index - 1 + CONCRETE_PLATFORM_OPTIONS.length) % CONCRETE_PLATFORM_OPTIONS.length
+      break
+    case 'Home':
+      nextIndex = 0
+      break
+    case 'End':
+      nextIndex = CONCRETE_PLATFORM_OPTIONS.length - 1
+      break
+    default:
+      return
+  }
+  event.preventDefault()
+  const nextOption = CONCRETE_PLATFORM_OPTIONS[nextIndex]
+  if (!nextOption) return
+  selectPlatform(nextOption.value)
+  const button = event.currentTarget as HTMLButtonElement
+  button.parentElement?.querySelector<HTMLButtonElement>(`[data-testid="${nextOption.value}-platform"]`)?.focus()
+}
+
 function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
