@@ -366,9 +366,9 @@ export default {
       platforms: {
       bedrock: 'Amazon Bedrock',
       mistral: 'Mistral',
-      hunyuan: 'Hunyuan',
-      qianfan: 'Qianfan',
-      volcengine: 'Volcengine Ark',
+      hunyuan: '腾讯混元',
+      qianfan: '百度千帆',
+      volcengine: '火山引擎',
         qianwen: '千问AI',
         commandcode: 'Command Code',
         cursor: 'Cursor',
