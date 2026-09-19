@@ -161,8 +161,8 @@ describe('UserDashboardStats money display', () => {
       global: { stubs: { Icon: true } },
     })
     expect(wrapper.text()).toContain('$-0.00000001')
-    expect(wrapper.text()).toContain('$0.00000001')
-    expect(wrapper.text()).toContain('$0.00000000')
+    expect(wrapper.text()).toContain('USD 0.00000001')
+    expect(wrapper.text()).toContain('USD 0.00000000')
     expect(wrapper.get('[title="USD -0.00000001"]').exists()).toBe(true)
     wrapper.unmount()
   })
@@ -172,7 +172,7 @@ describe('UserDashboardStats money display', () => {
       props: { isSimple: false, balance: 0, stats: {} as UserStatsType },
       global: { stubs: { Icon: true } },
     })
-    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['$-', '$-'])
+    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD -'])
     wrapper.unmount()
   })
 })

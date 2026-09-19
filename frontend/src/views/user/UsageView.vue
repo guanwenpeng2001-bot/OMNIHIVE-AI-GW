@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
       <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
         <p>{{ t('dashboard.historyUnavailable') }}</p>
@@ -67,7 +68,7 @@
             :start-date="startDate"
             :end-date="endDate"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
 
@@ -182,7 +183,7 @@
       </div>
 
       <template v-if="activeTab === 'usage'">
-        <UsageTable
+        <UsageTable :time-zone="reportTimeZone"
           :data="usageLogs"
           :loading="loading"
           :columns="visibleColumns"
@@ -224,6 +225,12 @@
 </template>
 
 <script setup lang="ts">
+import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
+import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -342,8 +349,7 @@ let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
 
-const formatLocalDate = (date: Date): string =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const formatLocalDate = (date: Date): string => formatReportDateInput(date, reportTimeZone)
 
 const getLast24HoursRangeDates = () => {
   const end = new Date()
@@ -370,7 +376,7 @@ const activeTab = ref<'usage' | 'errors'>('usage')
 const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
 
 const filters = ref<UsageQueryParams>({
-  start_date: startDate.value,
+  ...reportQueryContext, start_date: startDate.value,
   end_date: endDate.value,
   request_type: undefined,
   native_compaction_v2: null,
@@ -440,7 +446,7 @@ const normalizedFilters = computed<UsageQueryParams>(() => {
   const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
   return {
     ...filters.value,
-    start_date: startDate.value,
+    ...reportQueryContext, start_date: startDate.value,
     end_date: endDate.value,
     stream: legacyStream === null ? undefined : legacyStream,
   }
@@ -691,7 +697,7 @@ const exportToCSV = async () => {
       ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`)),
     ]
     const rows = allLogs.map((log) => [
-      log.created_at,
+      formatDateTimeWithZone(log.created_at, exportParams.timezone),
       log.api_key?.name || '',
       log.model,
       formatReasoningEffort(log.reasoning_effort),
@@ -876,7 +882,7 @@ const loadErrors = async () => {
     const resp = await usageAPI.listMyErrorRequests({
       page: errorPage.value,
       page_size: errorPageSize.value,
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value,
       model: (errorFilter.value.model ?? '').trim() || undefined,
       category: errorFilter.value.category || undefined,

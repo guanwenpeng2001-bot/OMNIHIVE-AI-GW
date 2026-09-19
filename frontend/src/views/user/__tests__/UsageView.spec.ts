@@ -1,3 +1,4 @@
+import { formatDateTimeWithZone } from '@/utils/format'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
@@ -150,8 +151,9 @@ const usageLog = {
   native_compaction_v2: false,
 }
 
-function mountUsageView() {
+function mountUsageView(timeZone?: string) {
   return mount(UsageView, {
+    props: { timeZone },
     global: {
       stubs: {
         AppLayout: simpleStub,
@@ -484,7 +486,7 @@ describe('user UsageView', () => {
     expect(csvContent.slice(1)).toBe([
       'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost (USD),Original Cost (USD),First Token (ms),Duration (ms),' +
         ['pricingState', 'settlementState', 'completionState', 'source', 'version', 'conditions', 'quantity', 'unit', 'unitPrice', 'charged', 'requestId', 'jobId', 'sessionId', 'turnId', 'snapshot'].map(field => `usage.evidence.${field}`).join(','),
-      '2026-03-08T00:00:00Z,demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,' +
+      `"${formatDateTimeWithZone('2026-03-08T00:00:00Z')}",demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,` +
         [...Array<string>(10).fill('usage.evidence.unknown'), 'req-user-export', ...Array<string>(4).fill('usage.evidence.unknown')].join(','),
     ].join('\n'))
     expect(csvContent).toContain('IP Address')
@@ -500,8 +502,8 @@ describe('user UsageView', () => {
       query.mockResolvedValueOnce({ items: [{ model: 'model-original-ID', created_at: '2026-11-01T05:30:00Z',
         input_tokens: 23, actual_cost: amount, total_cost: amount }], total: 1, pages: 1 })
       await (wrapper.vm as any).exportToCSV()
-      const row = csvContent.split('\n')[1].split(',')
-      expect(row[0]).toBe('2026-11-01T05:30:00Z')
+      const row = csvContent.split('\n')[1].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
+      expect(row[0]).toBe(`"${formatDateTimeWithZone('2026-11-01T05:30:00Z')}"`)
       expect(row[2]).toBe('model-original-ID')
       expect(row[8]).toBe('23')
       // CSV formula-injection escaping is retained for negative/unknown strings.
@@ -642,6 +644,17 @@ describe('UsageView subscription feature flag', () => {
       select.props('options').some((option: SelectOption) => option.label === 'Subscription')
     )
   }
+
+  it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('passes explicit %s to every report request and projection', async timeZone => {
+    const wrapper = mountUsageView(timeZone)
+    await flushPromises()
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getDashboardModels).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(wrapper.findAll('[time-zone]').map(node => node.attributes('time-zone'))).toContain(timeZone)
+    wrapper.unmount()
+  })
 
   it('offers the balance / subscription billing-type filter by default', async () => {
     const wrapper = mountUsageView()
