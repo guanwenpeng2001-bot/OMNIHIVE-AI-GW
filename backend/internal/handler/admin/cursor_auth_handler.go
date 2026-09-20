@@ -2,7 +2,6 @@ package admin
 
 import (
 	"context"
-	"errors"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -32,36 +31,18 @@ func (handler *AccountHandler) StartCursorAuthorization(ctx *gin.Context) {
 			return
 		}
 	}
-	state, err := handler.cursorAuthService.Start(func(persistCtx context.Context, credentials map[string]any) (int64, error) {
+	if err := requireCredentialDraftStore(handler.credentialDrafts); err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	binding, err := credentialDraftBinding(ctx, true)
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	state, err := handler.cursorAuthService.StartDraft(binding, func(persistCtx context.Context, credentials map[string]any) (*service.AccountCredentialDraft, error) {
 		credentials["client_version"] = strings.TrimSpace(request.ClientVersion)
-		if request.AccountID != 0 {
-			// Recheck at completion: the account may have been deleted or changed
-			// while its administrator was in the browser.
-			existing, err := handler.adminService.GetAccount(persistCtx, request.AccountID)
-			if err != nil || !existing.IsCursor() || existing.Type != service.AccountTypeOAuth {
-				return 0, errors.New("Cursor account changed during authorization")
-			}
-			credentials = service.MergeCredentials(existing.Credentials, credentials)
-			account, err := handler.adminService.UpdateAccount(persistCtx, request.AccountID, &service.UpdateAccountInput{Credentials: credentials})
-			if err != nil {
-				return 0, err
-			}
-			return account.ID, nil
-		}
-		settings := request.Account
-		if mapping, ok := settings.Credentials["model_mapping"]; ok {
-			credentials["model_mapping"] = mapping
-		}
-		account, err := handler.adminService.CreateAccount(persistCtx, &service.CreateAccountInput{
-			Name: settings.Name, Notes: settings.Notes, Platform: service.PlatformCursor, Type: service.AccountTypeOAuth,
-			Credentials: credentials, Extra: settings.Extra, ProxyID: settings.ProxyID, Concurrency: settings.Concurrency,
-			Priority: settings.Priority, RateMultiplier: settings.RateMultiplier, LoadFactor: settings.LoadFactor,
-			GroupIDs: settings.GroupIDs, ExpiresAt: settings.ExpiresAt, AutoPauseOnExpired: settings.AutoPauseOnExpired,
-		})
-		if err != nil {
-			return 0, err
-		}
-		return account.ID, nil
+		return handler.credentialDrafts.IssueAccountCredentialDraft(persistCtx, binding, service.PlatformCursor, service.AccountTypeOAuth, credentials)
 	})
 	if err != nil {
 		response.BadRequest(ctx, "Cursor authorization could not start; retry later")
@@ -77,10 +58,22 @@ func (handler *AccountHandler) CancelCursorAuthorization(ctx *gin.Context) {
 	handler.cursorAuthorizationStatus(ctx, true)
 }
 func (handler *AccountHandler) cursorAuthorizationStatus(ctx *gin.Context, cancel bool) {
-	state, err := handler.cursorAuthService.Poll(ctx.Request.Context(), ctx.Param("session"), cancel)
+	binding, err := credentialDraftBinding(ctx, false)
+	if err != nil {
+		response.ErrorFrom(ctx, err)
+		return
+	}
+	state, err := handler.cursorAuthService.PollBound(ctx.Request.Context(), ctx.Param("session"), binding, cancel)
 	if err != nil {
 		response.BadRequest(ctx, "Cursor authorization expired or server restarted; start again")
 		return
+	}
+	if (cancel || state.Status == "cancelled") && state.Draft != nil {
+		if err := handler.credentialDrafts.CancelAccountCredentialDraft(ctx.Request.Context(), state.Draft.Reference, binding); err != nil {
+			response.ErrorFrom(ctx, err)
+			return
+		}
+		state.Status, state.Draft = "cancelled", nil
 	}
 	response.Success(ctx, state)
 }

@@ -20,6 +20,7 @@ import (
 const grokSSOImportConcurrency = 3
 
 type GrokOAuthHandler struct {
+	credentialDraftHandler
 	grokOAuthService *service.GrokOAuthService
 	adminService     service.AdminService
 	quotaService     *service.GrokQuotaService
@@ -61,6 +62,12 @@ func (h *GrokOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "grok:oauth", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -78,6 +85,13 @@ func (h *GrokOAuthHandler) ExchangeCode(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "grok:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.grokOAuthService.ExchangeCode(c.Request.Context(), &service.GrokExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
@@ -89,7 +103,7 @@ func (h *GrokOAuthHandler) ExchangeCode(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 type GrokRefreshTokenRequest struct {
@@ -143,7 +157,7 @@ func (h *GrokOAuthHandler) RefreshToken(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 // ValidateSSOToken converts a Web SSO cookie into Build OAuth tokens.
@@ -159,7 +173,7 @@ func (h *GrokOAuthHandler) ValidateSSOToken(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 // AuthorizePassword exchanges email/password for Build OAuth tokens via SSO conversion.
@@ -175,7 +189,7 @@ func (h *GrokOAuthHandler) AuthorizePassword(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 func (h *GrokOAuthHandler) RefreshAccountToken(c *gin.Context) {
@@ -277,6 +291,12 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "grok:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
 	tokenInfo, err := h.grokOAuthService.ExchangeCode(c.Request.Context(), &service.GrokExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
@@ -288,32 +308,7 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	credentials := h.grokOAuthService.BuildAccountCredentials(tokenInfo)
-
-	name := strings.TrimSpace(req.Name)
-	if name == "" && tokenInfo.Email != "" {
-		name = tokenInfo.Email
-	}
-	if name == "" {
-		name = "Grok OAuth Account"
-	}
-
-	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name:        name,
-		Platform:    service.PlatformGrok,
-		Type:        service.AccountTypeOAuth,
-		Credentials: credentials,
-		ProxyID:     req.ProxyID,
-		Concurrency: req.Concurrency,
-		Priority:    req.Priority,
-		GroupIDs:    req.GroupIDs,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	h.scheduleGrokImportProbe(account)
-	response.Success(c, dto.AccountFromService(account))
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGrok, service.AccountTypeOAuth, h.grokOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 type GrokSSOToOAuthRequest struct {
@@ -334,16 +329,17 @@ type GrokSSOToOAuthRequest struct {
 }
 
 type GrokSSOToOAuthItemResult struct {
-	Index   int          `json:"index"`
-	Name    string       `json:"name,omitempty"`
-	Email   string       `json:"email,omitempty"`
-	Account *dto.Account `json:"account,omitempty"`
-	Error   string       `json:"error,omitempty"`
+	Draft   *service.AccountCredentialDraft `json:"draft,omitempty"`
+	Index   int                             `json:"index"`
+	Name    string                          `json:"name,omitempty"`
+	Email   string                          `json:"email,omitempty"`
+	Account *dto.Account                    `json:"account,omitempty"`
+	Error   string                          `json:"error,omitempty"`
 }
 
 type GrokSSOToOAuthResponse struct {
-	Created []GrokSSOToOAuthItemResult `json:"created"`
-	Failed  []GrokSSOToOAuthItemResult `json:"failed"`
+	Ready  []GrokSSOToOAuthItemResult `json:"ready"`
+	Failed []GrokSSOToOAuthItemResult `json:"failed"`
 }
 
 type grokSSOImportJob struct {
@@ -367,6 +363,15 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 		response.BadRequest(c, "sso_tokens is required")
 		return
 	}
+	binding, err := credentialDraftBinding(c, true)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if err := requireCredentialDraftStore(h.credentialDrafts); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	ctx := c.Request.Context()
 	workerCount := grokSSOImportConcurrency
@@ -381,7 +386,7 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 		go func() {
 			defer wg.Done()
 			for job := range jobs {
-				items[job.index] = h.safeCreateAccountFromSSOToken(ctx, req, job.token, job.index+1, len(tokens))
+				items[job.index] = h.safeCreateAccountFromSSOToken(ctx, req, job.token, job.index+1, len(tokens), binding)
 			}
 		}()
 	}
@@ -392,12 +397,12 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 	wg.Wait()
 
 	result := GrokSSOToOAuthResponse{
-		Created: make([]GrokSSOToOAuthItemResult, 0, len(tokens)),
-		Failed:  make([]GrokSSOToOAuthItemResult, 0),
+		Ready:  make([]GrokSSOToOAuthItemResult, 0, len(tokens)),
+		Failed: make([]GrokSSOToOAuthItemResult, 0),
 	}
 	for _, item := range items {
 		if item.created {
-			result.Created = append(result.Created, item.item)
+			result.Ready = append(result.Ready, item.item)
 		} else {
 			result.Failed = append(result.Failed, item.item)
 		}
@@ -405,7 +410,7 @@ func (h *GrokOAuthHandler) CreateAccountsFromSSO(c *gin.Context) {
 	response.Success(c, result)
 }
 
-func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int) (result grokSSOImportWorkerResult) {
+func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int, binding string) (result grokSSOImportWorkerResult) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error("grok_sso_import_worker_panic", "index", index, "recover", recovered)
@@ -417,10 +422,10 @@ func (h *GrokOAuthHandler) safeCreateAccountFromSSOToken(ctx context.Context, re
 			}
 		}
 	}()
-	return h.createAccountFromSSOToken(ctx, req, token, index, total)
+	return h.createAccountFromSSOToken(ctx, req, token, index, total, binding)
 }
 
-func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int) grokSSOImportWorkerResult {
+func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req GrokSSOToOAuthRequest, token string, index, total int, binding string) grokSSOImportWorkerResult {
 	tokenInfo, err := h.grokOAuthService.ConvertFromSSO(ctx, token, req.ProxyID)
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Error: grokSSOImportErrorMessage(err)}}
@@ -428,34 +433,17 @@ func (h *GrokOAuthHandler) createAccountFromSSOToken(ctx context.Context, req Gr
 
 	credentials := grokSSOImportCredentials(h.grokOAuthService.BuildAccountCredentials(tokenInfo), req.Credentials)
 	name := grokSSOImportAccountName(req.Name, tokenInfo, index, total)
-	expiresAt, autoPauseOnExpired := grokSSOImportExpiry(req.ExpiresAt, req.AutoPauseOnExpired, tokenInfo)
-	account, err := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-		Name:               name,
-		Notes:              req.Notes,
-		Platform:           service.PlatformGrok,
-		Type:               service.AccountTypeOAuth,
-		Credentials:        credentials,
-		Extra:              cloneGrokSSOMap(req.Extra),
-		ProxyID:            req.ProxyID,
-		Concurrency:        req.Concurrency,
-		LoadFactor:         req.LoadFactor,
-		Priority:           req.Priority,
-		RateMultiplier:     req.RateMultiplier,
-		GroupIDs:           append([]int64(nil), req.GroupIDs...),
-		ExpiresAt:          expiresAt,
-		AutoPauseOnExpired: autoPauseOnExpired,
-	})
+	draft, err := h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformGrok, service.AccountTypeOAuth, credentials)
 	if err != nil {
 		return grokSSOImportWorkerResult{item: GrokSSOToOAuthItemResult{Index: index, Name: name, Email: tokenInfo.Email, Error: grokSSOImportErrorMessage(err)}}
 	}
-	h.scheduleGrokImportProbe(account)
 	return grokSSOImportWorkerResult{
 		created: true,
 		item: GrokSSOToOAuthItemResult{
-			Index:   index,
-			Name:    name,
-			Email:   tokenInfo.Email,
-			Account: dto.AccountFromService(account),
+			Index: index,
+			Name:  name,
+			Email: tokenInfo.Email,
+			Draft: draft,
 		},
 	}
 }

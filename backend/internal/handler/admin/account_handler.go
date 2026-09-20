@@ -36,6 +36,7 @@ import (
 
 // OAuthHandler handles OAuth-related operations for accounts
 type OAuthHandler struct {
+	credentialDraftHandler
 	oauthService *service.OAuthService
 }
 
@@ -48,6 +49,7 @@ func NewOAuthHandler(oauthService *service.OAuthService) *OAuthHandler {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	credentialDraftHandler
 	cursorAuthService       *service.CursorAuthService
 	cursorSessions          *service.CursorSessionProvider
 	adminService            service.AdminService
@@ -117,6 +119,8 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
+	CredentialDraft         string         `json:"credential_draft,omitempty"`
+	CredentialDraftRevision string         `json:"credential_draft_revision,omitempty"`
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode volcengine qianfan hunyuan mistral bedrock"`
@@ -1028,42 +1032,15 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	var createdAccount *service.Account
 
 	result, err := executeAdminIdempotent(c, "admin.accounts.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		var extra map[string]any
-		if req.Extra != nil {
-			extra = make(map[string]any, len(req.Extra))
-		}
-		for key, value := range req.Extra {
-			extra[key] = value
-		}
-		if err := bindModelCapabilityDefaults(&service.Account{Platform: req.Platform, Type: req.Type, Credentials: service.SanitizeStoredCredentials(req.Platform, req.Credentials)}, extra, adminActorScope(c)); err != nil {
-			return nil, infraerrors.BadRequest("INVALID_MODEL_CAPABILITY_DEFAULTS", err.Error())
-		}
-		account, execErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-			Name:                  req.Name,
-			Notes:                 req.Notes,
-			Platform:              req.Platform,
-			Type:                  req.Type,
-			Credentials:           req.Credentials,
-			Extra:                 extra,
-			ProxyID:               req.ProxyID,
-			Concurrency:           req.Concurrency,
-			Priority:              req.Priority,
-			RateMultiplier:        req.RateMultiplier,
-			LoadFactor:            req.LoadFactor,
-			GroupIDs:              req.GroupIDs,
-			ExpiresAt:             req.ExpiresAt,
-			AutoPauseOnExpired:    req.AutoPauseOnExpired,
-			ProbeEnabled:          req.ProbeEnabled,
-			SkipMixedChannelCheck: skipCheck,
-		})
+		account, execErr := h.createAccountFromRequest(ctx, c, req, skipCheck, true)
 		if execErr != nil {
 			return nil, execErr
 		}
 		createdAccount = account
-		// Antigravity OAuth: 新账号直接设置隐私
-		h.adminService.ForceAntigravityPrivacy(ctx, account)
-		// OpenAI OAuth: 新账号直接设置隐私
-		h.adminService.ForceOpenAIPrivacy(ctx, account)
+		if req.CredentialDraft == "" {
+			h.adminService.EnsureAntigravityPrivacy(ctx, account)
+			h.adminService.EnsureOpenAIPrivacy(ctx, account)
+		}
 		return h.buildAccountResponseWithRuntime(ctx, account), nil
 	})
 	if err != nil {
@@ -1430,6 +1407,11 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	if !account.IsOAuth() {
 		return nil, "", infraerrors.BadRequest("NOT_OAUTH", "cannot refresh non-OAuth account")
 	}
+	switch account.Platform {
+	case service.PlatformAnthropic, service.PlatformOpenAI, service.PlatformGemini, service.PlatformAntigravity, service.PlatformGrok, service.PlatformCursor:
+	default:
+		return nil, "", infraerrors.BadRequest("REFRESH_UNSUPPORTED", "this account type does not support credential refresh")
+	}
 	if account.IsCursor() {
 		if h.cursorSessions == nil {
 			return nil, "", errors.New("Cursor session service unavailable")
@@ -1499,9 +1481,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 
 		// 如果 project_id 获取失败，更新凭证但不标记为 error
 		if tokenInfo.ProjectIDMissing {
-			updatedAccount, updateErr := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
-				Credentials: newCredentials,
-			})
+			updatedAccount, updateErr := h.persistRefreshedCredentials(ctx, account, newCredentials)
 			if updateErr != nil {
 				return nil, "", fmt.Errorf("failed to update credentials: %w", updateErr)
 			}
@@ -1528,7 +1508,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		if baseURL := strings.TrimSpace(account.GetCredential("base_url")); baseURL != "" {
 			newCredentials["base_url"] = baseURL
 		}
-	} else {
+	} else if account.Platform == service.PlatformAnthropic {
 		// Use Anthropic/Claude OAuth service to refresh token
 		tokenInfo, err := h.oauthService.RefreshAccountToken(ctx, account)
 		if err != nil {
@@ -1554,9 +1534,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 		}
 	}
 
-	updatedAccount, err := h.adminService.UpdateAccount(ctx, account.ID, &service.UpdateAccountInput{
-		Credentials: newCredentials,
-	})
+	updatedAccount, err := h.persistRefreshedCredentials(ctx, account, newCredentials)
 	if err != nil {
 		return nil, "", err
 	}
@@ -1612,9 +1590,11 @@ func (h *AccountHandler) Refresh(c *gin.Context) {
 
 // ApplyOAuthCredentialsRequest is the payload for persisting re-authorized OAuth credentials.
 type ApplyOAuthCredentialsRequest struct {
-	Type        string         `json:"type" binding:"required,oneof=oauth setup-token"`
-	Credentials map[string]any `json:"credentials" binding:"required"`
-	Extra       map[string]any `json:"extra"`
+	CredentialDraft         string         `json:"credential_draft"`
+	CredentialDraftRevision string         `json:"credential_draft_revision"`
+	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token"`
+	Credentials             map[string]any `json:"credentials"`
+	Extra                   map[string]any `json:"extra"`
 }
 
 // ApplyOAuthCredentials 将"重新授权"得到的新凭据原子落库。
@@ -1668,34 +1648,10 @@ func (h *AccountHandler) ApplyOAuthCredentials(c *gin.Context) {
 		return
 	}
 
-	// Drop SSO/password residue; re-auth must leave only OAuth tokens on disk.
-	req.Credentials = service.SanitizeStoredCredentials(existing.Platform, req.Credentials)
-
-	updatedAccount, err := h.adminService.UpdateAccount(ctx, accountID, &service.UpdateAccountInput{
-		Type:        req.Type,
-		Credentials: req.Credentials,
-	})
+	updatedAccount, err := h.applyCredentialDraft(ctx, c, accountID, existing, req)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
-	}
-
-	// 增量合并 Extra（JSONB key 级 merge，绝不覆盖 base_rpm / window_cost_limit /
-	// max_sessions / quota_* / privacy_mode 等持久化键）。
-	// best-effort：失败仅记日志；下方 ClearAccountError 会从 DB 重新读取最新 account，
-	// 因此响应里的 extra 始终以 DB 为准——这里不需要手动维护内存快照。
-	if len(req.Extra) > 0 {
-		if extraErr := h.adminService.UpdateAccountExtra(ctx, accountID, req.Extra); extraErr != nil {
-			extraKeys := make([]string, 0, len(req.Extra))
-			for k := range req.Extra {
-				extraKeys = append(extraKeys, k)
-			}
-			slog.Error("apply_oauth_credentials.update_extra_failed",
-				"account_id", accountID,
-				"extra_keys", extraKeys,
-				"err", extraErr,
-			)
-		}
 	}
 
 	// Successful re-auth clears the soft spending-limit reauth flag for Grok.
@@ -2160,22 +2116,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 
 			skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
 
-			account, err := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-				Name:                  item.Name,
-				Notes:                 item.Notes,
-				Platform:              item.Platform,
-				Type:                  item.Type,
-				Credentials:           item.Credentials,
-				Extra:                 item.Extra,
-				ProxyID:               item.ProxyID,
-				Concurrency:           item.Concurrency,
-				Priority:              item.Priority,
-				RateMultiplier:        item.RateMultiplier,
-				GroupIDs:              item.GroupIDs,
-				ExpiresAt:             item.ExpiresAt,
-				AutoPauseOnExpired:    item.AutoPauseOnExpired,
-				SkipMixedChannelCheck: skipCheck,
-			})
+			account, err := h.createAccountFromRequest(ctx, c, item, skipCheck, false)
 			if err != nil {
 				failed++
 				results = append(results, gin.H{
@@ -2186,7 +2127,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				continue
 			}
 			// 收集需要异步设置隐私的 OAuth 账号
-			if account.Type == service.AccountTypeOAuth {
+			if account.Type == service.AccountTypeOAuth && item.CredentialDraft == "" {
 				switch account.Platform {
 				case service.PlatformAntigravity:
 					antigravityPrivacyAccounts = append(antigravityPrivacyAccounts, account)
@@ -2452,6 +2393,12 @@ func (h *OAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "anthropic:oauth", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -2470,6 +2417,12 @@ func (h *OAuthHandler) GenerateSetupTokenURL(c *gin.Context) {
 		return
 	}
 
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "anthropic:setup", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -2489,6 +2442,13 @@ func (h *OAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "anthropic:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
@@ -2499,7 +2459,7 @@ func (h *OAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo))
 }
 
 // ExchangeSetupTokenCode exchanges authorization code for setup token
@@ -2511,6 +2471,13 @@ func (h *OAuthHandler) ExchangeSetupTokenCode(c *gin.Context) {
 		return
 	}
 
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "anthropic:setup", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.oauthService.ExchangeCode(c.Request.Context(), &service.ExchangeCodeInput{
 		SessionID: req.SessionID,
 		Code:      req.Code,
@@ -2521,7 +2488,7 @@ func (h *OAuthHandler) ExchangeSetupTokenCode(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo))
 }
 
 // CookieAuthRequest represents the request for cookie-based authentication
@@ -2549,7 +2516,7 @@ func (h *OAuthHandler) CookieAuth(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeOAuth, claudeDraftCredentials(tokenInfo))
 }
 
 // SetupTokenCookieAuth performs OAuth using sessionKey for setup token (inference only)
@@ -2571,7 +2538,7 @@ func (h *OAuthHandler) SetupTokenCookieAuth(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAnthropic, service.AccountTypeSetupToken, claudeDraftCredentials(tokenInfo))
 }
 
 // GetUsage handles getting account usage information
@@ -3241,6 +3208,12 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		Credentials: credentials,
 		Extra:       map[string]any{"model_capability_defaults": declaration},
 	}
+	if req.CredentialDraft != "" {
+		if err := h.resolveCredentialDraftPreview(c, req, tempAccount); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	if req.ProxyID != nil && *req.ProxyID > 0 {
 		proxy, lookupErr := h.adminService.GetProxy(c.Request.Context(), *req.ProxyID)
@@ -3308,18 +3281,9 @@ func (h *AccountHandler) SetPrivacy(c *gin.Context) {
 		response.BadRequest(c, "Only OAuth accounts support privacy setting")
 		return
 	}
-	var mode string
-	switch account.Platform {
-	case service.PlatformOpenAI:
-		mode = h.adminService.ForceOpenAIPrivacy(c.Request.Context(), account)
-	case service.PlatformAntigravity:
-		mode = h.adminService.ForceAntigravityPrivacy(c.Request.Context(), account)
-	default:
-		response.BadRequest(c, "Only OpenAI and Antigravity OAuth accounts support privacy setting")
-		return
-	}
-	if mode == "" {
-		response.BadRequest(c, "Cannot set privacy: missing access_token")
+	mode, err := h.setCredentialPrivacy(c, account)
+	if err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 	// 从 DB 重新读取以确保返回最新状态

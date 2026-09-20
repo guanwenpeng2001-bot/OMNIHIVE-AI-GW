@@ -11,6 +11,7 @@ import (
 )
 
 type GeminiOAuthHandler struct {
+	credentialDraftHandler
 	geminiOAuthService *service.GeminiOAuthService
 }
 
@@ -73,6 +74,12 @@ func (h *GeminiOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "gemini:oauth", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -107,6 +114,13 @@ func (h *GeminiOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "gemini:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.geminiOAuthService.ExchangeCode(c.Request.Context(), &service.GeminiExchangeCodeInput{
 		SessionID: req.SessionID,
 		State:     req.State,
@@ -120,7 +134,7 @@ func (h *GeminiOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformGemini, service.AccountTypeOAuth, h.geminiOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 func deriveGeminiRedirectURI(c *gin.Context) string {

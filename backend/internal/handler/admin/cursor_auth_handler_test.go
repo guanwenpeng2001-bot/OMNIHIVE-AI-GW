@@ -32,7 +32,7 @@ func (stub *cursorAuthorizationAdminStub) CreateAccount(_ context.Context, input
 	return &service.Account{ID: 72}, nil
 }
 
-func TestCursorAuthorizationCreationPreservesConcurrency(t *testing.T) {
+func TestCursorAuthorizationCreationWaitsForConfirmation(t *testing.T) {
 	previousTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	token := "synthetic." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, time.Now().Add(time.Hour).Unix()))) + ".signature"
@@ -42,9 +42,11 @@ func TestCursorAuthorizationCreationPreservesConcurrency(t *testing.T) {
 	})
 	stub := &cursorAuthorizationAdminStub{}
 	handler := &AccountHandler{adminService: stub, cursorAuthService: service.NewCursorAuthService()}
+	handler.SetCredentialDraftService(credentialDraftTestStore(t))
 	router := gin.New()
 	router.POST("/start", handler.StartCursorAuthorization)
 	router.GET("/poll/:session", handler.PollCursorAuthorization)
+	router.DELETE("/poll/:session", handler.CancelCursorAuthorization)
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodPost, "/start", strings.NewReader(`{"account":{"name":"Cursor auto","platform":"cursor","type":"oauth","concurrency":7,"group_ids":[3],"credentials":{}}}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -54,12 +56,31 @@ func TestCursorAuthorizationCreationPreservesConcurrency(t *testing.T) {
 		Data service.CursorAuthorizationStatus `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	cookie := response.Result().Cookies()[0]
 	response = httptest.NewRecorder()
-	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/poll/"+envelope.Data.ID, nil))
+	poll := httptest.NewRequest(http.MethodGet, "/poll/"+envelope.Data.ID, nil)
+	poll.AddCookie(cookie)
+	router.ServeHTTP(response, poll)
 	require.Equal(t, http.StatusOK, response.Code)
-	require.NotNil(t, stub.created)
-	require.Equal(t, 7, stub.created.Concurrency)
-	require.Equal(t, []int64{3}, stub.created.GroupIDs)
+	require.Nil(t, stub.created)
+	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	require.Equal(t, "ready", envelope.Data.Status)
+	require.NotNil(t, envelope.Data.Draft)
+	require.Zero(t, envelope.Data.AccountID)
+	require.NotContains(t, response.Body.String(), token)
+	sessionID := envelope.Data.ID
+	for _, method := range []string{http.MethodDelete, http.MethodGet, http.MethodDelete} {
+		request := httptest.NewRequest(method, "/poll/"+sessionID, nil)
+		request.AddCookie(cookie)
+		response := httptest.NewRecorder()
+		router.ServeHTTP(response, request)
+		require.Equal(t, http.StatusOK, response.Code)
+		envelope.Data = service.CursorAuthorizationStatus{}
+		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+		require.Equal(t, "cancelled", envelope.Data.Status)
+		require.Nil(t, envelope.Data.Draft)
+		require.Nil(t, stub.created)
+	}
 }
 
 func (stub *cursorAuthorizationAdminStub) GetAccount(context.Context, int64) (*service.Account, error) {
@@ -81,7 +102,7 @@ func (transport cursorPollTransport) RoundTrip(request *http.Request) (*http.Res
 	return transport(request)
 }
 
-func TestCursorAuthorizationEditDoesNotRunGenericCleanup(t *testing.T) {
+func TestCursorAuthorizationEditWaitsForConfirmation(t *testing.T) {
 	previousTransport := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = previousTransport })
 	token := "synthetic." + base64.RawURLEncoding.EncodeToString([]byte(fmt.Sprintf(`{"exp":%d}`, time.Now().Add(time.Hour).Unix()))) + ".signature"
@@ -92,6 +113,7 @@ func TestCursorAuthorizationEditDoesNotRunGenericCleanup(t *testing.T) {
 	})
 	stub := &cursorAuthorizationAdminStub{account: &service.Account{ID: 42, Platform: service.PlatformCursor, Type: service.AccountTypeOAuth, Status: service.StatusError, ErrorMessage: "manual review required", Credentials: map[string]any{"access_token": "synthetic-old"}}}
 	handler := &AccountHandler{adminService: stub, cursorAuthService: service.NewCursorAuthService()}
+	handler.SetCredentialDraftService(credentialDraftTestStore(t))
 	router := gin.New()
 	router.POST("/start", handler.StartCursorAuthorization)
 	router.GET("/poll/:session", handler.PollCursorAuthorization)
@@ -104,18 +126,22 @@ func TestCursorAuthorizationEditDoesNotRunGenericCleanup(t *testing.T) {
 		Data service.CursorAuthorizationStatus `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
+	cookie := response.Result().Cookies()[0]
 	id := envelope.Data.ID
 	require.NotEmpty(t, id)
 	for range 2 {
 		response = httptest.NewRecorder()
-		router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/poll/"+id, nil))
+		poll := httptest.NewRequest(http.MethodGet, "/poll/"+id, nil)
+		poll.AddCookie(cookie)
+		router.ServeHTTP(response, poll)
 		require.Equal(t, http.StatusOK, response.Code)
 		require.NoError(t, json.Unmarshal(response.Body.Bytes(), &envelope))
-		require.Equal(t, "success", envelope.Data.Status)
+		require.Equal(t, "ready", envelope.Data.Status)
+		require.NotNil(t, envelope.Data.Draft)
 	}
-	require.Equal(t, 1, stub.writes)
+	require.Zero(t, stub.writes)
 	require.Zero(t, stub.clears)
-	require.Equal(t, token, stub.account.GetCredential("access_token"))
+	require.Equal(t, "synthetic-old", stub.account.GetCredential("access_token"))
 	require.Equal(t, service.StatusError, stub.account.Status)
 	require.Equal(t, "manual review required", stub.account.ErrorMessage)
 }
