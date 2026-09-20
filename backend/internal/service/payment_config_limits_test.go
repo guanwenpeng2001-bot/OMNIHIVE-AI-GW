@@ -203,15 +203,18 @@ func TestPcGroupByPaymentType(t *testing.T) {
 func TestPcAggregateMethodCurrency(t *testing.T) {
 	t.Parallel()
 
-	svc := &PaymentConfigService{}
+	svc := &PaymentConfigService{encryptionKey: []byte("0123456789abcdef0123456789abcdef")}
 	stripe := makeInstance(1, payment.TypeStripe, payment.TypeStripe, "")
-	stripe.Config = `{"currency":"hkd"}`
+	encryptedStripe, err := svc.encryptConfig(map[string]string{"currency": "hkd"})
+	require.NoError(t, err)
+	stripe.Config = encryptedStripe
 	currency, ok := svc.pcAggregateMethodCurrency([]*dbent.PaymentProviderInstance{stripe})
 	require.True(t, ok)
 	require.Equal(t, "HKD", currency)
 
 	airwallex := makeInstance(2, payment.TypeAirwallex, payment.TypeAirwallex, "")
-	airwallex.Config = `{"currency":"usd"}`
+	airwallex.Config, err = svc.encryptConfig(map[string]string{"currency": "usd"})
+	require.NoError(t, err)
 	currency, ok = svc.pcAggregateMethodCurrency([]*dbent.PaymentProviderInstance{stripe, airwallex})
 	require.False(t, ok)
 	require.Empty(t, currency)
@@ -244,7 +247,7 @@ func TestGetAvailableMethodLimitsOmitsMixedCurrencyMethod(t *testing.T) {
 		Save(ctx)
 	require.NoError(t, err)
 
-	svc := &PaymentConfigService{entClient: client}
+	svc := NewPaymentConfigService(client, nil, []byte("0123456789abcdef0123456789abcdef"))
 	resp, err := svc.GetAvailableMethodLimits(ctx)
 	require.NoError(t, err)
 	require.NotContains(t, resp.Methods, payment.TypeStripe)
@@ -268,7 +271,7 @@ func TestGetAvailableMethodLimitsIncludesEasyPayCustomMethodDisplayName(t *testi
 		Save(ctx)
 	require.NoError(t, err)
 
-	svc := &PaymentConfigService{entClient: client}
+	svc := NewPaymentConfigService(client, nil, []byte("0123456789abcdef0123456789abcdef"))
 	resp, err := svc.GetAvailableMethodLimits(ctx)
 	require.NoError(t, err)
 

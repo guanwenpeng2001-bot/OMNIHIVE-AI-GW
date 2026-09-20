@@ -84,7 +84,11 @@ func (s *PaymentService) confirmPayment(ctx context.Context, oid int64, tradeNo 
 		return fmt.Errorf("lookup payment order %d: %w", oid, err)
 	}
 	instanceProviderKey := ""
-	if inst, instErr := s.getOrderProviderInstance(ctx, o); instErr == nil && inst != nil {
+	inst, instErr := s.getOrderProviderInstance(ctx, o)
+	if instErr != nil {
+		return fmt.Errorf("lookup payment provider for order %d: %w", oid, instErr)
+	}
+	if inst != nil {
 		instanceProviderKey = inst.ProviderKey
 	}
 	expectedProviderKey := expectedNotificationProviderKeyForOrder(s.registry, o, instanceProviderKey)

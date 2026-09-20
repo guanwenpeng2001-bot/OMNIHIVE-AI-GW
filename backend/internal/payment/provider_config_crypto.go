@@ -46,11 +46,11 @@ func providerConfigCipher(key []byte) (cipher.AEAD, error) {
 	return cipher.NewGCM(block)
 }
 
-// DecryptProviderConfig supports both formats during the deployment transition.
-// Unreadable records are errors, never an empty config that can be overwritten.
+// DecryptProviderConfig accepts only the current authenticated envelope.
+// Legacy decoding is confined to the explicit, reentrant migration below.
 func DecryptProviderConfig(stored string, key []byte) (map[string]string, error) {
 	if !strings.HasPrefix(stored, providerConfigEnvelope) {
-		return readLegacyProviderConfig(stored, key)
+		return nil, fmt.Errorf("payment provider config requires migration to authenticated storage")
 	}
 	sealed, err := providerConfigCipher(key)
 	if err != nil {

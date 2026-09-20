@@ -474,97 +474,29 @@ func TestStartOfDay(t *testing.T) {
 	}
 }
 
-func TestDecryptConfig_PlaintextAndLegacyCompat(t *testing.T) {
-	t.Parallel()
-
-	key := make([]byte, AES256KeySize)
-	for i := range key {
-		key[i] = byte(i + 1)
-	}
-	wrongKey := make([]byte, AES256KeySize)
-	for i := range wrongKey {
-		wrongKey[i] = byte(0xFF - i)
-	}
-
-	plaintextJSON := `{"appId":"app-123","secret":"sec-xyz"}`
-
-	legacyEncrypted, err := Encrypt(plaintextJSON, key)
+func TestDecryptConfigRejectsLegacyUntilMigrated(t *testing.T) {
+	key := []byte("0123456789abcdef0123456789abcdef")
+	plaintext := `{"appId":"app-123","secret":"sec-xyz"}`
+	legacy, err := Encrypt(plaintext, key)
 	if err != nil {
-		t.Fatalf("seed Encrypt: %v", err)
+		t.Fatal(err)
 	}
-
-	tests := []struct {
-		name      string
-		stored    string
-		key       []byte
-		want      map[string]string
-		wantError bool
-	}{
-		{
-			name:   "empty stored returns nil map",
-			stored: "",
-			key:    key,
-			want:   nil,
-		},
-		{
-			name:   "plaintext JSON parses directly",
-			stored: plaintextJSON,
-			key:    nil,
-			want:   map[string]string{"appId": "app-123", "secret": "sec-xyz"},
-		},
-		{
-			name:   "plaintext JSON works even with key present",
-			stored: plaintextJSON,
-			key:    key,
-			want:   map[string]string{"appId": "app-123", "secret": "sec-xyz"},
-		},
-		{
-			name:   "legacy ciphertext with correct key decrypts",
-			stored: legacyEncrypted,
-			key:    key,
-			want:   map[string]string{"appId": "app-123", "secret": "sec-xyz"},
-		},
-		{
-			name:      "legacy ciphertext with no key returns an error",
-			stored:    legacyEncrypted,
-			key:       nil,
-			want:      nil,
-			wantError: true,
-		},
-		{
-			name:      "legacy ciphertext with wrong key returns an error",
-			stored:    legacyEncrypted,
-			key:       wrongKey,
-			want:      nil,
-			wantError: true,
-		},
-		{
-			name:      "garbage data returns an error",
-			stored:    "not-json-and-not-ciphertext",
-			key:       key,
-			want:      nil,
-			wantError: true,
-		},
+	encrypted, err := EncryptProviderConfig(map[string]string{"appId": "app-123", "secret": "sec-xyz"}, key)
+	if err != nil {
+		t.Fatal(err)
 	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			t.Parallel()
-			lb := NewDefaultLoadBalancer(nil, tt.key)
-			got, err := lb.decryptConfig(tt.stored)
-			if tt.wantError {
-				if err == nil {
-					t.Fatal("expected unreadable config error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if !stringMapEqual(got, tt.want) {
-				t.Fatalf("decryptConfig = %v, want %v", got, tt.want)
-			}
-		})
+	loadBalancer := NewDefaultLoadBalancer(nil, key)
+	for _, stored := range []string{"", plaintext, legacy, "broken-ciphertext"} {
+		if _, err := loadBalancer.decryptConfig(stored); err == nil {
+			t.Fatal("runtime accepted unmigrated config")
+		}
+	}
+	config, err := loadBalancer.decryptConfig(encrypted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if config["secret"] != "sec-xyz" {
+		t.Fatal("new ciphertext failed to round trip")
 	}
 }
 

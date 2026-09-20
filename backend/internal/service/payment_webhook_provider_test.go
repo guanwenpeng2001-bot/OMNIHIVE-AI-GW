@@ -7,7 +7,6 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/x509"
-	"encoding/json"
 	"encoding/pem"
 	"strconv"
 	"testing"
@@ -44,10 +43,7 @@ func (p webhookProviderTestDouble) Refund(context.Context, payment.RefundRequest
 func encryptWebhookProviderConfig(t *testing.T, config map[string]string) string {
 	t.Helper()
 
-	data, err := json.Marshal(config)
-	require.NoError(t, err)
-
-	encrypted, err := payment.Encrypt(string(data), []byte(webhookProviderTestEncryptionKey))
+	encrypted, err := payment.EncryptProviderConfig(config, []byte(webhookProviderTestEncryptionKey))
 	require.NoError(t, err)
 	return encrypted
 }

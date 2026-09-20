@@ -499,18 +499,6 @@ type PublicOrderResult struct {
 	PlanID              *int64     `json:"plan_id,omitempty"`
 }
 
-// PublicOrderVerifyResult is returned by the legacy anonymous out_trade_no
-// lookup. Keep this intentionally minimal because out_trade_no is not secret.
-type PublicOrderVerifyResult struct {
-	OutTradeNo  string     `json:"out_trade_no"`
-	Status      string     `json:"status"`
-	Paid        bool       `json:"paid"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	PaidAt      *time.Time `json:"paid_at,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
-}
-
 func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 	return PublicOrderResult{
 		ID:                  order.ID,
@@ -532,34 +520,6 @@ func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 		RefundRequestedBy:   order.RefundRequestedBy,
 		RefundRequestReason: order.RefundRequestReason,
 		PlanID:              order.PlanID,
-	}
-}
-
-func buildPublicOrderVerifyResult(order *dbent.PaymentOrder) PublicOrderVerifyResult {
-	return PublicOrderVerifyResult{
-		OutTradeNo:  order.OutTradeNo,
-		Status:      order.Status,
-		Paid:        publicOrderStatusPaid(order.Status),
-		CreatedAt:   order.CreatedAt,
-		ExpiresAt:   order.ExpiresAt,
-		PaidAt:      order.PaidAt,
-		CompletedAt: order.CompletedAt,
-	}
-}
-
-func publicOrderStatusPaid(status string) bool {
-	switch status {
-	case service.OrderStatusPaid,
-		service.OrderStatusCompleted,
-		service.OrderStatusRefundRequested,
-		service.OrderStatusRefunding,
-		service.OrderStatusRefundPending,
-		service.OrderStatusPartiallyRefunded,
-		service.OrderStatusRefunded,
-		service.OrderStatusRefundFailed:
-		return true
-	default:
-		return false
 	}
 }
 

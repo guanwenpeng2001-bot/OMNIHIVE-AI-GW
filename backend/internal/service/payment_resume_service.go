@@ -472,7 +472,7 @@ func validatePaymentResumeExpiry(expiresAt int64, code, message string) error {
 	if expiresAt <= 0 {
 		return nil
 	}
-	if time.Now().Unix() > expiresAt {
+	if time.Now().Unix() >= expiresAt {
 		return infraerrors.BadRequest(code, message)
 	}
 	return nil

@@ -276,7 +276,7 @@ func TestGetPublicOrderByResumeTokenChecksUpstreamForPendingOrder(t *testing.T) 
 	require.Equal(t, 1, provider.queryCount)
 }
 
-func TestVerifyOrderPublicDoesNotCheckUpstreamForPendingOrder(t *testing.T) {
+func TestVerifyOrderPublicRejectsOrderNumberWithoutQueryingProvider(t *testing.T) {
 	ctx := context.Background()
 	client := newPaymentConfigServiceTestClient(t)
 	user, err := client.User.Create().
@@ -316,8 +316,9 @@ func TestVerifyOrderPublicDoesNotCheckUpstreamForPendingOrder(t *testing.T) {
 	}
 
 	got, err := svc.VerifyOrderPublic(ctx, order.OutTradeNo)
-	require.NoError(t, err)
-	require.Equal(t, order.ID, got.ID)
+	require.Error(t, err)
+	require.Nil(t, got)
+	require.Equal(t, "RESUME_TOKEN_REQUIRED", infraerrors.Reason(err))
 	require.Equal(t, 0, provider.queryCount)
 }
 
@@ -328,5 +329,5 @@ func TestVerifyOrderPublicRejectsBlankOutTradeNo(t *testing.T) {
 
 	_, err := svc.VerifyOrderPublic(context.Background(), "   ")
 	require.Error(t, err)
-	require.Equal(t, "INVALID_OUT_TRADE_NO", infraerrors.Reason(err))
+	require.Equal(t, "RESUME_TOKEN_REQUIRED", infraerrors.Reason(err))
 }
