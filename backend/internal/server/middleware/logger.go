@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -17,7 +19,7 @@ func Logger() gin.HandlerFunc {
 		startTime := time.Now()
 
 		// 请求路径
-		path := c.Request.URL.Path
+		path := redactPluginUIPath(c.Request.URL.Path)
 
 		// 处理请求
 		c.Next()
@@ -85,4 +87,23 @@ func Logger() gin.HandlerFunc {
 			l.Warn("http request contains gin errors", zap.String("errors", c.Errors.String()))
 		}
 	}
+}
+
+// redactPluginUIPath removes the capability token from log fields without
+// changing the request URL or the resource path used to serve the plugin UI.
+func redactPluginUIPath(path string) string {
+	const prefix = "/api/v1/plugin-ui/"
+	if !strings.HasPrefix(path, prefix) {
+		return path
+	}
+	token, resourcePath, hasResourcePath := strings.Cut(strings.TrimPrefix(path, prefix), "/")
+	if token == "" {
+		return path
+	}
+	redacted := logredact.RedactMap(map[string]any{"token": token}, "token")
+	path = prefix + redacted["token"].(string)
+	if hasResourcePath {
+		path += "/" + resourcePath
+	}
+	return path
 }
