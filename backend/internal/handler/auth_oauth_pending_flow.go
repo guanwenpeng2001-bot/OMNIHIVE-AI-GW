@@ -485,13 +485,6 @@ func normalizeAdoptedOAuthDisplayName(value string) string {
 	return value
 }
 
-func (h *AuthHandler) entClient() *dbent.Client {
-	if h == nil || h.authService == nil {
-		return nil
-	}
-	return h.authService.EntClient()
-}
-
 func (h *AuthHandler) isForceEmailOnThirdPartySignup(ctx context.Context) bool {
 	if h == nil || h.settingSvc == nil {
 		return false

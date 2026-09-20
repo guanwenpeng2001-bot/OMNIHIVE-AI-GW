@@ -855,3 +855,15 @@ func pendingOAuthBindingError(err error) error {
 	}
 	return infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err)
 }
+
+func (s *AuthService) CompletePendingOAuthBindLogin(ctx context.Context, users *UserService, session *dbent.PendingAuthSession, decision *dbent.IdentityAdoptionDecision, userID int64) error {
+	if err := s.ApplyPendingOAuthBinding(ctx, users, session, decision, &userID, true, true); err != nil {
+		return infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err)
+	}
+	pending, err := s.PendingIdentityService()
+	if err != nil {
+		return err
+	}
+	_, err = pending.ConsumeBrowserSession(ctx, session.SessionToken, session.BrowserSessionKey)
+	return err
+}
