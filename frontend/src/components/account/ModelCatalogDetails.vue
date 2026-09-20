@@ -24,7 +24,7 @@
     <section v-if="metadataRows.length" class="space-y-2" :aria-label="labels.title">
       <h3 class="font-semibold">{{ labels.title }}</h3>
       <p v-if="stale" role="status" class="text-amber-700 dark:text-amber-400">{{ labels.stale }}</p>
-      <div v-if="metadataRows.length > 20" class="flex flex-wrap gap-2">
+      <div class="flex flex-wrap gap-2">
         <input v-model="query" type="search" class="input" :aria-label="labels.search" :placeholder="labels.search" data-testid="capability-search" />
         <select v-model="statusFilter" class="input" :aria-label="labels.filter" data-testid="capability-filter">
           <option value="all">{{ labels.all }}</option><option value="complete">{{ labels.complete }}</option>
@@ -35,31 +35,35 @@
         <button v-if="visibleMetadata.length < filteredMetadata.length" type="button" class="btn btn-secondary" data-testid="capability-more" @click="visibleLimit += 50">{{ labels.more }}</button>
       </div>
       <div class="max-h-[min(24rem,50vh)] space-y-2 overflow-y-auto">
-        <details v-for="entry in visibleMetadata" :key="entry.id" :open="expanded.has(entry.id)" @toggle="toggleDetails(entry.id, $event)" data-testid="capability-row"
-          class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
-          <summary class="cursor-pointer break-all font-medium">{{ entry.id }} · {{ entry.metadata_status === 'complete' ? labels.complete : entry.metadata_status === 'estimated' ? labels.estimated : entry.metadata_status === 'incomplete' ? labels.missing : labels.unknown }}<span v-if="entry.conflicts?.length"> · {{ labels.conflict }}</span></summary>
-          <div v-if="expanded.has(entry.id)" class="mt-2 space-y-1 break-words text-xs" data-testid="capability-fields">
-            <p v-if="exclusions.get(entry.id)">{{ t('admin.accounts.modelSync.excluded') }}: {{ reasonText(exclusions.get(entry.id)!) }}</p>
-            <p v-if="entry.missing_fields?.length" class="font-semibold text-amber-700 dark:text-amber-400">{{ labels.missing }}: {{ entry.missing_fields.join(', ') }}</p>
-            <p v-if="entry.estimated_fields?.length" class="text-amber-700 dark:text-amber-400">{{ labels.estimated }}: {{ entry.estimated_fields.join(', ') }}</p>
-            <p v-for="conflict in entry.conflicts ?? []" :key="conflict" class="text-red-600 dark:text-red-400">{{ labels.conflict }}: {{ conflict }}</p>
-            <p v-if="entry.evidence_kind">{{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind }}</p>
-            <p v-if="!entry.metadata_status">{{ labels.unavailable }}</p>
-            <dl class="space-y-2">
-              <div v-for="(source, field) in entry.field_evidence" :key="field" class="border-t border-gray-100 pt-1 dark:border-dark-600">
-                <dt class="font-medium">{{ field }}: {{ fieldValue(entry, field) }}</dt>
-                <dd>{{ labels.source }}: {{ sourceLabel(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
-                <dd v-if="source.source_version || source.content_hash">{{ labels.version }}: {{ source.source_version || source.content_hash }}</dd>
-                <dd v-if="source.provider_profile || source.matched_model_id || source.match_rule">{{ labels.match }}: {{ [source.provider_profile, source.matched_model_id, source.match_rule].filter(Boolean).join(' · ') }}</dd>
-                <dd v-if="source.observed_at">{{ formatDateTime(source.observed_at) }}</dd>
-              </div>
-            </dl>
-            <p v-if="!Object.keys(entry.field_evidence ?? {}).length">{{ labels.noSources }}</p>
-          </div>
-        </details>
+        <section v-for="group in visibleGroups" :key="group.category" :data-model-category="group.category">
+          <h3 class="font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
+          <details v-for="entry in group.models" :key="entry.id" :open="expanded.has(entry.id)" @toggle="toggleDetails(entry.id, $event)" data-testid="capability-row"
+            class="rounded-lg border border-gray-200 p-2 dark:border-dark-600">
+            <summary class="cursor-pointer break-all font-medium">{{ entry.id }}<span v-if="modelCapabilitySummary(entry, t)" class="block text-xs font-normal">{{ modelCapabilitySummary(entry, t) }}</span></summary>
+            <div v-if="expanded.has(entry.id)" class="text-xs">{{ entry.metadata_status === 'complete' ? labels.complete : entry.metadata_status === 'estimated' ? labels.estimated : entry.metadata_status === 'incomplete' ? labels.missing : labels.unknown }}<span v-if="entry.conflicts?.length"> · {{ labels.conflict }}</span></div>
+            <div v-if="expanded.has(entry.id)" class="mt-2 space-y-1 break-words text-xs" data-testid="capability-fields">
+              <p v-if="exclusions.get(entry.id)">{{ t('admin.accounts.modelSync.excluded') }}: {{ reasonText(exclusions.get(entry.id)!) }}</p>
+              <p v-if="entry.missing_fields?.length" class="font-semibold text-amber-700 dark:text-amber-400">{{ labels.missing }}: {{ entry.missing_fields.join(', ') }}</p>
+              <p v-if="entry.estimated_fields?.length" class="text-amber-700 dark:text-amber-400">{{ labels.estimated }}: {{ entry.estimated_fields.join(', ') }}</p>
+              <p v-for="conflict in entry.conflicts ?? []" :key="conflict" class="text-red-600 dark:text-red-400">{{ labels.conflict }}: {{ conflict }}</p>
+              <p v-if="entry.evidence_kind">{{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind }}</p>
+              <p v-if="!entry.metadata_status">{{ labels.unavailable }}</p>
+              <dl class="space-y-2">
+                <div v-for="(source, field) in entry.field_evidence" :key="field" class="border-t border-gray-100 pt-1 dark:border-dark-600">
+                  <dt class="font-medium">{{ field }}: {{ fieldValue(entry, field) }}</dt>
+                  <dd>{{ labels.source }}: {{ sourceLabel(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
+                  <dd v-if="source.source_version || source.content_hash">{{ labels.version }}: {{ source.source_version || source.content_hash }}</dd>
+                  <dd v-if="source.provider_profile || source.matched_model_id || source.match_rule">{{ labels.match }}: {{ [source.provider_profile, source.matched_model_id, source.match_rule].filter(Boolean).join(' · ') }}</dd>
+                  <dd v-if="source.observed_at">{{ formatDateTime(source.observed_at) }}</dd>
+                </div>
+              </dl>
+              <p v-if="!Object.keys(entry.field_evidence ?? {}).length">{{ labels.noSources }}</p>
+            </div>
+          </details>
+        </section>
       </div>
     </section>
-    <details>
+    <details data-testid="catalog-diagnostics">
       <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.modelSync.technicalDetails') }}</summary>
       <div class="max-h-[min(16rem,40vh)] space-y-2 overflow-y-auto break-all">
         <dl class="grid grid-cols-2 gap-2">
@@ -71,7 +75,7 @@
         <p>{{ t('admin.accounts.modelSync.candidatesHint') }}</p>
         <p v-if="result?.observed_at || summary?.observed_at">{{ t('admin.accounts.modelSync.observedAt') }}: {{ formatDateTime(result?.observed_at || summary?.observed_at) }}</p>
         <p v-if="result?.catalog_source || summary?.snapshot">{{ t('admin.accounts.modelSync.source') }}: {{ result?.catalog_source ?? summary?.snapshot?.source_kind }} / {{ result?.discovery_scope ?? summary?.snapshot?.discovery_scope ?? '—' }}</p>
-        <section v-for="group in (metadataRows.length > 50 ? [] : evidenceGroups)" :key="group.category" :data-model-category="group.category">
+        <section v-for="group in visibleGroups" :key="group.category">
           <h3 class="font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
           <ul class="list-inside list-disc">
             <li v-for="entry in group.models" :key="entry.id" class="break-all">{{ entry.id }} — {{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind || '—' }}<span v-if="entry.endpoints"> · {{ t('admin.accounts.modelAvailability.endpoint') }}: {{ entry.endpoints.join(', ') || '—' }}</span><template v-if="entry.evidence_observed_at">; {{ t('admin.accounts.modelSync.evidenceObservedAt') }}: {{ formatDateTime(entry.evidence_observed_at) }}</template></li>
@@ -94,14 +98,13 @@
 </template>
 
 <script setup lang="ts">
-import { groupModelsByCategory } from '@/utils/modelCategories'
+import { groupModelsByCategory, filterModelDisplay, limitModelGroups, modelCapabilitySummary, modelFieldValue, type ModelCategoryMetadata } from '@/utils/modelCategories'
 import { computed, ref, watch } from 'vue'
 import { formatDateTime } from '@/utils/format'
 import { modelSyncWarningCode } from '@/composables/useModelWhitelist'
 import { useI18n } from 'vue-i18n'
-import type { UpstreamModelMetadata } from '@/api/admin/accounts'
 import type { AccountModelCatalog, AccountModelCatalogDetails } from '@/types'
-const props = defineProps<{ mappingTargets?: string[]; creationContext?: boolean; stale?: boolean; result?: AccountModelCatalog | null; summary?: AccountModelCatalogDetails | null; candidateCount: number | null }>()
+const props = defineProps<{ displayMetadata?: Record<string, ModelCategoryMetadata>; mappingTargets?: string[]; creationContext?: boolean; stale?: boolean; result?: AccountModelCatalog | null; summary?: AccountModelCatalogDetails | null; candidateCount: number | null }>()
 const { t, te } = useI18n()
 const labels = computed(() => ({
   sets: t('capabilityCatalog.sets'),
@@ -142,6 +145,11 @@ const metadataRows = computed(() => [...new Set([
   ...Object.keys(props.summary?.display_metadata ?? {}),
   ...Object.keys(props.result?.metadata ?? {})
 ])].sort().map(id => ({ ...props.summary?.display_metadata?.[id], ...props.result?.metadata?.[id], ...props.result?.eligible_models?.find(model => model.id === id), id })))
+// Display enrichment must not change the existing coverage denominator or status counts.
+const displayRows = computed(() => metadataRows.value.map(row => ({
+  ...props.summary?.snapshot?.eligible_models?.find(model => model.id === row.id),
+  ...props.displayMetadata?.[row.id], ...row
+})))
 const query = ref('')
 const statusFilter = ref('all')
 const visibleLimit = ref(50)
@@ -165,17 +173,17 @@ const capabilityState = computed(() => {
   if (props.result.capability_status === 'incomplete') return labels.value.partial
   return metadataRows.value.length === completeCount.value ? labels.value.complete : labels.value.partial
 })
-const filteredMetadata = computed(() => metadataRows.value.filter(row => {
-  const matchesQuery = `${row.id} ${row.display_name ?? ''}`.toLowerCase().includes(query.value.trim().toLowerCase())
+const filteredMetadata = computed(() => filterModelDisplay(displayRows.value, query.value, row => row.id, row => row).filter(row => {
   const matchesStatus = statusFilter.value === 'all' || (statusFilter.value === 'conflict' ? !!row.conflicts?.length
     : statusFilter.value === 'incomplete' ? !row.metadata_status || row.metadata_status === 'incomplete'
     : row.metadata_status === statusFilter.value)
-  return matchesQuery && matchesStatus
+  return matchesStatus
 }))
-const visibleMetadata = computed(() => filteredMetadata.value.slice(0, visibleLimit.value))
+const visibleGroups = computed(() => limitModelGroups(groupModelsByCategory(filteredMetadata.value, row => row), visibleLimit.value))
+const visibleMetadata = computed(() => visibleGroups.value.flatMap(group => group.models))
 const exclusions = computed(() => new Map(props.result?.excluded_models?.map(entry => [entry.model, entry.reason]) ?? []))
 const fieldValue = (entry: object, field: string) => {
-  const value = (entry as Record<string, unknown>)[field]
+  const value = modelFieldValue(entry, field)
   return value === undefined ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
 const sourceLabel = (source: string) => {
@@ -189,11 +197,5 @@ const reasonText = (reason: string) => {
   const key = `admin.accounts.modelSync.reasons.${reason}`
   return te?.(key) ? t(key) : reason
 }
-const evidence = computed<Array<Partial<UpstreamModelMetadata> & { id: string; endpoints?: string[] | null }>>(() => props.result
-  ? [...new Set([...(props.result.models ?? []), ...(props.result.eligible_models ?? []).map(model => model.id), ...Object.keys(props.result.metadata ?? {})])].map(id => ({
-    id, ...props.result?.metadata?.[id], ...props.result?.eligible_models?.find(model => model.id === id)
-  }))
-  : props.summary?.snapshot?.eligible_models ?? [])
-const evidenceGroups = computed(() => groupModelsByCategory(evidence.value, model => model))
 const publicCount = '—'
 </script>

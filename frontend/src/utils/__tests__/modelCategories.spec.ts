@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { groupModelsByCategory, modelCategory } from '../modelCategories'
+import { groupModelsByCategory, modelCategory, filterModelDisplay, modelCapabilitySummary, modelFieldValue } from '../modelCategories'
 
 describe('model display categories', () => {
   it.each([
@@ -26,4 +26,25 @@ describe('model display categories', () => {
     expect(groups.flatMap(group => group.models)).toHaveLength(models.length)
     expect(models.map(model => model.id)).toEqual(['custom', 'voice', 'chat', 'another'])
   })
+})
+
+
+it('uses identical natural ordering and case-insensitive ID/name search without mutating models', () => {
+  const models = [{ id: 'model-10', display_name: 'Deployment' }, { id: 'model-2', display_name: 'Deployment' }, { id: 'other' }]
+  expect(filterModelDisplay(models, ' DEPLOYMENT ', model => model.id, model => model).map(model => model.id)).toEqual(['model-2', 'model-10'])
+  expect(filterModelDisplay(models, 'MODEL-10', model => model.id, model => model)).toEqual([models[0]])
+  expect(models[0]!.id).toBe('model-10')
+})
+
+it('projects nested task limits and explicit values without inventing absent limits', () => {
+  const metadata = { task_limits: { resolutions: ['1024x1024'], max_duration_seconds: 8, supports_audio: false }, embedding_dimensions: 1536 }
+  const translate = (key: string) => key
+  expect(modelFieldValue(metadata, 'task_limits.max_duration_seconds')).toBe(8)
+  expect(modelFieldValue(metadata, 'task_limits.unknown')).toBeUndefined()
+  expect(modelCapabilitySummary(metadata, translate)).toContain('1024x1024')
+  expect(modelCapabilitySummary(metadata, translate)).toContain('duration: 8')
+  expect(modelCapabilitySummary(metadata, translate)).toContain('dimensions: 1536')
+  expect(modelCapabilitySummary(metadata, translate)).toContain('supports audio: false')
+  expect(modelCapabilitySummary({}, translate)).toBe('')
+  expect(modelCapabilitySummary({ task_limits: { max_duration_seconds: 0 } }, translate)).toContain('duration: 0')
 })

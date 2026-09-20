@@ -7,8 +7,9 @@ export default {
   binding: 'The server generates confirmed_by, confirmed_at and identity information. After an identity change, verify the deployment facts and remove the old identity_fingerprint before previewing and saving to reconfirm. reasoning_control.kind supports none / effort / toggle / budget / adaptive / fixed / unknown; declare only controls the deployment actually supports.'
 },
   capabilityCatalog: {
+  selectFiltered: 'Select all matching models', resolutions: 'Resolutions', duration: 'Maximum duration (seconds)', dimensions: 'Dimensions', width: 'Maximum width', height: 'Maximum height',
   sets: 'Model sets', setsHint: 'D discovered · M mapping targets · U capability catalog (D ∪ M) · E routing eligible; complete capabilities do not grant eligibility.', coverage: 'Complete capabilities', noDiscovery: 'No models discovered', noEligibility: 'Models discovered, none eligible', partial: 'Some capabilities are missing or estimated', complete: 'Capabilities complete', unknownDiscovery: 'Discovery status unknown', search: 'Filter model ID or name', filter: 'Filter capability status', all: 'All statuses', more: 'Show more',
-  title: 'Capability gaps and field sources', missing: 'Missing fields', estimated: 'Estimated fields', conflict: 'Conflict',
+  title: 'Model capabilities', missing: 'Missing fields', estimated: 'Estimated fields', conflict: 'Conflict',
   unknown: 'Status unavailable', unavailable: 'Field completeness was not returned. Preview again; completeness is unverified.',
   source: 'Source tier', version: 'Source version', match: 'Match evidence', noSources: 'No field-level source evidence available.', stale: 'Specifications or account settings changed; these results belong to the previous preview.'
 },

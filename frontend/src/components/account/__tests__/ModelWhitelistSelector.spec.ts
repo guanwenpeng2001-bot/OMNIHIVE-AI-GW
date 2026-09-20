@@ -725,7 +725,8 @@ describe('explicit preview adoption', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['existing', 'new-id', 'Second.Case/ID']])
     expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)
     expect(wrapper.find('[data-testid="select-model"]').exists()).toBe(false)
-    expect(wrapper.find('input').exists()).toBe(false)
+    expect(wrapper.find('input[aria-label="admin.accounts.searchModels"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="capability-search"]').exists()).toBe(true)
     wrapper.unmount()
   })
   it('invalidates requests on identity changes without letting old finally stop the next request', async () => {
@@ -795,6 +796,7 @@ it('keeps actions before bounded selections and inline options with one selected
   const options = wrapper.get('[data-testid="model-options"]')
   expect(options.classes()).toContain('max-h-[min(18rem,40vh)]')
   expect(options.element.parentElement?.classList.contains('absolute')).toBe(false)
+  await wrapper.get('input[aria-label="admin.accounts.searchModels"]').setValue(models[99])
   expect(findModelRow(wrapper, models[99]).text()).toContain(models[99])
   await options.trigger('keydown', { key: 'Escape' })
   expect(wrapper.get('button[aria-expanded]').attributes('aria-expanded')).toBe('false')
@@ -896,4 +898,31 @@ describe('preview evidence and action matrix', () => {
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['arn:aws:bedrock:eu-west-1:custom']])
     wrapper.unmount()
   })
+})
+
+
+it.each([51, 505, 1000])('groups %s candidates and selections and selects all filtered IDs once', async count => {
+  const categories = ['chat', 'image', 'video', 'embedding', 'audio', 'memory', 'other']
+  const models = Array.from({ length: count }, (_, index) => ({ id: `modality-${index}`,
+    display_name: 'Searchable deployment', category: categories[Math.min(6, Math.floor(index * 7 / count))],
+    task_limits: { resolutions: ['1920x1080'], max_duration_seconds: 12 }, embedding_dimensions: 1536 }))
+  getAvailableModels.mockResolvedValueOnce(models)
+  const wrapper = mountSelector({ accountId: 89, modelValue: [...models.map(model => model.id), models[0]!.id] })
+  await flushPromises()
+  const selected = wrapper.get('[data-testid="selected-models"]')
+  expect(selected.findAll('[data-model-category]').map(group => group.attributes('data-model-category'))).toEqual(categories)
+  expect(selected.findAll('button')).toHaveLength(count)
+  expect(selected.text()).toContain('1920x1080')
+  await wrapper.get('button[aria-expanded]').trigger('click')
+  await wrapper.get('input[aria-label="admin.accounts.searchModels"]').setValue('Searchable deployment')
+  const options = wrapper.get('[data-testid="model-options"]')
+  expect(options.findAll('[data-model-category]').map(group => group.attributes('data-model-category'))).toEqual(categories)
+  expect(options.findAll('[data-testid="model-option"]')).toHaveLength(Math.min(count, 100))
+  expect(options.text()).toContain('1536')
+  await wrapper.setProps({ modelValue: [models[0]!.id, models[0]!.id] })
+  await wrapper.get('[data-testid="select-filtered-models"]').trigger('click')
+  const emitted = wrapper.emitted('update:modelValue')!.at(-1)![0] as string[]
+  expect(emitted).toHaveLength(count)
+  expect(new Set(emitted).size).toBe(count)
+  wrapper.unmount()
 })
