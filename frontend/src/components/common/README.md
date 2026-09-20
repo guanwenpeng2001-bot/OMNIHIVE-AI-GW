@@ -73,7 +73,7 @@ Pagination component with page numbers, navigation, and page size selector.
 
 ---
 
-### Modal.vue
+### BaseDialog.vue
 
 Modal dialog with customizable size and close behavior.
 
@@ -81,9 +81,8 @@ Modal dialog with customizable size and close behavior.
 
 - `show: boolean` - Control modal visibility
 - `title: string` - Modal title
-- `size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'` - Modal size (default: 'md')
-- `closeOnEscape?: boolean` - Close on Escape key (default: true)
-- `closeOnClickOutside?: boolean` - Close on backdrop click (default: true)
+- `width?: 'narrow' | 'normal' | 'wide' | 'extra-wide' | 'full'` - Dialog width (default: 'normal')
+- `showCloseButton?: boolean` - Show the close button (default: true)
 
 **Events:**
 
@@ -97,7 +96,7 @@ Modal dialog with customizable size and close behavior.
 **Usage:**
 
 ```vue
-<Modal :show="showModal" title="Edit User" size="lg" @close="showModal = false">
+<BaseDialog :show="showModal" title="Edit User" width="wide" @close="showModal = false">
   <form @submit.prevent="saveUser">
     <!-- Form content -->
   </form>
@@ -106,14 +105,14 @@ Modal dialog with customizable size and close behavior.
     <button @click="showModal = false">Cancel</button>
     <button @click="saveUser">Save</button>
   </template>
-</Modal>
+</BaseDialog>
 ```
 
 ---
 
 ### ConfirmDialog.vue
 
-Confirmation dialog built on top of Modal component.
+Confirmation dialog built on top of BaseDialog component.
 
 **Props:**
 
@@ -250,7 +249,9 @@ Empty state placeholder with icon, message, and optional action button.
 You can import components individually:
 
 ```typescript
-import { DataTable, Pagination, Modal } from '@/components/common'
+import DataTable from '@/components/common/DataTable.vue'
+import Pagination from '@/components/common/Pagination.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
 ```
 
 Or import specific components:

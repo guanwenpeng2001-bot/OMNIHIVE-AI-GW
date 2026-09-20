@@ -67,6 +67,16 @@ function modelPlazaDestination(wrapper: ReturnType<typeof mountHome>) {
 }
 
 describe('HomeView compact mode', () => {
+  it.each([true, false])('names icon actions in compact=%s home', compact => {
+    appStore.docUrl = 'https://example.test/docs'
+    const wrapper = mountHome({ compact_home_enabled: compact })
+    const themeButton = wrapper.get('button[aria-label="home.switchToDark"]')
+    expect(themeButton.attributes('title')).toBe(themeButton.attributes('aria-label'))
+    expect(wrapper.get('a[aria-label="home.viewDocs"]').attributes('href')).toBe(appStore.docUrl)
+    wrapper.unmount()
+    appStore.docUrl = ''
+  })
+
   beforeEach(() => {
     authStore.isAuthenticated = false
     authStore.isAdmin = false

@@ -13,9 +13,7 @@
         v-if="ollamaCloudUsageLoading"
         class="flex items-center gap-2 text-gray-500"
       >
-        <div
-          class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
-        ></div>
+        <LoadingSpinner size="sm" color="primary" />
         {{ t("common.loading") }}
       </div>
       <template v-else>
@@ -100,6 +98,7 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Toggle from "@/components/common/Toggle.vue";
 import { useSettingsContext } from "./settingsContext";
 const {

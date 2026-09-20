@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 
 import en from '../locales/en'
 import zh from '../locales/zh'
+import { SCANNER_CATALOG } from '@/features/prompt-audit/viewModel'
+import { useSettingsNavigation } from '@/views/admin/settings/useSettingsNavigation'
 
 type LocaleValue = Record<string, unknown>
 
@@ -81,6 +83,19 @@ describe('locale key completeness', () => {
       })
       expect(emptyKeys, `${locale} has empty or non-string messages`).toEqual([])
     }
+  })
+
+  it('contains actual settings tab and prompt audit dynamic keys', () => {
+    const dynamicKeys = [
+      ...useSettingsNavigation().settingsTabs.map(tab => `admin.settings.tabs.${tab.key}`),
+      ...SCANNER_CATALOG.flatMap(scanner => [`admin.promptAudit.scanners.${scanner.id}`, `admin.promptAudit.scannerDescriptions.${scanner.id}`]),
+      ...['summary', 'risks', 'technical'].map(tab => `admin.promptAudit.events.tabs.${tab}`),
+      ...['pass', 'flag', 'critical'].map(decision => `admin.promptAudit.decisions.${decision}`),
+      ...['Allow', 'Warn', 'Block'].map(action => `admin.promptAudit.actions.${action}`),
+      ...['low', 'medium', 'high', 'critical'].map(risk => `admin.promptAudit.riskLevels.${risk}`),
+    ]
+    expect(missingKeys(dynamicKeys, enKeys)).toEqual([])
+    expect(missingKeys(dynamicKeys, zhKeys)).toEqual([])
   })
 
   it('contains every statically referenced production key', () => {

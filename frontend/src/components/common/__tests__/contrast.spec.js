@@ -23,7 +23,8 @@ const contrast = (foreground, background) => {
 
 // Compile the real @apply rules: this also catches missing Tailwind tokens without writing a build.
 const source = readFileSync(resolve(process.cwd(), 'src/style.css'), 'utf8')
-const compiled = await postcss([tailwindcss({ ...config, content: [{ raw: '<div class="btn btn-primary btn-danger btn-success btn-warning input dark"/>', extension: 'html' }] })]).process(source, { from: undefined })
+const badgeSource = readFileSync(resolve(process.cwd(), 'src/components/common/PlatformTypeBadge.vue'), 'utf8')
+const compiled = await postcss([tailwindcss({ ...config, content: [{ raw: badgeSource + '<div class="btn btn-primary btn-danger btn-success btn-warning input dark badge-primary badge-success badge-warning badge-danger badge-gray badge-purple empty-state-description"/>', extension: 'html' }] })]).process(source, { from: undefined })
 const declarations = (selector) => {
   const values = {}
   compiled.root.walkRules(rule => {
@@ -61,4 +62,53 @@ it.each(['', ':is(.dark *)'])('keeps input text, placeholder, border, and focus 
   expect(contrast(declarations(`.input${theme}::placeholder`).color, background)).toBeGreaterThanOrEqual(4.5)
   expect(contrast(input['border-color'], background)).toBeGreaterThanOrEqual(3)
   expect(contrast(declarations(`.input:focus${theme}`)['--tw-ring-color'], background)).toBeGreaterThanOrEqual(3)
+})
+
+
+const composite = (color, background) => {
+  const channels = color.match(/[\d.]+/g).map(Number)
+  const alphaMatch = color.match(/\/\s*([\d.]+)\)/)
+  const alpha = alphaMatch ? Number(alphaMatch[1]) : 1
+  const base = background.slice(1).match(/../g).map(channel => parseInt(channel, 16))
+  return `rgb(${channels.slice(0, 3).map((channel, index) => channel * alpha + base[index] * (1 - alpha)).join(' ')})`
+}
+
+it.each(['primary', 'success', 'warning', 'danger', 'gray', 'purple'])('keeps actual %s badge text readable in both themes', variant => {
+  for (const theme of ['', ':is(.dark *)']) {
+    const styles = declarations(`.badge-${variant}${theme}`)
+    const backdrop = theme ? config.theme.extend.colors.dark[800] : '#ffffff'
+    expect(contrast(styles.color, composite(styles['background-color'], backdrop))).toBeGreaterThanOrEqual(4.5)
+  }
+})
+
+const utilityColor = (className, property) => {
+  const selector = '.' + className.replace(/[:/]/g, character => `\\${character}`) + (className.startsWith('dark:') ? ':is(.dark *)' : '')
+  return declarations(selector)[property]
+}
+
+it('checks the actual privacy badge class pairs, including translucent dark backgrounds', () => {
+  const privacyClasses = [...badgeSource.matchAll(/class: '([^']+)'/g)].map(match => match[1].split(' '))
+  expect(privacyClasses).toHaveLength(5)
+  for (const classes of privacyClasses) {
+    for (const theme of ['', 'dark:']) {
+      const foreground = classes.find(name => name.startsWith(`${theme}text-`))
+      const background = classes.find(name => name.startsWith(`${theme}bg-`))
+      const backdrop = theme ? config.theme.extend.colors.dark[800] : '#ffffff'
+      expect(contrast(utilityColor(foreground, 'color'), composite(utilityColor(background, 'background-color'), backdrop))).toBeGreaterThanOrEqual(4.5)
+    }
+  }
+})
+
+it('keeps actual empty-state and subscription helper text readable in both themes', () => {
+  for (const theme of ['', ':is(.dark *)']) {
+    const backdrop = theme ? config.theme.extend.colors.dark[800] : '#ffffff'
+    expect(contrast(declarations(`.empty-state-description${theme}`).color, backdrop)).toBeGreaterThanOrEqual(4.5)
+    const helper = badgeSource.match(/v-if="expiresLabel" class="([^"]+)"/)[1].split(' ')
+    const foreground = helper.find(name => name.startsWith(theme ? 'dark:text-' : 'text-gray-'))
+    expect(contrast(utilityColor(foreground, 'color'), backdrop)).toBeGreaterThanOrEqual(4.5)
+  }
+})
+
+it('keeps accent as an identical compatibility alias of the existing dark palette', () => {
+  expect(config.theme.extend.colors.accent).toBe(config.theme.extend.colors.dark)
 })

@@ -19,6 +19,17 @@ function mountPlan(platform: AccountPlatform, planType: string) {
 }
 
 describe('PlatformTypeBadge ChatGPT plan tiers', () => {
+  it.each([
+    ['openai', 'training_off', 'privacyShort', 'privacyTrainingOff'],
+    ['openai', 'training_set_cf_blocked', 'privacyCfShort', 'privacyCfBlocked'],
+    ['openai', 'training_set_failed', 'privacyFailedShort', 'privacyFailed'],
+    ['antigravity', 'privacy_set', 'privacyShort', 'privacyAntigravitySet'],
+    ['antigravity', 'privacy_set_failed', 'privacyFailedShort', 'privacyAntigravityFailed'],
+  ])('localizes %s privacy state %s', (platform, privacyMode, label, title) => {
+    const wrapper = mount(PlatformTypeBadge, { props: { platform: platform as AccountPlatform, type: 'oauth', privacyMode } })
+    expect(wrapper.get(`[title="admin.accounts.${title}"]`).text()).toBe(`admin.accounts.${label}`)
+  })
+
   it('labels pro / chatgptpro as Pro 20x with the Pro color', () => {
     for (const planType of ['pro', 'chatgptpro', 'PRO']) {
       const wrapper = mountPlan('openai', planType)

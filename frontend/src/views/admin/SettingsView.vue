@@ -3,9 +3,7 @@
     <div class="mx-auto max-w-6xl space-y-6">
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
-        <div
-          class="h-8 w-8 animate-spin rounded-full border-b-2 border-primary-600"
-        ></div>
+        <LoadingSpinner size="md" color="primary" />
       </div>
 
       <!-- Settings Form -->
@@ -25,6 +23,7 @@
                 type="button"
                 role="tab"
                 :aria-selected="activeTab === tab.key"
+                aria-controls="settings-panel"
                 :tabindex="activeTab === tab.key ? 0 : -1"
                 :class="[
                   'settings-tab',
@@ -44,46 +43,49 @@
           </nav>
         </div>
 
-        <!-- Tab: Security — Admin API Key -->
-        <AdminApiKeySettings />
-        <!-- /Tab: Security — Admin API Key -->
+        <div id="settings-panel" role="tabpanel" :aria-labelledby="`settings-tab-${activeTab}`" tabindex="0" class="space-y-6">
+          <!-- Tab: Security — Admin API Key -->
+          <AdminApiKeySettings />
+          <!-- /Tab: Security — Admin API Key -->
 
-        <!-- Tab: Gateway -->
-        <GatewayRuntimeSettings />
-        <!-- /Tab: Gateway -->
+          <!-- Tab: Gateway -->
+          <GatewayRuntimeSettings />
+          <!-- /Tab: Gateway -->
 
-        <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
-        <SecuritySettings />
-        <!-- /Tab: Security — Registration, Turnstile, LinuxDo, OIDC -->
+          <!-- Tab: Security — Registration, Turnstile, LinuxDo -->
+          <SecuritySettings />
+          <!-- /Tab: Security — Registration, Turnstile, LinuxDo, OIDC -->
 
-        <!-- Tab: Users -->
-        <UserDefaultsSettings />
-        <!-- /Tab: Users -->
+          <!-- Tab: Users -->
+          <UserDefaultsSettings />
+          <!-- /Tab: Users -->
 
-        <!-- Tab: Gateway — Claude Code, Scheduling -->
-        <GatewaySettings />
-        <!-- /Tab: Gateway — Claude Code, Scheduling -->
+          <!-- Tab: Gateway — Claude Code, Scheduling -->
+          <GatewaySettings />
+          <!-- /Tab: Gateway — Claude Code, Scheduling -->
 
-        <!-- Tab: General -->
-        <GeneralSettings />
-        <!-- /Tab: General -->
+          <!-- Tab: General -->
+          <GeneralSettings />
+          <!-- /Tab: General -->
 
-        <!-- Tab: Login Agreement -->
-        <LoginAgreementSettings />
-        <!-- /Tab: Login Agreement -->
+          <!-- Tab: Login Agreement -->
+          <LoginAgreementSettings />
+          <!-- /Tab: Login Agreement -->
 
-        <!-- Tab: Features (功能开关) -->
-        <FeatureSettings /><!-- /Tab: Features -->
+          <!-- Tab: Features (功能开关) -->
+          <FeatureSettings /><!-- /Tab: Features -->
 
-        <!-- Tab: Email -->
-        <!-- Tab: Payment -->
-        <PaymentSettings />
+          <!-- Tab: Email -->
+          <!-- Tab: Payment -->
+          <PaymentSettings />
 
-        <EmailSettings />
-        <!-- /Tab: Email -->
+          <EmailSettings />
+          <!-- /Tab: Email -->
 
-        <!-- Tab: Backup -->
-        <BackupSettingsSection />
+          <!-- Tab: Backup -->
+          <BackupSettingsSection />
+
+        </div>
 
         <!-- Save Button -->
         <div v-show="activeTab !== 'backup'" class="flex justify-end">
@@ -92,26 +94,7 @@
             :disabled="saving || loadFailed"
             class="btn btn-primary"
           >
-            <svg
-              v-if="saving"
-              class="h-4 w-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
+            <LoadingSpinner v-if="saving" size="sm" color="white" />
             {{
               saving
                 ? t("admin.settings.saving")
@@ -159,6 +142,7 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import AppLayout from "@/components/layout/AppLayout.vue";
 import Icon from "@/components/icons/Icon.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";

@@ -603,7 +603,7 @@ async function testDatabaseConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      extractApiErrorMessage(err, '') || 'Connection failed'
+      extractApiErrorMessage(err, t('setup.connectionFailed'))
   } finally {
     testingDb.value = false
   }
@@ -620,7 +620,7 @@ async function testRedisConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      extractApiErrorMessage(err, '') || 'Connection failed'
+      extractApiErrorMessage(err, t('setup.connectionFailed'))
   } finally {
     testingRedis.value = false
   }
@@ -645,7 +645,7 @@ async function performInstall() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      extractApiErrorMessage(err, '') || 'Installation failed'
+      extractApiErrorMessage(err, t('setup.installationFailed'))
   } finally {
     installing.value = false
   }
