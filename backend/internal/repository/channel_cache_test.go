@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,5 +41,32 @@ func TestChannelCachePubSub(t *testing.T) {
 	case <-received:
 	case <-time.After(time.Second):
 		t.Fatal("channel cache invalidation notification was not received")
+	}
+}
+
+func TestCacheSubscribersReconnectAndInvalidate(t *testing.T) {
+	for _, topic := range []string{channelCachePubSubKey, errorPassthroughPubSubKey} {
+		t.Run(topic, func(t *testing.T) {
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			defer client.Close()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			var received atomic.Int64
+			subscribeCacheUpdates(ctx, client, topic, func() { received.Add(1) })
+			require.Eventually(t, func() bool { return received.Load() > 0 }, time.Second, 10*time.Millisecond)
+			before := received.Load()
+			server.Close()
+			require.NoError(t, server.Restart())
+			require.Eventually(t, func() bool { return received.Load() > before }, 5*time.Second, 10*time.Millisecond,
+				"reconnection must invalidate even with no replayable message")
+			before = received.Load()
+			require.NoError(t, client.Publish(ctx, topic, "refresh").Err())
+			require.Eventually(t, func() bool { return received.Load() > before }, time.Second, 10*time.Millisecond)
+			cancel()
+			require.Eventually(t, func() bool { return server.PubSubNumSub(topic)[topic] == 0 }, time.Second, 10*time.Millisecond,
+				"quiet subscription must close when its owner stops")
+
+		})
 	}
 }

@@ -1160,7 +1160,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
+		availableModels, err := h.compositeAvailableModelsChecked(c.Request.Context(), groupID)
+		if err != nil {
+			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
+			return
+		}
 		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 {
@@ -1178,7 +1182,11 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 	}
 
 	// Get available models from account configurations for the selected group platform.
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
+	availableModels, err := h.gatewayService.GetAvailableModelsChecked(c.Request.Context(), groupID, platform)
+	if err != nil {
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
+		return
+	}
 	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
 		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
@@ -1230,7 +1238,11 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	if value, exists := middleware2.GetForcePlatformFromContext(c); exists {
 		forcedPlatform = strings.TrimSpace(value)
 	}
-	modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
+	modelIDs, err := h.codexModelIDsForGroupChecked(c.Request.Context(), apiKey.Group, forcedPlatform)
+	if err != nil {
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
+		return
+	}
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
@@ -1253,8 +1265,17 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 }
 
 func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *service.Group, platformOverride string) []string {
+	models, _ := h.codexModelIDsForGroupChecked(ctx, group, platformOverride)
+	return models
+}
+func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+	models, _ := h.compositeAvailableModelsChecked(ctx, groupID)
+	return models
+}
+
+func (h *GatewayHandler) codexModelIDsForGroupChecked(ctx context.Context, group *service.Group, platformOverride string) ([]string, error) {
 	if h == nil || h.gatewayService == nil || group == nil {
-		return nil
+		return nil, nil
 	}
 
 	groupID := &group.ID
@@ -1263,41 +1284,50 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		platform = group.Platform
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(ctx, groupID)
+		availableModels, err := h.compositeAvailableModelsChecked(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 {
 				source = fallbackModels
 			}
-			return group.ModelAllowlist.FilterForListing(source)
+			return group.ModelAllowlist.FilterForListing(source), nil
 		}
 		if len(availableModels) > 0 {
-			return availableModels
+			return availableModels, nil
 		}
-		return fallbackModels
+		return fallbackModels, nil
 	}
 
-	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+	availableModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
+	if err != nil {
+		return nil, err
+	}
 	fallbackModels := defaultCodexModelIDsForPlatform(platform)
 	if group.ModelAllowlistEnabled() {
-		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
+		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels)), nil
 	}
 	if len(availableModels) > 0 {
-		return availableModels
+		return availableModels, nil
 	}
-	return fallbackModels
+	return fallbackModels, nil
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+func (h *GatewayHandler) compositeAvailableModelsChecked(ctx context.Context, groupID *int64) ([]string, error) {
 	if h == nil || h.gatewayService == nil {
-		return nil
+		return nil, nil
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
 	for _, platform := range service.ConcretePlatforms() {
-		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+		platformModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
+		if err != nil {
+			return nil, err
+		}
 		if len(platformModels) == 0 {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
@@ -1317,7 +1347,7 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			models = append(models, model)
 		}
 	}
-	return models
+	return models, nil
 }
 
 func writeModelsList(c *gin.Context, platform string, modelIDs []string) {

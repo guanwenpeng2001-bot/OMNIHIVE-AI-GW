@@ -173,6 +173,22 @@ func (s *SchedulerSnapshotService) Start() {
 		return
 	}
 
+	if watcher, ok := s.outboxRepo.(interface{ WatchModelCatalog(context.Context, func()) }); ok {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finished := make(chan struct{})
+			go func() { defer close(finished); watcher.WatchModelCatalog(ctx, InvalidateModelCatalogCaches) }()
+			select {
+			case <-s.stopCh:
+				cancel()
+				<-finished
+			case <-finished:
+			}
+		}()
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -467,6 +483,20 @@ func (s *SchedulerSnapshotService) cleanupConsumedOutbox(watermark int64) {
 
 func (s *SchedulerSnapshotService) handleOutboxEvent(ctx context.Context, event SchedulerOutboxEvent, seen map[batchSeenKey]struct{}) error {
 	switch event.EventType {
+	case SchedulerOutboxEventModelCatalogChanged:
+		InvalidateModelCatalogCaches()
+		if scope, _ := event.Payload["scope"].(string); scope != "catalog" {
+			return nil
+		}
+		if err := s.handleBulkAccountEvent(ctx, event.Payload, seen); err != nil {
+			return err
+		}
+		for _, groupID := range parseInt64Slice(event.Payload["group_ids"]) {
+			if err := s.handleGroupEvent(ctx, &groupID, seen); err != nil {
+				return err
+			}
+		}
+		return nil
 	case SchedulerOutboxEventAccountLastUsed:
 		return s.handleLastUsedEvent(ctx, event.Payload)
 	case SchedulerOutboxEventAccountBulkChanged:

@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"log/slog"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
@@ -25,28 +26,57 @@ func (c *channelCache) NotifyUpdate(ctx context.Context) error {
 }
 
 // SubscribeUpdates subscribes to channel cache invalidation notifications.
-func (c *channelCache) SubscribeUpdates(ctx context.Context, handler func()) {
-	go func() {
-		pubsub := c.rdb.Subscribe(ctx, channelCachePubSubKey)
-		defer func() {
-			if err := pubsub.Close(); err != nil {
-				slog.Warn("failed to close channel cache subscriber", "error", err)
-			}
-		}()
 
-		messages := pubsub.Channel()
-		for {
+func (c *channelCache) SubscribeUpdates(ctx context.Context, handler func()) {
+	subscribeCacheUpdates(ctx, c.rdb, channelCachePubSubKey, handler)
+}
+
+// Each subscription owns its connection. Re-establishing a subscription always
+// invalidates: messages lost during a disconnect cannot be replayed by Pub/Sub.
+func subscribeCacheUpdates(ctx context.Context, client *redis.Client, topic string, handler func()) {
+	go func() {
+		delay := 100 * time.Millisecond
+		for ctx.Err() == nil {
+			subscription := client.Subscribe(ctx, topic)
+			finished := make(chan struct{})
+			go func() {
+				select {
+				case <-ctx.Done():
+					_ = subscription.Close()
+				case <-finished:
+				}
+			}()
+			_, err := subscription.Receive(ctx)
+			if err == nil {
+				handler()
+				delay = 100 * time.Millisecond
+				for ctx.Err() == nil {
+					message, receiveErr := subscription.ReceiveMessage(ctx)
+					if receiveErr != nil {
+						err = receiveErr
+						break
+					}
+					if message != nil {
+						handler()
+					}
+				}
+			}
+			_ = subscription.Close()
+			close(finished)
+			if ctx.Err() != nil {
+				return
+			}
+			slog.Warn("cache subscription reconnecting", "topic", topic, "error", err)
+			timer := time.NewTimer(delay)
 			select {
 			case <-ctx.Done():
+				timer.Stop()
 				return
-			case message, ok := <-messages:
-				if !ok {
-					slog.Warn("channel cache subscriber stopped", "reason", "channel_closed")
-					return
-				}
-				if message != nil {
-					handler()
-				}
+			case <-timer.C:
+			}
+			delay *= 2
+			if delay > 5*time.Second {
+				delay = 5 * time.Second
 			}
 		}
 	}()
