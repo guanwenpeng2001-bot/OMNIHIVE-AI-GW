@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
 
 	coderws "github.com/coder/websocket"
@@ -21,6 +22,10 @@ type openAIWSIngressReader struct {
 	ctx     context.Context
 	frames  chan openAIWSClientReadResult
 	stopped chan struct{}
+	// Serialize consumers across attempt handoff. A frame dequeued concurrently
+	// with cancellation is retained ahead of the socket queue for the next attempt.
+	consumer sync.Mutex
+	pending  *openAIWSClientReadResult
 }
 
 func openAIWSIngressClientReader(ginContext *gin.Context, connection *coderws.Conn) *openAIWSIngressReader {
@@ -102,6 +107,8 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	var readStopped <-chan struct{}
 	var attemptDone <-chan struct{}
 	if reader != nil {
+		reader.consumer.Lock()
+		defer reader.consumer.Unlock()
 		readDone, readStopped = reader.frames, reader.stopped
 		if attemptCtx != nil {
 			attemptDone = attemptCtx.Done()
@@ -153,8 +160,33 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	}
 
 	for {
+		// select does not prioritize cancellation over an already queued frame.
+		// Check before dequeue and again before handing ownership to the caller.
+		if reader != nil && attemptCtx != nil && attemptCtx.Err() != nil {
+			return 0, nil, attemptCtx.Err()
+		}
+		if controlCtx.Err() != nil {
+			return closeForCanceledControl(controlCtx, closeAndJoin)
+		}
+		if reader != nil && reader.pending != nil {
+			result := reader.pending
+			if attemptCtx != nil && attemptCtx.Err() != nil {
+				return 0, nil, attemptCtx.Err()
+			}
+			reader.pending = nil
+			return result.messageType, result.payload, result.err
+		}
 		select {
 		case result, ok := <-readDone:
+			if reader != nil && attemptCtx != nil && attemptCtx.Err() != nil {
+				if ok {
+					reader.pending = &result
+				}
+				return 0, nil, attemptCtx.Err()
+			}
+			if controlCtx.Err() != nil {
+				return closeForCanceledControl(controlCtx, closeAndJoin)
+			}
 			if !ok {
 				return 0, nil, context.Cause(reader.ctx)
 			}
@@ -168,15 +200,15 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 		case <-timeoutCh:
 			return closeAndJoin(timeoutStatus, timeoutReason, context.DeadlineExceeded)
 		case <-controlCtx.Done():
-			cause := context.Cause(controlCtx)
-			if errors.Is(cause, ErrOpenAIWSIngressLeaseLost) {
-				return closeAndJoin(
-					coderws.StatusTryAgainLater,
-					"websocket ingress capacity lease lost; please reconnect",
-					cause,
-				)
-			}
-			return closeAndJoin(coderws.StatusGoingAway, "websocket request canceled", cause)
+			return closeForCanceledControl(controlCtx, closeAndJoin)
 		}
 	}
+}
+
+func closeForCanceledControl(controlCtx context.Context, closeAndJoin func(coderws.StatusCode, string, error) (coderws.MessageType, []byte, error)) (coderws.MessageType, []byte, error) {
+	cause := context.Cause(controlCtx)
+	if errors.Is(cause, ErrOpenAIWSIngressLeaseLost) {
+		return closeAndJoin(coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect", cause)
+	}
+	return closeAndJoin(coderws.StatusGoingAway, "websocket request canceled", cause)
 }

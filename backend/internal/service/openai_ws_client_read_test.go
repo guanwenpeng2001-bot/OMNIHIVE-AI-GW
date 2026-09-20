@@ -200,3 +200,122 @@ func TestOpenAIWSClientReaderSurvivesAccountAttemptCancellation(test *testing.T)
 		test.Fatal("follow-up turn was stolen by a stale attempt reader")
 	}
 }
+
+func TestReviewCanceledAccountDoesNotConsumeRealQueuedFrames(test *testing.T) {
+	const samples = 100
+	outcomes := make(chan bool, 1)
+	serverErrors := make(chan error, 1)
+	fixtureContext, stopFixture := context.WithTimeout(context.Background(), 5*time.Second)
+	defer stopFixture()
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		connection, acceptErr := coderws.Accept(response, request, nil)
+		if acceptErr != nil {
+			serverErrors <- acceptErr
+			return
+		}
+		defer connection.CloseNow()
+		clientContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+		clientContext.Request = request
+		reader := openAIWSIngressClientReader(clientContext, connection)
+		for sample := 0; sample < samples; sample++ {
+			for len(reader.frames) == 0 {
+				select {
+				case <-fixtureContext.Done():
+					serverErrors <- fixtureContext.Err()
+					return
+				case <-time.After(time.Millisecond):
+				}
+			}
+			attempt, cancelAttempt := context.WithCancel(fixtureContext)
+			cancelAttempt()
+			oldAccount := &openAIWSClientFrameConn{conn: connection, reader: reader, controlCtx: fixtureContext}
+			_, payload, readErr := oldAccount.ReadFrame(attempt)
+			consumed := readErr == nil && len(payload) > 0
+			if !consumed {
+				if !errors.Is(readErr, context.Canceled) {
+					serverErrors <- readErr
+					return
+				}
+				_, stalePayload, staleErr := oldAccount.ReadFrame(attempt)
+				if !errors.Is(staleErr, context.Canceled) || len(stalePayload) != 0 {
+					serverErrors <- errors.New("old account did not remain canceled")
+					return
+				}
+				nextAccount := &openAIWSClientFrameConn{conn: connection, reader: openAIWSIngressClientReader(clientContext, connection), controlCtx: fixtureContext}
+				_, nextPayload, nextErr := nextAccount.ReadFrame(fixtureContext)
+				if nextErr != nil {
+					serverErrors <- nextErr
+					return
+				}
+				if string(nextPayload) != `{"type":"session.update","session":{"model":"gpt-5.1"}}` || nextAccount.reader != reader || len(reader.frames) != 0 {
+					serverErrors <- errors.New("handoff must preserve the exact frame once using the same reader")
+					return
+				}
+			}
+			outcomes <- consumed
+		}
+	}))
+	defer server.Close()
+	client, _, dialErr := coderws.Dial(fixtureContext, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(test, dialErr)
+	defer client.CloseNow()
+	consumed := 0
+	for sample := 0; sample < samples; sample++ {
+		require.NoError(test, client.Write(fixtureContext, coderws.MessageText, []byte(`{"type":"session.update","session":{"model":"gpt-5.1"}}`)))
+		select {
+		case stolen := <-outcomes:
+			if stolen {
+				consumed++
+			}
+		case fixtureErr := <-serverErrors:
+			test.Fatalf("server fixture failed: %v", fixtureErr)
+		case <-fixtureContext.Done():
+			test.Fatal("fixture timed out")
+		}
+	}
+	test.Logf("real socket: canceled old account consumed %d/%d queued session updates", consumed, samples)
+	require.Zero(test, consumed, "queued client messages must remain available to the next account attempt")
+}
+
+// Cancel at the post-dequeue check, with a newer frame already in the socket
+// queue. This deterministically exercises the cancellation race and FIFO return.
+type cancelAfterDequeueContext struct {
+	context.Context
+	checks       int
+	afterDequeue func()
+}
+
+func (attempt *cancelAfterDequeueContext) Err() error {
+	attempt.checks++
+	if attempt.checks == 2 {
+		attempt.afterDequeue()
+	}
+	return attempt.Context.Err()
+}
+
+func TestOpenAIWSClientReaderReturnsFrameCanceledDuringDequeue(test *testing.T) {
+	reader := &openAIWSIngressReader{ctx: context.Background(), frames: make(chan openAIWSClientReadResult, 1), stopped: make(chan struct{})}
+	reader.frames <- openAIWSClientReadResult{messageType: coderws.MessageText, payload: []byte("queued")}
+	baseContext, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	attempt := &cancelAfterDequeueContext{Context: baseContext, afterDequeue: func() {
+		cancel()
+		reader.frames <- openAIWSClientReadResult{messageType: coderws.MessageText, payload: []byte("late")}
+	}}
+	// No transport operations occur: both frames are already socket-reader output.
+	connection := &openAIWSClientFrameConn{conn: &coderws.Conn{}, reader: reader, controlCtx: context.Background()}
+	_, payload, err := connection.ReadFrame(attempt)
+	require.ErrorIs(test, err, context.Canceled)
+	require.Empty(test, payload)
+	_, payload, err = connection.ReadFrame(attempt)
+	require.ErrorIs(test, err, context.Canceled)
+	require.Empty(test, payload)
+	for _, expected := range []string{"queued", "late"} {
+		messageType, actual, readErr := connection.ReadFrame(context.Background())
+		require.NoError(test, readErr)
+		require.Equal(test, coderws.MessageText, messageType)
+		require.Equal(test, expected, string(actual))
+	}
+	require.Nil(test, reader.pending)
+	require.Empty(test, reader.frames)
+}
