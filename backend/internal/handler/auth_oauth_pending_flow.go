@@ -48,8 +48,9 @@ type oauthPendingSessionPayload struct {
 }
 
 type oauthAdoptionDecisionRequest struct {
-	AdoptDisplayName *bool `json:"adopt_display_name,omitempty"`
-	AdoptAvatar      *bool `json:"adopt_avatar,omitempty"`
+	CompletionCode   string `json:"code,omitempty"`
+	AdoptDisplayName *bool  `json:"adopt_display_name,omitempty"`
+	AdoptAvatar      *bool  `json:"adopt_avatar,omitempty"`
 }
 
 type bindPendingOAuthLoginRequest struct {
@@ -158,6 +159,10 @@ func clearOAuthPendingSessionCookie(c *gin.Context, secure bool) {
 	})
 }
 
+func clearOAuthCompletionCodeCookie(c *gin.Context) {
+	http.SetCookie(c.Writer, &http.Cookie{Name: "oauth_completion_code", Path: oauthPendingBrowserCookiePath, MaxAge: -1, HttpOnly: true, Secure: isRequestHTTPS(c), SameSite: http.SameSiteLaxMode})
+}
+
 func readOAuthPendingSessionCookie(c *gin.Context) (string, error) {
 	return readCookieDecoded(c, oauthPendingSessionCookieName)
 }
@@ -261,6 +266,7 @@ func (h *AuthHandler) createOAuthPendingSession(c *gin.Context, payload oauthPen
 	}
 
 	setOAuthPendingSessionCookie(c, session.SessionToken, isRequestHTTPS(c))
+	clearOAuthCompletionCodeCookie(c)
 	return nil
 }
 
@@ -746,6 +752,7 @@ func clearOAuthLogoutCookies(c *gin.Context) {
 	clearOAuthPendingSessionCookie(c, secureCookie)
 	clearOAuthPendingBrowserCookie(c, secureCookie)
 	clearOAuthBindAccessTokenCookie(c, secureCookie)
+	http.SetCookie(c.Writer, &http.Cookie{Name: "oauth_completion_code", Path: oauthPendingBrowserCookiePath, MaxAge: -1, HttpOnly: true, Secure: secureCookie, SameSite: http.SameSiteLaxMode})
 
 	clearCookie(c, linuxDoOAuthStateCookieName, secureCookie)
 	clearCookie(c, linuxDoOAuthVerifierCookie, secureCookie)
@@ -1076,11 +1083,6 @@ func (h *AuthHandler) createPendingOAuthAccount(c *gin.Context, provider string)
 // ExchangePendingOAuthCompletion redeems a pending OAuth browser session into a frontend-safe payload.
 // POST /api/v1/auth/oauth/pending/exchange
 func (h *AuthHandler) ExchangePendingOAuthCompletion(c *gin.Context) {
-	if code, err := c.Cookie("oauth_completion_code"); err == nil && code != "" {
-		h.exchangeOAuthCompletionCode(c, code)
-		return
-	}
-
 	secureCookie := isRequestHTTPS(c)
 	clearCookies := func() {
 		clearOAuthPendingSessionCookie(c, secureCookie)
@@ -1089,6 +1091,19 @@ func (h *AuthHandler) ExchangePendingOAuthCompletion(c *gin.Context) {
 	adoptionDecision, err := bindOptionalOAuthAdoptionDecision(c)
 	if err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if code, cookieErr := c.Cookie("oauth_completion_code"); cookieErr == nil && code != "" {
+		if adoptionDecision.CompletionCode == "" || adoptionDecision.CompletionCode != code {
+			response.ErrorFrom(c, service.ErrPendingAuthCodeInvalid)
+			return
+		}
+		h.exchangeOAuthCompletionCode(c, code)
+		return
+	}
+	if adoptionDecision.CompletionCode != "" {
+		response.ErrorFrom(c, service.ErrPendingAuthCodeInvalid)
 		return
 	}
 

@@ -213,11 +213,25 @@ describe('oauth adoption auth api', () => {
     expect(hasPendingOAuthSuggestedProfile({})).toBe(false)
   })
 
-  it('requests an HttpOnly oauth bind cookie before redirect binding', async () => {
+  it('exchanges the callback reference without storing it in browser storage', async () => {
+    const { exchangePendingOAuthCompletion } = await import('@/api/auth')
+    await exchangePendingOAuthCompletion(undefined, 'completion-reference')
+    expect(post).toHaveBeenCalledWith('/auth/oauth/pending/exchange', { code: 'completion-reference' })
+    expect(localStorage.length).toBe(0)
+  })
+
+  it('rejects a missing bind preparation reference', async () => {
+    localStorage.setItem('auth_token', 'session-token')
+    const { prepareOAuthBindAccessTokenCookie } = await import('@/api/auth')
+    await expect(prepareOAuthBindAccessTokenCookie()).rejects.toThrow('OAuth binding preparation failed')
+  })
+
+  it('requests an HttpOnly oauth bind cookie and returns its one-time CSRF reference', async () => {
+    post.mockResolvedValue({ data: { csrf_token: 'one-time-bind-reference' } })
     localStorage.setItem('auth_token', 'access-token-value')
     const { prepareOAuthBindAccessTokenCookie } = await import('@/api/auth')
 
-    await prepareOAuthBindAccessTokenCookie()
+    expect(await prepareOAuthBindAccessTokenCookie()).toBe('one-time-bind-reference')
 
     expect(post).toHaveBeenCalledWith('/auth/oauth/bind-token')
   })

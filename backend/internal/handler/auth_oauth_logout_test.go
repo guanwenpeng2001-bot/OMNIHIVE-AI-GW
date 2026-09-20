@@ -46,6 +46,7 @@ func TestLogoutClearsOAuthStateCookiesAndConsumesPendingSession(t *testing.T) {
 
 	cookies := recorder.Result().Cookies()
 	for _, name := range []string{
+		"oauth_completion_code",
 		oauthPendingSessionCookieName,
 		oauthPendingBrowserCookieName,
 		oauthBindAccessTokenCookieName,

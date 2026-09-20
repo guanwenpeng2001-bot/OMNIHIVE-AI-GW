@@ -257,7 +257,7 @@ func RegisterAuthRoutes(
 		authenticated.GET("/auth/me", h.Auth.GetCurrentUser)
 		// 撤销所有会话（需要认证）
 		authenticated.POST("/auth/revoke-all-sessions", h.Auth.RevokeAllSessions)
-		authenticated.POST("/auth/oauth/bind-token", h.Auth.PrepareOAuthBindAccessTokenCookie)
-		authenticated.POST("/auth/admin-ws-ticket", h.Auth.IssueAdminWebSocketTicket)
+		authenticated.POST("/auth/oauth/bind-token", rateLimiter.LimitWithOptions("oauth-bind-token", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}), h.Auth.PrepareOAuthBindAccessTokenCookie)
+		authenticated.POST("/auth/admin-ws-ticket", rateLimiter.LimitWithOptions("admin-ws-ticket", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}), h.Auth.IssueAdminWebSocketTicket)
 	}
 }

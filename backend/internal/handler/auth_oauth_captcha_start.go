@@ -77,7 +77,11 @@ func (h *AuthHandler) issueOAuthState(c *gin.Context, provider string) (string, 
 	if err != nil {
 		return "", err
 	}
-	return pending.IssueIdentityTicket(c.Request.Context(), "oauth-state:"+provider, oauthRequestBinding(c), nil, 10*time.Minute)
+	state, err := pending.IssueIdentityTicket(c.Request.Context(), "oauth-state:"+provider, oauthRequestBinding(c), nil, 10*time.Minute)
+	if err == nil {
+		clearOAuthCompletionCodeCookie(c)
+	}
+	return state, err
 }
 
 func (h *AuthHandler) consumeOAuthState(c *gin.Context, provider, state string) error {

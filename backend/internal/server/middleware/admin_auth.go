@@ -35,13 +35,13 @@ func adminAuth(
 		// Browser upgrades carry only a short-lived, scoped, single-use ticket.
 		if isWebSocketUpgradeRequest(c) {
 			ticket := extractTicketFromWebSocketSubprotocol(c)
+			// Sanitize before authentication so failure logs cannot retain credentials.
+			c.Request.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin")
 			claims, err := authService.ConsumeAdminWebSocketTicket(c.Request.Context(), ticket, c.Request.URL.Path)
 			if err != nil {
 				AbortWithError(c, 401, "INVALID_WS_TICKET", "Invalid WebSocket ticket")
 				return
 			}
-			// Never forward a credential-bearing subprotocol to the upgrader.
-			c.Request.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin")
 			if !validateAdminClaims(c, claims, authService, userService, settingService, auditService) {
 				return
 			}

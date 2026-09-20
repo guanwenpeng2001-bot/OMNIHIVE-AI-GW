@@ -101,7 +101,7 @@ describe('OidcCallbackView', () => {
     sessionStorage.clear()
   })
 
-  it('accepts the legacy fragment token success callback without pending-session exchange', async () => {
+  it('rejects legacy token fragments after removing them from browser history', async () => {
     window.location.hash =
       '#access_token=legacy-access-token&refresh_token=legacy-refresh-token&expires_in=3600&token_type=Bearer&redirect=%2Flegacy-dashboard'
     setToken.mockResolvedValue({})
@@ -120,11 +120,11 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).not.toHaveBeenCalled()
-    expect(setToken).toHaveBeenCalledWith('legacy-access-token')
-    expect(localStorage.getItem('refresh_token')).toBe('legacy-refresh-token')
-    expect(localStorage.getItem('token_expires_at')).not.toBeNull()
-    expect(showSuccess).toHaveBeenCalledWith('auth.loginSuccess')
-    expect(replace).toHaveBeenCalledWith('/legacy-dashboard')
+    expect(setToken).not.toHaveBeenCalled()
+    expect(localStorage.getItem('refresh_token')).toBeNull()
+    expect(localStorage.getItem('token_expires_at')).toBeNull()
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it('accepts the legacy pending oauth invitation fragment without pending-session exchange', async () => {
@@ -191,7 +191,7 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).toHaveBeenCalledTimes(1)
-    expect(exchangePendingOAuthCompletion).toHaveBeenCalledWith()
+    expect(exchangePendingOAuthCompletion).toHaveBeenCalledWith(undefined, undefined)
   })
 
   it('waits for explicit adoption confirmation before finishing a non-invitation login', async () => {
@@ -234,7 +234,7 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).toHaveBeenCalledTimes(2)
-    expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(1)
+    expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(1, undefined, undefined)
     expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(2, {
       adoptDisplayName: false,
       adoptAvatar: true

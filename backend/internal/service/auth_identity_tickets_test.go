@@ -7,9 +7,34 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestIdentityTicketConcurrentConsumptionHasOneWinner(t *testing.T) {
+	pending, _ := newAuthPendingIdentityServiceTestClient(t)
+	ctx := context.Background()
+	token, err := pending.IssueIdentityTicket(ctx, "oauth-completion", "browser", nil, time.Minute)
+	require.NoError(t, err)
+	var winners atomic.Int32
+	var workers sync.WaitGroup
+	start := make(chan struct{})
+	for range 8 {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			<-start
+			if _, err := pending.ConsumeIdentityTicket(ctx, token, "oauth-completion", "browser"); err == nil {
+				winners.Add(1)
+			}
+		}()
+	}
+	close(start)
+	workers.Wait()
+	require.Equal(t, int32(1), winners.Load())
+}
 
 func TestIdentityTicketsAreBoundScopedExpiringAndSingleUse(t *testing.T) {
 	for _, purpose := range []string{"oauth-bind-start", "oauth-state:oidc", "oauth-completion", "admin-ws:" + AdminWebSocketTicketPath} {
