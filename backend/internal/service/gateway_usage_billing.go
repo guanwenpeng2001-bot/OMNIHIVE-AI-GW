@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -92,7 +93,7 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 	if apiKey == nil || apiKey.Group == nil {
 		return ""
 	}
-	return apiKey.Group.Platform
+	return domain.HostedQuotaKey(apiKey.Group.Platform, apiKey.Group.RequiredAccountType())
 }
 
 // QuotaPlatform 返回 user×platform 配额计量使用的平台标识。
@@ -109,7 +110,7 @@ func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
 		}
 	}
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-		return platform
+		return domain.HostedQuotaKey(platform, RequiredRouteAccountType(ctx))
 	}
 	platform := PlatformFromAPIKey(apiKey)
 	if platform == PlatformComposite {

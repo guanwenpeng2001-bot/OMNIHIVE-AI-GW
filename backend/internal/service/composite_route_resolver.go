@@ -51,6 +51,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				GroupID:        groupID,
 				PublicModel:    model,
 				TargetPlatform: route.TargetPlatform,
+				AccountType:    route.AccountType,
 				UpstreamModel:  upstreamModel,
 				Endpoint:       endpoint,
 				Route:          &route,
@@ -86,6 +87,7 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				GroupID:        groupID,
 				PublicModel:    model,
 				TargetPlatform: platform,
+				AccountType:    ownership.AccountType,
 				UpstreamModel:  model,
 				Endpoint:       endpoint,
 			}, nil

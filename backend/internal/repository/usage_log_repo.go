@@ -27,7 +27,11 @@ const usageLogSuccessFilterUL = `(EXISTS (SELECT 1 FROM usage_settlement_receipt
 // Composite groups are a routing layer, so platform analytics must use the
 // resolved concrete account platform instead of grouping spend under "composite".
 // 配套要求查询里 LEFT JOIN groups g ON g.id = ul.group_id 与 LEFT JOIN accounts a ON a.id = ul.account_id。
-const usageLogEffectivePlatformExpr = "CASE WHEN g.platform = 'composite' THEN a.platform ELSE COALESCE(NULLIF(g.platform,''), a.platform) END"
+const usageLogSourcePlatformExpr = "CASE WHEN g.platform = 'composite' THEN a.platform ELSE COALESCE(NULLIF(g.platform,''), a.platform) END"
+
+// Project hosting aliases after resolving the original routing identity. This
+// changes grouping only: each usage row and its historical amount remain intact.
+const usageLogEffectivePlatformExpr = "CASE (" + usageLogSourcePlatformExpr + ") WHEN 'bedrock' THEN 'anthropic' WHEN 'vertex' THEN 'gemini' ELSE (" + usageLogSourcePlatformExpr + ") END"
 
 // dateFormatWhitelist 将 granularity 参数映射为 PostgreSQL TO_CHAR 格式字符串，防止外部输入直接拼入 SQL
 var dateFormatWhitelist = map[string]string{

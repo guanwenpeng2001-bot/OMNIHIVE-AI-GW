@@ -264,7 +264,7 @@ func (a *Account) IsPrivacySet() bool {
 }
 
 func (a *Account) IsGemini() bool {
-	return a.Platform == PlatformGemini
+	return a.MatchesPlatform(PlatformGemini, "")
 }
 
 func (a *Account) IsGrok() bool {
@@ -1283,7 +1283,20 @@ func (a *Account) IsInterceptWarmupEnabled() bool {
 }
 
 func (a *Account) IsBedrock() bool {
-	return (a.Platform == PlatformAnthropic || a.Platform == PlatformBedrock) && a.Type == AccountTypeBedrock
+	return a != nil && domain.MatchesPlatformIdentity(a.Platform, a.Type, PlatformAnthropic, AccountTypeBedrock)
+}
+
+// UsesBedrockCatalog retains the full Bedrock/Converse adapter when the legacy
+// standalone hosting identity is migrated to an Anthropic account type.
+func (a *Account) UsesBedrockCatalog() bool {
+	if !a.IsBedrock() {
+		return false
+	}
+	return a.Platform == PlatformBedrock || a.Extra["hosted_bedrock_runtime"] == "converse"
+}
+
+func (a *Account) MatchesPlatform(platform, accountType string) bool {
+	return a != nil && domain.MatchesPlatformIdentity(a.Platform, a.Type, platform, accountType)
 }
 
 func (a *Account) IsBedrockAPIKey() bool {

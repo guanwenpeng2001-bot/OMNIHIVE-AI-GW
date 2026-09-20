@@ -5,6 +5,7 @@ package quotaview
 import (
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
@@ -16,7 +17,8 @@ func LazyZeroQuotaForResponse(r service.UserPlatformQuotaRecord, now time.Time, 
 	weekly := buildWindowSlice(r.WeeklyUsageUSD, r.WeeklyLimitUSD, r.WeeklyWindowStart, NeedsWeeklyReset(r.WeeklyWindowStart, now), nextWeeklyResetTime(now), includeWindowStart)
 	monthly := buildWindowSlice(r.MonthlyUsageUSD, r.MonthlyLimitUSD, r.MonthlyWindowStart, NeedsMonthlyReset(r.MonthlyWindowStart, now), NextMonthlyResetTimeFrom(r.MonthlyWindowStart, now), includeWindowStart)
 	out := map[string]any{
-		"platform":                 r.Platform,
+		"platform":                 domain.CanonicalPlatform(r.Platform),
+		"account_type":             domain.HostedAccountType(r.Platform),
 		"daily_usage_usd":          daily.usage,
 		"daily_limit_usd":          daily.limit,
 		"daily_window_resets_at":   daily.resetsAt,

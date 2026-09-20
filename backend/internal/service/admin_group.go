@@ -10,6 +10,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -114,7 +115,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			if !isConcreteRequestPlatform(acc.Platform) {
 				continue
 			}
-		} else if acc.Platform != platform {
+		} else if !acc.MatchesPlatform(platform, "") {
 			continue
 		}
 		for model := range acc.GetModelMapping() {
@@ -179,6 +180,18 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, ro
 		return nil, err
 	} else if !ok {
 		return nil, ErrCompositeRouteNotFound
+	}
+	if !input.AccountTypeSet && input.AccountType == "" {
+		routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+		if err != nil {
+			return nil, err
+		}
+		for _, existing := range routes {
+			if existing.ID == routeID {
+				input.AccountType = existing.AccountType
+				break
+			}
+		}
 	}
 	route, err := compositeRouteFromInput(groupID, input)
 	if err != nil {
@@ -259,6 +272,9 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 	if !isConcreteRequestPlatform(input.TargetPlatform) {
 		return nil, fmt.Errorf("target_platform must be a concrete provider")
 	}
+	if err := domain.ValidateHostedRestriction(input.TargetPlatform, input.AccountType); err != nil {
+		return nil, err
+	}
 	if input.Priority == 0 {
 		input.Priority = 100
 	}
@@ -267,6 +283,7 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 		PublicModel:    input.PublicModel,
 		MatchType:      input.MatchType,
 		TargetPlatform: input.TargetPlatform,
+		AccountType:    input.AccountType,
 		UpstreamModel:  input.UpstreamModel,
 		Endpoint:       input.Endpoint,
 		Priority:       input.Priority,
@@ -369,7 +386,7 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 		return
 	}
 	*input = CreateGroupInput{
-		Name: input.Name, Description: input.Description, Platform: input.Platform,
+		Name: input.Name, Description: input.Description, Platform: input.Platform, AccountType: input.AccountType,
 		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
@@ -393,6 +410,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	if err := domain.ValidateHostedRestriction(platform, input.AccountType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_HOSTED_ACCOUNT_TYPE", err.Error())
+	}
 	// 固定账号 manifest 配置：账号绑定发生在创建之后，创建时无法校验成员关系，
 	// 拒绝开启并在创建后的编辑里配置。
 	if normalizeCodexModelsManifestConfig(platform, input.CodexModelsManifestConfig).Enabled {
@@ -563,6 +583,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Name:                            input.Name,
 		Description:                     input.Description,
 		Platform:                        platform,
+		AccountType:                     input.AccountType,
 		RateMultiplier:                  input.RateMultiplier,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
@@ -775,6 +796,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.Platform != "" {
 		group.Platform = input.Platform
+	}
+	if input.AccountType != nil {
+		group.AccountType = *input.AccountType
+	}
+	if err := domain.ValidateHostedRestriction(group.Platform, group.AccountType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_HOSTED_ACCOUNT_TYPE", err.Error())
 	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier <= 0 {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -608,6 +609,11 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			continue
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
+		if account.IsBedrock() {
+			addPlatformGroups(PlatformBedrock, accountGroupIDs)
+			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
+			continue
+		}
 		switch account.Platform {
 		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode:
 			addPlatformGroups(account.Platform, accountGroupIDs)
@@ -817,6 +823,14 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
+	canonicalPlatform := domain.CanonicalPlatform(account.Platform)
+	if canonicalPlatform != account.Platform {
+		buckets = append(buckets, s.bucketsForPlatform(canonicalPlatform, groupIDs, seen)...)
+	}
+	legacyPlatform := domain.HostedQuotaKey(canonicalPlatform, account.Type)
+	if legacyPlatform != account.Platform && legacyPlatform != canonicalPlatform {
+		buckets = append(buckets, s.bucketsForPlatform(legacyPlatform, groupIDs, seen)...)
+	}
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)

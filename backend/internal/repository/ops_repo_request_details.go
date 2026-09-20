@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -37,7 +38,7 @@ func (r *opsRepository) ListRequestDetails(ctx context.Context, filter *service.
 			addCondition(fmt.Sprintf("kind = $%d", len(args)+1), kind)
 		}
 
-		if platform := strings.TrimSpace(strings.ToLower(filter.Platform)); platform != "" {
+		if platform := domain.CanonicalPlatform(strings.TrimSpace(strings.ToLower(filter.Platform))); platform != "" {
 			addCondition(fmt.Sprintf("platform = $%d", len(args)+1), platform)
 		}
 		if filter.GroupID != nil && *filter.GroupID > 0 {
@@ -90,7 +91,7 @@ WITH combined AS (
     'success'::TEXT AS kind,
     ul.created_at AS created_at,
     ul.request_id AS request_id,
-    COALESCE(NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
+    COALESCE(` + usageLogEffectivePlatformExpr + `, '') AS platform,
     ul.model AS model,
     ul.duration_ms AS duration_ms,
     ul.first_token_ms AS first_token_ms,
@@ -115,7 +116,7 @@ WITH combined AS (
     'error'::TEXT AS kind,
     o.created_at AS created_at,
     COALESCE(NULLIF(o.request_id,''), NULLIF(o.client_request_id,''), '') AS request_id,
-    COALESCE(NULLIF(o.platform, ''), NULLIF(g.platform, ''), NULLIF(a.platform, ''), '') AS platform,
+    ` + canonicalPlatformSQL("COALESCE(NULLIF(o.platform, ''), ("+usageLogSourcePlatformExpr+"), '')") + ` AS platform,
     o.model AS model,
     o.duration_ms AS duration_ms,
     o.time_to_first_token_ms AS first_token_ms,

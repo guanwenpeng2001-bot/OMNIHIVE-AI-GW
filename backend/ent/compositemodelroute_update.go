@@ -55,6 +55,20 @@ func (_u *CompositeModelRouteUpdate) ClearDeletedAt() *CompositeModelRouteUpdate
 	return _u
 }
 
+// SetAccountType sets the "account_type" field.
+func (_u *CompositeModelRouteUpdate) SetAccountType(v string) *CompositeModelRouteUpdate {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdate) SetNillableAccountType(v *string) *CompositeModelRouteUpdate {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
+	return _u
+}
+
 // SetGroupID sets the "group_id" field.
 func (_u *CompositeModelRouteUpdate) SetGroupID(v int64) *CompositeModelRouteUpdate {
 	_u.mutation.SetGroupID(v)
@@ -254,6 +268,11 @@ func (_u *CompositeModelRouteUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *CompositeModelRouteUpdate) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PublicModel(); ok {
 		if err := compositemodelroute.PublicModelValidator(v); err != nil {
 			return &ValidationError{Name: "public_model", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.public_model": %w`, err)}
@@ -305,6 +324,9 @@ func (_u *CompositeModelRouteUpdate) sqlSave(ctx context.Context) (_node int, er
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(compositemodelroute.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)
@@ -408,6 +430,20 @@ func (_u *CompositeModelRouteUpdateOne) SetNillableDeletedAt(v *time.Time) *Comp
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *CompositeModelRouteUpdateOne) ClearDeletedAt() *CompositeModelRouteUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *CompositeModelRouteUpdateOne) SetAccountType(v string) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdateOne) SetNillableAccountType(v *string) *CompositeModelRouteUpdateOne {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
 	return _u
 }
 
@@ -623,6 +659,11 @@ func (_u *CompositeModelRouteUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *CompositeModelRouteUpdateOne) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PublicModel(); ok {
 		if err := compositemodelroute.PublicModelValidator(v); err != nil {
 			return &ValidationError{Name: "public_model", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.public_model": %w`, err)}
@@ -691,6 +732,9 @@ func (_u *CompositeModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *Com
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(compositemodelroute.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)

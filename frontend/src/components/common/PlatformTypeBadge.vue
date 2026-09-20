@@ -3,7 +3,7 @@
     <!-- Row 1: Platform + Type -->
     <div class="inline-flex items-center overflow-hidden rounded-md">
       <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
-        <PlatformIcon :platform="platform" size="xs" />
+        <PlatformIcon :platform="platform" :account-type="type" size="xs" />
         <span>{{ platformLabel }}</span>
       </span>
       <span :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
@@ -66,6 +66,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { canonicalPlatform } from '@/constants/platforms'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
 import { platformLabel as sharedPlatformLabel } from '@/utils/platformColors'
@@ -87,7 +88,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => sharedPlatformLabel(props.platform))
+const platformLabel = computed(() => sharedPlatformLabel(canonicalPlatform(props.platform)))
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
