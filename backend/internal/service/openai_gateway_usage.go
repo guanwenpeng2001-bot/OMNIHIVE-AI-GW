@@ -1289,11 +1289,11 @@ func (s *OpenAIGatewayService) validateOpenAIImagePricing(ctx context.Context, k
 
 // UpdateCodexUsageSnapshotForAccount retains the credential identity observed by
 // the upstream attempt. ID-only legacy callers must carry equivalent context.
-func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotForAccount(ctx context.Context, account *Account, headers http.Header) {
+func (gateway *OpenAIGatewayService) UpdateCodexUsageSnapshotForAccount(ctx context.Context, account *Account, headers http.Header) {
 	if account == nil || headers == nil {
 		return
 	}
 	if snapshot := ParseCodexRateLimitHeaders(headers); snapshot != nil {
-		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, account)
+		gateway.updateCodexUsageSnapshot(ctx, account.ID, snapshot, account)
 	}
 }

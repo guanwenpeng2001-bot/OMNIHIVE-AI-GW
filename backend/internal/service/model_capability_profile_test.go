@@ -224,7 +224,7 @@ func TestModelCapabilityRegistrySingleflightAndCancellation(t *testing.T) {
 }
 func TestModelCapabilityRegistryOfflineAndStale(t *testing.T) {
 	h := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 429, Body: io.NopCloser(strings.NewReader("rate limited"))}}
-	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "old"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
+	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "old"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
 	registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 	require.Error(t, err)
 	require.True(t, registry["openai"].Stale)
@@ -276,7 +276,7 @@ func TestModelCapabilityCascadeCapturesOneSnapshotAndPreservesPriority(t *testin
 }
 func TestModelCapabilityRegistryBudgetAndExpiredCache(t *testing.T) {
 	h := &capabilityRegistryHTTP{start: make(chan struct{}, 1), release: make(chan struct{})}
-	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "too-old"}}, modelMetadataRegistryAt: time.Now().Add(-80 * time.Hour)}
+	svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "too-old"}}, modelMetadataRegistryAt: time.Now().Add(-80 * time.Hour)}
 	started := time.Now()
 	registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 	require.ErrorIs(t, err, context.DeadlineExceeded)
@@ -310,7 +310,7 @@ func TestModelCapabilityRegistryInvalidResponsesRetainCache(t *testing.T) {
 	for name, body := range map[string]string{"empty": "{}", "malformed": "{", "too_large": strings.Repeat(" ", int(upstreamModelsBodyLimit)+1)} {
 		t.Run(name, func(t *testing.T) {
 			h := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(body))}}
-			svc := &AccountTestService{httpUpstream: h, modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "valid"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
+			svc := &AccountTestService{httpUpstream: h, modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {Version: "valid"}}, modelMetadataRegistryAt: time.Now().Add(-7 * time.Hour)}
 			registry, err := svc.fetchModelsDevRegistry(context.Background(), &Account{})
 			require.Error(t, err)
 			require.Equal(t, "valid", registry["openai"].Version)

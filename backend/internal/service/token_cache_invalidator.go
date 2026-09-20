@@ -126,3 +126,19 @@ func CheckTokenVersion(ctx context.Context, account *Account, repo AccountReposi
 
 	return latestAccount, false
 }
+
+// tokenRequestBindingEqual permits token renewal only within the selected
+// endpoint, transport, owner and configuration revision.
+func tokenRequestBindingEqual(selected, latest *Account) bool {
+	if selected == nil || latest == nil {
+		return false
+	}
+	selectedBinding := snapshotOAuthRefreshAccount(selected)
+	latestBinding := snapshotOAuthRefreshAccount(latest)
+	for _, binding := range []*Account{selectedBinding, latestBinding} {
+		for _, field := range []string{"access_token", "refresh_token", "id_token", "expires_at", "expires_in", "_token_version", "token_type"} {
+			delete(binding.Credentials, field)
+		}
+	}
+	return AccountRuntimeIdentityKey(selectedBinding) == AccountRuntimeIdentityKey(latestBinding)
+}

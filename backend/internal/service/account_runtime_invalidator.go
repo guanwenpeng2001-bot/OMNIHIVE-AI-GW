@@ -119,6 +119,8 @@ func (invalidator *AccountRuntimeInvalidator) Invalidate(ctx context.Context, be
 		invalidator.Monitor.InvalidateAccount(before.ID)
 	}
 	if invalidator.Gateway != nil {
+		invalidator.Gateway.openaiAccountRuntimeBlockUntil.Delete(AccountRuntimeIdentityKey(before))
+		invalidator.Gateway.openaiAccountRuntimeBlockGeneration.Delete(AccountRuntimeIdentityKey(before))
 		throttle := invalidator.Gateway.getCodexSnapshotThrottle()
 		throttle.mu.Lock()
 		delete(throttle.lastByID, before.ID)
@@ -216,7 +218,7 @@ func ClearAccountRuntimeObservations(account *Account) {
 		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
 		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
 		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
-		grokBillingExtraKey, grokObservedModelsExtraKey,
+		grokBillingExtraKey, grokObservedModelsExtraKey, grokQuotaSnapshotExtraKey,
 		"codex_usage_updated_at", "codex_primary_over_secondary_percent",
 		"codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_window_minutes",
 		"codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_window_minutes",

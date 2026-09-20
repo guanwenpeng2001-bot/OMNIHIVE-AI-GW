@@ -99,6 +99,9 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 				}
 			}
 		} else {
+			if !tokenRequestBindingEqual(account, result.Account) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			account = result.Account
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
@@ -128,6 +131,9 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if p.tokenCache != nil {
 		latestAccount, isStale := CheckTokenVersion(ctx, account, p.accountRepo)
 		if isStale && latestAccount != nil {
+			if !tokenRequestBindingEqual(account, latestAccount) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			slog.Debug("claude_token_version_stale_use_latest", "account_id", account.ID)
 			accessToken = latestAccount.GetCredential("access_token")
 			if strings.TrimSpace(accessToken) == "" {

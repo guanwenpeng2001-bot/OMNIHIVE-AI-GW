@@ -86,6 +86,9 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 			}
 			slog.Debug("gemini_token_lock_held_use_old", "account_id", account.ID)
 		} else {
+			if !tokenRequestBindingEqual(account, result.Account) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			account = result.Account
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
@@ -146,6 +149,9 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if p.tokenCache != nil {
 		latestAccount, isStale := CheckTokenVersion(ctx, account, p.accountRepo)
 		if isStale && latestAccount != nil {
+			if !tokenRequestBindingEqual(account, latestAccount) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			slog.Debug("gemini_token_version_stale_use_latest", "account_id", account.ID)
 			accessToken = latestAccount.GetCredential("access_token")
 			if strings.TrimSpace(accessToken) == "" {

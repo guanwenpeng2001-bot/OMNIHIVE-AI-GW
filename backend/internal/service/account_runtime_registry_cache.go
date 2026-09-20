@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"time"
 )
 
 // ModelRegistryDownloadKey must be used unchanged by download cache, flight and
@@ -28,4 +29,22 @@ func ModelRegistryEnrichmentKey(downloadKey string, account *Account, draftIdent
 	encoded, _ := json.Marshal([]string{downloadKey, AccountRuntimeIdentityKey(account), draftIdentity})
 	digest := sha256.Sum256(encoded)
 	return "registry-enrichment:" + hex.EncodeToString(digest[:]), nil
+}
+
+func (service *AccountTestService) modelsDevDownloadKey(account *Account) string {
+	trustDomain := "verified-tls"
+	if service.tlsFPProfileService != nil {
+		profile, _ := json.Marshal(service.tlsFPProfileService.ResolveTLSProfile(account))
+		trustDomain += string(profile)
+	}
+	return ModelRegistryDownloadKey(modelsDevRegistryURL, upstreamModelsProxyURL(account), trustDomain)
+}
+
+func (service *AccountTestService) cachedModelsDevRegistry(downloadKey string) (map[string]modelsDevProvider, time.Time) {
+	service.modelMetadataRegistryMu.Lock()
+	defer service.modelMetadataRegistryMu.Unlock()
+	if service.modelMetadataRegistryKey != downloadKey {
+		return nil, time.Time{}
+	}
+	return service.modelMetadataRegistry, service.modelMetadataRegistryAt
 }

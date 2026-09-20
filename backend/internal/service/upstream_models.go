@@ -794,8 +794,8 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 // In-flight work is isolated by service and network egress. Waiters may cancel
 // independently; the shared request has its own finite budget.
 type modelsDevFlightKey struct {
-	service *AccountTestService
-	proxy   string
+	service     *AccountTestService
+	downloadKey string
 }
 type modelsDevFlight struct {
 	done     chan struct{}
@@ -818,21 +818,18 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
 		return nil, fmt.Errorf("registry_offline")
 	}
-	s.modelMetadataRegistryMu.Lock()
-	cached, at := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-	s.modelMetadataRegistryMu.Unlock()
+	downloadKey := s.modelsDevDownloadKey(account)
+	cached, at := s.cachedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
 	}
-	key := modelsDevFlightKey{s, upstreamModelsProxyURL(account)}
+	key := modelsDevFlightKey{s, downloadKey}
 	modelsDevFlights.Lock()
 	flight, ok := modelsDevFlights.entries[key]
 	if !ok {
 		// A previous flight may have published between our first cache read and
 		// acquiring the flight mutex.
-		s.modelMetadataRegistryMu.Lock()
-		latest, loaded := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-		s.modelMetadataRegistryMu.Unlock()
+		latest, loaded := s.cachedModelsDevRegistry(downloadKey)
 		if len(latest) > 0 && time.Since(loaded) < modelsDevRegistryTTL {
 			modelsDevFlights.Unlock()
 			return latest, nil
@@ -845,6 +842,7 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 			registry, err := s.downloadModelsDevRegistry(requestCtx, account)
 			if err == nil {
 				s.modelMetadataRegistryMu.Lock()
+				s.modelMetadataRegistryKey = downloadKey
 				s.modelMetadataRegistry = registry
 				s.modelMetadataRegistryAt = time.Now()
 				s.modelMetadataRegistryMu.Unlock()

@@ -143,8 +143,8 @@ func (c *tempUnschedCache) RecordOpenAIAPIKeyHealthFailure(ctx context.Context, 
 }
 
 // Runtime cooldowns reuse the temporary scheduling Redis connection and TTLs.
-func (c *tempUnschedCache) GetRuntimeCooldown(ctx context.Context, key string) (time.Time, error) {
-	value, err := c.rdb.Get(ctx, "runtime_cooldown:"+key).Int64()
+func (cache *tempUnschedCache) GetRuntimeCooldown(ctx context.Context, key string) (time.Time, error) {
+	value, err := cache.rdb.Get(ctx, "runtime_cooldown:"+key).Int64()
 	if err == redis.Nil {
 		return time.Time{}, nil
 	}
@@ -153,18 +153,18 @@ func (c *tempUnschedCache) GetRuntimeCooldown(ctx context.Context, key string) (
 	}
 	return time.UnixMilli(value), nil
 }
-func (c *tempUnschedCache) SetRuntimeCooldown(ctx context.Context, key string, until time.Time) error {
+func (cache *tempUnschedCache) SetRuntimeCooldown(ctx context.Context, key string, until time.Time) error {
 	ttl := time.Until(until)
 	if ttl <= 0 {
 		return nil
 	}
-	return c.rdb.Set(ctx, "runtime_cooldown:"+key, until.UnixMilli(), ttl).Err()
+	return cache.rdb.Set(ctx, "runtime_cooldown:"+key, until.UnixMilli(), ttl).Err()
 }
-func (c *tempUnschedCache) DeleteRuntimeCooldown(ctx context.Context, key string) error {
-	return c.rdb.Del(ctx, "runtime_cooldown:"+key).Err()
+func (cache *tempUnschedCache) DeleteRuntimeCooldown(ctx context.Context, key string) error {
+	return cache.rdb.Del(ctx, "runtime_cooldown:"+key).Err()
 }
 
-func (c *tempUnschedCache) ResetRuntimeHealth(ctx context.Context, accountID int64) error {
-	key := c.openAIAPIKeyHealthKey(accountID) + ":" + service.AccountRuntimeCacheSuffix(ctx, accountID)
-	return c.rdb.Del(ctx, key, key+":sequence").Err()
+func (cache *tempUnschedCache) ResetRuntimeHealth(ctx context.Context, accountID int64) error {
+	key := cache.openAIAPIKeyHealthKey(accountID) + ":" + service.AccountRuntimeCacheSuffix(ctx, accountID)
+	return cache.rdb.Del(ctx, key, key+":sequence").Err()
 }
