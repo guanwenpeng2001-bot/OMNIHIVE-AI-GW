@@ -186,14 +186,14 @@ func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCa
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
+		return plan.channelSnapshot, plan.channelError
+	}
 	generation, authoritative, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
 	if versionErr != nil {
 		return s.buildCache(ctx)
 	}
 
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
-		return plan.channelSnapshot, plan.channelError
-	}
 	if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
 		if time.Since(cached.loadedAt) < channelCacheTTL && (!authoritative || cached.generation == generation) {
 			return cached, nil

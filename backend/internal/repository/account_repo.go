@@ -2813,6 +2813,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
 		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
 	}
+	extraExpression = clearChangedAccountRuntimeObservationsSQL("credentials", extraExpression, "")
 	result, err := client.ExecContext(
 		ctx,
 		"UPDATE accounts SET extra = "+extraExpression+", updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL",
@@ -3062,6 +3063,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 
 	idx := 1
 	ollamaProxyIdentityChanged := ""
+	proxySetClause := ""
 	if updates.Name != nil {
 		setClauses = append(setClauses, "name = $"+itoa(idx))
 		args = append(args, *updates.Name)
@@ -3070,11 +3072,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if updates.ProxyID != nil {
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
 		if *updates.ProxyID == 0 {
-			setClauses = append(setClauses, "proxy_id = NULL")
+			proxySetClause = "proxy_id = NULL"
 			ollamaProxyIdentityChanged = "proxy_id IS NOT NULL"
 		} else {
 			proxyPlaceholder := "$" + itoa(idx)
-			setClauses = append(setClauses, "proxy_id = "+proxyPlaceholder)
+			proxySetClause = "proxy_id = " + proxyPlaceholder
 			ollamaProxyIdentityChanged = "proxy_id IS DISTINCT FROM " + proxyPlaceholder
 			args = append(args, *updates.ProxyID)
 			idx++
@@ -3122,13 +3124,14 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	// JSONB 需要合并而非覆盖，使用 raw SQL 保持旧行为。
 	credentialPlaceholder := ""
+	credentialsSetClause := ""
 	if len(updates.Credentials) > 0 {
 		payload, err := json.Marshal(updates.Credentials)
 		if err != nil {
 			return 0, err
 		}
 		credentialPlaceholder = "$" + itoa(idx)
-		setClauses = append(setClauses, "credentials = COALESCE(credentials, '{}'::jsonb) || "+credentialPlaceholder+"::jsonb")
+		credentialsSetClause = "credentials = COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb"
 		args = append(args, payload)
 		idx++
 	}
@@ -3190,8 +3193,15 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			incomingCredentials = "(COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb)"
 		}
 		extraExpression = "(" + extraExpression + ") || " + accountCatalogRevisionPatchSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged, true)
+		extraExpression = clearChangedAccountRuntimeObservationsSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
 
 		setClauses = append(setClauses, "extra = "+extraExpression)
+	}
+	if credentialsSetClause != "" {
+		setClauses = append(setClauses, credentialsSetClause)
+	}
+	if proxySetClause != "" {
+		setClauses = append(setClauses, proxySetClause)
 	}
 
 	if len(setClauses) == 0 {
@@ -4202,6 +4212,33 @@ func (r *accountRepository) UpdateAccountModelAllowlist(ctx context.Context, id 
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
+}
+
+func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtra, proxyChanged string) string {
+	changes := []string{"credentials IS DISTINCT FROM (" + incomingCredentials + ")"}
+	for _, field := range []string{"secret_revision", "secret_reference", "credential_secret_id", "credential_secret_revision", "header_overrides", "base_url", "protocol"} {
+		changes = append(changes, "COALESCE(extra->'"+field+"', 'null'::jsonb) IS DISTINCT FROM COALESCE(("+incomingExtra+")->'"+field+"', 'null'::jsonb)")
+	}
+	if proxyChanged != "" {
+		changes = append(changes, proxyChanged)
+	}
+	fields := []string{
+		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
+		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
+		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
+		"grok_billing_snapshot", "grok_observed_models", "grok_usage_snapshot",
+		"codex_usage_updated_at", "codex_primary_over_secondary_percent",
+		"codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_window_minutes",
+		"codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_window_minutes",
+		"codex_5h_used_percent", "codex_5h_reset_after_seconds", "codex_5h_reset_at", "codex_5h_window_minutes",
+		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_reset_at", "codex_7d_window_minutes",
+	}
+	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode} {
+		for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at", "balance", "balance_currency", "balance_available", "balance_updated_at", "balances"} {
+			fields = append(fields, provider+"_"+suffix)
+		}
+	}
+	return "CASE WHEN (" + strings.Join(changes, " OR ") + ") THEN (" + incomingExtra + ") - ARRAY['" + strings.Join(fields, "','") + "']::text[] ELSE (" + incomingExtra + ") END"
 }
 
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {
