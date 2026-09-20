@@ -200,34 +200,34 @@ func TestPcGroupByPaymentType(t *testing.T) {
 	})
 }
 
-func TestPcAggregateMethodCurrency(t *testing.T) {
-	t.Parallel()
+func TestPcAggregateMethodCurrency(test *testing.T) {
+	test.Parallel()
 
 	svc := &PaymentConfigService{encryptionKey: []byte("0123456789abcdef0123456789abcdef")}
 	stripe := makeInstance(1, payment.TypeStripe, payment.TypeStripe, "")
 	encryptedStripe, err := svc.encryptConfig(map[string]string{"currency": "hkd"})
-	require.NoError(t, err)
+	require.NoError(test, err)
 	stripe.Config = encryptedStripe
 	currency, ok := svc.pcAggregateMethodCurrency([]*dbent.PaymentProviderInstance{stripe})
-	require.True(t, ok)
-	require.Equal(t, "HKD", currency)
+	require.True(test, ok)
+	require.Equal(test, "HKD", currency)
 
 	airwallex := makeInstance(2, payment.TypeAirwallex, payment.TypeAirwallex, "")
 	airwallex.Config, err = svc.encryptConfig(map[string]string{"currency": "usd"})
-	require.NoError(t, err)
+	require.NoError(test, err)
 	currency, ok = svc.pcAggregateMethodCurrency([]*dbent.PaymentProviderInstance{stripe, airwallex})
-	require.False(t, ok)
-	require.Empty(t, currency)
+	require.False(test, ok)
+	require.Empty(test, currency)
 
 	easypay := makeInstance(3, payment.TypeEasyPay, payment.TypeAlipay, "")
 	currency, ok = svc.pcAggregateMethodCurrency([]*dbent.PaymentProviderInstance{easypay})
-	require.True(t, ok)
-	require.Equal(t, payment.DefaultPaymentCurrency, currency)
+	require.True(test, ok)
+	require.Equal(test, payment.DefaultPaymentCurrency, currency)
 }
 
-func TestGetAvailableMethodLimitsOmitsMixedCurrencyMethod(t *testing.T) {
+func TestGetAvailableMethodLimitsOmitsMixedCurrencyMethod(test *testing.T) {
 	ctx := context.Background()
-	client := newPaymentConfigServiceTestClient(t)
+	client := newPaymentConfigServiceTestClient(test)
 
 	_, err := client.PaymentProviderInstance.Create().
 		SetProviderKey(payment.TypeStripe).
@@ -236,7 +236,7 @@ func TestGetAvailableMethodLimitsOmitsMixedCurrencyMethod(t *testing.T) {
 		SetSupportedTypes("card,link").
 		SetEnabled(true).
 		Save(ctx)
-	require.NoError(t, err)
+	require.NoError(test, err)
 
 	_, err = client.PaymentProviderInstance.Create().
 		SetProviderKey(payment.TypeStripe).
@@ -245,22 +245,22 @@ func TestGetAvailableMethodLimitsOmitsMixedCurrencyMethod(t *testing.T) {
 		SetSupportedTypes("card,link").
 		SetEnabled(true).
 		Save(ctx)
-	require.NoError(t, err)
+	require.NoError(test, err)
 
 	svc := NewPaymentConfigService(client, nil, []byte("0123456789abcdef0123456789abcdef"))
 	resp, err := svc.GetAvailableMethodLimits(ctx)
-	require.NoError(t, err)
-	require.NotContains(t, resp.Methods, payment.TypeStripe)
+	require.NoError(test, err)
+	require.NotContains(test, resp.Methods, payment.TypeStripe)
 
 	_, err = svc.ValidateMethodCurrencyConsistency(ctx, payment.TypeStripe)
-	require.Error(t, err)
+	require.Error(test, err)
 	appErr := infraerrors.FromError(err)
-	require.Equal(t, "PAYMENT_METHOD_CURRENCY_CONFLICT", appErr.Reason)
+	require.Equal(test, "PAYMENT_METHOD_CURRENCY_CONFLICT", appErr.Reason)
 }
 
-func TestGetAvailableMethodLimitsIncludesEasyPayCustomMethodDisplayName(t *testing.T) {
+func TestGetAvailableMethodLimitsIncludesEasyPayCustomMethodDisplayName(test *testing.T) {
 	ctx := context.Background()
-	client := newPaymentConfigServiceTestClient(t)
+	client := newPaymentConfigServiceTestClient(test)
 
 	_, err := client.PaymentProviderInstance.Create().
 		SetProviderKey(payment.TypeEasyPay).
@@ -269,15 +269,15 @@ func TestGetAvailableMethodLimitsIncludesEasyPayCustomMethodDisplayName(t *testi
 		SetSupportedTypes("alipay,wxpay,ldc").
 		SetEnabled(true).
 		Save(ctx)
-	require.NoError(t, err)
+	require.NoError(test, err)
 
 	svc := NewPaymentConfigService(client, nil, []byte("0123456789abcdef0123456789abcdef"))
 	resp, err := svc.GetAvailableMethodLimits(ctx)
-	require.NoError(t, err)
+	require.NoError(test, err)
 
 	limits, ok := resp.Methods["ldc"]
-	require.True(t, ok, "expected custom EasyPay method limits to be visible")
-	require.Equal(t, "LDC Pay", limits.DisplayName)
+	require.True(test, ok, "expected custom EasyPay method limits to be visible")
+	require.Equal(test, "LDC Pay", limits.DisplayName)
 }
 
 func TestPcComputeGlobalRange(t *testing.T) {

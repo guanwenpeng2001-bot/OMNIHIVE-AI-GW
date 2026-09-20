@@ -95,31 +95,31 @@ func TestHandlePaymentNotification_NonSuccessStatus_Skips(t *testing.T) {
 // TestErrOrderNotFound_DistinctFromOtherErrors guards against an accidental
 // collapse where a generic wrapped error would start matching ErrOrderNotFound
 // (which would silently mask real DB failures).
-func TestErrOrderNotFound_DistinctFromOtherErrors(t *testing.T) {
+func TestErrOrderNotFound_DistinctFromOtherErrors(test *testing.T) {
 	genericErr := errors.New("some other failure")
-	require.False(t, errors.Is(genericErr, ErrOrderNotFound))
-	require.False(t, errors.Is(ErrOrderNotFound, genericErr))
+	require.False(test, errors.Is(genericErr, ErrOrderNotFound))
+	require.False(test, errors.Is(ErrOrderNotFound, genericErr))
 
 	wrappedLookupErr := errors.New("lookup order failed for out_trade_no sub2_42: connection refused")
-	require.False(t, errors.Is(wrappedLookupErr, ErrOrderNotFound),
+	require.False(test, errors.Is(wrappedLookupErr, ErrOrderNotFound),
 		"DB connection failures must not masquerade as order-not-found")
 }
 
-func TestPaymentLookupFailuresRemainRetryable(t *testing.T) {
-	client := newOrderNotFoundTestClient(t)
+func TestPaymentLookupFailuresRemainRetryable(test *testing.T) {
+	client := newOrderNotFoundTestClient(test)
 	service := &PaymentService{entClient: client}
 	ctx := context.Background()
-	require.ErrorIs(t, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil), ErrOrderNotFound)
-	require.NoError(t, client.Close())
+	require.ErrorIs(test, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil), ErrOrderNotFound)
+	require.NoError(test, client.Close())
 	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil)
-	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrOrderNotFound)
+	require.Error(test, err)
+	require.NotErrorIs(test, err, ErrOrderNotFound)
 	err = service.alreadyProcessed(ctx, &dbent.PaymentOrder{ID: 42})
-	require.Error(t, err)
-	require.NotErrorIs(t, err, ErrOrderNotFound)
+	require.Error(test, err)
+	require.NotErrorIs(test, err, ErrOrderNotFound)
 	for _, orderID := range []string{"sub2_42", "opaque-order"} {
 		err = service.HandlePaymentNotification(ctx, &payment.PaymentNotification{OrderID: orderID, Status: payment.NotificationStatusSuccess}, payment.TypeAlipay)
-		require.Error(t, err)
-		require.NotErrorIs(t, err, ErrOrderNotFound)
+		require.Error(test, err)
+		require.NotErrorIs(test, err, ErrOrderNotFound)
 	}
 }

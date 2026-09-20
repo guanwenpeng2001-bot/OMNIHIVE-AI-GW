@@ -75,7 +75,7 @@ func TestApplyWeChatPaymentResumeClaimsRejectsPaymentTypeMismatch(t *testing.T) 
 	}
 }
 
-func TestVerifyOrderPublicRejectsGuessableOrderNumber(t *testing.T) {
+func TestVerifyOrderPublicRejectsGuessableOrderNumber(test *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := NewPaymentHandler(nil, nil)
 	for _, number := range []string{"legacy-order-no", "does-not-exist"} {
@@ -84,8 +84,8 @@ func TestVerifyOrderPublicRejectsGuessableOrderNumber(t *testing.T) {
 		request.Request = httptest.NewRequest(http.MethodPost, "/api/v1/payment/public/orders/verify", bytes.NewBufferString(`{"out_trade_no":"`+number+`"}`))
 		request.Request.Header.Set("Content-Type", "application/json")
 		handler.VerifyOrderPublic(request)
-		require.Equal(t, http.StatusBadRequest, recorder.Code)
-		require.NotContains(t, recorder.Body.String(), `"status"`)
+		require.Equal(test, http.StatusBadRequest, recorder.Code)
+		require.NotContains(test, recorder.Body.String(), `"status"`)
 	}
 }
 
@@ -256,19 +256,19 @@ func TestResolveOrderPublicByResumeTokenReturnsBadRequestForMismatchedToken(t *t
 	require.Equal(t, "INVALID_RESUME_TOKEN", resp.Reason)
 }
 
-func TestVerifyOrderPublicRejectsBlankOutTradeNo(t *testing.T) {
+func TestVerifyOrderPublicRejectsBlankOutTradeNo(test *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	db, err := sql.Open("sqlite", "file:payment_handler_public_verify_blank?mode=memory&cache=shared")
-	require.NoError(t, err)
-	t.Cleanup(func() { _ = db.Close() })
+	require.NoError(test, err)
+	test.Cleanup(func() { _ = db.Close() })
 
 	_, err = db.Exec("PRAGMA foreign_keys = ON")
-	require.NoError(t, err)
+	require.NoError(test, err)
 
 	drv := entsql.OpenDB(dialect.SQLite, db)
-	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
-	t.Cleanup(func() { _ = client.Close() })
+	client := enttest.NewClient(test, enttest.WithOptions(dbent.Driver(drv)))
+	test.Cleanup(func() { _ = client.Close() })
 
 	paymentSvc := service.NewPaymentService(client, payment.NewRegistry(), nil, nil, nil, nil, nil, nil, nil)
 	h := NewPaymentHandler(paymentSvc, nil)
@@ -284,13 +284,13 @@ func TestVerifyOrderPublicRejectsBlankOutTradeNo(t *testing.T) {
 
 	h.VerifyOrderPublic(ctx)
 
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Equal(test, http.StatusBadRequest, recorder.Code)
 
 	var resp struct {
 		Code   int    `json:"code"`
 		Reason string `json:"reason"`
 	}
-	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &resp))
-	require.Equal(t, http.StatusBadRequest, resp.Code)
-	require.Equal(t, "BAD_REQUEST", resp.Reason)
+	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &resp))
+	require.Equal(test, http.StatusBadRequest, resp.Code)
+	require.Equal(test, "BAD_REQUEST", resp.Reason)
 }

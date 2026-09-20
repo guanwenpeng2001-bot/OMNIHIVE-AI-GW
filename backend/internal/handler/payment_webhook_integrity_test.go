@@ -23,7 +23,7 @@ import (
 	_ "modernc.org/sqlite"
 )
 
-func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(t *testing.T) {
+func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(test *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, scenario := range []struct {
 		name            string
@@ -35,13 +35,13 @@ func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(t *testing.T) {
 		{"database unavailable", true, true, http.StatusServiceUnavailable},
 		{"provider missing", false, false, http.StatusServiceUnavailable},
 	} {
-		t.Run(scenario.name, func(t *testing.T) {
-			database, err := sql.Open("sqlite", "file:"+strings.ReplaceAll(t.Name(), " ", "_")+"?mode=memory&cache=shared")
-			require.NoError(t, err)
+		test.Run(scenario.name, func(test *testing.T) {
+			database, err := sql.Open("sqlite", "file:"+strings.ReplaceAll(test.Name(), " ", "_")+"?mode=memory&cache=shared")
+			require.NoError(test, err)
 			_, err = database.Exec("PRAGMA foreign_keys = ON")
-			require.NoError(t, err)
-			client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, database))))
-			t.Cleanup(func() { _ = client.Close() })
+			require.NoError(test, err)
+			client := enttest.NewClient(test, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, database))))
+			test.Cleanup(func() { _ = client.Close() })
 			registry := payment.NewRegistry()
 			if scenario.register {
 				registry.Register(webhookHandlerProviderStub{key: payment.TypeEasyPay, notification: &payment.PaymentNotification{OrderID: "unknown-verified", TradeNo: "trade", Status: payment.NotificationStatusSuccess}})
@@ -49,7 +49,7 @@ func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(t *testing.T) {
 			paymentService := service.NewPaymentService(client, registry, nil, nil, nil, nil, nil, nil, nil)
 			paymentService.EnsureProviders(context.Background())
 			if scenario.databaseFailure {
-				require.NoError(t, client.Close())
+				require.NoError(test, client.Close())
 			}
 			var logs bytes.Buffer
 			previous := slog.Default()
@@ -59,13 +59,13 @@ func TestPaymentWebhookAcknowledgesOnlyVerifiedUnknownOrders(t *testing.T) {
 			request, _ := gin.CreateTestContext(recorder)
 			request.Request = httptest.NewRequest(http.MethodPost, "/webhook/easypay", strings.NewReader("out_trade_no=unknown-verified"))
 			NewPaymentWebhookHandler(paymentService, registry).EasyPayNotify(request)
-			require.Equal(t, scenario.expected, recorder.Code)
+			require.Equal(test, scenario.expected, recorder.Code)
 			if scenario.expected == http.StatusOK {
-				require.Equal(t, "success", recorder.Body.String())
-				require.Contains(t, logs.String(), `"level":"WARN"`)
-				require.Contains(t, logs.String(), `"outTradeNo":"unknown-verified"`)
+				require.Equal(test, "success", recorder.Body.String())
+				require.Contains(test, logs.String(), `"level":"WARN"`)
+				require.Contains(test, logs.String(), `"outTradeNo":"unknown-verified"`)
 			} else {
-				require.NotEqual(t, "success", recorder.Body.String())
+				require.NotEqual(test, "success", recorder.Body.String())
 			}
 		})
 	}

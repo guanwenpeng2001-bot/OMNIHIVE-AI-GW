@@ -531,26 +531,27 @@ func (h *PaymentHandler) VerifyOrderPublic(c *gin.Context) {
 
 // ResolveOrderPublicByResumeToken resolves a payment order from a signed resume token.
 // POST /api/v1/payment/public/orders/resolve
-func (h *PaymentHandler) ResolveOrderPublicByResumeToken(c *gin.Context) {
+func (handler *PaymentHandler) ResolveOrderPublicByResumeToken(requestContext *gin.Context) {
 	var req ResolveOrderByResumeTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if err := requestContext.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(requestContext, "Invalid request: "+err.Error())
 		return
 	}
 
-	order, err := h.paymentService.GetPublicOrderByResumeToken(c.Request.Context(), req.ResumeToken)
+	// Prepare the successor before consuming the current credential.
+	nextToken, err := handler.paymentService.RenewPaymentResumeToken(req.ResumeToken)
 	if err != nil {
-		response.ErrorFrom(c, err)
+		response.ErrorFrom(requestContext, err)
 		return
 	}
-	nextToken, err := h.paymentService.RenewPaymentResumeToken(req.ResumeToken)
+	order, err := handler.paymentService.GetPublicOrderByResumeToken(requestContext.Request.Context(), req.ResumeToken)
 	if err != nil {
-		response.ErrorFrom(c, err)
+		response.ErrorFrom(requestContext, err)
 		return
 	}
 	result := buildPublicOrderResult(order)
 	result.ResumeToken = nextToken
-	response.Success(c, result)
+	response.Success(requestContext, result)
 }
 
 // requireAuth extracts the authenticated subject from the context.

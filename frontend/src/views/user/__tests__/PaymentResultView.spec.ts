@@ -102,6 +102,7 @@ describe('PaymentResultView', () => {
     refreshUser.mockReset()
     refreshUser.mockResolvedValue({})
     window.localStorage.clear()
+    window.sessionStorage.clear()
     window.localStorage.setItem('auth_token', 'test-token')
     window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
   })
@@ -355,7 +356,7 @@ describe('PaymentResultView', () => {
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail', expect.any(AbortSignal))
     expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('payment.result.failed')
+    expect(wrapper.text()).toContain('payment.result.processing')
   })
 
   it('ignores a stale global recovery snapshot when legacy return markers do not identify the order', async () => {
@@ -592,6 +593,62 @@ describe('PaymentResultView', () => {
     await vi.advanceTimersByTimeAsync(20000)
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
     expect(refreshUser).not.toHaveBeenCalled()
+  })
+
+  it.each(['PENDING', 'COMPLETED'])('retains the latest anonymous continuation across remount after %s', async (status) => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'initial-token' }
+    resolveOrderPublicByResumeToken.mockImplementation(async (token: string) => {
+      if (token === 'initial-token' && resolveOrderPublicByResumeToken.mock.calls.length === 1) {
+        return { data: { ...orderFactory(status), resume_token: 'continuation-token' } }
+      }
+      if (token === 'continuation-token') return { data: { ...orderFactory('COMPLETED'), resume_token: 'final-token' } }
+      throw { reason: 'INVALID_RESUME_TOKEN' }
+    })
+    const initial = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    initial.unmount()
+    const refreshed = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith('continuation-token', expect.any(AbortSignal))
+    expect(refreshed.text()).toContain('payment.result.success')
+    expect(pollOrderStatus).not.toHaveBeenCalled()
+    expect(verifyOrder).not.toHaveBeenCalled()
+    refreshed.unmount()
+  })
+
+  it.each(['initial', 'poll'])('retries the unconsumed anonymous token after a temporary %s failure', async (stage) => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'initial-token', order_id: '42' }
+    if (stage === 'poll') resolveOrderPublicByResumeToken.mockResolvedValueOnce({ data: { ...orderFactory('PENDING'), resume_token: 'continuation-token' } })
+    resolveOrderPublicByResumeToken.mockRejectedValueOnce(new Error('temporary network or database failure'))
+      .mockResolvedValueOnce({ data: { ...orderFactory('COMPLETED'), resume_token: 'final-token' } })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    if (stage === 'poll') await vi.advanceTimersByTimeAsync(2000)
+    expect(wrapper.text()).not.toContain('payment.result.failed')
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith(stage === 'poll' ? 'continuation-token' : 'initial-token', expect.any(AbortSignal))
+    expect(wrapper.text()).toContain('payment.result.success')
+    expect(pollOrderStatus).not.toHaveBeenCalled()
+    expect(verifyOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('stops using a definitively consumed token without claiming the payment failed', async () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'consumed-token' }
+    resolveOrderPublicByResumeToken.mockRejectedValue({ reason: 'INVALID_RESUME_TOKEN' })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toContain('payment.result.failed')
+    wrapper.unmount()
   })
 
 })

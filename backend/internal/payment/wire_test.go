@@ -8,21 +8,21 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
-func TestProvideEncryptionKeyUsesPersistentSecretAcrossRestarts(t *testing.T) {
+func TestProvideEncryptionKeyUsesPersistentSecretAcrossRestarts(test *testing.T) {
 	first := &config.Config{JWT: config.JWTConfig{Secret: strings.Repeat("persistent-secret", 3)}}
 	first.Totp.EncryptionKey = strings.Repeat("a", 64)
 	second := *first
 	second.Totp.EncryptionKey = strings.Repeat("b", 64)
 	firstKey, err := ProvideEncryptionKey(first)
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 	secondKey, err := ProvideEncryptionKey(&second)
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 	if len(firstKey) != AES256KeySize || !bytes.Equal(firstKey, secondKey) {
-		t.Fatal("payment key changed with transient TOTP key")
+		test.Fatal("payment key changed with transient TOTP key")
 	}
 }
 

@@ -40,11 +40,11 @@ func (p webhookProviderTestDouble) Refund(context.Context, payment.RefundRequest
 	panic("unexpected call")
 }
 
-func encryptWebhookProviderConfig(t *testing.T, config map[string]string) string {
-	t.Helper()
+func encryptWebhookProviderConfig(test *testing.T, config map[string]string) string {
+	test.Helper()
 
 	encrypted, err := payment.EncryptProviderConfig(config, []byte(webhookProviderTestEncryptionKey))
-	require.NoError(t, err)
+	require.NoError(test, err)
 	return encrypted
 }
 

@@ -474,29 +474,29 @@ func TestStartOfDay(t *testing.T) {
 	}
 }
 
-func TestDecryptConfigRejectsLegacyUntilMigrated(t *testing.T) {
+func TestDecryptConfigRejectsLegacyUntilMigrated(test *testing.T) {
 	key := []byte("0123456789abcdef0123456789abcdef")
 	plaintext := `{"appId":"app-123","secret":"sec-xyz"}`
 	legacy, err := Encrypt(plaintext, key)
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 	encrypted, err := EncryptProviderConfig(map[string]string{"appId": "app-123", "secret": "sec-xyz"}, key)
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 	loadBalancer := NewDefaultLoadBalancer(nil, key)
 	for _, stored := range []string{"", plaintext, legacy, "broken-ciphertext"} {
 		if _, err := loadBalancer.decryptConfig(stored); err == nil {
-			t.Fatal("runtime accepted unmigrated config")
+			test.Fatal("runtime accepted unmigrated config")
 		}
 	}
 	config, err := loadBalancer.decryptConfig(encrypted)
 	if err != nil {
-		t.Fatal(err)
+		test.Fatal(err)
 	}
 	if config["secret"] != "sec-xyz" {
-		t.Fatal("new ciphertext failed to round trip")
+		test.Fatal("new ciphertext failed to round trip")
 	}
 }
 
