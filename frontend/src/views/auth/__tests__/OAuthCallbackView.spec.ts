@@ -1,4 +1,4 @@
-import { mount } from '@vue/test-utils'
+import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OAuthCallbackView from '@/views/auth/OAuthCallbackView.vue'
 
@@ -223,4 +223,29 @@ describe('OAuthCallbackView', () => {
     expect(apiPostMock.mock.calls[0][1]).not.toHaveProperty('email')
     expect(setTokenMock).toHaveBeenCalledWith('token-2')
   })
+  it('handles query and fragment errors once without starting an exchange', async () => {
+    routeState.path = '/auth/oauth/callback'
+    routeState.query = { error: 'denied', error_description: 'query failure' }
+    locationState.current.hash = '#error=denied&error_description=fragment+failure'
+    const wrapper = mount(OAuthCallbackView)
+    await flushPromises()
+    expect(showErrorMock).toHaveBeenCalledTimes(1)
+    expect(showErrorMock).toHaveBeenCalledWith('fragment failure')
+    expect(exchangePendingOAuthCompletionMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('does not adopt tokens or navigate when an exchange completes after unmount', async () => {
+    routeState.path = '/auth/oauth/callback'
+    let resolveExchange!: (response: unknown) => void
+    exchangePendingOAuthCompletionMock.mockImplementationOnce(() => new Promise(resolve => { resolveExchange = resolve }))
+    const wrapper = mount(OAuthCallbackView)
+    wrapper.unmount()
+    resolveExchange({ access_token: 'obsolete-token' })
+    await flushPromises()
+    expect(setTokenMock).not.toHaveBeenCalled()
+    expect(routerReplaceMock).not.toHaveBeenCalled()
+    expect(showErrorMock).not.toHaveBeenCalled()
+  })
+
 })

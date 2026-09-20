@@ -5,7 +5,8 @@ import { postIdempotentCreate } from './idempotency'
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 /**
  * List all API keys for current user

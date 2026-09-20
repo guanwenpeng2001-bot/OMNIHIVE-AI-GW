@@ -23,13 +23,7 @@ jobs:
           fi
           printf '%s\n' 'No tracked .pi process artifacts'
       - name: Check deployment scripts
-        run: |
-          /bin/bash -n deploy/apple-container.sh
-          /bin/bash deploy/tests/apple-container-test.sh
-          /bin/sh deploy/tests/docker-compose-security-test.sh
-          /bin/sh deploy/tests/docker-compose-gateway-env-test.sh
-          /bin/sh deploy/tests/docker-runtime-resources-test.sh
-          /bin/sh deploy/test-caddyfile-cache.sh
+        run: make test-shell
 
   test:
     runs-on: ubuntu-latest
@@ -52,12 +46,13 @@ jobs:
         run: make test-integration
 
   postgres:
-    name: PostgreSQL / ${{ matrix.test }}
+    name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.test-case.test }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
+        postgres: [18, 16, 15]
+        test-case:
           - test: TestUpstreamJobPostgres
             package: ./internal/repository
             tag: unit
@@ -109,7 +104,7 @@ jobs:
             required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,manual_bulk_token_rotation_invalidates_stable_subject,same_baseline_first_commit_wins_and_preserves_aliases,rule_edits_conflict_with_pending_discovery,failed_outbox_rolls_back_before_cache_refresh
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -134,9 +129,10 @@ jobs:
         env:
           UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
           NEW_PLATFORMS_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-          REQUIRED_TEST: ${{ matrix.test }}
-          TEST_PACKAGE: ${{ matrix.package }}
-          TEST_TAG: ${{ matrix.tag }}
+          SUB2API_TEST_POSTGRES_IMAGE: postgres:${{ matrix.postgres }}
+          REQUIRED_TEST: ${{ matrix.test-case.test }}
+          TEST_PACKAGE: ${{ matrix.test-case.package }}
+          TEST_TAG: ${{ matrix.test-case.tag }}
         shell: bash
         run: |
           set -o pipefail
@@ -145,8 +141,8 @@ jobs:
         if: always()
         working-directory: backend
         env:
-          REQUIRED_TEST: ${{ matrix.test }}
-          REQUIRED_SUBTESTS: ${{ matrix.required-subtests }}
+          REQUIRED_TEST: ${{ matrix.test-case.test }}
+          REQUIRED_SUBTESTS: ${{ matrix.test-case.required-subtests }}
         run: |
           python3 - <<'PY'
           import json
@@ -180,15 +176,22 @@ jobs:
           PY
 
   required-round:
-    name: Required round / ${{ matrix.gate }}
+    name: Required round PG${{ matrix.services.postgres }}/Redis${{ matrix.services.redis }} / ${{ matrix.gate }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         gate: [usage-coverage, catalog, affinity]
+        services:
+          - postgres: 18
+            redis: 8
+          - postgres: 16
+            redis: 7
+          - postgres: 15
+            redis: 7
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.services.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -201,7 +204,7 @@ jobs:
           --health-timeout 5s
           --health-retries 12
       redis:
-        image: redis:7-alpine
+        image: redis:${{ matrix.services.redis }}-alpine
         ports:
           - 6379:6379
         options: >-
@@ -235,14 +238,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          version: 11.25.0
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
-      # The critical vitest list includes the platform contract spec, which shells out to
+      # The full vitest suite includes the platform contract spec, which shells out to
       # `go test` (execFileSync in frontend/src/constants/__tests__/platforms.spec.ts).
       # Without this the job depends on whatever Go the runner image happens to ship,
       # while backend/go.mod requires a specific version.
@@ -256,8 +259,8 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Frontend typecheck and critical vitest
-        run: make test-frontend
+      - name: Frontend static checks
+        run: make test-frontend-check
       - name: Full frontend regression suite and coverage
         working-directory: frontend
         run: pnpm run test:coverage

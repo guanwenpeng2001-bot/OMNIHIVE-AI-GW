@@ -29,3 +29,5 @@ type SchedulerOutboxRepository interface {
 type SchedulerOutboxCleanupLease interface {
 	Release()
 }
+
+const SchedulerOutboxEventModelCatalogChanged = "model_catalog_changed"

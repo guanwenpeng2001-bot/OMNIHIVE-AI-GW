@@ -836,6 +836,21 @@ var modelsDevFlights = struct {
 const modelsDevOnlineBudget = 3 * time.Second
 const modelsDevStaleGrace = 72 * time.Hour
 
+// The registry is a single slot per service, shared only for the exact download
+// identity. Keep stale data through the existing grace window, then release the
+// reference on access, even when the next request has a different identity.
+// Existing readers and flights keep their own references and are never canceled.
+func (s *AccountTestService) boundedModelsDevRegistry(downloadKey string) (map[string]modelsDevProvider, time.Time) {
+	s.modelMetadataRegistryMu.Lock()
+	if time.Since(s.modelMetadataRegistryAt) > modelsDevRegistryTTL+modelsDevStaleGrace {
+		s.modelMetadataRegistry = nil
+		s.modelMetadataRegistryKey = ""
+		s.modelMetadataRegistryAt = time.Time{}
+	}
+	s.modelMetadataRegistryMu.Unlock()
+	return s.cachedModelsDevRegistry(downloadKey)
+}
+
 func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
 	if s == nil || account == nil {
 		return nil, fmt.Errorf("registry_not_configured")
@@ -845,7 +860,7 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	}
 	download := s.modelsDevDownloadSnapshot(account)
 	downloadKey := download.downloadKey
-	cached, at := s.cachedModelsDevRegistry(downloadKey)
+	cached, at := s.boundedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
 	}
@@ -855,7 +870,7 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if !ok {
 		// A previous flight may have published between our first cache read and
 		// acquiring the flight mutex.
-		latest, loaded := s.cachedModelsDevRegistry(downloadKey)
+		latest, loaded := s.boundedModelsDevRegistry(downloadKey)
 		if len(latest) > 0 && time.Since(loaded) < modelsDevRegistryTTL {
 			modelsDevFlights.Unlock()
 			return latest, nil
@@ -1151,7 +1166,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
-	if account.Platform == PlatformBedrock {
+	if account.UsesBedrockCatalog() {
 		return s.fetchBedrockModels(ctx, account)
 	}
 	if account.IsCursor() {

@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
+import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types/admin'
 
 export type { GrokBillingSummary, GrokQuotaWindow } from '@/types'
 

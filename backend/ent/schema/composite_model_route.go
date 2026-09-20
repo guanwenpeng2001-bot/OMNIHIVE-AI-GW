@@ -33,6 +33,7 @@ func (CompositeModelRoute) Mixin() []ent.Mixin {
 
 func (CompositeModelRoute) Fields() []ent.Field {
 	return []ent.Field{
+		field.String("account_type").MaxLen(32).Default(""),
 		field.Int64("group_id"),
 		field.String("public_model").
 			MaxLen(200).

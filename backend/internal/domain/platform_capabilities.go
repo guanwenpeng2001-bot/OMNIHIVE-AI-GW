@@ -14,6 +14,8 @@ const (
 // A capability is an eligibility bound: account settings and specialized
 // services still decide whether a particular request can actually execute.
 type PlatformDescriptor struct {
+	HostedAccountType string `json:"hostedAccountType,omitempty"`
+	ProductPlatform   string `json:"productPlatform,omitempty"`
 	// ResponsesPOST describes an available protocol path; multi-protocol accounts resolve
 	// their actual native protocol in the existing account/model services.
 	ResponsesPOST                EndpointSupport `json:"responsesPost"`
@@ -51,7 +53,7 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformBedrock, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
 
 // PlatformDescriptors returns a copy so callers cannot mutate the authority.

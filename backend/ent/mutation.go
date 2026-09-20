@@ -19713,6 +19713,7 @@ type CompositeModelRouteMutation struct {
 	created_at      *time.Time
 	updated_at      *time.Time
 	deleted_at      *time.Time
+	account_type    *string
 	public_model    *string
 	match_type      *string
 	target_platform *string
@@ -19947,6 +19948,42 @@ func (m *CompositeModelRouteMutation) DeletedAtCleared() bool {
 func (m *CompositeModelRouteMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, compositemodelroute.FieldDeletedAt)
+}
+
+// SetAccountType sets the "account_type" field.
+func (m *CompositeModelRouteMutation) SetAccountType(s string) {
+	m.account_type = &s
+}
+
+// AccountType returns the value of the "account_type" field in the mutation.
+func (m *CompositeModelRouteMutation) AccountType() (r string, exists bool) {
+	v := m.account_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountType returns the old "account_type" field's value of the CompositeModelRoute entity.
+// If the CompositeModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompositeModelRouteMutation) OldAccountType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountType: %w", err)
+	}
+	return oldValue.AccountType, nil
+}
+
+// ResetAccountType resets all changes to the "account_type" field.
+func (m *CompositeModelRouteMutation) ResetAccountType() {
+	m.account_type = nil
 }
 
 // SetGroupID sets the "group_id" field.
@@ -20367,7 +20404,7 @@ func (m *CompositeModelRouteMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *CompositeModelRouteMutation) Fields() []string {
-	fields := make([]string, 0, 12)
+	fields := make([]string, 0, 13)
 	if m.created_at != nil {
 		fields = append(fields, compositemodelroute.FieldCreatedAt)
 	}
@@ -20376,6 +20413,9 @@ func (m *CompositeModelRouteMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, compositemodelroute.FieldDeletedAt)
+	}
+	if m.account_type != nil {
+		fields = append(fields, compositemodelroute.FieldAccountType)
 	}
 	if m.group != nil {
 		fields = append(fields, compositemodelroute.FieldGroupID)
@@ -20418,6 +20458,8 @@ func (m *CompositeModelRouteMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case compositemodelroute.FieldDeletedAt:
 		return m.DeletedAt()
+	case compositemodelroute.FieldAccountType:
+		return m.AccountType()
 	case compositemodelroute.FieldGroupID:
 		return m.GroupID()
 	case compositemodelroute.FieldPublicModel:
@@ -20451,6 +20493,8 @@ func (m *CompositeModelRouteMutation) OldField(ctx context.Context, name string)
 		return m.OldUpdatedAt(ctx)
 	case compositemodelroute.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case compositemodelroute.FieldAccountType:
+		return m.OldAccountType(ctx)
 	case compositemodelroute.FieldGroupID:
 		return m.OldGroupID(ctx)
 	case compositemodelroute.FieldPublicModel:
@@ -20498,6 +20542,13 @@ func (m *CompositeModelRouteMutation) SetField(name string, value ent.Value) err
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case compositemodelroute.FieldAccountType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountType(v)
 		return nil
 	case compositemodelroute.FieldGroupID:
 		v, ok := value.(int64)
@@ -20649,6 +20700,9 @@ func (m *CompositeModelRouteMutation) ResetField(name string) error {
 		return nil
 	case compositemodelroute.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case compositemodelroute.FieldAccountType:
+		m.ResetAccountType()
 		return nil
 	case compositemodelroute.FieldGroupID:
 		m.ResetGroupID()
@@ -22084,6 +22138,7 @@ type GroupMutation struct {
 	created_at                              *time.Time
 	updated_at                              *time.Time
 	deleted_at                              *time.Time
+	account_type                            *string
 	name                                    *string
 	description                             *string
 	rate_multiplier                         *float64
@@ -22418,6 +22473,42 @@ func (m *GroupMutation) DeletedAtCleared() bool {
 func (m *GroupMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, group.FieldDeletedAt)
+}
+
+// SetAccountType sets the "account_type" field.
+func (m *GroupMutation) SetAccountType(s string) {
+	m.account_type = &s
+}
+
+// AccountType returns the value of the "account_type" field in the mutation.
+func (m *GroupMutation) AccountType() (r string, exists bool) {
+	v := m.account_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountType returns the old "account_type" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldAccountType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountType: %w", err)
+	}
+	return oldValue.AccountType, nil
+}
+
+// ResetAccountType resets all changes to the "account_type" field.
+func (m *GroupMutation) ResetAccountType() {
+	m.account_type = nil
 }
 
 // SetName sets the "name" field.
@@ -25921,7 +26012,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 66)
+	fields := make([]string, 0, 67)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25930,6 +26021,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, group.FieldDeletedAt)
+	}
+	if m.account_type != nil {
+		fields = append(fields, group.FieldAccountType)
 	}
 	if m.name != nil {
 		fields = append(fields, group.FieldName)
@@ -26134,6 +26228,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case group.FieldDeletedAt:
 		return m.DeletedAt()
+	case group.FieldAccountType:
+		return m.AccountType()
 	case group.FieldName:
 		return m.Name()
 	case group.FieldDescription:
@@ -26275,6 +26371,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldUpdatedAt(ctx)
 	case group.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case group.FieldAccountType:
+		return m.OldAccountType(ctx)
 	case group.FieldName:
 		return m.OldName(ctx)
 	case group.FieldDescription:
@@ -26430,6 +26528,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case group.FieldAccountType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountType(v)
 		return nil
 	case group.FieldName:
 		v, ok := value.(string)
@@ -27391,6 +27496,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case group.FieldAccountType:
+		m.ResetAccountType()
 		return nil
 	case group.FieldName:
 		m.ResetName()
@@ -54168,6 +54276,7 @@ type UserPlatformQuotaMutation struct {
 	created_at           *time.Time
 	updated_at           *time.Time
 	deleted_at           *time.Time
+	account_type         *string
 	platform             *string
 	daily_limit_usd      *float64
 	adddaily_limit_usd   *float64
@@ -54409,6 +54518,42 @@ func (m *UserPlatformQuotaMutation) DeletedAtCleared() bool {
 func (m *UserPlatformQuotaMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, userplatformquota.FieldDeletedAt)
+}
+
+// SetAccountType sets the "account_type" field.
+func (m *UserPlatformQuotaMutation) SetAccountType(s string) {
+	m.account_type = &s
+}
+
+// AccountType returns the value of the "account_type" field in the mutation.
+func (m *UserPlatformQuotaMutation) AccountType() (r string, exists bool) {
+	v := m.account_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountType returns the old "account_type" field's value of the UserPlatformQuota entity.
+// If the UserPlatformQuota object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UserPlatformQuotaMutation) OldAccountType(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountType: %w", err)
+	}
+	return oldValue.AccountType, nil
+}
+
+// ResetAccountType resets all changes to the "account_type" field.
+func (m *UserPlatformQuotaMutation) ResetAccountType() {
+	m.account_type = nil
 }
 
 // SetUserID sets the "user_id" field.
@@ -55069,7 +55214,7 @@ func (m *UserPlatformQuotaMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UserPlatformQuotaMutation) Fields() []string {
-	fields := make([]string, 0, 14)
+	fields := make([]string, 0, 15)
 	if m.created_at != nil {
 		fields = append(fields, userplatformquota.FieldCreatedAt)
 	}
@@ -55078,6 +55223,9 @@ func (m *UserPlatformQuotaMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, userplatformquota.FieldDeletedAt)
+	}
+	if m.account_type != nil {
+		fields = append(fields, userplatformquota.FieldAccountType)
 	}
 	if m.user != nil {
 		fields = append(fields, userplatformquota.FieldUserID)
@@ -55126,6 +55274,8 @@ func (m *UserPlatformQuotaMutation) Field(name string) (ent.Value, bool) {
 		return m.UpdatedAt()
 	case userplatformquota.FieldDeletedAt:
 		return m.DeletedAt()
+	case userplatformquota.FieldAccountType:
+		return m.AccountType()
 	case userplatformquota.FieldUserID:
 		return m.UserID()
 	case userplatformquota.FieldPlatform:
@@ -55163,6 +55313,8 @@ func (m *UserPlatformQuotaMutation) OldField(ctx context.Context, name string) (
 		return m.OldUpdatedAt(ctx)
 	case userplatformquota.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case userplatformquota.FieldAccountType:
+		return m.OldAccountType(ctx)
 	case userplatformquota.FieldUserID:
 		return m.OldUserID(ctx)
 	case userplatformquota.FieldPlatform:
@@ -55214,6 +55366,13 @@ func (m *UserPlatformQuotaMutation) SetField(name string, value ent.Value) error
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case userplatformquota.FieldAccountType:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountType(v)
 		return nil
 	case userplatformquota.FieldUserID:
 		v, ok := value.(int64)
@@ -55469,6 +55628,9 @@ func (m *UserPlatformQuotaMutation) ResetField(name string) error {
 		return nil
 	case userplatformquota.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case userplatformquota.FieldAccountType:
+		m.ResetAccountType()
 		return nil
 	case userplatformquota.FieldUserID:
 		m.ResetUserID()

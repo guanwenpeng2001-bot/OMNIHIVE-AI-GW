@@ -46,6 +46,7 @@ func (r *compositeModelRouteRepository) Create(ctx context.Context, route *servi
 		SetPublicModel(route.PublicModel).
 		SetMatchType(route.MatchType).
 		SetTargetPlatform(route.TargetPlatform).
+		SetAccountType(route.AccountType).
 		SetUpstreamModel(route.UpstreamModel).
 		SetEndpoint(route.Endpoint).
 		SetPriority(route.Priority).
@@ -54,6 +55,12 @@ func (r *compositeModelRouteRepository) Create(ctx context.Context, route *servi
 		Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrCompositeRouteExists)
+	}
+	if route.TargetPlatform == service.PlatformBedrock || route.TargetPlatform == "vertex" {
+		created, err = clientFromContext(ctx, r.client).CompositeModelRoute.Get(ctx, created.ID)
+		if err != nil {
+			return err
+		}
 	}
 	*route = *compositeModelRouteEntityToService(created)
 	return nil
@@ -67,6 +74,7 @@ func (r *compositeModelRouteRepository) Update(ctx context.Context, route *servi
 		SetPublicModel(route.PublicModel).
 		SetMatchType(route.MatchType).
 		SetTargetPlatform(route.TargetPlatform).
+		SetAccountType(route.AccountType).
 		SetUpstreamModel(route.UpstreamModel).
 		SetEndpoint(route.Endpoint).
 		SetPriority(route.Priority).
@@ -102,6 +110,7 @@ func compositeModelRouteEntityToService(row *dbent.CompositeModelRoute) *service
 		PublicModel:    row.PublicModel,
 		MatchType:      row.MatchType,
 		TargetPlatform: row.TargetPlatform,
+		AccountType:    row.AccountType,
 		UpstreamModel:  row.UpstreamModel,
 		Endpoint:       row.Endpoint,
 		Priority:       row.Priority,

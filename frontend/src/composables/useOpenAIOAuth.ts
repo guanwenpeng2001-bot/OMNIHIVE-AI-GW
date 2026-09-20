@@ -1,6 +1,5 @@
-import { ref } from 'vue'
+import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 
@@ -28,32 +27,18 @@ export interface OpenAITokenInfo {
 export type OpenAIOAuthPlatform = 'openai'
 
 export function useOpenAIOAuth() {
-  const appStore = useAppStore()
   const { t } = useI18n()
   const endpointPrefix = '/admin/openai'
 
   // State
-  const authUrl = ref('')
-  const sessionId = ref('')
-  const oauthState = ref('')
-  const loading = ref(false)
-  const error = ref('')
-
-  // Reset state
-  const resetState = () => {
-    authUrl.value = ''
-    sessionId.value = ''
-    oauthState.value = ''
-    loading.value = false
-    error.value = ''
-  }
+  const { authUrl, sessionId, state: oauthState, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   // Generate auth URL for OpenAI OAuth
   const generateAuthUrl = async (
     proxyId?: number | null,
     redirectUri?: string
   ): Promise<boolean> => {
-    loading.value = true
+    const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
     oauthState.value = ''
@@ -68,10 +53,10 @@ export function useOpenAIOAuth() {
         payload.redirect_uri = redirectUri
       }
 
-      const response = await adminAPI.accounts.generateAuthUrl(
+      const response = await request.wait(adminAPI.accounts.generateAuthUrl(
         `${endpointPrefix}/generate-auth-url`,
         payload
-      )
+      ))
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       try {
@@ -81,12 +66,13 @@ export function useOpenAIOAuth() {
         oauthState.value = ''
       }
       return true
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return false
       error.value = extractApiErrorMessage(err, t('admin.accounts.oauth.openai.failedToGenerateUrl'))
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return false
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -102,7 +88,7 @@ export function useOpenAIOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -115,19 +101,20 @@ export function useOpenAIOAuth() {
         payload.proxy_id = proxyId
       }
 
-      const tokenInfo = await adminAPI.accounts.exchangeCode(`${endpointPrefix}/exchange-code`, payload)
+      const tokenInfo = await request.wait(adminAPI.accounts.exchangeCode(`${endpointPrefix}/exchange-code`, payload))
       return tokenInfo as OpenAITokenInfo
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.openai.errors',
         t('admin.accounts.oauth.openai.failedToExchangeCode')
       )
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -143,29 +130,30 @@ export function useOpenAIOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
       // Use dedicated refresh-token endpoint
-      const tokenInfo = await adminAPI.accounts.refreshOpenAIToken(
+      const tokenInfo = await request.wait(adminAPI.accounts.refreshOpenAIToken(
         refreshToken.trim(),
         proxyId,
         `${endpointPrefix}/refresh-token`,
         clientId
-      )
+      ))
       return tokenInfo as OpenAITokenInfo
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.openai.errors',
         t('admin.accounts.oauth.openai.failedToValidateRT')
       )
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 

@@ -8,7 +8,7 @@
  */
 
 import { apiClient } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse } from '@/types/common'
 
 export interface AuditLog {
   id: number
@@ -27,7 +27,7 @@ export interface AuditLog {
   request_body?: string
   status_code: number
   latency_ms: number
-  extra?: Record<string, any>
+  extra?: Record<string, unknown>
 }
 
 export interface AuditLogQuery {

@@ -636,6 +636,7 @@
 </template>
 
 <script setup lang="ts">
+import type { ChannelStatus, BillingModelSource } from '@/constants/channel'
 import ModelPlazaConfirmation from '@/components/modelPlaza/ModelPlazaConfirmation.vue'
 import ChannelPricingInsights from '@/components/admin/channel/ChannelPricingInsights.vue'
 import { CONCRETE_PLATFORM_OPTIONS, platformSupportsPricingSync } from '@/constants/platforms'
@@ -735,7 +736,7 @@ const billingModelSourceOptions = computed(() => [
 const channels = ref<Channel[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
-const filters = reactive({ status: '' })
+const filters = reactive<{ status: ChannelStatus | '' }>({ status: '' })
 const pagination = reactive({
   page: 1,
   page_size: getPersistedPageSize(),
@@ -765,9 +766,9 @@ const allChannelsForConflict = ref<Channel[]>([])
 const form = reactive({
   name: '',
   description: '',
-  status: 'active',
+  status: 'active' as ChannelStatus,
   restrict_models: false,
-  billing_model_source: 'channel_mapped' as string,
+  billing_model_source: 'channel_mapped' as BillingModelSource,
   platforms: [] as PlatformSection[],
   apply_pricing_to_account_stats: false,
 })

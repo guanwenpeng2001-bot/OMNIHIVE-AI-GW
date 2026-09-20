@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -172,6 +173,22 @@ func (s *SchedulerSnapshotService) Start() {
 		return
 	}
 
+	if watcher, ok := s.outboxRepo.(interface{ WatchModelCatalog(context.Context, func()) }); ok {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finished := make(chan struct{})
+			go func() { defer close(finished); watcher.WatchModelCatalog(ctx, InvalidateModelCatalogCaches) }()
+			select {
+			case <-s.stopCh:
+				cancel()
+				<-finished
+			case <-finished:
+			}
+		}()
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -466,6 +483,20 @@ func (s *SchedulerSnapshotService) cleanupConsumedOutbox(watermark int64) {
 
 func (s *SchedulerSnapshotService) handleOutboxEvent(ctx context.Context, event SchedulerOutboxEvent, seen map[batchSeenKey]struct{}) error {
 	switch event.EventType {
+	case SchedulerOutboxEventModelCatalogChanged:
+		InvalidateModelCatalogCaches()
+		if scope, _ := event.Payload["scope"].(string); scope != "catalog" {
+			return nil
+		}
+		if err := s.handleBulkAccountEvent(ctx, event.Payload, seen); err != nil {
+			return err
+		}
+		for _, groupID := range parseInt64Slice(event.Payload["group_ids"]) {
+			if err := s.handleGroupEvent(ctx, &groupID, seen); err != nil {
+				return err
+			}
+		}
+		return nil
 	case SchedulerOutboxEventAccountLastUsed:
 		return s.handleLastUsedEvent(ctx, event.Payload)
 	case SchedulerOutboxEventAccountBulkChanged:
@@ -608,6 +639,11 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			continue
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
+		if account.IsBedrock() {
+			addPlatformGroups(PlatformBedrock, accountGroupIDs)
+			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
+			continue
+		}
 		switch account.Platform {
 		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode:
 			addPlatformGroups(account.Platform, accountGroupIDs)
@@ -817,6 +853,14 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
+	canonicalPlatform := domain.CanonicalPlatform(account.Platform)
+	if canonicalPlatform != account.Platform {
+		buckets = append(buckets, s.bucketsForPlatform(canonicalPlatform, groupIDs, seen)...)
+	}
+	legacyPlatform := domain.HostedQuotaKey(canonicalPlatform, account.Type)
+	if legacyPlatform != account.Platform && legacyPlatform != canonicalPlatform {
+		buckets = append(buckets, s.bucketsForPlatform(legacyPlatform, groupIDs, seen)...)
+	}
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)

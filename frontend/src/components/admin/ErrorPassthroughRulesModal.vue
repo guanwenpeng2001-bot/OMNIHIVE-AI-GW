@@ -435,7 +435,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { PRODUCT_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { adminAPI } from '@/api/admin'
 import type { ErrorPassthroughRule } from '@/api/admin/errorPassthrough'
 import BaseDialog from '@/components/common/BaseDialog.vue'
@@ -450,7 +450,6 @@ const emit = defineEmits<{
   close: []
 }>()
 
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
 void emit // suppress unused warning - emit is used via $emit in template
 
 const { t } = useI18n()
@@ -488,7 +487,7 @@ const matchModeOptions = computed(() => [
   { value: 'all', label: t('admin.errorPassthrough.matchMode.all'), description: t('admin.errorPassthrough.matchMode.allHint') }
 ])
 
-const platformOptions = CONCRETE_PLATFORM_OPTIONS
+const platformOptions = PRODUCT_PLATFORM_OPTIONS
 
 // Load rules when dialog opens
 watch(() => props.show, (newVal) => {

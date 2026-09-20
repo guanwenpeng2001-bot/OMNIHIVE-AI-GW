@@ -1,30 +1,16 @@
-import { ref } from 'vue'
+import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { GrokTokenInfo } from '@/api/admin/grok'
 import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 
 export function useGrokOAuth() {
-  const appStore = useAppStore()
   const { t } = useI18n()
 
-  const authUrl = ref('')
-  const sessionId = ref('')
-  const state = ref('')
-  const loading = ref(false)
-  const error = ref('')
-
-  const resetState = () => {
-    authUrl.value = ''
-    sessionId.value = ''
-    state.value = ''
-    loading.value = false
-    error.value = ''
-  }
+  const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   const generateAuthUrl = async (proxyId: number | null | undefined): Promise<boolean> => {
-    loading.value = true
+    const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
     state.value = ''
@@ -34,17 +20,18 @@ export function useGrokOAuth() {
       const payload: Record<string, unknown> = {}
       if (proxyId) payload.proxy_id = proxyId
 
-      const response = await adminAPI.grok.generateAuthUrl(payload)
+      const response = await request.wait(adminAPI.grok.generateAuthUrl(payload))
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       state.value = response.state
       return true
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return false
       error.value = extractApiErrorMessage(err, t('admin.accounts.oauth.grok.failedToGenerateUrl'))
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return false
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -60,7 +47,7 @@ export function useGrokOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -71,18 +58,19 @@ export function useGrokOAuth() {
       }
       if (params.proxyId) payload.proxy_id = params.proxyId
 
-      return await adminAPI.grok.exchangeCode(payload as any)
-    } catch (err: any) {
+      return await request.wait(adminAPI.grok.exchangeCode(payload as any))
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.grok.errors',
         t('admin.accounts.oauth.grok.failedToExchangeCode')
       )
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -95,21 +83,23 @@ export function useGrokOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
-      return await adminAPI.grok.refreshGrokToken(refreshToken.trim(), proxyId)
-    } catch (err: any) {
+      return await request.wait(adminAPI.grok.refreshGrokToken(refreshToken.trim(), proxyId))
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.grok.errors',
         t('admin.accounts.oauth.grok.failedToValidateRT')
       )
+      request.fail(error.value, false)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -155,21 +145,22 @@ export function useGrokOAuth() {
       error.value = t('admin.accounts.oauth.grok.pleaseEnterSSOToken', 'Please enter an SSO token')
       return null
     }
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
     try {
-      return await adminAPI.grok.validateSSOToken(ssoToken.trim(), proxyId)
-    } catch (err: any) {
+      return await request.wait(adminAPI.grok.validateSSOToken(ssoToken.trim(), proxyId))
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.grok.errors',
         t('admin.accounts.oauth.grok.failedToValidateSSO', 'Failed to validate SSO token')
       )
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -181,21 +172,22 @@ export function useGrokOAuth() {
       error.value = t('admin.accounts.oauth.grok.pleaseEnterPassword', 'Please enter email----password')
       return null
     }
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
     try {
-      return await adminAPI.grok.authorizePassword(emailAndPassword, proxyId)
-    } catch (err: any) {
+      return await request.wait(adminAPI.grok.authorizePassword(emailAndPassword, proxyId))
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value = extractI18nErrorMessage(
         err,
         t,
         'admin.accounts.oauth.grok.errors',
         t('admin.accounts.oauth.grok.failedToAuthorizePassword', 'Password authorization failed')
       )
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 

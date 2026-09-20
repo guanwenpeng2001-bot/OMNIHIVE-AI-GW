@@ -35,7 +35,7 @@ func TestAPIContracts(t *testing.T) {
 	// Derive platform membership from the registry while keeping the wire fields
 	// and their unlimited defaults explicit in the contract expectation.
 	defaultPlatformQuotas := make(map[string]map[string]any)
-	for _, platform := range domain.ConcretePlatforms() {
+	for _, platform := range append(domain.ConcretePlatforms(), "vertex") {
 		defaultPlatformQuotas[platform] = map[string]any{"daily": nil, "weekly": nil, "monthly": nil}
 	}
 	defaultPlatformQuotasJSON, err := json.Marshal(defaultPlatformQuotas)
@@ -1494,7 +1494,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)

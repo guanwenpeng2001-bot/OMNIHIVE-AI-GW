@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"sort"
 	"strings"
 )
@@ -156,7 +157,7 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
 					}
-				} else if m.Platform != pg.Platform {
+				} else if !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType()) {
 					continue
 				}
 				key := modelKey{platform: m.Platform, name: m.Name}

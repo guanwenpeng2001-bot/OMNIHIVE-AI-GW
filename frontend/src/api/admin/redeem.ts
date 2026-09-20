@@ -9,8 +9,8 @@ import type {
   GenerateRedeemCodesRequest,
   BatchUpdateRedeemCodeFields,
   RedeemCodeType,
-  PaginatedResponse
-} from '@/types'
+} from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 /**
  * List all redeem codes with pagination

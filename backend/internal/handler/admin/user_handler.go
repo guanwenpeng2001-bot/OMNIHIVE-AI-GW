@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/handler/quotaview"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -718,6 +719,7 @@ type UpdateUserPlatformQuotasRequest struct {
 
 // PlatformQuotaInput 单平台限额输入；limit 字段为 nil 表示不限制。
 type PlatformQuotaInput struct {
+	AccountType     string   `json:"account_type"`
 	Platform        string   `json:"platform" binding:"required"`
 	DailyLimitUSD   *float64 `json:"daily_limit_usd"`
 	WeeklyLimitUSD  *float64 `json:"weekly_limit_usd"`
@@ -749,6 +751,13 @@ func (h *UserHandler) UpdateUserPlatformQuotas(c *gin.Context) {
 	if len(req.Quotas) > len(service.AllowedQuotaPlatforms) {
 		response.BadRequest(c, fmt.Sprintf("quotas length must be <= %d", len(service.AllowedQuotaPlatforms)))
 		return
+	}
+	for index := range req.Quotas {
+		req.Quotas[index].Platform = domain.HostedQuotaKey(req.Quotas[index].Platform, req.Quotas[index].AccountType)
+		if req.Quotas[index].AccountType != "" && req.Quotas[index].AccountType != domain.HostedAccountType(req.Quotas[index].Platform) {
+			response.BadRequest(c, "invalid quota account type")
+			return
+		}
 	}
 	seen := make(map[string]struct{}, len(req.Quotas))
 	for _, q := range req.Quotas {
@@ -899,8 +908,9 @@ func (h *UserHandler) UpdateUserPlatformQuotas(c *gin.Context) {
 
 // ResetUserPlatformQuotaWindowRequest is the body for POST /admin/users/:id/platform-quotas/reset.
 type ResetUserPlatformQuotaWindowRequest struct {
-	Platform string `json:"platform" binding:"required"`
-	Window   string `json:"window" binding:"required"`
+	AccountType string `json:"account_type"`
+	Platform    string `json:"platform" binding:"required"`
+	Window      string `json:"window" binding:"required"`
 }
 
 var allowedWindowsForQuotaReset = map[string]struct{}{
@@ -929,6 +939,11 @@ func (h *UserHandler) ResetUserPlatformQuotaWindow(c *gin.Context) {
 		return
 	}
 
+	req.Platform = domain.HostedQuotaKey(req.Platform, req.AccountType)
+	if req.AccountType != "" && req.AccountType != domain.HostedAccountType(req.Platform) {
+		response.BadRequest(c, "invalid quota account type")
+		return
+	}
 	if !service.IsAllowedQuotaPlatform(req.Platform) {
 		response.BadRequest(c, "invalid platform: "+req.Platform)
 		return

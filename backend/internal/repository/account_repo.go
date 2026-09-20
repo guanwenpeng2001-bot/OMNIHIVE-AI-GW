@@ -124,6 +124,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if err := createAccountRecord(ctx, r.client, account); err != nil {
 		return err
 	}
@@ -199,6 +200,14 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	}
 
 	account.ID = created.ID
+	if account.Platform == service.PlatformBedrock || account.Platform == "vertex" {
+		identity, readErr := client.Account.Query().Where(dbaccount.IDEQ(created.ID)).Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldExtra).Only(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		account.Platform = identity.Platform
+		account.Extra = copyJSONMap(identity.Extra)
+	}
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
 	return nil
@@ -232,6 +241,9 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	}
 
 	if err := createAccountRecord(ctx, txClient, account); err != nil {
+		return err
+	}
+	if err := validateHostedGroupBindings(ctx, txClient, []int64{account.ID}, groupIDs); err != nil {
 		return err
 	}
 	if len(groups) > 0 {
@@ -471,6 +483,7 @@ func (r *accountRepository) updateAccount(
 	recoverCursorRefresh bool,
 	configurationOnly bool,
 ) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if account == nil {
 		return nil
 	}
@@ -566,6 +579,13 @@ func (r *accountRepository) updateLockedAccount(
 		}
 	}
 	account.Extra = extra
+	beforeRuntime := accountEntityToService(current)
+	incomingRuntime := *account
+	incomingRuntime.Proxy = nil
+	if service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime) {
+		service.ClearAccountRuntimeObservations(account)
+		extra = account.Extra
+	}
 	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
 
 	schedulable := account.Schedulable
@@ -884,6 +904,7 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	payload, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
 		return err
@@ -1012,7 +1033,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 	q := r.client.Account.Query()
 
 	if platform != "" {
-		q = q.Where(dbaccount.PlatformEQ(platform))
+		q = q.Where(accountPlatformPredicate(platform))
 	}
 	if accountType != "" {
 		q = q.Where(dbaccount.TypeEQ(accountType))
@@ -1149,7 +1170,7 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 
 	q := r.client.Account.Query()
 	if platformFilter = strings.TrimSpace(platformFilter); platformFilter != "" {
-		q = q.Where(dbaccount.PlatformEQ(platformFilter))
+		q = q.Where(accountPlatformPredicate(platformFilter))
 	}
 	if groupIDFilter != nil && *groupIDFilter > 0 {
 		q = q.Where(dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(*groupIDFilter)))
@@ -1389,7 +1410,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 func (r *accountRepository) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
@@ -1456,6 +1477,12 @@ func (r *accountRepository) BatchUpdateLastUsed(ctx context.Context, updates map
 }
 
 func (r *accountRepository) SetError(ctx context.Context, id int64, errorMsg string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.SetError(lockedCtx, id, errorMsg)
+		})
+	}
+
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetStatus(service.StatusError).
@@ -1773,6 +1800,9 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 // unschedulable, or temporarily unschedulable, ensuring scheduler and sticky session
 // logic can promptly detect the latest account state and avoid using unavailable accounts.
 func (r *accountRepository) syncSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
+	if dbent.TxFromContext(ctx) == nil {
+		service.InvalidateModelCatalogCaches()
+	}
 	if r == nil || r.schedulerCache == nil || accountID <= 0 {
 		return
 	}
@@ -1797,6 +1827,9 @@ func (r *accountRepository) syncSchedulerAccountSnapshotDetached(ctx context.Con
 }
 
 func (r *accountRepository) deleteSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
+	if dbent.TxFromContext(ctx) == nil {
+		service.InvalidateModelCatalogCaches()
+	}
 	if r == nil || r.schedulerCache == nil || accountID <= 0 {
 		return
 	}
@@ -1926,6 +1959,7 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
 	if err != nil {
 		return err
@@ -1945,6 +1979,10 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		txClient = r.client
 	}
 	if err := lockLiveGroups(ctx, txClient, groupIDs); err != nil {
+		return err
+	}
+
+	if err := validateHostedGroupBindings(ctx, txClient, []int64{accountID}, groupIDs); err != nil {
 		return err
 	}
 
@@ -2127,7 +2165,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			tempUnschedulablePredicate(),
@@ -2161,7 +2199,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformIn(platforms...),
+			accountPlatformsPredicate(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			tempUnschedulablePredicate(),
@@ -2181,7 +2219,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
@@ -2205,7 +2243,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformIn(platforms...),
+			accountPlatformsPredicate(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
@@ -2259,7 +2297,7 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 	preds := []dbpredicate.Account{
 		dbaccount.StatusEQ(service.StatusActive),
 		dbaccount.SchedulableEQ(true),
-		dbaccount.PlatformIn(platforms...),
+		accountPlatformsPredicate(platforms...),
 	}
 	if !includeGrouped {
 		preds = append(preds, dbaccount.Not(dbaccount.HasAccountGroups()))
@@ -2283,10 +2321,15 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
- 'mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
+ 'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
  FROM accounts a WHERE a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
- AND a.platform = ANY($2::text[]) AND
+ AND (a.platform = ANY($2::text[])
+ OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
+ OR (a.platform = 'anthropic' AND a.type = 'bedrock' AND 'bedrock' = ANY($2::text[]))
+ OR (a.platform = 'vertex' AND a.type = 'service_account' AND 'gemini' = ANY($2::text[]))
+ OR (a.platform = 'gemini' AND a.type = 'service_account' AND 'vertex' = ANY($2::text[])))
+ AND ($3::bigint IS NULL OR EXISTS (SELECT 1 FROM groups requested_group WHERE requested_group.id = $3 AND (COALESCE(NULLIF(requested_group.account_type,''), CASE requested_group.platform WHEN 'bedrock' THEN 'bedrock' WHEN 'vertex' THEN 'service_account' ELSE '' END) IN ('',a.type)))) AND
  (($3::bigint IS NOT NULL AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id AND ag.group_id = $3))
  OR ($3::bigint IS NULL AND ($4 OR NOT EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id))))))
  ORDER BY a.id`, id, pq.Array(platforms), groupID, includeGrouped)
@@ -2477,6 +2520,12 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 }
 
 func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.SetTempUnschedulable(lockedCtx, id, until, reason)
+		})
+	}
+
 	result, err := r.sql.ExecContext(ctx, `
 		UPDATE accounts
 		SET temp_unschedulable_until = $1,
@@ -2634,6 +2683,12 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 }
 
 func (r *accountRepository) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateSessionWindow(lockedCtx, id, start, end, status)
+		})
+	}
+
 	builder := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSessionWindowStatus(status)
@@ -2657,6 +2712,12 @@ func (r *accountRepository) UpdateSessionWindow(ctx context.Context, id int64, s
 }
 
 func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateSessionWindowEnd(lockedCtx, id, end)
+		})
+	}
+
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSessionWindowEnd(end).
@@ -2729,6 +2790,12 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateExtra(lockedCtx, id, updates)
+		})
+	}
+
 	updates = service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates))
 	if len(updates) == 0 {
 		return nil
@@ -2766,6 +2833,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	if service.ShouldEnsureCodexFingerprintSeedForExtraUpdates(updates) {
 		extraExpression = ensureCodexFingerprintSeedSQL(extraExpression)
 	}
+	extraExpression = clearChangedAccountRuntimeObservationsSQL("credentials", extraExpression, "")
 	result, err := client.ExecContext(
 		ctx,
 		"UPDATE accounts SET extra = "+extraExpression+", updated_at = NOW() WHERE id = $2 AND deleted_at IS NULL",
@@ -3004,6 +3072,7 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -3014,6 +3083,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 
 	idx := 1
 	ollamaProxyIdentityChanged := ""
+	proxySetClause := ""
 	if updates.Name != nil {
 		setClauses = append(setClauses, "name = $"+itoa(idx))
 		args = append(args, *updates.Name)
@@ -3022,11 +3092,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if updates.ProxyID != nil {
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
 		if *updates.ProxyID == 0 {
-			setClauses = append(setClauses, "proxy_id = NULL")
+			proxySetClause = "proxy_id = NULL"
 			ollamaProxyIdentityChanged = "proxy_id IS NOT NULL"
 		} else {
 			proxyPlaceholder := "$" + itoa(idx)
-			setClauses = append(setClauses, "proxy_id = "+proxyPlaceholder)
+			proxySetClause = "proxy_id = " + proxyPlaceholder
 			ollamaProxyIdentityChanged = "proxy_id IS DISTINCT FROM " + proxyPlaceholder
 			args = append(args, *updates.ProxyID)
 			idx++
@@ -3074,13 +3144,14 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	}
 	// JSONB 需要合并而非覆盖，使用 raw SQL 保持旧行为。
 	credentialPlaceholder := ""
+	credentialsSetClause := ""
 	if len(updates.Credentials) > 0 {
 		payload, err := json.Marshal(updates.Credentials)
 		if err != nil {
 			return 0, err
 		}
 		credentialPlaceholder = "$" + itoa(idx)
-		setClauses = append(setClauses, "credentials = COALESCE(credentials, '{}'::jsonb) || "+credentialPlaceholder+"::jsonb")
+		credentialsSetClause = "credentials = COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb"
 		args = append(args, payload)
 		idx++
 	}
@@ -3142,8 +3213,15 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			incomingCredentials = "(COALESCE(credentials, '{}'::jsonb) || " + credentialPlaceholder + "::jsonb)"
 		}
 		extraExpression = "(" + extraExpression + ") || " + accountCatalogRevisionPatchSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged, true)
+		extraExpression = clearChangedAccountRuntimeObservationsSQL(incomingCredentials, extraExpression, ollamaProxyIdentityChanged)
 
 		setClauses = append(setClauses, "extra = "+extraExpression)
+	}
+	if credentialsSetClause != "" {
+		setClauses = append(setClauses, credentialsSetClause)
+	}
+	if proxySetClause != "" {
+		setClauses = append(setClauses, proxySetClause)
 	}
 
 	if len(setClauses) == 0 {
@@ -3238,6 +3316,15 @@ type accountGroupQueryOptions struct {
 func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID int64, opts accountGroupQueryOptions) ([]service.Account, error) {
 	q := r.client.AccountGroup.Query().
 		Where(dbaccountgroup.GroupIDEQ(groupID))
+	if opts.schedulable || opts.ignoreTransientState {
+		q = q.Where(dbaccountgroup.Or(
+			dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(""), dbgroup.PlatformNotIn(service.PlatformBedrock, "vertex")),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.PlatformEQ(service.PlatformBedrock)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeBedrock))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.PlatformEQ("vertex")), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeServiceAccount))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(service.AccountTypeBedrock)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeBedrock))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(service.AccountTypeServiceAccount)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeServiceAccount))),
+		))
+	}
 
 	// 通过 account_groups 中间表查询账号，并按需叠加状态/平台/调度能力过滤。
 	preds := make([]dbpredicate.Account, 0, 6)
@@ -3246,7 +3333,7 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		preds = append(preds, dbaccount.StatusEQ(opts.status))
 	}
 	if len(opts.platforms) > 0 {
-		preds = append(preds, dbaccount.PlatformIn(opts.platforms...))
+		preds = append(preds, accountPlatformsPredicate(opts.platforms...))
 	}
 	if opts.schedulable {
 		preds = append(preds, dbaccount.SchedulableEQ(true))
@@ -4154,6 +4241,33 @@ func (r *accountRepository) UpdateAccountModelAllowlist(ctx context.Context, id 
 	}
 	r.syncSchedulerAccountSnapshot(ctx, id)
 	return nil
+}
+
+func clearChangedAccountRuntimeObservationsSQL(incomingCredentials, incomingExtra, proxyChanged string) string {
+	changes := []string{"credentials IS DISTINCT FROM (" + incomingCredentials + ")"}
+	for _, field := range []string{"secret_revision", "secret_reference", "credential_secret_id", "credential_secret_revision", "header_overrides", "base_url", "protocol"} {
+		changes = append(changes, "COALESCE(extra->'"+field+"', 'null'::jsonb) IS DISTINCT FROM COALESCE(("+incomingExtra+")->'"+field+"', 'null'::jsonb)")
+	}
+	if proxyChanged != "" {
+		changes = append(changes, proxyChanged)
+	}
+	fields := []string{
+		"cursor_usage_snapshot", "cursor_usage_updated_at", "session_window_utilization",
+		"passive_usage_sampled_at", "passive_usage_7d_utilization", "passive_usage_7d_reset",
+		"passive_usage_7d_oi_utilization", "passive_usage_7d_oi_reset",
+		"grok_billing_snapshot", "grok_observed_models", "grok_usage_snapshot",
+		"codex_usage_updated_at", "codex_primary_over_secondary_percent",
+		"codex_primary_used_percent", "codex_primary_reset_after_seconds", "codex_primary_window_minutes",
+		"codex_secondary_used_percent", "codex_secondary_reset_after_seconds", "codex_secondary_window_minutes",
+		"codex_5h_used_percent", "codex_5h_reset_after_seconds", "codex_5h_reset_at", "codex_5h_window_minutes",
+		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_reset_at", "codex_7d_window_minutes",
+	}
+	for _, provider := range []string{service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCommandCode} {
+		for _, suffix := range []string{"5h_used_percent", "5h_reset_at", "weekly_used_percent", "weekly_reset_at", "monthly_used_percent", "monthly_reset_at", "usage_updated_at", "balance", "balance_currency", "balance_available", "balance_updated_at", "balances"} {
+			fields = append(fields, provider+"_"+suffix)
+		}
+	}
+	return "CASE WHEN (" + strings.Join(changes, " OR ") + ") THEN (" + incomingExtra + ") - ARRAY['" + strings.Join(fields, "','") + "']::text[] ELSE (" + incomingExtra + ") END"
 }
 
 func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string, manual bool) string {

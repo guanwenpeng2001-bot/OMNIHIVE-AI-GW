@@ -19,7 +19,7 @@ export function modelCategory(metadata?: ModelCategoryMetadata): ModelCategory {
     case 'image': case 'image_generation': case 'text_to_image': case 'image_editing': return 'image'
     case 'video': case 'video_generation': case 'text_to_video': case 'image_to_video': return 'video'
     case 'embedding': case 'embeddings': case 'text_embedding': case 'feature_extraction': return 'embedding'
-    case 'audio': case 'audio_generation': case 'speech_generation': case 'text_to_speech':
+    case 'audio': case 'audio_generation': case 'speech': case 'speech_generation': case 'text_to_speech':
     case 'speech_to_text': case 'transcription': case 'automatic_speech_recognition': return 'audio'
     case 'memory': return 'memory'
   }

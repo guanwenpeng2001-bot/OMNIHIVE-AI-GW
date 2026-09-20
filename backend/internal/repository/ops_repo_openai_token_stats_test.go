@@ -54,7 +54,7 @@ func TestOpsRepositoryGetOpenAITokenStats_PlatformScope(t *testing.T) {
 				if tt.groupID != nil {
 					placeholder = "$4"
 				}
-				where += " AND COALESCE(NULLIF(g.platform,''), a.platform) = " + placeholder
+				where += " AND " + usageLogEffectivePlatformExpr + " = " + placeholder
 				args = append(args, tt.platform)
 			}
 			queryPrefix := regexp.QuoteMeta(where) + `\s+GROUP BY ul.model\s+\)`

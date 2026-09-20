@@ -7456,6 +7456,36 @@
       ],
       "tier": "local-data",
       "verified_at": "2026-09-17"
+    },
+    {
+      "content_hash": "8f7d45a2a97d7a18d480130d24f26a4a4f6f4c8de2b4cc39be86438e9d6da5b3",
+      "id": "https://api-docs.deepseek.com/guides/thinking_mode/",
+      "records": [
+        {
+          "model_id": "deepseek-flash",
+          "profile": "deepseek",
+          "provider": "deepseek",
+          "reasoning_control": {
+            "default": "high",
+            "effort_values": [
+              "low",
+              "high",
+              "max"
+            ],
+            "kind": "effort",
+            "supported_kinds": [
+              "effort",
+              "toggle"
+            ],
+            "toggle_values": [
+              true,
+              false
+            ]
+          }
+        }
+      ],
+      "tier": "official-schema",
+      "verified_at": "2026-09-20"
     }
   ]
 }

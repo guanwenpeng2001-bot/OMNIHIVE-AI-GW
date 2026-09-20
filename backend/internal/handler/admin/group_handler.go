@@ -140,6 +140,7 @@ type simpleModeGroupResponse struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Platform    string `json:"platform"`
+	AccountType string `json:"account_type,omitempty"`
 	Status      string `json:"status"`
 
 	AccountCount            int64     `json:"account_count,omitempty"`
@@ -156,6 +157,7 @@ func groupForSimpleMode(group *service.Group) *simpleModeGroupResponse {
 	}
 	return &simpleModeGroupResponse{
 		ID: group.ID, Name: group.Name, Description: group.Description, Platform: group.Platform,
+		AccountType:        group.RequiredAccountType(),
 		Status:             group.Status,
 		AccountCount:       group.AccountCount,
 		ActiveAccountCount: group.ActiveAccountCount, RateLimitedAccountCount: group.RateLimitedAccountCount,
@@ -167,7 +169,7 @@ func sanitizeCreateGroupRequestForSimpleMode(req *CreateGroupRequest) {
 	if req == nil {
 		return
 	}
-	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, Platform: req.Platform}
+	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, Platform: req.Platform, AccountType: req.AccountType}
 	allowed.RateMultiplier = 1
 	allowed.SubscriptionType = service.SubscriptionTypeStandard
 	*req = allowed
@@ -182,6 +184,7 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
+	AccountType               string                        `json:"account_type"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
 	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine composite"`
@@ -256,6 +259,7 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
+	AccountType               *string                        `json:"account_type"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
 	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine composite"`
@@ -330,14 +334,15 @@ type UpdateGroupRequest struct {
 }
 
 type CompositeRouteRequest struct {
-	PublicModel    string `json:"public_model" binding:"required"`
-	MatchType      string `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
-	UpstreamModel  string `json:"upstream_model"`
-	Endpoint       string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
-	Priority       int    `json:"priority"`
-	Enabled        *bool  `json:"enabled"`
-	Notes          string `json:"notes"`
+	AccountType    *string `json:"account_type"`
+	PublicModel    string  `json:"public_model" binding:"required"`
+	MatchType      string  `json:"match_type" binding:"omitempty,oneof=exact prefix"`
+	TargetPlatform string  `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
+	UpstreamModel  string  `json:"upstream_model"`
+	Endpoint       string  `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	Priority       int     `json:"priority"`
+	Enabled        *bool   `json:"enabled"`
+	Notes          string  `json:"notes"`
 }
 
 type CompositeRoutePreviewRequest struct {
@@ -509,6 +514,10 @@ func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
 }
 
 func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool) service.CompositeRouteInput {
+	accountType := ""
+	if req.AccountType != nil {
+		accountType = *req.AccountType
+	}
 	enabled := defaultEnabled
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -517,6 +526,8 @@ func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool
 		PublicModel:    req.PublicModel,
 		MatchType:      req.MatchType,
 		TargetPlatform: req.TargetPlatform,
+		AccountType:    accountType,
+		AccountTypeSet: req.AccountType != nil,
 		UpstreamModel:  req.UpstreamModel,
 		Endpoint:       req.Endpoint,
 		Priority:       req.Priority,
@@ -665,6 +676,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
+		AccountType:                     req.AccountType,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
@@ -810,6 +822,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
+		AccountType:                     req.AccountType,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,

@@ -38,6 +38,11 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		return ctx
 	}
 	ctx = WithResolvedTargetPlatform(ctx, decision.TargetPlatform)
+	requiredType := decision.AccountType
+	if requiredType == "" {
+		requiredType = domain.HostedAccountType(decision.TargetPlatform)
+	}
+	ctx = context.WithValue(ctx, hostedRouteAccountTypeKey{}, requiredType)
 	if model := strings.TrimSpace(decision.UpstreamModel); model != "" {
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, model)
 	}
@@ -48,6 +53,16 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, source)
 	}
 	return ctx
+}
+
+type hostedRouteAccountTypeKey struct{}
+
+func RequiredRouteAccountType(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	requiredType, _ := ctx.Value(hostedRouteAccountTypeKey{}).(string)
+	return requiredType
 }
 
 func ResolvedUpstreamModelFromContext(ctx context.Context) (string, bool) {
@@ -195,6 +210,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 			GroupID:        group.ID,
 			PublicModel:    requestedModel,
 			TargetPlatform: platform,
+			AccountType:    RequiredRouteAccountType(ctx),
 			UpstreamModel:  upstreamModel,
 			Endpoint:       normalizeCompositeRouteEndpoint(endpoint),
 		}, true, nil
@@ -207,3 +223,22 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 }
 
 func isConcreteRequestPlatform(platform string) bool { return domain.IsConcretePlatform(platform) }
+
+// Both fresh and sticky selections must enforce hosting restrictions.
+func accountAllowedByHostedRequest(ctx context.Context, account *Account) bool {
+	if account == nil {
+		return false
+	}
+	if ctx == nil {
+		return true
+	}
+	if requiredType := RequiredRouteAccountType(ctx); requiredType != "" && account.Type != requiredType {
+		return false
+	}
+	if group, ok := ctx.Value(ctxkey.Group).(*Group); ok && group != nil {
+		if requiredType := group.RequiredAccountType(); requiredType != "" && account.Type != requiredType {
+			return false
+		}
+	}
+	return true
+}

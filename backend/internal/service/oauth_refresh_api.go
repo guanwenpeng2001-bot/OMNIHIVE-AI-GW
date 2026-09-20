@@ -265,7 +265,11 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	// 4. 执行平台特定刷新逻辑
 	attemptedAccount := snapshotOAuthRefreshAccount(freshAccount)
 	newCredentials, refreshErr := executor.Refresh(ctx, freshAccount)
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	refreshContextErr := ctx.Err()
+	if deadline, hasDeadline := ctx.Deadline(); refreshContextErr == nil && hasDeadline && !time.Now().Before(deadline) {
+		refreshContextErr = context.DeadlineExceeded
+	}
+	if ctxErr := refreshContextErr; ctxErr != nil {
 		if attemptedAccount.IsCursor() {
 			return api.recordCursorRefreshFailure(ctx, attemptedAccount, ctxErr)
 		}

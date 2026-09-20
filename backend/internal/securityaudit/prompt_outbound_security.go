@@ -1,14 +1,18 @@
 package securityaudit
 
 import (
+	"context"
 	"crypto/tls"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const maxGuardResponseBytes int64 = 256 * 1024
@@ -55,15 +59,26 @@ func ModelsURL(base string) (string, error) {
 	return normalized + "/v1/models", nil
 }
 
-func NewSecureHTTPClient(endpoint ActiveEndpoint) (*http.Client, error) {
+func NewSecureHTTPClient(endpoint ActiveEndpoint, policy config.URLAllowlistConfig) (*http.Client, error) {
 	_, err := NormalizeBaseURL(endpoint.BaseURL)
 	if err != nil {
 		return nil, err
 	}
+	validateURL := func(raw string) error {
+		if !policy.Enabled {
+			return nil
+		}
+		_, err := urlvalidator.ValidateHTTPURL(raw, policy.AllowInsecureHTTP, urlvalidator.ValidationOptions{
+			AllowedHosts: policy.UpstreamHosts, RequireAllowlist: true, AllowPrivate: policy.AllowPrivateHosts,
+		})
+		return err
+	}
+	if err := validateURL(endpoint.BaseURL); err != nil {
+		return nil, err
+	}
 	dialer := &net.Dialer{Timeout: 3 * time.Second, KeepAlive: 30 * time.Second}
 	transport := &http.Transport{
-		// Do not inherit HTTP(S)_PROXY. A proxy would move the actual destination
-		// dial outside secureDialContext and bypass this module's DNS/IP validation.
+		// Keep destination validation local rather than delegating dialing to a proxy.
 		Proxy:                 nil,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          64,
@@ -74,10 +89,43 @@ func NewSecureHTTPClient(endpoint ActiveEndpoint) (*http.Client, error) {
 		ExpectContinueTimeout: time.Second,
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 	}
-	// Endpoint ownership and destination trust are administrator concerns.
-	// Use the standard dialer so configured private, loopback, reserved, and
-	// DNS-resolved addresses are all reachable from the service environment.
 	transport.DialContext = dialer.DialContext
+	if policy.Enabled {
+		transport.DialContext = func(ctx context.Context, network, address string) (net.Conn, error) {
+			// Validate each destination, including redirects, before opening a socket.
+			if err := validateURL("https://" + address); err != nil {
+				return nil, err
+			}
+			if policy.AllowPrivateHosts {
+				return dialer.DialContext(ctx, network, address)
+			}
+			host, port, err := net.SplitHostPort(address)
+			if err != nil {
+				return nil, err
+			}
+			addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			for _, resolved := range addresses {
+				if urlvalidator.IsBlockedHost(resolved.IP.String()) {
+					return nil, fmt.Errorf("resolved address is not allowed for %s", host)
+				}
+			}
+			var dialErr error
+			for _, resolved := range addresses {
+				connection, err := dialer.DialContext(ctx, network, net.JoinHostPort(resolved.String(), port))
+				if err == nil {
+					return connection, nil
+				}
+				dialErr = err
+			}
+			if dialErr == nil {
+				dialErr = fmt.Errorf("no resolved addresses for %s", host)
+			}
+			return nil, dialErr
+		}
+	}
 	timeout := time.Duration(endpoint.TimeoutMS) * time.Millisecond
 	if timeout <= 0 {
 		timeout = DefaultTimeoutMS * time.Millisecond
@@ -85,5 +133,11 @@ func NewSecureHTTPClient(endpoint ActiveEndpoint) (*http.Client, error) {
 	return &http.Client{
 		Transport: transport,
 		Timeout:   timeout,
+		CheckRedirect: func(request *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return fmt.Errorf("stopped after 10 redirects")
+			}
+			return validateURL(request.URL.String())
+		},
 	}, nil
 }

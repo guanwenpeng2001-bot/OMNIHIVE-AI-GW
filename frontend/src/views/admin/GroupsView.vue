@@ -4283,8 +4283,8 @@ import type {
   SubscriptionType,
 } from "@/types";
 import {
-  CONCRETE_PLATFORM_OPTIONS,
-  GROUP_PLATFORM_OPTIONS,
+  PRODUCT_PLATFORM_OPTIONS,
+  PRODUCT_GROUP_PLATFORM_OPTIONS,
   platformSupportsOAuth,
 } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
@@ -4536,18 +4536,18 @@ const exclusiveOptions = computed(() => [
 ]);
 
 const platformOptions = computed(() =>
-  GROUP_PLATFORM_OPTIONS.filter(
+  PRODUCT_GROUP_PLATFORM_OPTIONS.filter(
     (option) => !authStore.isSimpleMode || option.value !== "composite",
   ),
 );
 
 const platformFilterOptions = computed(() => [
   { value: "", label: t("admin.groups.allPlatforms") },
-  ...GROUP_PLATFORM_OPTIONS,
+  ...PRODUCT_GROUP_PLATFORM_OPTIONS,
 ]);
 
 const compositeRoutePlatformOptions = computed(() => [
-  ...CONCRETE_PLATFORM_OPTIONS,
+  ...PRODUCT_PLATFORM_OPTIONS,
 ]);
 
 const compositeRouteEndpointOptions = computed(() => [

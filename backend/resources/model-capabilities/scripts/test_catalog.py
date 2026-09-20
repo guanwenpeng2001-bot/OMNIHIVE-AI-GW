@@ -16,7 +16,12 @@ class CatalogTests(unittest.TestCase):
         for forbidden in (b"cost_per", b"pricing_basis", b"input_cost", b"output_cost"):
             self.assertNotIn(forbidden, catalog.encode(self.generated))
             self.assertNotIn(forbidden, catalog.encode(self.inputs))
-        self.assertEqual(252, len(self.generated["records"]))
+        expected = {(record["profile"], record["model_id"])
+                    for source in self.inputs["sources"] for record in source["records"]}
+        expected.update((record["profile"], record["model_id"])
+                        for record in catalog.read(catalog.REVIEWED)["records"])
+        self.assertEqual(expected, {(record["profile"], record["model_id"])
+                                    for record in self.generated["records"]})
         self.assertEqual(27, self.report["summary"]["conflicting_fields"])
 
     def test_conflicts_do_not_override_source_limits_or_tasks(self):
@@ -38,7 +43,7 @@ class CatalogTests(unittest.TestCase):
         self.assertEqual("unknown", reasoner["reasoning_control"])
         self.assertNotIn(("cursor", "gpt-4o"), records)
         self.assertNotIn(("google", "gemini-2.5-pro"), records)
-        self.assertEqual(6, self.report["summary"]["complete"])
+        self.assertEqual(18, self.report["summary"]["complete"])
 
     def test_explicit_empty_fields_remain_present_but_incomplete(self):
         inputs = copy.deepcopy(self.inputs)

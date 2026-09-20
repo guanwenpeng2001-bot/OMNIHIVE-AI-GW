@@ -1,3 +1,4 @@
+import { normalizeHostedQuotaResponse } from './admin/users'
 /**
  * User API endpoints
  * Handles user profile management and password changes
@@ -12,12 +13,12 @@ import {
 import type {
   User,
   ChangePasswordRequest,
-  NotifyEmailEntry,
   UserAuthProvider,
   UserAffiliateDetail,
   AffiliateTransferResponse,
-  PlatformQuotasResponse,
-} from '@/types'
+} from '@/types/user'
+import type { NotifyEmailEntry } from '@/types/common'
+import type { PlatformQuotasResponse } from '@/types'
 
 /**
  * Get current user profile
@@ -191,7 +192,7 @@ export async function transferAffiliateQuota(): Promise<AffiliateTransferRespons
  */
 export async function getMyPlatformQuotas(): Promise<PlatformQuotasResponse> {
   const { data } = await apiClient.get<PlatformQuotasResponse>('/user/platform-quotas')
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 export const userAPI = {

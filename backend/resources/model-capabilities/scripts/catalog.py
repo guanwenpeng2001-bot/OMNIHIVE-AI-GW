@@ -156,7 +156,8 @@ def generate(inputs, reviewed=None):
         require(len(providers) == 1, f"provider conflict for {profile}/{model_id}")
         record = {"provider": providers.pop(), "profile": profile, "model_id": model_id,
                   "source": "local-data:resources/model-capabilities/scripts/inputs.json",
-                  "source_content_hash": source_hash, "verified_at": verified,
+                  "source_content_hash": source_hash,
+                  "verified_at": max(source["verified_at"] for source, _ in observations),
                   "applicable_content_hashes": applicable, "field_sources": {}}
         conflicts, evidence = [], {}
         for field in FIELDS + ("mode",) + EXTENDED_FIELDS:
@@ -241,7 +242,7 @@ def generate(inputs, reviewed=None):
                              incomplete=sum(r["status"] == "incomplete" for r in rows))
     report["limitations"] = ["Local observations are historical, not native authority.",
         "Structured reasoning_control maps to internal control; unknown remains unknown.",
-        "Reviewed embedding output modality text denotes text embeddings, whose output is a numeric vector.",
+        "Embedding output modality embedding denotes a numeric vector; text describes its input only.",
         "Source union is not H485 or frozen U0; see handoff.json for independent denominators."]
     report["missing_provider_evidence"][0] = "alibaba-cn: only reviewed embedding records; other deployments unverified"
     manifest = {"schema_version": 1, "generated_at": catalog["generated_at"],
