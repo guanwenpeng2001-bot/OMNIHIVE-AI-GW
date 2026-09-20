@@ -818,7 +818,8 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
 		return nil, fmt.Errorf("registry_offline")
 	}
-	downloadKey := s.modelsDevDownloadKey(account)
+	download := s.modelsDevDownloadSnapshot(account)
+	downloadKey := download.downloadKey
 	cached, at := s.cachedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
@@ -839,7 +840,7 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 		go func() {
 			requestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsDevOnlineBudget)
 			defer cancel()
-			registry, err := s.downloadModelsDevRegistry(requestCtx, account)
+			registry, err := s.downloadModelsDevRegistry(requestCtx, download)
 			if err == nil {
 				s.modelMetadataRegistryMu.Lock()
 				s.modelMetadataRegistryKey = downloadKey
@@ -870,16 +871,16 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	}
 }
 
-func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
+func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, download modelsDevDownloadSnapshot) (map[string]modelsDevProvider, error) {
 	if s.httpUpstream == nil {
 		return nil, fmt.Errorf("registry_not_configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevRegistryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, download.sourceURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+	resp, err := s.httpUpstream.DoWithTLS(req, download.proxyURL, download.accountID, download.concurrency, download.profile)
 	if err != nil {
 		return nil, err
 	}

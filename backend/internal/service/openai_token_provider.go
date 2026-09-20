@@ -348,7 +348,7 @@ func (p *OpenAITokenProvider) waitForTokenAfterLockRace(ctx context.Context, cac
 			if readErr != nil {
 				return "", readErr
 			}
-			if latest == nil || latest.Platform != accounts[0].Platform || latest.Type != accounts[0].Type {
+			if !tokenRequestBindingEqual(accounts[0], latest) {
 				return "", ErrAccountRuntimeIdentityChanged
 			}
 			cacheKey = OpenAITokenCacheKey(latest)

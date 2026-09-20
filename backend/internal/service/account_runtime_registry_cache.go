@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 )
 
 // ModelRegistryDownloadKey must be used unchanged by download cache, flight and
@@ -31,13 +33,32 @@ func ModelRegistryEnrichmentKey(downloadKey string, account *Account, draftIdent
 	return "registry-enrichment:" + hex.EncodeToString(digest[:]), nil
 }
 
-func (service *AccountTestService) modelsDevDownloadKey(account *Account) string {
+// Resolve transport once: random TLS profiles must match both the download key
+// and the profile actually used by the request, including asynchronous flights.
+type modelsDevDownloadSnapshot struct {
+	sourceURL   string
+	proxyURL    string
+	profile     *tlsfingerprint.Profile
+	accountID   int64
+	concurrency int
+	downloadKey string
+}
+
+func (service *AccountTestService) modelsDevDownloadSnapshot(account *Account) modelsDevDownloadSnapshot {
+	snapshot := modelsDevDownloadSnapshot{
+		sourceURL:   modelsDevRegistryURL,
+		proxyURL:    upstreamModelsProxyURL(account),
+		accountID:   account.ID,
+		concurrency: account.Concurrency,
+	}
 	trustDomain := "verified-tls"
 	if service.tlsFPProfileService != nil {
-		profile, _ := json.Marshal(service.tlsFPProfileService.ResolveTLSProfile(account))
+		snapshot.profile = service.tlsFPProfileService.ResolveTLSProfile(account)
+		profile, _ := json.Marshal(snapshot.profile)
 		trustDomain += string(profile)
 	}
-	return ModelRegistryDownloadKey(modelsDevRegistryURL, upstreamModelsProxyURL(account), trustDomain)
+	snapshot.downloadKey = ModelRegistryDownloadKey(snapshot.sourceURL, snapshot.proxyURL, trustDomain)
+	return snapshot
 }
 
 func (service *AccountTestService) cachedModelsDevRegistry(downloadKey string) (map[string]modelsDevProvider, time.Time) {
