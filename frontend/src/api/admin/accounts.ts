@@ -306,6 +306,8 @@ export async function applyOAuthCredentials(
   id: number,
   payload: {
     type: 'oauth' | 'setup-token'
+    credential_draft?: string
+    credential_draft_revision?: string
     credentials: Record<string, unknown>
     extra?: Record<string, unknown>
   }
@@ -677,6 +679,8 @@ export async function getModelCatalog(id: number): Promise<AccountModelCatalogDe
 }
 
 export interface SyncUpstreamPreviewParams {
+  credential_draft?: string
+  credential_draft_revision?: string
   platform: string
   type: string
   base_url?: string
@@ -793,6 +797,7 @@ export async function exportData(options?: {
 export async function importData(payload: {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
+  confirm_mixed_channel_risk?: boolean
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
     data: payload.data,
@@ -801,8 +806,12 @@ export async function importData(payload: {
   return data
 }
 
-export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
-  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload, {
+export type CodexSessionDraftResult = CodexSessionImportResult & {
+  ready?: Array<{ account: CreateAccountRequest & { credential_draft: string; credential_draft_revision: string; existing_account_id?: number } }>
+}
+
+export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionDraftResult> {
+  const { data } = await apiClient.post<CodexSessionDraftResult>('/admin/accounts/import/codex-session', payload, {
     timeout: 120000 // 120s timeout for large session imports
   })
   return data

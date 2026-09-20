@@ -55,6 +55,99 @@ func TestAccountCredentialDraftLifecycle(t *testing.T) {
 	}
 }
 
+func TestAccountCredentialDraftBatchRollbackAndRetry(t *testing.T) {
+	pending, client := newAuthPendingIdentityServiceTestClient(t)
+	ctx := context.Background()
+	first, err := pending.IssueAccountCredentialDraft(ctx, "browser", PlatformAnthropic, AccountTypeOAuth, map[string]any{"access_token": "first"})
+	require.NoError(t, err)
+	second, err := pending.IssueAccountCredentialDraft(ctx, "browser", PlatformGemini, AccountTypeOAuth, map[string]any{"access_token": "second"})
+	require.NoError(t, err)
+	failed := errors.New("second account group binding failed")
+	effects := 0
+	err = pending.RunAccountWriteTransaction(ctx, func(transactionContext context.Context) error {
+		_, err := pending.ConfirmAccountCredentialDraft(transactionContext, first.Reference, "browser", first.Revision, "first-request", createCredentialDraftTestAccount)
+		require.NoError(t, err)
+		AfterAccountWriteCommit(transactionContext, func() { effects++ })
+		_, err = pending.ConfirmAccountCredentialDraft(transactionContext, second.Reference, "browser", second.Revision, "second-request", func(ctx context.Context, account *Account) (int64, error) {
+			_, err := createCredentialDraftTestAccount(ctx, account)
+			require.NoError(t, err)
+			return 0, failed
+		})
+		return err
+	})
+	require.ErrorIs(t, err, failed)
+	require.Zero(t, client.Account.Query().CountX(ctx))
+	require.Zero(t, effects)
+	for _, draft := range []*AccountCredentialDraft{first, second} {
+		_, err := pending.PreviewAccountCredentialDraft(ctx, draft.Reference, "browser")
+		require.NoError(t, err, "rollback must preserve every draft for retry")
+	}
+	err = pending.RunAccountWriteTransaction(ctx, func(transactionContext context.Context) error {
+		for _, draft := range []*AccountCredentialDraft{first, second} {
+			if _, err := pending.ConfirmAccountCredentialDraft(transactionContext, draft.Reference, "browser", draft.Revision, draft.Reference, createCredentialDraftTestAccount); err != nil {
+				return err
+			}
+		}
+		AfterAccountWriteCommit(transactionContext, func() { effects++ })
+		return nil
+	})
+	require.NoError(t, err)
+	require.Equal(t, 2, client.Account.Query().CountX(ctx))
+	require.Equal(t, 1, effects)
+}
+
+func TestAccountCredentialDraftConfigurationRoundTrip(t *testing.T) {
+	options := map[string]any{
+		"model_mapping":         map[string]any{"public": "native"},
+		"compact_model_mapping": map[string]any{"compact": "native-compact"},
+		"plan_type":             "legacy-custom-team", "client_version": "1.2.3", "antigravity_project_id": "configured-project",
+		"base_url": "https://relay.example/custom/v1", "account_scheduling_threshold": float64(71),
+		"intercept_warmup_requests": true, "temp_unschedulable_enabled": true, "header_override_enabled": true,
+		"header_overrides":         map[string]any{"x-routing-hint": "configured"},
+		"temp_unschedulable_rules": []any{map[string]any{"error_code": float64(429), "keywords": []any{"rate limit"}, "duration_minutes": float64(5), "description": "configured"}},
+	}
+	for key, value := range options {
+		t.Run(key, func(t *testing.T) {
+			pending, client := newAuthPendingIdentityServiceTestClient(t)
+			ctx := context.Background()
+			draft, err := pending.IssueAccountCredentialDraft(ctx, "browser", PlatformOpenAI, AccountTypeOAuth, map[string]any{"access_token": "server-secret"})
+			require.NoError(t, err)
+			confirm := func(ctx context.Context, account *Account) (int64, error) {
+				if err := ApplyAccountCredentialDraftOptions(account, map[string]any{key: value}); err != nil {
+					return 0, err
+				}
+				return createCredentialDraftTestAccount(ctx, account)
+			}
+			accountID, err := pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, key, confirm)
+			require.NoError(t, err)
+			replayedID, err := pending.ConfirmAccountCredentialDraft(ctx, draft.Reference, "browser", draft.Revision, key, confirm)
+			require.NoError(t, err)
+			require.Equal(t, accountID, replayedID)
+			stored := client.Account.GetX(ctx, accountID)
+			require.Equal(t, value, stored.Credentials[key])
+			require.Equal(t, "server-secret", stored.Credentials["access_token"])
+			require.Equal(t, 1, client.Account.Query().CountX(ctx))
+		})
+	}
+}
+
+func TestAccountCredentialDraftOptionsRejectSecretsIdentityAndUnknownKeys(t *testing.T) {
+	for _, key := range []string{"access_token", "refresh_token", "machine_id", "mac_machine_id", "client_id", "credential_owner_id", "owner_id", "email", "account_uuid", "unknown_option"} {
+		t.Run(key, func(t *testing.T) {
+			account := &Account{Credentials: map[string]any{"access_token": "server-only"}}
+			require.Error(t, ApplyAccountCredentialDraftOptions(account, map[string]any{key: "replacement"}))
+			require.Equal(t, map[string]any{"access_token": "server-only"}, account.Credentials)
+		})
+	}
+	for _, invalid := range []map[string]any{
+		{"plan_type": false}, {"base_url": "javascript:invalid"}, {"account_scheduling_threshold": 0},
+		{"intercept_warmup_requests": "true"}, {"header_overrides": map[string]any{"authorization": "secret"}},
+		{"temp_unschedulable_rules": []any{map[string]any{"duration_minutes": 0}}},
+	} {
+		require.Error(t, ApplyAccountCredentialDraftOptions(&Account{}, invalid))
+	}
+}
+
 func TestAccountCredentialDraftFailureRollsBackAndCanRetry(t *testing.T) {
 	pending, client := newAuthPendingIdentityServiceTestClient(t)
 	ctx := context.Background()

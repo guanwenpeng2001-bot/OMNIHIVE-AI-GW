@@ -112,7 +112,7 @@ export function getPlatformLabel(platform: string, translate?: (key: string) => 
 /** Explicit defaults for providers with a verified chat-only runtime contract. */
 export const CHAT_PLATFORM_BASE_URLS: Record<string, string> = {
   mistral: 'https://api.mistral.ai/v1',
-  hunyuan: 'https://api.hunyuan.cloud.tencent.com/v1',
+  hunyuan: 'https://tokenhub.tencentmaas.com/v1',
   qianfan: 'https://qianfan.baidubce.com/v2',
   volcengine: 'https://ark.cn-beijing.volces.com/api/v3'
 }

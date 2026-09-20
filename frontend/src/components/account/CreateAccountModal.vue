@@ -15,7 +15,16 @@
         <ModelWhitelistSelector :active="show" :account-id="saved.id" :platform="saved.platform" :model-value="[]" catalog-only @catalog-applied="emit('created')" />
       </div>
     </section>
-    <div v-show="!createdCatalogAccounts.length">
+    <section v-if="pendingAccountRequests.length" class="space-y-4" data-testid="account-review">
+      <h2 class="input-label" tabindex="-1">{{ t('admin.accounts.modelSync.configureModels') }}</h2>
+      <Select v-if="pendingAccountRequests.length > 1" v-model="selectedReviewIndex" :options="pendingAccountRequests.map((payload, index) => ({ value: index, label: payload.name }))" />
+      <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
+      <AccountModelConfigurationSection v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings"
+        :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
+        :active="show" :sync-credentials="credentialPreview" :capability-defaults-json="capabilityDefaultsJSON" />
+      <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
+    </section>
+    <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
     <!-- Step Indicator for OAuth accounts -->
     <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
@@ -81,15 +90,11 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" role="radiogroup" :aria-label="t('admin.accounts.platform')" data-tour="account-form-platform">
-          <button v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value"
-            type="button" :data-testid="`${option.value}-platform`" @click="selectPlatform(option.value)"
-            role="radio" :aria-checked="form.platform === option.value" :tabindex="form.platform === option.value ? 0 : -1"
-            @keydown="onPlatformKeydown($event, option.value)"
-            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-inset', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
-            <PlatformIcon :platform="option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
-          </button>
-        </div>
+        <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectPlatform" />
+      </div>
+      <div v-if="!['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform)" data-testid="account-type-summary">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
       </div>
       <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
       <div v-if="form.platform === 'cursor' && cursorKeyMode === 'relay'" class="flex items-center justify-between gap-4">
@@ -99,11 +104,11 @@
         </div>
         <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="rememberCatalogAccount($event, 'cursor'); emit('created')" />
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -112,7 +117,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
                 : 'border-gray-200 hover:border-orange-300 dark:border-dark-600 dark:hover:border-orange-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -142,7 +147,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -172,7 +177,7 @@
               accountCategory === 'bedrock'
                 ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
                 : 'border-gray-200 hover:border-amber-300 dark:border-dark-600 dark:hover:border-amber-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'bedrock'" :tabindex="accountCategory === 'bedrock' ? 0 : -1"
           >
             <div
               :class="[
@@ -202,7 +207,7 @@
               accountCategory === 'service_account'
                 ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
                 : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
               :class="[
@@ -233,7 +238,7 @@
       <!-- Account Type Selection (OpenAI) -->
       <div v-if="form.platform === 'openai'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -242,7 +247,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
                 : 'border-gray-200 hover:border-green-300 dark:border-dark-600 dark:hover:border-green-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -268,7 +273,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -292,7 +297,7 @@
       <!-- Account Type Selection (Grok) -->
       <div v-if="form.platform === 'grok'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -301,7 +306,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
                 : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -328,7 +333,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -351,7 +356,7 @@
       <!-- OpenCode Zen vs Go -->
       <div v-if="isOpenCodeGoPlatform">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="openCodeAccountMode = 'zen'"
@@ -360,7 +365,7 @@
               openCodeAccountMode === 'zen'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="openCodeAccountMode === 'zen'" :tabindex="openCodeAccountMode === 'zen' ? 0 : -1"
           >
             <div
               :class="[
@@ -383,7 +388,7 @@
               openCodeAccountMode === 'go'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="openCodeAccountMode === 'go'" :tabindex="openCodeAccountMode === 'go' ? 0 : -1"
           >
             <div
               :class="[
@@ -404,7 +409,7 @@
       <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek) -->
       <div v-if="isCNPlatform && form.platform !== 'qianwen'">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <!-- Pay-as-you-go (token balance) -->
           <button
             type="button"
@@ -414,7 +419,7 @@
               accountMode === 'payg'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="accountMode === 'payg'" :tabindex="accountMode === 'payg' ? 0 : -1"
           >
             <div
               :class="[
@@ -441,7 +446,7 @@
               accountMode === 'coding'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="accountMode === 'coding'" :tabindex="accountMode === 'coding' ? 0 : -1"
           >
             <div
               :class="[
@@ -464,7 +469,7 @@
       <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode) -->
       <div v-if="isMultiProtocolPlatform" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
           <button
             v-for="opt in cnProtocolOptions"
             :key="opt.value"
@@ -475,7 +480,7 @@
               apiProtocol === opt.value
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="apiProtocol === opt.value" :tabindex="apiProtocol === opt.value ? 0 : -1"
           >
             <div
               :class="[
@@ -540,7 +545,7 @@
             {{ t('admin.accounts.gemini.helpButton') }}
           </button>
         </div>
-        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.gemini.helpButton')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -549,7 +554,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-200 hover:border-blue-300 dark:border-dark-600 dark:hover:border-blue-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -579,7 +584,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -621,7 +626,7 @@
               accountCategory === 'service_account'
                 ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
                 : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
               :class="[
@@ -925,7 +930,11 @@
         <p class="input-hint">{{ t('admin.accounts.openai.codexImageToolDesc') }}</p>
         <div v-if="accountCategory === 'oauth-based'" class="space-y-3">
           <label class="input-label">{{ t('admin.accounts.openai.planType') }}
-            <input v-model="createPlanType" class="input" />
+            <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.openai.planType')" @keydown="navigateAccountChoices">
+              <button v-for="option in createPlanTypeOptions" :key="option.value" type="button" @click="createPlanType = option.value"
+                :class="['rounded-lg border-2 p-3 text-left text-sm', createPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-dark-600']" role="radio" :aria-checked="createPlanType === option.value" :tabindex="createPlanType === option.value ? 0 : -1">{{ option.label }}</button>
+            </div>
+            <input v-model="createPlanType" class="input mt-2" :aria-label="t('admin.accounts.openai.planType')" />
           </label>
           <p class="input-hint">{{ t('admin.accounts.openai.planTypeDesc') }}</p>
           <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
@@ -943,21 +952,11 @@
           </div>
         </div>
       </div>
-      <div v-if="accountCategory === 'service_account'" class="space-y-3">
-        <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
-                :active="show && !createdCatalogAccounts.length" v-model="allowedModels" :platform="form.platform" />
-        <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
-          <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
-          <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
-          <button type="button" class="btn btn-secondary" @click="modelMappings.splice(index, 1)">{{ t('common.delete') }}</button>
-        </div>
-        <button type="button" class="btn btn-secondary" @click="modelMappings.push({ from: '', to: '' })">{{ t('common.add') }}</button>
-      </div>
+
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3">
+        <div class="mt-2 grid grid-cols-2 gap-3" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="antigravityAccountType = 'oauth'"
@@ -966,7 +965,7 @@
               antigravityAccountType === 'oauth'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="antigravityAccountType === 'oauth'" :tabindex="antigravityAccountType === 'oauth' ? 0 : -1"
           >
             <div
               :class="[
@@ -992,7 +991,7 @@
               antigravityAccountType === 'upstream'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="antigravityAccountType === 'upstream'" :tabindex="antigravityAccountType === 'upstream' ? 0 : -1"
           >
             <div
               :class="[
@@ -1029,7 +1028,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
           <input
-            v-model="upstreamBaseUrl"
+            v-model="upstreamBaseUrl" data-account-field="upstreamBaseUrl"
             type="text"
             required
             class="input"
@@ -1040,7 +1039,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.apiKey') }}</label>
           <input
-            v-model="upstreamApiKey"
+            v-model="upstreamApiKey" data-account-field="upstreamApiKey"
             type="password"
             required
             class="input font-mono"
@@ -1121,7 +1120,7 @@
           <div>
             <label class="input-label">Project ID</label>
             <input
-              v-model="vertexProjectId"
+              v-model="vertexProjectId" data-account-field="vertexProjectId"
               type="text"
               class="input font-mono"
               readonly
@@ -1131,7 +1130,7 @@
           <div>
             <label class="input-label">Location</label>
             <select
-              v-model="vertexLocation"
+              v-model="vertexLocation" data-account-field="vertexLocation"
               required
               class="input font-mono"
             >
@@ -1154,96 +1153,7 @@
         </div>
       </div>
 
-      <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
-      <div v-if="form.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <!-- Mapping Mode Only (no toggle for Antigravity) -->
-        <div>
-          <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-            <p class="text-xs text-purple-700 dark:text-purple-400">
-              {{ t('admin.accounts.mapRequestModels') }}
-            </p>
-          </div>
-
-          <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
-            <div
-              v-for="(mapping, index) in antigravityModelMappings"
-              :key="getAntigravityModelMappingKey(mapping)"
-              class="space-y-1"
-            >
-              <div class="flex items-center gap-2">
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    !isValidWildcardPattern(mapping.from) ? 'border-red-500 dark:border-red-500' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg class="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    mapping.to.includes('*') ? 'border-red-500 dark:border-red-500' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeAntigravityModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <!-- 校验错误提示 -->
-              <p v-if="!isValidWildcardPattern(mapping.from)" class="text-xs text-red-500">
-                {{ t('admin.accounts.wildcardOnlyAtEnd') }}
-              </p>
-              <p v-if="mapping.to.includes('*')" class="text-xs text-red-500">
-                {{ t('admin.accounts.targetNoWildcard') }}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            @click="addAntigravityModelMapping"
-            class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-          >
-            <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            {{ t('admin.accounts.addMapping') }}
-          </button>
-
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="preset in antigravityPresetMappings"
-              :key="preset.label"
-              type="button"
-              @click="addAntigravityPresetMapping(preset.from, preset.to)"
-              :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-            >
-              + {{ preset.label }}
-            </button>
-          </div>
-        </div>
-      </div>
 
       <!-- Add Method (only for Anthropic OAuth-based type) -->
       <div v-if="form.platform === 'anthropic' && isOAuthFlow">
@@ -1277,7 +1187,7 @@
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
-            v-model="apiKeyBaseUrl"
+            v-model="apiKeyBaseUrl" data-account-field="apiKeyBaseUrl"
             type="text"
             class="input"
             :placeholder="apiKeyBaseUrlPlaceholder"
@@ -1326,7 +1236,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <input
-            v-model="apiKeyValue"
+            v-model="apiKeyValue" data-account-field="apiKeyValue"
             type="password"
             required
             class="input font-mono"
@@ -1361,197 +1271,6 @@
             <option value="aistudio_paid">{{ t('admin.accounts.gemini.tier.aiStudio.paid') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
-        </div>
-
-        <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <div
-            v-if="isOpenAIModelRestrictionDisabled"
-            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-          >
-            <p class="text-xs text-amber-700 dark:text-amber-400">
-              {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-            </p>
-          </div>
-
-          <template v-else>
-            <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'whitelist'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'whitelist'
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelWhitelist') }}
-              </button>
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'mapping'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'mapping'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelMapping') }}
-              </button>
-            </div>
-
-            <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
-                :active="show && !createdCatalogAccounts.length"
-                v-model="allowedModels"
-                :platform="form.platform"
-                :sync-credentials="syncPreviewCredentials"
-              />
-              <p class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0">{{
-                  t('admin.accounts.supportsAllModels')
-                }}</span>
-              </p>
-            </div>
-
-            <!-- Mapping Mode -->
-            <div v-else>
-              <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-                <p class="text-xs text-purple-700 dark:text-purple-400">
-                  <svg
-                    class="mr-1 inline h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {{ t('admin.accounts.mapRequestModels') }}
-                </p>
-              </div>
-
-            <!-- Model Mapping List -->
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.addMapping') }}
-            </button>
-
-              <!-- Quick Add Buttons -->
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="preset in presetMappings"
-                  :key="preset.label"
-                  type="button"
-                  @click="addPresetMapping(preset.from, preset.to)"
-                  :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-                >
-                  + {{ preset.label }}
-                </button>
-              </div>
-            </div>
-          </template>
         </div>
 
         <!-- Pool Mode Section -->
@@ -1794,7 +1513,7 @@
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockAccessKeyId') }}</label>
             <input
-              v-model="bedrockAccessKeyId"
+              v-model="bedrockAccessKeyId" data-account-field="bedrockAccessKeyId"
               type="text"
               required
               class="input font-mono"
@@ -1804,7 +1523,7 @@
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockSecretAccessKey') }}</label>
             <input
-              v-model="bedrockSecretAccessKey"
+              v-model="bedrockSecretAccessKey" data-account-field="bedrockSecretAccessKey"
               type="password"
               required
               class="input font-mono"
@@ -1825,7 +1544,7 @@
         <div v-if="bedrockAuthMode === 'apikey'">
           <label class="input-label">{{ t('admin.accounts.bedrockApiKeyInput') }}</label>
           <input
-            v-model="bedrockApiKeyValue"
+            v-model="bedrockApiKeyValue" data-account-field="bedrockApiKeyValue"
             type="password"
             required
             class="input font-mono"
@@ -1835,7 +1554,7 @@
         <!-- Shared: Region -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockRegion') }}</label>
-          <BedrockRegionSelect v-model="bedrockRegion" />
+          <BedrockRegionSelect v-model="bedrockRegion" data-account-field="bedrockRegion" />
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
@@ -1850,80 +1569,6 @@
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockForceGlobal') }}</span>
           </label>
           <p class="input-hint mt-1">{{ t('admin.accounts.bedrockForceGlobalHint') }}</p>
-        </div>
-
-        <!-- Model Restriction Section for Bedrock -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
-                :active="show && !createdCatalogAccounts.length"
-              v-model="allowedModels"
-              platform="anthropic"
-              :sync-credentials="syncPreviewCredentials"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else class="space-y-3">
-            <div v-for="(mapping, index) in modelMappings" :key="index" class="flex items-center gap-2">
-              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
-              <span class="text-gray-400">→</span>
-              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
-              <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
-                <Icon name="trash" size="sm" />
-              </button>
-            </div>
-            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-            <!-- Bedrock Preset Mappings -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in bedrockPresets"
-                :key="preset.from"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
@@ -2178,147 +1823,6 @@
             @update:rows="headerOverrideRows = $event"
           />
         </div>
-      </div>
-
-      <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
-      <div
-        v-if="((form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow) || form.platform === 'cursor'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <div
-          v-if="isOpenAIModelRestrictionDisabled"
-          class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-        >
-          <p class="text-xs text-amber-700 dark:text-amber-400">
-            {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-          </p>
-        </div>
-
-        <template v-else>
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
-                :active="show && !createdCatalogAccounts.length"
-              v-model="allowedModels"
-              :platform="form.platform"
-              :sync-credentials="syncPreviewCredentials"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{
-                t('admin.accounts.supportsAllModels')
-              }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else>
-            <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-              <p class="text-xs text-purple-700 dark:text-purple-400">
-                {{ t('admin.accounts.mapRequestModels') }}
-              </p>
-            </div>
-
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="'oauth-' + getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-
-            <!-- Quick Add Buttons -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in presetMappings"
-                :key="'oauth-' + preset.label"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
-        </template>
       </div>
 
       <!-- Temp Unschedulable Rules -->
@@ -2673,7 +2177,7 @@
 
             <div>
               <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
-              <div class="flex gap-2">
+              <div class="flex gap-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.strategy')" @keydown="navigateAccountChoices">
                 <button
                   type="button"
                   @click="rpmStrategy = 'tiered'"
@@ -2682,7 +2186,7 @@
                     rpmStrategy === 'tiered'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'tiered'" :tabindex="rpmStrategy === 'tiered' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
@@ -2697,7 +2201,7 @@
                     rpmStrategy === 'sticky_exempt'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'sticky_exempt'" :tabindex="rpmStrategy === 'sticky_exempt' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
@@ -2728,7 +2232,7 @@
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
               {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
             </p>
-            <div class="flex space-x-2">
+            <div class="flex space-x-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint')" @keydown="navigateAccountChoices">
               <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
                 @click="userMsgQueueMode = opt.value"
                 :class="[
@@ -2736,7 +2240,7 @@
                   userMsgQueueMode === opt.value
                     ? 'bg-primary-600 text-white border-primary-600'
                     : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
-                ]">
+                ]" role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
                 {{ opt.label }}
               </button>
             </div>
@@ -3417,6 +2921,7 @@
       </div>
 
       <p v-if="form.proxy_id || headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [form.proxy_id ? t('admin.accounts.modelSync.scopeProxy') : '', headerOverrideEnabled ? t('admin.accounts.modelSync.scopeHeaders') : ''].filter(Boolean).join(', ') }) }}</p>
+
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
     </form>
 
@@ -3462,6 +2967,10 @@
     </div>
     <template #footer>
       <button v-if="createdCatalogAccounts.length" type="button" class="btn btn-secondary" @click="handleClose(true)">{{ t('common.close') }}</button>
+      <div v-else-if="pendingAccountRequests.length" class="flex flex-wrap justify-end gap-3">
+        <button type="button" class="btn btn-secondary" :disabled="reviewSubmitting" @click="cancelAccountReview">{{ t('common.back') }}</button>
+        <button type="button" class="btn btn-primary" data-testid="confirm-account-review" :disabled="reviewSubmitting || currentOAuthLoading" @click="confirmAccountReview()">{{ t('common.confirm') }}</button>
+      </div>
       <div v-else-if="step === 1" class="flex justify-end gap-3">
         <button @click="handleClose(true)" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
@@ -3774,25 +3283,26 @@
 </template>
 
 <script setup lang="ts">
+import { focusAccountCredentialField } from './accountCredentialFields'
+import { navigateAccountChoices } from './accountChoiceNavigation'
+import { apiClient } from '@/api/client'
+import { buildPlanTypeOptions } from './credentialsBuilder'
+import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountWorkflowRequest, type AccountCredentialDraft } from './accountCredentialDraft'
+
+import AccountPlatformSelector from './AccountPlatformSelector.vue'
+import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
-import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
-import {
-  getPresetMappingsByPlatform,
-  commonErrorCodes,
-  buildModelMappingObject,
-  validateModelRestrictions,
-  translateModelRestrictionErrors,
-  isValidWildcardPattern
-} from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -3833,7 +3343,7 @@ import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
@@ -4125,41 +3635,14 @@ const cnAccentActiveClass = computed(() => platformSelectionClass(form.platform)
 const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platform))
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
-// Native button clicks handle Space/Enter once; navigation keys select and move focus.
-function onPlatformKeydown(event: KeyboardEvent, platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
-  const index = CONCRETE_PLATFORM_OPTIONS.findIndex(option => option.value === platform)
-  let nextIndex: number
-  switch (event.key) {
-    case 'ArrowRight':
-    case 'ArrowDown':
-      nextIndex = (index + 1) % CONCRETE_PLATFORM_OPTIONS.length
-      break
-    case 'ArrowLeft':
-    case 'ArrowUp':
-      nextIndex = (index - 1 + CONCRETE_PLATFORM_OPTIONS.length) % CONCRETE_PLATFORM_OPTIONS.length
-      break
-    case 'Home':
-      nextIndex = 0
-      break
-    case 'End':
-      nextIndex = CONCRETE_PLATFORM_OPTIONS.length - 1
-      break
-    default:
-      return
-  }
-  event.preventDefault()
-  const nextOption = CONCRETE_PLATFORM_OPTIONS[nextIndex]
-  if (!nextOption) return
-  selectPlatform(nextOption.value)
-  const button = event.currentTarget as HTMLButtonElement
-  button.parentElement?.querySelector<HTMLButtonElement>(`[data-testid="${nextOption.value}-platform"]`)?.focus()
-}
-
-function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
+function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value'] | 'vertex') {
+  if (platform === 'vertex') { form.platform = 'gemini'; accountCategory.value = 'service_account'; form.type = 'service_account'; return }
+  if (platform === 'bedrock') { form.platform = 'anthropic'; accountCategory.value = 'bedrock'; form.type = 'bedrock'; return }
+  if ((platform === 'anthropic' || platform === 'gemini') && (accountCategory.value === 'bedrock' || accountCategory.value === 'service_account')) accountCategory.value = 'oauth-based'
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
   form.platform = platform
-  if (platform === 'bedrock') { form.type = 'bedrock'; accountCategory.value = 'bedrock' }
+
   if (isChatOnlyPlatform(platform)) {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
@@ -4208,7 +3691,7 @@ watch(openCodeAccountMode, (mode, previousMode) => {
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
   } else {
-    apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, apiProtocol.value)
+    if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl('opencode_go', previousMode, apiProtocol.value)) apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, apiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(openCodeGoProtocolRules.value) === previousRules) {
@@ -4228,55 +3711,32 @@ watch(accountMode, (mode, previousMode) => {
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
     return
   }
-  apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
+  if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl(form.platform, previousMode, apiProtocol.value)) apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
 })
-watch(apiProtocol, (protocol) => {
+watch(apiProtocol, (protocol, previousProtocol) => {
   if (!isMultiProtocolPlatform.value) return
   if (protocol === 'adaptive') {
     const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
     for (const item of cnAdaptiveProtocolOptions.value) {
       if (!adaptiveBaseUrls.value[item.value]) adaptiveBaseUrls.value[item.value] = defaults[item.value]
     }
+    if (previousProtocol !== 'adaptive' && apiKeyBaseUrl.value.trim()) adaptiveBaseUrls.value[previousProtocol] = apiKeyBaseUrl.value.trim()
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
     return
   }
-  apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
+  if (previousProtocol === 'adaptive') {
+    apiKeyBaseUrl.value = adaptiveBaseUrls.value[protocol] || defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
+    return
+  }
+  if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), previousProtocol)) apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
 })
 // 点击预设端点：同时回填 base url、账号类型与协议。
 function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+  if (preset.protocol !== 'adaptive') adaptiveBaseUrls.value[preset.protocol] = preset.url
   accountMode.value = preset.mode
   apiProtocol.value = preset.protocol
   apiKeyBaseUrl.value = preset.url
 }
-
-const syncPreviewCredentials = computed(() => {
-  if (!apiKeyValue.value && !(form.platform === 'cursor' && cursorKeyMode.value === 'auto' && cursorAutoCredentials.value.access_token)) return undefined
-  const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
-    ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
-    : apiKeyBaseUrl.value.trim()
-  const modelMapping = buildModelMappingObject(
-    modelRestrictionMode.value,
-    allowedModels.value,
-    modelMappings.value
-  )
-  const previewCredentials: Record<string, unknown> = form.platform === 'cursor'
-    ? buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
-    : isMultiProtocolPlatform.value ? {
-      account_mode: currentOpenCodeOrCNMode(),
-      api_protocol: apiProtocol.value,
-      ...(apiProtocol.value === 'adaptive' ? { api_base_urls: { ...adaptiveBaseUrls.value, chat_completions: baseUrl } } : {})
-    } : {}
-  applyHeaderOverride(previewCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
-  return {
-    platform: form.platform,
-    type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : cursorKeyMode.value === 'auto' ? 'oauth' : 'apikey') : form.type,
-    base_url: baseUrl || undefined,
-    api_key: form.platform === 'cursor' && cursorKeyMode.value === 'auto' ? undefined : apiKeyValue.value,
-    proxy_id: form.proxy_id ?? undefined,
-    credentials: previewCredentials,
-    ...(modelMapping ? { model_mapping: modelMapping } : {})
-  }
-})
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -4416,6 +3876,14 @@ const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
+const workflowAllowedModels = computed({
+  get: () => form.platform === 'antigravity' ? antigravityWhitelistModels.value : allowedModels.value,
+  set: (models: string[]) => { if (form.platform === 'antigravity') antigravityWhitelistModels.value = models; else allowedModels.value = models }
+})
+const workflowModelMappings = computed({
+  get: () => form.platform === 'antigravity' ? antigravityModelMappings.value : modelMappings.value,
+  set: (mappings: ModelMapping[]) => { if (form.platform === 'antigravity') antigravityModelMappings.value = mappings; else modelMappings.value = mappings }
+})
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -4433,9 +3901,9 @@ const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
-const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
+
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-openai-compact-model-mapping')
-const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-antigravity-model-mapping')
+
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
 const geminiAIStudioOAuthEnabled = ref(false)
@@ -4518,7 +3986,6 @@ const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: str
 )
 const mixedChannelWarningRawMessage = ref('')
 const mixedChannelWarningAction = ref<(() => Promise<void>) | null>(null)
-const antigravityMixedChannelConfirmed = ref(false)
 const showAdvancedOAuth = ref(false)
 const showGeminiHelpDialog = ref(false)
 
@@ -4720,14 +4187,12 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
-const modelCandidateIdentity = computed(() => ({ host: apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
+const modelCandidateIdentity = computed(() => ({ host: form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.platform === 'cursor' ? cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'relay' ? 'upstream' : 'apikey' : form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
 
 const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
   () => [form.platform], modelCandidateIdentity, () => props.show
 )
 const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, modelCandidateIdentity.value, platformPresets.value))
-const antigravityPresetMappings = presetMappings
-const bedrockPresets = presetMappings
 
 // Defaults belong to one open draft; old responses cannot populate another identity.
 let mappingGeneration = 0
@@ -4929,7 +4394,6 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   geminiOAuthType.value = oauthType
 }
 
-
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
   ([, platform]) => {
@@ -4940,9 +4404,6 @@ watch(
 )
 
 // Model mapping helpers
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
 
 const addOpenAICompactModelMapping = () => {
   openAICompactModelMappings.value.push({ from: '', to: '' })
@@ -4950,34 +4411,6 @@ const addOpenAICompactModelMapping = () => {
 
 const removeOpenAICompactModelMapping = (index: number) => {
   openAICompactModelMappings.value.splice(index, 1)
-}
-
-const removeModelMapping = (index: number) => {
-  modelMappings.value.splice(index, 1)
-}
-
-const addPresetMapping = (from: string, to: string) => {
-  if (modelMappings.value.some((m) => m.from === from)) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  modelMappings.value.push({ from, to })
-}
-
-const addAntigravityModelMapping = () => {
-  antigravityModelMappings.value.push({ from: '', to: '' })
-}
-
-const removeAntigravityModelMapping = (index: number) => {
-  antigravityModelMappings.value.splice(index, 1)
-}
-
-const addAntigravityPresetMapping = (from: string, to: string) => {
-  if (antigravityModelMappings.value.some((m) => m.from === from)) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  antigravityModelMappings.value.push({ from, to })
 }
 
 // Error code toggle helper
@@ -5116,7 +4549,6 @@ const splitTempUnschedKeywords = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
-const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -5149,52 +4581,11 @@ const openMixedChannelDialog = (opts: {
   showMixedChannelWarning.value = true
 }
 
-const withAntigravityConfirmFlag = (payload: CreateAccountRequest): CreateAccountRequest => {
-  if (needsMixedChannelCheck(payload.platform) && antigravityMixedChannelConfirmed.value) {
-    return {
-      ...payload,
-      confirm_mixed_channel_risk: true
-    }
-  }
-  const cloned = { ...payload }
-  delete cloned.confirm_mixed_channel_risk
-  return cloned
-}
-
-const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<void>): Promise<boolean> => {
-  if (!needsMixedChannelCheck(form.platform)) {
-    return true
-  }
-  if (antigravityMixedChannelConfirmed.value) {
-    return true
-  }
-
-  try {
-    const result = await adminAPI.accounts.checkMixedChannelRisk({
-      platform: form.platform,
-      group_ids: form.group_ids
-    })
-    if (!result.has_risk) {
-      return true
-    }
-    openMixedChannelDialog({
-      response: result,
-      onConfirm: async () => {
-        antigravityMixedChannelConfirmed.value = true
-        await onConfirm()
-      }
-    })
-    return false
-  } catch (error: any) {
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
-    return false
-  }
-}
-
 const createSchedulingThreshold = ref<number | null>(null)
 const createGrokToolCache = ref(true)
 const createImageTool = ref('inherit')
 const createPlanType = ref('')
+const createPlanTypeOptions = computed(() => buildPlanTypeOptions(createPlanType.value, t('admin.accounts.openai.planTypeClear')))
 const createPauseThresholds = reactive<Record<'5h' | '7d', number | null>>({ '5h': null, '7d': null })
 const createAutoReset = ref(false)
 const createResetThresholds = reactive({ '5h': 100, '7d': 100 })
@@ -5209,7 +4600,100 @@ watch(() => props.show, (show) => {
   createAutoReset.value = false
   createResetThresholds['5h'] = createResetThresholds['7d'] = 100
 })
+const accountReviewPending = Symbol('account-review-pending')
+let reviewGeneration = 0
+const pendingAccountRequests = ref<AccountWorkflowRequest[]>([])
+const reviewedDraftPayloads = new Map<string, string>()
+watch(() => props.show, show => { if (!show) { reviewGeneration++; void cancelAccountReview() } }, { flush: 'sync' })
+watch(() => pendingAccountRequests.value.length, async (count, previous) => {
+  if (count && !previous) {
+    await nextTick()
+    document.querySelector<HTMLElement>('[data-testid="account-review"] h2')?.focus()
+  }
+})
+onBeforeUnmount(() => { void cancelAccountReview() })
+const reviewError = ref('')
+const reviewSubmitting = ref(false)
+const selectedReviewIndex = ref(0)
+const selectedReviewRequest = computed(() => pendingAccountRequests.value[selectedReviewIndex.value])
+const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => ({
+  ...payload,
+  credentials: { ...payload.credentials, model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {} }
+})))
+const credentialPreview = computed(() => {
+  const payload = reviewedRequests.value[selectedReviewIndex.value]
+  if (!payload) return undefined
+  return { platform: payload.platform, type: payload.type, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
+    ...(!payload.credential_draft ? {
+      base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
+      api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
+    } : {}),
+    model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {},
+    credential_draft: payload.credential_draft, credential_draft_revision: payload.credential_draft_revision }
+})
+async function cancelAccountReview() {
+  if (reviewSubmitting.value) return
+  const cancelled = pendingAccountRequests.value
+  pendingAccountRequests.value = []
+  reviewedDraftPayloads.clear()
+  selectedReviewIndex.value = 0
+  reviewError.value = ''
+  await Promise.allSettled(cancelled.filter(payload => payload.credential_draft).map(payload =>
+    apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(payload.credential_draft!)}`)))
+}
+async function confirmAccountReview(confirmedPayloads?: AccountWorkflowRequest[]) {
+  if (reviewSubmitting.value) return
+  const payloads = JSON.parse(JSON.stringify(confirmedPayloads ?? reviewedRequests.value)) as AccountWorkflowRequest[]
+  if (!payloads.length) return
+  const errors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
+  if (errors.length) { reviewError.value = translateModelRestrictionErrors(errors, t); return }
+  reviewSubmitting.value = true
+  reviewError.value = ''
+  try {
+    for (const payload of payloads) {
+      if (payload.credential_draft) {
+        const reviewPayload = { ...payload }
+        delete reviewPayload.credential_draft_revision
+        const fingerprint = JSON.stringify(reviewPayload)
+        if (reviewedDraftPayloads.get(payload.credential_draft) !== fingerprint) {
+          const { data } = await apiClient.post<AccountCredentialDraft>(`/admin/accounts/credential-drafts/${encodeURIComponent(payload.credential_draft)}/review`, payload)
+          payload.credential_draft_revision = data.revision
+          const current = pendingAccountRequests.value.find(request => request.credential_draft === payload.credential_draft)
+          if (current) current.credential_draft_revision = data.revision
+          reviewedDraftPayloads.set(payload.credential_draft, fingerprint)
+        }
+      }
+    }
+    if (JSON.stringify(reviewedRequests.value) !== JSON.stringify(payloads.map(payload => { const clean = { ...payload }; delete clean.confirm_mixed_channel_risk; return clean }))) return
+    const result = await adminAPI.accounts.batchCreate(payloads)
+    for (const [index, saved] of result.results.entries()) {
+      if (!saved.success || !saved.id) continue
+      const payload = payloads[index]
+      rememberCatalogAccount(saved.id, payload.platform)
+      if (payload.upstream_billing_probe_enabled === true && (payload.type === 'apikey' || payload.type === 'upstream')) {
+        try { await adminAPI.accounts.probeUpstreamBilling(saved.id) }
+        catch { appStore.showWarning(t('admin.accounts.upstreamBilling.probeFailed')) }
+      }
+    }
+    pendingAccountRequests.value = []
+    appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: result.success }))
+    emit('created')
+  } catch (error: unknown) {
+    if (extractApiErrorCode(error) === 'mixed_channel_warning') {
+      const revision = JSON.stringify(reviewedRequests.value)
+      openMixedChannelDialog({ message: extractApiErrorMessage(error), onConfirm: async () => {
+        if (revision !== JSON.stringify(reviewedRequests.value)) return
+        await confirmAccountReview(payloads.map(payload => ({ ...payload, confirm_mixed_channel_risk: true })))
+      } })
+    } else reviewError.value = extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))
+  } finally { reviewSubmitting.value = false }
+}
+async function stageCursorAuthorization(draft: AccountCredentialDraft) {
+  try { await createWithOptions({ ...form, platform: 'cursor', type: 'oauth', credentials: { ...draft }, auto_pause_on_expired: autoPauseOnExpired.value }) }
+  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error)) }
+}
 const createWithOptions = async (payload: CreateAccountRequest) => {
+  const generation = reviewGeneration
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
   const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
@@ -5244,53 +4728,37 @@ const createWithOptions = async (payload: CreateAccountRequest) => {
       if (createAutoReset.value) extra.auto_reset_credit_enabled = true
     }
   }
-  const account = await adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
-  rememberCatalogAccount(account.id, account.platform || payload.platform)
-  return account
+  let draft = readAccountCredentialDraft(credentials)
+  const manualCursorDraft = !draft && payload.platform === 'cursor' && payload.type === 'oauth'
+  if (manualCursorDraft) {
+    const authorizationCredentials = Object.fromEntries(Object.entries(credentials).filter(([key]) => ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id', 'client_version'].includes(key)))
+    const { data } = await apiClient.post<AccountCredentialDraft>('/admin/accounts/credential-drafts', { credentials: authorizationCredentials })
+    draft = data
+  }
+  if (!props.show || generation !== reviewGeneration) {
+    if (draft) await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(draft.credential_draft)}`).catch(() => {})
+    throw accountReviewPending
+  }
+  const request: AccountWorkflowRequest = { ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) }
+  if (draft) {
+    request.credential_draft = draft.credential_draft
+    request.credential_draft_revision = draft.revision
+    const envelopeFields = ['credential_draft', 'revision', 'platform', 'type', 'expires_at']
+    const authorizationFields = manualCursorDraft ? ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id'] : []
+    request.credentials = Object.fromEntries(Object.entries(credentials).filter(([key]) => !envelopeFields.includes(key) && !authorizationFields.includes(key)))
+  }
+  delete request.confirm_mixed_channel_risk
+  pendingAccountRequests.value.push(request)
+  throw accountReviewPending
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
-  try {
-    const account = await createWithOptions(withAntigravityConfirmFlag(payload))
-    if (
-      (payload.type === 'apikey' || (payload.platform === 'cursor' && payload.type === 'upstream')) &&
-      payload.upstream_billing_probe_enabled === true
-    ) {
-      try {
-        await adminAPI.accounts.probeUpstreamBilling(account.id)
-      } catch {
-        appStore.showWarning(t('admin.accounts.upstreamBilling.probeFailed'))
-      }
-    }
-    appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
-    handleClose()
-  } catch (error: any) {
-    if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
-      const metadata = extractApiErrorMetadata(error)
-      openMixedChannelDialog({
-        message: extractApiErrorMessage(error),
-        response: typeof metadata.group_name === 'string' ? { has_risk: true, details: {
-          group_id: typeof metadata.group_id === 'number' ? metadata.group_id : 0,
-          group_name: typeof metadata.group_name === 'string' ? metadata.group_name : '',
-          current_platform: typeof metadata.current_platform === 'string' ? metadata.current_platform : '',
-          other_platform: typeof metadata.other_platform === 'string' ? metadata.other_platform : '',
-        } } : undefined,
-        onConfirm: async () => {
-          antigravityMixedChannelConfirmed.value = true
-          await submitCreateAccount(payload)
-        }
-      })
-      return
-    }
-    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate')))
-  } finally {
-    submitting.value = false
-  }
+  try { await createWithOptions(payload) }
+  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))) }
+  finally { submitting.value = false }
 }
 
-// Methods
 const resetForm = () => {
   createdCatalogAccounts.value = []
   capabilityDefaultsJSON.value = ''
@@ -5407,13 +4875,13 @@ const resetForm = () => {
   antigravityOAuth.resetState()
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
-  antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
 }
 
 const handleClose = (explicit = false) => {
+  if (reviewSubmitting.value) return
+  if (pendingAccountRequests.value.length) { if (explicit) void cancelAccountReview(); else return }
   if (createdCatalogAccounts.value.length && !explicit) return
-  antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
 }
@@ -5530,15 +4998,7 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 }
 
 // Helper function to create account with mixed channel warning handling
-const doCreateAccount = async (payload: CreateAccountRequest) => {
-  const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-    await submitCreateAccount(payload)
-  })
-  if (!canContinue) {
-    return
-  }
-  await submitCreateAccount(payload)
-}
+const doCreateAccount = submitCreateAccount
 
 // Handle mixed channel warning confirmation
 const handleMixedChannelConfirm = async () => {
@@ -5621,13 +5081,13 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
-  if (createdCatalogAccounts.value.length || submitting.value) return
+  if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
   try { parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } catch { appStore.showError(t('admin.accounts.modelSync.invalidDeclaration')); return }
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
-    if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
+    if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError('Base URL is required.'); return }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
     const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
     const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
@@ -5646,12 +5106,6 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-      step.value = 2
-    })
-    if (!canContinue) {
-      return
-    }
     step.value = 2
     return
   }
@@ -5663,6 +5117,7 @@ const handleSubmit = async () => {
       return
     }
 
+    if (!bedrockRegion.value.trim()) { focusAccountCredentialField('create-account-form', 'bedrockRegion'); appStore.showError(t('admin.accounts.bedrockRegion') + ': ' + t('common.required')); return }
     const credentials: Record<string, unknown> = {
       auth_mode: bedrockAuthMode.value,
       aws_region: bedrockRegion.value.trim() || 'us-east-1',
@@ -5670,10 +5125,12 @@ const handleSubmit = async () => {
 
     if (bedrockAuthMode.value === 'sigv4') {
       if (!bedrockAccessKeyId.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockAccessKeyId')
         appStore.showError(t('admin.accounts.bedrockAccessKeyIdRequired'))
         return
       }
       if (!bedrockSecretAccessKey.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockSecretAccessKey')
         appStore.showError(t('admin.accounts.bedrockSecretAccessKeyRequired'))
         return
       }
@@ -5684,6 +5141,7 @@ const handleSubmit = async () => {
       }
     } else {
       if (!bedrockApiKeyValue.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockApiKeyValue')
         appStore.showError(t('admin.accounts.bedrockApiKeyRequired'))
         return
       }
@@ -5695,8 +5153,7 @@ const handleSubmit = async () => {
     }
 
     // Model mapping
-    const modelMapping = buildModelMappingObject(
-      modelRestrictionMode.value, allowedModels.value, modelMappings.value
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value
     )
     if (modelMapping) {
       credentials.model_mapping = modelMapping
@@ -5725,10 +5182,12 @@ const handleSubmit = async () => {
       return
     }
     if (!upstreamBaseUrl.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'upstreamBaseUrl')
       appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
       return
     }
     if (!upstreamApiKey.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'upstreamApiKey')
       appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
       return
     }
@@ -5740,10 +5199,7 @@ const handleSubmit = async () => {
     }
 
     // Antigravity 只使用映射模式
-    const antigravityModelMapping = buildModelMappingObject(
-      'mapping',
-      [],
-      antigravityModelMappings.value
+    const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
     )
     if (antigravityModelMapping) {
       credentials.model_mapping = antigravityModelMapping
@@ -5765,6 +5221,7 @@ const handleSubmit = async () => {
       return
     }
     if (!vertexLocation.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'vertexLocation')
       appStore.showError(t('admin.accounts.vertexLocationRequired'))
       return
     }
@@ -5781,6 +5238,7 @@ const handleSubmit = async () => {
 
   // For apikey type, create directly
   if (!apiKeyValue.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'apiKeyValue')
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -5840,7 +5298,7 @@ const handleSubmit = async () => {
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
@@ -6001,7 +5459,7 @@ const createAccountAndFinish = async (
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     } else {
@@ -6062,12 +5520,12 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           continue
         }
 
-        const credentials = grokOAuth.buildCredentials(tokenInfo)
+        const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
         applyGrokOAuthUpstreamConfig(credentials)
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
 
-        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
         if (modelMapping) {
           credentials.model_mapping = modelMapping
         }
@@ -6092,13 +5550,18 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6134,7 +5597,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
 
   const credentials: Record<string, unknown> = {}
   applyGrokOAuthUpstreamConfig(credentials)
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -6160,36 +5623,19 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       auto_pause_on_expired: autoPauseOnExpired.value
     })
 
-    for (const item of result.created ?? []) {
-      const saved = item.account as { id?: number } | undefined
-      rememberCatalogAccount(saved?.id, 'grok')
+    for (const item of result.ready ?? []) {
+      if (!item.draft) continue
+      try {
+        await createWithOptions({ ...form, name: item.name || form.name || `Grok #${item.index}`, platform: 'grok', type: 'oauth', credentials: { ...item.draft }, auto_pause_on_expired: autoPauseOnExpired.value })
+      } catch (error) { if (error !== accountReviewPending) throw error }
     }
-    const successCount = result.created?.length || 0
-    const failedCount = result.failed?.length || 0
-    if (successCount > 0 && failedCount === 0) {
-      appStore.showSuccess(
-        ssoTokens.length > 1
-          ? t('admin.accounts.oauth.batchSuccess', { count: successCount })
-          : t('admin.accounts.accountCreated')
-      )
-      emit('created')
-      handleClose()
-    } else if (successCount > 0 && failedCount > 0) {
-      // Same as OpenAI/Grok RT: keep input, show failures, refresh list.
-      appStore.showWarning(
-        t('admin.accounts.oauth.batchPartialSuccess', { success: successCount, failed: failedCount })
-      )
-      grokOAuth.error.value = (result.failed || [])
-        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
-        .join('\n')
-      emit('created')
-    } else {
-      grokOAuth.error.value = (result.failed || [])
-        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
-        .join('\n') || t('admin.accounts.oauth.grok.failedToConvertSSO')
-      appStore.showError(t('admin.accounts.oauth.batchFailed'))
+    if (result.failed?.length) {
+      await cancelAccountReview()
+      grokOAuth.error.value = result.failed.map(item => `#${item.index}: ${item.error || t('admin.accounts.oauth.authFailed')}`).join('\n')
+      appStore.showError(grokOAuth.error.value)
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.grok.failedToConvertSSO'))
     appStore.showError(grokOAuth.error.value)
   } finally {
@@ -6237,7 +5683,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           continue
         }
 
-        const credentials = grokOAuth.buildCredentials(tokenInfo)
+        const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
         applyGrokOAuthUpstreamConfig(credentials)
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName =
@@ -6245,8 +5691,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
             ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}`
             : form.name || tokenInfo.email || 'Grok OAuth Account'
 
-        const modelMapping = buildModelMappingObject(
-          modelRestrictionMode.value,
+        const modelMapping = buildModelMappingObject('combined',
           allowedModels.value,
           modelMappings.value
         )
@@ -6274,13 +5719,18 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         lines.length > 1
@@ -6331,14 +5781,14 @@ const handleOpenAIExchange = async (authCode: string) => {
     )
     if (!tokenInfo) return
 
-    const credentials = oauthClient.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => oauthClient.buildCredentials(tokenInfo))
     const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
     const extra = buildOpenAIExtra(oauthExtra)
     const shouldCreateOpenAI = form.platform === 'openai'
 
     // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
     if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
       if (modelMapping) {
         credentials.model_mapping = modelMapping
       }
@@ -6377,7 +5827,8 @@ const handleOpenAIExchange = async (authCode: string) => {
 
     emit('created')
     handleClose()
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauthClient.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
@@ -6392,7 +5843,7 @@ const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
 const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | null => {
   const credentials: Record<string, unknown> = {}
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
@@ -6481,41 +5932,14 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       update_existing: true
     })
 
-    for (const item of result.items ?? []) {
-      if (item.action === 'created' || item.action === 'updated') rememberCatalogAccount(item.account_id, 'openai')
+    for (const item of result.ready ?? []) pendingAccountRequests.value.push(item.account)
+    if (result.failed > 0) {
+      await cancelAccountReview()
+      oauthClient.error.value = formatCodexImportMessages(result.errors)
+      appStore.showError(oauthClient.error.value || t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     }
-    const successCount = result.created + result.updated
-    const params = {
-      created: result.created,
-      updated: result.updated,
-      skipped: result.skipped,
-      failed: result.failed
-    }
-
-    if (successCount > 0 && result.failed === 0) {
-      appStore.showSuccess(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
-      emit('created')
-      handleClose()
-      return
-    }
-
-    const errorText = formatCodexImportMessages(result.errors)
-    const warningText = formatCodexImportMessages(result.warnings)
-    oauthClient.error.value = [errorText, warningText].filter(Boolean).join('\n')
-
-    if (result.failed === 0) {
-      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
-      return
-    }
-
-    if (successCount > 0) {
-      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportPartial', params))
-      emit('created')
-      return
-    }
-
-    appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauthClient.error.value =
       extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     appStore.showError(oauthClient.error.value)
@@ -6558,11 +5982,11 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       extra: withUpstreamRequestIdHeader(extra)
     })
 
-    rememberCatalogAccount(account.id, 'openai')
-    appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
-    handleClose()
-  } catch (error: any) {
+    const draft = readAccountCredentialDraft(account)
+    if (!draft) throw new Error(t('admin.accounts.oauth.authFailed'))
+    await createWithOptions({ ...form, platform: 'openai', type: 'oauth', credentials: { ...draft }, extra: withUpstreamRequestIdHeader(extra), auto_pause_on_expired: autoPauseOnExpired.value })
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauthClient.error.value =
       extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexPatImportFailed'))
     appStore.showError(oauthClient.error.value)
@@ -6609,8 +6033,8 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
           continue
         }
 
-        const credentials = oauthClient.buildCredentials(tokenInfo)
-        if (clientId) {
+        const credentials = credentialsFromAuthorization(tokenInfo, () => oauthClient.buildCredentials(tokenInfo))
+        if (clientId && !readAccountCredentialDraft(credentials)) {
           credentials.client_id = clientId
         }
         const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
@@ -6618,7 +6042,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 
         // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
         if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+          const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
           if (modelMapping) {
             credentials.model_mapping = modelMapping
           }
@@ -6654,7 +6078,8 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         }
 
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
@@ -6662,6 +6087,10 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
     }
 
     // Show results
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6727,14 +6156,14 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           continue
         }
 
-        const credentials = antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i])
+        const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i]))
         applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
-        
+
         // Generate account name with index for batch
         const accountName = refreshTokens.length > 1 ? `${form.name} #${i + 1}` : form.name
 
         // Note: Antigravity doesn't have buildExtraInfo, so we pass empty extra or rely on credentials
-        const createPayload = withAntigravityConfirmFlag({
+        const createPayload: CreateAccountRequest = {
           name: accountName,
           notes: form.notes,
           platform: 'antigravity',
@@ -6749,10 +6178,11 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           group_ids: form.group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
-        })
+        }
         await createWithOptions(createPayload)
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
@@ -6760,6 +6190,10 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
     }
 
     // Show results
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6809,10 +6243,11 @@ const handleGeminiExchange = async (authCode: string) => {
     })
     if (!tokenInfo) return
 
-    const credentials = geminiOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => geminiOAuth.buildCredentials(tokenInfo))
     const extra = geminiOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('gemini', 'oauth', credentials, extra)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     geminiOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(geminiOAuth.error.value)
   } finally {
@@ -6844,21 +6279,19 @@ const handleAntigravityExchange = async (authCode: string) => {
     })
 		if (!tokenInfo) return
 
-		const credentials = antigravityOAuth.buildCredentials(tokenInfo)
+		const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo))
 		applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
 		applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 		// Antigravity 只使用映射模式
-		const antigravityModelMapping = buildModelMappingObject(
-			'mapping',
-			[],
-			antigravityModelMappings.value
+		const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
 		)
 		if (antigravityModelMapping) {
 			credentials.model_mapping = antigravityModelMapping
 		}
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     antigravityOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(antigravityOAuth.error.value)
   } finally {
@@ -6891,11 +6324,12 @@ const handleGrokExchange = async (authCode: string) => {
     })
     if (!tokenInfo) return
 
-    const credentials = grokOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
     applyGrokOAuthUpstreamConfig(credentials)
     const extra = grokOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('grok', 'oauth', credentials, extra)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(grokOAuth.error.value)
   } finally {
@@ -6984,7 +6418,8 @@ const handleAnthropicExchange = async (authCode: string) => {
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauth.error.value)
   } finally {
@@ -7133,7 +6568,8 @@ const handleCookieAuth = async (sessionKey: string) => {
         })
 
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         errors.push(
           t('admin.accounts.oauth.keyAuthFailed', {
@@ -7144,6 +6580,10 @@ const handleCookieAuth = async (sessionKey: string) => {
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0) {
       appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: successCount }))
       if (failedCount === 0) {
@@ -7157,7 +6597,8 @@ const handleCookieAuth = async (sessionKey: string) => {
     if (failedCount > 0) {
       oauth.error.value = errors.join('\n')
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.cookieAuthFailed'))
   } finally {
     oauth.loading.value = false

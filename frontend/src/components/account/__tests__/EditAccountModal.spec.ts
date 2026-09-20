@@ -388,7 +388,7 @@ describe('EditAccountModal', () => {
     syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Native'], models: ['Native'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: 1, digest: 'original' } })
     const wrapper = mountModal(buildAccount(), false, true)
     await flushPromises()
-    const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(selector => selector.props('catalogOnly'))!
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     const reads = catalogRead.mock.calls.length
@@ -408,7 +408,7 @@ describe('EditAccountModal', () => {
     allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '9007199254740994' })
     const wrapper = mountModal(account, false, true)
     await flushPromises()
-    const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(selector => selector.props('catalogOnly'))!
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
     await panel.get('[data-testid="allowlist-models"]').setValue('NotDiscovered')
     await panel.get('[data-testid="allowlist-reason"]').setValue('restrict account scope')
     await panel.get('[data-testid="save-allowlist"]').trigger('click')
@@ -431,7 +431,7 @@ describe('EditAccountModal', () => {
     syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: account.id, digest: 'before' } })
     const wrapper = mountModal(account, false, true)
     await flushPromises()
-    const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(selector => selector.props('catalogOnly'))!
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     const vm = wrapper.vm as unknown as { editApiKey: string; capabilityDefaultsJSON: string }
@@ -2145,7 +2145,7 @@ describe('editor candidate identity and additive discovery', () => {
     await flushPromises()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
-    const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(component => component.props('catalogOnly'))!
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
     const add = panel.get('[data-testid="add-preview-models"]')
     expect(add.attributes('disabled')).toBeUndefined()
     expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)

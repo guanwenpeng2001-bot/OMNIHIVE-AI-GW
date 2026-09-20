@@ -118,6 +118,8 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
+	Status                  string         `json:"status,omitempty" binding:"omitempty,oneof=active inactive error"`
+	ExistingAccountID       int64          `json:"existing_account_id,omitempty"`
 	CredentialDraft         string         `json:"credential_draft,omitempty"`
 	CredentialDraftRevision string         `json:"credential_draft_revision,omitempty"`
 	Name                    string         `json:"name" binding:"required"`
@@ -2083,104 +2085,39 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 	}
 
 	executeAdminIdempotentJSON(c, "admin.accounts.batch_create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		success := 0
-		failed := 0
+		if err := requireCredentialDraftStore(h.credentialDrafts); err != nil {
+			return nil, err
+		}
+		accounts := make([]*service.Account, 0, len(req.Accounts))
 		results := make([]gin.H, 0, len(req.Accounts))
-		// 收集需要异步设置隐私的 OAuth 账号
-		var antigravityPrivacyAccounts []*service.Account
-		var openaiPrivacyAccounts []*service.Account
-
-		for _, item := range req.Accounts {
-			if item.RateMultiplier != nil && *item.RateMultiplier < 0 {
-				failed++
-				results = append(results, gin.H{
-					"name":    item.Name,
-					"success": false,
-					"error":   "rate_multiplier must be >= 0",
-				})
-				continue
-			}
-
-			// base_rpm 输入校验：负值归零，超过 10000 截断
-			sanitizeExtraBaseRPM(item.Extra)
-			if err := service.ValidateUpstreamRequestIDHeaderExtra(item.Extra); err != nil {
-				failed++
-				results = append(results, gin.H{
-					"name":    item.Name,
-					"success": false,
-					"error":   err.Error(),
-				})
-				continue
-			}
-
-			skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
-
-			account, err := h.createAccountFromRequest(ctx, c, item, skipCheck, false)
-			if err != nil {
-				failed++
-				results = append(results, gin.H{
-					"name":    item.Name,
-					"success": false,
-					"error":   err.Error(),
-				})
-				continue
-			}
-			// 收集需要异步设置隐私的 OAuth 账号
-			if account.Type == service.AccountTypeOAuth && item.CredentialDraft == "" {
-				switch account.Platform {
-				case service.PlatformAntigravity:
-					antigravityPrivacyAccounts = append(antigravityPrivacyAccounts, account)
-				case service.PlatformOpenAI:
-					openaiPrivacyAccounts = append(openaiPrivacyAccounts, account)
+		err := h.credentialDrafts.RunAccountWriteTransaction(ctx, func(transactionContext context.Context) error {
+			for _, item := range req.Accounts {
+				if item.RateMultiplier != nil && *item.RateMultiplier < 0 {
+					return infraerrors.BadRequest("INVALID_RATE_MULTIPLIER", "rate_multiplier must be >= 0")
 				}
+				sanitizeExtraBaseRPM(item.Extra)
+				if err := service.ValidateUpstreamRequestIDHeaderExtra(item.Extra); err != nil {
+					return err
+				}
+				skipCheck := item.ConfirmMixedChannelRisk != nil && *item.ConfirmMixedChannelRisk
+				account, err := h.createAccountFromRequest(transactionContext, c, item, skipCheck, true)
+				if err != nil {
+					return accountWriteError(err)
+				}
+				accounts = append(accounts, account)
+				results = append(results, gin.H{"name": item.Name, "id": account.ID, "success": true})
 			}
-			// OpenAI APIKey 账号异步探测 /v1/responses 能力。
+			return nil
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, account := range accounts {
 			h.scheduleOpenAIResponsesProbe(account)
 			h.scheduleGrokImportProbe(account)
-			success++
-			results = append(results, gin.H{
-				"name":    item.Name,
-				"id":      account.ID,
-				"success": true,
-			})
+			service.InvalidateAvailableModelsCacheForAccount(account)
 		}
-
-		// 异步设置隐私，避免批量创建时阻塞请求
-		adminSvc := h.adminService
-		if len(antigravityPrivacyAccounts) > 0 {
-			accounts := antigravityPrivacyAccounts
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("batch_create_antigravity_privacy_panic", "recover", r)
-					}
-				}()
-				bgCtx := context.Background()
-				for _, acc := range accounts {
-					adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
-				}
-			}()
-		}
-		if len(openaiPrivacyAccounts) > 0 {
-			accounts := openaiPrivacyAccounts
-			go func() {
-				defer func() {
-					if r := recover(); r != nil {
-						slog.Error("batch_create_openai_privacy_panic", "recover", r)
-					}
-				}()
-				bgCtx := context.Background()
-				for _, acc := range accounts {
-					adminSvc.ForceOpenAIPrivacy(bgCtx, acc)
-				}
-			}()
-		}
-
-		return gin.H{
-			"success": success,
-			"failed":  failed,
-			"results": results,
-		}, nil
+		return gin.H{"success": len(accounts), "failed": 0, "results": results}, nil
 	})
 }
 

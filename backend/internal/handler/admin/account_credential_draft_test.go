@@ -20,12 +20,17 @@ import (
 )
 
 func credentialDraftTestStore(t *testing.T) *service.AuthPendingIdentityService {
+	pending, _ := credentialDraftTestClient(t)
+	return pending
+}
+
+func credentialDraftTestClient(t *testing.T) (*service.AuthPendingIdentityService, *dbent.Client) {
 	t.Helper()
 	database, err := sql.Open("sqlite", "file:"+t.Name()+"?mode=memory&cache=shared&_pragma=foreign_keys(1)")
 	require.NoError(t, err)
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, database))))
 	t.Cleanup(func() { _ = client.Close() })
-	return service.NewAuthPendingIdentityService(client)
+	return service.NewAuthPendingIdentityService(client), client
 }
 
 func issueHTTPCredentialDraft(t *testing.T, pending *service.AuthPendingIdentityService, platform, accountType string, credentials map[string]any) (*http.Cookie, *service.AccountCredentialDraft) {

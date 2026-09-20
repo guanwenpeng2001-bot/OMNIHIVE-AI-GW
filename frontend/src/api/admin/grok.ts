@@ -72,6 +72,7 @@ export interface GrokSSOToOAuthRequest {
 }
 
 export interface GrokSSOToOAuthItemResult {
+  draft?: { credential_draft: string; revision: string; platform: string; type: string; expires_at: string }
   index: number
   name?: string
   email?: string
@@ -80,6 +81,7 @@ export interface GrokSSOToOAuthItemResult {
 }
 
 export interface GrokSSOToOAuthResponse {
+  ready?: GrokSSOToOAuthItemResult[]
   created: GrokSSOToOAuthItemResult[]
   failed: GrokSSOToOAuthItemResult[]
 }

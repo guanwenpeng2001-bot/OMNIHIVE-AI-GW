@@ -42,6 +42,7 @@ type CodexSessionImportRequest struct {
 }
 
 type CodexSessionImportResult struct {
+	Ready    []CodexSessionDraftItem     `json:"ready,omitempty"`
 	Total    int                         `json:"total"`
 	Created  int                         `json:"created"`
 	Updated  int                         `json:"updated"`
@@ -50,6 +51,11 @@ type CodexSessionImportResult struct {
 	Items    []CodexSessionImportItem    `json:"items,omitempty"`
 	Warnings []CodexSessionImportMessage `json:"warnings,omitempty"`
 	Errors   []CodexSessionImportMessage `json:"errors,omitempty"`
+}
+
+type CodexSessionDraftItem struct {
+	Draft   *service.AccountCredentialDraft `json:"draft"`
+	Account CreateAccountRequest            `json:"account"`
 }
 
 type CodexSessionImportItem struct {
@@ -152,231 +158,105 @@ func (h *AccountHandler) ImportCodexSession(c *gin.Context) {
 		return
 	}
 
-	executeAdminIdempotentJSON(c, "admin.accounts.import_codex_session", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
-		return h.importCodexSessions(ctx, req, entries)
-	})
+	if err := requireCredentialDraftStore(h.credentialDrafts); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	binding, err := credentialDraftBinding(c, true)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result, err := h.prepareCodexSessionDrafts(c.Request.Context(), binding, req, entries)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, result)
 }
 
-func (h *AccountHandler) importCodexSessions(ctx context.Context, req CodexSessionImportRequest, entries []codexImportEntry) (CodexSessionImportResult, error) {
-	result := CodexSessionImportResult{
-		Total: len(entries),
-		Items: make([]CodexSessionImportItem, 0, len(entries)),
-	}
-
+func (h *AccountHandler) prepareCodexSessionDrafts(ctx context.Context, binding string, req CodexSessionImportRequest, entries []codexImportEntry) (CodexSessionImportResult, error) {
+	result := CodexSessionImportResult{Total: len(entries)}
 	existingAccounts, err := h.listAccountsFiltered(ctx, service.PlatformOpenAI, service.AccountTypeOAuth, "", "", 0, "", "created_at", "desc")
 	if err != nil {
 		return result, err
 	}
 	index := buildCodexAccountIndex(existingAccounts)
-
-	updateExisting := true
-	if req.UpdateExisting != nil {
-		updateExisting = *req.UpdateExisting
+	seen := map[string]codexSeenIdentity{}
+	// Normalize the complete batch before issuing drafts; malformed entries leave
+	// neither accounts nor an incomplete set of confirmable requests.
+	type preparedEntry struct {
+		account     CreateAccountRequest
+		credentials map[string]any
 	}
-	concurrency := 3
-	if req.Concurrency != nil {
-		concurrency = *req.Concurrency
-	}
-	priority := 50
-	if req.Priority != nil {
-		priority = *req.Priority
-	}
-	credentialExtras := sanitizeCodexImportCredentialExtras(req.CredentialExtras)
-	skipDefaultGroupBind := false
-	if req.SkipDefaultGroupBind != nil {
-		skipDefaultGroupBind = *req.SkipDefaultGroupBind
-	}
-	skipMixedChannelCheck := req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk
-
-	seenIdentity := map[string]codexSeenIdentity{}
+	prepared := make([]preparedEntry, 0, len(entries))
 	for _, entry := range entries {
 		item, err := normalizeCodexImportEntry(entry)
 		if err != nil {
-			result.Failed++
-			result.Items = append(result.Items, CodexSessionImportItem{
-				Index:   entry.Index,
-				Action:  "failed",
-				Message: err.Error(),
-			})
-			result.Errors = append(result.Errors, CodexSessionImportMessage{
-				Index:   entry.Index,
-				Message: err.Error(),
-			})
-			continue
+			return result, err
 		}
-		accountName := buildCodexCreateAccountName(req.Name, item, entry.Index, len(entries))
-		effectiveExpiresAt, credentialExpiresAt, autoPauseOnExpired, expiryWarnings, expiryErr := resolveCodexImportExpiry(req, item)
-		if expiryErr != nil {
-			result.Failed++
-			result.Items = append(result.Items, CodexSessionImportItem{
-				Index:   entry.Index,
-				Name:    accountName,
-				Action:  "failed",
-				Message: expiryErr.Error(),
-			})
-			result.Errors = append(result.Errors, CodexSessionImportMessage{
-				Index:   entry.Index,
-				Name:    accountName,
-				Message: expiryErr.Error(),
-			})
-			continue
-		}
-		item.WarningTexts = append(item.WarningTexts, expiryWarnings...)
-		if credentialExpiresAt != nil {
-			item.Credentials["expires_at"] = credentialExpiresAt.Format(time.RFC3339)
-		}
-		credentials := mergeCodexImportMap(item.Credentials, credentialExtras)
-		extra := mergeCodexImportMap(req.Extra, item.Extra)
-		for _, warning := range item.WarningTexts {
-			result.Warnings = append(result.Warnings, CodexSessionImportMessage{
-				Index:   entry.Index,
-				Name:    accountName,
-				Message: warning,
-			})
-		}
-
-		if duplicateIndex, ok := firstSeenCodexIdentity(seenIdentity, item.IdentityKeys, item.UserID); ok {
-			message := fmt.Sprintf("与第 %d 条导入项重复，已跳过", duplicateIndex)
+		if _, duplicate := firstSeenCodexIdentity(seen, item.IdentityKeys, item.UserID); duplicate {
 			result.Skipped++
-			result.Items = append(result.Items, CodexSessionImportItem{
-				Index:   entry.Index,
-				Name:    accountName,
-				Action:  "skipped",
-				Message: message,
-			})
-			result.Warnings = append(result.Warnings, CodexSessionImportMessage{
-				Index:   entry.Index,
-				Name:    accountName,
-				Message: message,
-			})
 			continue
 		}
-		markCodexIdentitySeen(seenIdentity, item.IdentityKeys, entry.Index, item.UserID)
-
-		existing, matchedKey := index.Find(item.IdentityKeys, item.UserID)
-		if existing != nil && updateExisting {
-			if strings.HasPrefix(matchedKey, "account:") && item.UserID != "" &&
-				codexCredentialString(existing.Credentials, "chatgpt_user_id") == "" {
-				result.Warnings = append(result.Warnings, CodexSessionImportMessage{
-					Index:   entry.Index,
-					Name:    accountName,
-					Message: "已有账号未记录 chatgpt_user_id，已按共享的 chatgpt_account_id 匹配并回填，请确认两者属于同一用户",
-				})
-			}
-			preserveExistingRefresh := item.RefreshToken == "" &&
-				codexCredentialString(existing.Credentials, "refresh_token") != ""
-			if preserveExistingRefresh {
-				result.Warnings = append(result.Warnings, CodexSessionImportMessage{
-					Index:   entry.Index,
-					Name:    accountName,
-					Message: "已有账号包含 refresh_token，本次 accessToken-only 导入已保留自动续期凭据",
-				})
-				effectiveExpiresAt = nil
-				autoPauseOnExpired = nil
-			}
-			mergedCredentials := mergeCodexImportCredentials(existing.Credentials, credentials, item)
-			mergedExtra := mergeCodexImportMap(existing.Extra, extra)
-			updateInput := &service.UpdateAccountInput{
-				Credentials:        mergedCredentials,
-				Extra:              mergedExtra,
-				Concurrency:        req.Concurrency,
-				Priority:           req.Priority,
-				RateMultiplier:     req.RateMultiplier,
-				LoadFactor:         req.LoadFactor,
-				ExpiresAt:          effectiveExpiresAt,
-				AutoPauseOnExpired: autoPauseOnExpired,
-			}
-			if req.ProxyID != nil {
-				updateInput.ProxyID = req.ProxyID
-			}
-			if len(req.GroupIDs) > 0 {
-				groupIDs := append([]int64(nil), req.GroupIDs...)
-				updateInput.GroupIDs = &groupIDs
-				updateInput.SkipMixedChannelCheck = skipMixedChannelCheck
-			}
-			updated, updateErr := h.adminService.UpdateAccount(ctx, existing.ID, updateInput)
-			if updateErr != nil {
-				result.Failed++
-				result.Items = append(result.Items, CodexSessionImportItem{
-					Index:   entry.Index,
-					Name:    accountName,
-					Action:  "failed",
-					Message: updateErr.Error(),
-				})
-				result.Errors = append(result.Errors, CodexSessionImportMessage{
-					Index:   entry.Index,
-					Name:    accountName,
-					Message: updateErr.Error(),
-				})
-				continue
-			}
-			if h.tokenCacheInvalidator != nil && updated != nil {
-				_ = h.tokenCacheInvalidator.InvalidateToken(ctx, updated)
-			}
-			result.Updated++
-			accountID := existing.ID
-			if updated != nil {
-				accountID = updated.ID
-				index.Add(*updated)
-			}
-			result.Items = append(result.Items, CodexSessionImportItem{
-				Index:     entry.Index,
-				Name:      accountName,
-				Action:    "updated",
-				AccountID: accountID,
-			})
-			continue
+		markCodexIdentitySeen(seen, item.IdentityKeys, entry.Index, item.UserID)
+		expiresAt, credentialExpiry, autoPause, _, err := resolveCodexImportExpiry(req, item)
+		if err != nil {
+			return result, err
 		}
-
-		account, createErr := h.adminService.CreateAccount(ctx, &service.CreateAccountInput{
-			Name:                  accountName,
-			Notes:                 req.Notes,
-			Platform:              service.PlatformOpenAI,
-			Type:                  service.AccountTypeOAuth,
-			Credentials:           credentials,
-			Extra:                 extra,
-			ProxyID:               req.ProxyID,
-			Concurrency:           concurrency,
-			Priority:              priority,
-			RateMultiplier:        req.RateMultiplier,
-			LoadFactor:            req.LoadFactor,
-			GroupIDs:              req.GroupIDs,
-			ExpiresAt:             effectiveExpiresAt,
-			AutoPauseOnExpired:    autoPauseOnExpired,
-			SkipDefaultGroupBind:  skipDefaultGroupBind,
-			SkipMixedChannelCheck: skipMixedChannelCheck,
-		})
-		if createErr != nil {
-			result.Failed++
-			result.Items = append(result.Items, CodexSessionImportItem{
-				Index:   entry.Index,
-				Name:    accountName,
-				Action:  "failed",
-				Message: createErr.Error(),
-			})
-			result.Errors = append(result.Errors, CodexSessionImportMessage{
-				Index:   entry.Index,
-				Name:    accountName,
-				Message: createErr.Error(),
-			})
-			continue
+		if credentialExpiry != nil {
+			item.Credentials["expires_at"] = credentialExpiry.Format(time.RFC3339)
 		}
-		if account != nil {
-			index.Add(*account)
+		credentials := mergeCodexImportMap(item.Credentials, sanitizeCodexImportCredentialExtras(req.CredentialExtras))
+		account := CreateAccountRequest{Name: buildCodexCreateAccountName(req.Name, item, entry.Index, len(entries)), Notes: req.Notes,
+			Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{},
+			Extra: mergeCodexImportMap(req.Extra, item.Extra), ProxyID: req.ProxyID, GroupIDs: req.GroupIDs,
+			Concurrency: 3, Priority: 50, RateMultiplier: req.RateMultiplier, LoadFactor: req.LoadFactor,
+			ExpiresAt: expiresAt, AutoPauseOnExpired: autoPause}
+		if req.Concurrency != nil {
+			account.Concurrency = *req.Concurrency
 		}
-		result.Created++
-		accountID := int64(0)
-		if account != nil {
-			accountID = account.ID
+		if req.Priority != nil {
+			account.Priority = *req.Priority
 		}
-		result.Items = append(result.Items, CodexSessionImportItem{
-			Index:     entry.Index,
-			Name:      accountName,
-			Action:    "created",
-			AccountID: accountID,
-		})
+		if existing, _ := index.Find(item.IdentityKeys, item.UserID); existing != nil && (req.UpdateExisting == nil || *req.UpdateExisting) {
+			account.ExistingAccountID = existing.ID
+			account.Name, account.Notes = existing.Name, existing.Notes
+			credentials = mergeCodexImportCredentials(existing.Credentials, credentials, item)
+			plannedIdentity := *existing
+			plannedIdentity.Credentials = credentials
+			index.Add(plannedIdentity)
+			account.Extra = mergeCodexImportMap(existing.Extra, account.Extra)
+			if req.Concurrency == nil {
+				account.Concurrency = existing.Concurrency
+			}
+			if req.Priority == nil {
+				account.Priority = existing.Priority
+			}
+			if req.ProxyID == nil {
+				account.ProxyID = existing.ProxyID
+			}
+			if len(req.GroupIDs) == 0 {
+				account.GroupIDs = existing.GroupIDs
+			}
+			if item.RefreshToken == "" && codexCredentialString(existing.Credentials, "refresh_token") != "" {
+				account.ExpiresAt = nil
+				account.AutoPauseOnExpired = nil
+			}
+		}
+		prepared = append(prepared, preparedEntry{account: account, credentials: credentials})
 	}
-
+	for _, entry := range prepared {
+		draft, err := h.credentialDrafts.IssueAccountCredentialDraft(ctx, binding, service.PlatformOpenAI, service.AccountTypeOAuth, entry.credentials)
+		if err != nil {
+			for _, issued := range result.Ready {
+				_ = h.credentialDrafts.CancelAccountCredentialDraft(ctx, issued.Draft.Reference, binding)
+			}
+			return CodexSessionImportResult{}, err
+		}
+		entry.account.CredentialDraft, entry.account.CredentialDraftRevision = draft.Reference, draft.Revision
+		result.Ready = append(result.Ready, CodexSessionDraftItem{Draft: draft, Account: entry.account})
+	}
 	return result, nil
 }
 
