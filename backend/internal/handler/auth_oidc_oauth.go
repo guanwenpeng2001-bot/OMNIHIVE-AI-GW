@@ -520,28 +520,7 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 }
 
 func (h *AuthHandler) findOIDCCompatEmailUser(ctx context.Context, email string) (*dbent.User, error) {
-	client := h.entClient()
-	if client == nil {
-		return nil, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready")
-	}
-
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" ||
-		strings.HasSuffix(email, service.LinuxDoConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.OIDCConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.WeChatConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.DingTalkConnectSyntheticEmailDomain) {
-		return nil, nil
-	}
-
-	userEntity, err := h.authService.FindUserByNormalizedEmail(ctx, email)
-	if err != nil {
-		if errors.Is(err, service.ErrUserNotFound) {
-			return nil, nil
-		}
-		return nil, infraerrors.InternalServer("COMPAT_EMAIL_LOOKUP_FAILED", "failed to look up compat email user").WithCause(err)
-	}
-	return userEntity, nil
+	return h.authService.FindOIDCCompatEmailUser(ctx, email)
 }
 
 func (h *AuthHandler) createOIDCOAuthChoicePendingSession(
@@ -677,8 +656,7 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	client := h.entClient()
-	if client == nil {
+	if _, err := h.pendingIdentityService(); err != nil {
 		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready"))
 		return
 	}
