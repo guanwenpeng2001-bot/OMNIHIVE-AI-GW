@@ -172,8 +172,8 @@ export async function startOAuthBinding(
   if (!startURL) {
     return
   }
-  await prepareOAuthBindAccessTokenCookie()
-  window.location.href = startURL
+  const csrfToken = await prepareOAuthBindAccessTokenCookie()
+  window.location.href = `${startURL}&csrf_token=${encodeURIComponent(csrfToken)}`
 }
 
 export async function getAffiliateDetail(): Promise<UserAffiliateDetail> {

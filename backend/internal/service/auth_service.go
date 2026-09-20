@@ -1407,8 +1407,12 @@ func isReservedEmail(email string) bool {
 
 // GenerateToken 生成JWT access token
 // 使用新的access_token_expire_minutes配置项（如果配置了），否则回退到expire_hour。
-// 会话指纹（IP/UA）从 ctx 中提取（由 HTTP 入口中间件注入），缺失时生成不带绑定的 token。
+// 会话指纹（IP/UA）从 ctx 中提取；开启绑定后缺失指纹则拒绝签发。
 func (s *AuthService) GenerateToken(ctx context.Context, user *User) (string, error) {
+	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && sessionBindingHashFromContext(ctx) == "" {
+		return "", ErrSessionBindingMismatch
+	}
+
 	sessionID, err := randomHexString(8)
 	if err != nil {
 		return "", fmt.Errorf("generate session id: %w", err)
@@ -1481,6 +1485,12 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	if err != nil && !errors.Is(err, ErrTokenExpired) {
 		return "", err
 	}
+	// Legacy unbound credentials cannot outlive their original expiry when
+	// binding is enabled, including through this legacy access-token refresh API.
+	if errors.Is(err, ErrTokenExpired) && claims.BindingHash == "" &&
+		s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) {
+		return "", ErrTokenExpired
+	}
 
 	// 获取最新的用户信息
 	user, err := s.userRepo.GetByID(ctx, claims.UserID)
@@ -1505,7 +1515,7 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 
 	// 会话绑定检查：指纹变化的旧 token 不允许换发新 token。
 	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && claims.BindingHash != "" {
-		if current := sessionBindingHashFromContext(ctx); current != "" && current != claims.BindingHash {
+		if current := sessionBindingHashFromContext(ctx); current == "" || current != claims.BindingHash {
 			_ = s.RevokeSessionFamily(ctx, claims.SessionID)
 			return "", ErrSessionBindingMismatch
 		}
@@ -1687,6 +1697,10 @@ type TokenPairWithUser struct {
 // GenerateTokenPair 生成Access Token和Refresh Token对
 // familyID: 可选的Token家族ID，用于Token轮转时保持家族关系
 func (s *AuthService) GenerateTokenPair(ctx context.Context, user *User, familyID string) (*TokenPair, error) {
+	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && sessionBindingHashFromContext(ctx) == "" {
+		return nil, ErrSessionBindingMismatch
+	}
+
 	// 检查 refreshTokenCache 是否可用
 	if s.refreshTokenCache == nil {
 		return nil, errors.New("refresh token cache not configured")
@@ -1837,7 +1851,7 @@ func (s *AuthService) RefreshTokenPair(ctx context.Context, refreshToken string)
 	// 会话绑定检查：IP/UA 任一变化即撤销整个会话家族。
 	// data.BindingHash 为空表示功能开启前签发的旧会话，放行并在轮转时补齐绑定。
 	if s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) && data.BindingHash != "" {
-		if current := sessionBindingHashFromContext(ctx); current != "" && current != data.BindingHash {
+		if current := sessionBindingHashFromContext(ctx); current == "" || current != data.BindingHash {
 			_ = s.refreshTokenCache.DeleteTokenFamily(ctx, data.FamilyID)
 			logger.LegacyPrintf("service.auth", "[Auth] Session binding mismatch on refresh for user %d, family revoked", data.UserID)
 			return nil, ErrSessionBindingMismatch

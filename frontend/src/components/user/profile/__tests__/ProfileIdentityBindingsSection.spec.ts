@@ -21,6 +21,11 @@ const userApiMocks = vi.hoisted(() => ({
   unbindAuthIdentity: vi.fn(),
 }))
 
+vi.mock('@/api/auth', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/api/auth')>()
+  return { ...actual, prepareOAuthBindAccessTokenCookie: vi.fn().mockResolvedValue('bind-csrf-ticket') }
+})
+
 vi.mock('vue-router', () => ({
   useRoute: () => routeState,
 }))

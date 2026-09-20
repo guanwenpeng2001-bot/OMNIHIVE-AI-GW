@@ -57,6 +57,8 @@ func TestAuthRoutesRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {
 		"/api/v1/auth/login/2fa",
 		"/api/v1/auth/send-verify-code",
 		"/api/v1/auth/oauth/pending/send-verify-code",
+		"/api/v1/auth/oauth/bind-token",
+		"/api/v1/auth/admin-ws-ticket",
 	}
 
 	for _, path := range paths {
@@ -69,5 +71,38 @@ func TestAuthRoutesRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {
 
 		require.Equal(t, http.StatusTooManyRequests, w.Code, "path=%s", path)
 		require.Contains(t, w.Body.String(), "rate limit exceeded", "path=%s", path)
+	}
+}
+
+// GET navigation must receive the same fail-closed protection as POST starts.
+func TestOAuthGetStartRateLimitFailCloseWhenRedisUnavailable(t *testing.T) {
+	redisClient := redis.NewClient(&redis.Options{
+		Addr:         "127.0.0.1:1",
+		DialTimeout:  50 * time.Millisecond,
+		ReadTimeout:  50 * time.Millisecond,
+		WriteTimeout: 50 * time.Millisecond,
+		MaxRetries:   -1,
+	})
+	t.Cleanup(func() { _ = redisClient.Close() })
+	router := newAuthRoutesTestRouter(redisClient)
+	for _, provider := range []string{"linuxdo", "github", "google", "wechat", "oidc", "dingtalk"} {
+		paths := []string{"/api/v1/auth/oauth/" + provider + "/start"}
+		if provider != "github" && provider != "google" {
+			paths = append(paths, "/api/v1/auth/oauth/"+provider+"/bind/start")
+		}
+		if provider == "wechat" {
+			paths = append(paths, "/api/v1/auth/oauth/wechat/payment/start")
+		}
+		for _, path := range paths {
+			t.Run(path, func(t *testing.T) {
+				request := httptest.NewRequest(http.MethodGet, path, nil)
+				request.RemoteAddr = "203.0.113.10:12345"
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, request)
+				require.Equal(t, http.StatusTooManyRequests, recorder.Code)
+				require.Contains(t, recorder.Body.String(), "rate limit exceeded")
+				require.Empty(t, recorder.Header().Get("Location"))
+			})
+		}
 	}
 }

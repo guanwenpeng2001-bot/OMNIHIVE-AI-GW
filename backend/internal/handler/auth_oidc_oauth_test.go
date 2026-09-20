@@ -160,10 +160,11 @@ func TestOIDCOAuthBindStartRedirectsAndSetsBindCookies(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/oidc/bind/start?intent=bind_current_user&redirect=/settings/connections", nil)
 	c.Request = req
 	c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 84})
+	expectedUserID := prepareOAuthBindStart(t, handler, c, 84)
 
 	handler.OIDCOAuthStart(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "issuer.example.com/oauth/authorize")
 	require.Contains(t, location, "client_id=oidc-client")
@@ -184,7 +185,7 @@ func TestOIDCOAuthBindStartRedirectsAndSetsBindCookies(t *testing.T) {
 	require.NotNil(t, bindCookie)
 	userID, err := parseOAuthBindUserCookieValue(decodeCookieValueForTest(t, bindCookie.Value), "test-secret")
 	require.NoError(t, err)
-	require.Equal(t, int64(84), userID)
+	require.Equal(t, expectedUserID, userID)
 }
 
 func TestOIDCOAuthStartOmitsPKCEAndNonceWhenDisabled(t *testing.T) {
@@ -211,7 +212,7 @@ func TestOIDCOAuthStartOmitsPKCEAndNonceWhenDisabled(t *testing.T) {
 
 	handler.OIDCOAuthStart(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.NotContains(t, location, "code_challenge=")
 	require.NotContains(t, location, "nonce=")
@@ -263,9 +264,11 @@ func TestOIDCOAuthCallbackAllowsOptionalPKCEAndIDTokenValidation(t *testing.T) {
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-123"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback", recorder.Header().Get("Location"))
 	require.NotNil(t, findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName))
 }
@@ -313,15 +316,17 @@ func TestOIDCOAuthCallbackCreatesLoginPendingSessionForExistingIdentityUser(t *t
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-123"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -380,13 +385,15 @@ func TestOIDCOAuthCallbackRejectsDisabledExistingIdentityUser(t *testing.T) {
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-disabled"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Nil(t, findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName))
 	assertOAuthRedirectError(t, recorder.Header().Get("Location"), "session_error", "USER_NOT_ACTIVE")
 
-	count, err := client.PendingAuthSession.Query().Count(ctx)
+	count, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
 }
@@ -426,15 +433,17 @@ func TestOIDCOAuthCallbackCreatesBindPendingSessionForCompatEmailUser(t *testing
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-compat"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -492,13 +501,15 @@ func TestOIDCOAuthCallbackAllowsCompatEmailBindWhenUpstreamEmailIsUnverified(t *
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-unverified-compat"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback#error=email_not_verified&error_message=email+is+not+verified", recorder.Header().Get("Location"))
 	require.Nil(t, findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName))
 
-	count, err := client.PendingAuthSession.Query().Count(ctx)
+	count, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
 }
@@ -528,16 +539,18 @@ func TestOIDCOAuthCallbackCreatesChoicePendingSessionWhenSignupRequiresInvite(t 
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-456"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
 	ctx := context.Background()
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -587,15 +600,17 @@ func TestOIDCOAuthCallbackCreatesBindPendingSessionForCurrentUser(t *testing.T) 
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-bind"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/oidc/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -685,7 +700,7 @@ func TestCompleteOIDCOAuthRegistrationAppliesPendingAdoptionDecision(t *testing.
 	require.True(t, decision.AdoptDisplayName)
 	require.True(t, decision.AdoptAvatar)
 
-	consumed, err := client.PendingAuthSession.Query().
+	consumed, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.IDEQ(session.ID)).
 		Only(ctx)
 	require.NoError(t, err)
@@ -954,13 +969,15 @@ func TestTryOIDCVerifiedEmailFastPathCreatesUserAndIdentity(t *testing.T) {
 		},
 	)
 	require.True(t, completed)
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "/auth/oidc/callback")
-	require.Contains(t, location, "access_token=")
-	require.Contains(t, location, "refresh_token=")
-	require.Contains(t, location, "token_type=Bearer")
+	require.Contains(t, location, "code=")
+	require.NotContains(t, location, "access_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.NotContains(t, location, "token_type=")
 
 	user, err := client.User.Query().Where(dbuser.EmailEQ("fastpath@example.com")).Only(ctx)
 	require.NoError(t, err)
@@ -977,7 +994,7 @@ func TestTryOIDCVerifiedEmailFastPathCreatesUserAndIdentity(t *testing.T) {
 	require.Equal(t, "fastpath@example.com", identityRecord.Metadata["email"])
 	require.Equal(t, true, identityRecord.Metadata["email_verified"])
 
-	pendingCount, err := client.PendingAuthSession.Query().Count(ctx)
+	pendingCount, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, pendingCount)
 }
@@ -1007,18 +1024,22 @@ func TestOIDCOAuthCallbackVerifiedEmailFastPathIssuesTokenWithoutPendingSession(
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-fast-callback"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "/auth/oidc/callback#")
-	require.Contains(t, location, "access_token=")
-	require.Contains(t, location, "refresh_token=")
-	require.Contains(t, location, "token_type=Bearer")
+	require.Contains(t, location, "code=")
+	require.NotContains(t, location, "access_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.NotContains(t, location, "token_type=")
 	fragmentValues := parseOAuthRedirectFragment(t, location)
 	require.Equal(t, "/dashboard", fragmentValues.Get("redirect"))
 	requireCookieCleared(t, recorder, oauthPendingSessionCookieName)
-	requireCookieCleared(t, recorder, oauthPendingBrowserCookieName)
+	require.NotNil(t, findCookie(recorder.Result().Cookies(), oauthPendingBrowserCookieName))
 
 	ctx := context.Background()
 	user, err := client.User.Query().Where(dbuser.EmailEQ("oidc-fast-callback@example.com")).Only(ctx)
@@ -1038,7 +1059,7 @@ func TestOIDCOAuthCallbackVerifiedEmailFastPathIssuesTokenWithoutPendingSession(
 	require.Equal(t, "OIDC Fast Callback", identity.Metadata["suggested_display_name"])
 	require.NotEqual(t, identity.Metadata["email"], identity.Metadata["synthetic_email"])
 
-	pendingCount, err := client.PendingAuthSession.Query().Count(ctx)
+	pendingCount, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, pendingCount)
 }
@@ -1069,9 +1090,11 @@ func TestOIDCOAuthCallbackVerifiedEmailFastPathBackendModeBlocksBeforeUserCreati
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-backend-mode"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "oidc", oidcOAuthStateCookieName)
+
 	handler.OIDCOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	assertOAuthRedirectError(t, recorder.Header().Get("Location"), "login_blocked", "BACKEND_MODE_ADMIN_ONLY")
 	requireCookieCleared(t, recorder, oauthPendingSessionCookieName)
 	requireCookieCleared(t, recorder, oauthPendingBrowserCookieName)
@@ -1085,7 +1108,7 @@ func TestOIDCOAuthCallbackVerifiedEmailFastPathBackendModeBlocksBeforeUserCreati
 		Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, identityCount)
-	pendingCount, err := client.PendingAuthSession.Query().Count(ctx)
+	pendingCount, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, pendingCount)
 }

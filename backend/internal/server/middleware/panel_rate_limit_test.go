@@ -313,3 +313,17 @@ func TestIsPubliclyRoutableClientIP(t *testing.T) {
 	require.False(t, isPubliclyRoutableClientIP(""))
 	require.False(t, isPubliclyRoutableClientIP("not-an-ip"))
 }
+
+func TestPanelRateLimiterWriteFailsClosedWithIdentityOnRedisError(t *testing.T) {
+	allower := &fakePanelAllower{err: errors.New("redis down")}
+	limiter := &PanelRateLimiter{limiter: allower, settingService: newPanelRateLimitTestService(t, `{"enabled":true,"user_rpm":10,"heavy_rpm":10,"exempt_admin":false,"public_ip_rpm":10}`)}
+	router := newPanelTestRouter(limiter.Global(), &panelTestIdentity{userID: 7, role: service.RoleAdmin})
+	executed := false
+	router.POST("/test", func(c *gin.Context) { executed = true; c.Status(http.StatusOK) })
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodPost, "/test", nil))
+	require.Equal(t, http.StatusServiceUnavailable, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "RATE_LIMIT_UNAVAILABLE")
+	require.Equal(t, "1", recorder.Header().Get("Retry-After"))
+	require.False(t, executed)
+}

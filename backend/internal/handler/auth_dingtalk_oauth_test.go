@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -29,7 +30,7 @@ func TestDingTalkOAuthStart_Disabled(t *testing.T) {
 }
 
 func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
-	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected"} {
+	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected", "provider_error", "missing_params"} {
 		testingT.Run(scenario, func(testingT *testing.T) {
 			handler, database := newOAuthPendingFlowTestHandler(testingT, false)
 			ctx := context.Background()
@@ -87,11 +88,24 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 			request.AddCookie(encodedCookie(dingTalkOAuthBindUserCookieName, buildEncodedOAuthBindUserCookie(testingT, user.ID, handler.cfg.JWT.Secret)))
 			request.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
 			requestContext.Request = request
+			prepareOAuthCallbackState(testingT, handler, requestContext, "dingtalk", dingTalkOAuthStateCookieName)
+			if scenario == "provider_error" {
+				requestContext.Request.URL.RawQuery = "error=access_denied"
+			}
+			if scenario == "missing_params" {
+				requestContext.Request.URL.RawQuery = ""
+			}
 			handler.DingTalkOAuthCallback(requestContext)
+			for _, cookieName := range []string{dingTalkOAuthStateCookieName, dingTalkOAuthRedirectCookie, dingTalkOAuthIntentCookieName, oauthPromoCodeCookieName} {
+				deletedCookie := findCookie(recorder.Result().Cookies(), cookieName)
+				require.NotNil(testingT, deletedCookie, cookieName)
+				require.Equal(testingT, -1, deletedCookie.MaxAge, cookieName)
+			}
+
 			require.Equal(testingT, http.StatusFound, recorder.Code)
 			if scenario != "bind" {
 				require.NotEmpty(testingT, parseOAuthRedirectFragment(testingT, recorder.Header().Get("Location")).Get("error"))
-				count, err := database.PendingAuthSession.Query().Count(ctx)
+				count, err := database.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 				require.NoError(testingT, err)
 				require.Zero(testingT, count)
 				if scenario == "state_mismatch" {
@@ -103,7 +117,7 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 				return
 			}
 			require.Len(testingT, calls, 5)
-			session, err := database.PendingAuthSession.Query().Only(ctx)
+			session, err := database.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Only(ctx)
 			require.NoError(testingT, err)
 			require.Equal(testingT, "fixture-union", session.ProviderSubject)
 			require.Equal(testingT, user.ID, *session.TargetUserID)
