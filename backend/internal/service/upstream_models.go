@@ -880,6 +880,7 @@ func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, down
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	resp, err := s.httpUpstream.DoWithTLS(req, download.proxyURL, download.accountID, download.concurrency, download.profile)
 	if err != nil {
 		return nil, err
