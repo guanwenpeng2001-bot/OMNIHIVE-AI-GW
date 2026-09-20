@@ -54,6 +54,14 @@
 
 预览添加仅检查当前草稿身份、有效结果、可添加 ID 和非加载状态。完整发现且能力稀疏必须可应用；部分发现可添加选择，但不能删除旧完整快照。切换身份后旧异步响应不得回填；选择变化只更新规则 review，不毁掉发现列表；identity/rules/snapshot CAS 必须保留。没有发现接口时仍可同平台候选加手工映射保存，不强制联网或收费探测。
 
+### 授权草稿生命周期
+
+OAuth/Setup/Cursor 授权成功后必须仅交付服务端短期 opaque 草稿引用，复用现有 OAuth session/缓存设施保存授权材料；前端必须只持该引用及非敏感字段，不得持有完整 exchange secret。草稿必须绑定发起授权的会话并受 TTL 约束；其他会话不得预览或消费，取消或过期后未消费草稿必须失效且不得建号。
+
+最终确认必须校验会话、TTL 和当前 identity/rules/snapshot revision，并将幂等消费草稿与创建账号作为一个原子操作；授权回调和预览不得提前建号。并发确认及确认成功后响应丢失的同一逻辑提交重试必须复用消费结果，不得重复写账号；确认失败不得留下已消费却未建号的半状态。
+
+验收必须覆盖三种授权入口、跨会话引用、取消、过期、并发确认和确认响应丢失重试：最终确认前账号新增数必须为零，同一有效草稿成功确认的账号新增数必须恰为一，浏览器可见字段不得包含授权 secret。
+
 ## 极简模型列表与单模型字段
 
 `GET /v1/models` 和 `GET /v1/models/:id` 必须由请求协议选择 DTO，默认 OpenAI，存在 `anthropic-version` 时选择完整 Anthropic 协议；不得按组平台或 User-Agent 猜测。所有平台来源均可投影为 OpenAI 条目，不能外层 OpenAI、内层 Anthropic。响应必须带相应 `Vary: anthropic-version`，不得跨 Key 复用授权响应。
@@ -131,7 +139,15 @@ Anthropic 必须支持 `limit`、`after_id`、`before_id`，按可信创建时�
 | 暴露控制 | `allow_image_generation` 等既有开关只控制暴露，不能替代 adapter；保存/迁移必须保留旧明确设置，新账号默认按实际能力生成 |
 | 生命周期 | 所有 HTTP/媒体/搜索/异步/WS 均建 request plan；同步按 request、异步按 job、实时按 session+turn 冻结授权、动作、模型、报价、attempt budget、lease/receipt |
 
-必须保留 Claude/OpenAI 两主干，不新增第三流水线。最大尝试为首次加既有 `max_account_switches`，平台修复/重试也计入一个预算并受总时限约束。心跳不算语义内容；首语义内容后不得跨上游重放。取消必须传给上游，已观察 usage/interrupted 必须留收据；媒体超时可能已提交时先查幂等键/任务 ID，不盲目重发。任务查询、取消、下载必须校验 owner Key/workspace、版本与上游绑定。
+### 请求生命周期与恢复边界
+
+必须保留 Claude/OpenAI 两主干，不新增第三流水线。最大尝试为首次加既有 `max_account_switches`，平台修复/重试也计入一个预算并受总时限约束。客户端取消和总 deadline 必须持续传到上游，重试不得重置总 deadline；独立短尾处理必须仅持久化已取得的计费证据，不得继续生成或 drain 上游以等待更多用量。
+
+换路必须同时满足“明确未提交副作用”和“未输出语义内容”两个前提，缺一不得换路；心跳不算语义内容，但仅收到心跳不能证明未提交副作用。首语义内容后不得跨上游重放；提交结果不明也不得按未提交处理。媒体超时可能已提交时必须先查幂等键/任务 ID，不得盲目重发。任务查询、取消、下载必须校验 owner Key/workspace、版本与上游绑定。
+
+已观察 usage/interrupted 必须留收据；计费失败及 panic 恢复必须复用现有 receipt/outbox 幂等重试、补结算与回收机制，不得重复扣款、丢弃已取得证据或保留绕过该机制的 nil settlement 旧分叉。取消不能承诺供应商不收费；供应商流无通用 resume，协议说明不得宣称已实现供应商未提供的续传，也不得新增无限 SSE 缓存。部分 200 断流必须按协议给出 error/terminal 边界，幂等重试不得透明重放或再次起生成。
+
+验收必须覆盖换路双前提的全部组合：仅二者同时成立才允许换路；只有心跳但副作用已提交或未知时，上游新增发送数必须为零。慢滴流和重试必须受原总 deadline 截止；取消后短尾不得继续生成，计费失败及 panic 恢复必须保留证据且同一收据最多结算一次。
 
 ### 全部产品的适配归属与硬冲突处理
 
@@ -212,6 +228,12 @@ Google 原生 `/v1beta` 的 query `key` 继续兼容且全链 URI/日志/错误�
 
 后续子分支必须按共通规格运行既有全门禁与相邻行为测试；required 必须实际 PASS，不得把 Skip/缺依赖算通过。身份/权限/预算/结算另跑对应隔离集成测试。U5 不要求真实供应商实机，不得因此声称线上权限或地区风控已经验证。本地 3000/8080 浏览器验证由协调者统一执行，worker 不自启/重启主实例。过程证据只写主工作树 `.pi`，本合同不新增扫描器、完成度开关或测试百分比门槛。
 
+### 后续实现的保留约束
+
+后续实现必须保留 18 产品入口、离线 catalog 与 release pin、平台预设、模态分块和折叠诊断；诊断降噪必须保留可展开的诊断内容，覆盖率横幅必须保持原显示逻辑。前端必须复用既有 Select/Modal/ConfirmDialog/token，保持全局设计语言；后端必须保持 handler→service→repository/domain 分层，不得为单平台另起服务流水线。
+
+后续新增配置必须仅限登记条目明确要求的周期/TPM/权重/区域/TTL，并可回查对应条目；不得新增“实验平台”或“实现完成度”开关。验收必须检查模态区块与折叠诊断仍可用、组件与分层沿用既有设施，并逐项核对新增配置的登记依据，不得用删除诊断或开关代替功能交付。
+
 ## 附录：共享文件锁与夹具归属
 
 ### 文件锁的取得、释放与串行顺序
@@ -282,7 +304,7 @@ Google 原生 `/v1beta` 的 query `key` 继续兼容且全链 URI/日志/错误�
 | `job_test` 与迁移测试管理连接 | `upstream-job-integrity`/schema 所属任务及 required catalog 当前运行者按协调者时段独占；变量分别为既有 `UPSTREAM_JOB_TEST_DSN`、`NEW_PLATFORMS_TEST_POSTGRES_DSN` | required catalog 的 PostgreSQL reconfirmation/CAS 哨兵也必须设置 `UPSTREAM_JOB_TEST_DSN` 指向独占 job_test；仅设置 stats_test 和 Redis 不足以通过；未知 DSN 不猜、不向日志输出凭据 |
 | HTTP 模型列表/错误/授权夹具 | `gateway-protocol-contract` 主责协议序列化，`visible-model-policy` 主责有效集合，`action-dispatch` 主责动作负例；共享 fixture 文件按上述顺序释放 | 三协议严格 schema、时间/游标、404/400、撤权、别名，不用候选充授权 |
 | HTTP 身份/发现/catalog/reload 夹具 | preview → discovery → identity → registry 各任务只写相邻行为夹具；同文件按依赖串行 | 身份 CAS、partial 保旧、坏签名、换代/断网、双实例失效 |
-| SSE 取消/心跳/断流夹具 | `stream-cancellation-repair` → `request-lifecycle`，协议事件归 `gateway-protocol-contract` 串行接线，供应商 wire 归对应 `actions-*` | 心跳后可安全换路、语义内容后不重放，取消传上游，已发生 usage 不丢 |
+| SSE 取消/心跳/断流夹具 | `stream-cancellation-repair` → `request-lifecycle`，协议事件归 `gateway-protocol-contract` 串行接线，供应商 wire 归对应 `actions-*` | 心跳后仍必须同时明确未提交副作用且未输出语义内容才可换路；副作用已提交/未知或已有语义内容不得重放；取消与总 deadline 传上游，短尾不生成，计费失败/panic 经 receipt/outbox 恢复且已发生 usage 不丢 |
 | WS/Realtime、multipart、二进制供应商夹具 | 每个 `actions-*` 独占本供应商 fixture；公共 session/turn/receipt 由 `request-lifecycle`，入口矩阵由 `multimodal-ingress` 汇总 | owner/取消/超时/价格/重复任务正反例；仅有 404 不能证明已有动作支持 |
 | 协议/全平台集成矩阵 | `multimodal-ingress` 集中核验，`integrated-acceptance` 最终复核；缺陷交原所有者修复 | 保留 18 平台全部动作格，硬冲突未裁决不得写全完成 |
 | 本地 Vite 3000 / 后端 8080 与双实例演练 | 协调者统一启动、点选和分配；worker 不自起/重启主服务，额外 8081 仅由协调者调度 | 三协议请求、页面、数据库/收据一致；模拟外部连通必须标为夹具 |
