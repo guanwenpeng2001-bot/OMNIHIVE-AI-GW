@@ -183,6 +183,7 @@ export interface AdminGroup extends Group {
 }
 
 export interface CreateGroupRequest {
+  account_type?: '' | 'bedrock' | 'service_account'
   name: string
   description?: string | null
   platform?: GroupPlatform
@@ -248,6 +249,7 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
+  account_type?: '' | 'bedrock' | 'service_account'
   name?: string
   description?: string | null
   platform?: GroupPlatform

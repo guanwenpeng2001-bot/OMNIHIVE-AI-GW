@@ -55,6 +55,20 @@ func (_u *UserPlatformQuotaUpdate) ClearDeletedAt() *UserPlatformQuotaUpdate {
 	return _u
 }
 
+// SetAccountType sets the "account_type" field.
+func (_u *UserPlatformQuotaUpdate) SetAccountType(v string) *UserPlatformQuotaUpdate {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdate) SetNillableAccountType(v *string) *UserPlatformQuotaUpdate {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
+	return _u
+}
+
 // SetUserID sets the "user_id" field.
 func (_u *UserPlatformQuotaUpdate) SetUserID(v int64) *UserPlatformQuotaUpdate {
 	_u.mutation.SetUserID(v)
@@ -347,6 +361,11 @@ func (_u *UserPlatformQuotaUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UserPlatformQuotaUpdate) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := userplatformquota.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "UserPlatformQuota.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := userplatformquota.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UserPlatformQuota.platform": %w`, err)}
@@ -378,6 +397,9 @@ func (_u *UserPlatformQuotaUpdate) sqlSave(ctx context.Context) (_node int, err 
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(userplatformquota.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(userplatformquota.FieldAccountType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(userplatformquota.FieldPlatform, field.TypeString, value)
@@ -517,6 +539,20 @@ func (_u *UserPlatformQuotaUpdateOne) SetNillableDeletedAt(v *time.Time) *UserPl
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *UserPlatformQuotaUpdateOne) ClearDeletedAt() *UserPlatformQuotaUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *UserPlatformQuotaUpdateOne) SetAccountType(v string) *UserPlatformQuotaUpdateOne {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *UserPlatformQuotaUpdateOne) SetNillableAccountType(v *string) *UserPlatformQuotaUpdateOne {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
 	return _u
 }
 
@@ -825,6 +861,11 @@ func (_u *UserPlatformQuotaUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UserPlatformQuotaUpdateOne) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := userplatformquota.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "UserPlatformQuota.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Platform(); ok {
 		if err := userplatformquota.PlatformValidator(v); err != nil {
 			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UserPlatformQuota.platform": %w`, err)}
@@ -873,6 +914,9 @@ func (_u *UserPlatformQuotaUpdateOne) sqlSave(ctx context.Context) (_node *UserP
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(userplatformquota.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(userplatformquota.FieldAccountType, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.Platform(); ok {
 		_spec.SetField(userplatformquota.FieldPlatform, field.TypeString, value)

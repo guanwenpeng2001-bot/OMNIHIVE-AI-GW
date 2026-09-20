@@ -49,6 +49,7 @@ export type CompositeRouteEndpoint =
 export type CompositeRouteSource = 'route' | 'detector' | string
 
 export interface CompositeModelRoute {
+  account_type?: '' | 'bedrock' | 'service_account'
   id: number
   group_id: number
   public_model: string
@@ -64,6 +65,7 @@ export interface CompositeModelRoute {
 }
 
 export interface CompositeModelRouteInput {
+  account_type?: '' | 'bedrock' | 'service_account'
   public_model: string
   match_type: CompositeRouteMatchType
   target_platform: Exclude<GroupPlatform, 'composite'>
@@ -80,6 +82,7 @@ export interface CompositeRoutePreviewRequest {
 }
 
 export interface CompositeRouteDecision {
+  account_type?: '' | 'bedrock' | 'service_account'
   matched: boolean
   source: CompositeRouteSource
   group_id: number

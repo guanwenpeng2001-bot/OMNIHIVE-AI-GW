@@ -70,6 +70,11 @@ func DeletedAt(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDeletedAt, v))
 }
 
+// AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
+func AccountType(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountType, v))
+}
+
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
 func Name(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldName, v))
@@ -473,6 +478,71 @@ func DeletedAtIsNil() predicate.Group {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// AccountTypeEQ applies the EQ predicate on the "account_type" field.
+func AccountTypeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountType, v))
+}
+
+// AccountTypeNEQ applies the NEQ predicate on the "account_type" field.
+func AccountTypeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountType, v))
+}
+
+// AccountTypeIn applies the In predicate on the "account_type" field.
+func AccountTypeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccountType, vs...))
+}
+
+// AccountTypeNotIn applies the NotIn predicate on the "account_type" field.
+func AccountTypeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccountType, vs...))
+}
+
+// AccountTypeGT applies the GT predicate on the "account_type" field.
+func AccountTypeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccountType, v))
+}
+
+// AccountTypeGTE applies the GTE predicate on the "account_type" field.
+func AccountTypeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccountType, v))
+}
+
+// AccountTypeLT applies the LT predicate on the "account_type" field.
+func AccountTypeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccountType, v))
+}
+
+// AccountTypeLTE applies the LTE predicate on the "account_type" field.
+func AccountTypeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccountType, v))
+}
+
+// AccountTypeContains applies the Contains predicate on the "account_type" field.
+func AccountTypeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldAccountType, v))
+}
+
+// AccountTypeHasPrefix applies the HasPrefix predicate on the "account_type" field.
+func AccountTypeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldAccountType, v))
+}
+
+// AccountTypeHasSuffix applies the HasSuffix predicate on the "account_type" field.
+func AccountTypeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldAccountType, v))
+}
+
+// AccountTypeEqualFold applies the EqualFold predicate on the "account_type" field.
+func AccountTypeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldAccountType, v))
+}
+
+// AccountTypeContainsFold applies the ContainsFold predicate on the "account_type" field.
+func AccountTypeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldAccountType, v))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.

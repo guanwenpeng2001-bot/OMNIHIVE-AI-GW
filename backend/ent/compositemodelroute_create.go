@@ -65,6 +65,20 @@ func (_c *CompositeModelRouteCreate) SetNillableDeletedAt(v *time.Time) *Composi
 	return _c
 }
 
+// SetAccountType sets the "account_type" field.
+func (_c *CompositeModelRouteCreate) SetAccountType(v string) *CompositeModelRouteCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *CompositeModelRouteCreate) SetNillableAccountType(v *string) *CompositeModelRouteCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
+	}
+	return _c
+}
+
 // SetGroupID sets the "group_id" field.
 func (_c *CompositeModelRouteCreate) SetGroupID(v int64) *CompositeModelRouteCreate {
 	_c.mutation.SetGroupID(v)
@@ -231,6 +245,10 @@ func (_c *CompositeModelRouteCreate) defaults() error {
 		v := compositemodelroute.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := compositemodelroute.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
 	if _, ok := _c.mutation.MatchType(); !ok {
 		v := compositemodelroute.DefaultMatchType
 		_c.mutation.SetMatchType(v)
@@ -265,6 +283,14 @@ func (_c *CompositeModelRouteCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "CompositeModelRoute.updated_at"`)}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "CompositeModelRoute.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.GroupID(); !ok {
 		return &ValidationError{Name: "group_id", err: errors.New(`ent: missing required field "CompositeModelRoute.group_id"`)}
@@ -356,6 +382,10 @@ func (_c *CompositeModelRouteCreate) createSpec() (*CompositeModelRoute, *sqlgra
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(compositemodelroute.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
 	}
 	if value, ok := _c.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)
@@ -485,6 +515,18 @@ func (u *CompositeModelRouteUpsert) UpdateDeletedAt() *CompositeModelRouteUpsert
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *CompositeModelRouteUpsert) ClearDeletedAt() *CompositeModelRouteUpsert {
 	u.SetNull(compositemodelroute.FieldDeletedAt)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsert) SetAccountType(v string) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateAccountType() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldAccountType)
 	return u
 }
 
@@ -685,6 +727,20 @@ func (u *CompositeModelRouteUpsertOne) UpdateDeletedAt() *CompositeModelRouteUps
 func (u *CompositeModelRouteUpsertOne) ClearDeletedAt() *CompositeModelRouteUpsertOne {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsertOne) SetAccountType(v string) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateAccountType() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateAccountType()
 	})
 }
 
@@ -1071,6 +1127,20 @@ func (u *CompositeModelRouteUpsertBulk) UpdateDeletedAt() *CompositeModelRouteUp
 func (u *CompositeModelRouteUpsertBulk) ClearDeletedAt() *CompositeModelRouteUpsertBulk {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsertBulk) SetAccountType(v string) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateAccountType() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateAccountType()
 	})
 }
 

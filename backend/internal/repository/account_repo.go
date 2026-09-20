@@ -199,6 +199,14 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	}
 
 	account.ID = created.ID
+	if account.Platform == service.PlatformBedrock || account.Platform == "vertex" {
+		identity, readErr := client.Account.Query().Where(dbaccount.IDEQ(created.ID)).Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldExtra).Only(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		account.Platform = identity.Platform
+		account.Extra = copyJSONMap(identity.Extra)
+	}
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
 	return nil
@@ -232,6 +240,9 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	}
 
 	if err := createAccountRecord(ctx, txClient, account); err != nil {
+		return err
+	}
+	if err := validateHostedGroupBindings(ctx, txClient, []int64{account.ID}, groupIDs); err != nil {
 		return err
 	}
 	if len(groups) > 0 {
@@ -1012,7 +1023,7 @@ func (r *accountRepository) accountListFilteredQuery(platform, accountType, stat
 	q := r.client.Account.Query()
 
 	if platform != "" {
-		q = q.Where(dbaccount.PlatformEQ(platform))
+		q = q.Where(accountPlatformPredicate(platform))
 	}
 	if accountType != "" {
 		q = q.Where(dbaccount.TypeEQ(accountType))
@@ -1149,7 +1160,7 @@ func (r *accountRepository) ListOpsAccountsForStats(ctx context.Context, platfor
 
 	q := r.client.Account.Query()
 	if platformFilter = strings.TrimSpace(platformFilter); platformFilter != "" {
-		q = q.Where(dbaccount.PlatformEQ(platformFilter))
+		q = q.Where(accountPlatformPredicate(platformFilter))
 	}
 	if groupIDFilter != nil && *groupIDFilter > 0 {
 		q = q.Where(dbaccount.HasAccountGroupsWith(dbaccountgroup.GroupIDEQ(*groupIDFilter)))
@@ -1389,7 +1400,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 func (r *accountRepository) ListByPlatform(ctx context.Context, platform string) ([]service.Account, error) {
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 		).
 		Order(dbent.Asc(dbaccount.FieldPriority)).
@@ -1948,6 +1959,10 @@ func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, gro
 		return err
 	}
 
+	if err := validateHostedGroupBindings(ctx, txClient, []int64{accountID}, groupIDs); err != nil {
+		return err
+	}
+
 	if _, err := txClient.AccountGroup.Delete().Where(dbaccountgroup.AccountIDEQ(accountID)).Exec(ctx); err != nil {
 		return err
 	}
@@ -2127,7 +2142,7 @@ func (r *accountRepository) ListSchedulableByPlatform(ctx context.Context, platf
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			tempUnschedulablePredicate(),
@@ -2161,7 +2176,7 @@ func (r *accountRepository) ListSchedulableByPlatforms(ctx context.Context, plat
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformIn(platforms...),
+			accountPlatformsPredicate(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			tempUnschedulablePredicate(),
@@ -2181,7 +2196,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatform(ctx context.Conte
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformEQ(platform),
+			accountPlatformPredicate(platform),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
@@ -2205,7 +2220,7 @@ func (r *accountRepository) ListSchedulableUngroupedByPlatforms(ctx context.Cont
 	now := time.Now()
 	accounts, err := r.client.Account.Query().
 		Where(
-			dbaccount.PlatformIn(platforms...),
+			accountPlatformsPredicate(platforms...),
 			dbaccount.StatusEQ(service.StatusActive),
 			dbaccount.SchedulableEQ(true),
 			dbaccount.Not(dbaccount.HasAccountGroups()),
@@ -2259,7 +2274,7 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 	preds := []dbpredicate.Account{
 		dbaccount.StatusEQ(service.StatusActive),
 		dbaccount.SchedulableEQ(true),
-		dbaccount.PlatformIn(platforms...),
+		accountPlatformsPredicate(platforms...),
 	}
 	if !includeGrouped {
 		preds = append(preds, dbaccount.Not(dbaccount.HasAccountGroups()))
@@ -2283,10 +2298,15 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
- 'mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
+ 'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
  FROM accounts a WHERE a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
- AND a.platform = ANY($2::text[]) AND
+ AND (a.platform = ANY($2::text[])
+ OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
+ OR (a.platform = 'anthropic' AND a.type = 'bedrock' AND 'bedrock' = ANY($2::text[]))
+ OR (a.platform = 'vertex' AND a.type = 'service_account' AND 'gemini' = ANY($2::text[]))
+ OR (a.platform = 'gemini' AND a.type = 'service_account' AND 'vertex' = ANY($2::text[])))
+ AND ($3::bigint IS NULL OR EXISTS (SELECT 1 FROM groups requested_group WHERE requested_group.id = $3 AND (COALESCE(NULLIF(requested_group.account_type,''), CASE requested_group.platform WHEN 'bedrock' THEN 'bedrock' WHEN 'vertex' THEN 'service_account' ELSE '' END) IN ('',a.type)))) AND
  (($3::bigint IS NOT NULL AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id AND ag.group_id = $3))
  OR ($3::bigint IS NULL AND ($4 OR NOT EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id))))))
  ORDER BY a.id`, id, pq.Array(platforms), groupID, includeGrouped)
@@ -3238,6 +3258,15 @@ type accountGroupQueryOptions struct {
 func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID int64, opts accountGroupQueryOptions) ([]service.Account, error) {
 	q := r.client.AccountGroup.Query().
 		Where(dbaccountgroup.GroupIDEQ(groupID))
+	if opts.schedulable || opts.ignoreTransientState {
+		q = q.Where(dbaccountgroup.Or(
+			dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(""), dbgroup.PlatformNotIn(service.PlatformBedrock, "vertex")),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.PlatformEQ(service.PlatformBedrock)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeBedrock))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.PlatformEQ("vertex")), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeServiceAccount))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(service.AccountTypeBedrock)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeBedrock))),
+			dbaccountgroup.And(dbaccountgroup.HasGroupWith(dbgroup.AccountTypeEQ(service.AccountTypeServiceAccount)), dbaccountgroup.HasAccountWith(dbaccount.TypeEQ(service.AccountTypeServiceAccount))),
+		))
+	}
 
 	// 通过 account_groups 中间表查询账号，并按需叠加状态/平台/调度能力过滤。
 	preds := make([]dbpredicate.Account, 0, 6)
@@ -3246,7 +3275,7 @@ func (r *accountRepository) queryAccountsByGroup(ctx context.Context, groupID in
 		preds = append(preds, dbaccount.StatusEQ(opts.status))
 	}
 	if len(opts.platforms) > 0 {
-		preds = append(preds, dbaccount.PlatformIn(opts.platforms...))
+		preds = append(preds, accountPlatformsPredicate(opts.platforms...))
 	}
 	if opts.schedulable {
 		preds = append(preds, dbaccount.SchedulableEQ(true))

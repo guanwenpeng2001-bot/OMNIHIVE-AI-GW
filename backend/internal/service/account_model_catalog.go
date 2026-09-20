@@ -637,7 +637,7 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
-	if account.Platform == PlatformBedrock {
+	if account.UsesBedrockCatalog() {
 		return []string{CompositeRouteEndpointMessages}
 	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {

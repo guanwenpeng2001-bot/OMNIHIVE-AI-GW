@@ -72,6 +72,20 @@ func (_c *GroupCreate) SetNillableDeletedAt(v *time.Time) *GroupCreate {
 	return _c
 }
 
+// SetAccountType sets the "account_type" field.
+func (_c *GroupCreate) SetAccountType(v string) *GroupCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountType(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
+	}
+	return _c
+}
+
 // SetName sets the "name" field.
 func (_c *GroupCreate) SetName(v string) *GroupCreate {
 	_c.mutation.SetName(v)
@@ -1047,6 +1061,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := group.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
@@ -1221,6 +1239,14 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Group.updated_at"`)}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "Group.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := group.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "Group.account_type": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Group.name"`)}
@@ -1456,6 +1482,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(group.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(group.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
 	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
@@ -1892,6 +1922,18 @@ func (u *GroupUpsert) UpdateDeletedAt() *GroupUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *GroupUpsert) ClearDeletedAt() *GroupUpsert {
 	u.SetNull(group.FieldDeletedAt)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsert) SetAccountType(v string) *GroupUpsert {
+	u.Set(group.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountType() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountType)
 	return u
 }
 
@@ -3001,6 +3043,20 @@ func (u *GroupUpsertOne) UpdateDeletedAt() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearDeletedAt() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsertOne) SetAccountType(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountType() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountType()
 	})
 }
 
@@ -4447,6 +4503,20 @@ func (u *GroupUpsertBulk) UpdateDeletedAt() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearDeletedAt() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsertBulk) SetAccountType(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountType() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountType()
 	})
 }
 

@@ -312,6 +312,7 @@ export interface UserStats {
 export type SubscriptionType = 'standard' | 'subscription'
 
 export interface Group {
+  account_type?: '' | 'bedrock' | 'service_account'
   id: number
   name: string
   description: string | null

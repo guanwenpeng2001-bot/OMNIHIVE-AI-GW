@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -1517,19 +1518,23 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		return CompositeModelOwnership{}, err
 	}
 
-	platforms := make(map[string]struct{})
+	platforms := make(map[CompositeModelOwnership]struct{})
 	for _, account := range accounts {
-		platform := strings.TrimSpace(account.Platform)
+		platform := domain.CanonicalPlatform(strings.TrimSpace(account.Platform))
 		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
 			continue
 		}
-		platforms[platform] = struct{}{}
+		accountType := ""
+		if account.IsBedrock() || account.IsVertexServiceAccount() {
+			accountType = account.Type
+		}
+		platforms[CompositeModelOwnership{TargetPlatform: platform, AccountType: accountType}] = struct{}{}
 	}
 
 	ownership := CompositeModelOwnership{}
 	if len(platforms) == 1 {
-		for platform := range platforms {
-			ownership.TargetPlatform = platform
+		for identity := range platforms {
+			ownership = identity
 		}
 		ownership.Matched = true
 	} else if len(platforms) > 1 {

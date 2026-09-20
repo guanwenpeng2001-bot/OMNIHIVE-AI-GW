@@ -24,6 +24,8 @@ type UserPlatformQuota struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// DeletedAt holds the value of the "deleted_at" field.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// AccountType holds the value of the "account_type" field.
+	AccountType string `json:"account_type,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
 	// Platform holds the value of the "platform" field.
@@ -81,7 +83,7 @@ func (*UserPlatformQuota) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case userplatformquota.FieldID, userplatformquota.FieldUserID:
 			values[i] = new(sql.NullInt64)
-		case userplatformquota.FieldPlatform:
+		case userplatformquota.FieldAccountType, userplatformquota.FieldPlatform:
 			values[i] = new(sql.NullString)
 		case userplatformquota.FieldCreatedAt, userplatformquota.FieldUpdatedAt, userplatformquota.FieldDeletedAt, userplatformquota.FieldDailyWindowStart, userplatformquota.FieldWeeklyWindowStart, userplatformquota.FieldMonthlyWindowStart:
 			values[i] = new(sql.NullTime)
@@ -124,6 +126,12 @@ func (_m *UserPlatformQuota) assignValues(columns []string, values []any) error 
 			} else if value.Valid {
 				_m.DeletedAt = new(time.Time)
 				*_m.DeletedAt = value.Time
+			}
+		case userplatformquota.FieldAccountType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field account_type", values[i])
+			} else if value.Valid {
+				_m.AccountType = value.String
 			}
 		case userplatformquota.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -248,6 +256,9 @@ func (_m *UserPlatformQuota) String() string {
 		builder.WriteString("deleted_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("account_type=")
+	builder.WriteString(_m.AccountType)
 	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UserID))

@@ -28,7 +28,7 @@
 
 <script setup lang="ts">
 import { platformLabel } from '@/utils/platformColors'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PlatformQuotaItem, PlatformQuotaPlatform } from '@/api/admin/users'
@@ -36,7 +36,7 @@ import type { PlatformQuotaItem, PlatformQuotaPlatform } from '@/api/admin/users
 const props = defineProps<{ quotas?: PlatformQuotaItem[] }>()
 const { t } = useI18n()
 
-const PLATFORM_ORDER: PlatformQuotaPlatform[] = CONCRETE_PLATFORM_OPTIONS.map(option => option.value)
+const PLATFORM_ORDER: PlatformQuotaPlatform[] = QUOTA_PLATFORM_OPTIONS.map(option => option.value)
 
 // 仅展示「至少一档限额非空」的平台（配额列，非用量列）
 const configured = computed(() => {

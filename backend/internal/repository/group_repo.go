@@ -119,6 +119,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountType(groupIn.AccountType).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
@@ -193,6 +194,14 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		return translatePersistenceError(err, nil, service.ErrGroupExists)
 	}
 	groupIn.ID = created.ID
+	if groupIn.Platform == service.PlatformBedrock || groupIn.Platform == "vertex" {
+		identity, readErr := client.Group.Query().Where(group.IDEQ(created.ID)).Select(group.FieldID, group.FieldPlatform, group.FieldAccountType).Only(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		groupIn.Platform = identity.Platform
+		groupIn.AccountType = identity.AccountType
+	}
 	groupIn.CreatedAt = created.CreatedAt
 	groupIn.UpdatedAt = created.UpdatedAt
 	return nil
@@ -319,6 +328,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountType(groupIn.AccountType).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -508,7 +518,7 @@ func (r *groupRepository) ListBindableWithFilters(ctx context.Context, params pa
 func (r *groupRepository) listWithFiltersQuery(ctx context.Context, q *dbent.GroupQuery, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]service.Group, *pagination.PaginationResult, error) {
 
 	if platform != "" {
-		q = q.Where(group.PlatformEQ(platform))
+		q = q.Where(groupPlatformPredicate(platform))
 	}
 	if status != "" {
 		q = q.Where(group.StatusEQ(status))
@@ -781,7 +791,7 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 
 func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
-		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(platform)).
+		Where(group.StatusEQ(service.StatusActive), groupPlatformPredicate(platform)).
 		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -1126,6 +1136,14 @@ func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64
 		exec = tx.Client()
 	}
 	if err := lockLiveGroups(ctx, exec, []int64{groupID}); err != nil {
+		return err
+	}
+
+	bindingClient := r.client
+	if tx != nil {
+		bindingClient = tx.Client()
+	}
+	if err := validateHostedGroupBindings(ctx, bindingClient, accountIDs, []int64{groupID}); err != nil {
 		return err
 	}
 

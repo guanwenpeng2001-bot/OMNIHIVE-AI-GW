@@ -1,4 +1,4 @@
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS, hostedQuotaKey } from '@/constants/platforms'
 /**
  * Admin Users API endpoints
  * Handles user management for administrators
@@ -333,10 +333,11 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = (typeof CONCRETE_PLATFORM_OPTIONS)[number]['value']
+export type PlatformQuotaPlatform = (typeof QUOTA_PLATFORM_OPTIONS)[number]['value']
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {
+  account_type?: string
   platform: PlatformQuotaPlatform
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
@@ -353,6 +354,7 @@ export interface PlatformQuotaItem {
 }
 
 export interface PlatformQuotaUpdateItem {
+  account_type?: string
   platform: PlatformQuotaPlatform
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
@@ -363,6 +365,12 @@ export interface PlatformQuotasResponse {
   platform_quotas: PlatformQuotaItem[]
 }
 
+export function normalizeHostedQuotaResponse(data: PlatformQuotasResponse): PlatformQuotasResponse {
+  return { ...data, platform_quotas: data.platform_quotas.map(row => ({
+    ...row, platform: hostedQuotaKey(row.platform, row.account_type) as PlatformQuotaPlatform
+  })) }
+}
+
 /**
  * Get user's platform quotas
  */
@@ -370,7 +378,7 @@ export async function getPlatformQuotas(id: number): Promise<PlatformQuotasRespo
   const { data } = await apiClient.get<PlatformQuotasResponse>(
     `/admin/users/${id}/platform-quotas`
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 /**
@@ -384,7 +392,7 @@ export async function updatePlatformQuotas(
     `/admin/users/${id}/platform-quotas`,
     { quotas }
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 /**
@@ -399,7 +407,7 @@ export async function resetPlatformQuotaWindow(
     `/admin/users/${id}/platform-quotas/reset`,
     { platform, window }
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 export const usersAPI = {

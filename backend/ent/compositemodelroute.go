@@ -24,6 +24,8 @@ type CompositeModelRoute struct {
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
 	// DeletedAt holds the value of the "deleted_at" field.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// AccountType holds the value of the "account_type" field.
+	AccountType string `json:"account_type,omitempty"`
 	// GroupID holds the value of the "group_id" field.
 	GroupID int64 `json:"group_id,omitempty"`
 	// Client-facing model identifier or prefix.
@@ -77,7 +79,7 @@ func (*CompositeModelRoute) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullBool)
 		case compositemodelroute.FieldID, compositemodelroute.FieldGroupID, compositemodelroute.FieldPriority:
 			values[i] = new(sql.NullInt64)
-		case compositemodelroute.FieldPublicModel, compositemodelroute.FieldMatchType, compositemodelroute.FieldTargetPlatform, compositemodelroute.FieldUpstreamModel, compositemodelroute.FieldEndpoint, compositemodelroute.FieldNotes:
+		case compositemodelroute.FieldAccountType, compositemodelroute.FieldPublicModel, compositemodelroute.FieldMatchType, compositemodelroute.FieldTargetPlatform, compositemodelroute.FieldUpstreamModel, compositemodelroute.FieldEndpoint, compositemodelroute.FieldNotes:
 			values[i] = new(sql.NullString)
 		case compositemodelroute.FieldCreatedAt, compositemodelroute.FieldUpdatedAt, compositemodelroute.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -120,6 +122,12 @@ func (_m *CompositeModelRoute) assignValues(columns []string, values []any) erro
 			} else if value.Valid {
 				_m.DeletedAt = new(time.Time)
 				*_m.DeletedAt = value.Time
+			}
+		case compositemodelroute.FieldAccountType:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field account_type", values[i])
+			} else if value.Valid {
+				_m.AccountType = value.String
 			}
 		case compositemodelroute.FieldGroupID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -227,6 +235,9 @@ func (_m *CompositeModelRoute) String() string {
 		builder.WriteString("deleted_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("account_type=")
+	builder.WriteString(_m.AccountType)
 	builder.WriteString(", ")
 	builder.WriteString("group_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.GroupID))

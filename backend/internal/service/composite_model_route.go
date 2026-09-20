@@ -29,6 +29,7 @@ const (
 // CompositeModelOwnership identifies the concrete provider that exposes a
 // public model through an account-level exact mapping.
 type CompositeModelOwnership struct {
+	AccountType    string `json:"account_type,omitempty"`
 	TargetPlatform string
 	Matched        bool
 	Ambiguous      bool
@@ -48,6 +49,7 @@ type CompositeModelRoute struct {
 	GroupID        int64     `json:"group_id"`
 	PublicModel    string    `json:"public_model"`
 	MatchType      string    `json:"match_type"`
+	AccountType    string    `json:"account_type,omitempty"`
 	TargetPlatform string    `json:"target_platform"`
 	UpstreamModel  string    `json:"upstream_model"`
 	Endpoint       string    `json:"endpoint"`
@@ -68,6 +70,7 @@ type CompositeRouteDecision struct {
 	Source         string               `json:"source"`
 	GroupID        int64                `json:"group_id"`
 	PublicModel    string               `json:"public_model"`
+	AccountType    string               `json:"account_type,omitempty"`
 	TargetPlatform string               `json:"target_platform"`
 	UpstreamModel  string               `json:"upstream_model"`
 	Endpoint       string               `json:"endpoint"`
@@ -76,8 +79,10 @@ type CompositeRouteDecision struct {
 }
 
 type CompositeRouteInput struct {
+	AccountTypeSet bool
 	PublicModel    string
 	MatchType      string
+	AccountType    string `json:"account_type,omitempty"`
 	TargetPlatform string
 	UpstreamModel  string
 	Endpoint       string

@@ -272,7 +272,10 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		}
 		binding.CredentialAccountID = parent.ID
 	}
-	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok && platform != account.Platform {
+	if !accountAllowedByHostedRequest(ctx, account) {
+		return binding
+	}
+	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok && !account.MatchesPlatform(platform, RequiredRouteAccountType(ctx)) {
 		return binding
 	}
 	model := strings.TrimSpace(publicModel)
