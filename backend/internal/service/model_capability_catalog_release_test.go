@@ -18,7 +18,7 @@ func TestModelCapabilityReleaseEveryPublishedRecordLoadsOffline(t *testing.T) {
 		Records []CapabilityRecord `json:"records"`
 	}
 	require.NoError(t, json.Unmarshal(modelcapabilities.JSON(), &catalog))
-	require.Len(t, catalog.Records, 267)
+	require.Len(t, catalog.Records, 296)
 	snapshot, err := buildModelCapabilitySnapshot(nil)
 	require.NoError(t, err)
 	hashPattern := regexp.MustCompile(`^[0-9a-f]{64}$`)
