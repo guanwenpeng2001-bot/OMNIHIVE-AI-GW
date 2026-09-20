@@ -113,7 +113,7 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 		s.cache.cursorCache.Delete(key)
 	}
 	cachedUsage := func() *UsageInfo {
-		if cached, ok := s.cache.cursorCache.Load(key); ok {
+		if cached, ok := s.cache.load(&s.cache.cursorCache, key); ok {
 			entry, valid := cached.(*antigravityUsageCache)
 			if !valid || entry == nil || entry.usageInfo == nil {
 				return nil
@@ -150,7 +150,7 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 		fetchCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)
 		defer cancel()
 		info := s.fetchCursorUsage(fetchCtx, account)
-		s.cache.cursorCache.Store(key, &antigravityUsageCache{usageInfo: info, timestamp: time.Now()})
+		s.cache.store(&s.cache.cursorCache, key, &antigravityUsageCache{usageInfo: info, timestamp: time.Now()})
 		return info, nil
 	})
 	select {
@@ -382,6 +382,7 @@ const (
 
 // UsageCache 封装账户使用量相关的缓存
 type UsageCache struct {
+	mu                sync.Mutex // Serializes bounded cache admission; never held during requests.
 	cursorCache       sync.Map
 	cursorFlight      singleflight.Group
 	apiCache          sync.Map           // accountID -> *apiUsageCache
@@ -391,6 +392,88 @@ type UsageCache struct {
 	antigravityFlight singleflight.Group // 防止同一 Antigravity 账号的并发请求击穿缓存
 	openAIProbeCache  sync.Map           // accountID -> time.Time
 	grokProbeCache    sync.Map           // accountID -> last billing probe attempt
+}
+
+// Each family retains at most this many identities, including negative results.
+const usageCacheLimit = 1024
+
+// expiry preserves the family's existing freshness and negative-cache policy.
+// Reads do not renew timestamps; eviction only drops the map reference.
+func (cache *UsageCache) expiry(entries *sync.Map, value any) time.Time {
+	switch entry := value.(type) {
+	case *apiUsageCache:
+		if entry != nil {
+			ttl := apiCacheTTL
+			if entry.err != nil {
+				ttl = apiErrorCacheTTL
+			}
+			return entry.timestamp.Add(ttl)
+		}
+	case *windowStatsCache:
+		if entry != nil {
+			return entry.timestamp.Add(windowStatsCacheTTL)
+		}
+	case *antigravityUsageCache:
+		if entry != nil {
+			ttl := antigravityCacheTTL(entry.usageInfo)
+			if entries == &cache.cursorCache {
+				ttl = apiCacheTTL
+				if entry.usageInfo != nil && entry.usageInfo.ErrorCode != "" {
+					ttl = apiErrorCacheTTL
+				}
+			}
+			return entry.timestamp.Add(ttl)
+		}
+	case time.Time:
+		ttl := openAIProbeCacheTTL
+		if entries == &cache.grokProbeCache {
+			ttl = grokProbeRetryTTL
+		}
+		return entry.Add(ttl)
+	}
+	return time.Time{}
+}
+
+func (cache *UsageCache) load(entries *sync.Map, key string) (any, bool) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	value, found := entries.Load(key)
+	if found && !time.Now().Before(cache.expiry(entries, value)) {
+		entries.Delete(key)
+		return nil, false
+	}
+	return value, found
+}
+
+// Like the shared client pools, sweep and capacity eviction happen under the
+// admission mutex. Expiry order needs no second index and does not extend TTLs.
+func (cache *UsageCache) store(entries *sync.Map, key string, value any) {
+	cache.mu.Lock()
+	defer cache.mu.Unlock()
+	now := time.Now()
+	count := 0
+	var oldestKey any
+	var oldestExpiry time.Time
+	entries.Range(func(cachedKey, cachedValue any) bool {
+		expiry := cache.expiry(entries, cachedValue)
+		if !now.Before(expiry) {
+			entries.Delete(cachedKey)
+			return true
+		}
+		count++
+		if oldestKey == nil || expiry.Before(oldestExpiry) {
+			oldestKey, oldestExpiry = cachedKey, expiry
+		}
+		return true
+	})
+	if !now.Before(cache.expiry(entries, value)) {
+		entries.Delete(key)
+		return
+	}
+	if _, exists := entries.Load(key); !exists && count >= usageCacheLimit {
+		entries.Delete(oldestKey)
+	}
+	entries.Store(key, value)
 }
 
 // NewUsageCache 创建 UsageCache 实例
@@ -676,7 +759,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		var apiResp *ClaudeUsageResponse
 
 		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(AccountRuntimeIdentityKey(account)); ok {
+		if cached, ok := s.cache.load(&s.cache.apiCache, AccountRuntimeIdentityKey(account)); ok {
 			if cache, ok := cached.(*apiUsageCache); ok {
 				age := time.Since(cache.timestamp)
 				if cache.err != nil && age < apiErrorCacheTTL {
@@ -703,7 +786,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 			flightKey := "usage:" + AccountRuntimeIdentityKey(account)
 			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
 				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(AccountRuntimeIdentityKey(account)); ok {
+				if cached, ok := s.cache.load(&s.cache.apiCache, AccountRuntimeIdentityKey(account)); ok {
 					if cache, ok := cached.(*apiUsageCache); ok {
 						age := time.Since(cache.timestamp)
 						if cache.err != nil && age < apiErrorCacheTTL {
@@ -717,14 +800,14 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 				resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
 				if fetchErr != nil {
 					// 负缓存：缓存错误响应，防止后续请求重复触发 429
-					s.cache.apiCache.Store(AccountRuntimeIdentityKey(account), &apiUsageCache{
+					s.cache.store(&s.cache.apiCache, AccountRuntimeIdentityKey(account), &apiUsageCache{
 						err:       fetchErr,
 						timestamp: time.Now(),
 					})
 					return nil, fetchErr
 				}
 				// 缓存成功响应
-				s.cache.apiCache.Store(AccountRuntimeIdentityKey(account), &apiUsageCache{
+				s.cache.store(&s.cache.apiCache, AccountRuntimeIdentityKey(account), &apiUsageCache{
 					response:  resp,
 					timestamp: time.Now(),
 				})
@@ -1095,13 +1178,13 @@ func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(account *Account, n
 	}
 	forceProbe := len(force) > 0 && force[0]
 	if !forceProbe {
-		if cached, ok := s.cache.openAIProbeCache.Load(AccountRuntimeIdentityKey(account)); ok {
+		if cached, ok := s.cache.load(&s.cache.openAIProbeCache, AccountRuntimeIdentityKey(account)); ok {
 			if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openAIProbeCacheTTL {
 				return false
 			}
 		}
 	}
-	s.cache.openAIProbeCache.Store(AccountRuntimeIdentityKey(account), now)
+	s.cache.store(&s.cache.openAIProbeCache, AccountRuntimeIdentityKey(account), now)
 	return true
 }
 
@@ -1316,7 +1399,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	}
 
 	// 1. 检查缓存
-	if cached, ok := s.cache.antigravityCache.Load(AccountRuntimeIdentityKey(account)); ok {
+	if cached, ok := s.cache.load(&s.cache.antigravityCache, AccountRuntimeIdentityKey(account)); ok {
 		if cache, ok := cached.(*antigravityUsageCache); ok {
 			ttl := antigravityCacheTTL(cache.usageInfo)
 			if time.Since(cache.timestamp) < ttl {
@@ -1333,7 +1416,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	flightKey := "ag-usage:" + AccountRuntimeIdentityKey(account)
 	result, flightErr, _ := s.cache.antigravityFlight.Do(flightKey, func() (any, error) {
 		// 再次检查缓存（等待期间可能已被填充）
-		if cached, ok := s.cache.antigravityCache.Load(AccountRuntimeIdentityKey(account)); ok {
+		if cached, ok := s.cache.load(&s.cache.antigravityCache, AccountRuntimeIdentityKey(account)); ok {
 			if cache, ok := cached.(*antigravityUsageCache); ok {
 				ttl := antigravityCacheTTL(cache.usageInfo)
 				if time.Since(cache.timestamp) < ttl {
@@ -1354,7 +1437,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		if err != nil {
 			degraded := buildAntigravityDegradedUsage(err)
 			enrichUsageWithAccountError(degraded, account)
-			s.cache.antigravityCache.Store(AccountRuntimeIdentityKey(account), &antigravityUsageCache{
+			s.cache.store(&s.cache.antigravityCache, AccountRuntimeIdentityKey(account), &antigravityUsageCache{
 				usageInfo: degraded,
 				timestamp: time.Now(),
 			})
@@ -1362,7 +1445,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		}
 
 		enrichUsageWithAccountError(fetchResult.UsageInfo, account)
-		s.cache.antigravityCache.Store(AccountRuntimeIdentityKey(account), &antigravityUsageCache{
+		s.cache.store(&s.cache.antigravityCache, AccountRuntimeIdentityKey(account), &antigravityUsageCache{
 			usageInfo: fetchResult.UsageInfo,
 			timestamp: time.Now(),
 		})
@@ -1527,12 +1610,12 @@ func (s *AccountUsageService) shouldProbeGrokBilling(account *Account, now time.
 	if force || s == nil || s.cache == nil || account == nil || account.ID <= 0 {
 		return true
 	}
-	if cached, ok := s.cache.grokProbeCache.Load(AccountRuntimeIdentityKey(account)); ok {
+	if cached, ok := s.cache.load(&s.cache.grokProbeCache, AccountRuntimeIdentityKey(account)); ok {
 		if ts, ok := cached.(time.Time); ok && now.Sub(ts) < grokProbeRetryTTL {
 			return false
 		}
 	}
-	s.cache.grokProbeCache.Store(AccountRuntimeIdentityKey(account), now)
+	s.cache.store(&s.cache.grokProbeCache, AccountRuntimeIdentityKey(account), now)
 	return true
 }
 
@@ -1635,7 +1718,7 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 
 	// 检查窗口统计缓存（1 分钟）
 	var windowStats *WindowStats
-	if cached, ok := s.cache.windowStatsCache.Load(AccountRuntimeIdentityKey(account)); ok {
+	if cached, ok := s.cache.load(&s.cache.windowStatsCache, AccountRuntimeIdentityKey(account)); ok {
 		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
 			windowStats = cache.stats
 		}
@@ -1661,7 +1744,7 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 		}
 
 		// 缓存窗口统计（1 分钟）
-		s.cache.windowStatsCache.Store(AccountRuntimeIdentityKey(account), &windowStatsCache{
+		s.cache.store(&s.cache.windowStatsCache, AccountRuntimeIdentityKey(account), &windowStatsCache{
 			stats:     windowStats,
 			timestamp: time.Now(),
 		})
