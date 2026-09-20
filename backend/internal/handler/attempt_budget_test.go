@@ -52,6 +52,8 @@ func TestAttemptBudgetKeepaliveAllowsGeneration(t *testing.T) {
 	for _, frames := range [][]string{
 		{""}, {" \n\t"}, {": keepalive\n\n"},
 		{": split", " comment\n", "\n"},
+		{"event: pi", "ng\ndata: {\"type\":", "\"ping\"}\n\n"},
+		{"event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}\n\n"},
 		{string(SSEPingFormatClaude)},
 		{"event: ping\ndata: {\"type\":\"ping\"}\n\n"},
 	} {
@@ -68,6 +70,9 @@ func TestAttemptBudgetKeepaliveAllowsGeneration(t *testing.T) {
 			}
 			ctx := c.Request.Context()
 			require.Empty(t, service.AttemptBudgetFromContext(ctx).Snapshot())
+			if c.Writer.Size() > 0 {
+				require.True(t, gatewayStreamHasOnlyHeartbeats(c))
+			}
 			finish, err := service.BeginGenerationAttempt(ctx, 1)
 			require.NoError(t, err)
 			finish(http.StatusServiceUnavailable, nil)

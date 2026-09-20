@@ -104,8 +104,14 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 		intervalCh = intervalTicker.C
 	}
 
+	defer resp.Body.Close()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
@@ -154,7 +160,7 @@ func (s *GatewayService) handleBedrockStreamingResponse(
 				}
 				if writeErr != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Bedrock] Client disconnected during streaming, continue draining for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[Bedrock] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else {
 					flusher.Flush()
 				}

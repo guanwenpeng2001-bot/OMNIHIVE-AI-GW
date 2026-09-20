@@ -906,6 +906,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				wsLastFailureReason,
 				&agentTaskRecoveryTried,
 			)
+			if wsResult != nil && wsResult.ClientDisconnect {
+				wsResult.UpstreamModel = upstreamModel
+				if wsResult.BillingModel == "" {
+					wsResult.BillingModel = billingModel
+				}
+				return wsResult, wsErr
+			}
 			if wsErr == nil {
 				break
 			}
@@ -1258,6 +1265,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 						)
 					}
 					return s.handleErrorResponse(ctx, compactResp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
+				}
+				var failoverErr *UpstreamFailoverError
+				if streamResult != nil && streamResult.usage != nil && !errors.As(err, &failoverErr) {
+					return &OpenAIForwardResult{
+						RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header,
+						ResponseID: streamResult.responseID, Usage: *streamResult.usage,
+						Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel,
+						UpstreamResponseModel:         observedUpstreamResponseModel(c),
+						UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+						UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+						ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier), ReasoningEffort: reasoningEffort,
+						Stream: true, Duration: time.Since(startTime), FirstTokenMs: streamResult.firstTokenMs,
+						ImageCount: streamResult.imageCount, ImageOutputSizes: streamResult.imageOutputSizes,
+						SearchCount: streamResult.searchCount, ClientDisconnect: true,
+					}, err
 				}
 				return nil, err
 			}

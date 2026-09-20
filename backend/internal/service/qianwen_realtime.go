@@ -191,7 +191,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 	if cb.BeforeCommit == nil || cb.Receipt == nil {
 		return errors.New("durable realtime billing callbacks required")
 	}
-	ctx, cancel := context.WithTimeout(context.WithoutCancel(parent), lifetime+drain)
+	ctx, cancel := context.WithTimeout(parent, lifetime)
 	defer cancel()
 	client.SetReadLimit(QianwenRealtimeFrameLimit)
 	type frame struct {
@@ -233,28 +233,12 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 	defer absolute.Stop()
 	timer := time.NewTimer(idle)
 	defer timer.Stop()
-	var drainTimer *time.Timer
-	var drainCh <-chan time.Time
-	defer func() {
-		if drainTimer != nil {
-			drainTimer.Stop()
-		}
-	}()
 	disconnected := false
-	startDrain := func() {
-		if !disconnected {
-			disconnected = true
-			fromClient = nil
-			drainTimer = time.NewTimer(drain)
-			drainCh = drainTimer.C
-			_ = client.CloseNow()
-			// finish can flush buffered text. Only send it after an accepted
-			// commit, or when the provider has no uncommitted text to synthesize.
-			if state.configured && (state.generating || state.text == "") && !state.finishing {
-				_ = write(upstream.Conn, []byte(`{"type":"session.finish"}`))
-				state.finishing = true
-			}
-		}
+	stopGeneration := func() {
+		disconnected = true
+		cancel()
+		upstream.Close()
+		_ = client.CloseNow()
 	}
 	protocolError := func(err error) error {
 		raw, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": "unsupported_operation_error", "code": "qianwen_realtime_rejected", "message": "Realtime operation rejected"}})
@@ -266,33 +250,31 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-parent.Done():
-			startDrain()
+			stopGeneration()
 			parent = context.Background()
 		case <-absolute.C:
-			startDrain()
+			stopGeneration()
 		case <-timer.C:
-			startDrain()
-		case <-drainCh:
-			return errors.New("realtime disconnect drain expired")
+			stopGeneration()
 		case f := <-fromClient:
 			if f.err != nil {
-				startDrain()
+				stopGeneration()
 				continue
 			}
 			if f.kind != ws.MessageText {
 				protocolError(errors.New("only JSON text frames supported"))
-				startDrain()
+				stopGeneration()
 				continue
 			}
 			canonical, err := CanonicalUpstreamJobBody(f.data)
 			if err != nil {
 				protocolError(err)
-				startDrain()
+				stopGeneration()
 				continue
 			}
 			if err = state.client(canonical, time.Now()); err != nil {
 				protocolError(err)
-				startDrain()
+				stopGeneration()
 				continue
 			}
 			generating := gjson.GetBytes(canonical, "type").String() == "input_text_buffer.commit"
@@ -363,7 +345,10 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				if cb.Receipt == nil {
 					return errors.New("realtime billing unavailable")
 				}
-				if err := cb.Receipt(ctx, id, []byte(event.Get("response.usage").Raw), event.Get("response.status").String()); err != nil {
+				billingContext, finishBilling := detachedBillingContext(ctx)
+				receiptErr := cb.Receipt(billingContext, id, []byte(event.Get("response.usage").Raw), event.Get("response.status").String())
+				finishBilling()
+				if err := receiptErr; err != nil {
 					return err
 				}
 				if !replay {
@@ -375,7 +360,7 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 			}
 			if !disconnected {
 				if err := write(client, sanitizeQianwenRealtimeError(f.data)); err != nil {
-					startDrain()
+					stopGeneration()
 				}
 			}
 			if event.Get("type").String() == "session.finished" || event.Get("type").String() == "error" {

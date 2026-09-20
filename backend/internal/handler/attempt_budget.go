@@ -13,8 +13,11 @@ import (
 // transport keepalives can precede even the first upstream generation attempt.
 type attemptCommitWriter struct {
 	gin.ResponseWriter
-	budget    *service.AttemptBudget
-	inComment bool
+	budget      *service.AttemptBudget
+	inComment   bool
+	pendingLine string
+	context     *gin.Context
+	committed   bool
 }
 
 func (w *attemptCommitWriter) Write(p []byte) (int, error) {
@@ -26,33 +29,53 @@ func (w *attemptCommitWriter) WriteString(s string) (int, error) {
 	return w.ResponseWriter.WriteString(s)
 }
 
-func (w *attemptCommitWriter) commitContent(s string) {
+func (w *attemptCommitWriter) commitContent(content string) {
+	commit := func() {
+		w.committed = true
+		w.budget.Commit()
+		if w.context != nil {
+			w.context.Set("gateway_stream_only_heartbeats", false)
+		}
+	}
+	if w.committed {
+		return
+	}
 	if !strings.HasPrefix(strings.ToLower(w.Header().Get("Content-Type")), "text/event-stream") {
-		// JSON keepalives consist solely of whitespace before the actual body.
-		if strings.TrimSpace(s) != "" {
-			w.budget.Commit()
+		if strings.TrimSpace(content) != "" {
+			commit()
 		}
 		return
 	}
-	for len(s) > 0 {
-		line, rest := s, ""
-		end := strings.IndexAny(s, "\r\n")
-		if end >= 0 {
-			line, rest = s[:end], s[end+1:]
-		}
-		if !w.inComment && strings.HasPrefix(line, ":") {
-			w.inComment = true
-		}
-		if !w.inComment {
-			line = strings.TrimSpace(line)
-			if line != "" && line != "event: ping" && !isAttemptBudgetPingData(line) {
-				w.budget.Commit()
+	for _, character := range content {
+		if character == '\r' || character == '\n' {
+			line := strings.TrimSpace(w.pendingLine)
+			w.pendingLine = ""
+			if w.inComment {
+				w.inComment = false
+				continue
 			}
+			if line == "" || strings.HasPrefix(line, "event:") || strings.HasPrefix(line, "id:") || strings.HasPrefix(line, "retry:") {
+				continue
+			}
+			if !isAttemptBudgetPingData(line) {
+				commit()
+				return
+			}
+			continue
 		}
-		if end >= 0 {
-			w.inComment = false
+		if w.inComment {
+			continue
 		}
-		s = rest
+		if strings.TrimSpace(w.pendingLine) == "" && character == ':' {
+			w.inComment = true
+			continue
+		}
+		w.pendingLine += string(character)
+		// A keepalive is small; do not buffer unbounded generated content.
+		if len(w.pendingLine) > 4096 {
+			commit()
+			return
+		}
 	}
 }
 
@@ -62,7 +85,23 @@ func isAttemptBudgetPingData(line string) bool {
 		return false
 	}
 	var payload map[string]any
-	return json.Unmarshal([]byte(data), &payload) == nil && len(payload) == 1 && payload["type"] == "ping"
+	if json.Unmarshal([]byte(data), &payload) != nil {
+		return false
+	}
+	if len(payload) == 1 && payload["type"] == "ping" {
+		return true
+	}
+	if payload["type"] != "content_block_delta" || len(payload) != 3 {
+		return false
+	}
+	delta, ok := payload["delta"].(map[string]any)
+	if !ok || len(delta) != 2 {
+		return false
+	}
+	fields := map[string]string{"text_delta": "text", "thinking_delta": "thinking", "input_json_delta": "partial_json"}
+	kind, _ := delta["type"].(string)
+	field, known := fields[kind]
+	return known && delta[field] == ""
 }
 
 func installAttemptBudget(c *gin.Context) func() {
@@ -76,7 +115,8 @@ func installAttemptBudget(c *gin.Context) func() {
 	}
 	c.Request = c.Request.WithContext(ctx)
 	original := c.Writer
-	w := &attemptCommitWriter{ResponseWriter: original, budget: service.AttemptBudgetFromContext(ctx)}
+	c.Set("gateway_stream_only_heartbeats", true)
+	w := &attemptCommitWriter{ResponseWriter: original, budget: service.AttemptBudgetFromContext(ctx), context: c}
 	c.Writer = w
 	return func() {
 		cancel()

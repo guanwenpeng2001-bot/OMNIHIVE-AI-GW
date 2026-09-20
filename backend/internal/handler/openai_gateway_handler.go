@@ -802,6 +802,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			if res == nil {
 				return
 			}
+			if err != nil && res.Stream {
+				res.ClientDisconnect = true
+			}
 			stampOpenAIRequestedReasoningEffort(res, c)
 			userAgent := c.GetHeader("User-Agent")
 			clientIP := ip.GetClientIP(c)
@@ -1388,6 +1391,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		submitMessagesUsage := func(res *service.OpenAIForwardResult) {
 			if res == nil {
 				return
+			}
+			if err != nil && res.Stream {
+				res.ClientDisconnect = true
 			}
 			stampOpenAIRequestedReasoningEffort(res, c)
 			userAgent := c.GetHeader("User-Agent")

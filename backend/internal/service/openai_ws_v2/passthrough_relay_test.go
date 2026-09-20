@@ -399,7 +399,7 @@ func TestRelay_ClientDisconnect(t *testing.T) {
 	require.Equal(t, "gpt-4o", result.RequestModel)
 }
 
-func TestRelay_ClientDisconnect_DrainCapturesLateUsage(t *testing.T) {
+func TestRelay_ClientDisconnectCancelsBeforeLateUsage(t *testing.T) {
 	t.Parallel()
 
 	clientConn := newPassthroughTestFrameConn(nil, true)
@@ -423,14 +423,14 @@ func TestRelay_ClientDisconnect_DrainCapturesLateUsage(t *testing.T) {
 	})
 	require.NotNil(t, relayExit)
 	require.Equal(t, "client_disconnected", relayExit.Stage)
-	require.Equal(t, "resp_drain", result.RequestID)
-	require.Equal(t, "response.completed", result.TerminalEventType)
-	require.Equal(t, 6, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-	require.Equal(t, 1, result.Usage.CacheReadInputTokens)
+	require.Empty(t, result.RequestID)
+	require.Empty(t, result.TerminalEventType)
+	require.Zero(t, result.Usage.InputTokens)
+	require.Zero(t, result.Usage.OutputTokens)
+	require.Zero(t, result.Usage.CacheReadInputTokens)
 	require.Equal(t, int64(1), result.ClientToUpstreamFrames)
 	require.Equal(t, int64(0), result.UpstreamToClientFrames)
-	require.Equal(t, int64(1), result.DroppedDownstreamFrames)
+	require.Zero(t, result.DroppedDownstreamFrames)
 }
 
 func TestRelay_IdleTimeout(t *testing.T) {

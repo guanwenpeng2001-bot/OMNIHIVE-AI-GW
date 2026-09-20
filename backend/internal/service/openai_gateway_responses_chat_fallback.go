@@ -252,7 +252,8 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 			}
 			if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 				clientDisconnected = true
-				logger.L().Debug("openai responses chat fallback: client disconnected, continuing to drain upstream for billing",
+				_ = resp.Body.Close()
+				logger.L().Debug("openai responses chat fallback: client disconnected, canceling upstream with observed usage",
 					zap.Error(err),
 					zap.String("request_id", requestID),
 				)
@@ -308,6 +309,7 @@ func (s *OpenAIGatewayService) streamChatCompletionsAsResponses(
 		writeStreamHeaders()
 		if _, err := fmt.Fprint(c.Writer, "data: [DONE]\n\n"); err != nil {
 			clientDisconnected = true
+			_ = resp.Body.Close()
 		}
 		if !clientDisconnected {
 			c.Writer.Flush()

@@ -171,10 +171,7 @@ func Relay(
 	if writeTimeout <= 0 {
 		writeTimeout = 2 * time.Minute
 	}
-	drainTimeout := options.UpstreamDrainTimeout
-	if drainTimeout <= 0 {
-		drainTimeout = 1200 * time.Millisecond
-	}
+
 	firstMessageType := options.FirstMessageType
 	if firstMessageType != coderws.MessageBinary {
 		firstMessageType = coderws.MessageText
@@ -348,17 +345,13 @@ func Relay(
 	secondExit := relayExitSignal{graceful: true}
 	hasSecondExit := false
 
-	// 客户端断开后尽力继续读取上游短窗口，捕获延迟 usage/terminal 事件用于计费。
-	if firstExit.stage == "read_client" && firstExit.graceful {
-		dropDownstreamWrites.Store(true)
-		secondExit, hasSecondExit = waitRelayExit(exitCh, drainTimeout)
-	} else {
-		relayCancel()
-		_ = upstreamConn.Close()
-		if clientReaderStarted.Load() {
-			secondExit, hasSecondExit = waitRelayExit(exitCh, 200*time.Millisecond)
-		}
+	// Cancel generation before joining readers; settlement uses observed evidence.
+	relayCancel()
+	_ = upstreamConn.Close()
+	if clientReaderStarted.Load() {
+		secondExit, hasSecondExit = waitRelayExit(exitCh, 200*time.Millisecond)
 	}
+
 	if hasSecondExit {
 		combinedWroteDownstream = combinedWroteDownstream || secondExit.wroteDownstream
 		emitRelayTrace(onTrace, RelayTraceEvent{
@@ -393,10 +386,7 @@ func Relay(
 	if firstExit.stage == "read_client" && firstExit.graceful {
 		stage := "client_disconnected"
 		exitErr := firstExit.err
-		if hasSecondExit && !secondExit.graceful {
-			stage = secondExit.stage
-			exitErr = secondExit.err
-		}
+
 		if exitErr == nil {
 			exitErr = io.EOF
 		}
@@ -436,7 +426,7 @@ func Relay(
 			WroteDownstream: combinedWroteDownstream,
 		}
 	}
-	if hasSecondExit && !secondExit.graceful {
+	if hasSecondExit && !secondExit.graceful && !errors.Is(secondExit.err, context.Canceled) {
 		emitRelayTrace(onTrace, RelayTraceEvent{
 			Stage:           "relay_exit",
 			Direction:       relayDirectionFromStage(secondExit.stage),

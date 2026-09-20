@@ -27,7 +27,7 @@ func TestCodexDirectImagesRouting(t *testing.T) {
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
+			defer cancel()
 			result, err := svc.ForwardImages(ctx, c, directImagesTestAccount(), body, parsed, "")
 			require.NoError(t, err)
 			require.Equal(t, 1, result.ImageCount)
@@ -151,7 +151,7 @@ func TestCodexDirectImagesStreaming(t *testing.T) {
 	}{
 		{"completed", "complete", 1, false, false},
 		{"duplicate", "complete,complete", 1, false, false},
-		{"disconnect", "partial,complete", 1, false, true},
+		{"disconnect", "partial,complete", 0, true, true},
 		{"truncated", "partial", 0, true, false},
 		{"partial_requested_multiple", "complete", 1, false, false},
 		{"error", "error", 0, true, false},

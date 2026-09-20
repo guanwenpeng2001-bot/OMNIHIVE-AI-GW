@@ -191,7 +191,9 @@ func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
 					} else {
 						_ = client.CloseNow()
 					}
-					read(provider)
+					_, _, closeErr := provider.Read(ctx)
+					require.Error(t, closeErr, "disconnect must close upstream without finishing generation")
+					break
 				}
 				done, _ := json.Marshal(map[string]any{"type": "response.done", "response": map[string]any{"id": id, "status": "completed", "usage": map[string]int{"characters": 5}}})
 				write(provider, string(done))
@@ -211,19 +213,18 @@ func TestQianwenRealtimeTwoTurnsReplayAndDisconnectDrain(t *testing.T) {
 			}
 			select {
 			case err := <-finished:
-				require.NoError(t, err)
+				if disconnect {
+					require.Error(t, err)
+				} else {
+					require.NoError(t, err)
+				}
 			case <-ctx.Done():
 				t.Fatal("relay readers did not stop")
 			}
-			if mode == "application_shutdown" {
+			if disconnect {
 				require.NoError(t, svc.WaitDrain(ctx))
 				require.Zero(t, repo.charges)
-				require.Len(t, repo.jobs, 1)
-				for _, j := range repo.jobs {
-					require.NotEmpty(t, j.UsageJSON)
-					require.Nil(t, j.ChargedUsageLogID)
-					require.False(t, j.Terminal())
-				}
+				require.Empty(t, repo.jobs, "unobserved late usage must not be invented")
 			} else {
 				require.Equal(t, turns, repo.charges)
 			}

@@ -410,8 +410,14 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	inPartialEvent := false
 
+	defer resp.Body.Close()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, true, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, true, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
@@ -466,10 +472,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if line == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
@@ -511,7 +517,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			}
 			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, canceling upstream with observed usage: account=%d", account.ID)
 				continue
 			}
 			flusher.Flush()

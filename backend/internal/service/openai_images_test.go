@@ -1777,12 +1777,8 @@ func TestOpenAIGatewayServiceForwardImages_APIKeyStreamingDrainsAfterClientDisco
 	}
 
 	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, 1, result.ImageCount)
-	require.Equal(t, 3, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-	require.Equal(t, 2, result.Usage.ImageOutputTokens)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, result, "disconnect before billable output must not consume later terminal usage")
 }
 
 func TestOpenAIGatewayServiceForwardImages_OAuthEditsMultipartUsesResponsesAPI(t *testing.T) {
@@ -2223,11 +2219,6 @@ func TestOpenAIGatewayServiceForwardImages_OAuthStreamingDrainsAfterClientDiscon
 	}
 
 	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.True(t, result.Stream)
-	require.Equal(t, 1, result.ImageCount)
-	require.Equal(t, 5, result.Usage.InputTokens)
-	require.Equal(t, 9, result.Usage.OutputTokens)
-	require.Equal(t, 4, result.Usage.ImageOutputTokens)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, result, "disconnect before billable output must not consume later terminal usage")
 }
