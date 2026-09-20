@@ -1,6 +1,6 @@
 import { apiClient } from '../client'
 import type { PlatformModelPreset } from '@/types/model'
-export type { PlatformModelPreset } from '@/types'
+export type { PlatformModelPreset } from '@/types/model'
 
 // Editorial candidates never establish account entitlement.
 export async function getPlatformModelPresets(): Promise<PlatformModelPreset[]> {

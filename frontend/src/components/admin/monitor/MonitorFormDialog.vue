@@ -130,6 +130,7 @@
         <input
           v-model="form.primary_model"
           data-testid="monitor-primary-model"
+          list="monitor-preset-models"
           type="text"
           required
           class="input font-medium"
@@ -138,6 +139,12 @@
         />
       </div>
 
+      <datalist id="monitor-preset-models">
+        <option v-for="model in presetModels" :key="model" :value="model" />
+      </datalist>
+      <p v-if="presetError" role="alert" class="text-sm text-red-600">
+        {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+      </p>
       <div v-if="usesProbePart">
         <label class="input-label">{{ t('admin.channelMonitor.form.extraModels') }}</label>
         <ModelTagInput
@@ -233,6 +240,7 @@
 </template>
 
 <script setup lang="ts">
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -281,9 +289,7 @@ import {
   DEFAULT_GROK_ENDPOINT,
   DEFAULT_QIANWEN_ENDPOINT,
   DEFAULT_COMMANDCODE_ENDPOINT,
-  PROVIDER_DEFAULT_MODELS,
   PROBE_ONLY_PROVIDERS,
-  DEFAULT_GROK_MODEL,
   DEFAULT_KIMI_ENDPOINT,
   DEFAULT_ZHIPU_ENDPOINT,
   DEFAULT_DEEPSEEK_ENDPOINT,
@@ -675,18 +681,27 @@ watch(
   { immediate: true },
 )
 
+const { presets: platformPresets, models: presetModels, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  () => [form.provider], {}, () => props.show
+)
+watch(platformPresets, presets => {
+  if (!form.primary_model.trim() && usesProbePart.value) {
+    form.primary_model = presets.flatMap(preset => preset.models ?? [])
+      .find(model => model.task_type === 'text_generation' || model.task_type === 'chat')?.id ?? ''
+  }
+})
+
 function selectProvider(provider: Provider) {
   if (form.provider === provider) return
   const previousProvider = form.provider
-  if (form.primary_model === PROVIDER_DEFAULT_MODELS[previousProvider]) form.primary_model = ''
+  form.primary_model = ''
+  form.extra_models = []
   if (PROBE_ONLY_PROVIDERS.includes(provider)) {
     form.check_mode = CHECK_MODE_PROBE
     if (form.primary_model === 'quota') form.primary_model = ''
   }
   const clearGrokEndpoint =
     previousProvider === PROVIDER_GROK && form.endpoint === DEFAULT_GROK_ENDPOINT
-  const clearGrokModel =
-    previousProvider === PROVIDER_GROK && form.primary_model === DEFAULT_GROK_MODEL
   const clearPrevDefaultEndpoint =
     !!PROVIDER_DEFAULT_ENDPOINTS[previousProvider] && form.endpoint === PROVIDER_DEFAULT_ENDPOINTS[previousProvider]
   form.provider = provider
@@ -701,19 +716,16 @@ function selectProvider(provider: Provider) {
   // 对称还原：从 antigravity 切走时撤掉强制 quota，否则编辑存量 antigravity
   // 监控换平台后仍停留在 quota（目标平台未必支持），update 会携带残留配置。
   // 同步清掉 quota 占位模型（loadFromMonitor 回填的 'quota'），否则切回
-  // probe 后拿 'quota' 当探活模型（与离开 grok 清 DEFAULT_GROK_MODEL 同理）。
+  // probe 后拿 'quota' 当探活模型。
   if (previousProvider === PROVIDER_ANTIGRAVITY && form.check_mode === CHECK_MODE_QUOTA) {
     form.check_mode = CHECK_MODE_PROBE
     if (form.primary_model.trim() === 'quota') form.primary_model = ''
   }
   if (provider === PROVIDER_GROK) {
     if (!form.endpoint.trim()) form.endpoint = DEFAULT_GROK_ENDPOINT
-    if (!form.primary_model.trim()) form.primary_model = DEFAULT_GROK_MODEL
     return
   }
   if (clearGrokEndpoint || clearPrevDefaultEndpoint) form.endpoint = ''
-  if (clearGrokModel) form.primary_model = ''
-  if (!form.primary_model.trim()) form.primary_model = PROVIDER_DEFAULT_MODELS[provider] ?? ''
   const defaultEndpoint = PROVIDER_DEFAULT_ENDPOINTS[provider]
   if (defaultEndpoint && !form.endpoint.trim()) form.endpoint = defaultEndpoint
 }

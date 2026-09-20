@@ -1276,6 +1276,13 @@ describe('EditAccountModal', () => {
   })
 
   it('loads and submits Grok OAuth model mapping edits', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([
+      { platform: 'grok', provider_profile: 'xai', models: [
+        { id: 'grok-imagine-image', display_name: 'Imagine Image' },
+        { id: 'grok-imagine-video', display_name: 'Imagine Video' }
+      ] }
+    ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+
     const account = buildGrokOAuthAccount()
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
@@ -1283,8 +1290,10 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
+    await flushPromises()
     expect(wrapper.text()).toContain('Imagine Image')
     expect(wrapper.text()).toContain('Imagine Video')
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([])
 
     const inputWithValue = (value: string) => {
       const input = wrapper

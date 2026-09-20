@@ -5,6 +5,9 @@
     width="wide"
     @close="handleClose(true)"
   >
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
     <section v-if="createdCatalogAccounts.length" data-testid="created-catalog-accounts" class="space-y-4">
       <p role="status">{{ t('admin.accounts.modelSync.savedReviewRequired') }}</p>
       <div v-for="saved in createdCatalogAccounts" :key="saved.id">
@@ -3771,6 +3774,7 @@
 </template>
 
 <script setup lang="ts">
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
@@ -3787,7 +3791,6 @@ import {
   buildModelMappingObject,
   validateModelRestrictions,
   translateModelRestrictionErrors,
-  fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
@@ -4413,8 +4416,6 @@ const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
-const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
-const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -4618,8 +4619,6 @@ const geminiHelpLinks = {
   countryChange: 'https://policies.google.com/country-association-form'
 }
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, { type: form.type }))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4723,12 +4722,20 @@ const canExchangeCode = computed(() => {
 
 const modelCandidateIdentity = computed(() => ({ host: apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
 
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  () => [form.platform], modelCandidateIdentity, () => props.show
+)
+const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, modelCandidateIdentity.value, platformPresets.value))
+const antigravityPresetMappings = presetMappings
+const bedrockPresets = presetMappings
+
 // Defaults belong to one open draft; old responses cannot populate another identity.
 let mappingGeneration = 0
 watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
 const loadAntigravityMappings = async () => {
   const request = ++mappingGeneration
-  const mappings = await fetchAntigravityDefaultMappings()
+  await reloadPresets()
+  const mappings = presetMappings.value.map(({ from, to }) => ({ from, to }))
   if (request === mappingGeneration && props.show && form.platform === 'antigravity') antigravityModelMappings.value = [...mappings]
 }
 

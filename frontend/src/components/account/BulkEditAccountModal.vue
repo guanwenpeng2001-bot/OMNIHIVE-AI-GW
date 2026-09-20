@@ -6,6 +6,9 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <p v-if="presetError" role="alert" class="text-sm text-red-600">
+        {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+      </p>
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -1474,6 +1477,7 @@
 </template>
 
 <script setup lang="ts">
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage } from '@/utils/apiError'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { ref, watch, computed } from 'vue'
@@ -1631,12 +1635,15 @@ const allAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  targetSelectedPlatforms, {}, () => props.show
+)
 const filteredPresets = computed(() => {
   if (targetSelectedPlatforms.value.length === 0) return []
 
   const dedupedPresets = new Map<string, ReturnType<typeof getPresetMappingsByPlatform>[number]>()
   for (const platform of targetSelectedPlatforms.value) {
-    for (const preset of getPresetMappingsByPlatform(platform)) {
+    for (const preset of getPresetMappingsByPlatform(platform, {}, platformPresets.value)) {
       const key = `${preset.from}=>${preset.to}`
       if (!dedupedPresets.has(key)) {
         dedupedPresets.set(key, preset)

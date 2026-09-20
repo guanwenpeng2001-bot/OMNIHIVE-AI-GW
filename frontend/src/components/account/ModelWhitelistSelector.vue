@@ -1,5 +1,8 @@
 <template>
   <div @keydown.esc="handleEscape">
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
     <!-- Quick Actions -->
     <div class="mb-4 flex flex-wrap gap-2">
       <button
@@ -207,7 +210,7 @@ import { useAppStore } from '@/stores/app'
 import { platformSupportsModelCatalog } from '@/constants/platforms'
 import { accountsAPI } from '@/api/admin/accounts'
 import { parseModelCapabilityDefaults, modelCapabilityRequestError } from './modelCapabilityDefaults'
-import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import type { AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -421,24 +424,10 @@ watch(context, () => {
   }
 }, { immediate: true, flush: 'sync' })
 
-const platformPresets = ref<PlatformModelPreset[] | null>(null)
-let presetGeneration = 0
-watch(() => props.active, async (active) => {
-  const request = ++presetGeneration
-  if (!active || props.catalogOnly || platformPresets.value) return
-  try {
-    const presets = await getPlatformModelPresets()
-    if (!disposed && request === presetGeneration) platformPresets.value = presets
-  } catch {
-    // Missing platform evidence stays unknown; never substitute local hardcoded IDs.
-  }
-}, { immediate: true })
-const selectedPresets = computed(() => platformPresets.value?.filter(preset =>
-  normalizedPlatforms.value.includes(preset.platform) &&
-  (!props.candidateIdentity?.profile || preset.provider_profile === props.candidateIdentity.profile) &&
-  (!['bedrock', 'service_account'].includes(props.candidateIdentity?.type ?? '') || !!props.candidateIdentity?.profile)) ?? [])
-const presetModels = computed(() => [...new Set(selectedPresets.value.flatMap(preset => (preset.models ?? []).map(model => model.id)))])
-const presetCount = computed(() => platformPresets.value && selectedPresets.value.length
+const { presets: selectedPresets, models: presetModels, loaded: presetsLoaded, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  normalizedPlatforms, () => props.candidateIdentity ?? {}, () => props.active && !props.catalogOnly
+)
+const presetCount = computed(() => presetsLoaded.value && selectedPresets.value.length
   && !selectedPresets.value.some(preset => preset.coverage_status === 'unconfigured')
   && normalizedPlatforms.value.every(platform => selectedPresets.value.some(preset => preset.platform === platform))
   ? presetModels.value.length : null)
