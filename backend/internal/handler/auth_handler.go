@@ -13,12 +13,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
 )
 
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
+	redisClient          *redis.Client
 	cfg                  *config.Config
 	authService          *service.AuthService
 	userService          *service.UserService

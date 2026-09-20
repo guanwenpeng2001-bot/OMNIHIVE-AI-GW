@@ -3,6 +3,7 @@
 package admin
 
 import (
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -182,4 +183,27 @@ func TestParseBoolQueryWithDefault(t *testing.T) {
 			require.Equal(t, tc.want, got)
 		})
 	}
+}
+
+func TestSnapshotCacheCapacityLRUAndExpiredSweep(t *testing.T) {
+	cache := newSnapshotCache(time.Minute)
+	cache.Set("oldest", "old")
+	entry := cache.items["oldest"]
+	entry.accessOrder = 1
+	cache.items["oldest"] = entry
+	for index := 1; index < snapshotCacheLimit; index++ {
+		cache.Set(strconv.Itoa(index), index)
+	}
+	cache.Set("overflow", "new")
+	require.Len(t, cache.items, snapshotCacheLimit)
+	_, exists := cache.Get("oldest")
+	require.False(t, exists)
+	for key, cached := range cache.items {
+		cached.ExpiresAt = time.Now().Add(-time.Second)
+		cache.items[key] = cached
+	}
+	cache.Set("fresh", "fresh")
+	require.Len(t, cache.items, 1)
+	_, exists = cache.Get("fresh")
+	require.True(t, exists)
 }

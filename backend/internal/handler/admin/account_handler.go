@@ -1249,14 +1249,9 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 		return
 	}
 	accountID := account.ID
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("openai_responses_probe_panic", "account_id", accountID, "recover", r)
-			}
-		}()
-		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
-	}()
+	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
+	})
 }
 
 // Delete handles deleting an account

@@ -279,3 +279,43 @@ func TestGrokImportProbeFailureLogDoesNotIncludeErrorMessage(t *testing.T) {
 	require.Contains(t, logs.String(), "GROK_TEST_PROBE_FAILED")
 	require.NotContains(t, logs.String(), "refresh-token-secret")
 }
+
+func TestImportProbeSchedulerCloseCancelsAndClears(t *testing.T) {
+	scheduler := newGrokImportProbeScheduler(1, time.Minute)
+	prober := newGrokImportProbeStub(100)
+	prober.block = make(chan struct{})
+	scheduler.scheduleTask(prober, 1)
+	awaitGrokProbeSignal(t, prober.started)
+	for accountID := int64(2); accountID < 1000; accountID++ {
+		scheduler.scheduleTask(prober, accountID)
+	}
+	require.Equal(t, grokImportProbeQueueLimit, snapshotGrokImportProbeScheduler(scheduler).queued)
+	scheduler.close()
+	awaitGrokProbeSignal(t, prober.done)
+	require.Eventually(t, func() bool { return snapshotGrokImportProbeScheduler(scheduler).workers == 0 }, time.Second, time.Millisecond)
+	scheduler.scheduleTask(prober, 1001)
+	require.Zero(t, snapshotGrokImportProbeScheduler(scheduler).queued)
+	scheduler.mu.Lock()
+	defer scheduler.mu.Unlock()
+	require.Empty(t, scheduler.pending)
+	require.Empty(t, scheduler.inFlight)
+}
+
+func TestOpenAIImportProbeHandlerUsesBoundedQueue(t *testing.T) {
+	previous := defaultOpenAIImportProbeScheduler
+	scheduler := newGrokImportProbeScheduler(1, time.Minute)
+	defaultOpenAIImportProbeScheduler = scheduler
+	defer func() { scheduler.close(); defaultOpenAIImportProbeScheduler = previous }()
+	started := make(chan struct{})
+	scheduler.scheduleProbe(1, func(ctx context.Context) { close(started); <-ctx.Done() })
+	<-started
+	handler := &AccountHandler{accountTestService: &service.AccountTestService{}}
+	for accountID := int64(2); accountID < 1000; accountID++ {
+		handler.scheduleOpenAIResponsesProbe(&service.Account{ID: accountID, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey})
+	}
+	snapshot := snapshotGrokImportProbeScheduler(scheduler)
+	require.Equal(t, grokImportProbeQueueLimit, snapshot.queued)
+	require.Equal(t, 1, snapshot.workers)
+	scheduler.close()
+	require.Eventually(t, func() bool { return snapshotGrokImportProbeScheduler(scheduler).workers == 0 }, time.Second, time.Millisecond)
+}
