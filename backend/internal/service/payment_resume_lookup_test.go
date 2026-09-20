@@ -93,6 +93,23 @@ func TestGetPublicOrderByResumeTokenReturnsMatchingOrder(t *testing.T) {
 	got, err := svc.GetPublicOrderByResumeToken(ctx, token)
 	require.NoError(t, err)
 	require.Equal(t, order.ID, got.ID)
+	_, err = svc.GetPublicOrderByResumeToken(ctx, token)
+	require.ErrorContains(t, err, "already been consumed")
+	// A fresh service instance shares the database consumption marker.
+	restarted := &PaymentService{entClient: client, resumeService: resumeSvc}
+	_, err = restarted.GetPublicOrderByResumeToken(ctx, token)
+	require.ErrorContains(t, err, "already been consumed")
+	next, err := svc.RenewPaymentResumeToken(token)
+	require.NoError(t, err)
+	require.NotEqual(t, token, next)
+	nextClaims, err := resumeSvc.ParseToken(next)
+	require.NoError(t, err)
+	originalClaims, err := resumeSvc.ParseToken(token)
+	require.NoError(t, err)
+	require.Equal(t, originalClaims.ExpiresAt, nextClaims.ExpiresAt)
+	_, err = restarted.GetPublicOrderByResumeToken(ctx, next)
+	require.NoError(t, err)
+
 }
 
 func TestGetPublicOrderByResumeTokenRejectsSnapshotMismatch(t *testing.T) {

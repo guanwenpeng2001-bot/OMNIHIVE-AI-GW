@@ -104,3 +104,22 @@ func TestErrOrderNotFound_DistinctFromOtherErrors(t *testing.T) {
 	require.False(t, errors.Is(wrappedLookupErr, ErrOrderNotFound),
 		"DB connection failures must not masquerade as order-not-found")
 }
+
+func TestPaymentLookupFailuresRemainRetryable(t *testing.T) {
+	client := newOrderNotFoundTestClient(t)
+	service := &PaymentService{entClient: client}
+	ctx := context.Background()
+	require.ErrorIs(t, service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil), ErrOrderNotFound)
+	require.NoError(t, client.Close())
+	err := service.confirmPayment(ctx, 42, "trade", 10, payment.TypeAlipay, nil)
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrOrderNotFound)
+	err = service.alreadyProcessed(ctx, &dbent.PaymentOrder{ID: 42})
+	require.Error(t, err)
+	require.NotErrorIs(t, err, ErrOrderNotFound)
+	for _, orderID := range []string{"sub2_42", "opaque-order"} {
+		err = service.HandlePaymentNotification(ctx, &payment.PaymentNotification{OrderID: orderID, Status: payment.NotificationStatusSuccess}, payment.TypeAlipay)
+		require.Error(t, err)
+		require.NotErrorIs(t, err, ErrOrderNotFound)
+	}
+}

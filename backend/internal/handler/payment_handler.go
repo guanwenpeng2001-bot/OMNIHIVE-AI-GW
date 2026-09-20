@@ -477,6 +477,7 @@ func (h *PaymentHandler) VerifyOrder(c *gin.Context) {
 // proves possession of the checkout session, so the result keeps the legacy
 // frontend contract needed by payment result pages.
 type PublicOrderResult struct {
+	ResumeToken         string     `json:"resume_token"`
 	ID                  int64      `json:"id"`
 	OutTradeNo          string     `json:"out_trade_no"`
 	Amount              float64    `json:"amount"`
@@ -562,22 +563,10 @@ func publicOrderStatusPaid(status string) bool {
 	}
 }
 
-// VerifyOrderPublic keeps the legacy anonymous out_trade_no lookup available as
-// a compatibility path for older result pages and staggered deploys.
+// VerifyOrderPublic preserves the old route with the same token-only contract.
 // POST /api/v1/payment/public/orders/verify
 func (h *PaymentHandler) VerifyOrderPublic(c *gin.Context) {
-	var req VerifyOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	order, err := h.paymentService.VerifyOrderPublic(c.Request.Context(), req.OutTradeNo)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, buildPublicOrderVerifyResult(order))
+	h.ResolveOrderPublicByResumeToken(c)
 }
 
 // ResolveOrderPublicByResumeToken resolves a payment order from a signed resume token.
@@ -594,7 +583,14 @@ func (h *PaymentHandler) ResolveOrderPublicByResumeToken(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	response.Success(c, buildPublicOrderResult(order))
+	nextToken, err := h.paymentService.RenewPaymentResumeToken(req.ResumeToken)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result := buildPublicOrderResult(order)
+	result.ResumeToken = nextToken
+	response.Success(c, result)
 }
 
 // requireAuth extracts the authenticated subject from the context.

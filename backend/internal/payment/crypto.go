@@ -100,6 +100,9 @@ func Decrypt(ciphertext string, key []byte) (string, error) {
 	}
 
 	// Reconstruct the sealed data: ciphertext + authTag
+	if len(nonce) != gcm.NonceSize() || len(authTag) != gcm.Overhead() {
+		return "", fmt.Errorf("invalid legacy payment nonce or authentication tag length")
+	}
 	sealed := append(encrypted, authTag...)
 
 	plaintext, err := gcm.Open(nil, nonce, sealed, nil)

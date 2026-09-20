@@ -152,7 +152,7 @@ describe('PaymentResultView', () => {
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     }))
     resolveOrderPublicByResumeToken.mockResolvedValue({
-      data: orderFactory('PENDING'),
+      data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' },
     })
 
     const wrapper = mount(PaymentResultView, {
@@ -237,7 +237,7 @@ describe('PaymentResultView', () => {
     )
     resolveOrderPublicByResumeToken
       .mockResolvedValueOnce({
-        data: orderFactory('PENDING'),
+        data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' },
       })
       .mockResolvedValueOnce({
         data: orderFactory('COMPLETED'),
@@ -262,6 +262,7 @@ describe('PaymentResultView', () => {
     await flushPromises()
 
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith('next-resume-token', expect.any(AbortSignal))
     expect(refreshUser).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('payment.result.success')
     expect(wrapper.text()).not.toContain('payment.result.failed')
@@ -327,7 +328,7 @@ describe('PaymentResultView', () => {
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
   })
 
-  it('falls back to public out_trade_no verification when resume_token recovery fails in legacy return flows', async () => {
+  it('does not expose public order lookup when resume recovery fails', async () => {
     routeState.query = {
       resume_token: 'resume-fail',
       out_trade_no: 'legacy-should-not-run',
@@ -352,9 +353,9 @@ describe('PaymentResultView', () => {
     await flushPromises()
 
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail', expect.any(AbortSignal))
-    expect(verifyOrderPublic).toHaveBeenCalledWith('legacy-should-not-run', expect.any(AbortSignal))
+    expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.failed')
   })
 
   it('ignores a stale global recovery snapshot when legacy return markers do not identify the order', async () => {
@@ -383,7 +384,7 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).not.toContain('sub2_20260420abcd1234')
   })
 
-  it('uses public out_trade_no verification when no signed resume context is available', async () => {
+  it('requires authentication when no signed resume context is available', async () => {
     routeState.query = {
       out_trade_no: 'legacy-123',
       trade_status: 'TRADE_SUCCESS',
@@ -404,12 +405,12 @@ describe('PaymentResultView', () => {
     await flushPromises()
 
     expect(verifyOrder).toHaveBeenCalledWith('legacy-123', expect.any(AbortSignal))
-    expect(verifyOrderPublic).toHaveBeenCalledWith('legacy-123', expect.any(AbortSignal))
+    expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.failed')
   })
 
-  it('renders the minimal public out_trade_no verification result without payment_type', async () => {
+  it('does not trust a legacy provider return as a verified payment', async () => {
     routeState.query = {
       out_trade_no: 'legacy-minimal',
       trade_status: 'TRADE_SUCCESS',
@@ -435,7 +436,7 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.failed')
     expect(wrapper.text()).toContain('legacy-minimal')
     expect(wrapper.text()).not.toContain('payment.orders.paymentMethod')
   })
@@ -579,14 +580,14 @@ describe('PaymentResultView', () => {
     vi.useFakeTimers()
     routeState.query = { resume_token: 'resume-pending' }
     let resolve!: (value: unknown) => void
-    resolveOrderPublicByResumeToken.mockResolvedValueOnce({ data: orderFactory('PENDING') })
+    resolveOrderPublicByResumeToken.mockResolvedValueOnce({ data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' } })
       .mockReturnValueOnce(new Promise(done => { resolve = done }))
     const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
     await flushPromises()
     await vi.advanceTimersByTimeAsync(2000)
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
     wrapper.unmount()
-    resolve({ data: orderFactory('PENDING') })
+    resolve({ data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' } })
     await flushPromises()
     await vi.advanceTimersByTimeAsync(20000)
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)

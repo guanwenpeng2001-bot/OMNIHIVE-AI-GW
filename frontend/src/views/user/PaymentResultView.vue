@@ -296,9 +296,12 @@ function restoreRecoverySnapshot(context: {
   return restored
 }
 
+let continuationToken = ''
+
 async function resolveOrderFromResumeToken(resumeToken: string): Promise<ResolvedOrder | null> {
   try {
     const result = await paymentAPI.resolveOrderPublicByResumeToken(resumeToken, lifecycle.signal)
+    continuationToken = result.data.resume_token || ''
     return result.data
   } catch (_err: unknown) {
     return null
@@ -310,13 +313,7 @@ async function resolveOrderFromOutTradeNo(outTradeNo: string): Promise<ResolvedO
     const result = await paymentAPI.verifyOrder(outTradeNo, lifecycle.signal)
     return result.data
   } catch (_err: unknown) {
-    if (!lifecycle.isCurrent()) return null
-    try {
-      const result = await paymentAPI.verifyOrderPublic(outTradeNo, lifecycle.signal)
-      return result.data
-    } catch (_innerErr: unknown) {
-      return null
-    }
+    return null
   }
 }
 
@@ -402,7 +399,7 @@ onMounted(async () => {
   }
 
   const hasLegacyFallbackContext = readRouteQueryString('trade_status').trim() !== ''
-  const shouldUsePublicOutTradeNo = outTradeNo !== '' && (hasLegacyFallbackContext || routeOrderId > 0 || orderId > 0)
+  const shouldUseOwnerOutTradeNo = outTradeNo !== '' && (hasLegacyFallbackContext || routeOrderId > 0 || orderId > 0)
 
   if (!order.value && orderId && (!resumeToken || routeOrderId > 0)) {
     try {
@@ -415,7 +412,7 @@ onMounted(async () => {
   }
 
   if (!lifecycle.isCurrent()) return
-  if (!order.value && shouldUsePublicOutTradeNo && (!resumeToken || resumeTokenLookupFailed)) {
+  if (!order.value && shouldUseOwnerOutTradeNo && (!resumeToken || resumeTokenLookupFailed)) {
     const legacyOrder = await resolveOrderFromOutTradeNo(outTradeNo)
     if (!lifecycle.isCurrent()) return
     if (legacyOrder) {
@@ -437,8 +434,10 @@ onMounted(async () => {
 
   const refreshOrder = async (): Promise<ResolvedOrder | null> => {
     if (!lifecycle.isCurrent()) return null
-    if (resumeToken) {
-      const resolvedOrder = await resolveOrderFromResumeToken(resumeToken)
+    if (continuationToken) {
+      const token = continuationToken
+      continuationToken = ''
+      const resolvedOrder = await resolveOrderFromResumeToken(token)
       if (!lifecycle.isCurrent()) return null
       if (resolvedOrder) {
         return resolvedOrder
@@ -449,12 +448,12 @@ onMounted(async () => {
       try {
         return await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
       } catch (_err: unknown) {
-        // Fall through to legacy public verification when order polling is unavailable.
+        // Fall through to authenticated verification when order polling is unavailable.
       }
     }
 
     if (!lifecycle.isCurrent()) return null
-    if (shouldUsePublicOutTradeNo) {
+    if (shouldUseOwnerOutTradeNo) {
       return await resolveOrderFromOutTradeNo(outTradeNo)
     }
 
