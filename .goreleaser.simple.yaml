@@ -3,16 +3,13 @@ version: 2
 
 project_name: sub2api
 
-before:
-  hooks:
-    - go mod tidy -C backend
-
 builds:
   - id: sub2api
     dir: backend
     main: ./cmd/server
     binary: sub2api
     flags:
+      - -mod=readonly
       - -tags=embed
     env:
       - CGO_ENABLED=0
@@ -22,6 +19,7 @@ builds:
       - amd64
     ldflags:
       - -s -w
+      - -X main.Version={{.Version}}
       - -X main.Commit={{.Commit}}
       - -X main.Date={{.Date}}
       - -X main.BuildType=release
