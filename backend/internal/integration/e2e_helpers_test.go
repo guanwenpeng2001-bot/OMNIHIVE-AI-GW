@@ -13,15 +13,15 @@ import (
 	"time"
 )
 
-func requireE2EServer(t *testing.T) {
-	t.Helper()
+func requireE2EServer(testingT *testing.T) {
+	testingT.Helper()
 	if baseURL == "" {
-		t.Skip("BASE_URL 未配置，外部 E2E 未执行；本地失败判定 fixture 仍运行")
+		testingT.Skip("BASE_URL 未配置，外部 E2E 未执行；本地失败判定 fixture 仍运行")
 	}
 }
 
 // Exercise the real assertions in child processes, proving errors fail instead of skip.
-func TestE2EFailuresAreNotSkipped(t *testing.T) {
+func TestE2EFailuresAreNotSkipped(testingT *testing.T) {
 	cases := []struct {
 		name, testName string
 		status         int
@@ -35,7 +35,7 @@ func TestE2EFailuresAreNotSkipped(t *testing.T) {
 		{"login_missing_token", "TestAPIKeyLifecycle", http.StatusOK},
 	}
 	for _, testCase := range cases {
-		t.Run(testCase.name, func(t *testing.T) {
+		testingT.Run(testCase.name, func(testingT *testing.T) {
 			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				writer.Header().Set("Content-Type", "application/json")
 				writer.WriteHeader(testCase.status)
@@ -57,28 +57,28 @@ func TestE2EFailuresAreNotSkipped(t *testing.T) {
 			command.Env = append(command.Env, "BASE_URL="+server.URL, "ENDPOINT_PREFIX=", "CLAUDE_API_KEY=fixture-key", "ADMIN_EMAIL=fixture@example.test", "ADMIN_PASSWORD=fixture-password", "E2E_FAILURE_CHILD=1")
 			output, err := command.CombinedOutput()
 			if ctx.Err() != nil || err == nil || !strings.Contains(string(output), "--- FAIL:") || strings.Contains(string(output), "--- SKIP:") {
-				t.Fatalf("expected a failed, non-skipped test; error=%v context=%v\n%s", err, ctx.Err(), output)
+				testingT.Fatalf("expected a failed, non-skipped test; error=%v context=%v\n%s", err, ctx.Err(), output)
 			}
 		})
 	}
 }
 
-func TestE2EFailureFixture(t *testing.T) {
+func TestE2EFailureFixture(testingT *testing.T) {
 	if os.Getenv("E2E_FAILURE_CHILD") != "1" {
 		return
 	}
-	t.Run("tools", func(t *testing.T) { testClaudeMessageWithTools(t, "fixture-key", "fixture-model") })
-	t.Run("thinking", func(t *testing.T) { testClaudeThinkingWithToolHistory(t, "fixture-key", "fixture-model") })
-	t.Run("no_signature", func(t *testing.T) { testClaudeWithNoSignature(t, "fixture-key", "fixture-model") })
+	testingT.Run("tools", func(testingT *testing.T) { testClaudeMessageWithTools(testingT, "fixture-key", "fixture-model") })
+	testingT.Run("thinking", func(testingT *testing.T) { testClaudeThinkingWithToolHistory(testingT, "fixture-key", "fixture-model") })
+	testingT.Run("no_signature", func(testingT *testing.T) { testClaudeWithNoSignature(testingT, "fixture-key", "fixture-model") })
 }
 
 // Local fixtures validate the E2E client contract without a running application,
 // credentials, a shared database, or paid provider requests.
-func TestE2ELocalUserFlow(t *testing.T) {
+func TestE2ELocalUserFlow(testingT *testing.T) {
 	previousURL := baseURL
-	t.Cleanup(func() { baseURL = previousURL })
-	t.Setenv("ADMIN_EMAIL", "fixture@example.test")
-	t.Setenv("ADMIN_PASSWORD", "fixture-password")
+	testingT.Cleanup(func() { baseURL = previousURL })
+	testingT.Setenv("ADMIN_EMAIL", "fixture@example.test")
+	testingT.Setenv("ADMIN_PASSWORD", "fixture-password")
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		writer.Header().Set("Content-Type", "application/json")
 		switch request.Method + " " + request.URL.Path {
@@ -103,12 +103,12 @@ func TestE2ELocalUserFlow(t *testing.T) {
 			}
 			_, _ = writer.Write([]byte(`{"object":"list","data":[]}`))
 		default:
-			t.Errorf("unexpected E2E request: %s %s", request.Method, request.URL.Path)
+			testingT.Errorf("unexpected E2E request: %s %s", request.Method, request.URL.Path)
 			http.NotFound(writer, request)
 		}
 	}))
 	defer server.Close()
 	baseURL = server.URL
-	t.Run("registration_and_login", TestUserRegistrationAndLogin)
-	t.Run("api_key_lifecycle", TestAPIKeyLifecycle)
+	testingT.Run("registration_and_login", TestUserRegistrationAndLogin)
+	testingT.Run("api_key_lifecycle", TestAPIKeyLifecycle)
 }

@@ -28,13 +28,13 @@ func TestDingTalkOAuthStart_Disabled(t *testing.T) {
 	require.Equal(t, "dingtalk_not_enabled", parseOAuthRedirectFragment(t, recorder.Header().Get("Location")).Get("error"))
 }
 
-func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
+func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected"} {
-		t.Run(scenario, func(t *testing.T) {
-			handler, database := newOAuthPendingFlowTestHandler(t, false)
+		testingT.Run(scenario, func(testingT *testing.T) {
+			handler, database := newOAuthPendingFlowTestHandler(testingT, false)
 			ctx := context.Background()
 			user, err := database.User.Create().SetEmail("dingtalk-bind@example.test").SetUsername("Existing user").SetPasswordHash("hash").SetRole(service.RoleUser).SetStatus(service.StatusActive).Save(ctx)
-			require.NoError(t, err)
+			require.NoError(testingT, err)
 			var calls []string
 			provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 				calls = append(calls, request.URL.Path)
@@ -42,10 +42,10 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
 				switch request.URL.Path {
 				case "/oauth2/userAccessToken":
 					var payload map[string]string
-					assert.NoError(t, json.NewDecoder(request.Body).Decode(&payload))
-					assert.Equal(t, "fixture-code", payload["code"])
-					assert.Equal(t, "fixture-client", payload["clientId"])
-					assert.Equal(t, "fixture-secret", payload["clientSecret"])
+					assert.NoError(testingT, json.NewDecoder(request.Body).Decode(&payload))
+					assert.Equal(testingT, "fixture-code", payload["code"])
+					assert.Equal(testingT, "fixture-client", payload["clientId"])
+					assert.Equal(testingT, "fixture-secret", payload["clientSecret"])
 					if scenario == "exchange_rejected" {
 						writer.WriteHeader(http.StatusUnauthorized)
 						_, _ = writer.Write([]byte(`{"code":"InvalidCode","message":"fixture rejection"}`))
@@ -53,12 +53,12 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
 					}
 					_, _ = writer.Write([]byte(`{"accessToken":"fixture-user-token","expireIn":7200,"corpId":"fixture-corp"}`))
 				case "/contact/users/me":
-					assert.Equal(t, "fixture-user-token", request.Header.Get("x-acs-dingtalk-access-token"))
+					assert.Equal(testingT, "fixture-user-token", request.Header.Get("x-acs-dingtalk-access-token"))
 					_, _ = writer.Write([]byte(`{"unionId":"fixture-union","nick":"Fixture user"}`))
 				case "/oauth2/accessToken":
 					_, _ = writer.Write([]byte(`{"accessToken":"fixture-app-token","expireIn":7200}`))
 				case "/topapi/user/getbyunionid":
-					assert.Equal(t, "fixture-app-token", request.URL.Query().Get("access_token"))
+					assert.Equal(testingT, "fixture-app-token", request.URL.Query().Get("access_token"))
 					if scenario == "directory_rejected" {
 						_, _ = writer.Write([]byte(`{"errcode":60011,"errmsg":"not in directory"}`))
 						return
@@ -67,7 +67,7 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
 				case "/topapi/v2/user/get":
 					_, _ = writer.Write([]byte(`{"errcode":0,"result":{"userid":"fixture-staff","name":"Fixture user","email":"fixture@example.test"}}`))
 				default:
-					t.Errorf("unexpected IdP request: %s", request.URL)
+					testingT.Errorf("unexpected IdP request: %s", request.URL)
 					http.NotFound(writer, request)
 				}
 			}))
@@ -84,29 +84,29 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
 			}
 			request.AddCookie(encodedCookie(dingTalkOAuthStateCookieName, state))
 			request.AddCookie(encodedCookie(dingTalkOAuthIntentCookieName, oauthIntentBindCurrentUser))
-			request.AddCookie(encodedCookie(dingTalkOAuthBindUserCookieName, buildEncodedOAuthBindUserCookie(t, user.ID, handler.cfg.JWT.Secret)))
+			request.AddCookie(encodedCookie(dingTalkOAuthBindUserCookieName, buildEncodedOAuthBindUserCookie(testingT, user.ID, handler.cfg.JWT.Secret)))
 			request.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
 			requestContext.Request = request
 			handler.DingTalkOAuthCallback(requestContext)
-			require.Equal(t, http.StatusFound, recorder.Code)
+			require.Equal(testingT, http.StatusFound, recorder.Code)
 			if scenario != "bind" {
-				require.NotEmpty(t, parseOAuthRedirectFragment(t, recorder.Header().Get("Location")).Get("error"))
+				require.NotEmpty(testingT, parseOAuthRedirectFragment(testingT, recorder.Header().Get("Location")).Get("error"))
 				count, err := database.PendingAuthSession.Query().Count(ctx)
-				require.NoError(t, err)
-				require.Zero(t, count)
+				require.NoError(testingT, err)
+				require.Zero(testingT, count)
 				if scenario == "state_mismatch" {
-					require.Empty(t, calls)
+					require.Empty(testingT, calls)
 				}
 				if scenario == "exchange_rejected" {
-					require.Len(t, calls, 1)
+					require.Len(testingT, calls, 1)
 				}
 				return
 			}
-			require.Len(t, calls, 5)
+			require.Len(testingT, calls, 5)
 			session, err := database.PendingAuthSession.Query().Only(ctx)
-			require.NoError(t, err)
-			require.Equal(t, "fixture-union", session.ProviderSubject)
-			require.Equal(t, user.ID, *session.TargetUserID)
+			require.NoError(testingT, err)
+			require.Equal(testingT, "fixture-union", session.ProviderSubject)
+			require.Equal(testingT, user.ID, *session.TargetUserID)
 			finalize := httptest.NewRecorder()
 			finalizeContext, _ := gin.CreateTestContext(finalize)
 			finalizeRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/pending/exchange", strings.NewReader(`{"adopt_display_name":false,"adopt_avatar":false}`))
@@ -115,10 +115,10 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(t *testing.T) {
 			finalizeRequest.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
 			finalizeContext.Request = finalizeRequest
 			handler.ExchangePendingOAuthCompletion(finalizeContext)
-			require.Equal(t, http.StatusOK, finalize.Code, finalize.Body.String())
+			require.Equal(testingT, http.StatusOK, finalize.Code, finalize.Body.String())
 			identity, err := database.AuthIdentity.Query().Where(authidentity.ProviderTypeEQ("dingtalk"), authidentity.ProviderSubjectEQ("fixture-union")).Only(ctx)
-			require.NoError(t, err)
-			require.Equal(t, user.ID, identity.UserID)
+			require.NoError(testingT, err)
+			require.Equal(testingT, user.ID, identity.UserID)
 		})
 	}
 }
