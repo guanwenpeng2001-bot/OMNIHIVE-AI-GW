@@ -123,6 +123,7 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 		return result
 	}
 	m := UpstreamModelMetadata{ID: modelID, ProviderProfile: profile, SupportsVision: r.SupportsVision, SupportsFunctionCalling: r.SupportsFunctionCalling, SupportsPromptCaching: r.SupportsPromptCaching, Reasoning: r.SupportsReasoning, InputModalities: r.InputModalities, OutputModalities: r.OutputModalities, ContextLimitKind: "input"}
+	m.CreatedAt, m.ModelVersion = r.CreatedAt, r.ModelVersion
 	m.SupportedMethods = r.SupportedMethods
 	m.TaskLimits = r.TaskLimits
 	if r.EmbeddingDimensions != nil {
@@ -161,7 +162,7 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 	m.ReasoningControl = normalizeReasoningControl(m)
 	projectReasoningEffort(&m)
 	stampCapabilityEvidence(&m, r.Source, snapshot.Version(), profile, r.ModelID, rule, "verified")
-	for target, field := range map[string]string{"task_type": "mode", "supported_methods": "supported_methods", "embedding_dimensions": "embedding_dimensions", "reasoning_control": "control", "context_limit_kind": "context_limit_kind"} {
+	for target, field := range map[string]string{"created_at": "created_at", "model_version": "model_version", "task_type": "mode", "supported_methods": "supported_methods", "embedding_dimensions": "embedding_dimensions", "reasoning_control": "control", "context_limit_kind": "context_limit_kind"} {
 		if source, ok := r.FieldSources[field]; ok && source.Source != "" {
 			evidence := m.FieldEvidence[target]
 			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash

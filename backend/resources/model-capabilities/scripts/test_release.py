@@ -12,6 +12,27 @@ import release
 
 
 class ReleaseTests(unittest.TestCase):
+    def test_identity_facts_survive_candidate_generation_without_fabrication(self):
+        inputs = copy.deepcopy(catalog.read(catalog.INPUTS))
+        for source in inputs['sources']:
+            for record in source['records']:
+                record['created_at'] = '2024-01-01T00:00:00Z'
+                record['model_version'] = '001'
+        review = copy.deepcopy(catalog.read(catalog.REVIEWED))
+        review['records'] = []
+        candidate, _, _ = catalog.generate(inputs, review)
+        catalog.validate(candidate)
+        self.assertTrue(all(record['created_at'] == '2024-01-01T00:00:00Z'
+                            and record['model_version'] == '001' for record in candidate['records']))
+        original, _, _ = catalog.generate(catalog.read(catalog.INPUTS), review)
+        self.assertTrue(all('created_at' not in record and 'model_version' not in record
+                            for record in original['records']))
+        for invalid in ('2024-01-01', '2024-01-01T00:00:00', '2024-02-30T00:00:00Z', 1704067200):
+            with self.assertRaises(ValueError):
+                catalog.check_identity_facts({'created_at': invalid})
+        with self.assertRaises(ValueError):
+            catalog.check_identity_facts({'model_version': ''})
+
     def test_capture_candidate_preserves_structured_control_and_task_fields(self):
         raw = {'model': {'litellm_provider':'native', 'mode':'chat',
                         'supports_reasoning':True, 'control':{'kind':'budget','budget_min':0,'budget_max':1024},

@@ -17,6 +17,8 @@ type VisibleModelSet struct {
 	Revision        string
 	FullyEnumerable bool
 	Bindings        map[string][]AccountModelBinding `json:"-"`
+	// ExecutableEndpoints contains the complete, deduplicated endpoint union.
+	ExecutableEndpoints map[string][]string `json:"-"`
 }
 
 // VisibleModelResolver is shared by gateway lists, plaza and channel views.
@@ -105,6 +107,9 @@ func (s *GatewayService) VisibleModels(ctx context.Context, groupID *int64, plat
 // VisibleModelsWithMetadata returns safe-membership evidence and raw internal
 // specifications from the same read/revision. Protocol serializers must project
 // their public field whitelist; these specifications are not a public DTO.
+// For each public name, metadata and Bindings have matching indexes. Action
+// serializers must pair each specification with that binding's endpoint before
+// combining SupportedMethods across exits (notably Gemini countTokens).
 func (s *GatewayService) VisibleModelsWithMetadata(ctx context.Context, groupID *int64, platform string) (VisibleModelSet, map[string][]UpstreamModelMetadata, error) {
 	metadata := make(map[string][]UpstreamModelMetadata)
 	view, err := (&VisibleModelResolver{gateway: s}).resolve(ctx, groupID, platform, metadata)
@@ -115,7 +120,7 @@ func (s *GatewayService) VisibleModelsWithMetadata(ctx context.Context, groupID 
 }
 
 func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, mixedOnly ...bool) (VisibleModelSet, error) {
-	view := VisibleModelSet{FullyEnumerable: true, Bindings: make(map[string][]AccountModelBinding)}
+	view := VisibleModelSet{FullyEnumerable: true, Bindings: make(map[string][]AccountModelBinding), ExecutableEndpoints: make(map[string][]string)}
 	ctx, err := r.freeze(ctx)
 	if err != nil {
 		return VisibleModelSet{}, err
@@ -295,7 +300,7 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 			continue
 		}
 		supported := false
-		for _, endpoint := range []string{CompositeRouteEndpointResponses, CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointGemini, CompositeRouteEndpointEmbeddings, CompositeRouteEndpointImages, string(OpenAIEndpointCapabilityLive), string(OpenAIEndpointCapabilityAlphaSearch), string(OpenAIEndpointCapabilityGrokMediaGeneration)} {
+		for _, endpoint := range []string{CompositeRouteEndpointResponses, CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointCountTokens, CompositeRouteEndpointGemini, CompositeRouteEndpointEmbeddings, CompositeRouteEndpointImages, string(OpenAIEndpointCapabilityLive), string(OpenAIEndpointCapabilityAlphaSearch), string(OpenAIEndpointCapabilityGrokMediaGeneration)} {
 			candidateCtx := ctx
 			if platform == PlatformComposite {
 				decision, err := resolver.Resolve(ctx, *groupID, model, endpoint)
@@ -330,8 +335,9 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 				if binding.Supported {
 					view.Bindings[model] = append(view.Bindings[model], binding)
 					supported = true
+					view.ExecutableEndpoints[model] = append(view.ExecutableEndpoints[model], endpoint)
 					if metadata == nil {
-						break
+						continue
 					}
 					// Unknown facts on an exit for this listing endpoint remain unknown;
 					// the handler intersects only an explicit safe field whitelist.
@@ -342,14 +348,13 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 							projection = candidate
 						}
 					}
+					projection = visibleModelMetadata(ModelRegistrySnapshotFromContext(ctx), profiles[account.ID], binding.UpstreamModel, projection)
 					metadata[model] = append(metadata[model], projection)
 				}
 			}
-			if supported {
-				break
-			}
 		}
 		if supported {
+			view.ExecutableEndpoints[model] = dedupeAndSortModelIDs(view.ExecutableEndpoints[model])
 			result = append(result, model)
 		}
 	}

@@ -17,6 +17,9 @@ func DefaultModelIDsForPlatform(platform string) []string { return []string{} }
 var platformModelPresetsJSON []byte
 
 type PlatformPresetModel struct {
+	CreatedAt    string `json:"created_at,omitempty"`
+	ModelVersion string `json:"model_version,omitempty"`
+
 	CanonicalModelID      string                     `json:"canonical_model_id,omitempty"`
 	ContextLimitKind      string                     `json:"context_limit_kind,omitempty"`
 	MaxInputTokens        int64                      `json:"max_input_tokens,omitempty"`
@@ -86,6 +89,11 @@ func parsePlatformModelPresets(body []byte) ([]PlatformModelPreset, error) {
 		for _, model := range preset.Models {
 			if strings.TrimSpace(model.ID) == "" || seen[model.ID] || model.DisplayName == "" || model.TaskType == "" || model.Lifecycle == "" || len(model.FieldSources) == 0 {
 				return nil, fmt.Errorf("invalid model in %s", profile)
+			}
+			if model.CreatedAt != "" {
+				if _, err := time.Parse(time.RFC3339Nano, model.CreatedAt); err != nil {
+					return nil, fmt.Errorf("invalid model creation time: %w", err)
+				}
 			}
 			seen[model.ID] = true
 		}
