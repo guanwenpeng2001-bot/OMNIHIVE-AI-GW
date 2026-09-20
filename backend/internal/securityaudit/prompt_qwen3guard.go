@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"sync"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
 )
 
 type ScannerDefinition struct {
@@ -188,10 +190,15 @@ func isElevatedControversial(category string) bool {
 }
 
 type OpenAICompatibleScanner struct {
-	clients sync.Map
+	clients   sync.Map
+	urlPolicy config.URLAllowlistConfig
 }
 
 func NewOpenAICompatibleScanner() *OpenAICompatibleScanner { return &OpenAICompatibleScanner{} }
+
+func NewConfiguredOpenAICompatibleScanner(cfg *config.Config) *OpenAICompatibleScanner {
+	return &OpenAICompatibleScanner{urlPolicy: cfg.Security.URLAllowlist}
+}
 
 func (s *OpenAICompatibleScanner) Scan(ctx context.Context, endpoint ActiveEndpoint, chunk string, enabledScanners []string) (*NormalizedResult, error) {
 	client, err := s.clientFor(endpoint)
@@ -266,7 +273,7 @@ func (s *OpenAICompatibleScanner) clientFor(endpoint ActiveEndpoint) (*http.Clie
 		}
 		return client, nil
 	}
-	client, err := NewSecureHTTPClient(endpoint)
+	client, err := NewSecureHTTPClient(endpoint, s.urlPolicy)
 	if err != nil {
 		return nil, err
 	}
