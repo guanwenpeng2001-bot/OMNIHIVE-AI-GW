@@ -406,7 +406,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | Local directories | ✅ Easy (tar entire directory) | Production, frequent backups |
 | **docker-compose.yml** | Named volumes | ⚠️ Requires docker commands | Simple setup |
 
-**Recommendation:** Use `docker-compose.local.yml` (deployed by script) for easier data management.
+**Recommendation:** Use local-directory storage for easier data management. The table lists repository filenames: the script saves `docker-compose.local.yml` as **`docker-compose.yml`**, so script deployments use `docker compose`. The access/upgrade commands below assume a script deployment; for a manual clone add `-f docker-compose.local.yml`. Conversely, omit that flag from the later migration/management examples when using the script-generated file.
 
 #### Access
 
@@ -414,15 +414,15 @@ Open `http://YOUR_SERVER_IP:8080` in your browser.
 
 If admin password was auto-generated, find it in logs:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 ```
 
 #### Upgrade
 
 ```bash
 # Pull latest image and recreate container
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 #### Easy Migration (Local Directory Version)

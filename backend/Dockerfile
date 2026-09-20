@@ -1,3 +1,6 @@
+# Development-only backend image; build with backend/ as context.
+# Production (embedded UI, PG backup tools, non-root entrypoint and healthcheck):
+# docker build -f Dockerfile .  # from the repository root
 FROM golang:1.27.0-alpine
 
 WORKDIR /app
