@@ -1050,8 +1050,6 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"tencent.com",
 	"volces.com",
 	"mistral.ai",
-	"amazonaws.com",
-	"amazonaws.com.cn",
 	"moonshot.ai",
 }
 
@@ -1066,6 +1064,9 @@ func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {
 	}
 	host := strings.TrimSuffix(strings.ToLower(parsed.Hostname()), ".")
 	if host == "" {
+		return true
+	}
+	if bedrockAPIHostname.MatchString(host) {
 		return true
 	}
 	for _, domain := range upstreamBillingProbeOfficialAPIDomains {

@@ -1870,17 +1870,28 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 	models := make([]string, 0, len(entries))
 	metadata := make(map[string]UpstreamModelMetadata)
 	for _, raw := range entries {
+		// Discovery identity is independent of optional capability decoding.
+		var identity upstreamModelEntry
+		if err := json.Unmarshal(raw, &identity); err != nil {
+			return nil, nil, fmt.Errorf("invalid model identity: %w", err)
+		}
+		modelID := strings.TrimSpace(selectID(identity))
+		if modelID == "" {
+			continue
+		}
+		models = append(models, modelID)
 		if len(platform) > 0 && platform[0] == PlatformMistral {
 			var card MistralModelCard
-			if err := json.Unmarshal(raw, &card); err != nil || card.ID == "" {
-				return nil, nil, fmt.Errorf("invalid Mistral card")
+			if err := json.Unmarshal(raw, &card); err != nil {
+				metadata[modelID] = UpstreamModelMetadata{ID: modelID, Conflicts: []string{"invalid_optional_metadata"}}
+				continue
 			}
-			models = append(models, card.ID)
-			metadata[card.ID] = card.metadata(UpstreamModelMetadata{})
+			metadata[modelID] = card.metadata(UpstreamModelMetadata{})
 			continue
 		}
 		var capability upstreamModelCapabilityEntry
 		if err := json.Unmarshal(raw, &capability); err != nil {
+			metadata[modelID] = UpstreamModelMetadata{ID: modelID, Conflicts: []string{"invalid_optional_metadata"}}
 			continue
 		}
 		// max_tokens has incompatible meanings across APIs. Only the Anthropic
@@ -1888,11 +1899,6 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		if len(platform) == 0 || platform[0] != PlatformAnthropic {
 			capability.MaxTokens = 0
 		}
-		modelID := strings.TrimSpace(selectID(capability.upstreamModelEntry))
-		if modelID == "" {
-			continue
-		}
-		models = append(models, modelID)
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
 		if len(platform) > 0 && platform[0] == PlatformQianfan {
 			var model qianfanModel
@@ -2455,6 +2461,14 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		if parseErr != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
 		}
+		// Invalid optional fields can hide endpoint facts used for eligibility.
+		// Keep every discovered ID, but do not authorize a destructive diff from
+		// an entry whose capability declaration could not be interpreted.
+		for _, entry := range metadata {
+			if slices.Contains(entry.Conflicts, "invalid_optional_metadata") && cause == nil {
+				cause = newUpstreamModelSyncUpstreamError("Invalid optional model metadata", nil)
+			}
+		}
 		if cause == nil {
 			return models, merged, nil
 		}
@@ -2464,7 +2478,7 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		return models, merged, &UpstreamModelSyncError{
 			Kind: UpstreamModelSyncErrorUpstream, Message: "Model discovery is partial; previous availability must be retained", Err: cause,
 			PartialCatalog: &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, CandidateModels: models,
-				Metadata: metadata, CatalogSource: "partial", Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Model discovery stopped before all pages were received; previous availability must be retained"}}},
+				Metadata: metadata, CatalogSource: "partial", Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Model discovery contains incomplete pages or invalid entries; previous availability must be retained"}}},
 		}
 	}
 	for page := 0; page < 100; page++ {

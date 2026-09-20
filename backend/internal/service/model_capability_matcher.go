@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -45,10 +46,8 @@ func resolveCapabilityProfile(account *Account) string {
 			return "vertex_ai"
 		}
 	}
-	if strings.HasPrefix(host, "bedrock.") || strings.HasPrefix(host, "bedrock-runtime.") {
-		if strings.HasSuffix(host, ".amazonaws.com") || strings.HasSuffix(host, ".amazonaws.com.cn") {
-			return "bedrock"
-		}
+	if bedrockAPIHostname.MatchString(host) {
+		return "bedrock"
 	}
 	if strings.HasPrefix(host, "ark.") && strings.HasSuffix(host, ".volces.com") {
 		return "volcengine"
@@ -99,6 +98,10 @@ func resolveCapabilityProfile(account *Account) string {
 	}
 	return "custom:" + normalizeModelRegistryBaseURL(baseURL)
 }
+
+// Match service.region.partition exactly: AWS tenant resources (S3, EC2,
+// API Gateway) share the partition suffix but are not Bedrock endpoints.
+var bedrockAPIHostname = regexp.MustCompile(`^bedrock(?:-runtime|-mantle)?(?:-fips)?\.(?:(?:us|eu|ap|sa|ca|me|af|il|mx)(?:-gov)?-[a-z]+-[0-9]+\.(?:amazonaws\.com|api\.aws)|cn-[a-z]+-[0-9]+\.amazonaws\.com\.cn)$`)
 
 func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelID string) CapabilityMatch {
 	result := CapabilityMatch{Status: "not_found"}

@@ -3,21 +3,21 @@
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
   "applicability": "reviewed-profile-model",
-  "approved_generation": 1789890998,
-  "catalog_sha256": "bc475e79f78551cc0c808b4adfd7c9350c71bc2dc741a48a8d5aab72bf32b5f7",
+  "approved_generation": 1789891872,
+  "catalog_sha256": "81556fec627d2dff9ae7a054ef6c68d1868e84b0d6a00f0738b38c4b1f4f6179",
   "code_versions": {
     "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
     "internal/service/model_capability_catalog.go": "360524e640480de105462549b49c476db45eeee0046678e700b904847bcc55e3",
     "internal/service/model_capability_heuristics.go": "13a3435db09aacb6e14f33d62fad83654f31388bef32e435dba31bd115b22441",
-    "internal/service/model_capability_matcher.go": "58713df0ad2a6c7646f4d51ae7aeb6f4c259c23fd693df0afc90ef429f9fad64",
+    "internal/service/model_capability_matcher.go": "ccd66ace42e13ed933a6c6e375ed42cdd390937bccb04996753d0b3a30ba106c",
     "internal/service/model_capability_profile.go": "cc11658e045981eeaf2688cdd400fdbe07ebeeae9134a2420452b4851a0cb7e6",
     "internal/service/model_capability_readonly.go": "a5bee3f6afa3c3985a6e605c9ed4c1c5819477c91b617118cb7873aa175a5678",
     "resources/model-capabilities/release.go": "ddfd32cb712c0025832d0c1c7256abe1ae98bda8c35428070810ae61aa80ade9"
   },
   "inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
   "record_count": 252,
-  "review_sha256": "907b9505eee1724b91d12306a224ca648e1b0eea9decfe64e7ecd2726406660e",
+  "review_sha256": "96cce9c62946c0c7bc9d2f962cb956f20bae397eaa3fc1b69ce9e9a652a0fce4",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

@@ -186,3 +186,70 @@ func TestDiscoveryEmptyPageWithContinuationIsPartial(test *testing.T) {
 	require.Empty(test, preview.DiscoveredModels)
 	require.Nil(test, preview.Review)
 }
+func TestReviewDiscoveryRetainsIDsWhenOptionalMetadataIsMalformed(test *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"existing-model","context_window":"8192"},{"id":"other-model"}]}`)}
+	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+	old := AccountModelCatalogSnapshot{Complete: true, Revision: 7, DiscoveredModels: []string{"existing-model"}, EligibleModels: []AccountCatalogModel{{ID: "existing-model"}}}
+	account := &Account{ID: 99, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://relay.example/v1"}, Extra: map[string]any{UpstreamModelCatalogExtraKey: old}}
+	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
+	require.NoError(test, err)
+	test.Logf("discovered=%v discovery_complete=%v removed=%v review=%v", preview.DiscoveredModels, preview.DiscoveryComplete, preview.Diff.Removed, preview.Review != nil)
+	require.Contains(test, preview.DiscoveredModels, "existing-model", "a malformed optional capability must not silently revoke a model reported by the upstream")
+	require.False(test, preview.DiscoveryComplete)
+	require.False(test, preview.Complete)
+	require.Nil(test, preview.Review)
+	require.Equal(test, "incomplete", preview.CapabilityStatus)
+	require.Contains(test, preview.Metadata["existing-model"].Conflicts, "invalid_optional_metadata")
+	require.Empty(test, preview.Diff.Removed)
+}
+
+func TestReviewCapabilityProfileRejectsTenantHostedAWSHostname(test *testing.T) {
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": "http://bedrock.customer-bucket.s3.us-east-1.amazonaws.com/v1"}}
+	require.Contains(test, resolveCapabilityProfile(account), "custom:", "a customer-controlled S3 hostname is not a Bedrock regional endpoint")
+	for _, host := range []string{"bedrock.us-east-1.amazonaws.com", "bedrock-runtime.cn-north-1.amazonaws.com.cn", "bedrock-runtime-fips.us-gov-west-1.amazonaws.com", "bedrock-runtime.us-east-1.api.aws"} {
+		account.Credentials["base_url"] = "https://" + host
+		require.Equal(test, "bedrock", resolveCapabilityProfile(account), host)
+		require.True(test, upstreamBillingProbeTargetIsOfficialAPI(account.GetCredential("base_url")), host)
+	}
+}
+
+func TestReviewBillingDoesNotSkipTenantAWSRelay(test *testing.T) {
+	baseURL := "http://ec2-192-0-2-142.us-east-2.compute.amazonaws.com/v1"
+	require.False(test, upstreamBillingProbeTargetIsOfficialAPI(baseURL), "an EC2 instance running a custom relay is not a model-provider API")
+	account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive,
+		Credentials: map[string]any{"api_key": "fixture", "base_url": baseURL}}
+	repo := &upstreamBillingProbeAccountRepo{accounts: map[int64]*Account{42: account}}
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusOK,
+		Header: http.Header{"Content-Type": []string{"application/json"}}, Body: upstreamBillingProbeValidBody()}}
+	service := newUpstreamBillingProbeTestService(repo, upstream, &upstreamBillingProbeSettingRepo{})
+	snapshot, err := service.ProbeAccount(context.Background(), account.ID)
+	require.NoError(test, err)
+	require.Equal(test, UpstreamBillingProbeStatusOK, snapshot.Status)
+	require.NotNil(test, upstream.lastReq)
+	require.Equal(test, baseURL+"/sub2api/billing", upstream.lastReq.URL.String())
+}
+
+func TestDiscoveryMissingOptionalMetadataRemainsComplete(test *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: catalogFixtureResponse(`{"data":[{"id":"existing-model"}]}`)}
+	service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://relay.example/v1"}}
+	preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
+	require.NoError(test, err)
+	require.Equal(test, []string{"existing-model"}, preview.DiscoveredModels)
+	require.True(test, preview.DiscoveryComplete)
+	require.True(test, preview.Complete)
+	require.Equal(test, "incomplete", preview.CapabilityStatus)
+}
+
+func TestReviewEmptyOfficialCandidatesStayIncomplete(test *testing.T) {
+	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine} {
+		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: &httpUpstreamRecorder{}}
+		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+		preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
+		require.NoError(test, err)
+		require.Empty(test, preview.CandidateModels)
+		require.Empty(test, preview.DiscoveredModels)
+		require.False(test, preview.DiscoveryComplete)
+		require.Nil(test, preview.Review)
+	}
+}
