@@ -7,8 +7,9 @@ export default {
   binding: 'confirmed_by、confirmed_at 和身份信息由服务端生成。账号身份变化后，核验部署规格并移除旧 identity_fingerprint，再预览和保存以重新确认。reasoning_control.kind 支持 none / effort / toggle / budget / adaptive / fixed / unknown；仅填写实际支持的控制形式。'
 },
   capabilityCatalog: {
+  selectFiltered: '全选筛选结果', resolutions: '分辨率', duration: '最长时长（秒）', dimensions: '维度', width: '最大宽度', height: '最大高度',
   sets: '模型集合', setsHint: 'D 上游发现 · M 映射目标 · U 能力目录（D ∪ M）· E 可路由资格；能力完整不等于有路由资格。', coverage: '能力完整', noDiscovery: '未发现模型', noEligibility: '已发现模型，但无路由资格', partial: '部分模型能力缺失或仅有估计依据', complete: '能力完整', unknownDiscovery: '发现状态未知', search: '筛选模型 ID 或名称', filter: '筛选能力状态', all: '全部状态', more: '显示更多',
-  title: '模型能力缺口与逐字段来源', missing: '缺失字段', estimated: '仅有估计依据', conflict: '冲突',
+  title: '模型能力', missing: '缺失字段', estimated: '仅有估计依据', conflict: '冲突',
   unknown: '状态未提供', unavailable: '上游未返回逐字段完整性结论，请重新预览；不能视为能力完整。',
   source: '来源级别', version: '来源版本', match: '匹配依据', noSources: '尚无逐字段来源证据。', stale: '规格或账号配置已修改，以下结果来自旧预览。'
 },
