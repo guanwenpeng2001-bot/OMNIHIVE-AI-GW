@@ -433,6 +433,7 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 		// Claude OAuth routes
 		accounts.POST("/generate-auth-url", h.Admin.OAuth.GenerateAuthURL)
 		accounts.GET("/credential-drafts/:draft", h.Admin.OAuth.PreviewCredentialDraft)
+		accounts.POST("/credential-drafts", h.Admin.Account.IssueCursorCredentialDraft)
 		accounts.DELETE("/credential-drafts/:draft", h.Admin.OAuth.CancelCredentialDraft)
 		accounts.POST("/credential-drafts/:draft/review", h.Admin.Account.ReviewCredentialDraft)
 		accounts.POST("/generate-setup-token-url", h.Admin.OAuth.GenerateSetupTokenURL)

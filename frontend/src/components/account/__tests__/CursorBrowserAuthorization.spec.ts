@@ -4,6 +4,7 @@ import CursorBrowserAuthorization from '../CursorBrowserAuthorization.vue'
 
 const api = vi.hoisted(() => ({ post: vi.fn(), delete: vi.fn() }))
 vi.mock('@/api/client', () => ({ apiClient: api }))
+vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError: vi.fn() }) }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
 
 describe('Cursor browser authorization', () => {

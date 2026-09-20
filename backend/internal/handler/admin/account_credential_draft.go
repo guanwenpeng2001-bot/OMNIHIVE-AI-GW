@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -18,6 +19,45 @@ import (
 )
 
 const credentialDraftBrowserCookie = "account_authorization_browser"
+
+// IssueCursorCredentialDraft validates manually supplied Cursor credentials
+// without creating an account or returning the credentials to the browser.
+func (handler *AccountHandler) IssueCursorCredentialDraft(ctx *gin.Context) {
+	var request struct {
+		Credentials map[string]any `json:"credentials" binding:"required"`
+	}
+	if err := ctx.ShouldBindJSON(&request); err != nil {
+		response.BadRequest(ctx, "Invalid Cursor credentials")
+		return
+	}
+	for key := range request.Credentials {
+		switch key {
+		case "access_token", "refresh_token", "machine_id", "mac_machine_id", "client_version", "model_mapping", "compact_model_mapping":
+		default:
+			response.ErrorFrom(ctx, infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", "Unsupported Cursor authorization field: "+key))
+			return
+		}
+	}
+	account := &service.Account{Platform: service.PlatformCursor, Type: service.AccountTypeOAuth, Concurrency: 1, Credentials: request.Credentials}
+	if err := service.NormalizeCursorAccount(account); err != nil {
+		response.ErrorFrom(ctx, infraerrors.BadRequest("INVALID_CURSOR_CREDENTIALS", err.Error()))
+		return
+	}
+	respondCredentialDraft(ctx, handler.credentialDrafts, account.Platform, account.Type, account.Credentials)
+}
+
+func accountWriteError(err error) error {
+	var mixed *service.MixedChannelError
+	if errors.As(err, &mixed) {
+		return infraerrors.Conflict("mixed_channel_warning", mixed.Error()).WithMetadata(map[string]string{
+			"group_id":         strconv.FormatInt(mixed.GroupID, 10),
+			"group_name":       mixed.GroupName,
+			"current_platform": mixed.CurrentPlatform,
+			"other_platform":   mixed.OtherPlatform,
+		})
+	}
+	return err
+}
 
 func claudeDraftCredentials(token *service.TokenInfo) map[string]any {
 	return map[string]any{
@@ -209,6 +249,13 @@ func applyCredentialDraftRules(account *service.Account, request CreateAccountRe
 	return nil
 }
 
+func applyCredentialDraftOptions(account *service.Account, request CreateAccountRequest) error {
+	if account.Platform != request.Platform || account.Type != request.Type {
+		return service.ErrAccountCredentialDraftConflict
+	}
+	return service.ApplyAccountCredentialDraftOptions(account, request.Credentials)
+}
+
 func accountTypeRequiresCredentialDraft(accountType string) bool {
 	return accountType == service.AccountTypeOAuth || accountType == service.AccountTypeSetupToken
 }
@@ -291,14 +338,40 @@ func confirmCredentialDraftWithBinding(
 		return nil, err
 	}
 	var created *service.Account
+	var existing *service.Account
+	if request.ExistingAccountID > 0 {
+		existing, err = adminService.GetAccount(ctx, request.ExistingAccountID)
+		if err != nil {
+			return nil, err
+		}
+		if existing.Platform != request.Platform || existing.Type != request.Type {
+			return nil, service.ErrAccountCredentialDraftConflict
+		}
+	}
 	accountID, err := pending.ConfirmAccountCredentialDraft(ctx, request.CredentialDraft, binding, request.CredentialDraftRevision, submission, func(txCtx context.Context, draft *service.Account) (int64, error) {
-		if err := applyCredentialDraftRules(draft, request); err != nil {
+		if err := applyCredentialDraftOptions(draft, request); err != nil {
 			return 0, err
 		}
 		if bindCapabilities {
 			if err := bindModelCapabilityDefaults(draft, extra, actorScope); err != nil {
 				return 0, infraerrors.BadRequest("INVALID_MODEL_CAPABILITY_DEFAULTS", err.Error())
 			}
+		}
+		if existing != nil {
+			updated, err := pending.UpdateAccountCredentialsIfUnchanged(txCtx, existing, adminService, &service.UpdateAccountInput{
+				Name: request.Name, Notes: request.Notes, Status: request.Status,
+				Credentials: draft.Credentials, Extra: extra,
+				Concurrency: &request.Concurrency, Priority: &request.Priority,
+				RateMultiplier: request.RateMultiplier, LoadFactor: request.LoadFactor,
+				ProxyID: request.ProxyID, GroupIDs: &request.GroupIDs,
+				ExpiresAt: request.ExpiresAt, AutoPauseOnExpired: request.AutoPauseOnExpired,
+				SkipMixedChannelCheck: skipMixedChannelCheck,
+			})
+			if err != nil {
+				return 0, err
+			}
+			created = updated
+			return existing.ID, nil
 		}
 		account, err := adminService.CreateAccount(txCtx, &service.CreateAccountInput{
 			Name:                  request.Name,
@@ -329,9 +402,18 @@ func confirmCredentialDraftWithBinding(
 		return nil, err
 	}
 	if created != nil && created.ID == accountID {
-		adminService.EnsureOpenAIPrivacy(ctx, created)
-		adminService.EnsureAntigravityPrivacy(ctx, created)
-		service.InvalidateAvailableModelsCacheForAccount(created)
+		service.AfterAccountWriteCommit(ctx, func() {
+			if request.ExistingAccountID > 0 {
+				// The regular service may read through its base client before the
+				// outer batch commits. Publish and probe the committed identity.
+				if latest, err := adminService.GetAccount(context.Background(), accountID); err == nil && latest != nil {
+					*created = *latest
+				}
+			}
+			adminService.EnsureOpenAIPrivacy(context.Background(), created)
+			adminService.EnsureAntigravityPrivacy(context.Background(), created)
+			service.InvalidateAvailableModelsCacheForAccount(created)
+		})
 		return created, nil
 	}
 	return adminService.GetAccount(ctx, accountID)
@@ -362,7 +444,7 @@ func (handler *AccountHandler) applyCredentialDraft(ctx context.Context, ginCtx 
 		return nil, err
 	}
 	confirmedID, err := handler.credentialDrafts.ConfirmAccountCredentialDraft(ctx, request.CredentialDraft, binding, request.CredentialDraftRevision, submission, func(txCtx context.Context, draft *service.Account) (int64, error) {
-		if err := applyCredentialDraftRules(draft, review); err != nil {
+		if err := applyCredentialDraftOptions(draft, review); err != nil {
 			return 0, err
 		}
 		account, err := handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(txCtx, existing, handler.adminService, &service.UpdateAccountInput{
@@ -447,7 +529,7 @@ func (handler *AccountHandler) ReviewCredentialDraft(ctx *gin.Context) {
 		response.ErrorFrom(ctx, service.ErrAccountCredentialDraftConflict)
 		return
 	}
-	if err := applyCredentialDraftRules(account, request); err != nil {
+	if err := applyCredentialDraftOptions(account, request); err != nil {
 		response.ErrorFrom(ctx, err)
 		return
 	}

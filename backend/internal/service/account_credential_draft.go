@@ -4,12 +4,14 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 const accountCredentialDraftPurpose = "account-credential-draft"
@@ -36,6 +38,78 @@ type accountCredentialDraftState struct {
 }
 
 var ErrAccountCredentialDraftConflict = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+
+// ApplyAccountCredentialDraftOptions is the final-review configuration allowlist.
+// Authentication, machine and owner identifiers can only come from the opaque
+// draft. Model discovery deliberately uses the narrower model-only overlay.
+func ApplyAccountCredentialDraftOptions(account *Account, options map[string]any) error {
+	validated := make(map[string]any, len(options))
+	invalid := func(field string) error {
+		return infraerrors.BadRequest("INVALID_CREDENTIAL_DRAFT_OPTION", fmt.Sprintf("Invalid or unsupported credential draft option: %s", field)).WithMetadata(map[string]string{"field": field})
+	}
+	for key, value := range options {
+		switch key {
+		case "model_mapping", "compact_model_mapping":
+			switch mapping := value.(type) {
+			case map[string]string:
+			case map[string]any:
+				for _, target := range mapping {
+					if _, ok := target.(string); !ok {
+						return invalid(key)
+					}
+				}
+			default:
+				return invalid(key)
+			}
+		case "plan_type", "client_version", "antigravity_project_id":
+			if _, ok := value.(string); !ok {
+				return invalid(key)
+			}
+		case "base_url":
+			endpoint, ok := value.(string)
+			if !ok {
+				return invalid(key)
+			}
+			if endpoint != "" {
+				if _, err := urlvalidator.ValidateURLFormat(endpoint, true); err != nil {
+					return invalid(key)
+				}
+			}
+		case "account_scheduling_threshold":
+			if _, ok := parseAccountSchedulingThresholdValue(value); !ok {
+				return invalid(key)
+			}
+		case "intercept_warmup_requests", "temp_unschedulable_enabled", "header_override_enabled":
+			if _, ok := value.(bool); !ok {
+				return invalid(key)
+			}
+		case "temp_unschedulable_rules":
+			rules, ok := value.([]any)
+			if !ok {
+				return invalid(key)
+			}
+			candidate := &Account{Credentials: map[string]any{key: rules}}
+			if len(candidate.GetTempUnschedulableRules()) != len(rules) {
+				return invalid(key)
+			}
+		case "header_overrides":
+			// The shared normalizer below validates names, values and blocked headers.
+		default:
+			return invalid(key)
+		}
+		validated[key] = value
+	}
+	if err := NormalizeHeaderOverrideCredentials(validated); err != nil {
+		return err
+	}
+	if account.Credentials == nil {
+		account.Credentials = map[string]any{}
+	}
+	for key, value := range validated {
+		account.Credentials[key] = value
+	}
+	return nil
+}
 
 func (s *AuthPendingIdentityService) IssueAccountCredentialDraft(ctx context.Context, binding, platform, accountType string, credentials map[string]any) (*AccountCredentialDraft, error) {
 	if strings.TrimSpace(platform) == "" || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || len(credentials) == 0 {
@@ -211,11 +285,22 @@ func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.C
 	if strings.TrimSpace(submission) == "" || create == nil {
 		return 0, ErrAccountCredentialDraftConflict
 	}
-	transaction, err := s.entClient.Tx(ctx)
-	if err != nil {
-		return 0, err
+	transaction := dbent.TxFromContext(ctx)
+	ownsTransaction := transaction == nil
+	var err error
+	if ownsTransaction {
+		transaction, err = s.entClient.Tx(ctx)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = transaction.Rollback() }()
 	}
-	defer func() { _ = transaction.Rollback() }()
+	commit := func() error {
+		if ownsTransaction {
+			return transaction.Commit()
+		}
+		return nil
+	}
 	transactionContext := dbent.NewTxContext(ctx, transaction)
 	pending := NewAuthPendingIdentityService(transaction.Client())
 	// UPDATE obtains the row lock before reading: concurrent confirmations and
@@ -245,7 +330,7 @@ func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.C
 		if state.Submission != submission || state.AccountID <= 0 {
 			return 0, ErrAccountCredentialDraftConflict
 		}
-		return state.AccountID, transaction.Commit()
+		return state.AccountID, commit()
 	}
 	accountID, err := create(transactionContext, &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials})
 	if err != nil {
@@ -262,8 +347,43 @@ func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.C
 	if err = transaction.PendingAuthSession.UpdateOneID(session.ID).SetConsumedAt(time.Now()).SetLocalFlowState(data).Exec(transactionContext); err != nil {
 		return 0, err
 	}
-	if err = transaction.Commit(); err != nil {
+	if err = commit(); err != nil {
 		return 0, err
 	}
 	return accountID, nil
+}
+
+// RunAccountWriteTransaction owns the entire import or batch, including draft
+// receipts and proxy writes. Nested confirmations must not commit independently.
+func (s *AuthPendingIdentityService) RunAccountWriteTransaction(ctx context.Context, write func(context.Context) error) error {
+	if dbent.TxFromContext(ctx) != nil {
+		return write(ctx)
+	}
+	transaction, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	if err := write(dbent.NewTxContext(ctx, transaction)); err != nil {
+		return err
+	}
+	return transaction.Commit()
+}
+
+// AfterAccountWriteCommit prevents privacy requests, probes and cache publication
+// from observing a batch that may still roll back.
+func AfterAccountWriteCommit(ctx context.Context, effect func()) {
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		transaction.OnCommit(func(next dbent.Committer) dbent.Committer {
+			return dbent.CommitFunc(func(commitContext context.Context, transaction *dbent.Tx) error {
+				if err := next.Commit(commitContext, transaction); err != nil {
+					return err
+				}
+				effect()
+				return nil
+			})
+		})
+		return
+	}
+	effect()
 }

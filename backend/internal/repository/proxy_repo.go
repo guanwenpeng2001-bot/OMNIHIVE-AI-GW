@@ -34,7 +34,11 @@ func newProxyRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *proxyRep
 }
 
 func (r *proxyRepository) Create(ctx context.Context, proxyIn *service.Proxy) error {
-	builder := r.client.Proxy.Create().
+	client := r.client
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		client = transaction.Client()
+	}
+	builder := client.Proxy.Create().
 		SetName(proxyIn.Name).
 		SetProtocol(proxyIn.Protocol).
 		SetHost(proxyIn.Host).
@@ -63,7 +67,11 @@ func (r *proxyRepository) Create(ctx context.Context, proxyIn *service.Proxy) er
 }
 
 func (r *proxyRepository) GetByID(ctx context.Context, id int64) (*service.Proxy, error) {
-	m, err := r.client.Proxy.Get(ctx, id)
+	client := r.client
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		client = transaction.Client()
+	}
+	m, err := client.Proxy.Get(ctx, id)
 	if err != nil {
 		if dbent.IsNotFound(err) {
 			return nil, service.ErrProxyNotFound

@@ -89,7 +89,7 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 		return nil, err
 	}
 	// Probe latency asynchronously so creation isn't blocked by network timeout.
-	go s.probeProxyLatency(context.Background(), proxy)
+	AfterAccountWriteCommit(ctx, func() { go s.probeProxyLatency(context.Background(), proxy) })
 	return proxy, nil
 }
 

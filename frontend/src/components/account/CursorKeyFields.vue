@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { navigateAccountChoices } from './accountChoiceNavigation'
 
 defineProps<{ editing?: boolean }>()
 const mode = defineModel<'official' | 'relay' | 'auto'>('mode', { required: true })
@@ -15,11 +16,12 @@ const { t } = useI18n()
   <fieldset class="space-y-4">
     <div>
       <span id="cursor-key-mode-label" class="input-label">{{ t('admin.accounts.cursor.keyMode') }}</span>
-      <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="group" aria-labelledby="cursor-key-mode-label" data-testid="cursor-key-mode">
+      <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-labelledby="cursor-key-mode-label" data-testid="cursor-key-mode" @keydown="navigateAccountChoices">
         <button
           v-for="option in (['auto', 'official', 'relay'] as const)"
           :key="option"
           type="button"
+          role="radio" :aria-checked="mode === option" :tabindex="mode === option ? 0 : -1"
           :data-testid="`cursor-key-mode-${option}`"
           :disabled="editing"
           :aria-pressed="mode === option"
@@ -54,11 +56,11 @@ const { t } = useI18n()
     </div>
     <label v-else class="block">
       <span class="input-label">API Key</span>
-      <input v-model="apiKey" type="password" autocomplete="new-password" class="input" :required="!editing" :placeholder="editing ? t('admin.accounts.cursor.keepKey') : 'crsr_…'" data-testid="cursor-api-key" />
+      <input v-model="apiKey" data-account-field="apiKeyValue" type="password" autocomplete="new-password" class="input" :required="!editing" :placeholder="editing ? t('admin.accounts.cursor.keepKey') : 'crsr_…'" data-testid="cursor-api-key" />
     </label>
     <label v-if="mode === 'relay'" class="block">
       <span class="input-label">Base URL</span>
-      <input v-model="baseUrl" type="url" required class="input" placeholder="https://relay.example/v1" data-testid="cursor-base-url" />
+      <input v-model="baseUrl" data-account-field="apiKeyBaseUrl" type="url" required class="input" placeholder="https://relay.example/v1" data-testid="cursor-base-url" />
       <span class="input-hint">{{ t('admin.accounts.cursor.relayHint') }}</span>
     </label>
     <label v-else class="block">
