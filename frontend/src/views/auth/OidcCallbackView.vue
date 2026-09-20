@@ -243,6 +243,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -566,31 +568,17 @@ function switchToCreateAccountMode() {
 
 function getRequestErrorMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; response?: { data?: { detail?: string; message?: string } } }
-  return err.response?.data?.detail || err.response?.data?.message || err.message || fallback
+  return extractApiErrorMessage(err, '') || fallback
 }
 
 function isCreateAccountRecoveryError(error: unknown): boolean {
-  const data = (error as {
-    response?: {
-      data?: {
-        reason?: string
-        error?: string
-        code?: string
-        step?: string
-        intent?: string
-      }
-    }
-  }).response?.data
-  const states = [data?.reason, data?.error, data?.code, data?.step, data?.intent]
-    .map(value => value?.trim().toLowerCase())
-    .filter((value): value is string => Boolean(value))
-
-  return states.includes('email_exists') ||
-    states.includes('bind_login_required') ||
-    states.includes('bind_login') ||
-    states.includes('adopt_existing_user_by_email') ||
-    states.includes('existing_account_required') ||
-    states.includes('existing_account_binding_required')
+  const reason = extractApiErrorCode(error)?.trim().toLowerCase()
+  return reason === 'email_exists' ||
+    reason === 'bind_login_required' ||
+    reason === 'bind_login' ||
+    reason === 'adopt_existing_user_by_email' ||
+    reason === 'existing_account_required' ||
+    reason === 'existing_account_binding_required'
 }
 
 async function finalizeCompletion(completion: PendingOAuthExchangeResponse, redirect: string) {
@@ -676,7 +664,7 @@ async function handleSubmitInvitation() {
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     invitationError.value =
-      err.response?.data?.message || err.message || t('auth.oidc.completeRegistrationFailed')
+      extractApiErrorMessage(err, '') || t('auth.oidc.completeRegistrationFailed')
   } finally {
     isSubmitting.value = false
   }

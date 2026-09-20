@@ -57,6 +57,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
@@ -134,20 +136,7 @@ const balanceLabel = computed(() => {
   return currentEntries.value.map(formatEntry).join(' · ')
 })
 
-const extractErrorMessage = (e: unknown): string => {
-  const err = e as {
-    message?: string
-    reason?: string
-    response?: { data?: { message?: string; error?: string } }
-  }
-  return (
-    err?.message ||
-    err?.reason ||
-    err?.response?.data?.message ||
-    err?.response?.data?.error ||
-    t('common.error')
-  )
-}
+const extractErrorMessage = (error: unknown): string => extractApiErrorMessage(error, t('common.error'))
 
 const truncatedError = computed(() => {
   if (!error.value) return ''

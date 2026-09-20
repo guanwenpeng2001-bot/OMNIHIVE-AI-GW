@@ -1,3 +1,4 @@
+import { normalizeApiError } from '@/utils/apiError'
 /**
  * Vue Router configuration for Sub2API frontend
  * Defines all application routes with lazy loading and navigation guards
@@ -932,10 +933,10 @@ router.beforeEach(async (to, _from, next) => {
         next(false)
         return
       }
-      const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
+      const err = normalizeApiError(error)
       // Unknown status is fail-closed too. The gate retains the logout path.
       adminComplianceStore.requireAcknowledgement(
-        err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED' ? err.metadata : undefined
+        err.status === 423 && err.reason === 'ADMIN_COMPLIANCE_ACK_REQUIRED' ? err.metadata : undefined
       )
     }
     if (!sameIdentity() || !authStore.isAuthenticated || !authStore.isAdmin) {

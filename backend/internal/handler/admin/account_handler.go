@@ -1070,10 +1070,12 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		// 检查是否为混合渠道错误
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
-			// 创建接口仅返回最小必要字段，详细信息由专门检查接口提供
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
+			// Return confirmation context with the conflict envelope.
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}
@@ -1210,9 +1212,11 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
 			// 更新接口仅返回最小必要字段，详细信息由专门检查接口提供
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}
@@ -2402,15 +2406,11 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	if err != nil {
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
-				"details": gin.H{
-					"group_id":         mixedErr.GroupID,
-					"group_name":       mixedErr.GroupName,
-					"current_platform": mixedErr.CurrentPlatform,
-					"other_platform":   mixedErr.OtherPlatform,
-				},
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}

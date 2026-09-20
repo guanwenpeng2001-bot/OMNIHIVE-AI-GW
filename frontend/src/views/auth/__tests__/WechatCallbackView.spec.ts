@@ -1,4 +1,5 @@
 import { flushPromises, mount } from '@vue/test-utils'
+import { normalizeApiError } from '@/utils/apiError'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import WechatCallbackView from '@/views/auth/WechatCallbackView.vue'
 
@@ -736,19 +737,24 @@ describe('WechatCallbackView', () => {
     })
   })
 
-  it('switches to bind-login when create-account returns EMAIL_EXISTS', async () => {
+  it.each(
+    ['EMAIL_EXISTS', 'BIND_LOGIN_REQUIRED', 'bind_login', 'adopt_existing_user_by_email',
+      'existing_account_required', 'existing_account_binding_required', 'REGISTRATION_DISABLED']
+      .flatMap(reason => [
+        { code: 409, reason, metadata: {} },
+        { code: reason },
+        { error: reason },
+      ].map(envelope => ({ reason, envelope })))
+  )('handles normalized recovery reason $reason from $envelope', async ({ reason, envelope }) => {
     exchangePendingOAuthCompletionMock.mockResolvedValue({
       error: 'email_required',
       redirect: '/welcome',
     })
-    apiClientPostMock.mockRejectedValue({
-      response: {
-        data: {
-          reason: 'EMAIL_EXISTS',
-          message: 'email already exists',
-        },
-      },
+    const normalizedError = normalizeApiError({
+      response: { status: 409, data: { ...envelope, message: 'email already exists' } }
     })
+    expect(normalizedError).not.toHaveProperty('response')
+    apiClientPostMock.mockRejectedValue(normalizedError)
 
     const wrapper = mount(WechatCallbackView, {
       global: {
@@ -767,9 +773,14 @@ describe('WechatCallbackView', () => {
     await wrapper.get('[data-testid="wechat-create-account-submit"]').trigger('click')
     await flushPromises()
 
-    expect((wrapper.get('[data-testid="wechat-bind-login-email"]').element as HTMLInputElement).value).toBe(
-      'existing@example.com'
-    )
+    if (reason === 'REGISTRATION_DISABLED') {
+      expect(wrapper.find('[data-testid="wechat-bind-login-email"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="wechat-create-account-submit"]').exists()).toBe(true)
+    } else {
+      expect((wrapper.get('[data-testid="wechat-bind-login-email"]').element as HTMLInputElement).value)
+        .toBe('existing@example.com')
+    }
+    wrapper.unmount()
   })
 
   it('shows create-account failures through toast without inline error text', async () => {

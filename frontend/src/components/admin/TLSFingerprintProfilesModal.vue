@@ -327,6 +327,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -601,7 +603,7 @@ const handleSubmit = async () => {
     closeFormModal()
     loadProfiles()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.tlsFingerprintProfiles.saveFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.tlsFingerprintProfiles.saveFailed'))
     console.error('Error saving TLS fingerprint profile:', error)
   } finally {
     submitting.value = false
@@ -618,7 +620,7 @@ const confirmDelete = async () => {
     deletingProfile.value = null
     loadProfiles()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.tlsFingerprintProfiles.deleteFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.tlsFingerprintProfiles.deleteFailed'))
     console.error('Error deleting TLS fingerprint profile:', error)
   }
 }

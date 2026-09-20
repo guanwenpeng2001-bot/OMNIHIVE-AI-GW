@@ -2064,3 +2064,32 @@ it('does not save a late Antigravity catalog into a different account', async ()
   expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({ ExistingExact: 'ExistingExact' })
   wrapper.unmount()
 })
+
+describe('Management error contract edit confirmation', () => {
+  it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
+    const account = buildAccount()
+    account.platform = 'anthropic'
+    account.credentials = { api_key: 'review-key' }
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockReset().mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm group', metadata: { group_id: 27, group_name: 'Review group', current_platform: 'Anthropic', other_platform: 'Antigravity' } }).mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(JSON.stringify(updateAccountMock.mock.calls[0][1]))
+    dialog.vm.$emit(action)
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(updateAccountMock).toHaveBeenCalledTimes(action === 'confirm' ? 2 : 1)
+    if (action === 'confirm') {
+      expect(updateAccountMock.mock.calls[1][1]).toEqual({ ...payload, confirm_mixed_channel_risk: true })
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    } else {
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+})

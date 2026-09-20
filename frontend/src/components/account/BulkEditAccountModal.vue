@@ -1474,6 +1474,7 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage } from '@/utils/apiError'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -2196,7 +2197,7 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
     showMixedChannelWarning.value = true
     return false
   } catch (error: any) {
-    appStore.showError(error.message || t('admin.accounts.bulkEdit.failed'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkEdit.failed')))
     return false
   }
 }
@@ -2321,9 +2322,9 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
     }
   } catch (error: any) {
     // 兜底：多平台混合场景下，预检查跳过，由后端 409 触发确认框
-    if (error.status === 409 && error.error === 'mixed_channel_warning') {
+    if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning') {
       pendingUpdatesForConfirm.value = baseUpdates
-      mixedChannelWarningMessage.value = error.message
+      mixedChannelWarningMessage.value = extractApiErrorMessage(error)
       showMixedChannelWarning.value = true
     } else if (error.reason === 'UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT') {
       appStore.showError(t('admin.accounts.bulkEdit.rateSyncConflict', {
@@ -2332,7 +2333,7 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
     } else if (error.reason === 'OPENAI_LONG_CONTEXT_PARENT_REQUIRED') {
       appStore.showError(t('admin.accounts.bulkEdit.longContextParentRequired'))
     } else {
-      appStore.showError(error.message || t('admin.accounts.bulkEdit.failed'))
+      appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkEdit.failed')))
       console.error('Error bulk updating accounts:', error)
     }
   } finally {

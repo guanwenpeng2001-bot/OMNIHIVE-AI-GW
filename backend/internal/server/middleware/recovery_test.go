@@ -84,8 +84,10 @@ func TestRecovery(t *testing.T) {
 			},
 			wantHTTPCode: http.StatusInternalServerError,
 			wantBody: response.Response{
-				Code:    http.StatusInternalServerError,
-				Message: infraerrors.UnknownMessage,
+				Code:     http.StatusInternalServerError,
+				Message:  infraerrors.UnknownMessage,
+				Reason:   "INTERNAL_ERROR",
+				Metadata: map[string]any{},
 			},
 		},
 		{

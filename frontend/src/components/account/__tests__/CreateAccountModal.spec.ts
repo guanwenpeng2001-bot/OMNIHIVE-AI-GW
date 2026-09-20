@@ -206,6 +206,36 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it.each(['current', 'legacy'])('opens mixed-channel confirmation for %s conflicts and retries the captured payload', async (format) => {
+    const metadata = { group_id: 27, group_name: 'Mixed group', current_platform: 'Anthropic', other_platform: 'Antigravity' }
+    createAccountMock.mockRejectedValueOnce(format === 'current'
+      ? { status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm mixed group', metadata }
+      : { response: { status: 409, data: { error: 'mixed_channel_warning', message: 'Confirm mixed group', details: metadata } } })
+    const wrapper = await submitApiKeyAccount('anthropic')
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    const payload = createAccountMock.mock.calls[0][0]
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(2)
+    expect(createAccountMock.mock.calls[1][0]).toEqual({ ...payload, confirm_mixed_channel_risk: true })
+    wrapper.unmount()
+  })
+
+  it('cancels a mixed-channel conflict without another write', async () => {
+    createAccountMock.mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm mixed group', metadata: {} })
+    const wrapper = await submitApiKeyAccount('anthropic')
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    dialog.vm.$emit('cancel')
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('created')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('retains the Cursor browser authorization receipt for saved model configuration without applying', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Cursor')
