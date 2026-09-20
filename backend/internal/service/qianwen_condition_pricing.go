@@ -59,7 +59,14 @@ func cloneQianwenMode(p *QianwenModePricing) *QianwenModePricing {
 		return nil
 	}
 	v := *p
+	v.InputPrice = clonePriceNumber(p.InputPrice)
+	v.OutputPrice = clonePriceNumber(p.OutputPrice)
+	v.CacheReadPrice = clonePriceNumber(p.CacheReadPrice)
+	v.CacheWritePrice = clonePriceNumber(p.CacheWritePrice)
 	v.Intervals = append([]PricingInterval(nil), p.Intervals...)
+	for index, interval := range p.Intervals {
+		v.Intervals[index] = clonePricingIntervalPrices(interval)
+	}
 	v.ExplicitCachePricing = cloneQianwenMode(p.ExplicitCachePricing)
 	v.BatchChatPricing = cloneQianwenMode(p.BatchChatPricing)
 	return &v

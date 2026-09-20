@@ -1,4 +1,4 @@
-import type { BillingMode, ChannelTimePricing, PricingInterval } from '@/api/admin/channels'
+import type { BillingMode, ChannelTimePricing, PricingInterval, ChannelModelPricing } from '@/api/admin/channels'
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 
@@ -19,7 +19,20 @@ export interface IntervalFormEntry {
   sort_order: number
 }
 
-export interface PricingFormEntry {
+type PricingFacts = Pick<ChannelModelPricing, 'native_pricing_source' | 'thinking_pricing' | 'explicit_cache_pricing' | 'batch_chat_pricing' | 'price_variants'>
+
+// These fields retain their API units; only the visible flat token fields use MTok.
+export function copyPricingFacts(pricing: PricingFacts): PricingFacts {
+  return JSON.parse(JSON.stringify({
+    native_pricing_source: pricing.native_pricing_source,
+    thinking_pricing: pricing.thinking_pricing,
+    explicit_cache_pricing: pricing.explicit_cache_pricing,
+    batch_chat_pricing: pricing.batch_chat_pricing,
+    price_variants: pricing.price_variants,
+  })) as PricingFacts
+}
+
+export interface PricingFormEntry extends PricingFacts {
   models: string[]
   billing_mode: BillingMode
   input_price: number | string | null

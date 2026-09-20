@@ -560,7 +560,7 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 
 func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 	// When ListAll returns an error, the ChannelService cache build fails.
-	// Resolve should gracefully fall back to base pricing without panicking.
+	// An unavailable channel price snapshot must not silently substitute catalog prices.
 	repo := &mockChannelRepository{
 		listAllFn: func(_ context.Context) ([]Channel, error) {
 			return nil, errors.New("database unavailable")
@@ -577,11 +577,10 @@ func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 	})
 
 	require.NotNil(t, resolved)
-	// Should NOT panic, should NOT have source "channel"
-	require.NotEqual(t, "channel", resolved.Source)
-	// Base pricing should still be present (from BillingService fallback)
-	require.NotNil(t, resolved.BasePricing)
-	require.InDelta(t, 3e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.Nil(t, resolved.BasePricing)
+	_, err := r.ResolveDescriptor(context.Background(), PricingInput{Model: "claude-sonnet-4", GroupID: &gid})
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
 // ===========================================================================

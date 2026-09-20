@@ -157,6 +157,47 @@ describe('ChannelsView capability pricing contract', () => {
     expect(JSON.stringify(payload)).not.toMatch(/provider_profile|field_evidence|differences|capabilities|candidate_hash/)
   })
 
+  it('CC-21 preserves native conditional prices and multi-unit variants through save and reopen', async () => {
+    const card = { platform: 'openai', models: ['model'], billing_mode: 'token', input_price: 1.2e-6, output_price: 2e-6, cache_write_price: null, cache_write_1h_price: null, cache_read_price: null, image_input_price: null, image_output_price: null, per_request_price: null, intervals: [], time_pricing: null, fast_multiplier: null, flex_multiplier: null, max_reasoning_effort_multiplier: null }
+    const facts = {
+      native_pricing_source: 'dashscope',
+      thinking_pricing: { input_price: 0.001, output_price: 0.002, cache_read_price: null, explicit_cache_pricing: { input_price: 0.001, output_price: 0.002, cache_read_price: 0, cache_write_price: 0.004 } },
+      explicit_cache_pricing: { input_price: 0.001, output_price: 0.002, cache_read_price: 0, cache_write_price: 0.004 },
+      batch_chat_pricing: { input_price: 0.0001, output_price: 0.0002, cache_read_price: null },
+      price_variants: [{ id: 'model', canonical: 'canonical', aliases: ['alias'], expires_at: '2030-01-01T00:00:00Z', prices: [{ unit: 'character', dimension: 'output', currency: 'USD', sales: 0, cost: 0.01 }, { unit: 'second', dimension: 'output', currency: 'USD', sales: 0.2, cost: 0.1 }] }],
+    }
+    Object.assign(card, facts)
+    channelList.mockResolvedValue({ items: [{ id: 8, name: 'Channel eight', status: 'active', group_ids: [7], model_pricing: [card], model_mapping: {}, account_stats_pricing_rules: [] }], total: 1 })
+    const wrapper = mount(ChannelsView, { global: { stubs: {
+      AppLayout: { template: '<main><slot /></main>' },
+      TablePageLayout: { template: '<section><slot name="table" /></section>' },
+      DataTable: defineComponent({ props: ['data'], template: '<div v-for="row in data" :key="row.id"><slot name="cell-actions" :row="row" /></div>' }),
+      BaseDialog: defineComponent({ props: ['show'], template: '<div v-if="show"><slot /><slot name="footer" /></div>' }),
+      ConfirmDialog: true, Select: true, Toggle: true, Icon: true, PlatformIcon: true, ModelPlazaConfirmation: true,
+      PricingEntryCard: { template: '<section><slot name="insights" /></section>' }
+    } } })
+    wrappers.push(wrapper)
+    await flushPromises()
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click'); await flushPromises()
+    expect(wrapper.findComponent(ChannelPricingInsights).exists()).toBe(true)
+    const panel = wrapper.findComponent(ChannelPricingInsights)
+    ;(panel.find('details').element as HTMLDetailsElement).open = true
+    await new Promise(resolve => setTimeout(resolve, 0)); await flushPromises()
+    await panel.get('[data-testid="insight-account"]').setValue('11'); await flushPromises()
+    await panel.get('[data-testid="compare-pricing"]').trigger('click'); await flushPromises()
+    expect(panel.text()).toContain('20.00%')
+    await wrapper.get('#channel-form').trigger('submit'); await flushPromises()
+    expect(updateChannel).toHaveBeenCalledTimes(1)
+    const payload = updateChannel.mock.calls[0][1]
+    expect(payload.model_pricing).toEqual([card])
+    channelList.mockResolvedValue({ items: [{ ...payload, id: 8, status: 'active' }], total: 1 })
+    // Reopen the actual saved API response and save a second time.
+    await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click'); await flushPromises()
+    await wrapper.get('#channel-form').trigger('submit'); await flushPromises()
+    expect(updateChannel.mock.calls[1][1].model_pricing).toEqual([card])
+    expect(JSON.stringify(payload)).not.toMatch(/provider_profile|field_evidence|differences|capabilities|candidate_hash/)
+  })
+
   it('previews a candidate through the read-only API with an explicit saved group and sample', async () => {
     const wrapper = await openPanel()
     await wrapper.get('[data-testid="insight-account"]').setValue('11'); await flushPromises()

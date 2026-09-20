@@ -83,7 +83,27 @@ export interface ConditionalModelPricing {
   batch_chat_pricing?: ConditionalModelPricing | null
 }
 
+export interface ModelUnitPrice {
+  unit: string
+  dimension: string
+  conditions?: string
+  currency: 'USD'
+  sales: number | null
+  cost: number | null
+}
+
+export interface ModelPriceVariant {
+  id: string
+  canonical: string
+  aliases?: string[]
+  lifecycle?: string
+  expires_at?: string | null
+  prices: ModelUnitPrice[]
+}
+
 export interface ChannelModelPricing {
+  price_variants?: ModelPriceVariant[]
+
   native_pricing_source?: string
   thinking_pricing?: ConditionalModelPricing | null
   explicit_cache_pricing?: ConditionalModelPricing | null

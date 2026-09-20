@@ -136,6 +136,7 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
 	// sourceQuotes retain missing versus explicit zero for read-only comparisons.
 	// They never participate in billing or capability approval.
 	sourceQuotes                        map[string]PricingQuote
@@ -174,6 +175,7 @@ type PricingRemoteClient interface {
 
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
 	LiteLLMCapabilityFields
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
@@ -610,12 +612,16 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		}
 
 		// 只保留有有效价格的条目
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil && entry.InputCostPerImageToken == nil {
+		if err := validateModelPriceVariants(entry.PriceVariants); err != nil {
+			return nil, fmt.Errorf("model %s: %w", modelName, err)
+		}
+		if len(entry.PriceVariants) == 0 && entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil && entry.InputCostPerImageToken == nil {
 			continue
 		}
 
 		pricing := &LiteLLMModelPricing{
 			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
+			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,
 			SupportsPromptCaching: entry.SupportsPromptCaching != nil && *entry.SupportsPromptCaching,
@@ -699,6 +705,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
+	if err := indexModelPriceVariants(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -977,6 +986,9 @@ func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModel
 	}
 	data = s.mergeFallbackPricingData(data)
 	data = s.mergeOverrideOnlyModels(data)
+	if err := indexModelPriceVariants(data); err != nil {
+		return nil, "", err
+	}
 	return data, fingerprint, nil
 }
 

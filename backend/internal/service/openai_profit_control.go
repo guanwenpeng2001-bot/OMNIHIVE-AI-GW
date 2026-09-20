@@ -116,6 +116,13 @@ func profitControlOverThreshold(upstream, threshold float64) bool {
 // openAIProfitControlGate 是一个请求的利润准入门。除 pricingAt 外全部为预计算
 // 标量：候选过滤热路径上每账号只做一次快照解码与一次浮点比较。
 type openAIProfitControlGate struct {
+	descriptorOnce  sync.Once
+	resolver        *ModelPricingResolver
+	descriptor      *ModelPricingDescriptor
+	descriptorError error
+	billingGroup    *Group
+	model           string
+
 	// groupID 是门配置来源的被调度分组；请求内按分组复用（failover 阈值稳定），
 	// composite 等跨分组调度切换分组时重新解析。
 	groupID int64
@@ -243,7 +250,7 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 		group = loaded
 	}
 	if group == nil || !group.ProfitControlEnabled ||
-		(group.Platform != PlatformOpenAI && group.Platform != PlatformGrok && group.Platform != PlatformCursor && !IsMultiProtocolAPIKeyProvider(group.Platform) && group.Platform != PlatformCommandCode) {
+		!profitControlPlatformSupported(group.Platform) {
 		return nil
 	}
 
@@ -267,12 +274,14 @@ func (s *OpenAIGatewayService) resolveOpenAIProfitControlGate(ctx context.Contex
 
 	deduction := group.ProfitMinMargin + group.ProfitSafetyBuffer
 	threshold := clampProfitControlThreshold(downstream * (1 - deduction))
-	return &openAIProfitControlGate{
+	gate := &openAIProfitControlGate{
 		groupID:   *groupID,
 		platform:  group.Platform,
 		threshold: threshold,
 		pricingAt: pricingAt,
 	}
+	gate.attachPricingDescriptor(ctx, s.resolver, billingGroup)
+	return gate
 }
 
 // attachSelectionProfitGate 把调度上下文里生效的利润门记录到选号结果上。门在
@@ -316,6 +325,13 @@ func openAIProfitControlVetoReason(ctx context.Context, account *Account) (bool,
 		*account.RateMultiplier < 0 {
 		openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, openAIProfitFilterReasonInvalidAccountRate)
 		return true, openAIProfitFilterReasonInvalidAccountRate
+	}
+	if gate.capturePricingDescriptor(ctx) {
+		vetoed, reason := gate.descriptorVeto(ctx, account)
+		if vetoed {
+			openAIProfitControlObserverInstance.recordVeto(gate.groupID, gate.platform, gate.threshold, reason)
+		}
+		return vetoed, reason
 	}
 	upstream := *account.RateMultiplier
 	if profitControlOverThreshold(upstream, gate.threshold) {
@@ -472,4 +488,92 @@ func (o *openAIProfitControlObserver) maybeLog(groupID int64, platform string, t
 		"veto_invalid_account_rate_total", s.vetoInvalidRate.Load(),
 		"refresh_failure_total", s.refreshFailures.Load(),
 	)
+}
+
+func (g *openAIProfitControlGate) attachPricingDescriptor(ctx context.Context, resolver *ModelPricingResolver, group *Group) {
+	g.resolver = resolver
+	if g.resolver == nil {
+		g.resolver = NewModelPricingResolver(nil, nil)
+	}
+	if group != nil {
+		cloned := *group
+		cloned.ModelPricing = make([]ChannelModelPricing, len(group.ModelPricing))
+		for index, card := range group.ModelPricing {
+			cloned.ModelPricing[index] = card.Clone()
+		}
+		g.billingGroup = &cloned
+	}
+	g.capturePricingDescriptor(ctx)
+}
+
+// Some ingress paths install the gate before capturing their request plan.
+// Resolve once on the first admission check that carries that frozen plan.
+func (g *openAIProfitControlGate) capturePricingDescriptor(ctx context.Context) bool {
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan == nil || plan.Snapshot().Model == "" || g.billingGroup == nil {
+		return false
+	}
+	g.descriptorOnce.Do(func() {
+		g.model = plan.Snapshot().Model
+		g.descriptor, g.descriptorError = g.resolver.ResolveDescriptor(ctx, PricingInput{Model: g.model, Group: g.billingGroup, GroupID: &g.billingGroup.ID})
+	})
+	return true
+}
+
+func (g *openAIProfitControlGate) descriptorVeto(ctx context.Context, account *Account) (bool, string) {
+	descriptor := g.descriptor
+	if g.descriptorError != nil || descriptor == nil {
+		return true, "profit_pricing_unavailable"
+	}
+	var mappedCost *ModelPricing
+	mappedModel := account.GetMappedModel(g.model)
+	if !descriptor.configured && mappedModel != g.model {
+		if g.resolver.billingService == nil {
+			return true, "profit_pricing_unavailable"
+		}
+		var err error
+		mappedCost, err = g.resolver.billingService.forGatewayRequest(ctx).GetModelPricing(mappedModel)
+		if err != nil {
+			return true, "profit_pricing_unavailable"
+		}
+	}
+	found := false
+	for _, variant := range descriptor.Variants {
+		if !priceVariantActive(variant, descriptor.PricingAt) {
+			continue
+		}
+		for _, price := range variant.Prices {
+			if price.Unit != "token" || price.Conditions != "" {
+				continue
+			}
+			if mappedCost != nil {
+				switch price.Dimension {
+				case "input":
+					price.Cost = &mappedCost.InputPricePerToken
+				case "output":
+					price.Cost = &mappedCost.OutputPricePerToken
+				}
+			}
+			found = true
+			if price.Sales == nil || price.Cost == nil || !validBillingNumber(*price.Sales) || !validBillingNumber(*price.Cost) {
+				return true, "profit_pricing_unavailable"
+			}
+			if profitPriceOverThreshold(*price.Cost**account.RateMultiplier, *price.Sales*g.threshold) {
+				return true, openAIProfitFilterReasonThreshold
+			}
+		}
+	}
+	if !found {
+		return true, "profit_pricing_unavailable"
+	}
+	return false, ""
+}
+
+// Price dimensions can be much smaller than one dollar. A multiplier's absolute
+// epsilon must not erase the whole margin of a low-priced token dimension.
+func profitPriceOverThreshold(cost, permitted float64) bool {
+	if !validBillingNumber(cost) || !validBillingNumber(permitted) {
+		return true
+	}
+	return cost-permitted > profitControlRateEpsilon*math.Max(math.Abs(cost), math.Abs(permitted))
 }
