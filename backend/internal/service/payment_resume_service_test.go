@@ -231,6 +231,39 @@ func TestPaymentResumeTokenRoundTrip(t *testing.T) {
 	}
 }
 
+func TestPaymentResumeTokenRequiresShortExpiryAndFreshNonce(test *testing.T) {
+	signer := NewPaymentResumeService([]byte("0123456789abcdef0123456789abcdef"))
+	claims := ResumeTokenClaims{OrderID: 42, ExpiresAt: time.Now().Add(24 * time.Hour).Unix()}
+	first, err := signer.CreateToken(claims)
+	if err != nil {
+		test.Fatal(err)
+	}
+	second, err := signer.CreateToken(claims)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if first == second {
+		test.Fatal("checkout tokens reused a nonce")
+	}
+	parsed, err := signer.ParseToken(first)
+	if err != nil {
+		test.Fatal(err)
+	}
+	if parsed.ExpiresAt > time.Now().Add(15*time.Minute).Unix() {
+		test.Fatal("resume lifetime exceeded 15 minutes")
+	}
+	for _, expiry := range []int64{0, time.Now().Unix()} {
+		parsed.ExpiresAt = expiry
+		token, err := signer.createSignedToken(parsed)
+		if err != nil {
+			test.Fatal(err)
+		}
+		if _, err := signer.ParseToken(token); err == nil {
+			test.Fatal("accepted missing or expired lifetime")
+		}
+	}
+}
+
 func TestCreateTokenRejectsMissingSigningKey(t *testing.T) {
 	t.Parallel()
 

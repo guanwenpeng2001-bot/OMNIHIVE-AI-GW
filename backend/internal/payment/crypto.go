@@ -17,10 +17,8 @@ const AES256KeySize = 32
 // The output format is "iv:authTag:ciphertext" where each component is base64-encoded,
 // matching the Node.js crypto.ts format for cross-compatibility.
 //
-// Deprecated: payment provider configs are now stored as plaintext JSON.
-// This function is kept only for seeding legacy ciphertext in tests and for
-// the transitional Decrypt fallback. Scheduled for removal after all live
-// deployments complete migration by re-saving their configs.
+// Deprecated: use EncryptProviderConfig for runtime writes. This encoder is
+// retained only for historical migration fixtures.
 func Encrypt(plaintext string, key []byte) (string, error) {
 	if len(key) != AES256KeySize {
 		return "", fmt.Errorf("encryption key must be %d bytes, got %d", AES256KeySize, len(key))
@@ -60,10 +58,8 @@ func Encrypt(plaintext string, key []byte) (string, error) {
 // Decrypt decrypts a ciphertext string produced by Encrypt.
 // The input format is "iv:authTag:ciphertext" where each component is base64-encoded.
 //
-// Deprecated: payment provider configs are now stored as plaintext JSON.
-// This function remains only as a read-path fallback for pre-migration
-// ciphertext records. Scheduled for removal once all deployments re-save
-// their provider configs through the admin UI.
+// Deprecated: runtime readers use DecryptProviderConfig. This decoder is
+// confined to the reentrant migration of historical records.
 func Decrypt(ciphertext string, key []byte) (string, error) {
 	if len(key) != AES256KeySize {
 		return "", fmt.Errorf("encryption key must be %d bytes, got %d", AES256KeySize, len(key))
@@ -100,6 +96,9 @@ func Decrypt(ciphertext string, key []byte) (string, error) {
 	}
 
 	// Reconstruct the sealed data: ciphertext + authTag
+	if len(nonce) != gcm.NonceSize() || len(authTag) != gcm.Overhead() {
+		return "", fmt.Errorf("invalid legacy payment nonce or authentication tag length")
+	}
 	sealed := append(encrypted, authTag...)
 
 	plaintext, err := gcm.Open(nil, nonce, sealed, nil)

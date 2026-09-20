@@ -477,6 +477,7 @@ func (h *PaymentHandler) VerifyOrder(c *gin.Context) {
 // proves possession of the checkout session, so the result keeps the legacy
 // frontend contract needed by payment result pages.
 type PublicOrderResult struct {
+	ResumeToken         string     `json:"resume_token"`
 	ID                  int64      `json:"id"`
 	OutTradeNo          string     `json:"out_trade_no"`
 	Amount              float64    `json:"amount"`
@@ -496,18 +497,6 @@ type PublicOrderResult struct {
 	RefundRequestedBy   *string    `json:"refund_requested_by,omitempty"`
 	RefundRequestReason *string    `json:"refund_request_reason,omitempty"`
 	PlanID              *int64     `json:"plan_id,omitempty"`
-}
-
-// PublicOrderVerifyResult is returned by the legacy anonymous out_trade_no
-// lookup. Keep this intentionally minimal because out_trade_no is not secret.
-type PublicOrderVerifyResult struct {
-	OutTradeNo  string     `json:"out_trade_no"`
-	Status      string     `json:"status"`
-	Paid        bool       `json:"paid"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
-	PaidAt      *time.Time `json:"paid_at,omitempty"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
 }
 
 func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
@@ -534,67 +523,35 @@ func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 	}
 }
 
-func buildPublicOrderVerifyResult(order *dbent.PaymentOrder) PublicOrderVerifyResult {
-	return PublicOrderVerifyResult{
-		OutTradeNo:  order.OutTradeNo,
-		Status:      order.Status,
-		Paid:        publicOrderStatusPaid(order.Status),
-		CreatedAt:   order.CreatedAt,
-		ExpiresAt:   order.ExpiresAt,
-		PaidAt:      order.PaidAt,
-		CompletedAt: order.CompletedAt,
-	}
-}
-
-func publicOrderStatusPaid(status string) bool {
-	switch status {
-	case service.OrderStatusPaid,
-		service.OrderStatusCompleted,
-		service.OrderStatusRefundRequested,
-		service.OrderStatusRefunding,
-		service.OrderStatusRefundPending,
-		service.OrderStatusPartiallyRefunded,
-		service.OrderStatusRefunded,
-		service.OrderStatusRefundFailed:
-		return true
-	default:
-		return false
-	}
-}
-
-// VerifyOrderPublic keeps the legacy anonymous out_trade_no lookup available as
-// a compatibility path for older result pages and staggered deploys.
+// VerifyOrderPublic preserves the old route with the same token-only contract.
 // POST /api/v1/payment/public/orders/verify
 func (h *PaymentHandler) VerifyOrderPublic(c *gin.Context) {
-	var req VerifyOrderRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
-		return
-	}
-
-	order, err := h.paymentService.VerifyOrderPublic(c.Request.Context(), req.OutTradeNo)
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, buildPublicOrderVerifyResult(order))
+	h.ResolveOrderPublicByResumeToken(c)
 }
 
 // ResolveOrderPublicByResumeToken resolves a payment order from a signed resume token.
 // POST /api/v1/payment/public/orders/resolve
-func (h *PaymentHandler) ResolveOrderPublicByResumeToken(c *gin.Context) {
+func (handler *PaymentHandler) ResolveOrderPublicByResumeToken(requestContext *gin.Context) {
 	var req ResolveOrderByResumeTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+	if err := requestContext.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(requestContext, "Invalid request: "+err.Error())
 		return
 	}
 
-	order, err := h.paymentService.GetPublicOrderByResumeToken(c.Request.Context(), req.ResumeToken)
+	// Prepare the successor before consuming the current credential.
+	nextToken, err := handler.paymentService.RenewPaymentResumeToken(req.ResumeToken)
 	if err != nil {
-		response.ErrorFrom(c, err)
+		response.ErrorFrom(requestContext, err)
 		return
 	}
-	response.Success(c, buildPublicOrderResult(order))
+	order, err := handler.paymentService.GetPublicOrderByResumeToken(requestContext.Request.Context(), req.ResumeToken)
+	if err != nil {
+		response.ErrorFrom(requestContext, err)
+		return
+	}
+	result := buildPublicOrderResult(order)
+	result.ResumeToken = nextToken
+	response.Success(requestContext, result)
 }
 
 // requireAuth extracts the authenticated subject from the context.
