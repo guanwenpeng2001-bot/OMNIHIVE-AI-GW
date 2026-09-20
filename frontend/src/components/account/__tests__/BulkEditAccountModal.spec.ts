@@ -86,7 +86,7 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 
 describe('BulkEditAccountModal', () => {
   it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
-    catalogPreview.mockReset().mockResolvedValue({ models: ['shared'], complete: true })
+    catalogPreview.mockReset().mockResolvedValue({ candidate_models: ['shared'], models: ['shared'], discovery_complete: true, complete: true })
     const wrapper = mountModal({ selectedPlatforms: ['openai'] })
     await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
@@ -143,7 +143,7 @@ describe('BulkEditAccountModal', () => {
   })
 
   it('saves only a complete explicit-set preview intersection through the real bulk form', async () => {
-    catalogPreview.mockReset().mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockRejectedValueOnce({ status: 502 })
+    catalogPreview.mockReset().mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockRejectedValueOnce({ status: 502 })
     vi.mocked(adminAPI.accounts.bulkUpdate).mockResolvedValue({ success: 2, failed: 0 } as any)
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({ has_risk: false } as any)
     const wrapper = mountModal({ selectedPlatforms: ['openai'] })
@@ -153,7 +153,7 @@ describe('BulkEditAccountModal', () => {
     expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
     expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
     expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
-    catalogPreview.mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockResolvedValueOnce({ models: ['common', 'only-second'], complete: true })
+    catalogPreview.mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockResolvedValueOnce({ candidate_models: ['common', 'only-second'], models: ['common', 'only-second'], discovery_complete: true, complete: true })
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-common-models"]').trigger('click')

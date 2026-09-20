@@ -30,12 +30,13 @@ watch(() => JSON.stringify([props.active, props.filtered, props.accountIds, prop
     ? [...new Set(props.accountIds)].map(accountId => ({ accountId, state: 'idle' })) : []
 }, { immediate: true, flush: 'sync' })
 onUnmounted(() => { generation++ })
-const complete = computed(() => rows.value.length > 0 && rows.value.every(row => row.state === 'ready' && row.result?.complete === true))
+const complete = computed(() => rows.value.length > 0 && rows.value.every(row => row.state === 'ready' && !!row.result))
 const commonModels = computed(() => {
   if (!complete.value) return []
-  const modelSets = rows.value.map(row => new Set((row.result!.models ?? []).map(model => model.trim()).filter(Boolean)))
+  const modelSets = rows.value.map(row => new Set((row.result!.candidate_models ?? row.result!.discovered_models ?? []).map(model => model.trim()).filter(Boolean)))
   return [...modelSets[0]].filter(model => modelSets.every(models => models.has(model)))
 })
+const additions = computed(() => commonModels.value.filter(model => !props.modelValue.includes(model)))
 const preview = async (accountId?: number) => {
   if (running.value || !props.active || props.filtered) return
   const requestGeneration = generation
@@ -79,7 +80,7 @@ const addCommonModels = () => {
     <div class="flex flex-wrap gap-2">
       <button type="button" class="btn btn-secondary" data-testid="preview-each-account" :disabled="!active || filtered || running || !rows.length" @click="preview()">{{ t('admin.accounts.modelSync.previewEach') }}</button>
       <button v-if="running" type="button" class="btn btn-secondary" data-testid="stop-account-previews" @click="stopRequested = true">{{ t('admin.accounts.modelSync.stopPreviews') }}</button>
-      <button type="button" class="btn btn-secondary" data-testid="add-common-models" :disabled="!active || running || !complete || !commonModels.length" @click="addCommonModels">{{ t('admin.accounts.modelSync.addCommon', { count: commonModels.length }) }}</button>
+      <button type="button" class="btn btn-secondary" data-testid="add-common-models" :disabled="!active || running || !complete || !additions.length" @click="addCommonModels">{{ t('admin.accounts.modelSync.addCommon', { count: commonModels.length }) }}</button>
     </div>
     <p v-if="selectionError" role="alert">{{ selectionError }}</p>
     <p v-if="complete && !commonModels.length" role="status">{{ t('admin.accounts.modelSync.noCommonModels') }}</p>
@@ -91,7 +92,7 @@ const addCommonModels = () => {
           <button type="button" class="btn btn-secondary" :disabled="!active || running" @click="preview(row.accountId)">{{ t(row.state === 'failed' ? 'common.tryAgain' : 'admin.accounts.syncUpstreamModels') }}</button>
         </div>
         <p v-if="row.errorKey" role="alert">{{ t(`admin.accounts.${row.errorKey}`) }}</p>
-        <p v-if="row.result" class="break-all text-sm">{{ (row.result.models ?? []).join(', ') }}</p>
+        <p v-if="row.result" class="break-all text-sm">{{ (row.result.candidate_models ?? row.result.discovered_models ?? []).join(', ') }}</p>
         <p v-if="row.result && row.state !== 'ready'" role="status">{{ t('admin.accounts.modelSync.previousPreview') }}</p>
         <ModelCatalogDetails v-if="row.result" :stale="row.state !== 'ready'" :result="row.result" :candidate-count="null" />
       </div>

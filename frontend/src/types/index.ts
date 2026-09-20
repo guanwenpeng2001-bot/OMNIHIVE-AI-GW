@@ -1036,6 +1036,11 @@ export interface AccountCatalogReview extends AccountModelCatalogBaseline {
 }
 
 export interface AccountModelCatalog extends AccountModelCatalogBaseline, AccountCapabilityRelease {
+  /** Selectable preview IDs; capability gaps do not establish or deny routing eligibility. */
+  candidate_models: string[]
+  /** Native discovery completeness, independent of capability_status. */
+  discovery_complete: boolean
+  capability_status: 'complete' | 'estimated' | 'incomplete'
   review?: AccountCatalogReview
   models: string[] | null
   metadata?: Record<string, Partial<import('@/api/admin/accounts').UpstreamModelMetadata>>

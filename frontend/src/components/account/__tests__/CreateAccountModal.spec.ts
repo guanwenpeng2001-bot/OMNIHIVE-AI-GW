@@ -61,7 +61,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ models: ['public-glm'], complete: true }) },
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }), syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn().mockResolvedValue([]),
 }))
 
@@ -256,7 +256,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
     probeUpstreamBillingMock.mockReset().mockResolvedValue({})
-    syncUpstreamModelsMock.mockReset().mockResolvedValue({ models: [], metadata: {} })
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: [], models: [], metadata: {} })
     showWarningMock.mockReset()
     showInfoMock.mockReset()
     importCodexSessionMock.mockReset().mockResolvedValue({
@@ -406,7 +406,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.emitted('close')).toBeUndefined()
     const panel = wrapper.get('[data-testid="created-catalog-accounts"]')
     const review = { account_id: 42, digest: 'saved-identity', rules_revision: '9007199254740993' }
-    const preview = { models: ['saved-model'], complete: true, applied: false, rules_revision: review.rules_revision, review }
+    const preview = { candidate_models: ['saved-model'], models: ['saved-model'], discovery_complete: true, complete: true, applied: false, rules_revision: review.rules_revision, review }
     syncUpstreamModelsMock.mockResolvedValueOnce(preview).mockRejectedValueOnce({ status: 409 })
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
@@ -645,7 +645,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   it('does not automatically adopt incomplete post-create metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
-      models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_incomplete', message: 'metadata incomplete' }],
     })
     const wrapper = mountModal()
@@ -663,7 +663,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   it('requires confirmation instead of automatically adopting partial metadata', async () => {
     syncUpstreamModelsMock.mockResolvedValue({
-      models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
       warnings: [{ code: 'upstream_model_metadata_partial', message: 'metadata incomplete' }],
     })
     const wrapper = mountModal()
@@ -1084,4 +1084,26 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
   })
 
+})
+
+
+it('opens and resets without inferred Claude selections and keeps foreign authentication hints empty', async () => {
+  const wrapper = mountModal()
+  const state = wrapper.vm as unknown as { allowedModels: string[]; apiKeyHint: string; modelRestrictionMode: string }
+  expect(state.allowedModels).toEqual([])
+  await wrapper.get('[data-testid="qianfan-platform"]').trigger('click')
+  await flushPromises()
+  expect(state.allowedModels).toEqual([])
+  expect(state.apiKeyHint).toBe('')
+  state.allowedModels = ['manually-chosen']
+  state.modelRestrictionMode = 'mapping'
+  await flushPromises()
+  state.modelRestrictionMode = 'whitelist'
+  await flushPromises()
+  expect(state.allowedModels).toEqual(['manually-chosen'])
+  await wrapper.setProps({ show: false })
+  await wrapper.setProps({ show: true })
+  await flushPromises()
+  expect(state.allowedModels).toEqual([])
+  wrapper.unmount()
 })

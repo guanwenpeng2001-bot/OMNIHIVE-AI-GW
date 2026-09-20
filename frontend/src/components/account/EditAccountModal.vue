@@ -26,7 +26,6 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
-      <NewPlatformNotice v-if="account.platform === 'bedrock'" :platform="account.platform" :api-key="editBedrockApiKeyValue" />
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -201,7 +200,6 @@
             </button>
           </div>
         </div>
-        <NewPlatformNotice :platform="account.platform" :api-key="editApiKey || String(account.credentials?.api_key || '')" />
         <OpenCodeGoProtocolRulesEditor
           v-if="['opencode_go', 'commandcode'].includes(account.platform) && editApiProtocol === 'adaptive'"
           v-model:rows="editOpenCodeGoProtocolRules"
@@ -264,6 +262,7 @@
             "
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
+          <p v-if="account.platform === 'qianwen' && (editApiKey || String(account.credentials?.api_key || '')).trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
         </div>
 
@@ -338,7 +337,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -819,7 +818,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1032,7 +1031,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1250,7 +1249,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" platform="anthropic" />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -2994,9 +2993,9 @@
       <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
         :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
-      <ModelWhitelistSelector :active="show" :account-id="account.id" :platform="account.platform" :model-value="allowedModels" :model-mappings="modelMappings"
-        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
-        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only />
+      <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :active="show" :account-id="account.id" :platform="account.platform" v-model="allowedModels" :model-mappings="modelMappings"
+        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
+        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only catalog-selection-enabled />
     </form>
 
     <template #footer>
@@ -3095,7 +3094,6 @@ import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import OllamaCloudUsageSettings from '@/components/account/OllamaCloudUsageSettings.vue'
@@ -3206,7 +3204,7 @@ const apiKeyHint = computed(() => {
   if (props.account?.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (props.account?.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (props.account?.platform === 'grok') return ''
-  return t('admin.accounts.apiKeyHint')
+  return props.account?.platform === 'anthropic' ? t('admin.accounts.apiKeyHint') : ''
 })
 
 const baseUrlHint = computed(() => {
@@ -3406,6 +3404,14 @@ const editBedrockApiKeyValue = ref('')
 const editVertexProjectId = ref('')
 const editVertexClientEmail = ref('')
 const editVertexLocation = ref('us-central1')
+const modelCandidateIdentity = computed(() => ({
+  host: editBaseUrl.value,
+  type: props.account?.type,
+  profile: String(props.account?.credentials?.provider_profile || ''),
+  region: props.account?.type === 'bedrock' ? editBedrockRegion.value
+    : props.account?.type === 'service_account' ? editVertexLocation.value : '',
+  mode: currentOpenCodeOrCNMode()
+}))
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -3855,7 +3861,7 @@ const openAICompactStatusKey = computed(() => {
 })
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || 'anthropic'))
+const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || '', { type: props.account?.type }))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4007,16 +4013,16 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 const capabilityDefaultsJSON = ref('')
 const savedModelGeneration = ref(0)
 const availabilityGeneration = ref(0)
-const modelConnectionContext = computed(() => JSON.stringify([
+const modelDiscoveryContext = computed(() => JSON.stringify([
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
   editZhipuOrganization.value, editZhipuProject.value, editBedrockAccessKeyId.value, editBedrockSecretAccessKey.value, editBedrockSessionToken.value,
   editBedrockRegion.value, editBedrockForceGlobal.value, editBedrockApiKeyValue.value, editVertexProjectId.value, editVertexClientEmail.value, editVertexLocation.value,
   customBaseUrlEnabled.value, customBaseUrl.value, openAIEndpointCapabilities.value, openaiPassthroughEnabled.value, anthropicPassthroughEnabled.value,
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
-  openAIResponsesMode.value, mixedScheduling.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value,
-  antigravityModelMappings.value, capabilityDefaultsJSON.value
+  openAIResponsesMode.value, mixedScheduling.value, capabilityDefaultsJSON.value
 ]))
+const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value, antigravityModelMappings.value]))
 const savedModelConnection = ref('')
 const modelConfigurationDirty = computed(() => modelConnectionContext.value !== savedModelConnection.value)
 const markModelConfigurationSaved = () => {

@@ -1,3 +1,4 @@
+import { postIdempotentCreate } from '../idempotency'
 import type { ModelCategoryMetadata } from '@/utils/modelCategories'
 /**
  * Admin Accounts API endpoints
@@ -186,8 +187,7 @@ export async function getById(id: number): Promise<Account> {
  * @returns Created account
  */
 export async function create(accountData: CreateAccountRequest): Promise<Account> {
-  const { data } = await apiClient.post<Account>('/admin/accounts', accountData)
-  return data
+  return postIdempotentCreate<Account>('/admin/accounts', accountData)
 }
 
 /**
@@ -496,12 +496,11 @@ export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
   failed: number
   results: Array<{ success: boolean; account?: Account; error?: string }>
 }> {
-  const { data } = await apiClient.post<{
+  return postIdempotentCreate<{
     success: number
     failed: number
     results: Array<{ success: boolean; account?: Account; error?: string }>
   }>('/admin/accounts/batch', { accounts })
-  return data
 }
 
 /**
@@ -685,7 +684,7 @@ export interface UpstreamModelMetadata extends ModelCategoryMetadata {
 /**
  * Sync live supported models from the account's upstream model-list endpoint
  * @param id - Account ID
- * @returns List of model IDs returned by the upstream
+ * @returns Discovery, selectable candidates, routing eligibility and capability status separately.
  */
 export async function syncUpstreamModels(id: number, apply = false, expectedRulesRevision?: string, modelCapabilityDefaults?: Record<string, unknown> | null, review?: AccountModelCatalog['review']): Promise<SyncUpstreamModelsResult> {
   if (apply && !review) throw new Error('A complete catalog review is required')
@@ -700,6 +699,8 @@ export async function updateModelAllowlist(id: number, request: UpdateModelAllow
   return data
 }
 
+// The management capability contract is this catalog resource's display_metadata;
+// HTTP failures (including 404) propagate without probing a second capabilities API.
 export async function getModelCatalog(id: number): Promise<AccountModelCatalogDetails> {
   const { data } = await apiClient.get<AccountModelCatalogDetails>(`/admin/accounts/${id}/models/catalog`)
   return data
@@ -718,7 +719,7 @@ export interface SyncUpstreamPreviewParams {
 /**
  * Preview upstream models without a saved account (create-flow)
  * @param params - Connection credentials
- * @returns List of model IDs returned by the upstream
+ * @returns Discovery, selectable candidates, routing eligibility and capability status separately.
  */
 export async function syncUpstreamModelsPreview(params: SyncUpstreamPreviewParams): Promise<SyncUpstreamModelsResult> {
   const { data } = await apiClient.post<SyncUpstreamModelsResult>('/admin/accounts/models/sync-upstream-preview', params)
