@@ -6,10 +6,39 @@ write a trust pin. The separate collect.py command is described below.
 Script-relative inputs work from any current directory.
 
 `inputs.json` is the reviewed price-free projection, not a raw registry response.
-`reviewed.json` retains the existing reviewed decisions unchanged, including their
+`reviewed.json` contains explicitly reviewed model specifications, including their
 historical evidence references. Those references are provenance strings, not files
-opened by this tool. Together they reproduce the 252-record published catalog
-byte for byte. Source-union completeness is not account coverage or authorization.
+opened by this tool. Together they reproduce the published catalog byte for byte.
+An unrelated new observation does not refresh the observation date of older records.
+Source-union completeness is not account coverage or authorization.
+
+## Candidate preset source projections
+
+`preset-sources.json` stores price-free, reviewed projections of public model
+inventories. Each source has a URL, capture hash and observation date; each profile
+has a scope, gaps and exact model IDs. Raw pages stay outside the source tree.
+Historical namespaces missing from a new registry retain their original observation
+dates. Removed candidate IDs do not revoke account discovery or prove retirement.
+Lifecycle changes need separate official evidence. Public model names do not invent
+private endpoint IDs or establish aliases across hosting providers.
+
+```sh
+python -B backend/resources/model-capabilities/scripts/presets.py validate
+python -B backend/resources/model-capabilities/scripts/presets.py candidate --output /path/to/candidate.json
+```
+
+After reviewing a source projection change, `presets.py candidate` without `--output`
+reproduces `backend/internal/service/platform_model_presets.json`. No command fetches
+sources or marks a partial inventory complete. The generated revision includes its
+scope and model facts. The JSON keeps `task_type` separate from modalities, uses
+`embedding` for vector output and `score` for ranking output, and records dimensions,
+task limits, retirement dates and typed reasoning controls when evidenced. `speech`
+is TTS, `transcription` is STT, and `realtime` describes a real-time task. A documented
+lower bound on input modalities is marked `input_modalities_status=partial`.
+The source projection retains a full-coverage gap until official scope, region,
+plan and lifecycle reconciliation is available; a successful replay is not proof
+of full vendor coverage. Additional preset fields require corresponding runtime DTO
+support before being exposed by the management API.
 
 From the repository root:
 

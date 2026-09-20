@@ -279,15 +279,20 @@ func TestDiscoveryMissingOptionalMetadataRemainsComplete(test *testing.T) {
 	require.Equal(test, "incomplete", preview.CapabilityStatus)
 }
 
-func TestReviewEmptyOfficialCandidatesStayIncomplete(test *testing.T) {
+func TestReviewOfficialPlatformCandidatesStayIncomplete(test *testing.T) {
 	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine} {
-		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: &httpUpstreamRecorder{}}
+		upstream := &httpUpstreamRecorder{}
+		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 		preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
 		require.NoError(test, err)
-		require.Empty(test, preview.CandidateModels)
+		require.Equal(test, "platform-candidates", preview.CatalogSource)
+		require.NotEmpty(test, preview.CandidateModels, platform)
 		require.Empty(test, preview.DiscoveredModels)
+		require.Empty(test, preview.EligibleModels)
 		require.False(test, preview.DiscoveryComplete)
+		require.False(test, preview.Complete)
 		require.Nil(test, preview.Review)
+		require.Nil(test, upstream.lastReq)
 	}
 }

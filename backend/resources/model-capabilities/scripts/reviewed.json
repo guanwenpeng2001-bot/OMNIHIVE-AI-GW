@@ -1,10 +1,10 @@
 {
   "adapter_version": "capability-v2",
   "alias_version": "exact-profile-id-v1",
-  "approval_basis": "P2-01 reviewed subset: four exact Beijing embedding specifications; official legacy/workspace domain equivalence verified; 23 candidates withheld including 9 reasoning-only records blocked by context-kind adapter bug; reports/p2-01-publication-review.json and .pi/plans/project-review/p2-01-publish-report.md; Source-release maintenance review: unchanged 252 capability records, exact reviewed profile/model applicability independent of price bytes; audited actual parser/catalog/profile/matcher/rules dependencies, no newly collected evidence approved. Read-only capability review: unchanged 252 reviewed records and source input hash; media specifications remain incomplete without required limits even for unsupported endpoints, derived/stale evidence cannot imply complete; detached seven-day public observations are exact-profile display-only and never published as reviewed evidence.; Code dependency maintenance: Windows atomic replacement retry and capability enrichment allocation changes; existing model facts and applicability retained; Provider-discovery dependency review (f86fbe077): inspected matcher profile resolution for Bedrock, Vertex AI and official provider endpoints; unchanged 252 capability records, aliases, deployment applicability and approved input bytes; no new model facts or observations approved.; Coordinator-authorized provider discovery repair: Bedrock service-region-partition hostname boundary excludes tenant S3 and EC2 resources; unchanged 252 approved model records and source inputs.",
-  "approved_inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
-  "description": "Pinned local observations, not current official specifications or account authorization. Conflicting fields are omitted; runtime/embed keep their respective observed limits. Unknown reasoning controls remain unknown under P0 schema. No model aliases or prices. Includes reviewed DashScope embedding API observations; text output modality is the catalog convention for text embeddings, whose API output is a numeric vector. P2-01 adds four exact Beijing embedding supplements; reasoning-only and media candidates remain unpublished.",
-  "generated_at": "2026-09-20T08:11:12Z",
+  "approval_basis": "Reviewed public source projections dated 2026-09-20/21: corrected six Beijing embedding output modalities against the synchronous embedding API; added exact Qianfan embedding specifications and Mistral speech/transcription model facts; added DeepSeek flash effort/toggle controls from the official thinking guide; recorded OpenAI embedding dimensions from the models.dev output limit; recorded Volcengine multimodal embedding 2048/1024 dimensions from the official Ark inventory. Existing conflicting historical limits remain unresolved. Preset inventory gaps remain explicit and do not establish account eligibility. Gemini API embedding dimensions stay unknown.",
+  "approved_inputs_sha256": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
+  "description": "Model specifications with per-field source evidence and observation dates. Conflicting observations and unverified controls remain unknown. Embedding outputs are numerical vectors. Deployment eligibility and current availability are determined separately.",
+  "generated_at": "2026-09-20T17:11:58Z",
   "records": [
     {
       "applicable_content_hashes": [
@@ -23,18 +23,18 @@
       "mode": "embedding",
       "model_id": "qwen3.7-text-embedding",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
-      "source_content_hash": "9f1028d948a8c606b4c0a3f0325522162f7acc96d725e357cbe87f9fade3205d",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
     },
     {
       "applicable_content_hashes": [
@@ -53,18 +53,18 @@
       "mode": "embedding",
       "model_id": "qwen3.7-text-embedding-flash",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api/",
-      "source_content_hash": "9f1028d948a8c606b4c0a3f0325522162f7acc96d725e357cbe87f9fade3205d",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
     },
     {
       "applicable_content_hashes": [
@@ -83,18 +83,18 @@
       "mode": "embedding",
       "model_id": "text-embedding-v1",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
-      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
     },
     {
       "applicable_content_hashes": [
@@ -113,18 +113,18 @@
       "mode": "embedding",
       "model_id": "text-embedding-v2",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
-      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
     },
     {
       "applicable_content_hashes": [
@@ -143,18 +143,18 @@
       "mode": "embedding",
       "model_id": "text-embedding-v3",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
-      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
     },
     {
       "applicable_content_hashes": [
@@ -173,18 +173,392 @@
       "mode": "embedding",
       "model_id": "text-embedding-v4",
       "output_modalities": [
-        "text"
+        "embedding"
       ],
       "profile": "alibaba-cn",
       "protocol": "openai",
       "provider": "alibaba",
       "region": "cn-beijing",
       "source": "https://help.aliyun.com/zh/model-studio/text-embedding-synchronous-api",
-      "source_content_hash": "18210e5042b87143edcf7c362149117382f9eb600573e1b516e51773430b5604",
+      "source_content_hash": "08eb097cc79c0504af86d85872463907ccf22ec02959b76eff20dcca026647f2",
       "supported_methods": [
         "embeddings"
       ],
-      "verified_at": "2026-09-17"
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 384,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 384,
+      "mode": "embedding",
+      "model_id": "embedding-v1",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "tao-8k",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 512,
+      "mode": "embedding",
+      "model_id": "bge-large-zh",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 512,
+      "mode": "embedding",
+      "model_id": "bge-large-en",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 1024,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "qwen3-embedding-0.6b",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 2560,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "qwen3-embedding-4b",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc"
+      ],
+      "embedding_dimensions": 4096,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "qwen3-embedding-8b",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "qianfan",
+      "protocol": "openai",
+      "provider": "qianfan",
+      "region": "unspecified",
+      "source": "https://cloud.baidu.com/doc/qianfan/s/rmh4stp0j",
+      "source_content_hash": "fac9800c74b44a5cec3c888fed87086bc52202ebf6ab37ed51ed97c0275238fc",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "c57042eb2cdb56be217a55fc69e559d68a899e4e0b7724051f43231887bb740d"
+      ],
+      "input_modalities": [
+        "text",
+        "audio"
+      ],
+      "mode": "speech",
+      "model_id": "voxtral-mini-tts-2603",
+      "output_modalities": [
+        "audio"
+      ],
+      "profile": "mistral",
+      "protocol": "openai",
+      "provider": "mistral",
+      "region": "unspecified",
+      "source": "https://docs.mistral.ai/models/voxtral-tts-26-03",
+      "source_content_hash": "c57042eb2cdb56be217a55fc69e559d68a899e4e0b7724051f43231887bb740d",
+      "supported_methods": [
+        "speech"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "94b8b68675db591883270d77dd74ecbf98d6f6ba05674ddf9f839a695d3be9a1"
+      ],
+      "input_modalities": [
+        "audio"
+      ],
+      "mode": "transcription",
+      "model_id": "voxtral-mini-2602",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "mistral",
+      "protocol": "openai",
+      "provider": "mistral",
+      "region": "unspecified",
+      "source": "https://docs.mistral.ai/models/voxtral-mini-transcribe-26-02",
+      "source_content_hash": "94b8b68675db591883270d77dd74ecbf98d6f6ba05674ddf9f839a695d3be9a1",
+      "supported_methods": [
+        "transcriptions"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "de5201513a724361ae074b8113091c0eb23c5d5ea7b6c2cc2a485f0b512650e1"
+      ],
+      "input_modalities": [
+        "audio"
+      ],
+      "mode": "realtime",
+      "model_id": "voxtral-mini-transcribe-realtime-2602",
+      "output_modalities": [
+        "text"
+      ],
+      "profile": "mistral",
+      "protocol": "openai",
+      "provider": "mistral",
+      "region": "unspecified",
+      "source": "https://docs.mistral.ai/models/voxtral-mini-transcribe-realtime-26-02",
+      "source_content_hash": "de5201513a724361ae074b8113091c0eb23c5d5ea7b6c2cc2a485f0b512650e1",
+      "supported_methods": [
+        "transcriptions"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "f09763c2ad7df6c6b7f2f9534928abf3fa776f6e8e080e13828f8788593e63fd"
+      ],
+      "embedding_dimensions": 2048,
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "max_input_tokens": 128000,
+      "mode": "embedding",
+      "model_id": "doubao-embedding-vision-250615",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "volcengine",
+      "protocol": "openai",
+      "provider": "volcengine",
+      "region": "cn-beijing",
+      "source": "https://www.volcengine.com/docs/82379/1330310",
+      "source_content_hash": "f09763c2ad7df6c6b7f2f9534928abf3fa776f6e8e080e13828f8788593e63fd",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "f09763c2ad7df6c6b7f2f9534928abf3fa776f6e8e080e13828f8788593e63fd"
+      ],
+      "embedding_dimensions": 2048,
+      "input_modalities": [
+        "text",
+        "image",
+        "video"
+      ],
+      "max_input_tokens": 128000,
+      "mode": "embedding",
+      "model_id": "doubao-embedding-vision-251215",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "volcengine",
+      "protocol": "openai",
+      "provider": "volcengine",
+      "region": "cn-beijing",
+      "source": "https://www.volcengine.com/docs/82379/1330310",
+      "source_content_hash": "f09763c2ad7df6c6b7f2f9534928abf3fa776f6e8e080e13828f8788593e63fd",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76"
+      ],
+      "embedding_dimensions": 3072,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8191,
+      "mode": "embedding",
+      "model_id": "text-embedding-3-large",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "openai",
+      "protocol": "openai",
+      "provider": "openai",
+      "region": "unspecified",
+      "source": "https://models.dev/api.json",
+      "source_content_hash": "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76"
+      ],
+      "embedding_dimensions": 1536,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8191,
+      "mode": "embedding",
+      "model_id": "text-embedding-3-small",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "openai",
+      "protocol": "openai",
+      "provider": "openai",
+      "region": "unspecified",
+      "source": "https://models.dev/api.json",
+      "source_content_hash": "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
+    },
+    {
+      "applicable_content_hashes": [
+        "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76"
+      ],
+      "embedding_dimensions": 1536,
+      "input_modalities": [
+        "text"
+      ],
+      "max_input_tokens": 8192,
+      "mode": "embedding",
+      "model_id": "text-embedding-ada-002",
+      "output_modalities": [
+        "embedding"
+      ],
+      "profile": "openai",
+      "protocol": "openai",
+      "provider": "openai",
+      "region": "unspecified",
+      "source": "https://models.dev/api.json",
+      "source_content_hash": "d1bb46bfc49ddb00acb364b39b1653e00edb65d82a7f595bb43613ef8a33ab76",
+      "supported_methods": [
+        "embeddings"
+      ],
+      "verified_at": "2026-09-20"
     }
   ],
   "rules_version": "endpoint-contract-v1+name-rules-v1",
