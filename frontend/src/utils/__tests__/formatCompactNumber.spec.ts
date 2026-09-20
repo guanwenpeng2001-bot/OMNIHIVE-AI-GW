@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { formatCompactNumber } from '../format'
+import { formatBytes, formatCompactNumber } from '../format'
 
 describe('formatCompactNumber', () => {
   it('formats boundary values with K/M/B', () => {
@@ -19,4 +19,13 @@ describe('formatCompactNumber', () => {
     expect(formatCompactNumber(null)).toBe('0')
     expect(formatCompactNumber(undefined)).toBe('0')
   })
+})
+
+
+it('uses language-neutral byte symbols while retaining the existing 1024-based scale', () => {
+  expect(formatBytes(0)).toBe('0 B')
+  expect(formatBytes(512)).toBe('512 B')
+  expect(formatBytes(1024)).toBe('1 KB')
+  expect(formatBytes(1536)).toBe('1.5 KB')
+  expect(formatBytes(1024 ** 2)).toBe('1 MB')
 })

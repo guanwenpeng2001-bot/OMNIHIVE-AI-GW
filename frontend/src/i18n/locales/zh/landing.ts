@@ -192,6 +192,8 @@ export default {
 
   // Setup Wizard
   setup: {
+    connectionFailed: '连接失败',
+    installationFailed: '安装失败',
     bootstrapToken: '本机安装凭据',
     bootstrapTokenHint: '从服务器数据目录读取 setup-bootstrap-token；凭据每次请求后自动轮换，安装窗口为 30 分钟。',
     title: 'Sub2API 安装向导',

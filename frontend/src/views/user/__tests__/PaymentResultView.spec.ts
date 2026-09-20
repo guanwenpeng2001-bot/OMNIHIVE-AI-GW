@@ -169,6 +169,7 @@ describe('PaymentResultView', () => {
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-42', expect.any(AbortSignal))
     expect(pollOrderStatus).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
     expect(wrapper.text()).not.toContain('payment.result.success')
     expect(wrapper.text()).not.toContain('payment.result.failed')
   })
@@ -257,6 +258,7 @@ describe('PaymentResultView', () => {
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(1)
     expect(refreshUser).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).not.toBeNull()
 
     await vi.advanceTimersByTimeAsync(2000)
@@ -357,6 +359,7 @@ describe('PaymentResultView', () => {
     expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
   })
 
   it('ignores a stale global recovery snapshot when legacy return markers do not identify the order', async () => {

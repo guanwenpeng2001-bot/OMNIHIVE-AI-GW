@@ -79,7 +79,8 @@ import LoginView from '@/views/auth/LoginView.vue'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
 // Method 2: Named exports from index
-import { LoginView, RegisterView } from '@/views/auth'
+import LoginView from '@/views/auth/LoginView.vue'
+import RegisterView from '@/views/auth/RegisterView.vue'
 
 // Method 3: Lazy loading (recommended for routes)
 const LoginView = () => import('@/views/auth/LoginView.vue')

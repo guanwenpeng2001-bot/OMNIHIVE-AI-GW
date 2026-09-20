@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mount } from '@vue/test-utils'
+import { mount as mountComponent } from '@vue/test-utils'
+import { createI18n } from 'vue-i18n'
+import zh from '@/i18n/locales/zh'
+const mount: typeof mountComponent = (component, options) => mountComponent(component, { ...options, global: { ...options?.global, plugins: [createI18n({ legacy: false, locale: 'zh', messages: { zh: { common: { close: () => zh.common.close } } } })] } })
 import { nextTick } from 'vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 
@@ -89,7 +92,7 @@ describe('HelpTooltip', () => {
     expect(tooltip.style.display).not.toBe('none')
     expect(tooltip.textContent).toContain('click details')
 
-    const closeButton = tooltip.querySelector('button[aria-label="Close"]')
+    const closeButton = tooltip.querySelector(`button[aria-label="${zh.common.close}"]`)
     if (!(closeButton instanceof HTMLButtonElement)) {
       throw new Error('close button not found')
     }

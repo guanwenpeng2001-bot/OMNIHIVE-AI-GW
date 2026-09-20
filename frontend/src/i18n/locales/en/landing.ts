@@ -192,6 +192,8 @@ export default {
 
   // Setup Wizard
   setup: {
+    connectionFailed: 'Connection failed',
+    installationFailed: 'Installation failed',
     bootstrapToken: 'Local bootstrap token',
     bootstrapTokenHint: 'Read setup-bootstrap-token in the server data directory; this token rotates after each request and expires after 30 minutes.',
     title: 'Sub2API Setup',

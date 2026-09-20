@@ -410,6 +410,9 @@ export default {
         batchCompleted: 'Probed {count} account(s)',
         batchPartial: 'Probe partially completed: {success} succeeded, {failed} failed'
       },
+      privacyShort: 'Private',
+      privacyCfShort: 'CF blocked',
+      privacyFailedShort: 'Failed',
       allPrivacyModes: 'All Privacy States',
       privacyUnset: 'Unset',
       privacyTrainingOff: 'Training data sharing disabled',
