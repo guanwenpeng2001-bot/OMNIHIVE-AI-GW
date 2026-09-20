@@ -1485,6 +1485,12 @@ func (s *AuthService) RefreshToken(ctx context.Context, oldTokenString string) (
 	if err != nil && !errors.Is(err, ErrTokenExpired) {
 		return "", err
 	}
+	// Legacy unbound credentials cannot outlive their original expiry when
+	// binding is enabled, including through this legacy access-token refresh API.
+	if errors.Is(err, ErrTokenExpired) && claims.BindingHash == "" &&
+		s.settingService != nil && s.settingService.IsSessionBindingEnabled(ctx) {
+		return "", ErrTokenExpired
+	}
 
 	// 获取最新的用户信息
 	user, err := s.userRepo.GetByID(ctx, claims.UserID)

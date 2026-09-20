@@ -130,4 +130,11 @@ func TestLegacyUnboundTokenCannotRenewWithoutBinding(t *testing.T) {
 	claims, err := auth.ValidateToken(renewed)
 	require.NoError(t, err)
 	require.Equal(t, SessionBindingFromContext(ctx).Hash(), claims.BindingHash)
+	settings.enabled = false
+	cfg.JWT.ExpireHour = -1
+	expiredLegacy, err := auth.GenerateToken(context.Background(), user)
+	require.NoError(t, err)
+	settings.enabled = true
+	_, err = auth.RefreshToken(ctx, expiredLegacy)
+	require.ErrorIs(t, err, ErrTokenExpired)
 }
