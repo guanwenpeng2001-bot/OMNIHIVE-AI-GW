@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -189,15 +190,98 @@ func TestDingTalkSharedTokenLockWaitCancellation(t *testing.T) {
 	cache := miniredis.RunT(t)
 	redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr()})
 	defer redisClient.Close()
-	client := &DingTalkClient{redisClient: redisClient}
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"accessToken":"unexpected","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), redisClient: redisClient}
 	require.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "other-owner"))
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+	redisClient.AddHook(dingTalkProcessHook(func(ctx context.Context, cmd redis.Cmder, next redis.ProcessHook) error {
+		err := next(ctx, cmd)
+		if cmd.Name() == "set" {
+			cancel() // Cancel only after SET NX observes the other owner's lock.
+		}
+		return err
+	}))
 	_, err := client.GetAppToken(ctx)
-	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, calls.Load())
 	owner, err := cache.Get(client.appTokenCacheKey() + ":refresh")
 	require.NoError(t, err)
 	require.Equal(t, "other-owner", owner)
+}
+
+type dingTalkProcessHook func(context.Context, redis.Cmder, redis.ProcessHook) error
+
+func (h dingTalkProcessHook) DialHook(next redis.DialHook) redis.DialHook { return next }
+func (h dingTalkProcessHook) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+func (h dingTalkProcessHook) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error { return h(ctx, cmd, next) }
+}
+
+func TestDingTalkSharedTokenRedisCancellationDoesNotFetch(t *testing.T) {
+	for _, command := range []string{"get", "set"} {
+		for _, scenario := range []struct {
+			name         string
+			err          error
+			cancelParent bool
+		}{
+			{"canceled_error", context.Canceled, false},
+			{"deadline_error", context.DeadlineExceeded, false},
+			{"parent_canceled", context.Canceled, true},
+		} {
+			t.Run(command+"/"+scenario.name, func(t *testing.T) {
+				cache := miniredis.RunT(t)
+				redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr(), MaxRetries: -1})
+				defer redisClient.Close()
+				var calls atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					_, _ = w.Write([]byte(`{"accessToken":"unexpected","expireIn":7200}`))
+				}))
+				defer server.Close()
+				client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), redisClient: redisClient}
+				require.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "other-owner"))
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				injected := fmt.Errorf("redis operation: %w", scenario.err)
+				var intercepted bool
+				redisClient.AddHook(dingTalkProcessHook(func(ctx context.Context, cmd redis.Cmder, next redis.ProcessHook) error {
+					if cmd.Name() == command {
+						if command == "set" {
+							require.Contains(t, cmd.Args(), "nx")
+						}
+						intercepted = true
+						if scenario.cancelParent {
+							cancel()
+							return ctx.Err()
+						}
+						return injected
+					}
+					return next(ctx, cmd)
+				}))
+				// Error-only cases keep the caller live so HTTP cannot mask a fallback;
+				// parent_canceled reproduces cancellation inside the Redis operation.
+				token, err := client.GetAppToken(ctx)
+				require.True(t, intercepted)
+				assert.ErrorIs(t, err, scenario.err)
+				if !scenario.cancelParent {
+					assert.Same(t, injected, err)
+				}
+				assert.Empty(t, token)
+				assert.Zero(t, calls.Load(), "Redis cancellation must not reach upstream")
+				owner, err := cache.Get(client.appTokenCacheKey() + ":refresh")
+				require.NoError(t, err)
+				require.Equal(t, "other-owner", owner)
+			})
+		}
+	}
 }
 
 func TestDingTalkRedisFailureFallsBackWithoutLocalToken(t *testing.T) {

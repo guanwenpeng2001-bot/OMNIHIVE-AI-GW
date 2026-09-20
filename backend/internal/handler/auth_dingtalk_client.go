@@ -442,10 +442,16 @@ func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) 
 			return token, nil
 		}
 		if err != nil && !errors.Is(err, redis.Nil) {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return "", err
+			}
 			return fallback()
 		}
 		acquired, err := c.redisClient.SetNX(ctx, lockKey, owner, 30*time.Second).Result()
 		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return "", err
+			}
 			return fallback()
 		}
 		if acquired {
