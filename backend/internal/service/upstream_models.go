@@ -819,8 +819,8 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 // In-flight work is isolated by service and network egress. Waiters may cancel
 // independently; the shared request has its own finite budget.
 type modelsDevFlightKey struct {
-	service *AccountTestService
-	proxy   string
+	service     *AccountTestService
+	downloadKey string
 }
 type modelsDevFlight struct {
 	done     chan struct{}
@@ -843,21 +843,19 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
 		return nil, fmt.Errorf("registry_offline")
 	}
-	s.modelMetadataRegistryMu.Lock()
-	cached, at := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-	s.modelMetadataRegistryMu.Unlock()
+	download := s.modelsDevDownloadSnapshot(account)
+	downloadKey := download.downloadKey
+	cached, at := s.cachedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
 	}
-	key := modelsDevFlightKey{s, upstreamModelsProxyURL(account)}
+	key := modelsDevFlightKey{s, downloadKey}
 	modelsDevFlights.Lock()
 	flight, ok := modelsDevFlights.entries[key]
 	if !ok {
 		// A previous flight may have published between our first cache read and
 		// acquiring the flight mutex.
-		s.modelMetadataRegistryMu.Lock()
-		latest, loaded := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-		s.modelMetadataRegistryMu.Unlock()
+		latest, loaded := s.cachedModelsDevRegistry(downloadKey)
 		if len(latest) > 0 && time.Since(loaded) < modelsDevRegistryTTL {
 			modelsDevFlights.Unlock()
 			return latest, nil
@@ -867,9 +865,10 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 		go func() {
 			requestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsDevOnlineBudget)
 			defer cancel()
-			registry, err := s.downloadModelsDevRegistry(requestCtx, account)
+			registry, err := s.downloadModelsDevRegistry(requestCtx, download)
 			if err == nil {
 				s.modelMetadataRegistryMu.Lock()
+				s.modelMetadataRegistryKey = downloadKey
 				s.modelMetadataRegistry = registry
 				s.modelMetadataRegistryAt = time.Now()
 				s.modelMetadataRegistryMu.Unlock()
@@ -897,16 +896,17 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	}
 }
 
-func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
+func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, download modelsDevDownloadSnapshot) (map[string]modelsDevProvider, error) {
 	if s.httpUpstream == nil {
 		return nil, fmt.Errorf("registry_not_configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevRegistryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, download.sourceURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+	resp, err := s.httpUpstream.DoWithTLS(req, download.proxyURL, download.accountID, download.concurrency, download.profile)
 	if err != nil {
 		return nil, err
 	}

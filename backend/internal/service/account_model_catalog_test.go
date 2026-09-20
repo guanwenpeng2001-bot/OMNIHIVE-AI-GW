@@ -130,7 +130,7 @@ func TestAccountModelCatalogProductDiscoveryUsesAccountCredentials(t *testing.T)
 		catalogFixtureResponse(productPage),
 	}}
 	service := &AccountTestService{accountRepo: repository, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig(),
-		modelMetadataRegistry: map[string]modelsDevProvider{"alibaba": {}}, modelMetadataRegistryAt: time.Now()}
+		modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"alibaba": {}}, modelMetadataRegistryAt: time.Now()}
 	for _, wantModels := range [][]string{{"native-chat"}, {}, {"native-chat"}} {
 		catalog, err := service.ApplyAccountModelCatalog(context.Background(), account, nil)
 		require.NoError(t, err)

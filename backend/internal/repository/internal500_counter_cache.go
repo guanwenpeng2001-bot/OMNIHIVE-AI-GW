@@ -38,7 +38,7 @@ func NewInternal500CounterCache(rdb *redis.Client) service.Internal500CounterCac
 
 // IncrementInternal500Count 原子递增计数并返回当前值
 func (c *internal500CounterCache) IncrementInternal500Count(ctx context.Context, accountID int64) (int64, error) {
-	key := fmt.Sprintf("%s%d", internal500CounterPrefix, accountID)
+	key := internal500CounterPrefix + service.AccountRuntimeCacheSuffix(ctx, accountID)
 
 	result, err := internal500CounterIncrScript.Run(ctx, c.rdb, []string{key}, internal500CounterTTLSeconds).Int64()
 	if err != nil {
@@ -50,6 +50,6 @@ func (c *internal500CounterCache) IncrementInternal500Count(ctx context.Context,
 
 // ResetInternal500Count 清零计数器（成功响应时调用）
 func (c *internal500CounterCache) ResetInternal500Count(ctx context.Context, accountID int64) error {
-	key := fmt.Sprintf("%s%d", internal500CounterPrefix, accountID)
+	key := internal500CounterPrefix + service.AccountRuntimeCacheSuffix(ctx, accountID)
 	return c.rdb.Del(ctx, key).Err()
 }

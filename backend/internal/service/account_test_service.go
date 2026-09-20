@@ -154,6 +154,7 @@ type AccountTestService struct {
 	catalogApplyBudget         chan struct{}
 	modelMetadataRegistry      map[string]modelsDevProvider
 	modelMetadataRegistryAt    time.Time
+	modelMetadataRegistryKey   string
 	pluginManager              *PluginManager
 	openaiGatewayService       *OpenAIGatewayService
 	agentIdentityTaskMu        sync.Mutex

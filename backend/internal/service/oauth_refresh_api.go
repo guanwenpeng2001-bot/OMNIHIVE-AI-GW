@@ -115,6 +115,11 @@ func snapshotOAuthRefreshAccount(account *Account) *Account {
 	}
 	snapshot := *account
 	snapshot.Credentials = shallowCopyMap(account.Credentials)
+	snapshot.Extra = shallowCopyMap(account.Extra)
+	if account.Proxy != nil {
+		proxy := *account.Proxy
+		snapshot.Proxy = &proxy
+	}
 	if account.ProxyID != nil {
 		proxyID := *account.ProxyID
 		snapshot.ProxyID = &proxyID
@@ -362,12 +367,12 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			// while the provider call was in flight. Return the durable row so
 			// post-refresh cache publication cannot restore that stale snapshot.
 			freshAccount = durableAccount
-		} else if updateErr := persistAccountCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
+		} else if updateErr := persistRuntimeCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
 			slog.Error("oauth_refresh_update_failed",
 				"account_id", freshAccount.ID,
 				"error", updateErr,
 			)
-			return nil, fmt.Errorf("%w: %v", errOAuthRefreshCredentialPersist, updateErr)
+			return nil, fmt.Errorf("%w: %w", errOAuthRefreshCredentialPersist, updateErr)
 		}
 	}
 

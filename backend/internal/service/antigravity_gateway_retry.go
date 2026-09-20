@@ -180,12 +180,10 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			maxAttempts = antigravityModelCapacityRetryMaxAttempts
 			waitDuration = antigravityModelCapacityRetryWait
 
-			// 全局去重：如果其他 goroutine 已在重试同一模型且尚在 cooldown 中，直接返回 503
+			// Only reuse cooldown evidence for this group, credential identity and model.
 			if modelName != "" {
-				modelCapacityExhaustedMu.RLock()
-				cooldownUntil, exists := modelCapacityExhaustedUntil[modelName]
-				modelCapacityExhaustedMu.RUnlock()
-				if exists && time.Now().Before(cooldownUntil) {
+				cooldownUntil := s.runtimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName))
+				if time.Now().Before(cooldownUntil) {
 					log.Printf("%s status=%d model_capacity_exhausted_dedup model=%s account=%d cooldown_until=%v (skip retry)",
 						p.prefix, resp.StatusCode, modelName, p.account.ID, cooldownUntil.Format("15:04:05"))
 					return &smartRetryResult{
@@ -232,10 +230,8 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 				log.Printf("%s status=%d smart_retry_success attempt=%d/%d", p.prefix, retryResp.StatusCode, attempt, maxAttempts)
 				// 重试成功，清除 MODEL_CAPACITY_EXHAUSTED cooldown
-				if isModelCapacityExhausted && modelName != "" {
-					modelCapacityExhaustedMu.Lock()
-					delete(modelCapacityExhaustedUntil, modelName)
-					modelCapacityExhaustedMu.Unlock()
+				if isModelCapacityExhausted && modelName != "" && retryResp.StatusCode >= http.StatusOK && retryResp.StatusCode < http.StatusMultipleChoices {
+					s.setRuntimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName), time.Time{})
 				}
 				return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
 			}
@@ -280,9 +276,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		if isModelCapacityExhausted {
 			// 设置 cooldown，让后续请求快速失败，避免重复重试
 			if modelName != "" {
-				modelCapacityExhaustedMu.Lock()
-				modelCapacityExhaustedUntil[modelName] = time.Now().Add(antigravityModelCapacityCooldown)
-				modelCapacityExhaustedMu.Unlock()
+				s.setRuntimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName), time.Now().Add(antigravityModelCapacityCooldown))
 			}
 			log.Printf("%s status=%d smart_retry_exhausted_model_capacity attempts=%d model=%s account=%d body=%s (model capacity exhausted, not switching account)",
 				p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))
@@ -714,7 +708,7 @@ urlFallbackLoop:
 
 	// 成功响应时清零 INTERNAL 500 连续失败计数器（覆盖所有成功路径，含 smart retry）
 	if resp != nil && resp.StatusCode < 400 {
-		s.resetInternal500Counter(p.ctx, p.prefix, p.account.ID)
+		s.resetInternal500Counter(WithAccountRuntimeIdentity(p.ctx, p.account), p.prefix, p.account.ID)
 	}
 
 	return &antigravityRetryLoopResult{resp: resp}, nil
@@ -1063,8 +1057,8 @@ func shouldTriggerAntigravitySmartRetry(account *Account, respBody []byte) (shou
 		return false, false, 0, "", false
 	}
 
-	// MODEL_CAPACITY_EXHAUSTED（模型容量不足）：所有账号共享同一模型容量池
-	// 切换账号无意义，使用固定 1s 间隔重试
+	// MODEL_CAPACITY_EXHAUSTED uses fixed retry pacing. Cooldown evidence is
+	// isolated by group, credential identity and the reported actual model.
 	if info.IsModelCapacityExhausted {
 		return true, false, antigravityModelCapacityRetryWait, info.ModelName, true
 	}

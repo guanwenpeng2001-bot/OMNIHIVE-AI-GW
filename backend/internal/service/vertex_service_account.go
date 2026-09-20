@@ -142,7 +142,7 @@ func vertexServiceAccountCacheKey(account *Account, key *vertexServiceAccountKey
 	if fingerprint == "" && account != nil {
 		fingerprint = fmt.Sprintf("account:%d", account.ID)
 	}
-	return "vertex:service_account:" + fingerprint
+	return "vertex:service_account:" + fingerprint + ":" + AccountRuntimeIdentityKey(account)
 }
 
 // getVertexServiceAccountAccessToken obtains an access token for a Vertex service account,

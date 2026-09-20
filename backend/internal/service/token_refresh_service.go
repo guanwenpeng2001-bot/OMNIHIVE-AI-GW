@@ -913,7 +913,7 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 			attemptTimedOut := (errors.Is(attemptCtx.Err(), context.DeadlineExceeded) || (hasAttemptDeadline && !time.Now().Before(attemptDeadline))) && ctx.Err() == nil
 			if err == nil && newCredentials != nil && !attemptTimedOut {
 				newCredentials["_token_version"] = time.Now().UnixMilli()
-				if saveErr := persistAccountCredentials(attemptCtx, s.accountRepo, account, newCredentials); saveErr != nil {
+				if saveErr := persistRuntimeCredentials(attemptCtx, s.accountRepo, account, newCredentials); saveErr != nil {
 					err = fmt.Errorf("failed to save credentials: %w", saveErr)
 				} else {
 					credentialsPersisted = true
@@ -963,6 +963,12 @@ func (s *TokenRefreshService) refreshWithRetryWithRateGate(
 				s.postRefreshStateSyncWithCleanup(ctx, account)
 			}
 			return ctxErr
+		}
+		if errors.Is(err, ErrAccountRuntimeIdentityChanged) {
+			return errRefreshSkipped
+		}
+		if errors.Is(err, ErrAccountRuntimeWriterUnavailable) {
+			return &providerConfigurationRefreshError{err: err}
 		}
 		// Cursor failure state is already conditionally persisted by the unified API.
 		if account.IsCursor() {
@@ -1479,7 +1485,7 @@ func (s *TokenRefreshService) ensureOpenAIPrivacy(ctx context.Context, account *
 		return
 	}
 
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{"privacy_mode": mode}, nil); err != nil {
 		slog.Warn("token_refresh.update_privacy_mode_failed",
 			"account_id", account.ID,
 			"error", err,
@@ -1524,7 +1530,7 @@ func (s *TokenRefreshService) ensureAntigravityPrivacy(ctx context.Context, acco
 		return
 	}
 
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"privacy_mode": mode}); err != nil {
+	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{"privacy_mode": mode}, nil); err != nil {
 		slog.Warn("token_refresh.update_antigravity_privacy_mode_failed",
 			"account_id", account.ID,
 			"error", err,

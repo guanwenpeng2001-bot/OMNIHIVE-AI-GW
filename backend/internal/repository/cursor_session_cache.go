@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
@@ -50,7 +51,9 @@ func (cache *cursorSessionCache) Lock(ctx context.Context, key string) (func(), 
 	release := func() {
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
-		cache.client.Eval(cleanupCtx, `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`, []string{lockKey}, owner)
+		if err := cache.client.Eval(cleanupCtx, `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`, []string{lockKey}, owner).Err(); err != nil {
+			slog.Warn("cursor_refresh_lock_release_failed", "error", err)
+		}
 	}
 	return release, acquired, err
 }

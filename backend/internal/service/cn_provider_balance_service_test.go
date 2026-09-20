@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/stretchr/testify/require"
@@ -127,4 +128,11 @@ func TestCNProviderBalanceService_DeepSeekValidZeroBalanceRemainsSuccessful(t *t
 	require.Zero(t, result.Balance)
 	require.Len(t, result.Balances, 1)
 	require.Len(t, repo.extraWrites, 1, "a valid upstream zero balance must still be persisted")
+}
+
+func (r *cnBalanceProbeRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, end *time.Time) error {
+	if AccountRuntimeIdentityKey(expected) != AccountRuntimeIdentityKey(r.account) {
+		return ErrAccountRuntimeIdentityChanged
+	}
+	return r.UpdateExtra(ctx, expected.ID, updates)
 }
