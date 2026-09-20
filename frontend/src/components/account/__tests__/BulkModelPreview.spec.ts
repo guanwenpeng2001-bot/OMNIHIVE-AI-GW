@@ -12,6 +12,20 @@ const mountPreview = (props = {}) => mount(BulkModelPreview, {
 beforeEach(() => { syncUpstreamModels.mockReset() })
 
 describe('per-account batch model previews', () => {
+  it('previews all five repaired providers and preserves each five-field result', async () => {
+    const platforms = ['volcengine', 'qianfan', 'hunyuan', 'mistral', 'bedrock']
+    const results = platforms.map(platform => ({ discovered_models: [`${platform}-native`], candidate_models: ['shared', `${platform}-candidate`], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' }))
+    results.forEach(result => syncUpstreamModels.mockResolvedValueOnce(result))
+    const wrapper = mountPreview({ accountIds: [101, 102, 103, 104, 105] })
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModels.mock.calls).toEqual([101, 102, 103, 104, 105].map(accountId => [accountId, false]))
+    expect(wrapper.findAllComponents({ name: 'ModelCatalogDetails' }).map(details => details.props('result'))).toEqual(results)
+    await wrapper.get('[data-testid="add-common-models"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['existing', 'shared']])
+    wrapper.unmount()
+  })
+
   it('preserves previous evidence on failed retry without allowing an intersection', async () => {
     syncUpstreamModels.mockResolvedValue({ discovery_complete: true, complete: true, candidate_models: ['historical-model'], models: ['historical-model'] })
     const wrapper = mountPreview()

@@ -686,7 +686,14 @@ func TestAccountModelCatalogQianwenCatalogDoesNotPersistIncompletePages(t *testi
 	}}
 	w := httptest.NewRecorder()
 	setupSyncUpstreamModelsRouter(svc, upstream).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/19/models/sync-upstream", nil))
-	require.Equal(t, 502, w.Code, w.Body.String())
+	require.Equal(t, 200, w.Code, w.Body.String())
+	require.Equal(t, `["first"]`, gjson.Get(w.Body.String(), "data.discovered_models").Raw)
+	require.Equal(t, `["first"]`, gjson.Get(w.Body.String(), "data.candidate_models").Raw)
+	require.Equal(t, `[]`, gjson.Get(w.Body.String(), "data.eligible_models").Raw)
+	require.False(t, gjson.Get(w.Body.String(), "data.discovery_complete").Bool())
+	require.Equal(t, "incomplete", gjson.Get(w.Body.String(), "data.capability_status").String())
+	require.False(t, gjson.Get(w.Body.String(), "data.review").Exists())
+	require.Zero(t, svc.commitCalls)
 	require.Zero(t, svc.updateAccountCalls)
 	require.NotContains(t, w.Body.String(), "private upstream body")
 }

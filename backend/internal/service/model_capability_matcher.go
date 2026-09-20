@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/url"
+	"regexp"
 	"strings"
 )
 
@@ -34,8 +35,34 @@ func resolveCapabilityProfile(account *Account) string {
 	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
 		return "openai-codex"
 	}
+	if account.Type == AccountTypeBedrock || account.Platform == PlatformBedrock {
+		return "bedrock"
+	}
 	baseURL := upstreamModelRegistryBaseURL(account)
-	switch modelRegistryHostname(baseURL) {
+	host := modelRegistryHostname(baseURL)
+	// Regional hosting domains must be matched on DNS-label boundaries.
+	if strings.HasSuffix(host, ".aiplatform.googleapis.com") || strings.HasSuffix(host, "-aiplatform.googleapis.com") || host == "aiplatform.googleapis.com" {
+		if account.Type == AccountTypeServiceAccount {
+			return "vertex_ai"
+		}
+	}
+	if bedrockAPIHostname.MatchString(host) {
+		return "bedrock"
+	}
+	if strings.HasPrefix(host, "ark.") && strings.HasSuffix(host, ".volces.com") {
+		return "volcengine"
+	}
+	switch host {
+	case "open.bigmodel.cn":
+		return "zhipu"
+	case "api.minimax.io", "api.minimaxi.com", "api.minimax.chat":
+		return "minimax"
+	case "qianfan.baidubce.com", "aip.baidubce.com":
+		return "qianfan"
+	case "api.hunyuan.cloud.tencent.com", "hunyuan.tencentcloudapi.com", "hunyuan.ai.tencentcloudapi.com":
+		return "hunyuan"
+	case "api.mistral.ai":
+		return "mistral"
 	case "api.openai.com":
 		return "openai"
 	case "api.anthropic.com":
@@ -71,6 +98,10 @@ func resolveCapabilityProfile(account *Account) string {
 	}
 	return "custom:" + normalizeModelRegistryBaseURL(baseURL)
 }
+
+// Match service.region.partition exactly: AWS tenant resources (S3, EC2,
+// API Gateway) share the partition suffix but are not Bedrock endpoints.
+var bedrockAPIHostname = regexp.MustCompile(`^bedrock(?:-runtime|-mantle)?(?:-fips)?\.(?:(?:us|eu|ap|sa|ca|me|af|il|mx)(?:-gov)?-[a-z]+-[0-9]+\.(?:amazonaws\.com|api\.aws)|cn-[a-z]+-[0-9]+\.amazonaws\.com\.cn)$`)
 
 func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelID string) CapabilityMatch {
 	result := CapabilityMatch{Status: "not_found"}

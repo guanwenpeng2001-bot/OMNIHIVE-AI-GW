@@ -178,25 +178,5 @@ func mistralChatUsageKnown(body []byte) bool {
 }
 
 func (service *AccountTestService) fetchMistralModels(request *http.Request, account *Account) ([]string, []byte, error) {
-	response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
-	if err != nil {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Mistral discovery request failed", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	body, err := readUpstreamResponseBodyLimited(response.Body, resolveModelsListReadLimit(service.cfg))
-	if err != nil {
-		return nil, nil, err
-	}
-	cards, err := parseMistralModelsResponse(response.StatusCode, body)
-	if err != nil {
-		return nil, nil, err
-	}
-	if gjson.GetBytes(body, "has_more").Bool() || gjson.GetBytes(body, "next").String() != "" || gjson.GetBytes(body, "next_cursor").String() != "" {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Mistral pagination is unverified", nil)
-	}
-	models := make([]string, 0, len(cards))
-	for _, card := range cards {
-		models = append(models, card.ID)
-	}
-	return models, body, nil
+	return service.fetchCompleteModelPages(request, account)
 }

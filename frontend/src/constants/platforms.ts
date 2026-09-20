@@ -51,6 +51,11 @@ export function platformSupportsPricingSync(platform: string): boolean {
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
 export type GroupPlatform = typeof GROUP_PLATFORM_OPTIONS[number]['value']
 
+/** Every concrete descriptor supports catalog previews; the Go contract test checks this projection. */
+export function platformSupportsModelCatalog(platform: string): boolean {
+  return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform.toLowerCase())
+}
+
 /** Shared display labels; callers with an active locale pass their translator. */
 export function getPlatformLabel(platform: string, translate?: (key: string) => string): string {
   const option = GROUP_PLATFORM_OPTIONS.find(option => option.value === platform)
