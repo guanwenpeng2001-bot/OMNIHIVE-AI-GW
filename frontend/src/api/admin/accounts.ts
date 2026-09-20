@@ -8,17 +8,11 @@ import type { ModelCategoryMetadata } from '@/utils/modelCategories'
 import { apiClient } from '../client'
 import type {
   Account,
-  AccountModelCatalog,
-  AccountModelCatalogDetails,
-  UpdateModelAllowlistRequest,
-  UpdateModelAllowlistResponse,
   AccountListItem,
   CreateAccountRequest,
   UpdateAccountRequest,
-  PaginatedResponse,
   AccountUsageInfo,
   WindowStats,
-  ClaudeModel,
   AccountUsageStatsResponse,
   TempUnschedulableStatus,
   AdminDataPayload,
@@ -34,8 +28,31 @@ import type {
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
-} from '@/types'
+  GrokMediaEligibilityState,
+} from '@/types/admin'
+import type {
+  AccountModelCatalog,
+  AccountModelCatalogDetails,
+  UpdateModelAllowlistRequest,
+  UpdateModelAllowlistResponse,
+  AvailableAccountModel,
+} from '@/types/model'
+import type { PaginatedResponse } from '@/types/common'
+
+/** Wire filters shared by list, conditional list and billing snapshots. */
+export interface AccountListFilters {
+  // Query accepts historical/platform search values as well as current account platforms.
+  platform?: string
+  type?: import('@/types/admin').AccountType | ''
+  status?: import('@/types/admin').AccountStatus | 'rate_limited' | 'temp_unschedulable' | 'unschedulable' | ''
+  group?: string
+  search?: string
+  privacy_mode?: string
+  lite?: '0' | '1' | 'true' | 'false'
+  include_scheduler_score?: '0' | '1' | 'true' | 'false'
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}
 
 /**
  * List all accounts with pagination
@@ -47,18 +64,7 @@ import type {
 export async function list(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    lite?: string
-    include_scheduler_score?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
   }
@@ -89,16 +95,7 @@ export interface AccountUpstreamBillingRatesWithEtagResult {
 export async function getUpstreamBillingRatesWithEtag(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
     etag?: string | null
@@ -122,18 +119,7 @@ export async function getUpstreamBillingRatesWithEtag(
 export async function listWithEtag(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    lite?: string
-    include_scheduler_score?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
     etag?: string | null
@@ -291,24 +277,6 @@ export async function deleteAccount(id: number): Promise<{ message: string }> {
  */
 export async function toggleStatus(id: number, status: 'active' | 'inactive'): Promise<Account> {
   return update(id, { status })
-}
-
-/**
- * Test account connectivity
- * @param id - Account ID
- * @returns Test result
- */
-export async function testAccount(id: number): Promise<{
-  success: boolean
-  message: string
-  latency_ms?: number
-}> {
-  const { data } = await apiClient.post<{
-    success: boolean
-    message: string
-    latency_ms?: number
-  }>(`/admin/accounts/${id}/test`)
-  return data
 }
 
 /**
@@ -491,16 +459,18 @@ export async function exchangeCode(
  * @param accounts - Array of account data
  * @returns Results of batch creation
  */
-export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
+export type BatchCreateAccountResult =
+  | { name: string; success: true; id: number }
+  | { name: string; success: false; error: string }
+
+export interface BatchCreateAccountsResponse {
   success: number
   failed: number
-  results: Array<{ success: boolean; account?: Account; error?: string }>
-}> {
-  return postIdempotentCreate<{
-    success: number
-    failed: number
-    results: Array<{ success: boolean; account?: Account; error?: string }>
-  }>('/admin/accounts/batch', { accounts })
+  results: BatchCreateAccountResult[]
+}
+
+export async function batchCreate(accounts: CreateAccountRequest[]): Promise<BatchCreateAccountsResponse> {
+  return postIdempotentCreate<BatchCreateAccountsResponse>('/admin/accounts/batch', { accounts })
 }
 
 /**
@@ -511,7 +481,7 @@ export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
 export async function batchUpdateCredentials(request: {
   account_ids: number[]
   field: string
-  value: any
+  value: unknown
 }): Promise<{
   success: number
   failed: number
@@ -603,8 +573,8 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
  * @param id - Account ID
  * @returns List of available models for this account
  */
-export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
-  const { data } = await apiClient.get<ClaudeModel[]>(`/admin/accounts/${id}/models`)
+export async function getAvailableModels(id: number): Promise<AvailableAccountModel[]> {
+  const { data } = await apiClient.get<AvailableAccountModel[]>(`/admin/accounts/${id}/models`)
   return data
 }
 
@@ -1154,7 +1124,6 @@ export const accountsAPI = {
   checkMixedChannelRisk,
   delete: deleteAccount,
   toggleStatus,
-  testAccount,
   refreshCredentials,
   applyOAuthCredentials,
   getStats,

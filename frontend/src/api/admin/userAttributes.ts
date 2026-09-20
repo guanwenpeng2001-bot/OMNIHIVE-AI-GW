@@ -9,8 +9,8 @@ import type {
   UserAttributeValue,
   CreateUserAttributeRequest,
   UpdateUserAttributeRequest,
-  UserAttributeValuesMap
-} from '@/types'
+  UserAttributeValuesMap,
+} from '@/types/admin'
 
 /**
  * Get all attribute definitions

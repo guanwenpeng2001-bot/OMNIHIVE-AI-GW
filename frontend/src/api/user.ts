@@ -12,12 +12,12 @@ import {
 import type {
   User,
   ChangePasswordRequest,
-  NotifyEmailEntry,
   UserAuthProvider,
   UserAffiliateDetail,
   AffiliateTransferResponse,
-  PlatformQuotasResponse,
-} from '@/types'
+} from '@/types/user'
+import type { NotifyEmailEntry } from '@/types/common'
+import type { PlatformQuotasResponse } from '@/types'
 
 /**
  * Get current user profile

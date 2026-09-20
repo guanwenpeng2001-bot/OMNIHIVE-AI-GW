@@ -5,7 +5,7 @@
  */
 
 import { apiClient } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse } from '@/types/common'
 
 export interface AffiliateAdminEntry {
   user_id: number

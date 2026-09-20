@@ -5,7 +5,9 @@ import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
  */
 
 import { apiClient } from '../client'
-import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
+import type { AdminUser, UpdateUserRequest } from '@/types/admin'
+import type { PaginatedResponse } from '@/types/common'
+import type { ApiKey } from '@/types/user'
 
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
@@ -83,7 +85,7 @@ export async function list(
   }
 ): Promise<PaginatedResponse<AdminUser>> {
   // Build params with attribute filters in attr[id]=value format
-  const params: Record<string, any> = {
+  const params: Record<string, unknown> = {
     page,
     page_size: pageSize,
     status: filters?.status,
@@ -289,7 +291,7 @@ export async function getUserBalanceHistory(
   pageSize: number = 20,
   type?: string
 ): Promise<BalanceHistoryResponse> {
-  const params: Record<string, any> = { page, page_size: pageSize }
+  const params: Record<string, unknown> = { page, page_size: pageSize }
   if (type) params.type = type
   const { data } = await apiClient.get<BalanceHistoryResponse>(
     `/admin/users/${id}/balance-history`,

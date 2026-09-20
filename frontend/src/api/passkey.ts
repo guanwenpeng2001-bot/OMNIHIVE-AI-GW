@@ -1,5 +1,5 @@
 import { apiClient } from './client'
-import type { ActionCaptchaRequestProof, AuthResponse } from '@/types'
+import type { ActionCaptchaRequestProof, AuthResponse } from '@/types/user'
 
 export interface PasskeyCredentialSummary {
   id: number

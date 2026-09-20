@@ -417,6 +417,7 @@
 </template>
 
 <script setup lang="ts">
+import type { KeyUsageResponse } from '@/types/user'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
@@ -458,8 +459,7 @@ const isQuerying = ref(false)
 const showResults = ref(false)
 const showLoading = ref(false)
 const showDatePicker = ref(false)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const resultData = ref<any>(null)
+const resultData = ref<KeyUsageResponse | null>(null)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 
@@ -737,21 +737,21 @@ const detailRows = computed<DetailRow[]>(() => {
 
     if (data.subscription) {
       const sub = data.subscription
-      if (sub.daily_limit_usd > 0) {
+      if (sub.daily_limit_usd != null && sub.daily_limit_usd > 0) {
         const pct = (sub.daily_usage_usd / sub.daily_limit_usd) * 100
         rows.push({
           iconBg: 'bg-primary-500/10', iconColor: 'text-primary-500', iconSvg: ICON_DOLLAR,
           label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '日' : 'D'})`, value: `${usd(sub.daily_usage_usd)} / ${usd(sub.daily_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
-      if (sub.weekly_limit_usd > 0) {
+      if (sub.weekly_limit_usd != null && sub.weekly_limit_usd > 0) {
         const pct = (sub.weekly_usage_usd / sub.weekly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-500', iconSvg: ICON_DOLLAR,
           label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '周' : 'W'})`, value: `${usd(sub.weekly_usage_usd)} / ${usd(sub.weekly_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
-      if (sub.monthly_limit_usd > 0) {
+      if (sub.monthly_limit_usd != null && sub.monthly_limit_usd > 0) {
         const pct = (sub.monthly_usage_usd / sub.monthly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_DOLLAR,
@@ -787,8 +787,8 @@ const usageStatCells = computed<StatCell[]>(() => {
   const usage = resultData.value?.usage
   if (!usage) return []
 
-  const today = usage.today || {}
-  const total = usage.total || {}
+  const today = usage.today
+  const total = usage.total
 
   return [
     { label: t('keyUsage.todayRequests'), value: fmtNum(today.requests) },
@@ -810,8 +810,7 @@ const usageStatCells = computed<StatCell[]>(() => {
   ]
 })
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const modelStats = computed<any[]>(() => resultData.value?.model_stats || [])
+const modelStats = computed(() => resultData.value?.model_stats || [])
 
 interface DailyUsageRow {
   date: string
@@ -860,7 +859,7 @@ function getBrowserTimezone(): string {
 
 // ==================== API Query ====================
 
-async function fetchUsage(key: string) {
+async function fetchUsage(key: string): Promise<KeyUsageResponse> {
   const dateParams = getDateParams()
   const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
   const res = await fetch(url, {

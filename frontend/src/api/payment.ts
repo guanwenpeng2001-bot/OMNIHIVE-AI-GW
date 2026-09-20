@@ -13,7 +13,7 @@ import type {
   CreateOrderResult,
   PaymentOrder
 } from '@/types/payment'
-import type { BasePaginationResponse } from '@/types'
+import type { BasePaginationResponse } from '@/types/common'
 
 export interface PublicOrderVerifyResult {
   resume_token?: string

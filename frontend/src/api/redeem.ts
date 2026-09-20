@@ -4,7 +4,8 @@
  */
 
 import { apiClient } from './client'
-import type { PaginatedResponse, RedeemCodeRequest } from '@/types'
+import type { PaginatedResponse } from '@/types/common'
+import type { RedeemCodeRequest } from '@/types/user'
 
 export interface RedeemHistoryItem {
   id: number

@@ -9,15 +9,15 @@ import type {
   UsageLog,
   UsageQueryParams,
   UsageStatsResponse,
-  PaginatedResponse,
   TrendDataPoint,
   ModelStat,
   GroupStat,
   UsageRequestType,
   UserErrorRequest,
   UserErrorRequestDetail,
-  UserErrorListParams
-} from '@/types'
+  UserErrorListParams,
+} from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 // ==================== Dashboard Types ====================
 

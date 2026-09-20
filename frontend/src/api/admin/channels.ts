@@ -3,6 +3,7 @@
  * Handles channel management for administrators
  */
 
+import type { PaginatedResponse } from '@/types/common'
 import { apiClient } from '../client'
 import type { BillingMode, ChannelStatus, BillingModelSource } from '@/constants/channel'
 
@@ -137,7 +138,7 @@ export interface CreateChannelRequest {
   group_ids?: number[]
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
-  billing_model_source?: string
+  billing_model_source?: BillingModelSource
   restrict_models?: boolean
   features_config?: Record<string, unknown>
   apply_pricing_to_account_stats?: boolean
@@ -147,20 +148,15 @@ export interface CreateChannelRequest {
 export interface UpdateChannelRequest {
   name?: string
   description?: string
-  status?: string
+  status?: ChannelStatus
   group_ids?: number[]
   model_pricing?: ChannelModelPricing[]
   model_mapping?: Record<string, Record<string, string>>
-  billing_model_source?: string
+  billing_model_source?: BillingModelSource
   restrict_models?: boolean
   features_config?: Record<string, unknown>
   apply_pricing_to_account_stats?: boolean
   account_stats_pricing_rules?: AccountStatsPricingRule[]
-}
-
-interface PaginatedResponse<T> {
-  items: T[]
-  total: number
 }
 
 /**
@@ -170,7 +166,7 @@ export async function list(
   page: number = 1,
   pageSize: number = 20,
   filters?: {
-    status?: string
+    status?: ChannelStatus
     search?: string
     sort_by?: string
     sort_order?: 'asc' | 'desc'

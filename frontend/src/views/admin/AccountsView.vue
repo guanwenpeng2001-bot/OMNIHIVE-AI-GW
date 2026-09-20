@@ -493,6 +493,7 @@
 </template>
 
 <script setup lang="ts">
+import type { AccountListFilters } from '@/api/admin/accounts'
 import { ref, reactive, computed, onMounted, onUnmounted, toRaw, watch, defineAsyncComponent, defineComponent, h, type Component } from 'vue'
 import { useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
@@ -1111,7 +1112,7 @@ const {
   debouncedReload: baseDebouncedReload,
   handlePageChange: baseHandlePageChange,
   handlePageSizeChange: baseHandlePageSizeChange
-} = useTableLoader<AccountListItem, any>({
+} = useTableLoader<AccountListItem, Required<AccountListFilters>>({
   fetchFn: adminAPI.accounts.list,
   initialParams: {
     platform: '',
@@ -1209,19 +1210,16 @@ const reload = async () => {
   await refreshTodayStatsBatch()
 }
 
-const buildUpstreamBillingRateFilters = () => {
-  const rawParams = toRaw(params) as Record<string, unknown>
-  return {
-    platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
-    type: typeof rawParams.type === 'string' ? rawParams.type : '',
-    status: typeof rawParams.status === 'string' ? rawParams.status : '',
-    group: typeof rawParams.group === 'string' ? rawParams.group : '',
-    search: typeof rawParams.search === 'string' ? rawParams.search : '',
-    privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
-    sort_by: sortState.sort_by,
-    sort_order: sortState.sort_order
-  }
-}
+const buildUpstreamBillingRateFilters = (): AccountListFilters => ({
+  platform: params.platform,
+  type: params.type,
+  status: params.status,
+  group: params.group,
+  search: params.search,
+  privacy_mode: params.privacy_mode,
+  sort_by: sortState.sort_by,
+  sort_order: sortState.sort_order
+})
 
 const sameAccountIDOrder = (left: number[], right: number[]) =>
   left.length === right.length && left.every((id, index) => id === right[index])
@@ -1481,17 +1479,7 @@ const refreshAccountsIncrementally = async () => {
     const result = await adminAPI.accounts.listWithEtag(
       pagination.page,
       pagination.page_size,
-      toRaw(params) as {
-        platform?: string
-        type?: string
-        status?: string
-        privacy_mode?: string
-        group?: string
-        search?: string
-        sort_by?: string
-        sort_order?: AccountSortOrder
-
-      },
+      toRaw(params),
       { etag: autoRefreshETag.value }
     )
 
@@ -2083,20 +2071,16 @@ const handleBulkToggleSchedulable = async (schedulable: boolean) => {
     appStore.showError(t('common.error'))
   }
 }
-const buildBulkEditFilterSnapshot = () => {
-  const rawParams = toRaw(params) as Record<string, unknown>
-  const sortOrder: AccountSortOrder = rawParams.sort_order === 'desc' ? 'desc' : 'asc'
-  return {
-    platform: typeof rawParams.platform === 'string' ? rawParams.platform : '',
-    type: typeof rawParams.type === 'string' ? rawParams.type : '',
-    status: typeof rawParams.status === 'string' ? rawParams.status : '',
-    group: typeof rawParams.group === 'string' ? rawParams.group : '',
-    search: typeof rawParams.search === 'string' ? rawParams.search : '',
-    privacy_mode: typeof rawParams.privacy_mode === 'string' ? rawParams.privacy_mode : '',
-    sort_by: typeof rawParams.sort_by === 'string' ? rawParams.sort_by : '',
-    sort_order: sortOrder
-  }
-}
+const buildBulkEditFilterSnapshot = () => ({
+  platform: params.platform,
+  type: params.type,
+  status: params.status,
+  group: params.group,
+  search: params.search,
+  privacy_mode: params.privacy_mode,
+  sort_by: params.sort_by,
+  sort_order: params.sort_order
+})
 
 const handleSelectAllResults = async () => {
   if (selectingAllResults.value || pagination.total === 0) return

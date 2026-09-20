@@ -6,10 +6,10 @@ import { apiClient } from '../client'
 import type {
   Announcement,
   AnnouncementUserReadStatus,
-  BasePaginationResponse,
   CreateAnnouncementRequest,
-  UpdateAnnouncementRequest
-} from '@/types'
+  UpdateAnnouncementRequest,
+} from '@/types/admin'
+import type { BasePaginationResponse } from '@/types/common'
 
 export async function list(
   page: number = 1,

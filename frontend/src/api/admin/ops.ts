@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse } from '@/types/common'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -340,7 +340,7 @@ export interface OpsUserConcurrencyStatsResponse {
 }
 
 export async function getConcurrencyStats(platform?: string, groupId?: number | null): Promise<OpsConcurrencyStatsResponse> {
-  const params: Record<string, any> = {}
+  const params: Record<string, unknown> = {}
   if (platform) {
     params.platform = platform
   }
@@ -402,7 +402,7 @@ export interface OpsAccountAvailabilityStatsResponse {
 }
 
 export async function getAccountAvailabilityStats(platform?: string, groupId?: number | null): Promise<OpsAccountAvailabilityStatsResponse> {
-  const params: Record<string, any> = {}
+  const params: Record<string, unknown> = {}
   if (platform) {
     params.platform = platform
   }
@@ -440,7 +440,7 @@ export async function getRealtimeTrafficSummary(
   platform?: string,
   groupId?: number | null
 ): Promise<OpsRealtimeTrafficSummaryResponse> {
-  const params: Record<string, any> = { window }
+  const params: Record<string, unknown> = { window }
   if (platform) {
     params.platform = platform
   }
@@ -505,7 +505,7 @@ export const OPS_WS_CLOSE_CODES = {
 
 const OPS_WS_BASE_PROTOCOL = 'sub2api-admin'
 
-export function subscribeQPS(onMessage: (data: any) => void, options: SubscribeQPSOptions = {}): () => void {
+export function subscribeQPS(onMessage: (data: unknown) => void, options: SubscribeQPSOptions = {}): () => void {
   let ws: WebSocket | null = null
   let reconnectAttempts = 0
   const maxReconnectAttempts = Number.isFinite(options.maxReconnectAttempts as number)
@@ -707,7 +707,7 @@ export interface AlertRule {
   severity: OpsSeverity
   cooldown_minutes: number
   notify_email: boolean
-  filters?: Record<string, any>
+  filters?: Record<string, unknown>
   created_at?: string
   updated_at?: string
   last_triggered_at?: string | null
@@ -722,7 +722,7 @@ export interface AlertEvent {
   description?: string
   metric_value?: number
   threshold_value?: number
-  dimensions?: Record<string, any>
+  dimensions?: Record<string, unknown>
   fired_at: string
   resolved_at?: string | null
   email_sent: boolean
@@ -844,7 +844,7 @@ export interface OpsSystemLog {
   account_id?: number | null
   platform?: string
   model?: string
-  extra?: Record<string, any>
+  extra?: Record<string, unknown>
 }
 
 export type OpsSystemLogListResponse = PaginatedResponse<OpsSystemLog>
@@ -1166,7 +1166,7 @@ export async function listRequestErrorUpstreamErrors(
   params: OpsErrorListQueryParams = {},
   options: { include_detail?: boolean } = {}
 ): Promise<PaginatedResponse<OpsErrorDetail>> {
-  const query: Record<string, any> = { ...params }
+  const query: Record<string, unknown> = { ...params }
   if (options.include_detail) query.include_detail = '1'
   const { data } = await apiClient.get<PaginatedResponse<OpsErrorDetail>>(`/admin/ops/request-errors/${id}/upstream-errors`, { params: query })
   return data
