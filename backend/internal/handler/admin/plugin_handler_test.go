@@ -17,11 +17,29 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+// pluginUIEncryptor issues opaque handles and rejects any unissued ciphertext.
+type pluginUIEncryptor struct {
+	plaintext map[string]string
+}
+
+func (e *pluginUIEncryptor) Encrypt(plaintext string) (string, error) {
+	token := fmt.Sprintf("test-ciphertext-%d", len(e.plaintext))
+	e.plaintext[token] = plaintext
+	return token, nil
+}
+
+func (e *pluginUIEncryptor) Decrypt(ciphertext string) (string, error) {
+	plaintext, ok := e.plaintext[ciphertext]
+	if !ok {
+		return "", fmt.Errorf("invalid ciphertext")
+	}
+	return plaintext, nil
+}
 
 type pluginUIRepository struct {
 	service.PluginRepository
@@ -39,10 +57,8 @@ func (repo *pluginUIRepository) GetByID(_ context.Context, id int64) (*service.P
 
 func TestPluginUIBoundary(testingT *testing.T) {
 	cfg := &config.Config{}
-	cfg.Totp.EncryptionKey = strings.Repeat("ab", 32)
 	cfg.Plugins.DataDir = testingT.TempDir()
-	encryptor, err := repository.NewAESEncryptor(cfg)
-	require.NoError(testingT, err)
+	encryptor := &pluginUIEncryptor{plaintext: make(map[string]string)}
 	repo := &pluginUIRepository{installations: make(map[int64]*service.PluginInstallation)}
 	for _, id := range []int64{42, 73} {
 		installation := &service.PluginInstallation{ID: id, InstallPath: filepath.Join(cfg.Plugins.DataDir, fmt.Sprint(id))}

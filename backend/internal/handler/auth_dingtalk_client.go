@@ -18,7 +18,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
-	"github.com/redis/go-redis/v9"
 )
 
 // dingTalkClientConfig 是 DingTalkClient 需要的最小配置子集
@@ -29,13 +28,22 @@ type dingTalkClientConfig struct {
 	UserInfoURL  string
 }
 
+// DingTalkTokenCache provides shared token storage and ownership-checked refreshes.
+// Get returns an empty token and no error for a cache miss.
+type DingTalkTokenCache interface {
+	Get(ctx context.Context, key string) (string, error)
+	AcquireRefresh(ctx context.Context, key, owner string, ttl time.Duration) (bool, error)
+	ReleaseRefresh(ctx context.Context, key, owner string) error
+	Publish(ctx context.Context, lockKey, key, owner, token string, ttl time.Duration) (bool, error)
+}
+
 type DingTalkClient struct {
 	cfg         dingTalkClientConfig
 	appToken    string
 	appTokenExp time.Time // 钉钉 7200s，留 200s 余量 → 7000s
 	mu          sync.Mutex
 	httpClient  *http.Client
-	redisClient *redis.Client
+	tokenCache  DingTalkTokenCache
 }
 
 type DingTalkUserTokenResp struct {
@@ -162,7 +170,7 @@ func (c *DingTalkClient) dingTalkOAPIBase() string {
 func (c *DingTalkClient) GetAppToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	if c.redisClient != nil {
+	if c.tokenCache != nil {
 		return c.getSharedAppToken(ctx)
 	}
 	if c.appToken != "" && time.Now().Before(c.appTokenExp) {
@@ -437,17 +445,17 @@ func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) 
 	owner := uuid.NewString()
 	fallback := func() (string, error) { token, _, err := c.fetchAppToken(ctx); return token, err }
 	for {
-		token, err := c.redisClient.Get(ctx, key).Result()
+		token, err := c.tokenCache.Get(ctx, key)
 		if err == nil && token != "" {
 			return token, nil
 		}
-		if err != nil && !errors.Is(err, redis.Nil) {
+		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return "", err
 			}
 			return fallback()
 		}
-		acquired, err := c.redisClient.SetNX(ctx, lockKey, owner, 30*time.Second).Result()
+		acquired, err := c.tokenCache.AcquireRefresh(ctx, lockKey, owner, 30*time.Second)
 		if err != nil {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return "", err
@@ -458,10 +466,10 @@ func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) 
 			defer func() {
 				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
 				defer cleanupCancel()
-				_ = c.redisClient.Eval(cleanupCtx, `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`, []string{lockKey}, owner).Err()
+				_ = c.tokenCache.ReleaseRefresh(cleanupCtx, lockKey, owner)
 			}()
 			// Another instance may have populated the cache between GET and SET NX.
-			token, err = c.redisClient.Get(ctx, key).Result()
+			token, err = c.tokenCache.Get(ctx, key)
 			if err == nil && token != "" {
 				return token, nil
 			}
@@ -471,9 +479,9 @@ func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) 
 			}
 			// A timed-out owner must never overwrite a newer owner's token.
 			// Cache publication is best effort after a successful upstream fetch.
-			published, publishErr := c.redisClient.Eval(ctx, `if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3]); return 1 end return 0`, []string{lockKey, key}, owner, token, ttl.Milliseconds()).Int64()
-			if publishErr == nil && published == 0 {
-				current, readErr := c.redisClient.Get(ctx, key).Result()
+			published, publishErr := c.tokenCache.Publish(ctx, lockKey, key, owner, token, ttl)
+			if publishErr == nil && !published {
+				current, readErr := c.tokenCache.Get(ctx, key)
 				if readErr == nil && current != "" {
 					return current, nil
 				}
@@ -491,9 +499,9 @@ func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) 
 	}
 }
 
-// ProvideAuthHandler supplies the shared Redis client in production.
-func ProvideAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService, redisClient *redis.Client) *AuthHandler {
+// ProvideAuthHandler supplies the shared token cache in production.
+func ProvideAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService, tokenCache DingTalkTokenCache) *AuthHandler {
 	handler := NewAuthHandler(cfg, authService, userService, settingService, promoService, redeemService, totpService, userAttributeService)
-	handler.redisClient = redisClient
+	handler.tokenCache = tokenCache
 	return handler
 }
