@@ -1592,7 +1592,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingTimeoutAfterClientDi
 	<-done
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream usage incomplete after timeout")
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
 	require.Equal(t, 9, result.usage.InputTokens)
@@ -1653,7 +1653,7 @@ func TestGatewayService_AnthropicAPIKeyPassthrough_StreamingUpstreamReadErrorAft
 
 	result, err := svc.handleStreamingResponseAnthropicAPIKeyPassthrough(context.Background(), resp, c, &Account{ID: 4}, time.Now(), "claude-3-7-sonnet-20250219")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "stream usage incomplete after disconnect")
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
 	require.Equal(t, 8, result.usage.InputTokens)

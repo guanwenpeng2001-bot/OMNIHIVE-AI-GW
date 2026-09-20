@@ -808,8 +808,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if errors.As(err, &sseErr) {
 				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧。
 				body := []byte(sseErr.RawData)
+				if anthropicStreamRejectionFailover(c, sseErr.RawData) == nil {
+					return partialStreamUsageResult(c, resp, streamResult, originalModel, mappedModel, startTime, err), err
+				}
 				semanticStatus := http.StatusForbidden
-				if c.Writer.Size() == writerSizeBeforeStream && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
+				if (c.Writer.Size() == writerSizeBeforeStream || c.GetBool("gateway_stream_only_heartbeats")) && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
 					semanticStatus = 529
 					syntheticResp := &http.Response{
 						StatusCode: semanticStatus,

@@ -89,7 +89,7 @@ func TestFrameReaderTimeoutAndDrain(t *testing.T) {
 			t.Fatal("header wait leaked")
 		}
 	})
-	t.Run("late-usage", func(t *testing.T) {
+	t.Run("cancellation-rejects-late-usage", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		body, writer := io.Pipe()
 		defer func() { _ = writer.Close() }()
@@ -102,9 +102,8 @@ func TestFrameReaderTimeoutAndDrain(t *testing.T) {
 			time.Sleep(20 * time.Millisecond)
 			_, _ = io.WriteString(writer, "data: {\"usage\":{\"prompt_tokens\":7}}\n\n")
 		}()
-		require.True(t, r.Scan())
-		require.Contains(t, r.frame.Data, "prompt_tokens")
-		require.NoError(t, r.Err())
+		require.False(t, r.Scan())
+		require.ErrorIs(t, r.Err(), context.Canceled)
 	})
 	t.Run("disconnect-bounded", func(t *testing.T) {
 		body, writer := io.Pipe()

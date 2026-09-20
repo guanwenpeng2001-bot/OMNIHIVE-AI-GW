@@ -1531,7 +1531,7 @@ func TestStreamUpstreamResponse_ClientDisconnectDrainsUsage(t *testing.T) {
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
 	require.NotNil(t, result.usage)
-	require.Equal(t, 20, result.usage.OutputTokens)
+	require.Zero(t, result.usage.OutputTokens)
 }
 
 // TestStreamUpstreamResponse_ContextCanceled

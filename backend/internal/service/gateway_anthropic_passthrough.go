@@ -495,8 +495,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	inPartialEvent := false
 
+	defer resp.Body.Close()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
@@ -534,11 +540,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				if rejected := anthropicStreamRejectionFailover(c, trimmed); rejected != nil {
+					return nil, rejected
+				}
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
+				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" && !IsStreamHeartbeatData(trimmed) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
@@ -554,10 +563,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if line == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
@@ -597,7 +606,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, canceling upstream with observed usage: account=%d", account.ID)
 				continue
 			}
 			flusher.Flush()

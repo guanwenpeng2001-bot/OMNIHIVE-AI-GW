@@ -170,7 +170,7 @@ func (s *OpenAIGatewayService) handleResponsesBufferedFromNativeAnthropic(
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	// 读间隔上限：上游挂住 SSE 时中止组装（缓冲路径尚未提交响应头，可回 502）。
+	// Bound idle upstream reads; cancellation closes resp.Body immediately.
 	streamInterval := s.anthropicNativeStreamInterval()
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
@@ -358,12 +358,13 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 		}
 	}
 
-	// 读间隔上限：上游挂住 SSE（不发数据也不断连）时结束转换循环。上游 ctx 为
-	// WithoutCancel 且 http.Client 无整体 Timeout，无此界限则 scanner.Scan()
-	// 永久阻塞（见 anthropic native pump 文件注释）。
+	// Bound idle upstream reads; cancellation closes resp.Body immediately.
 	streamInterval := s.anthropicNativeStreamInterval()
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
+	defer resp.Body.Close()
+	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 
 	logReadErr := func(err error) {
 		if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -383,9 +384,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	}
 
 	// 与 CC 姊妹路径（handleCCStreamingFromNativeAnthropic.writeChunk）同语义：
-	// 客户端断开后不再写出，但继续排水上游至流自然结束——Anthropic 的最终
-	// output_tokens 只在末尾 message_delta 携带，提前退出会把整段生成记成 ~1
-	// token，payg 上游照常计费而平台漏记。状态机照常推进以保证 finalize 一致。
+	// Stop writing after disconnect; the loop returns observed usage.
 	processAnthropicEvent := func(event *apicompat.AnthropicStreamEvent) {
 		if firstChunk {
 			firstChunk = false
@@ -428,8 +427,16 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	}
 
 	for {
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
+		}
 		line, rerr := pump.next()
 		if rerr != nil {
+			if c.Request.Context().Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), c.Request.Context().Err()
+			}
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
 				return onIdle()
 			}
@@ -442,6 +449,10 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 
 		dataLine, rerr := pump.next()
 		if rerr != nil {
+			if c.Request.Context().Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), c.Request.Context().Err()
+			}
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
 				return onIdle()
 			}

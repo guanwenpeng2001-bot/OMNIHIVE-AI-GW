@@ -555,21 +555,17 @@ func detachedBillingContext(ctx context.Context) (context.Context, context.Cance
 	return context.WithTimeout(base, postUsageBillingTimeout)
 }
 
+// Generation retains client cancellation and the original deadline.
+// Only detachedBillingContext outlives the request to persist observed usage.
 func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		return context.Background(), func() {}
-	}
-	if !stream {
-		return ctx, func() {}
-	}
-	return context.WithoutCancel(ctx), func() {}
+	return detachUpstreamContext(ctx)
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		return context.Background(), func() {}
+		ctx = context.Background()
 	}
-	return context.WithoutCancel(ctx), func() {}
+	return ctx, func() {}
 }
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）

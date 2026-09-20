@@ -16,9 +16,8 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-// boundedStreamContext owns a POST through response headers and a finite drain
-// after downstream cancellation. The body reader separately bounds first output
-// and idle time, so healthy long-running streams have no total deadline.
+// boundedStreamContext bounds header waiting while preserving request cancellation
+// and its total deadline throughout generation.
 type boundedStreamContextKey struct{}
 
 func streamHeaderTimeout(cfg *config.Config, openAI bool) time.Duration {
@@ -37,31 +36,17 @@ func boundedStreamContext(parent context.Context, headerTimeout time.Duration) (
 	if parent == nil {
 		parent = context.Background()
 	}
-	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
+	ctx, cancel := context.WithCancel(parent)
 	ctx = context.WithValue(ctx, boundedStreamContextKey{}, true)
 	header := time.AfterFunc(headerTimeout, cancel)
-	joined := make(chan struct{})
-	go func() {
-		defer close(joined)
-		select {
-		case <-parent.Done():
-			timer := time.NewTimer(5 * time.Second)
-			defer timer.Stop()
-			select {
-			case <-timer.C:
-				cancel()
-			case <-ctx.Done():
-			}
-		case <-ctx.Done():
-		}
-	}()
-	return ctx, func() { header.Stop() }, func() { header.Stop(); cancel(); <-joined }
+	return ctx, func() { header.Stop() }, func() { header.Stop(); cancel() }
 }
 
 // upstreamFrameReader reuses the protocol parser and bounds the complete frame,
 // including endless comments or unterminated data lines. Close joins the only
 // watchdog goroutine and closes the upstream connection on every exit path.
 type upstreamFrameReader struct {
+	parent         context.Context
 	timeout        chan error
 	disconnected   chan struct{}
 	disconnectOnce sync.Once
@@ -83,7 +68,7 @@ func newUpstreamFrameReader(body io.ReadCloser, maxSize int, parent context.Cont
 	if idle <= 0 {
 		idle = 300 * time.Second
 	}
-	r := &upstreamFrameReader{body: body, timeout: make(chan error, 1), disconnected: make(chan struct{}), semantic: make(chan struct{}), maxSize: maxSize, progress: make(chan bool, 1), done: make(chan struct{}), joined: make(chan struct{})}
+	r := &upstreamFrameReader{parent: parent, body: body, timeout: make(chan error, 1), disconnected: make(chan struct{}), semantic: make(chan struct{}), maxSize: maxSize, progress: make(chan bool, 1), done: make(chan struct{}), joined: make(chan struct{})}
 	r.scanner = bufio.NewScanner(body)
 	r.scanner.Buffer(make([]byte, 0, 64*1024), maxSize)
 	go func() {
@@ -92,13 +77,6 @@ func newUpstreamFrameReader(body io.ReadCloser, maxSize int, parent context.Cont
 		gap := time.NewTimer(idle)
 		defer first.Stop()
 		defer gap.Stop()
-		var drain <-chan time.Time
-		var drainTimer *time.Timer
-		defer func() {
-			if drainTimer != nil {
-				drainTimer.Stop()
-			}
-		}()
 		disconnected := r.disconnected
 		semanticOutput := r.semantic
 		var canceled <-chan struct{}
@@ -113,25 +91,19 @@ func newUpstreamFrameReader(body io.ReadCloser, maxSize int, parent context.Cont
 				first.Stop()
 				semanticOutput = nil
 			case <-disconnected:
-				disconnected = nil
-				canceled = nil
-				drainTimer = time.NewTimer(5 * time.Second)
-				drain = drainTimer.C
+				r.timeout <- context.Canceled
+				_ = body.Close()
+				return
 			case <-canceled:
-				canceled = nil
-				disconnected = nil
-				drainTimer = time.NewTimer(5 * time.Second)
-				drain = drainTimer.C
+				r.timeout <- parent.Err()
+				_ = body.Close()
+				return
 			case <-first.C:
 				r.timeout <- fmt.Errorf("upstream first semantic output timeout")
 				_ = body.Close()
 				return
 			case <-gap.C:
 				r.timeout <- fmt.Errorf("upstream frame idle timeout")
-				_ = body.Close()
-				return
-			case <-drain:
-				r.timeout <- context.Canceled
 				_ = body.Close()
 				return
 			case <-r.done:
@@ -146,6 +118,16 @@ func (r *upstreamFrameReader) Close()        { close(r.done); _ = r.body.Close()
 func (r *upstreamFrameReader) Semantic()     { r.semanticOnce.Do(func() { close(r.semantic) }) }
 func (r *upstreamFrameReader) Disconnected() { r.disconnectOnce.Do(func() { close(r.disconnected) }) }
 func (r *upstreamFrameReader) Scan() bool {
+	if r.parent != nil && r.parent.Err() != nil {
+		r.err = r.parent.Err()
+		return false
+	}
+	select {
+	case <-r.disconnected:
+		r.err = context.Canceled
+		return false
+	default:
+	}
 	for r.scanner.Scan() {
 		r.frameSize += len(r.scanner.Text())
 		if r.frameSize > r.maxSize {
@@ -373,4 +355,26 @@ func anthropicEventHasOutput(event *apicompat.AnthropicStreamEvent) bool {
 		return true
 	}
 	return event.Delta != nil && (event.Delta.Text != "" || event.Delta.Thinking != "" || event.Delta.PartialJSON != "")
+}
+
+// IsStreamHeartbeatData recognizes only empty keepalives, never content labeled as ping.
+func IsStreamHeartbeatData(data string) bool {
+	var payload map[string]any
+	if json.Unmarshal([]byte(data), &payload) != nil {
+		return false
+	}
+	if len(payload) == 1 && payload["type"] == "ping" {
+		return true
+	}
+	if payload["type"] != "content_block_delta" || len(payload) != 3 {
+		return false
+	}
+	delta, ok := payload["delta"].(map[string]any)
+	if !ok || len(delta) != 2 {
+		return false
+	}
+	fields := map[string]string{"text_delta": "text", "thinking_delta": "thinking", "input_json_delta": "partial_json"}
+	kind, _ := delta["type"].(string)
+	field, known := fields[kind]
+	return known && delta[field] == ""
 }
