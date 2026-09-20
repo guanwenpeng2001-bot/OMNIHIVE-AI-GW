@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -15,11 +16,12 @@ import (
 )
 
 // Limits are cumulative across account selection, repair and transport fallback.
-const DefaultGenerationAttempts = 3
+const DefaultGenerationAttempts = 1
 const DefaultGenerationDeadline = 5 * time.Minute
 
 var ErrAttemptBudgetExhausted = errors.New("generation attempt budget exhausted")
 var ErrResponseCommitted = errors.New("downstream response committed; generation replay forbidden")
+var ErrAttemptOutcomeUnknown = errors.New("upstream submission outcome unknown; generation replay forbidden")
 
 type attemptBudgetKey struct{}
 
@@ -52,6 +54,7 @@ type AttemptBudget struct {
 	deadline    time.Time
 	limit       int
 	committed   bool
+	uncertain   bool
 	attempts    []*AttemptRecord
 	streamTurns bool
 	turn        int
@@ -81,6 +84,7 @@ func BeginAttemptStreamTurn(ctx context.Context, turn int) {
 		b.deadline = time.Now().Add(DefaultGenerationDeadline)
 		b.attempts = nil
 		b.committed = false
+		b.uncertain = false
 	}
 	b.turn = turn
 }
@@ -162,6 +166,20 @@ func AttemptBudgetFromContext(ctx context.Context) *AttemptBudget {
 	return b
 }
 
+// ConfigureAttemptBudget freezes the configured allowance before the first send.
+// Account repairs and protocol fallbacks consume this same allowance.
+func ConfigureAttemptBudget(ctx context.Context, maxAccountSwitches int) {
+	budget := AttemptBudgetFromContext(ctx)
+	if budget == nil {
+		return
+	}
+	budget.mu.Lock()
+	defer budget.mu.Unlock()
+	if len(budget.attempts) == 0 {
+		budget.limit = 1 + max(0, maxAccountSwitches)
+	}
+}
+
 func (b *AttemptBudget) Commit() {
 	if b == nil {
 		return
@@ -183,6 +201,9 @@ func (b *AttemptBudget) checkLocked(ctx context.Context) error {
 	}
 	if b.committed {
 		return ErrResponseCommitted
+	}
+	if b.uncertain {
+		return ErrAttemptOutcomeUnknown
 	}
 	if len(b.attempts) >= b.limit {
 		return ErrAttemptBudgetExhausted
@@ -261,6 +282,15 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 				b.mu.Lock()
 				record.Status = status
 				record.Outcome = outcome
+				if err != nil {
+					var networkError *net.OpError
+					unsent := errors.As(err, &networkError) && networkError.Op == "dial"
+					if unsent {
+						record.Outcome = "not_sent"
+					} else if record.Turn == b.turn {
+						b.uncertain = true
+					}
+				}
 				b.mu.Unlock()
 			}
 		})
@@ -304,7 +334,7 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 func AttemptExecutionContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	b := AttemptBudgetFromContext(ctx)
 	if b == nil {
-		return ctx, func() {}
+		return context.WithTimeout(ctx, DefaultGenerationDeadline)
 	}
 	b.mu.Lock()
 	deadline := b.deadline
@@ -315,7 +345,7 @@ func AttemptExecutionContext(ctx context.Context) (context.Context, context.Canc
 }
 
 func IsAttemptAdmissionError(err error) bool {
-	return errors.Is(err, ErrAttemptBudgetExhausted) || errors.Is(err, ErrResponseCommitted)
+	return errors.Is(err, ErrAttemptBudgetExhausted) || errors.Is(err, ErrResponseCommitted) || errors.Is(err, ErrAttemptOutcomeUnknown)
 }
 
 func generationDo(upstream HTTPUpstream, req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
@@ -326,4 +356,16 @@ func generationDoWithTLS(upstream HTTPUpstream, req *http.Request, proxy string,
 	return generationHTTP(req, id, func(r *http.Request) (*http.Response, error) {
 		return upstream.DoWithTLS(r, proxy, id, concurrency, profile)
 	})
+}
+
+// Batch creation uses provider-owned clients but shares the generation boundary.
+// Uploads, status reads and cancellation must not call this helper.
+func generationBatchHTTP(request *http.Request, client *http.Client) (*http.Response, error) {
+	accountID := int64(0)
+	if plan := GatewayRequestPlanFromContext(request.Context()); plan != nil {
+		accountID = plan.spec.UpstreamAccountID
+	}
+	noRedirect := *client
+	noRedirect.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+	return generationHTTP(request, accountID, noRedirect.Do)
 }

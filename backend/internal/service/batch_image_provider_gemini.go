@@ -646,7 +646,13 @@ func (c *GeminiBatchHTTPClient) doNoBody(req *http.Request) error {
 }
 
 func (c *GeminiBatchHTTPClient) doJSON(req *http.Request, out any) error {
-	resp, err := c.client.Do(req)
+	var resp *http.Response
+	var err error
+	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, ":batchGenerateContent") {
+		resp, err = generationBatchHTTP(req, c.client)
+	} else {
+		resp, err = c.client.Do(req)
+	}
 	if err != nil {
 		return err
 	}

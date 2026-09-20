@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -18,10 +19,16 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-type attemptBudgetHTTPUpstream struct{ sends int }
+type attemptBudgetHTTPUpstream struct {
+	sends  int
+	unsent bool
+}
 
 func (u *attemptBudgetHTTPUpstream) Do(*http.Request, string, int64, int) (*http.Response, error) {
 	u.sends++
+	if u.unsent {
+		return nil, &net.OpError{Op: "dial", Err: io.ErrUnexpectedEOF}
+	}
 	return nil, io.ErrUnexpectedEOF
 }
 
@@ -32,7 +39,7 @@ func (u *attemptBudgetHTTPUpstream) DoWithTLS(r *http.Request, proxy string, id 
 func TestAttemptBudgetAdapterHandoffSharesTransportRetries(t *testing.T) {
 	ctx, cancel := WithAttemptBudget(context.Background(), 3, time.Minute)
 	defer cancel()
-	upstream := &attemptBudgetHTTPUpstream{}
+	upstream := &attemptBudgetHTTPUpstream{unsent: true}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://example.invalid/v1/responses", nil)
 	require.NoError(t, err)
 	gateway := &OpenAIGatewayService{httpUpstream: upstream}

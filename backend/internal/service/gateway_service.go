@@ -711,7 +711,7 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return gatewayFailoverCanReplay(e)
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {

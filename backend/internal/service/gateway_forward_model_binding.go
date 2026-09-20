@@ -43,8 +43,13 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 
 func (s *OpenAIGatewayService) supportsOpenAIAccountModel(ctx context.Context, account *Account, model string, capability OpenAIEndpointCapability) bool {
 	endpoint := string(capability)
-	if GatewayRequestPlanFromContext(ctx) != nil {
-		endpoint = CompositeRouteEndpointResponses
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		switch plan.Snapshot().Protocol {
+		case "images", "embeddings", "media", "search", "live", "realtime":
+			endpoint = requestCatalogEndpoint(ctx)
+		default:
+			endpoint = CompositeRouteEndpointResponses
+		}
 	}
 	options := AccountModelBindingOptions{Endpoint: endpoint}
 	if account != nil && account.IsShadow() {
@@ -214,6 +219,16 @@ func requestCatalogEndpoint(ctx context.Context) string {
 		return "responses"
 	case "gemini":
 		return "generate_content"
+	case "images":
+		return CompositeRouteEndpointImages
+	case "embeddings":
+		return string(OpenAIEndpointCapabilityEmbeddings)
+	case "media":
+		return string(OpenAIEndpointCapabilityGrokMediaGeneration)
+	case "search":
+		return string(OpenAIEndpointCapabilityAlphaSearch)
+	case "live", "realtime":
+		return string(OpenAIEndpointCapabilityLive)
 	default:
 		return "chat_completions"
 	}

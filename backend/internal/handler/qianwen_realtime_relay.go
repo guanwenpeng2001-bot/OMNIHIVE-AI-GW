@@ -6,6 +6,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -58,6 +59,8 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		h.errorResponse(c, 503, "api_error", "Realtime requires concurrency slot TTL of at least three minutes")
 		return
 	}
+	model := c.Query("model")
+	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "realtime", h.maxAccountSwitches)()
 	ctx, release, err := h.upstreamJobs.RegisterQianwenRealtime(c.Request.Context())
 	if err != nil {
 		h.errorResponse(c, 503, "api_error", "Application is draining")
@@ -83,7 +86,6 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		return
 	}
 	defer userSlot.ReleaseFunc()
-	model := c.Query("model")
 	mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, key.GroupID, model)
 	if restricted {
 		h.errorResponse(c, 403, "permission_error", "Realtime model restricted by channel")
@@ -173,12 +175,26 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	reqLog := requestLogger(c, "handler.qianwen_realtime")
 	receipts := map[string]bool{}
 	turn := 0
+	var turnPlan *service.GatewayRequestPlan
+	defer func() {
+		if turnPlan != nil {
+			turnPlan.Finalize(false)
+		}
+	}()
 	err = service.RelayQianwenRealtime(ctx, conn, upstream, service.QianwenRealtimeCallbacks{
 		BeforeCommit: func(turnCtx context.Context, text string) error {
 			if err := eligible(turnCtx); err != nil {
 				return errors.New("realtime billing eligibility rejected")
 			}
 			turn++
+			if turnPlan != nil {
+				turnPlan.Finalize(false)
+			}
+			spec := service.GatewayRequestPlanFromContext(ctx).Snapshot()
+			spec.ExecutionID = session.PublicRequestID + ":" + strconv.Itoa(turn)
+			spec.UpstreamModel = snapshot.Model
+			_, turnPlan = h.gatewayService.CaptureRequestTurn(ctx, spec)
+			turnCtx = service.WithGatewayRequestPlan(turnCtx, turnPlan)
 			if err := h.auditQianwenRealtimeTurn(turnCtx, c, reqLog, key, subject, model, text, turn); err != nil {
 				return err
 			}
