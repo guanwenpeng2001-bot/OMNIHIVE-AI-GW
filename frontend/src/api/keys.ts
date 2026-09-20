@@ -1,3 +1,4 @@
+import { postIdempotentCreate } from './idempotency'
 /**
  * API Keys management endpoints
  * Handles CRUD operations for user API keys
@@ -96,8 +97,7 @@ export async function create(
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
   }
 
-  const { data } = await apiClient.post<ApiKey>('/keys', payload)
-  return data
+  return postIdempotentCreate<ApiKey>('/keys', payload)
 }
 
 /**

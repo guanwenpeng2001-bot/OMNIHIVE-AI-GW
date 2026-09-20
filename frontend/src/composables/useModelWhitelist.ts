@@ -440,8 +440,21 @@ export const commonErrorCodes = [
 // 辅助函数
 // =====================
 
+export interface ModelCandidateIdentity {
+  host?: string
+  type?: string
+  profile?: string
+  region?: string
+  mode?: string
+}
+
+export function modelCandidateKey(platform: string, identity: ModelCandidateIdentity = {}): string {
+  return JSON.stringify([platform, identity.host ?? '', identity.type ?? '', identity.profile ?? '', identity.region ?? '', identity.mode ?? ''])
+}
+
 // 按平台获取模型
-export function getModelsByPlatform(platform: string): string[] {
+export function getModelsByPlatform(platform: string, identity: ModelCandidateIdentity = {}): string[] {
+  if (identity.type === 'bedrock' || identity.type === 'service_account') return []
   switch (platform) {
     case 'openai': return openaiModels
     case 'anthropic':
@@ -480,12 +493,13 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
     case 'perplexity': return perplexityModels
-    default: return claudeModels
+    default: return []
   }
 }
 
 // 按平台获取预设映射
-export function getPresetMappingsByPlatform(platform: string) {
+export function getPresetMappingsByPlatform(platform: string, identity: ModelCandidateIdentity = {}) {
+  if (identity.type === 'bedrock' || identity.type === 'service_account') return []
   if (platform === 'cursor') {
     const color = 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
     const families = ['claude', 'gpt', 'gemini', 'grok', 'kimi', 'glm', 'composer', 'muse']
@@ -503,7 +517,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
-  return anthropicPresetMappings
+  return platform === 'anthropic' || platform === 'claude' ? anthropicPresetMappings : []
 }
 
 // =====================

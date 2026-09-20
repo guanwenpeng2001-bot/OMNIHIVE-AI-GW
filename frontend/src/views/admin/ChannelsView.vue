@@ -431,7 +431,7 @@
                   >
                     {{ syncingPlatform === section.platform ? t('admin.channels.form.syncingModels') : t('admin.channels.form.syncLatestModels') }}
                   </button>
-                  <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.newPlatforms.pricingUnsupported') }}</span>
+                  <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.platformDetails.pricingUnsupported') }}</span>
                   <button type="button" @click="addPricingEntry(sIdx)" class="text-xs text-primary-600 hover:text-primary-700">
                     + {{ t('common.add', 'Add') }}
                   </button>

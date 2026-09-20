@@ -3225,7 +3225,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	// Only connection fields are accepted: previews must not resolve saved
 	// credential shadows or acquire another account's persistence identity.
 	credentials := make(map[string]any)
-	for _, key := range []string{"api_key", "base_url", "access_token", "expires_at", "machine_id", "mac_machine_id", "client_version", "account_mode", "api_protocol", "api_base_urls", "model_mapping"} {
+	for _, key := range []string{"api_key", "base_url", "access_token", "expires_at", "machine_id", "mac_machine_id", "client_version", "account_mode", "api_protocol", "api_base_urls", "model_mapping", "header_override_enabled", "header_overrides"} {
 		if value, ok := req.Credentials[key]; ok {
 			credentials[key] = value
 		}
@@ -3265,7 +3265,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
-	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), tempAccount)
+	catalog, err := h.accountTestService.PreviewAccountModelCatalog(c.Request.Context(), tempAccount)
 	if err != nil {
 		writeUpstreamModelSyncError(c, err)
 		return

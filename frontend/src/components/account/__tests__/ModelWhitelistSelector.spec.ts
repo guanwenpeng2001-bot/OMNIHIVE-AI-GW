@@ -92,7 +92,7 @@ describe('saved catalog evidence states', () => {
   })
 
   it('requires second confirmation and cancels it when configuration changes', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce({ models: ['target'], complete: true, review: { account_id: 24, digest: 'review' } })
+    syncUpstreamModels.mockReset().mockResolvedValueOnce({ candidate_models: ['target'], models: ['target'], discovery_complete: true, complete: true, review: { account_id: 24, digest: 'review' } })
     const wrapper = mountSelector({ accountId: 24, catalogOnly: true })
     await flushPromises()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
@@ -209,18 +209,18 @@ describe('ModelWhitelistSelector', () => {
     realLocale = null
   })
 
-  it.each(['en', 'zh'] as const)('localizes capability gap summaries in %s', async locale => {
+  it.each(['en', 'zh'] as const)('keeps capability gaps out of Toasts in %s', async locale => {
     realLocale = locale
-    syncUpstreamModels.mockResolvedValueOnce({ models: ['private-model'], warnings: ['upstream_model_metadata_incomplete'],
+    syncUpstreamModels.mockResolvedValueOnce({ candidate_models: ['private-model'], models: ['private-model'], warnings: ['upstream_model_metadata_incomplete'],
       metadata: { 'private-model': { missing_fields: ['max_input_tokens'], estimated_fields: ['reasoning'], conflicts: ['output_modalities'] } } })
     const wrapper = mountSelector({ accountId: 46 })
     await flushPromises()
     const messages = locale === 'en' ? en : zh
     await wrapper.findAll('button').find(item => item.text() === messages.admin.accounts.syncUpstreamModels)!.trigger('click')
     await flushPromises()
-    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.missing))
-    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.estimated))
-    expect(showWarning).toHaveBeenCalledWith(expect.stringContaining(messages.capabilityMessages.conflicts))
+    expect(showWarning).not.toHaveBeenCalled()
+    expect(showWarning).not.toHaveBeenCalled()
+    expect(showWarning).not.toHaveBeenCalled()
     wrapper.unmount()
     realLocale = null
   })
@@ -254,9 +254,9 @@ describe('ModelWhitelistSelector', () => {
     expect(copyToClipboard).not.toHaveBeenCalled()
   })
 
-  it('warns when model IDs sync but capability metadata is incomplete', async () => {
+  it('keeps discovered IDs without metadata warning Toasts', async () => {
     syncUpstreamModels.mockResolvedValue({
-      models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
       warnings: [
         {
           code: 'upstream_model_metadata_incomplete',
@@ -286,13 +286,13 @@ describe('ModelWhitelistSelector', () => {
 
     expect(syncUpstreamModels).toHaveBeenCalledWith(46, false)
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(showWarning).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
+    expect(showWarning).not.toHaveBeenCalled()
     expect(showSuccess).not.toHaveBeenCalled()
   })
 
-  it('shows success and neutral information when some capabilities were saved', async () => {
+  it('keeps preview capability diagnostics inline', async () => {
     syncUpstreamModels.mockResolvedValue({
-      models: ['gpt-6-astra', 'gpt-image-2'],
+      candidate_models: ['gpt-6-astra', 'gpt-image-2'], models: ['gpt-6-astra', 'gpt-image-2'],
       warnings: [
         {
           code: 'upstream_model_metadata_partial',
@@ -321,15 +321,15 @@ describe('ModelWhitelistSelector', () => {
     await flushPromises()
 
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(showInfo).toHaveBeenCalledWith('admin.accounts.modelSync.previewOnly')
-    expect(showInfo).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataPartial')
+    expect(showInfo).not.toHaveBeenCalled()
+    expect(showInfo).not.toHaveBeenCalled()
     expect(showWarning).not.toHaveBeenCalled()
     expect(showError).not.toHaveBeenCalled()
   })
 
   it('reports a successful preview so account creation can persist metadata', async () => {
     syncUpstreamModelsPreview.mockResolvedValue({
-      models: ['x-preview-f-free'],
+      candidate_models: ['x-preview-f-free'], models: ['x-preview-f-free'],
       metadata: {
         'x-preview-f-free': {
           id: 'x-preview-f-free',
@@ -412,7 +412,7 @@ it('ignores discovery from the previous account after a context switch', async (
   const wrapper = mount(ModelWhitelistSelector, { props: { modelValue: [], platform: 'qianwen', accountId: 1 }, global: { stubs: { ModelIcon: true } } })
   await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
   await wrapper.setProps({ accountId: 2 })
-  finish({ models: ['previous-account-model'] })
+  finish({ candidate_models: ['previous-account-model'], models: ['previous-account-model'] })
   await flushPromises()
   expect(wrapper.emitted('update:modelValue')).toBeUndefined()
   wrapper.unmount()
@@ -442,11 +442,11 @@ describe('model catalog context fencing', () => {
     await wrapper.setProps({ syncCredentials: { ...credentials, credentials: { api_key: 'fake-b' } } })
     await wrapper.setProps({ syncCredentials: credentials, active: false })
     await wrapper.setProps({ active: true })
-    resolve({ models: ['stale-preview'] })
+    resolve({ candidate_models: ['stale-preview'], models: ['stale-preview'] })
     await flushPromises()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     expect(wrapper.emitted('upstream-synced')).toBeUndefined()
-    syncUpstreamModelsPreview.mockResolvedValueOnce({ models: ['fresh-preview'] })
+    syncUpstreamModelsPreview.mockResolvedValueOnce({ candidate_models: ['fresh-preview'], models: ['fresh-preview'] })
     await sync().trigger('click')
     await flushPromises()
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
@@ -465,7 +465,7 @@ describe('model catalog context fencing', () => {
     await wrapper.findAll('button').find(b => b.text() === 'common.tryAgain')!.trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toContain('empty')
-    syncUpstreamModels.mockResolvedValueOnce({ models: ['cached-model'] })
+    syncUpstreamModels.mockResolvedValueOnce({ candidate_models: ['cached-model'], models: ['cached-model'] })
     await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
     await flushPromises()
     syncUpstreamModels.mockRejectedValueOnce(new Error('offline'))
@@ -479,14 +479,14 @@ describe('model catalog context fencing', () => {
 
 describe('snapshot application contract', () => {
   const preview = {
-    models: ['native-new'], applied: false, complete: true, rules_revision: 'rules-opaque', review: { account_id: 46, digest: 'reviewed' },
+    candidate_models: ['native-new'], models: ['native-new'], applied: false, discovery_complete: true, complete: true, rules_revision: 'rules-opaque', review: { account_id: 46, digest: 'reviewed' },
     discovered_models: ['native-new', 'pending'],
     diff: { added: ['native-new'], removed: ['native-old'], retained: [] },
     excluded_models: [{ model: 'pending', reason: 'entitlement_unconfirmed' }],
     invalid_aliases: ['old-alias']
   }
   it('previews without selecting models and applies using the revision without saving aliases', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce(preview).mockResolvedValueOnce({ ...preview, applied: true, models: [] })
+    syncUpstreamModels.mockReset().mockResolvedValueOnce(preview).mockResolvedValueOnce({ ...preview, applied: true, candidate_models: [], models: [] })
     const wrapper = mountSelector({ accountId: 46, modelValue: ['kept-alias'] })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
@@ -534,7 +534,7 @@ describe('snapshot application contract', () => {
     wrapper.unmount()
   })
   it('cannot apply an incomplete preview or an old server response without a revision', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce({ models: ['candidate'] })
+    syncUpstreamModels.mockReset().mockResolvedValueOnce({ candidate_models: ['candidate'], models: ['candidate'] })
     const wrapper = mountSelector({ accountId: 46 })
     await flushPromises()
     await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
@@ -565,7 +565,7 @@ it('uses server platform candidates, preserving unknown when their request fails
 
 describe('explicit preview adoption', () => {
   const completePreview = {
-    models: [' new-id ', 'new-id', 'Second.Case/ID'], complete: true, applied: false,
+    candidate_models: [' new-id ', 'new-id', 'Second.Case/ID'], models: [' new-id ', 'new-id', 'Second.Case/ID'], discovery_complete: true, complete: true, applied: false,
     rules_revision: 'saved-rules', metadata: { 'metadata-only': {} },
     discovered_models: ['new-id', 'excluded-id'],
     excluded_models: [{ model: 'excluded-id', reason: 'entitlement_unconfirmed' }],
@@ -608,12 +608,12 @@ describe('explicit preview adoption', () => {
     expect(wrapper.get(`[id="${preview.attributes('aria-describedby')}"]`).text()).toContain('credentialsRequired')
     wrapper.unmount()
   })
-  it.each([false, undefined])('blocks bulk adoption when completeness is %s', async complete => {
+  it.each([false, undefined])('allows additive adoption when completeness is %s', async complete => {
     syncUpstreamModelsPreview.mockResolvedValueOnce({ ...completePreview, complete })
     const wrapper = mountSelector({ syncCredentials: { platform: 'openai', api_key: 'key' } })
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
   it('rejects alias collisions explicitly without replacing aliases or selection', async () => {
@@ -637,14 +637,14 @@ describe('explicit preview adoption', () => {
     expect(wrapper.find('input').exists()).toBe(false)
     wrapper.unmount()
   })
-  it('invalidates requests on local changes without letting old finally stop the next request', async () => {
+  it('invalidates requests on identity changes without letting old finally stop the next request', async () => {
     let resolveOld!: (value: typeof completePreview) => void
     let resolveNew!: (value: typeof completePreview) => void
     syncUpstreamModelsPreview.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
       .mockImplementationOnce(() => new Promise(resolve => { resolveNew = resolve }))
     const wrapper = mountSelector({ syncCredentials: { platform: 'openai', api_key: 'key' } })
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await wrapper.setProps({ modelValue: ['local-edit'] })
+    await wrapper.setProps({ candidateIdentity: { host: 'https://other.example', type: 'apikey' } })
     expect(wrapper.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     resolveOld(completePreview)
@@ -673,7 +673,7 @@ describe('explicit preview adoption', () => {
 
 
 it('does not bulk-adopt empty or failed results and leaves existing selections intact', async () => {
-  syncUpstreamModelsPreview.mockResolvedValueOnce({ models: [], complete: true, applied: false })
+  syncUpstreamModelsPreview.mockResolvedValueOnce({ candidate_models: [], models: [], discovery_complete: true, complete: true, applied: false })
   const wrapper = mountSelector({ modelValue: ['kept'], syncCredentials: { platform: 'openai', api_key: 'key' } })
   await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
   await flushPromises()
@@ -756,4 +756,53 @@ it.each([534, 1000])('filters %s models locally without selecting them or fetchi
   expect(wrapper.emitted('update:modelValue')?.[0]).toEqual([['draft-kept', models[count - 1]]])
   expect(syncUpstreamModels).not.toHaveBeenCalled()
   wrapper.unmount()
+})
+
+
+describe('preview evidence and action matrix', () => {
+  it.each([
+    [true, 'incomplete', ['native'], false],
+    [false, 'incomplete', ['native'], true],
+    [true, 'complete', [], false]
+  ] as const)('separates discovery %s and capability %s from additive selection', async (discovery, capability, candidates, applyDisabled) => {
+    syncUpstreamModels.mockReset().mockResolvedValueOnce({ models: [], discovered_models: [...candidates], candidate_models: [...candidates], eligible_models: [], discovery_complete: discovery, complete: discovery, capability_status: capability, review: discovery ? { account_id: 42, digest: 'review' } : undefined })
+    const wrapper = mountSelector({ accountId: 42 })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled') !== undefined).toBe(candidates.length === 0)
+    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(applyDisabled)
+    await wrapper.setProps({ modelValue: ['local-selection'], modelMappings: [{ from: 'alias', to: 'native' }] })
+    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled') !== undefined).toBe(candidates.length === 0)
+    wrapper.unmount()
+  })
+
+  it('keeps an in-flight discovery when selection changes but revokes its rule review', async () => {
+    let resolvePreview!: (result: unknown) => void
+    syncUpstreamModels.mockReset().mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve }))
+    const wrapper = mountSelector({ accountId: 42 })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await wrapper.setProps({ modelValue: ['chosen-during-discovery'] })
+    expect(wrapper.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeDefined()
+    resolvePreview({ candidate_models: ['native'], discovered_models: ['native'], models: [], discovery_complete: true, capability_status: 'incomplete', review: { account_id: 42, digest: 'review' } })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['chosen-during-discovery', 'native']])
+    wrapper.unmount()
+  })
+
+  it('leaves hosted candidates empty while allowing manual entry', async () => {
+    const wrapper = mountSelector({ platform: 'anthropic', candidateIdentity: { type: 'bedrock', host: 'https://bedrock.example', region: 'eu-west-1' } })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(0)
+    await wrapper.get('input[aria-label="admin.accounts.customModelName"]').setValue('arn:aws:bedrock:eu-west-1:custom')
+    await wrapper.get('input[aria-label="admin.accounts.customModelName"]').trigger('keydown.enter')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['arn:aws:bedrock:eu-west-1:custom']])
+    wrapper.unmount()
+  })
 })

@@ -256,7 +256,9 @@ func projectAccountModelCatalog(account *Account, catalog *UpstreamModelCatalog)
 	catalog.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	catalog.DiscoveryScope, catalog.ProviderProfile = accountCatalogScope(account)
 	catalog.Complete = true
+	catalog.DiscoveryComplete = true
 	catalog.DiscoveredModels = dedupeAndSortModelIDs(catalog.Models)
+	catalog.CandidateModels = append([]string{}, catalog.DiscoveredModels...)
 	catalog.Models = []string{}
 	catalog.ExcludedModels = []ExcludedCatalogModel{}
 	catalog.InvalidAliases = []string{}
@@ -330,6 +332,7 @@ func projectAccountModelCatalog(account *Account, catalog *UpstreamModelCatalog)
 	catalog.InvalidAliases = InvalidAccountCatalogAliases(account, snapshot)
 	catalog.EligibleModels = snapshot.EligibleModels
 	populateAccountCatalogCapabilities(account, catalog, snapshot)
+	catalog.CapabilityStatus = snapshot.CapabilityStatus
 	return snapshot
 }
 

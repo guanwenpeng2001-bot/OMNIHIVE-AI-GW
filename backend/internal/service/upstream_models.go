@@ -77,6 +77,9 @@ type UpstreamModelMetadataSnapshot struct {
 }
 
 type UpstreamModelCatalog struct {
+	CandidateModels   []string              `json:"candidate_models"`
+	DiscoveryComplete bool                  `json:"discovery_complete"`
+	CapabilityStatus  string                `json:"capability_status"`
 	Review            *AccountCatalogReview `json:"review,omitempty"`
 	SchemaVersion     int                   `json:"schema_version"`
 	EnrichmentVersion string                `json:"enrichment_version"`
@@ -263,6 +266,16 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	defer cancel()
 	catalog, err := s.DiscoverModelCapabilities(context.WithValue(ctx, catalogDiscoveryKey{}, true), account, s.modelCapabilityProvider)
 	if err != nil {
+		var partial *UpstreamModelSyncError
+		if errors.As(err, &partial) && partial.PartialCatalog != nil {
+			catalog = partial.PartialCatalog
+			catalog.AccountModelCatalogBaseline = account.ModelCatalogBaseline()
+			catalog.CandidateModels = dedupeAndSortModelIDs(catalog.DiscoveredModels)
+			catalog.DiscoveryComplete = false
+			catalog.Complete = false
+			catalog.CapabilityStatus = "incomplete"
+			catalog.EligibleModels = []AccountCatalogModel{}
+		}
 		return nil, err
 	}
 	catalog.snapshot = projectAccountModelCatalog(account, catalog)
@@ -273,6 +286,16 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, account *Account, provider ModelCapabilityProvider) (*UpstreamModelCatalog, error) {
 	if account == nil {
 		return nil, newUpstreamModelSyncConfigError("Account is required for capability discovery", nil)
+	}
+	// Preview validation must not mutate the saved account's credentials.
+	previewAccount := *account
+	previewAccount.Credentials = make(map[string]any, len(account.Credentials))
+	for name, value := range account.Credentials {
+		previewAccount.Credentials[name] = value
+	}
+	account = &previewAccount
+	if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid header overrides", err)
 	}
 	declarations, err := accountDeclaredCapabilities(account)
 	if err != nil {

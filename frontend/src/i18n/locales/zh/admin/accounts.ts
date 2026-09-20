@@ -18,12 +18,7 @@ export default {
         "counts": "可导入：{imported}；实际写入：{written}；分组：{group}",
         "details": "来源、汇率、逐模型价格与原因"
 },
-      newPlatforms: {
-      bedrockDescription: '按区域配置 IAM 或运行时 API key；Claude Invoke 与文本/工具 Converse。目录可见不等于可调用；请声明精确 profile/ARN 目标。真实 AWS 与额度未验证。',
-      mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
-      hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
-      qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
-      volcengineDescription: 'API key /api/v3 文本入口；填写精确部署目标，保存后声明可用性。自动发现、厂商 SSE/错误细节与额度尚未验证。',
+      platformDetails: {
         "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
         "commandcodeDescription": "Command Code 仅支持 API Key。Claude 模型走 Anthropic Messages，其余模型走 Chat Completions；入站 Responses 由网关转换，无原生 Responses 端点。上游 Chat 鉴权使用 x-api-key。",
@@ -1006,7 +1001,7 @@ export default {
         bulkSelectIds: '请选定具体账号 ID 后逐项预览；筛选范围不能用当前页账号代替。',
         bulkSavedScope: '逐项预览使用各账号已保存配置，不包含待保存的批量修改；保存仍会整体覆盖所有目标的已启用字段。',
         noCommonModels: '所有目标均完整返回，但没有共同模型。',
-        commonRequiresComplete: '仅所有目标均完整成功后可添加交集；失败、不完整和未开始的账号仍计入目标集合。',
+        commonRequiresComplete: '所有目标均返回有效预览后可添加交集；失败和未开始的账号仍计入目标集合。部分发现可添加选择，但不能替换已保存的快照。',
         authorizationReady: '授权完成，请确认模型后创建',
         oauthPreviewAfterCreate: '此凭据需要临时预览尚不支持的项目或连接字段。可先创建，再按真实账号 ID 预览和配置模型。',
         mappingConfirmation: 'Antigravity 保持仅映射配置；可返回上一步修改映射，创建后进入该账号配置模型。',
@@ -1036,7 +1031,7 @@ export default {
         previewCandidates: '来自本次预览；模型或别名已变更，差异已失效，请保存后重新预览',
         credentialsRequired: '请先填写 API 密钥，再预览上游模型',
         authorizationRequired: '授权完成后可预览；当前可先配置静态模型',
-        previewAfterCreate: '此连接暂不支持创建前预览，请在创建后配置模型快照',
+        previewAfterCreate: '请填写连接凭据或完成授权后预览模型，也可直接手工填写模型 ID。',
         saveBeforePreview: '请先保存模型或连接修改，再重新预览',
         selectionPendingSave: '已选模型与别名随保存生效；应用快照不会修改此表单',
         selectionPendingCreate: '创建将保存已选模型与别名；保存后须单独预览并确认模型快照',

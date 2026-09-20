@@ -10,7 +10,7 @@
         {{ t('admin.accounts.opencodeGo.protocolRules.restoreDefaults') }}
       </button>
     </div>
-    <p class="input-hint mb-2">{{ t(platform === 'commandcode' ? 'admin.accounts.newPlatforms.commandcodeDescription' : 'admin.accounts.opencodeGo.protocolRules.hint') }}</p>
+    <p class="input-hint mb-2">{{ t(platform === 'commandcode' ? 'admin.accounts.platformDetails.commandcodeDescription' : 'admin.accounts.opencodeGo.protocolRules.hint') }}</p>
     <div v-if="rows.length > 0" class="mb-2 space-y-2">
       <div
         v-for="(row, index) in rows"

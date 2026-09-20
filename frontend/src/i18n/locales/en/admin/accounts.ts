@@ -18,12 +18,7 @@ export default {
         "counts": "Supported: {imported}; actually written: {written}; group: {group}",
         "details": "Source, FX and per-model prices / reasons"
 },
-      newPlatforms: {
-      bedrockDescription: 'Region-specific IAM or runtime API key; Claude Invoke and text/tools Converse. Catalog visibility does not establish Invoke permission; declare exact profile/ARN targets. Live AWS and balances remain unverified.',
-      mistralDescription: 'API-key models and chat runtime. Vendor account receipts, detailed SSE/error and balance evidence remain unverified. Missing usage is unknown and cannot settle as zero.',
-      hunyuanDescription: 'Legacy Bearer non-stream chat only. Discovery, streaming, vendor error details and balances remain unverified. Missing usage cannot settle as zero.',
-      qianfanDescription: 'Domestic API key and v2 models/chat only. Live account, vendor SSE terminal, error and balance contracts remain unverified; no automatic pricing sync.',
-      volcengineDescription: 'API key /api/v3 chat runtime; configure exact deployment targets and declare availability after saving. Automatic discovery, vendor SSE/error details and balances remain unverified.',
+      platformDetails: {
         "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
         "commandcodeDescription": "Command Code supports API keys only. Claude models use Anthropic Messages; other models use Chat Completions. Incoming Responses requests are converted; there is no native Responses endpoint. The gateway uses x-api-key for upstream Chat authentication.",
@@ -929,7 +924,7 @@ export default {
         bulkSelectIds: 'Select specific account IDs to preview. Filtered targets cannot be represented by the current page.',
         bulkSavedScope: 'Each preview uses that account’s saved configuration. Pending bulk edits are not included; applying this form still replaces the enabled field for all targets.',
         noCommonModels: 'All targets returned complete results, but no models are common to all of them.',
-        commonRequiresComplete: 'Common models require complete successful results from every target; failed, incomplete and unstarted accounts remain in the target set.',
+        commonRequiresComplete: 'Common models require a valid preview from every target; failed and unstarted accounts remain in the target set. Partial discoveries can add selections but cannot replace saved snapshots.',
         authorizationReady: 'Authorization complete — confirm models before creating',
         oauthPreviewAfterCreate: 'These credentials require project or connection fields outside temporary preview support. You can create now and preview/configure models using the saved account ID.',
         mappingConfirmation: 'Antigravity keeps mapping-only configuration. Use Back to edit mappings; configure the saved account after creation.',
@@ -959,7 +954,7 @@ export default {
         previewCandidates: 'Candidates from this preview; model or alias changes invalidated the differences. Save and preview again',
         credentialsRequired: 'Enter an API key to preview upstream models',
         authorizationRequired: 'Preview is available after authorization; you can configure static models now',
-        previewAfterCreate: 'This connection requires account creation before previewing models',
+        previewAfterCreate: 'Enter connection credentials or complete authorization to preview models. You can also enter model IDs manually.',
         saveBeforePreview: 'Save model or connection changes, then preview again',
         selectionPendingSave: 'Selected models and aliases take effect when saved; applying a snapshot does not change this form',
         selectionPendingCreate: 'Creation saves selected models and aliases. Confirm the saved account snapshot separately',

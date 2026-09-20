@@ -5,7 +5,7 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, modelCandidateKey, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
   it('openai 模型列表包含 GPT-5.4 官方快照', () => {
@@ -184,5 +184,23 @@ describe('restriction validation', () => {
   })
   it('accepts case-sensitive identities and aliases', () => {
     expect(validateModelRestrictions('combined', ['Model'], [{ from: 'model-*', to: 'Model' }])).toEqual([])
+  })
+})
+
+
+describe('identity-scoped model candidates', () => {
+  it.each(['volcengine', 'qianfan', 'bedrock', 'unknown'])('never falls back to Claude for %s', platform => {
+    expect(getModelsByPlatform(platform)).toEqual([])
+    if (platform !== 'bedrock') expect(getPresetMappingsByPlatform(platform)).toEqual([])
+  })
+  it.each(['bedrock', 'service_account'])('does not use native Anthropic candidates for hosted type %s', type => {
+    expect(getModelsByPlatform('anthropic', { type })).toEqual([])
+    expect(getPresetMappingsByPlatform('anthropic', { type })).toEqual([])
+  })
+  it('keys every identity dimension independently', () => {
+    const identity = { host: 'https://native.example', type: 'apikey', profile: 'native', region: 'east', mode: 'payg' }
+    const baseline = modelCandidateKey('anthropic', identity)
+    for (const field of Object.keys(identity)) expect(modelCandidateKey('anthropic', { ...identity, [field]: 'changed' })).not.toBe(baseline)
+    expect(modelCandidateKey('other', identity)).not.toBe(baseline)
   })
 })

@@ -205,7 +205,7 @@ import { ref, computed, watch, onUnmounted, useId, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { accountsAPI } from '@/api/admin/accounts'
-import { parseModelCapabilityDefaults, modelCapabilityGapSummary, modelCapabilityRequestError } from './modelCapabilityDefaults'
+import { parseModelCapabilityDefaults, modelCapabilityRequestError } from './modelCapabilityDefaults'
 import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
 import type { AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
@@ -214,7 +214,7 @@ import type { SyncUpstreamModelsResult, SyncUpstreamPreviewParams } from '@/api/
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry, modelSyncWarningCode, modelSyncErrorKey } from '@/composables/useModelWhitelist'
+import { validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry, type ModelCandidateIdentity, modelCandidateKey, modelSyncErrorKey } from '@/composables/useModelWhitelist'
 
 const { t, locale } = useI18n()
 
@@ -224,6 +224,7 @@ const props = withDefaults(defineProps<{
   catalogOnly?: boolean
   discoveryDisabled?: boolean
   previewUnavailableReason?: string
+  candidateIdentity?: ModelCandidateIdentity
   connectionContext?: unknown
   savedRevision?: unknown
   configurationDirty?: boolean
@@ -316,7 +317,7 @@ const catalogSummary = ref<AccountModelCatalogDetails | null>(null)
 const syncError = ref('')
 const needsPreview = ref(false)
 const confirmSnapshot = ref(false)
-const canApplySnapshot = computed(() => props.active && !isSyncingUpstream.value && syncResult.value?.complete === true &&
+const canApplySnapshot = computed(() => props.active && !isSyncingUpstream.value && syncResult.value?.discovery_complete === true &&
   !!syncResult.value.review && !needsPreview.value && !props.configurationDirty && !props.capabilityDefaultsDirty)
 watch(canApplySnapshot, valid => { if (!valid) confirmSnapshot.value = false }, { flush: 'sync' })
 const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'>('idle')
@@ -324,18 +325,16 @@ let generation = 0
 const context = computed(() => {
   const credentials = props.syncCredentials ? { ...props.syncCredentials } : undefined
   if (credentials) delete credentials.model_mapping
-  return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value, credentials, props.connectionContext, props.savedRevision])
+  return JSON.stringify([props.active !== false, props.accountId, normalizedPlatforms.value.map(platform => modelCandidateKey(platform, props.candidateIdentity)), credentials, props.connectionContext, props.savedRevision])
 })
 const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, props.syncCredentials?.model_mapping, props.configurationDirty]))
-const previewModels = computed(() => [...new Set((syncResult.value?.models ?? []).map(model => model.trim()).filter(Boolean))])
+const previewModels = computed(() => [...new Set((syncResult.value?.candidate_models ?? syncResult.value?.discovered_models ?? []).map(model => model.trim()).filter(Boolean))])
 const previewAdditions = computed(() => previewModels.value.filter(model => !props.modelValue.includes(model)))
-const canAddPreview = computed(() => !props.catalogOnly && syncResult.value?.complete === true &&
-  catalogState.value === 'ready' && !needsPreview.value && !isSyncingUpstream.value)
+const canAddPreview = computed(() => props.active && !props.catalogOnly && !!syncResult.value &&
+  catalogState.value === 'ready' && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
 watch(selectionContext, () => {
-  generation++
-  isSyncingUpstream.value = false
   needsPreview.value = true
-  if (catalogState.value === 'loading') catalogState.value = syncResult.value ? 'stale' : 'idle'
+  confirmSnapshot.value = false
 }, { flush: 'sync' })
 // Editing declaration text invalidates the preview without fetching on each keystroke.
 watch(() => props.capabilityDefaultsJSON, () => {
@@ -388,6 +387,7 @@ const loadCatalog = async () => {
       const summary = await accountsAPI.getModelCatalog(accountId)
       if (disposed || request !== generation) return
       catalogSummary.value = summary
+      catalogMetadata.value = { ...catalogMetadata.value, ...summary.display_metadata }
       if (props.catalogOnly) {
         catalog.value = summary.effective_snapshot?.eligible_models?.map(model => model.id) ?? []
         catalogState.value = catalog.value.length ? 'ready' : 'empty'
@@ -397,7 +397,7 @@ const loadCatalog = async () => {
       else if (summary.last_error) catalogState.value = 'stale'
       else if (!summary.synced) catalogState.value = 'unsynced'
     } catch {
-      // Older servers may not expose the summary yet; unknown is not successful empty.
+      // Catalog errors are real failures, including 404; never probe another capabilities API.
       if (disposed || request !== generation) return
       catalogSummary.value = null
       catalogState.value = 'failed'
@@ -447,7 +447,9 @@ watch(() => props.active, async (active) => {
   }
 }, { immediate: true })
 const selectedPresets = computed(() => platformPresets.value?.filter(preset =>
-  !normalizedPlatforms.value.length || normalizedPlatforms.value.includes(preset.platform)) ?? [])
+  normalizedPlatforms.value.includes(preset.platform) &&
+  (!props.candidateIdentity?.profile || preset.provider_profile === props.candidateIdentity.profile) &&
+  (!['bedrock', 'service_account'].includes(props.candidateIdentity?.type ?? '') || !!props.candidateIdentity?.profile)) ?? [])
 const presetModels = computed(() => [...new Set(selectedPresets.value.flatMap(preset => (preset.models ?? []).map(model => model.id)))])
 const presetCount = computed(() => platformPresets.value && selectedPresets.value.length
   && !selectedPresets.value.some(preset => preset.coverage_status === 'unconfigured')
@@ -542,6 +544,7 @@ const syncUpstreamModels = async (apply = false) => {
   if (!props.accountId && !props.syncCredentials) return
 
   const request = ++generation
+  const reviewedSelection = selectionContext.value
   isSyncingUpstream.value = true
   syncError.value = ''
   catalogState.value = 'loading'
@@ -561,8 +564,8 @@ const syncUpstreamModels = async (apply = false) => {
 
     if (disposed || request !== generation) return
     syncResult.value = result
-    needsPreview.value = false
-    const upstreamModels = (result.models ?? []).map(model => model.trim()).filter(Boolean)
+    needsPreview.value = reviewedSelection !== selectionContext.value
+    const upstreamModels = (result.candidate_models ?? result.discovered_models ?? []).map(model => model.trim()).filter(Boolean)
     catalog.value = upstreamModels
     catalogState.value = upstreamModels.length ? 'ready' : 'empty'
     if (!props.accountId) emit('upstream-synced')
@@ -573,21 +576,7 @@ const syncUpstreamModels = async (apply = false) => {
       emit('catalog-applied')
     }
 
-    const warnings = result.warnings ?? []
-    const hasPartialMetadata = warnings.some(
-      warning => modelSyncWarningCode(warning) === 'upstream_model_metadata_partial'
-    )
-    const hasIncompleteMetadata = warnings.some(
-      warning => modelSyncWarningCode(warning) === 'upstream_model_metadata_incomplete'
-    )
-    if (hasIncompleteMetadata) {
-      appStore.showWarning(modelCapabilityGapSummary(result, t) || t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
-      return
-    }
-    appStore.showInfo(t(`admin.accounts.modelSync.${result.applied === true ? 'synced' : 'previewOnly'}`))
-    if (hasPartialMetadata) {
-      appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
-    }
+    if (result.applied === true) appStore.showInfo(t('admin.accounts.modelSync.synced'))
   } catch (error) {
     if (disposed || request !== generation) return
     catalogState.value = catalog.value.length ? 'stale' : 'failed'

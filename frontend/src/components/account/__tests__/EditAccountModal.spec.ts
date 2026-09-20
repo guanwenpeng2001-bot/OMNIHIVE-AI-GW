@@ -61,7 +61,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: catalogRead, updateModelAllowlist: allowlistWrite, syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ models: ['public-glm'], complete: true }) },
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: catalogRead, updateModelAllowlist: allowlistWrite, syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
@@ -348,13 +348,13 @@ function mountModal(account = buildAccount(), renderGroupSelector = false, realC
 }
 
 describe('EditAccountModal', () => {
-  it.each(['partial', 'incomplete'] as const)('uses the correct severity for %s capability metadata', async (status) => {
+  it.each(['partial', 'incomplete'] as const)('keeps Toasts quiet for %s capability metadata', async (status) => {
     showInfoMock.mockReset()
     showWarningMock.mockReset()
     showSuccessMock.mockReset()
     showErrorMock.mockReset()
     syncUpstreamModelsMock.mockResolvedValue({
-      models: ['gemini-new-model'],
+      candidate_models: ['gemini-new-model'], models: ['gemini-new-model'],
       warnings: [{ code: `upstream_model_metadata_${status}`, message: 'metadata status' }],
     })
     const wrapper = mountModal(buildAntigravityAccount(), false, true)
@@ -366,11 +366,10 @@ describe('EditAccountModal', () => {
 
     expect(syncUpstreamModelsMock).toHaveBeenCalledWith(3, false)
     if (status === 'partial') {
-      expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataPartial')
-      expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.modelSync.previewOnly')
+      expect(showInfoMock).not.toHaveBeenCalled()
       expect(showWarningMock).not.toHaveBeenCalled()
     } else {
-      expect(showWarningMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
+      expect(showWarningMock).not.toHaveBeenCalled()
       expect(showSuccessMock).not.toHaveBeenCalled()
     }
     expect(showErrorMock).not.toHaveBeenCalled()
@@ -385,7 +384,7 @@ describe('EditAccountModal', () => {
 
   it.each(['editApiKey', 'editApiProtocol', 'editGeminiTier', 'editPlanType', 'capabilityDefaultsJSON'])('invalidates preview on %s changes without fetching on each edit', async field => {
     catalogRead.mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } })
-    syncUpstreamModelsMock.mockReset().mockResolvedValue({ models: ['Native'], complete: true, rules_revision: '1', review: { account_id: 1, digest: 'original' } })
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Native'], models: ['Native'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: 1, digest: 'original' } })
     const wrapper = mountModal(buildAccount(), false, true)
     await flushPromises()
     const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(selector => selector.props('catalogOnly'))!
@@ -428,7 +427,7 @@ describe('EditAccountModal', () => {
     const updated = { ...account, extra: { ...account.extra, model_capability_defaults: declaration } }
     updateAccountMock.mockReset().mockResolvedValue(updated)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
-    syncUpstreamModelsMock.mockReset().mockResolvedValue({ models: ['Private'], complete: true, rules_revision: '1', review: { account_id: account.id, digest: 'before' } })
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: account.id, digest: 'before' } })
     const wrapper = mountModal(account, false, true)
     await flushPromises()
     const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(selector => selector.props('catalogOnly'))!
@@ -447,7 +446,7 @@ describe('EditAccountModal', () => {
     expect(wrapper.emitted('close')).toBeUndefined()
     expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeUndefined()
     const review = { account_id: account.id, digest: 'after-rotation' }
-    syncUpstreamModelsMock.mockResolvedValueOnce({ models: ['Private'], complete: true, rules_revision: '2', review }).mockResolvedValueOnce({ models: ['Private'], applied: true })
+    syncUpstreamModelsMock.mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '2', review }).mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], applied: true })
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
@@ -2054,7 +2053,7 @@ it('does not save a late Antigravity catalog into a different account', async ()
   const second = { ...buildAntigravityAccount(), id: 987, credentials: { ...buildAntigravityAccount().credentials, model_mapping: { ExistingExact: 'ExistingExact' } } }
   await wrapper.setProps({ show: false })
   await wrapper.setProps({ account: second, show: true })
-  resolve({ models: ['late-model'] })
+  resolve({ candidate_models: ['late-model'], models: ['late-model'] })
   await flushPromises()
   expect(updateAccountMock).not.toHaveBeenCalled()
   await wrapper.get('form#edit-account-form').trigger('submit.prevent')
