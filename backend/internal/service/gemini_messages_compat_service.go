@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"io"
 	"log"
 	"math"
@@ -1210,7 +1211,10 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		proxyURL = account.Proxy.URL()
 	}
 
-	useUpstreamStream := stream
+	useUpstreamStream := stream && c.Query("alt") == "sse"
+	if stream && account.Type == AccountTypeOAuth && strings.TrimSpace(account.GetCredential("project_id")) != "" {
+		useUpstreamStream = true
+	}
 	upstreamAction := action
 	if account.Type == AccountTypeOAuth && !stream && action == "generateContent" && strings.TrimSpace(account.GetCredential("project_id")) != "" {
 		// Code Assist's non-streaming generateContent may return no content; use streaming upstream and aggregate.
@@ -1622,7 +1626,15 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	var firstTokenMs *int
 
 	if stream {
-		streamRes, err := s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, account, requestID)
+		var streamRes *geminiNativeStreamResult
+		var err error
+		if c.Query("alt") == "sse" && strings.Contains(resp.Header.Get("Content-Type"), "application/json") {
+			streamRes, err = s.handleNativeJSONAsSSE(c, resp, startTime, isOAuth, account, requestID)
+		} else if c.Query("alt") == "sse" {
+			streamRes, err = s.handleNativeStreamingResponse(c, resp, startTime, isOAuth, account, requestID)
+		} else {
+			streamRes, err = s.handleNativeJSONStreamingResponse(c, resp, startTime, isOAuth, strings.Contains(resp.Header.Get("Content-Type"), "text/event-stream"), account, requestID)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -2468,6 +2480,7 @@ func (s *GeminiMessagesCompatService) writeClaudeError(c *gin.Context, status in
 }
 
 func (s *GeminiMessagesCompatService) writeGoogleError(c *gin.Context, status int, message string) error {
+	message = logredact.RedactDiagnostic(message)
 	MarkResponseCommitted(c)
 	c.JSON(status, gin.H{
 		"error": gin.H{
@@ -2895,9 +2908,15 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						firstTokenMs = &ms
 					}
 
+					sanitized, errorPayload := sanitizeGoogleErrorPayload([]byte(rawToWrite))
+					if errorPayload {
+						rawToWrite = string(sanitized)
+					}
 					if isOAuth {
 						// SSE format requires double newline (\n\n) to separate events
 						_, _ = fmt.Fprintf(c.Writer, "data: %s\n\n", rawToWrite)
+					} else if errorPayload {
+						_, _ = fmt.Fprintf(c.Writer, "data: %s\n", rawToWrite)
 					} else {
 						// Pass-through for AI Studio responses.
 						_, _ = io.WriteString(c.Writer, line)

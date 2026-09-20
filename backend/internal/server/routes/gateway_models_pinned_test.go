@@ -79,8 +79,7 @@ func TestGatewayRoutesPinnedModelsDispatchesOrdinaryAndCodexRequests(t *testing.
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
 		require.Equal(t, "list", response.Object)
-		require.Len(t, response.Data, 1)
-		require.Equal(t, "ordinary-upstream-model", response.Data[0].ID)
+		require.Empty(t, response.Data, "pinned Codex discovery cannot manufacture ordinary visibility")
 	}
 	for _, path := range []string{"/v1/models?client_version=" + service.CodexCanonicalClientVersion(), "/models?client_version=" + service.CodexCanonicalClientVersion(), "/backend-api/codex/models"} {
 		w := httptest.NewRecorder()
@@ -89,7 +88,7 @@ func TestGatewayRoutesPinnedModelsDispatchesOrdinaryAndCodexRequests(t *testing.
 		require.Contains(t, w.Body.String(), `"slug":"gpt-5.5"`)
 		require.NotContains(t, w.Body.String(), `"data"`)
 	}
-	require.EqualValues(t, 1, upstream.ordinaryCalls.Load())
+	require.Zero(t, upstream.ordinaryCalls.Load())
 	require.EqualValues(t, 1, upstream.codexCalls.Load())
 }
 
@@ -134,17 +133,27 @@ func TestGatewayRoutesRetrievePinnedModel(t *testing.T) {
 		Data []json.RawMessage `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(list.Body.Bytes(), &catalog))
-	require.Len(t, catalog.Data, 1)
+	require.Empty(t, catalog.Data)
 	for _, base := range []string{"/v1/models/", "/models/"} {
 		path := base + "ordinary-upstream-model?client_version=ignored"
 		require.Equal(t, http.StatusUnauthorized, request(path, "", "").Code)
 		got := request(path, "Bearer client-key", list.Header().Get("ETag"))
-		require.Equal(t, http.StatusOK, got.Code, got.Body.String())
-		require.JSONEq(t, string(catalog.Data[0]), got.Body.String())
+		require.Equal(t, http.StatusNotFound, got.Code, got.Body.String())
 		require.Empty(t, got.Header().Get("ETag"), "a collection validator cannot validate one model")
 		missing := request(base+"unknown-model", "Bearer client-key", "")
 		require.Equal(t, http.StatusNotFound, missing.Code)
 		require.Contains(t, missing.Body.String(), `"error"`)
 	}
 	require.Zero(t, upstream.codexCalls.Load(), "retrieve never dispatches a Codex manifest")
+}
+
+func TestPublicCatalogStaticRoutesPrecedeModelLookup(t *testing.T) {
+	for _, platform := range []string{service.PlatformOpenAI, service.PlatformGemini, service.PlatformMistral} {
+		router := newGatewayRoutesTestRouterWithGroup(&service.Group{ID: 1, Platform: platform})
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("GET", "/v1/models/catalog", nil))
+		require.Equal(t, 200, recorder.Code, platform+": "+recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), `"fully_enumerable":true`)
+		require.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
+	}
 }

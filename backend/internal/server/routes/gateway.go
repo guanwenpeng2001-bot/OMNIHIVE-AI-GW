@@ -29,6 +29,7 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	r.Use(middleware.GatewayUnknownRouteProtocol())
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
 	clientRequestID := middleware.ClientRequestID()
@@ -79,7 +80,7 @@ func RegisterGatewayRoutes(
 		dispatchCodexModelsGateway(c, h.OpenAIGateway.CodexModels, h.Gateway.CodexModels)
 	}
 	modelsHandler := func(c *gin.Context) {
-		if c.Query("client_version") != "" {
+		if handler.LegacyCodexModelsRequested(c) {
 			codexModelsHandler(c)
 			return
 		}
@@ -193,6 +194,7 @@ func RegisterGatewayRoutes(
 
 	// API网关（Claude API兼容）
 	gateway := r.Group("/v1")
+	gateway.Use(middleware.GatewayProtocol())
 	gateway.Use(bodyLimit)
 	gateway.Use(clientRequestID)
 	gateway.Use(opsErrorLogger)
@@ -213,6 +215,8 @@ func RegisterGatewayRoutes(
 		// /models endpoint with a client_version query and expect the ChatGPT
 		// Codex manifest format; other clients keep the OpenAI-style list.
 		gateway.GET("/models", modelsHandler)
+		gateway.GET("/models/catalog", h.Gateway.ModelCatalog)
+		gateway.GET("/models/catalog/:model", h.Gateway.ModelCatalog)
 		// Single-model discovery never selects the Codex client_version manifest.
 		gateway.GET("/models/:model", h.Gateway.Models)
 		gateway.GET("/usage", h.Gateway.Usage)
@@ -344,6 +348,7 @@ func RegisterGatewayRoutes(
 
 	// Gemini 原生 API 兼容层（Gemini SDK/CLI 直连）
 	gemini := r.Group("/v1beta")
+	gemini.Use(middleware.GatewayProtocol())
 	gemini.Use(bodyLimit)
 	gemini.Use(clientRequestID)
 	gemini.Use(opsErrorLogger)
@@ -371,7 +376,7 @@ func RegisterGatewayRoutes(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
-		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic, handler)
+		r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic, handler)
 	}
 	rootRoute(http.MethodPost, "/messages", bodyLimit, messagesHandler)
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
@@ -394,7 +399,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/models/:model", bodyLimit, h.Gateway.Models)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic)
+	codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic)
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
 		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)
@@ -497,10 +502,11 @@ func RegisterGatewayRoutes(
 	})
 
 	// Antigravity 模型列表
-	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
+	r.GET("/antigravity/models", middleware.GatewayProtocol(), gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
 	antigravityV1 := r.Group("/antigravity/v1")
+	antigravityV1.Use(middleware.GatewayProtocol())
 	antigravityV1.Use(bodyLimit)
 	antigravityV1.Use(clientRequestID)
 	antigravityV1.Use(opsErrorLogger)
@@ -517,6 +523,7 @@ func RegisterGatewayRoutes(
 	}
 
 	antigravityV1Beta := r.Group("/antigravity/v1beta")
+	antigravityV1Beta.Use(middleware.GatewayProtocol())
 	antigravityV1Beta.Use(bodyLimit)
 	antigravityV1Beta.Use(clientRequestID)
 	antigravityV1Beta.Use(opsErrorLogger)
@@ -730,7 +737,7 @@ func chatOnlyPlatformGuard(c *gin.Context) {
 	if c.Request.Method == http.MethodGet {
 		// Match registered catalog routes, never arbitrary nested /models paths.
 		switch c.FullPath() {
-		case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+		case "/models", "/models/:model", "/v1/models", "/v1/models/:model", "/v1/models/catalog", "/v1/models/catalog/:model",
 			"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
 			c.Next()
 			return

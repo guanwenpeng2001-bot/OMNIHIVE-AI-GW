@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -66,7 +67,11 @@ type ErrorResponse = response.Response
 
 // AbortWithError stops a request with the shared management envelope.
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
-	response.ErrorWithDetails(c, statusCode, message, code, nil)
+	if c.GetBool("gateway_protocol_errors") {
+		gatewayerror.Write(c, statusCode, code, message)
+	} else {
+		response.ErrorWithDetails(c, statusCode, message, code, nil)
+	}
 	c.Abort()
 }
 
@@ -93,17 +98,8 @@ type GatewayErrorWriter func(c *gin.Context, status int, message string)
 // AnthropicErrorWriter 按 Anthropic API 规范输出错误；error.type 随状态码映射
 // （404 -> not_found_error，403 -> permission_error，其余 api_error）。
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
-	errorType := "api_error"
-	switch status {
-	case http.StatusNotFound:
-		errorType = "not_found_error"
-	case http.StatusForbidden:
-		errorType = "permission_error"
-	}
-	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": gin.H{"type": errorType, "message": message},
-	})
+	status, body := gatewayerror.Envelope("anthropic", status, "request_failed", message)
+	c.JSON(status, body)
 }
 
 // GoogleErrorWriter 按 Google API 规范输出错误

@@ -60,7 +60,7 @@ func TestGatewayModels_ModelAllowlistWildcardExpandsAgainstSource(t *testing.T) 
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5-codex", "gpt-5.5-mini", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.4", "gpt-5.5-codex", "gpt-5.5-mini"}, modelIDsForTest(got.Data))
 }
 
 // geminiAllowlistAccountRepoStub 在 gatewayModelsAccountRepoStub 之上补充
@@ -129,8 +129,8 @@ func TestGeminiV1BetaListModels_FiltersFallbackByAllowlist(t *testing.T) {
 		names = append(names, model.Name)
 	}
 	// models/ 前缀的候选形式也应命中条目。
-	require.Contains(t, names, "models/gemini-3.8-flash-high")
-	require.Contains(t, names, "models/gemini-3-flash")
+	require.Empty(t, names, "allowlist and static fallback cannot establish model visibility")
+	require.NotContains(t, names, "models/gemini-3-flash")
 	require.NotContains(t, names, "models/gemini-2.5-flash")
 	require.NotContains(t, names, "models/gemini-2.0-flash")
 }

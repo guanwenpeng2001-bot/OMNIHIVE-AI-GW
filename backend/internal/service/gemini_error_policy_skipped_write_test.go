@@ -75,7 +75,7 @@ func newGeminiNativeTestContext(t *testing.T) (*gin.Context, *httptest.ResponseR
 	t.Helper()
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent", strings.NewReader("{}"))
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1beta/models/gemini-2.5-flash:generateContent?alt=sse", strings.NewReader("{}"))
 	return c, rec
 }
 

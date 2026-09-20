@@ -52,7 +52,7 @@ func TestRetrieveModelMatchesVisibleCatalogue(t *testing.T) {
 					Data []json.RawMessage `json:"data"`
 				}
 				require.NoError(t, json.Unmarshal(list.Body.Bytes(), &catalog))
-				if !mapped && platform != service.PlatformGrok {
+				if !mapped {
 					require.Empty(t, catalog.Data)
 					require.Equal(t, http.StatusNotFound, requestModelForTest(h, group, "gpt-5.5", "").Code)
 					return
@@ -76,44 +76,15 @@ func TestRetrieveModelMatchesVisibleCatalogue(t *testing.T) {
 }
 
 func TestRetrievePinnedModelPreservesMetadataFilteringAndErrors(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		status     int
-		selected   []string
-		wantStatus int
-	}{
-		{name: "metadata", wantStatus: http.StatusOK},
-		{name: "hidden", selected: []string{"other-model"}, wantStatus: http.StatusNotFound},
-		{name: "upstream failure", status: http.StatusServiceUnavailable, wantStatus: http.StatusBadGateway},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			upstream := &codexModelsPinnedHTTPUpstream{bodies: map[int64]string{
-				2: `{"data":[{"id":"special-model","ID":"not-a-model-id","owned_by":"source-owner","created":123,"extra":{"context":999}}]}`,
-			}, statuses: map[int64]int{}}
-			if tc.status != 0 {
-				upstream.statuses[2] = tc.status
-			}
-			codex := newPinnedCodexTestHandler([]service.Account{newPinnedCodexAccount(2, service.StatusActive, true, false)}, upstream, 3)
-			h := &GatewayHandler{openAIGatewayService: codex.gatewayService, maxAccountSwitches: 3}
-			group := &service.Group{ID: 72, Platform: service.PlatformOpenAI,
-				ModelAllowlist:            service.GroupModelAllowlist{Enabled: len(tc.selected) > 0, Models: tc.selected},
-				CodexModelsManifestConfig: service.GroupCodexModelsManifestConfig{Enabled: true, AccountIDs: []int64{2}}}
-			got := requestModelForTest(h, group, "special-model", "collection-etag")
-			require.Equal(t, tc.wantStatus, got.Code, got.Body.String())
-			if tc.wantStatus == http.StatusOK {
-				list := requestModelForTest(h, group, "", "")
-				var catalog struct {
-					Data []json.RawMessage `json:"data"`
-				}
-				require.NoError(t, json.Unmarshal(list.Body.Bytes(), &catalog))
-				require.JSONEq(t, string(catalog.Data[0]), got.Body.String())
-				require.Contains(t, got.Body.String(), `"owned_by":"source-owner"`)
-				require.Contains(t, got.Body.String(), `"created":123`)
-				again := requestModelForTest(h, group, "special-model", list.Header().Get("ETag"))
-				require.Equal(t, http.StatusOK, again.Code)
-				require.Empty(t, again.Header().Get("ETag"))
-				require.Equal(t, http.StatusNotFound, requestModelForTest(h, group, "not-a-model-id", "").Code)
-			}
-		})
-	}
+	account := publicMetadataAccount()
+	repo := &publicMetadataRepository{accounts: []service.Account{account}}
+	gateway := newGatewayModelsHandlerForTest(repo)
+	group := &service.Group{ID: 72, Platform: service.PlatformOpenAI, CodexModelsManifestConfig: service.GroupCodexModelsManifestConfig{Enabled: true, AccountIDs: []int64{999}}}
+	// A Codex-specific pinned account cannot override ordinary catalog membership.
+	got := requestModelForTest(gateway, group, "gpt-alias", "collection-etag")
+	require.Equal(t, 200, got.Code)
+	require.NotContains(t, got.Body.String(), "capabilities")
+	require.Equal(t, 404, requestModelForTest(gateway, group, "special-model", "").Code)
+	group.ModelAllowlist = service.GroupModelAllowlist{Enabled: true, Models: []string{"other-model"}}
+	require.Equal(t, 404, requestModelForTest(gateway, group, "gpt-alias", "").Code)
 }

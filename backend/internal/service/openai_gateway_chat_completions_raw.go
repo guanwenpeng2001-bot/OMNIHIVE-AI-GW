@@ -60,6 +60,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	body []byte,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	c.Set("chat_client_include_usage", gjson.GetBytes(body, "stream_options.include_usage").Bool())
 	startTime := time.Now()
 
 	// 1. Parse minimal fields needed for routing/billing
@@ -342,7 +343,7 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 // 末尾 [DONE] 之前的 chunk 中的 usage 字段，按 OpenAI CC 协议）。
 //
 // usage 字段仅在客户端请求 stream_options.include_usage=true 时出现于上游响应中。
-// 网关会对上游强制打开 include_usage 以保证计费完整，并原样向下游透传 usage，
+// 网关对上游强制打开 include_usage 以保证计费完整；只在客户端显式请求时透传 usage，
 // 让级联代理或下游计费系统也能拿到完整用量。
 func (s *OpenAIGatewayService) streamRawChatCompletions(
 	c *gin.Context,
@@ -480,6 +481,17 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 				}
 			}
 		}
+		if !c.GetBool("chat_client_include_usage") && payload != "[DONE]" {
+			if isOpenAIChatUsageOnlyStreamChunk(payload) {
+				continue
+			}
+			if gjson.Get(payload, "usage").Exists() {
+				filtered, err := sjson.Delete(payload, "usage")
+				if err == nil {
+					line = "data: " + filtered
+				}
+			}
+		}
 		line = applyOllamaCloudRawChatCompletionsSSELine(account, line)
 		line = stripEmptyChatToolCallIdentityFromSSELine(line)
 
@@ -599,7 +611,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 }
 
 // ensureOpenAIChatStreamUsage 确保 raw Chat Completions 流式请求会让上游返回 usage。
-// usage 也会继续向下游透传，支持级联代理和下游计费系统。
+// 下游仅在客户端显式请求 include_usage 时收到用量；服务端计费始终保留。
 func ensureOpenAIChatStreamUsage(body []byte) ([]byte, error) {
 	updated, err := sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {

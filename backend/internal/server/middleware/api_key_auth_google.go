@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -99,7 +98,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 				}
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
 				MarkIngressRejected(c, IngressRejectIPRestricted)
-				abortWithGoogleError(c, 403, fmt.Sprintf("Access denied. Your IP is %s", clientIP))
+				abortWithGoogleError(c, 403, "Access denied")
 				return
 			}
 		}
@@ -127,7 +126,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		if !validateAPIKeyGroupAllowed(apiKey) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			MarkIngressRejected(c, IngressRejectGroupNotAllowed)
-			abortWithGoogleError(c, 403, "API Key 所属专属分组不再允许当前用户使用")
+			abortWithGoogleError(c, 403, "API key group is no longer available to this user")
 			return
 		}
 
@@ -148,20 +147,20 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		// Key 状态检查（状态字段可能因后台异步刷新而滞后，故显式拦截）。
 		switch apiKey.Status {
 		case service.StatusAPIKeyQuotaExhausted:
-			abortWithGoogleError(c, 429, "API key 额度已用完")
+			abortWithGoogleError(c, 429, "API key quota exhausted")
 			return
 		case service.StatusAPIKeyExpired:
-			abortWithGoogleError(c, 403, "API key 已过期")
+			abortWithGoogleError(c, 403, "API key has expired")
 			return
 		}
 
 		// 运行时过期/配额检查（即使状态是 active，也要检查时间和用量，与主中间件一致）。
 		if apiKey.IsExpired() {
-			abortWithGoogleError(c, 403, "API key 已过期")
+			abortWithGoogleError(c, 403, "API key has expired")
 			return
 		}
 		if apiKey.IsQuotaExhausted() {
-			abortWithGoogleError(c, 429, "API key 额度已用完")
+			abortWithGoogleError(c, 429, "API key quota exhausted")
 			return
 		}
 
@@ -201,7 +200,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			c.Set(string(ContextKeySubscription), subscription)
 		} else {
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
-				abortWithGoogleError(c, 403, "Insufficient account balance")
+				abortWithGoogleError(c, 429, "Insufficient account balance")
 				return
 			}
 		}
@@ -253,8 +252,10 @@ func extractAPIKeyForGoogle(c *gin.Context) string {
 	return ""
 }
 
+// Native Gemini SDKs support query key on /v1beta/; headers remain preferred.
+// This compatibility does not extend to /v1 or similarly prefixed paths.
 func allowGoogleQueryKey(path string) bool {
-	return strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta")
+	return strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/antigravity/v1beta/")
 }
 
 func abortWithGoogleError(c *gin.Context, status int, message string) {
