@@ -68,8 +68,10 @@ func TestErrorWithDetails(t *testing.T) {
 			statusCode: http.StatusBadRequest,
 			message:    "invalid request",
 			want: Response{
-				Code:    http.StatusBadRequest,
-				Message: "invalid request",
+				Code:     http.StatusBadRequest,
+				Message:  "invalid request",
+				Reason:   "BAD_REQUEST",
+				Metadata: map[string]any{},
 			},
 		},
 		{
@@ -82,7 +84,7 @@ func TestErrorWithDetails(t *testing.T) {
 				Code:     http.StatusForbidden,
 				Message:  "no access",
 				Reason:   "FORBIDDEN",
-				Metadata: map[string]string{"k": "v"},
+				Metadata: map[string]any{"k": "v"},
 			},
 		},
 	}
@@ -127,7 +129,7 @@ func TestErrorFrom(t *testing.T) {
 				Code:     http.StatusForbidden,
 				Message:  "no access",
 				Reason:   "FORBIDDEN",
-				Metadata: map[string]string{"scope": "admin"},
+				Metadata: map[string]any{"scope": "admin"},
 			},
 		},
 		{
@@ -136,9 +138,10 @@ func TestErrorFrom(t *testing.T) {
 			wantWritten:  true,
 			wantHTTPCode: http.StatusBadRequest,
 			wantBody: Response{
-				Code:    http.StatusBadRequest,
-				Message: "invalid request",
-				Reason:  "INVALID_REQUEST",
+				Code:     http.StatusBadRequest,
+				Message:  "invalid request",
+				Reason:   "INVALID_REQUEST",
+				Metadata: map[string]any{},
 			},
 		},
 		{
@@ -147,9 +150,10 @@ func TestErrorFrom(t *testing.T) {
 			wantWritten:  true,
 			wantHTTPCode: http.StatusUnauthorized,
 			wantBody: Response{
-				Code:    http.StatusUnauthorized,
-				Message: "unauthorized",
-				Reason:  "UNAUTHORIZED",
+				Code:     http.StatusUnauthorized,
+				Message:  "unauthorized",
+				Reason:   "UNAUTHORIZED",
+				Metadata: map[string]any{},
 			},
 		},
 		{
@@ -158,9 +162,10 @@ func TestErrorFrom(t *testing.T) {
 			wantWritten:  true,
 			wantHTTPCode: http.StatusNotFound,
 			wantBody: Response{
-				Code:    http.StatusNotFound,
-				Message: "not found",
-				Reason:  "NOT_FOUND",
+				Code:     http.StatusNotFound,
+				Message:  "not found",
+				Reason:   "NOT_FOUND",
+				Metadata: map[string]any{},
 			},
 		},
 		{
@@ -169,9 +174,10 @@ func TestErrorFrom(t *testing.T) {
 			wantWritten:  true,
 			wantHTTPCode: http.StatusConflict,
 			wantBody: Response{
-				Code:    http.StatusConflict,
-				Message: "conflict",
-				Reason:  "CONFLICT",
+				Code:     http.StatusConflict,
+				Message:  "conflict",
+				Reason:   "CONFLICT",
+				Metadata: map[string]any{},
 			},
 		},
 		{
@@ -180,8 +186,10 @@ func TestErrorFrom(t *testing.T) {
 			wantWritten:  true,
 			wantHTTPCode: http.StatusInternalServerError,
 			wantBody: Response{
-				Code:    http.StatusInternalServerError,
-				Message: errors2.UnknownMessage,
+				Code:     http.StatusInternalServerError,
+				Message:  errors2.UnknownMessage,
+				Reason:   "INTERNAL_ERROR",
+				Metadata: map[string]any{},
 			},
 		},
 	}
@@ -335,8 +343,8 @@ func TestError(t *testing.T) {
 			got := parseResponseBody(t, w)
 			require.Equal(t, tt.statusCode, got.Code)
 			require.Equal(t, tt.message, got.Message)
-			require.Empty(t, got.Reason)
-			require.Nil(t, got.Metadata)
+			require.NotEmpty(t, got.Reason)
+			require.Equal(t, map[string]any{}, got.Metadata)
 			require.Nil(t, got.Data)
 		})
 	}

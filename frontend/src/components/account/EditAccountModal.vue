@@ -3056,7 +3056,7 @@ import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -4995,9 +4995,16 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
     emit('updated', updatedAccount)
     syncFormFromAccount(updatedAccount)
   } catch (error: any) {
-    if (error.status === 409 && error.error === 'mixed_channel_warning' && needsMixedChannelCheck()) {
+    if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck()) {
+      const metadata = extractApiErrorMetadata(error)
       openMixedChannelDialog({
-        message: error.message,
+        message: extractApiErrorMessage(error),
+        response: typeof metadata.group_name === 'string' ? { has_risk: true, details: {
+          group_id: typeof metadata.group_id === 'number' ? metadata.group_id : 0,
+          group_name: typeof metadata.group_name === 'string' ? metadata.group_name : '',
+          current_platform: typeof metadata.current_platform === 'string' ? metadata.current_platform : '',
+          other_platform: typeof metadata.other_platform === 'string' ? metadata.other_platform : '',
+        } } : undefined,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
           await submitUpdateAccount(accountID, updatePayload)

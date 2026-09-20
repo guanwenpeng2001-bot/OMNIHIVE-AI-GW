@@ -3774,7 +3774,7 @@
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -5262,9 +5262,16 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     emit('created')
     handleClose()
   } catch (error: any) {
-    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+    if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+      const metadata = extractApiErrorMetadata(error)
       openMixedChannelDialog({
-        message: error.response?.data?.message,
+        message: extractApiErrorMessage(error),
+        response: typeof metadata.group_name === 'string' ? { has_risk: true, details: {
+          group_id: typeof metadata.group_id === 'number' ? metadata.group_id : 0,
+          group_name: typeof metadata.group_name === 'string' ? metadata.group_name : '',
+          current_platform: typeof metadata.current_platform === 'string' ? metadata.current_platform : '',
+          other_platform: typeof metadata.other_platform === 'string' ? metadata.other_platform : '',
+        } } : undefined,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
           await submitCreateAccount(payload)

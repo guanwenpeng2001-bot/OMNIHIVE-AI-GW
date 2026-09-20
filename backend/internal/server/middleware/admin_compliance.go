@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -32,16 +33,12 @@ func AdminComplianceGuard(settingService *service.SettingService) gin.HandlerFun
 			return
 		}
 
-		c.JSON(http.StatusLocked, gin.H{
-			"code":    "ADMIN_COMPLIANCE_ACK_REQUIRED",
-			"message": "administrator compliance acknowledgement is required",
-			"metadata": gin.H{
-				"version":          service.AdminComplianceVersion,
-				"document_path_zh": service.AdminComplianceDocumentPathZH,
-				"document_path_en": service.AdminComplianceDocumentPathEN,
-				"document_url_zh":  service.AdminComplianceDocumentURLZH,
-				"document_url_en":  service.AdminComplianceDocumentURLEN,
-			},
+		response.ErrorWithDetails(c, http.StatusLocked, "administrator compliance acknowledgement is required", "ADMIN_COMPLIANCE_ACK_REQUIRED", map[string]string{
+			"version":          service.AdminComplianceVersion,
+			"document_path_zh": service.AdminComplianceDocumentPathZH,
+			"document_path_en": service.AdminComplianceDocumentPathEN,
+			"document_url_zh":  service.AdminComplianceDocumentURLZH,
+			"document_url_en":  service.AdminComplianceDocumentURLEN,
 		})
 		c.Abort()
 	}

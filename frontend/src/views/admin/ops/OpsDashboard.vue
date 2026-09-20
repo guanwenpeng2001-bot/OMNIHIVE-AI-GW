@@ -141,6 +141,7 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorCode } from '@/utils/apiError'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useDebounceFn, useIntervalFn } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
@@ -718,13 +719,7 @@ async function refreshDeferredPanels(fetchSeq: number, signal: AbortSignal) {
 }
 
 function isOpsDisabledError(err: unknown): boolean {
-  return (
-    !!err &&
-    typeof err === 'object' &&
-    'code' in err &&
-    typeof (err as Record<string, unknown>).code === 'string' &&
-    (err as Record<string, unknown>).code === 'OPS_DISABLED'
-  )
+  return extractApiErrorCode(err) === 'OPS_DISABLED'
 }
 
 async function fetchData() {

@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
+import { normalizeApiError } from '@/utils/apiError'
 import { getLocale } from '@/i18n'
 import {
   ADMIN_UI_REQUEST_HEADER,
@@ -133,14 +134,7 @@ apiClient.interceptors.response.use(
         response.data = apiResponse.data
       } else {
         // API error
-        const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
-          status: response.status,
-          code: apiResponse.code,
-          message: apiResponse.message || 'Unknown error',
-          reason: resp.reason,
-          metadata: resp.metadata,
-        })
+        return Promise.reject(normalizeApiError({ response }))
       }
     }
     return response
@@ -160,15 +154,15 @@ apiClient.interceptors.response.use(
 
     // Handle common errors
     if (error.response) {
-      const { status, data } = error.response
+      const { status } = error.response
       const url = String(error.config?.url || '')
 
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
-      const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>
+      const apiError = normalizeApiError(error)
 
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.
-      if (status === 404 && apiData.message === 'Ops monitoring is disabled') {
+      if (status === 404 && (apiError.reason === 'OPS_DISABLED' || apiError.message === 'Ops monitoring is disabled')) {
         try {
           localStorage.setItem('ops_monitoring_enabled_cached', 'false')
         } catch {
@@ -184,15 +178,10 @@ apiClient.interceptors.response.use(
           window.location.href = '/admin/settings'
         }
 
-        return Promise.reject({
-          status,
-          code: 'OPS_DISABLED',
-          message: apiData.message || error.message,
-          url
-        })
+        return Promise.reject(normalizeApiError({ ...apiError, reason: 'OPS_DISABLED' }))
       }
 
-      if (status === 423 && apiData.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
+      if (status === 423 && apiError.reason === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
         try {
           const currentToken = localStorage.getItem('auth_token')
           // A rejected request from a previous login must not lock the current admin.
@@ -200,19 +189,14 @@ apiClient.interceptors.response.use(
             ? isAuthSessionCurrent(originalRequest._authSession)
             : error.config?.headers?.Authorization === `Bearer ${currentToken}`)) {
             window.dispatchEvent(new CustomEvent('admin-compliance-required', {
-              detail: apiData.metadata || {}
+              detail: apiError.metadata
             }))
           }
         } catch {
           // ignore event failures
         }
 
-        return Promise.reject({
-          status,
-          code: apiData.code,
-          message: apiData.message || error.message,
-          metadata: apiData.metadata,
-        })
+        return Promise.reject(apiError)
       }
 
       // 401: Try to refresh the token if we have a refresh token
@@ -263,21 +247,17 @@ apiClient.interceptors.response.use(
               localStorage.getItem('refresh_token') !== refreshToken ||
               localStorage.getItem('auth_user') !== refreshSessionUser
             if (sessionChanged) {
-              return Promise.reject({
-                status: 401,
-                code: 'AUTH_SESSION_CHANGED',
-                message: 'Authentication session changed while refreshing.'
-              })
+              return Promise.reject(authSessionChangedError())
             }
 
             if (axios.isAxiosError(refreshError)) {
               const refreshStatus = refreshError.response?.status ?? 0
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
-                return Promise.reject({
+                return Promise.reject(normalizeApiError({
                   status: refreshStatus,
-                  code: 'TOKEN_REFRESH_UNAVAILABLE',
-                  message: refreshError.response?.data?.message || refreshError.message
-                })
+                  reason: 'TOKEN_REFRESH_UNAVAILABLE',
+                  message: normalizeApiError(refreshError).message
+                }))
               }
             }
 
@@ -293,11 +273,11 @@ apiClient.interceptors.response.use(
               window.location.href = '/login'
             }
 
-            return Promise.reject({
+            return Promise.reject(normalizeApiError({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
               message: 'Session expired. Please log in again.'
-            })
+            }))
           }
         }
 
@@ -326,22 +306,14 @@ apiClient.interceptors.response.use(
         }
       }
 
-      // Return structured error
-      return Promise.reject({
-        status,
-        code: apiData.code,
-        reason: apiData.reason,
-        error: apiData.error,
-        message: apiData.message || apiData.detail || error.message,
-        metadata: apiData.metadata,
-      })
+      return Promise.reject(apiError)
     }
 
     // Network error
-    return Promise.reject({
+    return Promise.reject(normalizeApiError({
       status: 0,
       message: 'Network error. Please check your connection.'
-    })
+    }))
   }
 )
 

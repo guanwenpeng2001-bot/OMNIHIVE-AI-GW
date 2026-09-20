@@ -278,13 +278,29 @@ describe('API Client', () => {
 
       await expect(apiClient.get('/test')).rejects.toEqual(
         expect.objectContaining({
-          code: 1001,
+          code: 200,
           message: '参数错误',
         })
       )
     })
 
-    it('部署与运营合规未确认时广播事件且保留登录态', async () => {
+    it.each(['legacy', 'current'])('preserves mixed-channel confirmation metadata through the interceptor (%s)', async (format) => {
+      const metadata = { group_id: 27, group_name: 'Mixed group', current_platform: 'Anthropic', other_platform: 'Antigravity' }
+      apiClient.defaults.adapter = vi.fn().mockRejectedValue({
+        response: { status: 409, data: {
+          ...(format === 'legacy' ? { error: 'mixed_channel_warning', details: metadata } : { code: 409, reason: 'mixed_channel_warning', metadata }),
+          message: 'Confirm mixed group',
+        } },
+        config: { url: '/admin/accounts', headers: {} },
+        code: 'ERR_BAD_REQUEST',
+        message: 'Request failed with status code 409',
+      })
+      await expect(apiClient.post('/admin/accounts', {})).rejects.toEqual({
+        code: 409, status: 409, reason: 'mixed_channel_warning', message: 'Confirm mixed group', metadata,
+      })
+    })
+
+    it.each(['legacy', 'current'])('部署与运营合规未确认时广播事件且保留登录态 (%s)', async (format) => {
       localStorage.setItem('auth_token', 'admin-token')
       const listener = vi.fn()
       window.addEventListener('admin-compliance-required', listener)
@@ -293,7 +309,7 @@ describe('API Client', () => {
         response: {
           status: 423,
           data: {
-            code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+            ...(format === 'legacy' ? { code: 'ADMIN_COMPLIANCE_ACK_REQUIRED' } : { code: 423, reason: 'ADMIN_COMPLIANCE_ACK_REQUIRED' }),
             message: 'administrator compliance acknowledgement is required',
             metadata: {
               version: 'v2026.06.10',
@@ -313,7 +329,8 @@ describe('API Client', () => {
       await expect(apiClient.get('/admin/users')).rejects.toEqual(
         expect.objectContaining({
           status: 423,
-          code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+          code: 423,
+          reason: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
           metadata: expect.objectContaining({
             version: 'v2026.06.10',
           }),
@@ -438,7 +455,7 @@ describe('API Client', () => {
       apiClient.defaults.adapter = adapter
 
       await expect(apiClient.get('/test')).rejects.toMatchObject({
-        status, code: 'TOKEN_REFRESH_UNAVAILABLE',
+        status, code: status, reason: 'TOKEN_REFRESH_UNAVAILABLE',
         message: status ? 'Please try again later' : 'Refresh unavailable',
       })
       expect(adapter).toHaveBeenCalledTimes(1)
@@ -466,7 +483,7 @@ describe('API Client', () => {
         config: { url: '/test', headers: { Authorization: 'Bearer expired-token' } },
       })
 
-      await expect(apiClient.get('/test')).rejects.toMatchObject({ status: 401, code: 'TOKEN_REFRESH_FAILED' })
+      await expect(apiClient.get('/test')).rejects.toMatchObject({ status: 401, code: 401, reason: 'TOKEN_REFRESH_FAILED' })
       for (const key of ['auth_token', 'refresh_token', 'auth_user', 'token_expires_at']) {
         expect(localStorage.getItem(key)).toBeNull()
       }
