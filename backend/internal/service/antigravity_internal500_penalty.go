@@ -74,6 +74,7 @@ func (s *AntigravityGatewayService) handleInternal500RetryExhausted(
 	if s.internal500Cache == nil {
 		return
 	}
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	count, err := s.internal500Cache.IncrementInternal500Count(ctx, account.ID)
 	if err != nil {
 		slog.Error("internal500_counter_increment_failed",

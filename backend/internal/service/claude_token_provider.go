@@ -153,7 +153,7 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 					ttl = time.Minute
 				}
 			}
-			if err := p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl); err != nil {
+			if err := p.tokenCache.SetAccessToken(ctx, ClaudeTokenCacheKey(account), accessToken, ttl); err != nil {
 				slog.Warn("claude_token_cache_set_failed", "account_id", account.ID, "error", err)
 			}
 		}

@@ -185,7 +185,7 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 			if p.refreshPolicy.OnLockHeld == ProviderLockHeldWaitForCache {
 				p.metrics.lockContention.Add(1)
 				p.metrics.touchNow()
-				token, waitErr := p.waitForTokenAfterLockRace(ctx, cacheKey)
+				token, waitErr := p.waitForTokenAfterLockRace(ctx, cacheKey, account)
 				if waitErr != nil {
 					return "", waitErr
 				}
@@ -217,7 +217,7 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 		} else {
 			p.metrics.lockContention.Add(1)
 			p.metrics.touchNow()
-			token, waitErr := p.waitForTokenAfterLockRace(ctx, cacheKey)
+			token, waitErr := p.waitForTokenAfterLockRace(ctx, cacheKey, account)
 			if waitErr != nil {
 				return "", waitErr
 			}
@@ -262,7 +262,7 @@ func (p *OpenAITokenProvider) GetAccessToken(ctx context.Context, account *Accou
 					ttl = time.Minute
 				}
 			}
-			if err := p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl); err != nil {
+			if err := p.tokenCache.SetAccessToken(ctx, OpenAITokenCacheKey(account), accessToken, ttl); err != nil {
 				slog.Warn("openai_token_cache_set_failed", "account_id", account.ID, "error", err)
 			}
 		}
@@ -307,7 +307,7 @@ func (p *OpenAITokenProvider) disableAccountMissingRefreshToken(account *Account
 	)
 }
 
-func (p *OpenAITokenProvider) waitForTokenAfterLockRace(ctx context.Context, cacheKey string) (string, error) {
+func (p *OpenAITokenProvider) waitForTokenAfterLockRace(ctx context.Context, cacheKey string, accounts ...*Account) (string, error) {
 	wait := openAILockInitialWait
 	totalWaitMs := int64(0)
 	for i := 0; i < openAILockMaxAttempts; i++ {
@@ -333,6 +333,20 @@ func (p *OpenAITokenProvider) waitForTokenAfterLockRace(ctx context.Context, cac
 		p.metrics.lockWaitSamples.Add(1)
 		p.metrics.lockWaitTotalMs.Add(waitMs)
 		p.metrics.touchNow()
+
+		if len(accounts) > 0 && p.accountRepo != nil {
+			latest, readErr := p.accountRepo.GetByID(ctx, accounts[0].ID)
+			if readErr != nil {
+				return "", readErr
+			}
+			if latest == nil || latest.Platform != accounts[0].Platform || latest.Type != accounts[0].Type {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
+			cacheKey = OpenAITokenCacheKey(latest)
+			if expiry := latest.GetCredentialAsTime("expires_at"); expiry != nil && expiry.After(time.Now()) && latest.GetOpenAIAccessToken() != accounts[0].GetOpenAIAccessToken() {
+				return latest.GetOpenAIAccessToken(), nil
+			}
+		}
 
 		token, err := p.tokenCache.GetAccessToken(ctx, cacheKey)
 		if err == nil && strings.TrimSpace(token) != "" {

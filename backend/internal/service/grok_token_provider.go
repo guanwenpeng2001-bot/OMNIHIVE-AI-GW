@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -160,7 +159,7 @@ func (p *GrokTokenProvider) GetAccessToken(ctx context.Context, account *Account
 					ttl = time.Minute
 				}
 			}
-			_ = p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl)
+			_ = p.tokenCache.SetAccessToken(ctx, GrokTokenCacheKey(account), accessToken, ttl)
 		}
 	}
 
@@ -285,7 +284,7 @@ func (p *GrokTokenProvider) waitForRefreshedToken(ctx context.Context, account *
 						if ttl > grokTokenCacheSkew {
 							ttl -= grokTokenCacheSkew
 						}
-						_ = p.tokenCache.SetAccessToken(waitCtx, cacheKey, token, ttl)
+						_ = p.tokenCache.SetAccessToken(waitCtx, GrokTokenCacheKey(latest), token, ttl)
 					}
 					return token, nil
 				}
@@ -341,5 +340,5 @@ func GrokTokenCacheKey(account *Account) string {
 	if account == nil {
 		return "grok:account:0"
 	}
-	return "grok:account:" + strconv.FormatInt(account.ID, 10)
+	return "grok:account:" + AccountRuntimeIdentityKey(account)
 }

@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -61,7 +60,7 @@ const (
 	// 超过此上限将不再重试，直接返回 503
 	antigravitySingleAccountSmartRetryTotalMaxWait = 30 * time.Second
 
-	// MODEL_CAPACITY_EXHAUSTED 全局去重：重试全部失败后的 cooldown 时间
+	// MODEL_CAPACITY_EXHAUSTED 身份隔离冷却：重试全部失败后的 cooldown 时间
 	antigravityModelCapacityCooldown = 10 * time.Second
 )
 
@@ -70,12 +69,6 @@ const (
 var antigravityPassthroughErrorMessages = []string{
 	"prompt is too long",
 }
-
-// MODEL_CAPACITY_EXHAUSTED 全局去重：避免多个并发请求同时对同一模型进行容量耗尽重试
-var (
-	modelCapacityExhaustedMu    sync.RWMutex
-	modelCapacityExhaustedUntil = make(map[string]time.Time) // modelName -> cooldown until
-)
 
 const (
 	antigravityForwardBaseURLEnv  = "GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL"

@@ -160,7 +160,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		return errors.New("openai usage result is nil")
 	}
 	if s.rateLimitService != nil && input.Account != nil && input.Account.Platform == PlatformOpenAI {
-		s.rateLimitService.ResetOpenAI403Counter(ctx, input.Account.ID)
+		s.rateLimitService.ResetOpenAI403Counter(WithAccountRuntimeIdentity(ctx, input.Account), input.Account.ID)
 	}
 
 	apiKey := input.APIKey
@@ -1194,11 +1194,29 @@ func buildCodexUsageExtraUpdates(snapshot *OpenAICodexUsageSnapshot, fallbackNow
 // ⚠️ 调用方必须排除 spark 影子账号(account.IsShadow()):影子的 codex_* 仅由 QueryUsage
 // (/wham/usage bengalfox 道)更新,不能被全局头口径污染(外审第7轮 P1)。本函数仅持 accountID,
 // 无法在此自检影子,故守卫前置到各调用点。
-func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot) {
+func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, accountID int64, snapshot *OpenAICodexUsageSnapshot, expected ...*Account) {
 	if snapshot == nil {
 		return
 	}
 	if s == nil || s.accountRepo == nil {
+		return
+	}
+
+	var account *Account
+	if len(expected) > 0 {
+		account = snapshotOAuthRefreshAccount(expected[0])
+	} else {
+		identity := AccountRuntimeCacheSuffix(ctx, accountID)
+		if identity == strconv.FormatInt(accountID, 10) {
+			return
+		}
+		current, err := s.accountRepo.GetByID(ctx, accountID)
+		if err != nil || current == nil || AccountRuntimeIdentityKey(current) != identity {
+			return
+		}
+		account = snapshotOAuthRefreshAccount(current)
+	}
+	if account == nil || account.ID != accountID || account.IsShadow() {
 		return
 	}
 
@@ -1214,7 +1232,7 @@ func (s *OpenAIGatewayService) updateCodexUsageSnapshot(ctx context.Context, acc
 	go func() {
 		updateCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
-		if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
+		if err := persistAccountRuntimeSnapshot(updateCtx, s.accountRepo, account, updates, nil); err == nil {
 			notifyOpenAIAutoReset(accountID)
 		}
 	}()
@@ -1267,4 +1285,15 @@ func (s *OpenAIGatewayService) validateOpenAIImagePricing(ctx context.Context, k
 	}
 	_, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{Ctx: ctx, Model: model, Group: key.Group, GroupID: key.GroupID, Resolver: resolver, Resolved: resolved, RateMultiplier: 1})
 	return err
+}
+
+// UpdateCodexUsageSnapshotForAccount retains the credential identity observed by
+// the upstream attempt. ID-only legacy callers must carry equivalent context.
+func (s *OpenAIGatewayService) UpdateCodexUsageSnapshotForAccount(ctx context.Context, account *Account, headers http.Header) {
+	if account == nil || headers == nil {
+		return
+	}
+	if snapshot := ParseCodexRateLimitHeaders(headers); snapshot != nil {
+		s.updateCodexUsageSnapshot(ctx, account.ID, snapshot, account)
+	}
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
 	"strings"
@@ -27,11 +28,12 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 	}
 	// Antigravity may have just been converted away from OAuth. Still retire
 	// its old shared/account keys so a rollback cannot reuse that cached token.
-	if account.Type != AccountTypeOAuth && account.Platform != PlatformAntigravity {
+	if !account.IsOAuth() && account.Type != AccountTypeServiceAccount && account.Platform != PlatformAntigravity {
 		return nil
 	}
 
 	var keysToDelete []string
+	var failures []error
 	accountIDKey := "account:" + strconv.FormatInt(account.ID, 10)
 
 	switch account.Platform {
@@ -48,12 +50,12 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 		keysToDelete = append(keysToDelete, antigravityCredentialTokenCacheKey(account))
 		keysToDelete = append(keysToDelete, antigravityLegacyTokenCacheKeys(account)...)
 	case PlatformOpenAI:
-		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account))
+		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account), "openai:"+accountIDKey)
 	case PlatformGrok:
 		keysToDelete = append(keysToDelete, GrokTokenCacheKey(account))
 		keysToDelete = append(keysToDelete, "grok:"+accountIDKey)
 	case PlatformAnthropic:
-		keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account))
+		keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account), "claude:"+accountIDKey)
 	default:
 		return nil
 	}
@@ -66,11 +68,12 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 		}
 		seen[key] = true
 		if err := c.cache.DeleteAccessToken(ctx, key); err != nil {
+			failures = append(failures, err)
 			slog.Warn("token_cache_delete_failed", "key", key, "account_id", account.ID, "error", err)
 		}
 	}
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // CheckTokenVersion 检查 account 的 token 版本是否已过时，并返回最新的 account
@@ -93,6 +96,9 @@ func CheckTokenVersion(ctx context.Context, account *Account, repo AccountReposi
 		return nil, false
 	}
 
+	if AccountRuntimeIdentityKey(account) != AccountRuntimeIdentityKey(latestAccount) {
+		return latestAccount, true
+	}
 	latestVersion := latestAccount.GetCredentialAsInt64("_token_version")
 
 	// 情况1: 当前 account 没有版本号，但 DB 中已有版本号

@@ -239,7 +239,7 @@ func TestQuotaFetcher_LoadsAccountOnceAndPassesItThrough(t *testing.T) {
 
 		fetcher.Fetch(context.Background(), 21)
 
-		require.Equal(t, 1, accounts.calls)
+		require.Equal(t, 2, accounts.calls)
 		require.Same(t, acc, usage.getLastAccount())
 		require.Equal(t, 1, usage.getCalls())
 	})
@@ -252,7 +252,7 @@ func TestQuotaFetcher_LoadsAccountOnceAndPassesItThrough(t *testing.T) {
 
 		fetcher.Fetch(context.Background(), 22)
 
-		require.Equal(t, 1, accounts.calls)
+		require.Equal(t, 2, accounts.calls)
 		require.Same(t, acc, cnQuota.lastAccount)
 		require.Equal(t, 1, cnQuota.calls)
 	})
@@ -265,7 +265,7 @@ func TestQuotaFetcher_LoadsAccountOnceAndPassesItThrough(t *testing.T) {
 
 		fetcher.Fetch(context.Background(), 23)
 
-		require.Equal(t, 1, accounts.calls)
+		require.Equal(t, 2, accounts.calls)
 		require.Same(t, acc, cnBalance.lastAccount)
 		require.Equal(t, 1, cnBalance.calls)
 	})

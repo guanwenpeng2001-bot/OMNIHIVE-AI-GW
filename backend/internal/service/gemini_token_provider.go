@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -165,7 +164,7 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 					ttl = time.Minute
 				}
 			}
-			_ = p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl)
+			_ = p.tokenCache.SetAccessToken(ctx, GeminiTokenCacheKey(account), accessToken, ttl)
 		}
 	}
 
@@ -184,5 +183,5 @@ func GeminiTokenCacheKey(account *Account) string {
 	}
 	// A project can be shared by distinct OAuth principals. Cache tokens and
 	// serialize refreshes by credential owner, independent of project discovery.
-	return "gemini:account:" + strconv.FormatInt(account.ID, 10)
+	return "gemini:account:" + AccountRuntimeIdentityKey(account)
 }

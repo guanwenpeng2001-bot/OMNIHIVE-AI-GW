@@ -108,7 +108,7 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	if !account.IsCursorNative() || s.cursorSessions == nil {
 		return &UsageInfo{ErrorCode: "unsupported", Error: "Cursor usage requires a native session provider"}
 	}
-	key := cursorSessionKey(account)
+	key := AccountRuntimeIdentityKey(account)
 	if force {
 		s.cache.cursorCache.Delete(key)
 	}
@@ -258,7 +258,7 @@ func (s *AccountUsageService) fetchCursorUsageWithToken(ctx context.Context, acc
 	now := time.Now()
 	if s.accountRepo != nil {
 		// UpdateExtra merges the snapshot without replacing unrelated account settings.
-		if err := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{"cursor_usage_snapshot": monthly, "cursor_usage_updated_at": now.Format(time.RFC3339)}); err != nil {
+		if err := s.persistRuntimeSnapshot(ctx, account, map[string]any{"cursor_usage_snapshot": monthly, "cursor_usage_updated_at": now.Format(time.RFC3339)}, nil); err != nil {
 			slog.Warn("Cursor usage snapshot persistence failed", "account_id", account.ID)
 		}
 	}
@@ -622,8 +622,11 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	if account == nil {
 		return nil, fmt.Errorf("account is required")
 	}
-	accountID := account.ID
-
+	var identityErr error
+	account, identityErr = loadRuntimeCredentialOwner(ctx, s.accountRepo, account)
+	if identityErr != nil {
+		return nil, identityErr
+	}
 	if account.Platform == PlatformCursor {
 		return s.getCursorUsage(ctx, account, forceProbe), nil
 	}
@@ -673,7 +676,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		var apiResp *ClaudeUsageResponse
 
 		// 1. 检查缓存（成功响应 3 分钟 / 错误响应 1 分钟）
-		if cached, ok := s.cache.apiCache.Load(accountID); ok {
+		if cached, ok := s.cache.apiCache.Load(AccountRuntimeIdentityKey(account)); ok {
 			if cache, ok := cached.(*apiUsageCache); ok {
 				age := time.Since(cache.timestamp)
 				if cache.err != nil && age < apiErrorCacheTTL {
@@ -697,10 +700,10 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 				return nil, ctx.Err()
 			}
 
-			flightKey := fmt.Sprintf("usage:%d", accountID)
+			flightKey := "usage:" + AccountRuntimeIdentityKey(account)
 			result, flightErr, _ := s.cache.apiFlight.Do(flightKey, func() (any, error) {
 				// 再次检查缓存（可能在等待 singleflight 期间被其他请求填充）
-				if cached, ok := s.cache.apiCache.Load(accountID); ok {
+				if cached, ok := s.cache.apiCache.Load(AccountRuntimeIdentityKey(account)); ok {
 					if cache, ok := cached.(*apiUsageCache); ok {
 						age := time.Since(cache.timestamp)
 						if cache.err != nil && age < apiErrorCacheTTL {
@@ -714,14 +717,14 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 				resp, fetchErr := s.fetchOAuthUsageRaw(ctx, account)
 				if fetchErr != nil {
 					// 负缓存：缓存错误响应，防止后续请求重复触发 429
-					s.cache.apiCache.Store(accountID, &apiUsageCache{
+					s.cache.apiCache.Store(AccountRuntimeIdentityKey(account), &apiUsageCache{
 						err:       fetchErr,
 						timestamp: time.Now(),
 					})
 					return nil, fetchErr
 				}
 				// 缓存成功响应
-				s.cache.apiCache.Store(accountID, &apiUsageCache{
+				s.cache.apiCache.Store(AccountRuntimeIdentityKey(account), &apiUsageCache{
 					response:  resp,
 					timestamp: time.Now(),
 				})
@@ -741,7 +744,7 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 		s.addWindowStats(ctx, account, usage)
 
 		// 5. 将主动查询结果同步到被动缓存，下次 passive 加载即为最新值
-		s.syncActiveToPassive(ctx, account.ID, usage)
+		s.syncActiveToPassive(ctx, account, usage)
 
 		// 6. 上游 usage API 目前不一定下发 Fable 7d 窗口；缺失时回填被动采样
 		// （7d_oi 响应头）的数据，避免主动查询后 7d F 进度条丢失。
@@ -950,7 +953,7 @@ func buildPassiveUsageWindow(extra map[string]any, utilKey, resetKey string) *Us
 
 // syncActiveToPassive 将主动查询的最新数据回写到 Extra 被动缓存，
 // 这样下次被动加载时能看到最新值。
-func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID int64, usage *UsageInfo) {
+func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, account *Account, usage *UsageInfo) {
 	extraUpdates := make(map[string]any, 4)
 
 	if usage.FiveHour != nil {
@@ -969,20 +972,17 @@ func (s *AccountUsageService) syncActiveToPassive(ctx context.Context, accountID
 		}
 	}
 
+	var end *time.Time
+	if usage.FiveHour != nil {
+		end = usage.FiveHour.ResetsAt
+	}
 	if len(extraUpdates) > 0 {
 		extraUpdates["passive_usage_sampled_at"] = time.Now().UTC().Format(time.RFC3339)
-		if err := s.accountRepo.UpdateExtra(ctx, accountID, extraUpdates); err != nil {
-			slog.Warn("sync_active_to_passive_failed", "account_id", accountID, "error", err)
-		}
+	}
+	if err := s.persistRuntimeSnapshot(ctx, account, extraUpdates, end); err != nil {
+		slog.Warn("sync_active_to_passive_failed", "account_id", account.ID, "error", err)
 	}
 
-	// 5h ResetsAt 必须回写到 SessionWindowEnd column，estimateSetupTokenUsage
-	// 读这个字段作为窗口结束时间；只塞 Extra 会让 UI 一直拿到上个窗口的过期时间。
-	if usage.FiveHour != nil && usage.FiveHour.ResetsAt != nil {
-		if err := s.accountRepo.UpdateSessionWindowEnd(ctx, accountID, *usage.FiveHour.ResetsAt); err != nil {
-			slog.Warn("sync_active_to_passive_session_window_end_failed", "account_id", accountID, "error", err)
-		}
-	}
 }
 
 func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Account, force bool) (*UsageInfo, error) {
@@ -995,7 +995,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 
 	applyExtraToUsage(usage, account.Extra, now)
 
-	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
+	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account, now, force) {
 		if account.IsShadow() {
 			// Spark shadow accounts fetch usage from /wham/usage (bengalfox channel)
 			// via the shared OpenAIQuotaService, which resolves credentials from the
@@ -1005,7 +1005,7 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 				if quotaUsage, err := s.openAIQuotaService.QueryUsage(ctx, account.ID); err == nil {
 					if updates := buildCodexSparkWindowExtraUpdates(quotaUsage, now); len(updates) > 0 {
 						mergeAccountExtra(account, updates)
-						s.persistOpenAICodexProbeSnapshot(account.ID, updates)
+						s.persistOpenAICodexProbeSnapshot(account, updates)
 						if account.ParentAccountID != nil {
 							notifyOpenAIAutoReset(*account.ParentAccountID)
 						}
@@ -1089,19 +1089,19 @@ func isOpenAICodexSnapshotStale(account *Account, now time.Time) bool {
 	return now.Sub(ts) >= openAIProbeCacheTTL
 }
 
-func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(accountID int64, now time.Time, force ...bool) bool {
-	if s == nil || s.cache == nil || accountID <= 0 {
+func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(account *Account, now time.Time, force ...bool) bool {
+	if s == nil || s.cache == nil || account == nil || account.ID <= 0 {
 		return true
 	}
 	forceProbe := len(force) > 0 && force[0]
 	if !forceProbe {
-		if cached, ok := s.cache.openAIProbeCache.Load(accountID); ok {
+		if cached, ok := s.cache.openAIProbeCache.Load(AccountRuntimeIdentityKey(account)); ok {
 			if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openAIProbeCacheTTL {
 				return false
 			}
 		}
 	}
-	s.cache.openAIProbeCache.Store(accountID, now)
+	s.cache.openAIProbeCache.Store(AccountRuntimeIdentityKey(account), now)
 	return true
 }
 
@@ -1184,25 +1184,29 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 		return nil, err
 	}
 	if len(updates) > 0 {
-		s.persistOpenAICodexProbeSnapshot(account.ID, updates)
+		s.persistOpenAICodexProbeSnapshot(account, updates)
 		return updates, nil
 	}
 	return nil, nil
 }
 
-func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, updates map[string]any) {
-	if s == nil || s.accountRepo == nil || accountID <= 0 {
+func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(account *Account, updates map[string]any) {
+	if s == nil || s.accountRepo == nil || account == nil || account.ID <= 0 {
 		return
 	}
 	if len(updates) == 0 {
 		return
 	}
 
+	account = snapshotOAuthRefreshAccount(account)
+	updates = shallowCopyMap(updates)
 	go func() {
 		updateCtx, updateCancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer updateCancel()
-		if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil {
-			notifyOpenAIAutoReset(accountID)
+		if err := s.persistRuntimeSnapshot(updateCtx, account, updates, nil); err == nil {
+			notifyOpenAIAutoReset(account.ID)
+		} else {
+			slog.Warn("codex_probe_snapshot_rejected", "account_id", account.ID, "error", err)
 		}
 	}()
 }
@@ -1312,7 +1316,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	}
 
 	// 1. 检查缓存
-	if cached, ok := s.cache.antigravityCache.Load(account.ID); ok {
+	if cached, ok := s.cache.antigravityCache.Load(AccountRuntimeIdentityKey(account)); ok {
 		if cache, ok := cached.(*antigravityUsageCache); ok {
 			ttl := antigravityCacheTTL(cache.usageInfo)
 			if time.Since(cache.timestamp) < ttl {
@@ -1326,10 +1330,10 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 	}
 
 	// 2. singleflight 防止并发击穿
-	flightKey := fmt.Sprintf("ag-usage:%d", account.ID)
+	flightKey := "ag-usage:" + AccountRuntimeIdentityKey(account)
 	result, flightErr, _ := s.cache.antigravityFlight.Do(flightKey, func() (any, error) {
 		// 再次检查缓存（等待期间可能已被填充）
-		if cached, ok := s.cache.antigravityCache.Load(account.ID); ok {
+		if cached, ok := s.cache.antigravityCache.Load(AccountRuntimeIdentityKey(account)); ok {
 			if cache, ok := cached.(*antigravityUsageCache); ok {
 				ttl := antigravityCacheTTL(cache.usageInfo)
 				if time.Since(cache.timestamp) < ttl {
@@ -1350,7 +1354,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		if err != nil {
 			degraded := buildAntigravityDegradedUsage(err)
 			enrichUsageWithAccountError(degraded, account)
-			s.cache.antigravityCache.Store(account.ID, &antigravityUsageCache{
+			s.cache.antigravityCache.Store(AccountRuntimeIdentityKey(account), &antigravityUsageCache{
 				usageInfo: degraded,
 				timestamp: time.Now(),
 			})
@@ -1358,7 +1362,7 @@ func (s *AccountUsageService) getAntigravityUsage(ctx context.Context, account *
 		}
 
 		enrichUsageWithAccountError(fetchResult.UsageInfo, account)
-		s.cache.antigravityCache.Store(account.ID, &antigravityUsageCache{
+		s.cache.antigravityCache.Store(AccountRuntimeIdentityKey(account), &antigravityUsageCache{
 			usageInfo: fetchResult.UsageInfo,
 			timestamp: time.Now(),
 		})
@@ -1382,7 +1386,7 @@ func (s *AccountUsageService) getGrokUsage(ctx context.Context, account *Account
 		return &UsageInfo{UpdatedAt: &now}, nil
 	}
 	var billingProbeResult *GrokQuotaProbeResult
-	if account != nil && account.IsGrokOAuth() && s.grokQuotaService != nil && (force || grokBillingSnapshotNeedsRefresh(account, time.Now())) && s.shouldProbeGrokBilling(account.ID, time.Now(), force) {
+	if account != nil && account.IsGrokOAuth() && s.grokQuotaService != nil && (force || grokBillingSnapshotNeedsRefresh(account, time.Now())) && s.shouldProbeGrokBilling(account, time.Now(), force) {
 		result, err := s.grokQuotaService.ProbeBilling(ctx, account.ID)
 		if err == nil && result != nil && result.Billing != nil {
 			billingProbeResult = result
@@ -1519,16 +1523,16 @@ func grokBillingSnapshotNeedsRefresh(account *Account, now time.Time) bool {
 	return err != nil || now.Sub(updatedAt) >= openAIProbeCacheTTL
 }
 
-func (s *AccountUsageService) shouldProbeGrokBilling(accountID int64, now time.Time, force bool) bool {
-	if force || s == nil || s.cache == nil || accountID <= 0 {
+func (s *AccountUsageService) shouldProbeGrokBilling(account *Account, now time.Time, force bool) bool {
+	if force || s == nil || s.cache == nil || account == nil || account.ID <= 0 {
 		return true
 	}
-	if cached, ok := s.cache.grokProbeCache.Load(accountID); ok {
+	if cached, ok := s.cache.grokProbeCache.Load(AccountRuntimeIdentityKey(account)); ok {
 		if ts, ok := cached.(time.Time); ok && now.Sub(ts) < grokProbeRetryTTL {
 			return false
 		}
 	}
-	s.cache.grokProbeCache.Store(accountID, now)
+	s.cache.grokProbeCache.Store(AccountRuntimeIdentityKey(account), now)
 	return true
 }
 
@@ -1631,7 +1635,7 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 
 	// 检查窗口统计缓存（1 分钟）
 	var windowStats *WindowStats
-	if cached, ok := s.cache.windowStatsCache.Load(account.ID); ok {
+	if cached, ok := s.cache.windowStatsCache.Load(AccountRuntimeIdentityKey(account)); ok {
 		if cache, ok := cached.(*windowStatsCache); ok && time.Since(cache.timestamp) < windowStatsCacheTTL {
 			windowStats = cache.stats
 		}
@@ -1657,7 +1661,7 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 		}
 
 		// 缓存窗口统计（1 分钟）
-		s.cache.windowStatsCache.Store(account.ID, &windowStatsCache{
+		s.cache.windowStatsCache.Store(AccountRuntimeIdentityKey(account), &windowStatsCache{
 			stats:     windowStats,
 			timestamp: time.Now(),
 		})
