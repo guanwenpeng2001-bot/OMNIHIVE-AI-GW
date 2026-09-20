@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { ApiKey } from '@/types'
+import type { ApiKey } from '@/types/user'
 
 export interface UpdateApiKeyGroupResult {
   api_key: ApiKey

@@ -10,8 +10,8 @@ import type {
   AssignSubscriptionRequest,
   BulkAssignSubscriptionRequest,
   ExtendSubscriptionRequest,
-  PaginatedResponse
-} from '@/types'
+} from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 /**
  * List all subscriptions with pagination

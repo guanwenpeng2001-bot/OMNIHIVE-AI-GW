@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ApiResponse } from '@/types'
+import type { ApiResponse } from '@/types/common'
 import { getAPIBaseURL } from './url'
 
 const AUTH_TOKEN_KEY = 'auth_token'

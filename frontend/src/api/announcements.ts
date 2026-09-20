@@ -3,7 +3,7 @@
  */
 
 import { apiClient } from './client'
-import type { UserAnnouncement } from '@/types'
+import type { UserAnnouncement } from '@/types/admin'
 
 export async function list(unreadOnly: boolean = false): Promise<UserAnnouncement[]> {
   const { data } = await apiClient.get<UserAnnouncement[]>('/announcements', {

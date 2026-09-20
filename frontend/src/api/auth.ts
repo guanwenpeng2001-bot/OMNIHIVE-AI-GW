@@ -16,8 +16,8 @@ import type {
   PublicSettings,
   ActionCaptchaRequestProof,
   TotpLoginResponse,
-  TotpLogin2FARequest
-} from '@/types'
+  TotpLogin2FARequest,
+} from '@/types/user'
 
 /**
  * Login response type - can be either full auth or 2FA required

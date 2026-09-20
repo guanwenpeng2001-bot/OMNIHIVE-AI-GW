@@ -51,6 +51,7 @@ function createStreamResponse(lines: string[]) {
     ok: true,
     body: {
       getReader: () => ({
+        releaseLock: vi.fn(),
         read: vi.fn().mockImplementation(async () => {
           if (index < chunks.length) {
             return { done: false, value: chunks[index++] }

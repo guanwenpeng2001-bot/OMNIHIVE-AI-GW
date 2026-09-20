@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from './client'
-import type { Group } from '@/types'
+import type { Group } from '@/types/user'
 
 /**
  * Get available groups that the current user can bind to API keys
