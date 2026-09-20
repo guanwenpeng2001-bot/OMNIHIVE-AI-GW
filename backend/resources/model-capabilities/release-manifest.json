@@ -3,21 +3,25 @@
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
   "applicability": "reviewed-profile-model",
-  "approved_generation": 1789935866,
-  "catalog_sha256": "b090a9ee153bbec6c5e9b27c86f1f5b9fdc52d0e2bb1062b5751e6f6357259e0",
+  "approved_generation": 1789937613,
+  "catalog_sha256": "1c93c0e004963a614c31ab2e1d829927f28d650b6d77e30b482fa0893e781610",
   "code_versions": {
     "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
-    "internal/service/model_capability_catalog.go": "360524e640480de105462549b49c476db45eeee0046678e700b904847bcc55e3",
-    "internal/service/model_capability_heuristics.go": "13a3435db09aacb6e14f33d62fad83654f31388bef32e435dba31bd115b22441",
-    "internal/service/model_capability_matcher.go": "ccd66ace42e13ed933a6c6e375ed42cdd390937bccb04996753d0b3a30ba106c",
+    "internal/service/model_capability_catalog.go": "65a6eb3fb4fa1afcc20b91eadac2b536a5dc9d9bbcf6ad5ee7078f0294eb632f",
+    "internal/service/model_capability_heuristics.go": "fb24fd608d08e741502c3ae77439c98629cab454c160d2f43d24f0b46f5c9dda",
+    "internal/service/model_capability_matcher.go": "5758cb0a4fa4f28959c6048d9ee2181a7df438bfdbac9812e3acd72433c90ed2",
     "internal/service/model_capability_profile.go": "cc11658e045981eeaf2688cdd400fdbe07ebeeae9134a2420452b4851a0cb7e6",
-    "internal/service/model_capability_readonly.go": "a5bee3f6afa3c3985a6e605c9ed4c1c5819477c91b617118cb7873aa175a5678",
-    "resources/model-capabilities/release.go": "ddfd32cb712c0025832d0c1c7256abe1ae98bda8c35428070810ae61aa80ade9"
+    "internal/service/model_capability_readonly.go": "dd8e78623014c7e23b02fba9dc78f2c082f44d78c3d0a412327fdd6647eff082",
+    "internal/service/model_registry.go": "ef41af119383b9370312d2bea3b59acbe0ac72340026258441b185ec3e64dee8",
+    "internal/service/model_registry_reload.go": "ecb0104547d9304b632b390da2080f852eb0811b677ec8a0158ea5cf4902d44a",
+    "internal/service/platform_model_catalog.go": "be10780e9140cd7123c81304c74b2ea192910c44e3edbcee2814e7998cd7240c",
+    "resources/model-capabilities/release.go": "162d39bad99e33835ea6e901edf07a418eb0fd734705e4325a1770dcde4417d0"
   },
   "inputs_sha256": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
+  "presets_sha256": "5c7a9d4e0cf33297250c611d32db4561b8f5854a52db5312326666d934ae9ec2",
   "record_count": 296,
-  "review_sha256": "ab2da197120f09d3e6b9b54bc8a23db50bfbf3ad6982482532f2723d0c7a7617",
+  "review_sha256": "dbda9a516e8b4b95d5096734346627e11629f9a7bc54eeee8b97bf8623ad2fe2",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

@@ -154,9 +154,10 @@ func TestCursorCatalogFailureAndRecovery(t *testing.T) {
 	gateway, account, _ := cursorTestGateway()
 	driver := &cursorCatalogDriver{}
 	gateway.native = driver
-	require.Len(t, gateway.picker(context.Background(), account, cursor.Credentials{}), 38)
+	expected := append(CursorPresetModels(), cursor.AvailableModel{ID: cursor.AutoModelID, RunSlug: cursor.AutoModelID})
+	require.Equal(t, expected, gateway.picker(context.Background(), account, cursor.Credentials{}))
 	driver.available = []cursor.AvailableModel{{ID: "new-live-model", RunSlug: "new-live-run"}}
-	require.Len(t, gateway.picker(context.Background(), account, cursor.Credentials{}), 38)
+	require.Equal(t, expected, gateway.picker(context.Background(), account, cursor.Credentials{}))
 	require.Equal(t, 1, driver.calls)
 	key := cursorSessionKey(account)
 	cached := gateway.catalog[key]

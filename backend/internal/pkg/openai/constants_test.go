@@ -13,7 +13,7 @@ func TestDefaultModelsIncludeBareGPT56Alias(t *testing.T) {
 
 func TestDefaultModelsIncludeGPT6Astra(t *testing.T) {
 	require.Contains(t, service.NewModelRegistry().Snapshot().CandidateIDs(service.PlatformOpenAI, ""), "gpt-6-astra")
-	require.Contains(t, service.NewModelRegistry().Snapshot().CandidateIDs(service.PlatformOpenAI, ""), "gpt-6")
+	require.NotContains(t, service.NewModelRegistry().Snapshot().CandidateIDs(service.PlatformOpenAI, ""), "gpt-6", "approved review did not establish the bare alias")
 	var displayName string
 	for _, model := range service.OpenAIPresetModels() {
 		if model.ID == "gpt-6-astra" {

@@ -372,7 +372,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, int64(1_050_000), gpt6Astra.ContextWindow)
 	require.Equal(t, int64(1_050_000), gpt6Astra.MaxContextWindow)
 	gpt6 := newConfiguredCodexModelDescriptor("gpt-6")
-	require.Equal(t, "GPT-6 (Astra)", gpt6.DisplayName)
+	require.Equal(t, "gpt-6", gpt6.DisplayName)
 	require.True(t, strings.HasPrefix(strings.TrimSpace(gpt6.ModelMessages.InstructionsTemplate), "You are Codex, an agent based on GPT-6."))
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(gpt6.SupportedReasoningLevels))
 	require.NotNil(t, gpt6.MultiAgentReasoningEffort)
@@ -389,7 +389,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "low", *gpt55.DefaultVerbosity)
 
 	gpt4o := newConfiguredCodexModelDescriptor("gpt-4o")
-	require.Equal(t, "gpt-4o", gpt4o.DisplayName)
+	require.Equal(t, "GPT-4o", gpt4o.DisplayName)
 	require.NotNil(t, gpt4o.DefaultReasoningLevel)
 	require.Equal(t, "none", *gpt4o.DefaultReasoningLevel)
 	require.Equal(t, []string{"none"}, effortsFromConfiguredCodexLevels(gpt4o.SupportedReasoningLevels))

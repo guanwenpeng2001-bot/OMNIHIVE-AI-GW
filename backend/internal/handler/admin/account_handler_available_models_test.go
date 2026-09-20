@@ -388,7 +388,7 @@ func TestAccountHandlerGetAvailableModels_GeminiGoogleOneUsesConservativeCatalog
 	for _, model := range resp.Data {
 		ids = append(ids, model.ID)
 	}
-	require.ElementsMatch(t, []string{"gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"}, ids)
+	require.ElementsMatch(t, []string{"gemini-2.5-flash", "gemini-2.5-pro"}, ids)
 	require.NotContains(t, ids, "gemini-3.5-flash")
 	require.NotContains(t, ids, "gemini-2.5-flash-image")
 }

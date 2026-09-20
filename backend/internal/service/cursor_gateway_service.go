@@ -126,6 +126,8 @@ func (gateway *CursorGatewayService) picker(ctx context.Context, account *Accoun
 	models, err := gateway.native.AvailableModels(ctx, credentials)
 	if err != nil {
 		models = CursorPresetModels()
+		// The automatic router is a protocol selector, not an approved model candidate.
+		models = append(models, cursor.AvailableModel{ID: cursor.AutoModelID, RunSlug: cursor.AutoModelID})
 	}
 	gateway.catalogMu.Lock()
 	if gateway.catalog == nil {

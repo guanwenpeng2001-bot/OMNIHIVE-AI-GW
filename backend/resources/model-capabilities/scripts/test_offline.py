@@ -34,6 +34,9 @@ class OfflineCLITests(unittest.TestCase):
         prices = self.backend / 'resources/model-pricing/model_prices_and_context_window.json'
         prices.parent.mkdir(parents=True)
         prices.write_bytes(b'{}\n')
+        presets = self.backend / 'internal/service/platform_model_presets.json'
+        presets.parent.mkdir(parents=True, exist_ok=True)
+        presets.write_bytes(b'[]\n')
         self.value = catalog.read(catalog.CATALOG)
         self.resource = self.scripts.parent
         catalog.write(self.resource / 'catalog.json', self.value)
@@ -77,6 +80,13 @@ class OfflineCLITests(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn('missing release dependency: ' + release.VERSION_FILES[0], result.stderr)
         self.assertIn('code_versions.' + release.VERSION_FILES[1], result.stderr)
+
+    def test_changed_presets_are_rejected_without_repairing_pin(self):
+        self.prepare_report()
+        (self.backend / 'internal/service/platform_model_presets.json').write_bytes(b'[{}]\n')
+        result = self.run_command('validate', '--check-artifacts')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('presets_sha256', result.stderr)
 
     def test_required_catalog_rejects_drift_before_go_and_resumes_after_restore(self):
         runner = self.backend / 'scripts/required-round-tests.py'

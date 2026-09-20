@@ -12,6 +12,7 @@ import (
 )
 
 const (
+	AutoModelID       = "default"
 	modelsEndpoint    = "/aiserver.v1.AiService/AvailableModels"
 	modelsExcludeMax  = 3
 	modelsParameters  = 5
@@ -34,7 +35,7 @@ type AvailableModel struct {
 func ProtocolVariantModels() []AvailableModel {
 	snapshot := defaultRunSlugTable()
 	// "default" is the protocol's automatic router, not a model inventory claim.
-	models := []AvailableModel{{ID: "default", RunSlug: "default"}}
+	models := []AvailableModel{{ID: AutoModelID, RunSlug: AutoModelID}}
 	for id, slugs := range snapshot {
 		models = append(models, AvailableModel{ID: id, RunSlug: id, LegacySlugs: slugs})
 	}
