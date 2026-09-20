@@ -1,6 +1,7 @@
 package repository
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net/http"
 	"strings"
@@ -21,28 +22,38 @@ type reqClientOptions struct {
 	ForceHTTP2  bool          // 是否强制使用 HTTP/2
 }
 
-// sharedReqClients 存储按配置参数缓存的 req 客户端实例
-//
-// 性能优化说明：
-// 原实现在每次 OAuth 刷新时都创建新的 req.Client：
-// 1. claude_oauth_service.go: 每次刷新创建新客户端
-// 2. openai_oauth_service.go: 每次刷新创建新客户端
-// 3. gemini_oauth_client.go: 每次刷新创建新客户端
-//
-// 新实现使用 sync.Map 缓存客户端：
-// 1. 相同配置（代理+超时+模拟设置）复用同一客户端
-// 2. 复用底层连接池，减少 TLS 握手开销
-// 3. LoadOrStore 保证并发安全，避免重复创建
-var sharedReqClients sync.Map
+const sharedReqClientLimit = 128
+const sharedReqClientTTL = 15 * time.Minute
+
+type reqClientEntry struct {
+	accessOrder uint64
+	client      *req.Client
+	lastUsed    time.Time
+}
+
+var sharedReqClients = make(map[string]reqClientEntry)
+var sharedReqClientsMu sync.Mutex
+var sharedReqClientAccessOrder uint64
 
 // getSharedReqClient 获取共享的 req 客户端实例
 // 性能优化：相同配置复用同一客户端，避免重复创建
 func getSharedReqClient(opts reqClientOptions) (*req.Client, error) {
 	key := buildReqClientKey(opts)
-	if cached, ok := sharedReqClients.Load(key); ok {
-		if c, ok := cached.(*req.Client); ok {
-			return c, nil
+	sharedReqClientsMu.Lock()
+	defer sharedReqClientsMu.Unlock()
+	now := time.Now()
+	sharedReqClientAccessOrder++
+	for cachedKey, entry := range sharedReqClients {
+		if now.Sub(entry.lastUsed) >= sharedReqClientTTL {
+			entry.client.GetTransport().CloseIdleConnections()
+			delete(sharedReqClients, cachedKey)
 		}
+	}
+	if entry, ok := sharedReqClients[key]; ok {
+		entry.lastUsed = now
+		entry.accessOrder = sharedReqClientAccessOrder
+		sharedReqClients[key] = entry
+		return entry.client, nil
 	}
 
 	client := req.C().SetTimeout(opts.Timeout)
@@ -64,12 +75,21 @@ func getSharedReqClient(opts reqClientOptions) (*req.Client, error) {
 	if trimmed != "" {
 		client.SetProxyURL(trimmed)
 	}
+	client.GetTransport().SetMaxConnsPerHost(100).SetMaxIdleConns(100).SetIdleConnTimeout(90 * time.Second)
 	client = instrumentReqClient(client)
 
-	actual, _ := sharedReqClients.LoadOrStore(key, client)
-	if c, ok := actual.(*req.Client); ok {
-		return c, nil
+	if len(sharedReqClients) >= sharedReqClientLimit {
+		var oldestKey string
+		var oldest uint64
+		for cachedKey, entry := range sharedReqClients {
+			if oldest == 0 || entry.accessOrder < oldest {
+				oldestKey, oldest = cachedKey, entry.accessOrder
+			}
+		}
+		sharedReqClients[oldestKey].client.GetTransport().CloseIdleConnections()
+		delete(sharedReqClients, oldestKey)
 	}
+	sharedReqClients[key] = reqClientEntry{client: client, lastUsed: now, accessOrder: sharedReqClientAccessOrder}
 	return client, nil
 }
 
@@ -85,12 +105,12 @@ func instrumentReqClient(client *req.Client) *req.Client {
 }
 
 func buildReqClientKey(opts reqClientOptions) string {
-	return fmt.Sprintf("%s|%s|%t|%t",
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%t|%t",
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.Impersonate,
 		opts.ForceHTTP2,
-	)
+	))))
 }
 
 // CreatePrivacyReqClient creates an HTTP client for OpenAI privacy settings API

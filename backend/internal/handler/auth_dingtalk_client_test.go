@@ -4,9 +4,14 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/alicebob/miniredis/v2"
+	"github.com/redis/go-redis/v9"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,4 +145,101 @@ func TestDingTalkClient_GetDeptInfo_ErrCode60003(t *testing.T) {
 	apiErr, ok := err.(*DingTalkAPIError)
 	require.True(t, ok)
 	require.Equal(t, "60003", apiErr.Code)
+}
+
+func TestDingTalkSharedTokenRefreshExpiryAndIdentity(t *testing.T) {
+	cache := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr()})
+	defer redisClient.Close()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		_, _ = writer.Write([]byte(`{"accessToken":"shared-token","expireIn":7200}`))
+	}))
+	defer server.Close()
+	config := dingTalkClientConfig{ClientID: "app", ClientSecret: "secret", TokenURL: server.URL}
+	first := &DingTalkClient{cfg: config, httpClient: server.Client(), redisClient: redisClient}
+	second := &DingTalkClient{cfg: config, httpClient: server.Client(), redisClient: redisClient}
+	var workers sync.WaitGroup
+	for _, client := range []*DingTalkClient{first, second} {
+		workers.Add(1)
+		go func(client *DingTalkClient) {
+			defer workers.Done()
+			token, err := client.GetAppToken(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, "shared-token", token)
+		}(client)
+	}
+	workers.Wait()
+	require.EqualValues(t, 1, calls.Load())
+	require.Equal(t, 7000*time.Second, cache.TTL(first.appTokenCacheKey()))
+	require.False(t, cache.Exists(first.appTokenCacheKey()+":refresh"))
+	cache.FastForward(7000 * time.Second)
+	_, err := second.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 2, calls.Load())
+	second.cfg.ClientSecret = "rotated"
+	require.NotEqual(t, first.appTokenCacheKey(), second.appTokenCacheKey())
+	_, err = second.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 3, calls.Load())
+}
+
+func TestDingTalkSharedTokenLockWaitCancellation(t *testing.T) {
+	cache := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr()})
+	defer redisClient.Close()
+	client := &DingTalkClient{redisClient: redisClient}
+	require.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "other-owner"))
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	_, err := client.GetAppToken(ctx)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	owner, err := cache.Get(client.appTokenCacheKey() + ":refresh")
+	require.NoError(t, err)
+	require.Equal(t, "other-owner", owner)
+}
+
+func TestDingTalkRedisFailureFallsBackWithoutLocalToken(t *testing.T) {
+	cache := miniredis.RunT(t)
+	cache.SetError("ERR unavailable")
+	redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr(), MaxRetries: -1})
+	defer redisClient.Close()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		_, _ = writer.Write([]byte(`{"accessToken":"fresh","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), redisClient: redisClient, appToken: "stale", appTokenExp: time.Now().Add(time.Hour)}
+	for attempt := 0; attempt < 2; attempt++ {
+		token, err := client.GetAppToken(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "fresh", token)
+	}
+	require.EqualValues(t, 2, calls.Load())
+}
+
+func TestDingTalkRefreshCannotPublishOrUnlockNewOwner(t *testing.T) {
+	cache := miniredis.RunT(t)
+	redisClient := redis.NewClient(&redis.Options{Addr: cache.Addr()})
+	defer redisClient.Close()
+	client := &DingTalkClient{redisClient: redisClient}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cache.FastForward(31 * time.Second)
+		assert.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "new-owner"))
+		assert.NoError(t, cache.Set(client.appTokenCacheKey(), "newer-token"))
+		_, _ = writer.Write([]byte(`{"accessToken":"older-token","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client.cfg.TokenURL, client.httpClient = server.URL, server.Client()
+	returned, err := client.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "newer-token", returned)
+	token, err := cache.Get(client.appTokenCacheKey())
+	require.NoError(t, err)
+	require.Equal(t, "newer-token", token)
+	owner, err := cache.Get(client.appTokenCacheKey() + ":refresh")
+	require.NoError(t, err)
+	require.Equal(t, "new-owner", owner)
 }

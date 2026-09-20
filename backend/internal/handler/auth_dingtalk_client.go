@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +14,11 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
+	"github.com/redis/go-redis/v9"
 )
 
 // dingTalkClientConfig 是 DingTalkClient 需要的最小配置子集
@@ -28,7 +35,7 @@ type DingTalkClient struct {
 	appTokenExp time.Time // 钉钉 7200s，留 200s 余量 → 7000s
 	mu          sync.Mutex
 	httpClient  *http.Client
-	// TODO(multi-instance): Redis 集中缓存 appToken
+	redisClient *redis.Client
 }
 
 type DingTalkUserTokenResp struct {
@@ -155,9 +162,23 @@ func (c *DingTalkClient) dingTalkOAPIBase() string {
 func (c *DingTalkClient) GetAppToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.redisClient != nil {
+		return c.getSharedAppToken(ctx)
+	}
 	if c.appToken != "" && time.Now().Before(c.appTokenExp) {
 		return c.appToken, nil
 	}
+	token, ttl, err := c.fetchAppToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	c.appToken, c.appTokenExp = token, time.Now().Add(ttl)
+	return token, nil
+}
+
+func (c *DingTalkClient) fetchAppToken(ctx context.Context) (string, time.Duration, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	body := map[string]string{"appKey": c.cfg.ClientID, "appSecret": c.cfg.ClientSecret}
 	payload, _ := json.Marshal(body)
 	// 钉钉新版 v1.0 企业内部应用 access_token: POST /v1.0/oauth2/accessToken
@@ -168,35 +189,36 @@ func (c *DingTalkClient) GetAppToken(ctx context.Context) (string, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appTokenURL, bytes.NewReader(payload))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", parseDingTalkErr(raw, resp.StatusCode)
+		return "", 0, parseDingTalkErr(raw, resp.StatusCode)
 	}
 	var v struct {
 		AccessToken string `json:"accessToken"`
 		ExpireIn    int64  `json:"expireIn"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if v.AccessToken == "" {
-		return "", parseDingTalkErr(raw, resp.StatusCode)
+		return "", 0, parseDingTalkErr(raw, resp.StatusCode)
 	}
-	c.appToken = v.AccessToken
 	ttl := v.ExpireIn
 	if ttl > 200 {
 		ttl -= 200
 	}
-	c.appTokenExp = time.Now().Add(time.Duration(ttl) * time.Second)
-	return c.appToken, nil
+	if ttl <= 0 {
+		return "", 0, fmt.Errorf("dingtalk token has invalid expiry")
+	}
+	return v.AccessToken, time.Duration(ttl) * time.Second, nil
 }
 
 func (c *DingTalkClient) GetUserIdByUnionId(ctx context.Context, unionID string) (string, error) {
@@ -395,4 +417,77 @@ func (c *DingTalkClient) GetStaffInfoByUserId(ctx context.Context, userID string
 		Email:    email,
 		DeptIDs:  v.Result.DeptID,
 	}, nil
+}
+
+func (c *DingTalkClient) appTokenCacheKey() string {
+	identity, _ := json.Marshal(c.cfg)
+	return fmt.Sprintf("dingtalk:app-token:%x", sha256.Sum256(identity))
+}
+
+// Redis is authoritative when available; a failed cache operation falls back to
+// an uncached upstream fetch rather than preserving a process-local stale token.
+func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	key := c.appTokenCacheKey()
+	lockKey := key + ":refresh"
+	owner := uuid.NewString()
+	fallback := func() (string, error) { token, _, err := c.fetchAppToken(ctx); return token, err }
+	for {
+		token, err := c.redisClient.Get(ctx, key).Result()
+		if err == nil && token != "" {
+			return token, nil
+		}
+		if err != nil && !errors.Is(err, redis.Nil) {
+			return fallback()
+		}
+		acquired, err := c.redisClient.SetNX(ctx, lockKey, owner, 30*time.Second).Result()
+		if err != nil {
+			return fallback()
+		}
+		if acquired {
+			defer func() {
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+				defer cleanupCancel()
+				_ = c.redisClient.Eval(cleanupCtx, `if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`, []string{lockKey}, owner).Err()
+			}()
+			// Another instance may have populated the cache between GET and SET NX.
+			token, err = c.redisClient.Get(ctx, key).Result()
+			if err == nil && token != "" {
+				return token, nil
+			}
+			token, ttl, err := c.fetchAppToken(ctx)
+			if err != nil {
+				return "", err
+			}
+			// A timed-out owner must never overwrite a newer owner's token.
+			// Cache publication is best effort after a successful upstream fetch.
+			published, publishErr := c.redisClient.Eval(ctx, `if redis.call('GET', KEYS[1]) == ARGV[1] then redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[3]); return 1 end return 0`, []string{lockKey, key}, owner, token, ttl.Milliseconds()).Int64()
+			if publishErr == nil && published == 0 {
+				current, readErr := c.redisClient.Get(ctx, key).Result()
+				if readErr == nil && current != "" {
+					return current, nil
+				}
+				return "", fmt.Errorf("dingtalk token refresh ownership expired")
+			}
+			return token, nil
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// ProvideAuthHandler supplies the shared Redis client in production.
+func ProvideAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService, redisClient *redis.Client) *AuthHandler {
+	handler := NewAuthHandler(cfg, authService, userService, settingService, promoService, redeemService, totpService, userAttributeService)
+	handler.redisClient = redisClient
+	return handler
 }
