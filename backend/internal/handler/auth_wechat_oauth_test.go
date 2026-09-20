@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -891,7 +892,7 @@ func TestCompleteWeChatOAuthRegistrationAfterInvitationPendingSessionReturnsPend
 	callbackCtx.Request = callbackReq
 
 	prepareOAuthCallbackState(t, handler, callbackCtx, "wechat", wechatOAuthStateCookieName)
- handler.WeChatOAuthCallback(callbackCtx)
+	handler.WeChatOAuthCallback(callbackCtx)
 
 	require.Equal(t, http.StatusFound, callbackRecorder.Code)
 	require.Equal(t, "/auth/wechat/callback", callbackRecorder.Header().Get("Location"))
@@ -1028,6 +1029,65 @@ func TestCompleteWeChatOAuthRegistrationBindsIdentityWithoutAdoptionFlags(t *tes
 	require.Equal(t, identity.ID, *decision.IdentityID)
 	require.False(t, decision.AdoptDisplayName)
 	require.False(t, decision.AdoptAvatar)
+}
+
+func TestCompleteWeChatOAuthRegistrationRollsBackBindingOnWriteFailure(testingT *testing.T) {
+	for _, failureStage := range []string{"consume", "channel"} {
+		testingT.Run(failureStage, func(testingT *testing.T) {
+			handler, client := newOAuthPendingFlowTestHandler(testingT, false)
+			requestContext := context.Background()
+			session, err := client.PendingAuthSession.Create().
+				SetSessionToken("wechat-write-failure").SetIntent("login").
+				SetProviderType("wechat").SetProviderKey(wechatOAuthProviderKey).
+				SetProviderSubject("wechat-write-failure-subject").
+				SetResolvedEmail("write-failure@wechat-connect.invalid").
+				SetBrowserSessionKey("wechat-browser").
+				SetUpstreamIdentityClaims(map[string]any{
+					"username": "Original", "suggested_display_name": "Adopted",
+					"mode": "open", "channel": "open", "channel_app_id": "wechat-app", "channel_subject": "wechat-openid",
+				}).SetExpiresAt(time.Now().UTC().Add(time.Minute)).Save(requestContext)
+			require.NoError(testingT, err)
+			injectedError := errors.New("injected " + failureStage + " write failure")
+			failureAttempted := false
+			failWrite := func(next dbent.Mutator) dbent.Mutator {
+				return dbent.MutateFunc(func(ctx context.Context, mutation dbent.Mutation) (dbent.Value, error) {
+					failureAttempted = true
+					return nil, injectedError
+				})
+			}
+			if failureStage == "consume" {
+				client.PendingAuthSession.Use(failWrite)
+			} else {
+				client.AuthIdentityChannel.Use(failWrite)
+			}
+			recorder := httptest.NewRecorder()
+			completeContext, _ := gin.CreateTestContext(recorder)
+			request := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/wechat/complete-registration", strings.NewReader(`{"invitation_code":"invite-1","adopt_display_name":true,"adopt_avatar":false}`))
+			request.Header.Set("Content-Type", "application/json")
+			request.AddCookie(&http.Cookie{Name: oauthPendingSessionCookieName, Value: encodeCookieValue(session.SessionToken)})
+			request.AddCookie(&http.Cookie{Name: oauthPendingBrowserCookieName, Value: encodeCookieValue(session.BrowserSessionKey)})
+			completeContext.Request = request
+			handler.CompleteWeChatOAuthRegistration(completeContext)
+			require.Equal(testingT, http.StatusInternalServerError, recorder.Code)
+			require.True(testingT, failureAttempted)
+			storedSession, err := client.PendingAuthSession.Get(requestContext, session.ID)
+			require.NoError(testingT, err)
+			require.Nil(testingT, storedSession.ConsumedAt)
+			identities, err := client.AuthIdentity.Query().All(requestContext)
+			require.NoError(testingT, err)
+			channels, err := client.AuthIdentityChannel.Query().All(requestContext)
+			require.NoError(testingT, err)
+			storedUser, err := client.User.Query().Where(dbuser.EmailEQ(session.ResolvedEmail)).Only(requestContext)
+			require.NoError(testingT, err)
+			testingT.Logf("response_status=%d identity_count=%d channel_count=%d username=%s consumed_at=%v", recorder.Code, len(identities), len(channels), storedUser.Username, storedSession.ConsumedAt)
+			require.Empty(testingT, identities, "failed completion must not commit identity binding")
+			require.Empty(testingT, channels, "failed completion must not commit channel binding")
+			require.Equal(testingT, "Original", storedUser.Username, "failed completion must not adopt profile")
+			decision, err := client.IdentityAdoptionDecision.Query().Where(identityadoptiondecision.PendingAuthSessionIDEQ(session.ID)).Only(requestContext)
+			require.NoError(testingT, err)
+			require.Nil(testingT, decision.IdentityID, "failed completion must not link adoption decision")
+		})
+	}
 }
 
 func TestWeChatOAuthCallbackRepairsLegacyOpenIDOnlyIdentity(t *testing.T) {
