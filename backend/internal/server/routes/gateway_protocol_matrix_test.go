@@ -55,7 +55,7 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{endpoint}, EvidenceKind: "synthetic-contract"}}}
 					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
 					options := service.AccountModelBindingOptions{Endpoint: endpoint, FinalModel: "fixture-model"}
-					require.True(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
+					require.Equal(test, !descriptor.ChatOnly || endpoint == "chat_completions", service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported, "evidence cannot enable an unimplemented platform action")
 					catalog.EligibleModels[0].Endpoints = []string{"unrelated-endpoint"}
 					account.Extra[service.UpstreamModelCatalogExtraKey] = catalog
 					require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
