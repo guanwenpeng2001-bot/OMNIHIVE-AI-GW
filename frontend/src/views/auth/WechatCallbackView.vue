@@ -445,6 +445,7 @@ function clearPendingAuthSession() {
 function parseFragmentParams(): URLSearchParams {
   const raw = typeof window !== 'undefined' ? window.location.hash : ''
   const hash = raw.startsWith('#') ? raw.slice(1) : raw
+  if (hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
   return new URLSearchParams(hash)
 }
 
@@ -621,8 +622,8 @@ async function handleBindCurrentAccount() {
   }
 
   try {
-    await prepareOAuthBindAccessTokenCookie()
-    window.location.href = startURL
+    const csrfToken = await prepareOAuthBindAccessTokenCookie()
+    window.location.href = `${startURL}&csrf_token=${encodeURIComponent(csrfToken)}`
   } catch (e: unknown) {
     errorMessage.value = getRequestErrorMessage(e, t('auth.loginFailed'))
   }

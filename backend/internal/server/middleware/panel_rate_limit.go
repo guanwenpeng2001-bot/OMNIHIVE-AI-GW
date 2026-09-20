@@ -31,7 +31,7 @@ type panelRateLimitAllower interface {
 //   - 公开接口按安全客户端 IP 计数：仅统计全局单播地址，回环/内网/链路本地
 //     地址（反代内部转发地址）直接跳过，避免误拦整条反代链路的流量。
 //   - 配置走进程内缓存（60s TTL），热路径零 DB 访问。
-//   - Redis 异常一律 fail-open：限流是保护措施，不能反过来把面板打挂。
+//   - Redis 异常时保护写请求，读请求保留可用性。
 type PanelRateLimiter struct {
 	limiter        panelRateLimitAllower
 	settingService *service.SettingService
@@ -88,8 +88,12 @@ func (p *PanelRateLimiter) userScoped(scope string, limitOf func(service.PanelRa
 		key := "panel:" + scope + ":user:" + strconv.FormatInt(subject.UserID, 10)
 		result, err := p.limiter.Allow(c.Request.Context(), key, limit, panelRateLimitWindow)
 		if err != nil {
-			// fail-open：Redis 异常不阻断面板访问
-			slog.Warn("panel rate limit check failed, allowing request", "scope", scope, "error", err)
+			slog.Warn("panel rate limit check failed", "scope", scope, "user_id", subject.UserID, "error", err)
+			if c.Request.Method != http.MethodGet && c.Request.Method != http.MethodHead && c.Request.Method != http.MethodOptions {
+				c.Header("Retry-After", "1")
+				AbortWithError(c, http.StatusServiceUnavailable, "RATE_LIMIT_UNAVAILABLE", "Rate limit service unavailable")
+				return
+			}
 			c.Next()
 			return
 		}

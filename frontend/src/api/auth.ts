@@ -315,11 +315,12 @@ export function persistOAuthTokenContext(tokens: Partial<OAuthTokenResponse>): v
   }
 }
 
-export async function prepareOAuthBindAccessTokenCookie(): Promise<void> {
+export async function prepareOAuthBindAccessTokenCookie(): Promise<string> {
   if (!getAuthToken()) {
-    return
+    throw new Error('Authentication required')
   }
-  await apiClient.post('/auth/oauth/bind-token')
+  const { data } = await apiClient.post<{ csrf_token: string }>('/auth/oauth/bind-token')
+  return data.csrf_token
 }
 
 /**

@@ -366,6 +366,7 @@ function clearPendingAuthSession() {
 function parseFragmentParams(): URLSearchParams {
   const raw = typeof window !== 'undefined' ? window.location.hash : ''
   const hash = raw.startsWith('#') ? raw.slice(1) : raw
+  if (hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
   return new URLSearchParams(hash)
 }
 

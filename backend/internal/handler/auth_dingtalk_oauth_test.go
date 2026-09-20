@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -87,11 +88,12 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 			request.AddCookie(encodedCookie(dingTalkOAuthBindUserCookieName, buildEncodedOAuthBindUserCookie(testingT, user.ID, handler.cfg.JWT.Secret)))
 			request.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
 			requestContext.Request = request
+			prepareOAuthCallbackState(testingT, handler, requestContext, "dingtalk", dingTalkOAuthStateCookieName)
 			handler.DingTalkOAuthCallback(requestContext)
 			require.Equal(testingT, http.StatusFound, recorder.Code)
 			if scenario != "bind" {
 				require.NotEmpty(testingT, parseOAuthRedirectFragment(testingT, recorder.Header().Get("Location")).Get("error"))
-				count, err := database.PendingAuthSession.Query().Count(ctx)
+				count, err := database.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 				require.NoError(testingT, err)
 				require.Zero(testingT, count)
 				if scenario == "state_mismatch" {
@@ -103,7 +105,7 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 				return
 			}
 			require.Len(testingT, calls, 5)
-			session, err := database.PendingAuthSession.Query().Only(ctx)
+			session, err := database.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Only(ctx)
 			require.NoError(testingT, err)
 			require.Equal(testingT, "fixture-union", session.ProviderSubject)
 			require.Equal(testingT, user.ID, *session.TargetUserID)

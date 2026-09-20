@@ -14,7 +14,6 @@ import (
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -123,7 +122,7 @@ func (h *AuthHandler) DingTalkOAuthStart(c *gin.Context) {
 		return
 	}
 
-	state, err := oauth.GenerateState()
+	state, err := h.issueOAuthState(c, "dingtalk")
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.InternalServer("OAUTH_STATE_GEN_FAILED", "failed to generate oauth state").WithCause(err))
 		return
@@ -196,7 +195,7 @@ func (h *AuthHandler) findDingTalkCompatEmailUser(ctx context.Context, email str
 	}
 
 	userEntities, err := client.User.Query().
-		Where(userNormalizedEmailPredicate(email)).
+		Where(service.UserNormalizedEmailPredicate(email)).
 		Order(dbent.Asc(dbuser.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -327,6 +326,10 @@ func (h *AuthHandler) DingTalkOAuthCallback(c *gin.Context) {
 	expectedState, err := readCookieDecoded(c, dingTalkOAuthStateCookieName)
 	if err != nil || state != expectedState {
 		redirectOAuthError(c, frontendCallback, "csrf", "state mismatch", "")
+		return
+	}
+	if err := h.consumeOAuthState(c, "dingtalk", state); err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid or consumed oauth state", "")
 		return
 	}
 	redirectTo, _ := readCookieDecoded(c, dingTalkOAuthRedirectCookie)
@@ -772,7 +775,7 @@ func (h *AuthHandler) CompleteDingTalkOAuthRegistration(c *gin.Context) {
 		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready"))
 		return
 	}
-	if err := ensurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), client, session); err != nil {
+	if err := h.authService.EnsurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), session); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}
@@ -797,7 +800,7 @@ func (h *AuthHandler) CompleteDingTalkOAuthRegistration(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if err := applyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), client, h.authService, h.userService, session, decision, user.ID); err != nil {
+	if err := h.authService.ApplyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), h.userService, session, decision, user.ID); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}

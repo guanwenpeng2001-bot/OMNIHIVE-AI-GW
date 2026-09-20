@@ -374,17 +374,7 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		if err := applyPendingOAuthBinding(
-			c.Request.Context(),
-			h.entClient(),
-			h.authService,
-			h.userService,
-			pendingSession,
-			decision,
-			&user.ID,
-			true,
-			true,
-		); err != nil {
+		if err := h.authService.ApplyPendingOAuthBinding(c.Request.Context(), h.userService, pendingSession, decision, &user.ID, true, true); err != nil {
 			response.ErrorFrom(c, infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err))
 			return
 		}

@@ -32,18 +32,21 @@ func adminAuth(
 	auditService *service.AuditLogService,
 ) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		// WebSocket upgrade requests cannot set Authorization headers in browsers.
-		// For admin WebSocket endpoints (e.g. Ops realtime), allow passing the JWT via
-		// Sec-WebSocket-Protocol (subprotocol list) using a prefixed token item:
-		//   Sec-WebSocket-Protocol: sub2api-admin, jwt.<token>
+		// Browser upgrades carry only a short-lived, scoped, single-use ticket.
 		if isWebSocketUpgradeRequest(c) {
-			if token := extractJWTFromWebSocketSubprotocol(c); token != "" {
-				if !validateJWTForAdmin(c, token, authService, userService, settingService, auditService) {
-					return
-				}
-				c.Next()
+			ticket := extractTicketFromWebSocketSubprotocol(c)
+			claims, err := authService.ConsumeAdminWebSocketTicket(c.Request.Context(), ticket, c.Request.URL.Path)
+			if err != nil {
+				AbortWithError(c, 401, "INVALID_WS_TICKET", "Invalid WebSocket ticket")
 				return
 			}
+			// Never forward a credential-bearing subprotocol to the upgrader.
+			c.Request.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin")
+			if !validateAdminClaims(c, claims, authService, userService, settingService, auditService) {
+				return
+			}
+			c.Next()
+			return
 		}
 
 		// 检查 x-api-key header（Admin API Key 认证）
@@ -94,7 +97,7 @@ func isWebSocketUpgradeRequest(c *gin.Context) bool {
 	return strings.Contains(connection, "upgrade")
 }
 
-func extractJWTFromWebSocketSubprotocol(c *gin.Context) string {
+func extractTicketFromWebSocketSubprotocol(c *gin.Context) string {
 	if c == nil {
 		return ""
 	}
@@ -103,12 +106,12 @@ func extractJWTFromWebSocketSubprotocol(c *gin.Context) string {
 		return ""
 	}
 
-	// The header is a comma-separated list of tokens. We reserve the prefix "jwt."
-	// for carrying the admin JWT.
+	// The header is a comma-separated list of tokens. We reserve the prefix "ticket."
+	// for carrying a single-use ticket.
 	for _, part := range strings.Split(raw, ",") {
 		p := strings.TrimSpace(part)
-		if strings.HasPrefix(p, "jwt.") {
-			token := strings.TrimSpace(strings.TrimPrefix(p, "jwt."))
+		if strings.HasPrefix(p, "ticket.") {
+			token := strings.TrimSpace(strings.TrimPrefix(p, "ticket."))
 			if token != "" {
 				return token
 			}
@@ -172,6 +175,11 @@ func validateJWTForAdmin(
 		AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
 		return false
 	}
+
+	return validateAdminClaims(c, claims, authService, userService, settingService, auditService)
+}
+
+func validateAdminClaims(c *gin.Context, claims *service.JWTClaims, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, auditService *service.AuditLogService) bool {
 
 	// 从数据库获取用户
 	user, err := userService.GetByID(c.Request.Context(), claims.UserID)
