@@ -37,11 +37,11 @@ jobs:
       - name: Set up pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          version: 11.25.0
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
       - name: Install dependencies
@@ -57,3 +57,12 @@ jobs:
           python tools/check_pnpm_audit_exceptions.py \
             --audit frontend/audit.json \
             --exceptions .github/audit-exceptions.yml
+
+      - name: Upload dependency audit report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dependency-audit
+          path: frontend/audit.json
+          if-no-files-found: error
+          retention-days: 14
