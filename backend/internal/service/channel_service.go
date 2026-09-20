@@ -254,7 +254,10 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 				})
 			} else {
 				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: normalizeChannelPricingModelName(model)}
-				cache.pricingByGroupModel[key] = pricing
+				existing := cache.pricingByGroupModel[key]
+				if existing == nil || pricing.BillingMode == "" || pricing.BillingMode == BillingModeToken {
+					cache.pricingByGroupModel[key] = pricing
+				}
 			}
 		}
 	}
@@ -694,6 +697,11 @@ func validateChannelConfig(pricing []ChannelModelPricing, mapping map[string]map
 // validatePricingEntries 校验定价条目（冲突检测 + 区间校验 + 计费模式校验），
 // 同时用于主渠道定价和 account_stats_pricing_rules 的内部定价。
 func validatePricingEntries(pricing []ChannelModelPricing) error {
+	for _, card := range pricing {
+		if err := validateModelPriceVariants(card.PriceVariants); err != nil {
+			return err
+		}
+	}
 	if err := validateQianwenThinkingPrices(pricing); err != nil {
 		return err
 	}
@@ -1114,7 +1122,12 @@ func validateNoConflictingModels(pricingList []ChannelModelPricing) error {
 	byPlatform := make(map[string][]modelEntry)
 	for _, p := range pricingList {
 		for _, model := range p.Models {
-			byPlatform[p.Platform] = append(byPlatform[p.Platform], toPricingModelEntry(model))
+			mode := p.BillingMode
+			if mode == "" {
+				mode = BillingModeToken
+			}
+			identity := p.Platform + ":" + string(mode)
+			byPlatform[identity] = append(byPlatform[identity], toPricingModelEntry(model))
 		}
 	}
 	for platform, entries := range byPlatform {

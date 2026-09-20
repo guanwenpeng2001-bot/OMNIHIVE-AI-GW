@@ -50,6 +50,7 @@ func (s *GatewayService) withGatewayProfitControlGate(ctx context.Context, group
 		threshold: threshold,
 		pricingAt: pricingAt,
 	}
+	gate.attachPricingDescriptor(ctx, s.resolver, billingGroup)
 	openAIProfitControlObserverInstance.recordInstall(gate.groupID, gate.platform, gate.threshold)
 	return context.WithValue(ctx, openAIProfitControlGateCtxKey{}, gate)
 }

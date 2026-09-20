@@ -87,6 +87,7 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
+	PriceVariants        []ModelPriceVariant `json:"price_variants,omitempty"`
 	ExplicitCachePricing *QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
 	BatchChatPricing     *QianwenModePricing `json:"batch_chat_pricing,omitempty"`
 	ThinkingPricing      *QianwenModePricing `json:"thinking_pricing,omitempty"`
@@ -214,9 +215,21 @@ func (p *ChannelModelPricing) GetTierByLabel(label string) *PricingInterval {
 	return nil
 }
 
-// Clone 返回 ChannelModelPricing 的拷贝（切片独立，指针字段共享，调用方只读安全）
+// Clone returns an independent price card, including conditional price pointers.
 func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	cp := p
+	cp.InputPrice = clonePriceNumber(p.InputPrice)
+	cp.OutputPrice = clonePriceNumber(p.OutputPrice)
+	cp.CacheWritePrice = clonePriceNumber(p.CacheWritePrice)
+	cp.CacheWrite1hPrice = clonePriceNumber(p.CacheWrite1hPrice)
+	cp.CacheReadPrice = clonePriceNumber(p.CacheReadPrice)
+	cp.FastMultiplier = clonePriceNumber(p.FastMultiplier)
+	cp.FlexMultiplier = clonePriceNumber(p.FlexMultiplier)
+	cp.MaxReasoningEffortMultiplier = clonePriceNumber(p.MaxReasoningEffortMultiplier)
+	cp.ImageInputPrice = clonePriceNumber(p.ImageInputPrice)
+	cp.ImageOutputPrice = clonePriceNumber(p.ImageOutputPrice)
+	cp.PerRequestPrice = clonePriceNumber(p.PerRequestPrice)
+	cp.PriceVariants = cloneModelPriceVariants(p.PriceVariants)
 	cp.ExplicitCachePricing = cloneQianwenMode(p.ExplicitCachePricing)
 	cp.BatchChatPricing = cloneQianwenMode(p.BatchChatPricing)
 	if p.ThinkingPricing != nil {
@@ -228,7 +241,9 @@ func (p ChannelModelPricing) Clone() ChannelModelPricing {
 	}
 	if p.Intervals != nil {
 		cp.Intervals = make([]PricingInterval, len(p.Intervals))
-		copy(cp.Intervals, p.Intervals)
+		for index, interval := range p.Intervals {
+			cp.Intervals[index] = clonePricingIntervalPrices(interval)
+		}
 	}
 	if p.TimePricing != nil {
 		cp.TimePricing = &ChannelTimePricing{

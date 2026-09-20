@@ -55,10 +55,10 @@ func TestResolveOpenAIProfitControlGate(t *testing.T) {
 		require.Nil(t, svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID))
 	})
 
-	t.Run("non openai or grok platform yields no gate even if enabled", func(t *testing.T) {
+	t.Run("anthropic hosted platform installs the enabled gate", func(t *testing.T) {
 		group := profitControlTestGroup(groupID, 0.3, 0)
 		group.Platform = PlatformAnthropic
-		require.Nil(t, svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID))
+		require.NotNil(t, svc.resolveOpenAIProfitControlGate(profitControlTestCtx(group), &groupID))
 	})
 
 	t.Run("grok group routed through openai handler installs gate", func(t *testing.T) {

@@ -75,6 +75,11 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		frozen.billingService = billing
 		r = &frozen
 	}
+	if descriptor, found, err := r.configuredPriceDescriptor(ctx, input); err != nil {
+		return &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceChannel}
+	} else if found {
+		return &ResolvedPricing{Mode: BillingModeToken, Source: descriptor.Source, BasePricing: descriptor.tokenPricing()}
+	}
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
 	platform := ""
 	if input.Group != nil {
@@ -97,6 +102,11 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 	if input.GroupID != nil && r.channelService != nil {
 		chPricing = r.lookupChannelPricingNormalized(ctx, *input.GroupID, input.Model)
 		if chPricing != nil {
+			if chPricing.NativePricingSource == QianwenPricingSource {
+				resolved := r.resolveConfiguredPricing(chPricing, input.Model, PricingSourceChannel)
+				resolved.longContextPricingEnabled = false
+				return resolved
+			}
 			mode := chPricing.BillingMode
 			if mode == "" {
 				mode = BillingModeToken
@@ -192,6 +202,9 @@ func matchGroupModelPricing(group *Group, model string, platforms ...string) *Ch
 
 // resolveBasePricing 从 LiteLLM 或 Fallback 获取基础定价
 func (r *ModelPricingResolver) resolveBasePricing(model string) (*ModelPricing, string) {
+	if r.billingService == nil {
+		return nil, PricingSourceFallback
+	}
 	pricing, err := r.billingService.GetModelPricing(model)
 	if err != nil {
 		slog.Debug("failed to get model pricing from LiteLLM, using fallback",

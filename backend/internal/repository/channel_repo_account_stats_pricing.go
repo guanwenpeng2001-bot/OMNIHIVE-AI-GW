@@ -88,8 +88,8 @@ func (r *channelRepository) batchLoadAccountStatsModelPricing(ctx context.Contex
 		); err != nil {
 			return nil, fmt.Errorf("scan account stats model pricing: %w", err)
 		}
-		if err := json.Unmarshal(modelsJSON, &p.Models); err != nil {
-			p.Models = []string{}
+		if err := unmarshalAccountStatsPricingModels(modelsJSON, &p); err != nil {
+			return nil, err
 		}
 		pricingMap[ruleID] = append(pricingMap[ruleID], p)
 	}
@@ -168,7 +168,7 @@ func createAccountStatsPricingRuleTx(ctx context.Context, tx *sql.Tx, rule *serv
 
 // createAccountStatsModelPricingTx 在事务中创建单条账号统计模型定价
 func createAccountStatsModelPricingTx(ctx context.Context, tx *sql.Tx, ruleID int64, pricing *service.ChannelModelPricing) error {
-	modelsJSON, err := json.Marshal(pricing.Models)
+	modelsJSON, err := marshalAccountStatsPricingModels(pricing)
 	if err != nil {
 		return fmt.Errorf("marshal models: %w", err)
 	}
@@ -241,4 +241,35 @@ func (r *channelRepository) batchLoadAccountStatsIntervals(ctx context.Context, 
 		result[iv.PricingID] = append(result[iv.PricingID], iv)
 	}
 	return result, rows.Err()
+}
+
+// Legacy rows store an array. Extended rows retain that list and conditional
+// tariff fields together in the existing JSON column, without a schema change.
+func marshalAccountStatsPricingModels(pricing *service.ChannelModelPricing) ([]byte, error) {
+	extensions, err := marshalChannelPricingExtensions(pricing)
+	if err != nil {
+		return nil, err
+	}
+	if extensions == nil {
+		return json.Marshal(pricing.Models)
+	}
+	return json.Marshal(struct {
+		Models  []string        `json:"models"`
+		Pricing json.RawMessage `json:"pricing"`
+	}{pricing.Models, json.RawMessage(extensions.(string))})
+}
+
+func unmarshalAccountStatsPricingModels(data []byte, pricing *service.ChannelModelPricing) error {
+	if json.Unmarshal(data, &pricing.Models) == nil {
+		return nil
+	}
+	var stored struct {
+		Models  []string        `json:"models"`
+		Pricing json.RawMessage `json:"pricing"`
+	}
+	if err := json.Unmarshal(data, &stored); err != nil {
+		return fmt.Errorf("decode account stats pricing: %w", err)
+	}
+	pricing.Models = stored.Models
+	return unmarshalChannelPricingExtensions(stored.Pricing, pricing)
 }

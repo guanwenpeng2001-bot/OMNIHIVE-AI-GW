@@ -487,7 +487,7 @@ func profitControlPlatformSupported(platform string) bool {
 	switch platform {
 	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity,
 		PlatformCursor, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
-		PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode:
+		PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode, PlatformHunyuan, PlatformMistral, PlatformQianfan, PlatformVolcengine, PlatformBedrock:
 		return true
 	default:
 		return false

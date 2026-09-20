@@ -14,7 +14,30 @@ import (
 // Reject those cards and missing rates before consuming upstream resources.
 func (s *OpenAIGatewayService) qianwenNativeAudioPrice(ctx context.Context, key *APIKey, model string) (*audioPriceConfig, error) {
 	if key == nil || key.Group == nil {
-		return nil, fmt.Errorf("unsupported DashScope audio: an explicit group audio rate is required")
+		return nil, fmt.Errorf("%w: DashScope audio requires an explicit group audio rate", ErrModelPricingUnavailable)
+	}
+	resolver := s.resolver
+	if resolver == nil {
+		resolver = NewModelPricingResolver(nil, s.billingService)
+	}
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, PricingInput{Model: model, Group: key.Group, GroupID: key.GroupID})
+	if err != nil {
+		return nil, err
+	}
+	if found {
+		unit, scale := "character", 1_000_000.0
+		if qianwenNativeAudioMode(model) == "stt" {
+			unit, scale = "second", 3600
+		}
+		price, err := descriptor.UnitPrice(unit, "output", "")
+		if err != nil {
+			return nil, err
+		}
+		amount := *price.Sales * scale
+		if unit == "character" {
+			return &audioPriceConfig{TTSPerMChars: &amount}, nil
+		}
+		return &audioPriceConfig{STTPerHour: &amount}, nil
 	}
 	if resolved := s.resolveOpenAIChannelPricing(ctx, model, key); resolved != nil && resolved.Mode == BillingModePerRequest {
 		return nil, fmt.Errorf("unsupported DashScope audio: per-request model cards have no verified audio unit; use an explicit group audio rate")
@@ -30,7 +53,7 @@ func (s *OpenAIGatewayService) qianwenNativeAudioPrice(ctx context.Context, key 
 		return nil, fmt.Errorf("unsupported DashScope audio billing model")
 	}
 	if price == nil || !validBillingNumber(*price) {
-		return nil, fmt.Errorf("unsupported DashScope audio: an explicit nonnegative group audio rate is required (TTS USD/million characters; ASR USD/hour)")
+		return nil, fmt.Errorf("%w: DashScope audio requires an explicit nonnegative group audio rate (TTS USD/million characters; ASR USD/hour)", ErrModelPricingUnavailable)
 	}
 	return cfg, nil
 }
