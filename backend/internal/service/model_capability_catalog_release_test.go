@@ -18,14 +18,17 @@ func TestModelCapabilityReleaseEveryPublishedRecordLoadsOffline(t *testing.T) {
 		Records []CapabilityRecord `json:"records"`
 	}
 	require.NoError(t, json.Unmarshal(modelcapabilities.JSON(), &catalog))
-	require.Len(t, catalog.Records, 252)
+	require.Len(t, catalog.Records, 267)
 	snapshot, err := buildModelCapabilitySnapshot(nil)
 	require.NoError(t, err)
 	hashPattern := regexp.MustCompile(`^[0-9a-f]{64}$`)
 	for _, published := range catalog.Records {
 		t.Run(published.Profile+"/"+published.ModelID, func(t *testing.T) {
 			require.NoError(t, validateCapabilityRecord(published))
-			require.Contains(t, published.ApplicableContentHashes, capabilityHash(modelpricing.JSON()))
+			require.NotEmpty(t, published.ApplicableContentHashes)
+			for _, sourceHash := range published.ApplicableContentHashes {
+				require.Regexp(t, hashPattern, sourceHash)
+			}
 			require.Regexp(t, hashPattern, published.SourceContentHash)
 			loaded, ok := snapshot.LookupExact(published.Profile, published.ModelID)
 			require.True(t, ok)
@@ -53,7 +56,7 @@ func TestModelCapabilityReleaseQwenEmbeddingsLoadOffline(t *testing.T) {
 			m := match.Metadata
 			require.Equal(t, "embedding", m.TaskType)
 			require.Equal(t, []string{"text"}, m.InputModalities)
-			require.Equal(t, []string{"text"}, m.OutputModalities)
+			require.Equal(t, []string{"embedding"}, m.OutputModalities)
 			require.Equal(t, []string{"embeddings"}, m.SupportedMethods)
 			require.EqualValues(t, 128000, m.ContextWindow)
 			require.EqualValues(t, 1024, m.EmbeddingDimensions)

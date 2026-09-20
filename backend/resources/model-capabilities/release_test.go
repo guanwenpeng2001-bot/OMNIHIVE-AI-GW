@@ -21,7 +21,7 @@ func TestRealReleaseOfflineAndImmutable(t *testing.T) {
 	if err := json.Unmarshal(body, &c); err != nil {
 		t.Fatal(err)
 	}
-	if len(c.Records) != 252 {
+	if len(c.Records) != 267 {
 		t.Fatalf("actual released records: %d", len(c.Records))
 	}
 	for _, record := range c.Records {
