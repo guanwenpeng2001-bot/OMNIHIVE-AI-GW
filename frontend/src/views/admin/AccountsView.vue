@@ -1909,7 +1909,7 @@ const handleBulkDelete = async () => {
     await reload()
   } catch (error) {
     console.error('Failed to bulk delete accounts:', error)
-    appStore.showError(String(error))
+    appStore.showError(extractApiErrorMessage(error))
   }
 }
 const handleBulkResetStatus = async () => {
@@ -1925,7 +1925,7 @@ const handleBulkResetStatus = async () => {
     reload()
   } catch (error) {
     console.error('Failed to bulk reset status:', error)
-    appStore.showError(String(error))
+    appStore.showError(extractApiErrorMessage(error))
   }
 }
 const handleBulkRefreshToken = async () => {
@@ -1944,7 +1944,7 @@ const handleBulkRefreshToken = async () => {
     reload()
   } catch (error) {
     console.error('Failed to bulk refresh token:', error)
-    appStore.showError(String(error))
+    appStore.showError(extractApiErrorMessage(error))
   }
 }
 const handleBulkProbeUpstreamBilling = async () => {

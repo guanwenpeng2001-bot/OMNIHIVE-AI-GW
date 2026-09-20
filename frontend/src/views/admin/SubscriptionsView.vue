@@ -765,6 +765,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -1228,7 +1230,7 @@ const handleAssignSubscription = async () => {
     closeAssignModal()
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAssign'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.subscriptions.failedToAssign'))
     console.error('Error assigning subscription:', error)
   } finally {
     submitting.value = false
@@ -1268,7 +1270,7 @@ const handleExtendSubscription = async () => {
     closeExtendModal()
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToAdjust'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.subscriptions.failedToAdjust'))
     console.error('Error adjusting subscription:', error)
   } finally {
     submitting.value = false
@@ -1290,7 +1292,7 @@ const confirmRevoke = async () => {
     revokingSubscription.value = null
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToRevoke'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.subscriptions.failedToRevoke'))
     console.error('Error revoking subscription:', error)
   }
 }
@@ -1310,7 +1312,7 @@ const confirmRestore = async () => {
     restoringSubscription.value = null
     loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToRestore'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.subscriptions.failedToRestore'))
     console.error('Error restoring subscription:', error)
   }
 }
@@ -1331,7 +1333,7 @@ const confirmResetQuota = async () => {
     resettingSubscription.value = null
     await loadSubscriptions()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.subscriptions.failedToResetQuota'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.subscriptions.failedToResetQuota'))
     console.error('Error resetting quota:', error)
   } finally {
     resettingQuota.value = false

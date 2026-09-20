@@ -6410,8 +6410,7 @@ const loadCompositeRoutes = async () => {
     });
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
+      extractApiErrorMessage(error, '') ||
         t("admin.groups.compositeRoutes.failedToLoad"),
     );
     console.error("Error loading composite routes:", error);
@@ -6477,8 +6476,7 @@ const saveCompositeRoute = async () => {
     await loadCompositeRoutes();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
+      extractApiErrorMessage(error, '') ||
         t("admin.groups.compositeRoutes.failedToSave"),
     );
     console.error("Error saving composite route:", error);
@@ -6502,8 +6500,7 @@ const deleteCompositeRoute = async (route: CompositeModelRoute) => {
     await loadCompositeRoutes();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
+      extractApiErrorMessage(error, '') ||
         t("admin.groups.compositeRoutes.failedToDelete"),
     );
     console.error("Error deleting composite route:", error);
@@ -6525,8 +6522,7 @@ const previewCompositeRoute = async () => {
     );
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
+      extractApiErrorMessage(error, '') ||
         t("admin.groups.compositeRoutes.failedToPreview"),
     );
     console.error("Error previewing composite route:", error);
@@ -6551,7 +6547,7 @@ const confirmDelete = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToDelete"),
+      extractApiErrorMessage(error, '') || t("admin.groups.failedToDelete"),
     );
     console.error("Error deleting group:", error);
   }
@@ -6768,7 +6764,7 @@ const saveSortOrder = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToUpdateSortOrder"),
+      extractApiErrorMessage(error, '') || t("admin.groups.failedToUpdateSortOrder"),
     );
     console.error("Error updating sort order:", error);
   } finally {

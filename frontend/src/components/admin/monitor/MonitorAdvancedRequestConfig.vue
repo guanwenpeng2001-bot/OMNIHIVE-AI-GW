@@ -104,6 +104,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { APIMode, BodyOverrideMode, Provider } from '@/api/admin/channelMonitor'
@@ -239,7 +241,7 @@ function commitBody() {
     bodyError.value =
       t('admin.channelMonitor.advanced.bodyJsonError') +
       ': ' +
-      (e instanceof Error ? e.message : String(e))
+      (extractApiErrorMessage(e))
   }
 }
 
@@ -258,7 +260,7 @@ function formatBody() {
     bodyError.value =
       t('admin.channelMonitor.advanced.bodyJsonError') +
       ': ' +
-      (e instanceof Error ? e.message : String(e))
+      (extractApiErrorMessage(e))
   }
 }
 
