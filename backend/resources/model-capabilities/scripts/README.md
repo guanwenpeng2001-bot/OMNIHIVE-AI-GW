@@ -130,3 +130,47 @@ python backend/resources/model-capabilities/scripts/catalog.py capture --format 
 The URL above is an evidence label, never a network destination. Capture strips
 prices; OpenRouter evidence preserves rejected limits and provider-union parameters
 without inferring native deployment facts. Capture does not approve its output.
+
+## Approved runtime registry reload
+
+The service combines the reviewed platform presets and capability catalog into one
+immutable `ModelRegistrySnapshot`. Presets are administrative candidates, never
+credential permissions or a fallback public model set. Price calculation and
+operator overrides continue through the existing pricing resolver independently.
+
+The manifest binds `platform_model_presets.json` with `presets_sha256` as well as
+`catalog.json`. Prepare a local directory containing exactly the approved
+`catalog.json`, `release-manifest.json`, and `platform_model_presets.json`, then
+use the authenticated administrator endpoint:
+
+```http
+POST /api/v1/admin/model-registry/reload
+Content-Type: application/json
+
+{"directory":"/absolute/local/approved-package"}
+```
+
+The directory must be local (Windows drive paths are also accepted); URLs and UNC
+shares are rejected. The endpoint does not read a package-provided pin. Its trust
+root remains the independently reviewed **compiled** `release-pin.json` fields
+`approved_generation` and `manifest_sha256`, using the existing hash-pin scheme,
+not a newly introduced digital-signature scheme. A new content release therefore
+requires independently deploying the matching approved pin in the application
+binary; this endpoint cannot teach an old binary to trust a new pin. Rolling back
+content requires reviewing it as a new, monotonically increasing generation.
+
+Every process verifies the complete package before replacing its snapshot once.
+Concurrent requests retain their captured reference, including their model version;
+a rejected or incomplete package leaves the last-good reference intact. Each
+instance must receive the same artifact and be reloaded locally. Compare the
+returned generation and manifest hash across instances: notification delivery does
+not copy missing package files. Startup verifies the compiled approved artifact
+offline and does not fetch capability approval from a remote service.
+
+The existing scheduled pricing collector may continue updating prices under its
+existing configuration. Capability observations from that collection are written
+only to `model_pricing.json.capabilities.pending.json` next to the pricing cache,
+with the base generation, source hash, raw input and changed exact identities.
+These observations require human review and the normal release process before
+local reload; a matching download hash or a cached approval marker is insufficient.
+The standalone three-source collector likewise produces candidates only.

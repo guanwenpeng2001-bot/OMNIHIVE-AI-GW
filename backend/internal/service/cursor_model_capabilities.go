@@ -24,7 +24,7 @@ var cursorPublishedContextWindows = map[string]int64{
 
 func builtinCursorModelMetadata(ids []string) map[string]UpstreamModelMetadata {
 	known := map[string]cursor.AvailableModel{}
-	for _, model := range cursor.FallbackModels() {
+	for _, model := range cursor.ProtocolVariantModels() {
 		known[model.ID] = model
 	}
 	result := map[string]UpstreamModelMetadata{}

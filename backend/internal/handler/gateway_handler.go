@@ -19,7 +19,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -1198,30 +1197,8 @@ func (h *GatewayHandler) Models(c *gin.Context) {
 		return
 	}
 
-	// Fallback to default models
-	if platform == service.PlatformCursor {
-		writeModelsList(c, platform, service.DefaultCursorModelIDs())
-		return
-	}
-	if platform == service.PlatformOpenAI {
-		writeModelsListResponse(c, openai.DefaultModels)
-		return
-	}
-
-	if platform == service.PlatformGemini {
-		writeModelsListResponse(c, geminicli.DefaultModels)
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
-		return
-	}
-
-	if platform == service.PlatformAnthropic {
-		writeModelsListResponse(c, claude.DefaultModels)
-		return
-	}
-	writeModelsList(c, platform, service.DefaultModelIDsForPlatform(platform))
+	// Candidates do not establish credential visibility.
+	writeModelsList(c, platform, []string{})
 }
 
 // CodexModels returns the effective group model list using the manifest shape
@@ -1401,7 +1378,7 @@ type grokModelListItem struct {
 }
 
 func writeGrokModelsList(c *gin.Context, modelIDs []string) {
-	defaults := xai.DefaultModels()
+	defaults := service.GrokPresetModels()
 	defaultsByID := make(map[string]xai.Model, len(defaults))
 	for _, model := range defaults {
 		defaultsByID[model.ID] = model
@@ -1448,8 +1425,8 @@ func grokModelSupportsConfigurableReasoning(modelID string) bool {
 }
 
 func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
-	defaultsByID := make(map[string]openai.Model, len(openai.DefaultModels))
-	for _, model := range openai.DefaultModels {
+	defaultsByID := make(map[string]openai.Model, len(service.OpenAIPresetModels()))
+	for _, model := range service.OpenAIPresetModels() {
 		defaultsByID[model.ID] = model
 	}
 
@@ -1525,7 +1502,11 @@ func mergeModelIDs(primary, secondary []string) []string {
 // GET /antigravity/models
 // 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	models := antigravity.DefaultModels()
+	if h.gatewayService != nil {
+		h.Models(c)
+		return
+	}
+	models := []antigravity.ClaudeModel{}
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		filtered := make([]antigravity.ClaudeModel, 0, len(models))
 		for _, model := range models {

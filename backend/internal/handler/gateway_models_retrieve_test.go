@@ -52,6 +52,11 @@ func TestRetrieveModelMatchesVisibleCatalogue(t *testing.T) {
 					Data []json.RawMessage `json:"data"`
 				}
 				require.NoError(t, json.Unmarshal(list.Body.Bytes(), &catalog))
+				if !mapped && platform != service.PlatformGrok {
+					require.Empty(t, catalog.Data)
+					require.Equal(t, http.StatusNotFound, requestModelForTest(h, group, "gpt-5.5", "").Code)
+					return
+				}
 				require.NotEmpty(t, catalog.Data)
 				var model struct {
 					ID string `json:"id"`

@@ -39,6 +39,7 @@ type gatewayRequestPlanKey struct{}
 // GatewayRequestPlan owns one HTTP execution. A websocket adapter must create a
 // new plan per turn, never reuse the connection's usage claim across turns.
 type GatewayRequestPlan struct {
+	registrySnapshot *ModelRegistrySnapshot
 	spec             GatewayRequestSpec
 	forwarding       *gatewayForwardingSettingsResult
 	channels         *ChannelService
@@ -62,8 +63,12 @@ type gatewayPlanLease struct {
 }
 
 func NewGatewayRequestPlan(spec GatewayRequestSpec) *GatewayRequestPlan {
-	return &GatewayRequestPlan{spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
+	snapshot := NewModelRegistry().Snapshot()
+	spec.ModelVersion = snapshot.Version()
+	return &GatewayRequestPlan{registrySnapshot: snapshot, spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
 }
+
+func (p *GatewayRequestPlan) ModelRegistrySnapshot() *ModelRegistrySnapshot { return p.registrySnapshot }
 
 func (p *GatewayRequestPlan) Snapshot() GatewayRequestSpec { return p.spec }
 
@@ -82,6 +87,9 @@ func GatewayRequestPlanFromContext(ctx context.Context) *GatewayRequestPlan {
 func WithGatewayRequestPlan(ctx context.Context, p *GatewayRequestPlan) context.Context {
 	if p != nil && p.affinityState != nil {
 		ctx = context.WithValue(ctx, affinityBindingStateKey{}, p.affinityState)
+	}
+	if p != nil {
+		ctx = WithModelRegistrySnapshot(ctx, p.registrySnapshot)
 	}
 	return context.WithValue(ctx, gatewayRequestPlanKey{}, p)
 }
@@ -186,11 +194,9 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	if billing != nil && billing.pricingService != nil {
 		prices := billing.pricingService
 		prices.mu.RLock()
-		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, capabilityData: prices.capabilityData, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
+		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
 		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
-		if prices.capabilityData != nil {
-			p.spec.ModelVersion = prices.capabilityData.Version()
-		}
+		p.spec.ModelVersion = p.registrySnapshot.Version()
 		prices.mu.RUnlock()
 		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
 	}

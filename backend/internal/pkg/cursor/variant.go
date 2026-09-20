@@ -71,7 +71,7 @@ func ResolveModelVariant(requested string, options RunOptions, catalog []Availab
 		return "", fmt.Errorf("cursor: unknown reasoning effort %q", options.Effort)
 	}
 	if len(catalog) == 0 {
-		catalog = FallbackModels()
+		catalog = ProtocolVariantModels()
 	}
 	requestedVariant := parseRunVariant(requested)
 	for _, model := range catalog {

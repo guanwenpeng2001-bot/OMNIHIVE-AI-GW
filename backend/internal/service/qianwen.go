@@ -9,10 +9,10 @@ const (
 	DefaultQianwenTestModel        = "qwen-flash"
 )
 
-// DefaultQianwenModelIDs is a conservative fallback, not an upstream allowlist.
+// DefaultQianwenModelIDs returns reviewed administrative candidates only.
 // Discovery remains authoritative, including case-sensitive third-party IDs.
 func DefaultQianwenModelIDs() []string {
-	return []string{"qwen-flash", "qwen-plus", "qwen-max", "qwen-vl-plus", "qwen-vl-max"}
+	return NewModelRegistry().Snapshot().CandidateIDs(PlatformQianwen, "")
 }
 
 // Token Plan keys (sk-sp-*) are accepted like other API keys. Operators must

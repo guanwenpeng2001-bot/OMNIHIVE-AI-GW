@@ -1,11 +1,26 @@
 package service
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestMediaHintsRemainDisplayOnly(t *testing.T) {
+	for model, task := range map[string]string{"private-image": "image_generation", "private-video": "video_generation", "private-tts": "audio_generation", "private-whisper": "transcription", "private-rerank": "rerank"} {
+		hint := inferModelCapabilityHints(model)
+		require.Equal(t, task, hint.TaskType)
+		require.Equal(t, "estimated", hint.FieldEvidence["task_type"].Confidence)
+		require.Nil(t, hint.SupportedMethods)
+		require.Zero(t, hint.ContextWindow)
+		account := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true}
+		require.False(t, AccountSupportsResolvedModel(context.Background(), account, model, AccountModelBindingOptions{}))
+		native, _ := mergeUpstreamModelMetadata(UpstreamModelMetadata{TaskType: "text_generation"}, hint)
+		require.Equal(t, "text_generation", native.TaskType)
+	}
+}
 
 func TestModelCapabilityEmbeddingNameHints(t *testing.T) {
 	for _, id := range []string{"qwen3.7-text-embedding", "qwen3.7-text-embedding-flash", "text-embedding-v4", "QWEN3-TEXT-EMBEDDING"} {
@@ -42,7 +57,7 @@ func TestModelCapabilityEmbeddingNameHints(t *testing.T) {
 			require.Equal(t, native.InputModalities, merged.InputModalities)
 		})
 	}
-	for _, id := range []string{"qwen-plus", "qwen3.7-text-rerank", "qwen3-asr-flash", "private-embeddings", "private-embeddingish", "embedding", strings.Repeat("x", 512) + "-embedding"} {
+	for _, id := range []string{"qwen-plus", "qwen3-asr-flash", "private-embeddings", "private-embeddingish", "embedding", strings.Repeat("x", 512) + "-embedding"} {
 		t.Run(id, func(t *testing.T) {
 			m := inferModelCapabilityHints(id)
 			require.Empty(t, m.TaskType)

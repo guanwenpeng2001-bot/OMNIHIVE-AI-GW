@@ -11,14 +11,9 @@ import (
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 // Group management implementations
@@ -293,41 +288,7 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 }
 
 func defaultModelsListCandidateIDs(platform string) []string {
-	switch platform {
-	case PlatformOpenAI:
-		return openai.DefaultModelIDs()
-	case PlatformGemini:
-		ids := make([]string, 0, len(geminicli.DefaultModels))
-		for _, model := range geminicli.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformGrok:
-		return xai.DefaultModelIDs()
-	case PlatformQianwen:
-		return DefaultQianwenModelIDs()
-	case PlatformCursor:
-		return DefaultCursorModelIDs()
-	case PlatformCommandCode:
-		return DefaultCommandCodeModelIDs()
-	case PlatformOpenCodeGo:
-		return DefaultOpenCodeGoModelIDs()
-	case PlatformComposite:
-		return compositeDefaultModelsListCandidateIDs()
-	default:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	}
+	return NewModelRegistry().Snapshot().CandidateIDs(platform, "")
 }
 
 func defaultAllowImageGenerationForPlatform(platform string) bool {

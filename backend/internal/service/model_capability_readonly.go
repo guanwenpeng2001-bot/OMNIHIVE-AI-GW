@@ -30,7 +30,6 @@ type capabilityDisplaySource struct {
 // Keep one instance per service, not one per request.
 type CapabilityReadOnlyEnricher struct {
 	provider ModelCapabilityProvider
-	baseline *ModelCapabilitySnapshot
 	client   *http.Client
 	mu       sync.Mutex
 	sources  map[string]*capabilityDisplaySource
@@ -38,11 +37,10 @@ type CapabilityReadOnlyEnricher struct {
 }
 
 func NewCapabilityReadOnlyEnricher(provider ModelCapabilityProvider, client *http.Client) (*CapabilityReadOnlyEnricher, error) {
-	baseline, err := buildModelCapabilitySnapshot(nil)
-	if err != nil {
-		return nil, err
+	if provider == nil {
+		provider = NewModelRegistry()
 	}
-	return &CapabilityReadOnlyEnricher{provider: provider, baseline: baseline, client: client, sources: make(map[string]*capabilityDisplaySource), now: time.Now}, nil
+	return &CapabilityReadOnlyEnricher{provider: provider, client: client, sources: make(map[string]*capabilityDisplaySource), now: time.Now}, nil
 }
 
 // Project returns D union concrete mapping targets, including mapped-only rows.
@@ -77,7 +75,7 @@ func (enricher *CapabilityReadOnlyEnricher) Project(account *Account, online boo
 	stored := account.GetUpstreamModelMetadataSnapshot()
 	// An invalid/stale declaration contributes no facts; it cannot block reads.
 	declarations, _ := accountDeclaredCapabilities(account)
-	snapshot := enricher.baseline
+	snapshot := NewModelRegistry().CapabilitySnapshot()
 	if enricher.provider != nil {
 		if current := enricher.provider.CapabilitySnapshot(); current != nil {
 			snapshot = current

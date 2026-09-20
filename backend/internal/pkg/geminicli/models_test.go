@@ -1,12 +1,16 @@
-package geminicli
+package geminicli_test
 
-import "testing"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"testing"
+)
 
 func TestDefaultModels_ContainsImageModels(t *testing.T) {
 	t.Parallel()
 
-	byID := make(map[string]Model, len(DefaultModels))
-	for _, model := range DefaultModels {
+	byID := make(map[string]geminicli.Model, len(service.GeminiPresetModels()))
+	for _, model := range service.GeminiPresetModels() {
 		byID[model.ID] = model
 	}
 
@@ -25,7 +29,7 @@ func TestDefaultModels_ContainsImageModels(t *testing.T) {
 func TestGoogleOneModels_ExcludeUnsupportedNewAndImageModels(t *testing.T) {
 	t.Parallel()
 
-	mapping := GoogleOneModelMapping()
+	mapping := service.GoogleOneModelMapping()
 	for _, id := range []string{"gemini-2.0-flash", "gemini-2.5-flash", "gemini-2.5-pro"} {
 		if mapping[id] != id {
 			t.Fatalf("expected Google One model %q to map to itself", id)
@@ -38,7 +42,7 @@ func TestGoogleOneModels_ExcludeUnsupportedNewAndImageModels(t *testing.T) {
 	}
 
 	mapping["gemini-2.5-flash"] = "mutated"
-	if GoogleOneModelMapping()["gemini-2.5-flash"] != "gemini-2.5-flash" {
+	if service.GoogleOneModelMapping()["gemini-2.5-flash"] != "gemini-2.5-flash" {
 		t.Fatal("GoogleOneModelMapping must return a defensive copy")
 	}
 }

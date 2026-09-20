@@ -299,7 +299,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromConfiguredCodexLevels(grok45.SupportedReasoningLevels))
 
 	grokNonReasoning := newConfiguredCodexModelDescriptor("grok-4.20-0309-non-reasoning")
-	require.Equal(t, "Grok 4.20 Non Reasoning", grokNonReasoning.DisplayName)
+	require.Equal(t, "Grok 4.20 (Non-Reasoning)", grokNonReasoning.DisplayName)
 	require.NotNil(t, grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, "none", *grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, []configuredCodexReasoningLevel{
@@ -372,7 +372,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, int64(1_050_000), gpt6Astra.ContextWindow)
 	require.Equal(t, int64(1_050_000), gpt6Astra.MaxContextWindow)
 	gpt6 := newConfiguredCodexModelDescriptor("gpt-6")
-	require.Equal(t, "GPT-6 (Astra)", gpt6.DisplayName)
+	require.Equal(t, "gpt-6", gpt6.DisplayName)
 	require.True(t, strings.HasPrefix(strings.TrimSpace(gpt6.ModelMessages.InstructionsTemplate), "You are Codex, an agent based on GPT-6."))
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(gpt6.SupportedReasoningLevels))
 	require.NotNil(t, gpt6.MultiAgentReasoningEffort)
@@ -389,7 +389,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "low", *gpt55.DefaultVerbosity)
 
 	gpt4o := newConfiguredCodexModelDescriptor("gpt-4o")
-	require.Equal(t, "gpt-4o", gpt4o.DisplayName)
+	require.Equal(t, "GPT-4o", gpt4o.DisplayName)
 	require.NotNil(t, gpt4o.DefaultReasoningLevel)
 	require.Equal(t, "none", *gpt4o.DefaultReasoningLevel)
 	require.Equal(t, []string{"none"}, effortsFromConfiguredCodexLevels(gpt4o.SupportedReasoningLevels))
@@ -1252,7 +1252,7 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.True(t, configured)
 	models := decodeCodexManifestModels(t, manifest.Body)
 	require.Equal(t, "glm-5.3", models[0]["slug"])
-	require.Contains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
+	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-image-2")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "codex-auto-review")
 	require.Equal(t, "GLM 5.3", models[0]["display_name"])

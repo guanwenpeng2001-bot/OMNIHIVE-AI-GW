@@ -212,7 +212,11 @@ func TestGeminiNativeModelsMergesNativeUpstream(t *testing.T) {
 				return
 			}
 			require.Equal(t, 200, rec.Code, rec.Body.String())
-			require.Contains(t, rec.Body.String(), tt.expectedNative)
+			if tt.status == http.StatusOK {
+				require.Contains(t, rec.Body.String(), tt.expectedNative)
+			} else {
+				require.NotContains(t, rec.Body.String(), tt.expectedNative, "no static candidate may replace unavailable native evidence")
+			}
 			require.Contains(t, rec.Body.String(), "models/gemini-synced-custom")
 			if tt.status == 200 {
 				require.Contains(t, rec.Body.String(), `"inputTokenLimit":123`)

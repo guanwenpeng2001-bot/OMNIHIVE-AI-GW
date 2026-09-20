@@ -15,12 +15,7 @@ import (
 )
 
 func DefaultCursorModelIDs() []string {
-	models := cursor.FallbackModels()
-	ids := make([]string, 0, len(models))
-	for _, model := range models {
-		ids = append(ids, model.ID)
-	}
-	return ids
+	return NewModelRegistry().Snapshot().CandidateIDs(PlatformCursor, "")
 }
 
 func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, account *Account) ([]string, error) {

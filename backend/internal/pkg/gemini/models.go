@@ -2,8 +2,6 @@
 // It is used when upstream model listing is unavailable (e.g. OAuth token missing AI Studio scopes).
 package gemini
 
-import "strings"
-
 type Model struct {
 	Name                       string   `json:"name"`
 	DisplayName                string   `json:"displayName,omitempty"`
@@ -15,41 +13,10 @@ type ModelsListResponse struct {
 	Models []Model `json:"models"`
 }
 
-func DefaultModels() []Model {
-	methods := []string{"generateContent", "streamGenerateContent"}
-	return []Model{
-		{Name: "models/gemini-2.0-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-flash-image", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-2.5-pro", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.5-flash", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3-flash-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3-pro-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-pro-preview", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-pro-preview-customtools", SupportedGenerationMethods: methods},
-		{Name: "models/gemini-3.1-flash-image", SupportedGenerationMethods: methods},
-	}
-}
-
-func HasFallbackModel(model string) bool {
-	trimmed := strings.TrimSpace(model)
-	if trimmed == "" {
-		return false
-	}
-	if !strings.HasPrefix(trimmed, "models/") {
-		trimmed = "models/" + trimmed
-	}
-	for _, model := range DefaultModels() {
-		if model.Name == trimmed {
-			return true
-		}
-	}
-	return false
-}
-
-func FallbackModelsList() ModelsListResponse {
-	return ModelsListResponse{Models: DefaultModels()}
-}
+// DefaultModels has no public fallback: credential evidence is required.
+func DefaultModels() []Model                 { return []Model{} }
+func HasFallbackModel(model string) bool     { return false }
+func FallbackModelsList() ModelsListResponse { return ModelsListResponse{Models: []Model{}} }
 
 func FallbackModel(model string) Model {
 	methods := []string{"generateContent", "streamGenerateContent"}

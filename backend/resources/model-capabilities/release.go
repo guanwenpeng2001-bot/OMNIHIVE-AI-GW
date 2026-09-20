@@ -78,3 +78,6 @@ func Release() ReleaseIdentity {
 }
 
 func ManifestJSON() []byte { return []byte(strings.ReplaceAll(releaseManifest, "\r\n", "\n")) }
+
+// TrustedPinJSON returns a copy of the independently reviewed compiled trust root.
+func TrustedPinJSON() []byte { return []byte(releasePin) }

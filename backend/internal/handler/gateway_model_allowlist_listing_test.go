@@ -167,10 +167,8 @@ func TestAntigravityModels_FiltersByAllowlist(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, "list", got.Object)
-	// -thinking 后缀的宽容规则：gemini-2.5-flash-thinking 也命中 gemini-2.5-flash 条目。
-	require.Len(t, got.Data, 2)
-	require.Equal(t, "gemini-2.5-flash", got.Data[0].ID)
-	require.Equal(t, "gemini-2.5-flash-thinking", got.Data[1].ID)
+	// An allowlist filters evidence; it cannot manufacture an upstream model.
+	require.Empty(t, got.Data)
 }
 
 func TestFilterUpstreamGeminiModelsBody(t *testing.T) {

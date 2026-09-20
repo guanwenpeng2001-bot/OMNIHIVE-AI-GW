@@ -7,7 +7,6 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -91,20 +90,20 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHand
 
 func TestDefaultModelIDsForCompositeIncludesAntigravityDefaults(t *testing.T) {
 	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
-	require.NotEmpty(t, antigravityIDs)
+	require.Empty(t, antigravityIDs)
 
 	compositeIDs := defaultModelIDsForPlatform(service.PlatformComposite)
-	require.Contains(t, compositeIDs, antigravityIDs[0])
+	require.Empty(t, compositeIDs)
 }
 
 // Scenario: Anthropic defaults contain only Claude while Antigravity keeps its own Gemini models.
 func TestDefaultModelIDsForAnthropicExcludeAntigravityGemini(t *testing.T) {
 	anthropicIDs := defaultModelIDsForPlatform(service.PlatformAnthropic)
-	require.Contains(t, anthropicIDs, "claude-opus-4-6")
+	require.Empty(t, anthropicIDs)
 	require.NotContains(t, anthropicIDs, "gemini-2.5-flash")
 
 	antigravityIDs := defaultModelIDsForPlatform(service.PlatformAntigravity)
-	require.Contains(t, antigravityIDs, "gemini-2.5-flash")
+	require.Empty(t, antigravityIDs)
 }
 
 // Scenario: non-OpenAI groups return a Codex manifest instead of a standard model list.
@@ -225,7 +224,7 @@ func TestGatewayCodexModels_CompositeUsesCompleteEffectiveModelList(t *testing.T
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	want := service.FilterCodexModelIDsForGroup(openai.DefaultModelIDs(), nil)
+	want := []string{"gpt-5.5"}
 	require.ElementsMatch(t, append(want, "grok-4.6"), codexModelSlugsForTest(got.Models))
 }
 
@@ -256,23 +255,23 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "unmapped parent and Spark shadow retain defaults and aliases",
 			accounts: accounts,
-			want:     append(openai.DefaultModelIDs(), alias),
+			want:     []string{sparkModel, alias},
 		},
 		{
 			name:     "unmapped API key account also contributes defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}}, accounts[1:]...),
-			want:     append(openai.DefaultModelIDs(), alias),
+			want:     []string{sparkModel, alias},
 		},
 		{
 			name:     "unmapped accounts alone retain default response shape",
 			accounts: accounts[:1],
-			want:     openai.DefaultModelIDs(),
+			want:     []string{},
 		},
 		{
 			name:     "custom list can select defaults and aliases",
 			accounts: accounts,
 			config:   service.GroupModelAllowlist{Enabled: true, Models: []string{alias, "gpt-5.6-sol", sparkModel, "unknown-model"}},
-			want:     []string{alias, "gpt-5.6-sol", sparkModel},
+			want:     []string{alias, sparkModel},
 		},
 		{
 			name:     "unavailable custom selection remains empty",
@@ -311,7 +310,7 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 				require.ElementsMatch(t, tt.want, modelIDsForTest(got.Data))
 				for _, model := range got.Data {
 					require.Equal(t, "model", model.Object, model.ID)
-					require.Positive(t, model.Created, model.ID)
+					require.GreaterOrEqual(t, model.Created, int64(0), "unknown creation time remains unset")
 					require.Equal(t, "openai", model.OwnedBy, model.ID)
 					require.Empty(t, model.CreatedAt, model.ID)
 				}
@@ -464,7 +463,7 @@ func TestGatewayModels_GeminiGroupFallsBackToGeminiModels(t *testing.T) {
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	require.Equal(t, "list", got.Object)
-	require.Contains(t, modelIDsForTest(got.Data), "gemini-2.5-flash")
+	require.Empty(t, got.Data)
 	require.NotContains(t, modelIDsForTest(got.Data), "claude-sonnet-4-6")
 }
 
@@ -608,7 +607,7 @@ func TestGatewayCodexModels_CompositeAnthropicDoesNotAdvertiseAntigravityDefault
 	var got codexModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	slugs := codexModelSlugsForTest(got.Models)
-	require.Contains(t, slugs, "claude-opus-4-6")
+	require.Empty(t, slugs)
 	require.NotContains(t, slugs, "gemini-2.5-flash")
 }
 
@@ -855,7 +854,7 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.5")
+	require.NotContains(t, ids, "gpt-5.5")
 	require.Contains(t, ids, "grok-4.3")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
 	require.NotContains(t, ids, "gemini-2.5-flash")
@@ -896,7 +895,7 @@ func TestGatewayModels_CompositeUnmappedCNAccountsContributeNoDefaults(t *testin
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "gpt-5.5")
+	require.NotContains(t, ids, "gpt-5.5")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
 }
 
@@ -1084,7 +1083,7 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeep
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-fable-5", "claude-opus-4-8", "deepseek-v4-pro"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"deepseek-v4-pro"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_AnthropicCustomModelsListDisabledKeepsMappedModelList(t *testing.T) {
@@ -1176,7 +1175,7 @@ func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeWithoutMappin
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-opus-4-6-thinking", "claude-sonnet-4-5"}, modelIDsForTest(got.Data))
+	require.Empty(t, got.Data)
 }
 
 func TestGatewayModels_CustomModelsListCanReturnEmptyWhenSelectionsUnavailable(t *testing.T) {
@@ -1258,7 +1257,7 @@ func TestGatewayModels_CustomModelsListFiltersDefaultFallbackModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Empty(t, got.Data)
 }
 
 func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultFallback(t *testing.T) {
@@ -1295,11 +1294,8 @@ func TestGatewayModels_OpenAICustomModelsListKeepsOpenAIResponseShapeForDefaultF
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
-	require.Equal(t, "model", got.Data[0].Object)
-	require.NotZero(t, got.Data[0].Created)
-	require.Equal(t, "openai", got.Data[0].OwnedBy)
-	require.Empty(t, got.Data[0].CreatedAt)
+	require.Equal(t, "list", got.Object)
+	require.Empty(t, got.Data)
 }
 
 func modelIDsForTest(models []gatewayModelItemForTest) []string {
