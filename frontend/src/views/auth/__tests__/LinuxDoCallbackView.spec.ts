@@ -1,7 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { normalizeApiError } from '@/utils/apiError'
 
 import LinuxDoCallbackView from '../LinuxDoCallbackView.vue'
+import DingTalkCallbackView from '../DingTalkCallbackView.vue'
 
 const replace = vi.fn()
 const showSuccess = vi.fn()
@@ -539,19 +541,24 @@ describe('LinuxDoCallbackView', () => {
     expect(replace).toHaveBeenCalledWith('/welcome')
   })
 
-  it('switches to bind-login when create-account returns EMAIL_EXISTS', async () => {
+  it.each(
+    ['EMAIL_EXISTS', 'BIND_LOGIN_REQUIRED', 'bind_login', 'adopt_existing_user_by_email',
+      'existing_account_required', 'existing_account_binding_required', 'REGISTRATION_DISABLED']
+      .flatMap(reason => [
+        { code: 409, reason, metadata: {} },
+        { code: reason },
+        { error: reason },
+      ].map(envelope => ({ reason, envelope })))
+  )('handles normalized recovery reason $reason from $envelope', async ({ reason, envelope }) => {
     exchangePendingOAuthCompletion.mockResolvedValue({
       error: 'email_required',
       redirect: '/welcome'
     })
-    apiClientPost.mockRejectedValue({
-      response: {
-        data: {
-          reason: 'EMAIL_EXISTS',
-          message: 'email already exists'
-        }
-      }
+    const normalizedError = normalizeApiError({
+      response: { status: 409, data: { ...envelope, message: 'email already exists' } }
     })
+    expect(normalizedError).not.toHaveProperty('response')
+    apiClientPost.mockRejectedValue(normalizedError)
 
     const wrapper = mount(LinuxDoCallbackView, {
       global: {
@@ -570,9 +577,60 @@ describe('LinuxDoCallbackView', () => {
     await wrapper.get('[data-testid="linuxdo-create-account-submit"]').trigger('click')
     await flushPromises()
 
-    expect((wrapper.get('[data-testid="linuxdo-bind-login-email"]').element as HTMLInputElement).value).toBe(
-      'existing@example.com'
-    )
+    if (reason === 'REGISTRATION_DISABLED') {
+      expect(wrapper.find('[data-testid="linuxdo-bind-login-email"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="linuxdo-create-account-submit"]').exists()).toBe(true)
+    } else {
+      expect((wrapper.get('[data-testid="linuxdo-bind-login-email"]').element as HTMLInputElement).value)
+        .toBe('existing@example.com')
+    }
+    wrapper.unmount()
+  })
+
+  it.each(
+    ['EMAIL_EXISTS', 'BIND_LOGIN_REQUIRED', 'bind_login', 'adopt_existing_user_by_email',
+      'existing_account_required', 'existing_account_binding_required', 'REGISTRATION_DISABLED']
+      .flatMap(reason => [
+        { code: 409, reason, metadata: {} },
+        { code: reason },
+        { error: reason },
+      ].map(envelope => ({ reason, envelope })))
+  )('DingTalk handles normalized recovery reason $reason from $envelope', async ({ reason, envelope }) => {
+    exchangePendingOAuthCompletion.mockResolvedValue({
+      error: 'email_required',
+      redirect: '/welcome'
+    })
+    const normalizedError = normalizeApiError({
+      response: { status: 409, data: { ...envelope, message: 'email already exists' } }
+    })
+    expect(normalizedError).not.toHaveProperty('response')
+    apiClientPost.mockRejectedValue(normalizedError)
+
+    const wrapper = mount(DingTalkCallbackView, {
+      global: {
+        stubs: {
+          AuthLayout: { template: '<div><slot /></div>' },
+          Icon: true,
+          RouterLink: { template: '<a><slot /></a>' },
+          transition: false
+        }
+      }
+    })
+
+    await flushPromises()
+    await wrapper.get('[data-testid="dingtalk-create-account-email"]').setValue('existing@example.com')
+    await wrapper.get('[data-testid="dingtalk-create-account-password"]').setValue('secret-123')
+    await wrapper.get('[data-testid="dingtalk-create-account-submit"]').trigger('click')
+    await flushPromises()
+
+    if (reason === 'REGISTRATION_DISABLED') {
+      expect(wrapper.find('[data-testid="dingtalk-bind-login-email"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="dingtalk-create-account-submit"]').exists()).toBe(true)
+    } else {
+      expect((wrapper.get('[data-testid="dingtalk-bind-login-email"]').element as HTMLInputElement).value)
+        .toBe('existing@example.com')
+    }
+    wrapper.unmount()
   })
 
   it('shows create-account failures through toast without inline error text', async () => {

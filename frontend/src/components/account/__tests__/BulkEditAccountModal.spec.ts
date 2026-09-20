@@ -1054,3 +1054,29 @@ describe('BulkEditAccountModal', () => {
     })
   })
 })
+
+describe('Management error contract bulk confirmation', () => {
+  it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
+    vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset().mockResolvedValue({ has_risk: false } as any)
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockReset().mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm group', metadata: { group_id: 27, group_name: 'Review group' } }).mockResolvedValue({ success: 2, failed: 0, results: [] } as any)
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-rate-multiplier-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0][1]))
+    dialog.vm.$emit(action)
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(action === 'confirm' ? 2 : 1)
+    if (action === 'confirm') {
+      expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[1]).toEqual([[1, 2], { ...payload, confirm_mixed_channel_risk: true }])
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    } else {
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+})
