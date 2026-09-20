@@ -1143,3 +1143,22 @@ func TestAntigravityProviderRefreshPolicy(t *testing.T) {
 	require.Equal(t, ProviderLockHeldUseExistingToken, p.OnLockHeld)
 	require.Equal(t, time.Duration(0), p.FailureTTL)
 }
+
+// Models the interval between the deadline timestamp and delivery of the
+// context timer callback; no scheduler timing or sleeping is involved.
+type refreshExpiredDeadlineContext struct{ context.Context }
+
+func (refreshExpiredDeadlineContext) Deadline() (time.Time, bool) { return time.Unix(1, 0), true }
+
+func TestRefreshIfNeeded_ExpiredDeadlineBeforeCancellationCallbackDoesNotPersist(t *testing.T) {
+	account := &Account{ID: 86, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"access_token": "before"}}
+	repository := &refreshAPIAccountRepo{account: account}
+	executor := &refreshAPIExecutorStub{needsRefresh: true, credentials: map[string]any{"access_token": "late-token"}}
+	ctx := refreshExpiredDeadlineContext{Context: context.Background()}
+	require.NoError(t, ctx.Err())
+	result, err := NewOAuthRefreshAPI(repository, nil).RefreshIfNeeded(ctx, account, executor, time.Hour)
+	t.Logf("credentials writes: %d", repository.updateCredentialsCalls)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, result)
+	require.Zero(t, repository.updateCredentialsCalls)
+}

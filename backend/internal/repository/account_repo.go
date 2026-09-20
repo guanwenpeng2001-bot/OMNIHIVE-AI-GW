@@ -124,6 +124,7 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if err := createAccountRecord(ctx, r.client, account); err != nil {
 		return err
 	}
@@ -471,6 +472,7 @@ func (r *accountRepository) updateAccount(
 	recoverCursorRefresh bool,
 	configurationOnly bool,
 ) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if account == nil {
 		return nil
 	}
@@ -566,6 +568,13 @@ func (r *accountRepository) updateLockedAccount(
 		}
 	}
 	account.Extra = extra
+	beforeRuntime := accountEntityToService(current)
+	incomingRuntime := *account
+	incomingRuntime.Proxy = nil
+	if service.AccountRuntimeIdentityKey(beforeRuntime) != service.AccountRuntimeIdentityKey(&incomingRuntime) {
+		service.ClearAccountRuntimeObservations(account)
+		extra = account.Extra
+	}
 	service.AdvanceAccountModelCatalogRevisionsForUpdate(&service.Account{ParentAccountID: current.ParentAccountID, ProxyID: current.ProxyID, Platform: current.Platform, Type: current.Type, Credentials: current.Credentials, Extra: current.Extra}, account, configurationOnly)
 
 	schedulable := account.Schedulable
@@ -884,6 +893,7 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 }
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	payload, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
 		return err
@@ -1456,6 +1466,12 @@ func (r *accountRepository) BatchUpdateLastUsed(ctx context.Context, updates map
 }
 
 func (r *accountRepository) SetError(ctx context.Context, id int64, errorMsg string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.SetError(lockedCtx, id, errorMsg)
+		})
+	}
+
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetStatus(service.StatusError).
@@ -1773,6 +1789,9 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 // unschedulable, or temporarily unschedulable, ensuring scheduler and sticky session
 // logic can promptly detect the latest account state and avoid using unavailable accounts.
 func (r *accountRepository) syncSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
+	if dbent.TxFromContext(ctx) == nil {
+		service.InvalidateModelCatalogCaches()
+	}
 	if r == nil || r.schedulerCache == nil || accountID <= 0 {
 		return
 	}
@@ -1797,6 +1816,9 @@ func (r *accountRepository) syncSchedulerAccountSnapshotDetached(ctx context.Con
 }
 
 func (r *accountRepository) deleteSchedulerAccountSnapshot(ctx context.Context, accountID int64) {
+	if dbent.TxFromContext(ctx) == nil {
+		service.InvalidateModelCatalogCaches()
+	}
 	if r == nil || r.schedulerCache == nil || accountID <= 0 {
 		return
 	}
@@ -1926,6 +1948,7 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 }
 
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	existingGroupIDs, err := r.loadAccountGroupIDs(ctx, accountID)
 	if err != nil {
 		return err
@@ -2477,6 +2500,12 @@ func (r *accountRepository) SetOverloaded(ctx context.Context, id int64, until t
 }
 
 func (r *accountRepository) SetTempUnschedulable(ctx context.Context, id int64, until time.Time, reason string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.SetTempUnschedulable(lockedCtx, id, until, reason)
+		})
+	}
+
 	result, err := r.sql.ExecContext(ctx, `
 		UPDATE accounts
 		SET temp_unschedulable_until = $1,
@@ -2634,6 +2663,12 @@ func (r *accountRepository) ClearModelRateLimits(ctx context.Context, id int64) 
 }
 
 func (r *accountRepository) UpdateSessionWindow(ctx context.Context, id int64, start, end *time.Time, status string) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateSessionWindow(lockedCtx, id, start, end, status)
+		})
+	}
+
 	builder := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSessionWindowStatus(status)
@@ -2657,6 +2692,12 @@ func (r *accountRepository) UpdateSessionWindow(ctx context.Context, id int64, s
 }
 
 func (r *accountRepository) UpdateSessionWindowEnd(ctx context.Context, id int64, end time.Time) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateSessionWindowEnd(lockedCtx, id, end)
+		})
+	}
+
 	_, err := r.client.Account.Update().
 		Where(dbaccount.IDEQ(id)).
 		SetSessionWindowEnd(end).
@@ -2729,6 +2770,12 @@ func (r *accountRepository) AutoPauseExpiredAccounts(ctx context.Context, now ti
 }
 
 func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if runtimeIdentityGuardRequired(ctx, id) {
+		return r.withRuntimeIdentity(ctx, id, service.AccountRuntimeCacheSuffix(ctx, id), func(lockedCtx context.Context, repository *accountRepository) error {
+			return repository.UpdateExtra(lockedCtx, id, updates)
+		})
+	}
+
 	updates = service.StripAccountModelCatalogExtra(stripCodexFingerprintSeedFromExtraUpdate(updates))
 	if len(updates) == 0 {
 		return nil
@@ -3004,6 +3051,7 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	if len(ids) == 0 {
 		return 0, nil
 	}

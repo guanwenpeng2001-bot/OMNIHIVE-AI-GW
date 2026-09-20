@@ -47,6 +47,8 @@ type ErrorPassthroughService struct {
 	// 本地内存缓存，用于快速匹配
 	localCache   []*cachedPassthroughRule
 	localCacheMu sync.RWMutex
+	reloadMu     sync.Mutex
+	generation   int64
 }
 
 // cachedPassthroughRule 预计算的规则缓存，避免运行时重复 ToLower
@@ -190,6 +192,24 @@ func (s *ErrorPassthroughService) MatchRule(platform string, statusCode int, bod
 
 // getCachedRules 获取缓存的规则列表（按优先级排序）
 func (s *ErrorPassthroughService) getCachedRules() []*cachedPassthroughRule {
+	if _, authoritative := s.repo.(ModelCatalogGenerationReader); authoritative {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		generation, _, err := modelCatalogGeneration(ctx, s.repo, "error_rules")
+		s.localCacheMu.RLock()
+		cached, cachedGeneration := s.localCache, s.generation
+		s.localCacheMu.RUnlock()
+		if err == nil && cached != nil && cachedGeneration == generation {
+			return cached
+		}
+		if err := s.reloadRulesFromDB(ctx); err != nil {
+			return nil
+		}
+		s.localCacheMu.RLock()
+		defer s.localCacheMu.RUnlock()
+		return s.localCache
+	}
+
 	s.localCacheMu.RLock()
 	rules := s.localCache
 	s.localCacheMu.RUnlock()
@@ -212,6 +232,10 @@ func (s *ErrorPassthroughService) getCachedRules() []*cachedPassthroughRule {
 
 // refreshLocalCache 刷新本地缓存
 func (s *ErrorPassthroughService) refreshLocalCache(ctx context.Context) error {
+	if _, authoritative := s.repo.(ModelCatalogGenerationReader); authoritative {
+		return s.reloadRulesFromDB(ctx)
+	}
+
 	// 先尝试从 Redis 缓存获取
 	if s.cache != nil {
 		if rules, ok := s.cache.Get(ctx); ok {
@@ -226,6 +250,13 @@ func (s *ErrorPassthroughService) refreshLocalCache(ctx context.Context) error {
 // 从数据库加载（repo.List 已按 priority 排序）
 // 注意：该方法会绕过 cache.Get，确保拿到数据库最新值。
 func (s *ErrorPassthroughService) reloadRulesFromDB(ctx context.Context) error {
+	s.reloadMu.Lock()
+	defer s.reloadMu.Unlock()
+	generation, _, versionErr := modelCatalogGeneration(ctx, s.repo, "error_rules")
+	if versionErr != nil {
+		generation = -1
+	}
+
 	rules, err := s.repo.List(ctx)
 	if err != nil {
 		return err
@@ -239,13 +270,17 @@ func (s *ErrorPassthroughService) reloadRulesFromDB(ctx context.Context) error {
 	}
 
 	// 更新本地缓存（setLocalCache 内部会确保排序）
-	s.setLocalCache(rules)
+	s.setLocalCacheAtGeneration(rules, generation)
 
 	return nil
 }
 
 // setLocalCache 设置本地缓存，预计算小写值和 set 以避免运行时重复计算
 func (s *ErrorPassthroughService) setLocalCache(rules []*model.ErrorPassthroughRule) {
+	s.setLocalCacheAtGeneration(rules, -1)
+}
+func (s *ErrorPassthroughService) setLocalCacheAtGeneration(rules []*model.ErrorPassthroughRule, generation int64) {
+
 	cached := make([]*cachedPassthroughRule, len(rules))
 	for i, r := range rules {
 		cr := &cachedPassthroughRule{ErrorPassthroughRule: r}
@@ -280,6 +315,7 @@ func (s *ErrorPassthroughService) setLocalCache(rules []*model.ErrorPassthroughR
 
 	s.localCacheMu.Lock()
 	s.localCache = cached
+	s.generation = generation
 	s.localCacheMu.Unlock()
 }
 

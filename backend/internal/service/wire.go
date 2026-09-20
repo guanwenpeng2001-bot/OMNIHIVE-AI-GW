@@ -866,6 +866,7 @@ var ProviderSet = wire.NewSet(
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewAdminService,
+	ProvideAccountRuntimeInvalidator,
 	ProvideGatewayService,
 	ProvideOpenAIGatewayService,
 	ProvideImageStorageSettingService,
@@ -1065,4 +1066,11 @@ func ProvideChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.
 	}
 	aggregator.Start()
 	return aggregator
+}
+
+func ProvideAccountRuntimeInvalidator(usage *UsageCache, monitor *ChannelMonitorQuotaFetcher,
+	tokens TokenCacheInvalidator, timeout TimeoutCounterCache, forbidden OpenAI403CounterCache,
+	internal Internal500CounterCache, sessions CursorSessionCache, gateway *OpenAIGatewayService) *AccountRuntimeInvalidator {
+	return &AccountRuntimeInvalidator{Usage: usage, Monitor: monitor, Tokens: tokens,
+		Timeout: timeout, Forbidden: forbidden, Internal: internal, Sessions: sessions, Gateway: gateway}
 }

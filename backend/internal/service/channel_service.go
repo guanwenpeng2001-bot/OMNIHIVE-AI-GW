@@ -90,6 +90,7 @@ type wildcardMappingEntry struct {
 
 // channelCache 渠道缓存快照（扁平化哈希结构，热路径 O(1) 查找）
 type channelCache struct {
+	generation int64
 	// 热路径查找
 	pricingByGroupModel     map[channelModelKey]*ChannelModelPricing            // (groupID, platform, model) → 定价
 	wildcardByGroupPlatform map[channelGroupPlatformKey][]*wildcardPricingEntry // (groupID, platform) → 通配符定价（按配置顺序，先匹配先使用）
@@ -185,19 +186,24 @@ func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCa
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
+	generation, authoritative, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+	if versionErr != nil {
+		return s.buildCache(ctx)
+	}
+
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
 		return plan.channelSnapshot, plan.channelError
 	}
 	if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
-		if time.Since(cached.loadedAt) < channelCacheTTL {
+		if time.Since(cached.loadedAt) < channelCacheTTL && (!authoritative || cached.generation == generation) {
 			return cached, nil
 		}
 	}
 
-	result, err, _ := s.cacheSF.Do("channel_cache", func() (any, error) {
+	result, err, _ := s.cacheSF.Do(fmt.Sprintf("channel_cache:%d", generation), func() (any, error) {
 		// 双重检查
 		if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
-			if time.Since(cached.loadedAt) < channelCacheTTL {
+			if time.Since(cached.loadedAt) < channelCacheTTL && (!authoritative || cached.generation == generation) {
 				return cached, nil
 			}
 		}
@@ -282,6 +288,7 @@ func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 // 通过回退 loadedAt 使剩余 TTL = channelErrorTTL。
 func (s *ChannelService) storeErrorCache() {
 	errorCache := newEmptyChannelCache()
+	errorCache.generation = -1
 	errorCache.loadedAt = time.Now().Add(-(channelCacheTTL - channelErrorTTL))
 	s.cache.Store(errorCache)
 }
@@ -289,6 +296,8 @@ func (s *ChannelService) storeErrorCache() {
 // buildCache 从数据库构建渠道缓存。
 // 使用独立 context 避免请求取消导致空值被长期缓存。
 func (s *ChannelService) buildCache(ctx context.Context) (*channelCache, error) {
+	generation, _, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+
 	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), channelCacheDBTimeout)
 	defer cancel()
 
@@ -298,7 +307,10 @@ func (s *ChannelService) buildCache(ctx context.Context) (*channelCache, error) 
 	}
 
 	cache := populateChannelCache(channels, groupPlatforms)
-	s.cache.Store(cache)
+	cache.generation = generation
+	if versionErr == nil {
+		s.cache.Store(cache)
+	}
 	return cache, nil
 }
 

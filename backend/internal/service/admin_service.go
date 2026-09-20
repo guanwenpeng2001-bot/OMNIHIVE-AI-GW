@@ -683,6 +683,7 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
+	runtimeInvalidator   *AccountRuntimeInvalidator
 	cursorSessions       CursorSessionCache
 	cfg                  *config.Config
 	userRepo             UserRepository
@@ -754,8 +755,10 @@ func NewAdminService(
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
 	cursorSessions CursorSessionCache,
+	runtimeInvalidator *AccountRuntimeInvalidator,
 ) AdminService {
 	return &adminServiceImpl{
+		runtimeInvalidator:   runtimeInvalidator,
 		cursorSessions:       cursorSessions,
 		cfg:                  cfg,
 		userRepo:             userRepo,

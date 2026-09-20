@@ -77,6 +77,7 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -219,6 +220,7 @@ func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operat
 // CreateFromSource atomically persists a copied group, clones the source
 // account bindings with their exact priorities, and writes its scheduler event.
 func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service.Group, sourceGroupID int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -299,6 +301,7 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -481,6 +484,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 }
 
 func (r *groupRepository) Delete(ctx context.Context, id int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	_, err := r.client.Group.Delete().Where(group.IDEQ(id)).Exec(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrGroupNotFound, nil)
@@ -875,6 +879,7 @@ func (r *groupRepository) GetAccountCount(ctx context.Context, groupID int64) (t
 }
 
 func (r *groupRepository) DeleteAccountGroupsByGroupID(ctx context.Context, groupID int64) (int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	res, err := r.sql.ExecContext(ctx, "DELETE FROM account_groups WHERE group_id = $1", groupID)
 	if err != nil {
 		return 0, err
@@ -895,6 +900,7 @@ func (r *groupRepository) DeleteCascadeIfEmpty(ctx context.Context, id int64) ([
 }
 
 func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEmpty bool) ([]int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	// 使用 ent 事务统一包裹：避免手工基于 *sql.Tx 构造 ent client 带来的驱动断言问题，
 	// 同时保证级联删除的原子性。
 	tx, err := r.client.Tx(ctx)
@@ -1112,6 +1118,7 @@ func (r *groupRepository) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs 
 
 // BindAccountsToGroup 将多个账号绑定到指定分组（批量插入，忽略已存在的绑定）
 func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if len(accountIDs) == 0 {
 		return nil
 	}

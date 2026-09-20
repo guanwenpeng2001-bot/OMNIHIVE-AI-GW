@@ -1407,15 +1407,20 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
+	models, _ := s.GetAvailableModelsChecked(ctx, groupID, platform)
+	return models
+}
+
+func (s *GatewayService) GetAvailableModelsChecked(ctx context.Context, groupID *int64, platform string) ([]string, error) {
 	if models, err := s.CatalogModelIDs(ctx, groupID, platform); models != nil || err != nil {
-		return models
+		return models, err
 	}
-	cacheKey := modelsListCacheKey(groupID, platform)
-	if s.modelsListCache != nil {
+	cacheKey, versionErr := catalogVersionedCacheKey(ctx, s.accountRepo, modelsListCacheKey(groupID, platform))
+	if s.modelsListCache != nil && versionErr == nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
-				return cloneStringSlice(models)
+				return cloneStringSlice(models), nil
 			}
 		}
 	}
@@ -1430,8 +1435,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		accounts, err = s.accountRepo.ListSchedulable(ctx)
 	}
 
-	if err != nil || len(accounts) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return []string{}, nil
 	}
 
 	// Filter by platform if specified
@@ -1454,11 +1462,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		// mapping on any eligible passthrough account therefore cannot define the
 		// public whitelist; return nil so the handler uses its default model set.
 		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
-			if s.modelsListCache != nil {
+			if s.modelsListCache != nil && versionErr == nil {
 				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 				modelsListCacheStoreTotal.Add(1)
 			}
-			return nil
+			return nil, nil
 		}
 
 		mapping := acc.GetModelMapping()
@@ -1472,11 +1480,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
-		if s.modelsListCache != nil {
+		if s.modelsListCache != nil && versionErr == nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Convert to slice
@@ -1490,11 +1498,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		models = supplementUnmappedOpenAIModels(accounts, models)
 	}
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && versionErr == nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}
-	return cloneStringSlice(models)
+	return cloneStringSlice(models), nil
 }
 
 func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, groupID int64, model string) (CompositeModelOwnership, error) {
@@ -1503,8 +1511,8 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		return CompositeModelOwnership{}, nil
 	}
 
-	cacheKey := compositeModelOwnershipCacheKey(groupID, model)
-	if s.modelsListCache != nil {
+	cacheKey, versionErr := catalogVersionedCacheKey(ctx, s.accountRepo, compositeModelOwnershipCacheKey(groupID, model))
+	if s.modelsListCache != nil && versionErr == nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if ownership, ok := cached.(CompositeModelOwnership); ok {
 				return ownership, nil
@@ -1536,7 +1544,7 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		ownership.Ambiguous = true
 	}
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && versionErr == nil {
 		s.modelsListCache.Set(cacheKey, ownership, s.modelsListCacheTTL)
 	}
 	return ownership, nil
