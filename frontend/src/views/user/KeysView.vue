@@ -1357,6 +1357,7 @@ const columnDropdownRef = ref<HTMLElement | null>(null)
 const dropdownPosition = ref<{ top?: number; bottom?: number; left: number } | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 let abortController: AbortController | null = null
+const auxiliaryControllers = new Map<string, AbortController>()
 let disposed = false
 
 // Get the currently selected key for group change
@@ -1524,6 +1525,7 @@ const loadApiKeys = async () => {
       signal
     })
     if (!isCurrentRequest()) return
+    usageStats.value = {}
     apiKeys.value = response.items
     pagination.value.total = response.total
     pagination.value.pages = response.pages
@@ -1553,29 +1555,29 @@ const loadApiKeys = async () => {
   }
 }
 
-const loadGroups = async () => {
+async function loadAuxiliary<Result>(
+  name: string,
+  request: (options: { signal: AbortSignal }) => Promise<Result>,
+  apply: (result: Result) => void
+) {
+  if (disposed) return
+  auxiliaryControllers.get(name)?.abort()
+  const controller = new AbortController()
+  auxiliaryControllers.set(name, controller)
+  const isCurrent = () => !disposed && !controller.signal.aborted && auxiliaryControllers.get(name) === controller
   try {
-    groups.value = await userGroupsAPI.getAvailable()
+    const result = await request({ signal: controller.signal })
+    if (isCurrent()) apply(result)
   } catch (error) {
-    console.error('Failed to load groups:', error)
+    if (isCurrent() && !isAbortError(error)) console.error(`Failed to load ${name}:`, error)
+  } finally {
+    if (auxiliaryControllers.get(name) === controller) auxiliaryControllers.delete(name)
   }
 }
 
-const loadUserGroupRates = async () => {
-  try {
-    userGroupRates.value = await userGroupsAPI.getUserGroupRates()
-  } catch (error) {
-    console.error('Failed to load user group rates:', error)
-  }
-}
-
-const loadPublicSettings = async () => {
-  try {
-    publicSettings.value = await authAPI.getPublicSettings()
-  } catch (error) {
-    console.error('Failed to load public settings:', error)
-  }
-}
+const loadGroups = () => loadAuxiliary('groups', userGroupsAPI.getAvailable, result => { groups.value = result })
+const loadUserGroupRates = () => loadAuxiliary('group rates', userGroupsAPI.getUserGroupRates, result => { userGroupRates.value = result })
+const loadPublicSettings = () => loadAuxiliary('public settings', authAPI.getPublicSettings, result => { publicSettings.value = result })
 
 const openUseKeyModal = (key: ApiKey) => {
   selectedKey.value = key
@@ -2017,6 +2019,8 @@ onMounted(() => {
 
 onUnmounted(() => {
   disposed = true
+  auxiliaryControllers.forEach(controller => controller.abort())
+  auxiliaryControllers.clear()
   abortController?.abort()
   document.removeEventListener('click', closeGroupSelector)
   if (resetTimer) clearInterval(resetTimer)

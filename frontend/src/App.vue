@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
+import { i18n } from '@/i18n'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
@@ -22,7 +23,8 @@ const announcementStore = useAnnouncementStore()
 const adminComplianceStore = useAdminComplianceStore()
 const adminSettingsStore = useAdminSettingsStore()
 
-watchIdentityRouteRecovery(router, authStore)
+const stopIdentityRouteRecovery = watchIdentityRouteRecovery(router, authStore)
+let disposed = false
 
 function updateDocumentTitle() {
   const customMenuItems = [
@@ -47,6 +49,7 @@ watch(
 
 watch(
   [
+    () => i18n.global.locale.value,
     () => route.fullPath,
     () => route.meta.title,
     () => route.meta.titleKey,
@@ -58,7 +61,7 @@ watch(
     () => adminSettingsStore.customMenuItems,
   ],
   updateDocumentTitle,
-  { deep: true }
+  { deep: true, immediate: true }
 )
 
 // Watch for authentication state and manage subscription data + announcements
@@ -96,7 +99,11 @@ watch(subscriptionFeatureEnabled, (enabled) => {
 
 watch(
   [() => authStore.isAuthenticated, () => authStore.user?.id, () => authStore.user?.role, () => authStore.sessionRevision],
-  ([isAuthenticated], [oldValue]) => {
+  ([isAuthenticated], [oldValue], onCleanup) => {
+    onCleanup(() => {
+      clearTimeout(announcementLoginTimer)
+      document.removeEventListener('visibilitychange', onVisibilityChange)
+    })
     clearTimeout(announcementLoginTimer)
     if (isAuthenticated) {
       if (authStore.isAdmin) {
@@ -141,6 +148,8 @@ const removeAnnouncementRouteHook = router.afterEach(() => {
 })
 
 onBeforeUnmount(() => {
+  disposed = true
+  stopIdentityRouteRecovery()
   clearTimeout(announcementLoginTimer)
   removeAnnouncementRouteHook()
   subscriptionStore.stopPolling()
@@ -154,6 +163,7 @@ onMounted(async () => {
   // Check if setup is needed
   try {
     const status = await getSetupStatus()
+    if (disposed) return
     if (status.needs_setup && route.path !== '/setup') {
       router.replace('/setup')
       return
@@ -162,8 +172,12 @@ onMounted(async () => {
     // If setup endpoint fails, assume normal mode and continue
   }
 
+  if (disposed) return
+
   // Load public settings into appStore (will be cached for other components)
   await appStore.fetchPublicSettings()
+
+  if (disposed) return
 
   // Re-resolve document title now that site settings are available
   updateDocumentTitle()

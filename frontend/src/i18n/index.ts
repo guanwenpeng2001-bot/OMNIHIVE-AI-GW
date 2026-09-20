@@ -1,3 +1,4 @@
+import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
 import { createI18n } from 'vue-i18n'
 
 type LocaleCode = 'en' | 'zh'
@@ -40,6 +41,8 @@ export const i18n = createI18n({
   warnHtmlMessage: false
 })
 
+let localeRevision = 0
+const pendingLocales = new Map<LocaleCode, Promise<void>>()
 const loadedLocales = new Set<LocaleCode>()
 
 export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
@@ -47,16 +50,22 @@ export async function loadLocaleMessages(locale: LocaleCode): Promise<void> {
     return
   }
 
-  const loader = localeLoaders[locale]
-  const module = await loader()
-  i18n.global.setLocaleMessage(locale, module.default)
-  loadedLocales.add(locale)
+  let pending = pendingLocales.get(locale)
+  if (!pending) {
+    pending = localeLoaders[locale]().then(module => {
+      i18n.global.setLocaleMessage(locale, module.default)
+      loadedLocales.add(locale)
+    }).finally(() => pendingLocales.delete(locale))
+    pendingLocales.set(locale, pending)
+  }
+  await pending
 }
 
 export async function initI18n(): Promise<void> {
   const current = getLocale()
-  await loadLocaleMessages(current)
   document.documentElement.setAttribute('lang', current)
+  await loadLocaleMessages(current)
+  document.documentElement.setAttribute('lang', getLocale())
 }
 
 export async function setLocale(locale: string): Promise<void> {
@@ -64,7 +73,9 @@ export async function setLocale(locale: string): Promise<void> {
     return
   }
 
+  const revision = ++localeRevision
   await loadLocaleMessages(locale)
+  if (revision !== localeRevision) return
   i18n.global.locale.value = locale
   localStorage.setItem(LOCALE_KEY, locale)
   document.documentElement.setAttribute('lang', locale)
@@ -75,6 +86,7 @@ export async function setLocale(locale: string): Promise<void> {
   const { useAppStore } = await import('@/stores/app')
   const { useAuthStore } = await import('@/stores/auth')
   const { useAdminSettingsStore } = await import('@/stores/adminSettings')
+  if (revision !== localeRevision) return
   const route = router.currentRoute.value
   const appStore = useAppStore()
   const authStore = useAuthStore()
@@ -83,7 +95,9 @@ export async function setLocale(locale: string): Promise<void> {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems)
+  document.title = resolveRouteDocumentTitle(route, appStore.siteName, customMenuItems, {
+    billingMode: resolveSiteBillingMode(appStore.cachedPublicSettings),
+  })
 }
 
 export function getLocale(): LocaleCode {

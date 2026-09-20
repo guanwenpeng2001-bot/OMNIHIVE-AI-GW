@@ -1,7 +1,6 @@
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { ref } from 'vue'
+import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { GeminiOAuthCapabilities } from '@/api/admin/gemini'
 
@@ -19,22 +18,9 @@ export interface GeminiTokenInfo {
 }
 
 export function useGeminiOAuth() {
-  const appStore = useAppStore()
   const { t } = useI18n()
 
-  const authUrl = ref('')
-  const sessionId = ref('')
-  const state = ref('')
-  const loading = ref(false)
-  const error = ref('')
-
-  const resetState = () => {
-    authUrl.value = ''
-    sessionId.value = ''
-    state.value = ''
-    loading.value = false
-    error.value = ''
-  }
+  const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   const generateAuthUrl = async (
     proxyId: number | null | undefined,
@@ -42,7 +28,7 @@ export function useGeminiOAuth() {
     oauthType?: string,
     tierId?: string
   ): Promise<boolean> => {
-    loading.value = true
+    const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
     state.value = ''
@@ -57,17 +43,18 @@ export function useGeminiOAuth() {
       const trimmedTierID = tierId?.trim()
       if (trimmedTierID) payload.tier_id = trimmedTierID
 
-      const response = await adminAPI.gemini.generateAuthUrl(payload as any)
+      const response = await request.wait(adminAPI.gemini.generateAuthUrl(payload as any))
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       state.value = response.state
       return true
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return false
       error.value = extractApiErrorMessage(err, '') || t('admin.accounts.oauth.gemini.failedToGenerateUrl')
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return false
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -85,7 +72,7 @@ export function useGeminiOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -99,9 +86,10 @@ export function useGeminiOAuth() {
       const trimmedTierID = params.tierId?.trim()
       if (trimmedTierID) payload.tier_id = trimmedTierID
 
-      const tokenInfo = await adminAPI.gemini.exchangeCode(payload as any)
+      const tokenInfo = await request.wait(adminAPI.gemini.exchangeCode(payload as any))
       return tokenInfo as GeminiTokenInfo
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       // Check for specific missing project_id error
       const errorMessage = extractApiErrorMessage(err, '') || ''
       if (errorMessage.includes('missing project_id')) {
@@ -109,10 +97,10 @@ export function useGeminiOAuth() {
       } else {
         error.value = errorMessage || t('admin.accounts.oauth.gemini.failedToExchangeCode')
       }
-      appStore.showError(error.value)
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
