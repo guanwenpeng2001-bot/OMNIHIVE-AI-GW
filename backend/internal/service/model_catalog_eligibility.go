@@ -231,16 +231,19 @@ func catalogProtocolEndpoint(protocol string) string {
 // AccountModelBinding is internal evidence for a concrete outbound target.
 // It must never be serialized into a public model-list response.
 type AccountModelBinding struct {
-	PublicModel         string
-	AccountID           int64
-	CredentialAccountID int64
-	UpstreamModel       string
-	Endpoint            string
-	RouteSource         string
-	EvidenceKind        string
-	EvidenceObservedAt  string
-	SnapshotRevision    int64
-	Supported           bool
+	PublicModel                string
+	AccountID                  int64
+	CredentialAccountID        int64
+	UpstreamModel              string
+	Endpoint                   string
+	RouteSource                string
+	EvidenceKind               string
+	EvidenceObservedAt         string
+	SnapshotRevision           int64
+	IdentityRevision           int64
+	RulesRevision              int64
+	CredentialIdentityRevision int64
+	Supported                  bool
 }
 
 // AccountModelBindingOptions carries resolved request decisions. FinalModel
@@ -281,6 +284,9 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	model := strings.TrimSpace(publicModel)
 	if original, ok := RequestedPublicModelFromContext(ctx); ok {
 		binding.PublicModel = original
+	}
+	if !visibleModelPolicyAllows(ctx, binding.PublicModel) {
+		return binding
 	}
 	if resolved, ok := ResolvedUpstreamModelFromContext(ctx); ok {
 		model = resolved
@@ -341,6 +347,11 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		return binding
 	}
 	binding.SnapshotRevision = snapshot.Revision
+	binding.IdentityRevision = account.ModelCatalogState().IdentityRevision
+	binding.RulesRevision = account.ModelCatalogState().RulesRevision
+	if options.CredentialAccount != nil {
+		binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
+	}
 	for _, member := range snapshot.EligibleModels {
 		if member.ID != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member)) {
 			continue
@@ -373,7 +384,15 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		if endpoint == CompositeRouteEndpointCountTokens {
 			endpoint = CompositeRouteEndpointMessages
 		}
-		if len(member.Endpoints) == 0 || (endpoint != "" && endpoint != CompositeRouteEndpointAny && !catalogEndpointsContain(member.Endpoints, endpoint)) {
+		implemented := accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+		executable := false
+		for _, action := range implemented {
+			if catalogEndpointsContain(member.Endpoints, action) && (endpoint == "" || endpoint == CompositeRouteEndpointAny || catalogEndpointsContain([]string{action}, endpoint)) {
+				executable = true
+				break
+			}
+		}
+		if !executable {
 			continue
 		}
 		binding.EvidenceKind, binding.EvidenceObservedAt = member.EvidenceKind, member.EvidenceObservedAt

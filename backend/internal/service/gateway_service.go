@@ -869,6 +869,9 @@ func NewGatewayService(
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
+	if channelService != nil {
+		channelService.visibleModels = &VisibleModelResolver{gateway: svc}
+	}
 	if compositeResolver != nil {
 		compositeResolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)
 	}

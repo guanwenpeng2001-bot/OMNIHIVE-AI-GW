@@ -159,6 +159,7 @@ type ChannelCachePubSub interface {
 
 // ChannelService 渠道管理服务
 type ChannelService struct {
+	visibleModels *VisibleModelResolver
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator

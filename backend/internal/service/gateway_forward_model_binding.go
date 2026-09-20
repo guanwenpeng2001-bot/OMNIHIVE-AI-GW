@@ -8,7 +8,6 @@ import (
 	"mime"
 	"mime/multipart"
 	"net/http"
-	"sort"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -165,7 +164,11 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 			return err
 		}
 	}
-	if !AccountSupportsResolvedModel(ctx, current, finalModel, options) {
+	publicModel := finalModel
+	if requested := GatewayRequestPlanFromContext(ctx).Snapshot().Model; requested != "" {
+		publicModel = requested
+	}
+	if !AccountSupportsResolvedModel(ctx, current, publicModel, options) {
 		return ErrAccountModelUnsupported
 	}
 	return admitGatewayRequestBinding(ctx, account.ID)
@@ -225,190 +228,15 @@ func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, pl
 // CatalogModelsWithMetadata projects specifications from the same account read
 // and bindings as membership. Metadata is never an input to eligibility.
 func (s *GatewayService) CatalogModelsWithMetadata(ctx context.Context, groupID *int64, platform string) ([]string, map[string][]UpstreamModelMetadata, error) {
-	metadata := make(map[string][]UpstreamModelMetadata)
-	models, err := s.catalogModelListing(ctx, groupID, platform, metadata)
-	return models, metadata, err
+	view, metadata, err := s.VisibleModelsWithMetadata(ctx, groupID, platform)
+	return view.Models, metadata, err
 }
 
 func (s *GatewayService) catalogModelListing(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, mixedOnly ...bool) ([]string, error) {
-	if s == nil {
-		return nil, nil
-	}
-	reader, ok := s.accountRepo.(ModelCatalogAccountRepository)
-	if !ok {
-		return nil, nil
-	}
-	platforms := []string{platform}
-	if platform == "" || platform == PlatformComposite {
-		platforms = nil
-	}
-	accounts, err := reader.ListModelCatalogAccounts(ctx, groupID, platforms, s.cfg != nil && s.cfg.RunMode == "simple")
-	if err != nil {
-		return []string{}, err
-	}
-	candidates := make(map[string]struct{})
-	for i := range accounts {
-		account := &accounts[i]
-		if len(mixedOnly) > 0 && mixedOnly[0] && account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
-			continue
-		}
-		parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
-		if err != nil {
-			continue
-		}
-		account.modelCatalogCredentialAccount = parent
-		catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(parent)
-		if catalog == nil {
-			continue
-		}
-		for _, member := range catalog.EligibleModels {
-			candidates[member.ID] = struct{}{}
-		}
-		for alias := range account.GetModelMapping() {
-			if !strings.Contains(alias, "*") {
-				candidates[alias] = struct{}{}
-			}
-		}
-	}
-	var group *Group
-	if groupID != nil && s.groupRepo != nil {
-		group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
-		if err != nil {
-			return []string{}, err
-		}
-	}
-	if group != nil {
-		for _, model := range group.ModelAllowlist.Models {
-			if !strings.Contains(model, "*") {
-				candidates[model] = struct{}{}
-			}
-		}
-	}
-	if groupID != nil && s.channelService != nil {
-		channels, err := s.channelService.loadCache(ctx)
-		if err != nil {
-			return []string{}, err
-		}
-		for key := range channels.mappingByGroupModel {
-			if key.groupID == *groupID && (platform == PlatformComposite || platform == "" || key.platform == platform) {
-				candidates[key.model] = struct{}{}
-			}
-		}
-	}
-	resolver := s.compositeResolver
-	if platform == PlatformComposite {
-		if groupID == nil {
-			return []string{}, nil
-		}
-		if resolver == nil {
-			resolver = &CompositeRouteResolver{modelOwnershipResolver: s.resolveCompositeModelOwnership}
-		}
-		if resolver.repo != nil {
-			routes, err := resolver.repo.ListByGroup(ctx, *groupID, false)
-			if err != nil {
-				return []string{}, err
-			}
-			copy := *resolver
-			copy.repo = gatewayCatalogRoutes{CompositeModelRouteRepository: resolver.repo, routes: routes}
-			resolver = &copy
-			for _, route := range routes {
-				if route.MatchType == CompositeRouteMatchExact {
-					candidates[route.PublicModel] = struct{}{}
-				}
-			}
-		}
-	}
-	result := make([]string, 0, len(candidates))
-	// Decode each account's stored specification snapshot at most once. Reads
-	// never refresh upstream facts, parse public registries, or persist anything.
-	var specifications map[int64]*UpstreamModelMetadataSnapshot
-	var profiles map[int64]string
-	if metadata != nil {
-		specifications = make(map[int64]*UpstreamModelMetadataSnapshot, len(accounts))
-		profiles = make(map[int64]string, len(accounts))
-		for index := range accounts {
-			account := &accounts[index]
-			if !account.IsShadow() {
-				specifications[account.ID] = account.GetUpstreamModelMetadataSnapshot()
-				profiles[account.ID] = resolveCapabilityProfile(account)
-			}
-		}
-	}
-	for model := range candidates {
-		if group != nil && group.ModelAllowlistEnabled() && !group.ModelAllowlist.Allows(model) {
-			continue
-		}
-		supported := false
-		for _, endpoint := range []string{CompositeRouteEndpointResponses, CompositeRouteEndpointChatCompletions, CompositeRouteEndpointMessages, CompositeRouteEndpointGemini, CompositeRouteEndpointEmbeddings, CompositeRouteEndpointImages, string(OpenAIEndpointCapabilityLive)} {
-			candidateCtx := ctx
-			if platform == PlatformComposite {
-				decision, err := resolver.Resolve(ctx, *groupID, model, endpoint)
-				if err != nil {
-					return []string{}, err
-				}
-				if !decision.Matched {
-					continue
-				}
-				candidateCtx = WithCompositeRouteDecision(ctx, decision)
-			}
-			lookupModel := model
-			if resolved, ok := ResolvedUpstreamModelFromContext(candidateCtx); ok {
-				lookupModel = resolved
-			}
-			if s.channelService != nil && groupID != nil {
-				mapping := s.channelService.ResolveChannelMapping(candidateCtx, *groupID, lookupModel)
-				if mapping.Mapped {
-					candidateCtx = WithOpenAIForwardModel(candidateCtx, mapping.MappedModel, false)
-				}
-			}
-			for i := range accounts {
-				account := &accounts[i]
-				if len(mixedOnly) > 0 && mixedOnly[0] && account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
-					continue
-				}
-				options := AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: account.modelCatalogCredentialAccount}
-				if group != nil && endpoint == CompositeRouteEndpointMessages {
-					options.MessagesDispatchModel = group.ResolveMessagesDispatchModel(model)
-				}
-				binding := ResolveAccountModelBinding(candidateCtx, account, model, options)
-				if binding.Supported {
-					supported = true
-					if metadata == nil {
-						break
-					}
-					// Unknown facts on an exit for this listing endpoint remain unknown;
-					// the handler intersects only an explicit safe field whitelist.
-					projection := UpstreamModelMetadata{}
-					if snapshot := specifications[account.ID]; snapshot != nil {
-						candidate := snapshot.Models[binding.UpstreamModel]
-						if candidate.ProviderProfile != "" && candidate.ProviderProfile == profiles[account.ID] {
-							projection = candidate
-						}
-					}
-					metadata[model] = append(metadata[model], projection)
-				}
-			}
-			if supported {
-				break
-			}
-		}
-		if supported {
-			result = append(result, model)
-		}
-	}
-	sort.Strings(result)
-	return result, nil
+	result, err := (&VisibleModelResolver{gateway: s}).resolve(ctx, groupID, platform, metadata, mixedOnly...)
+	return result.Models, err
 }
 
-// Reuse the existing resolver against this projection's single route snapshot.
-type gatewayCatalogRoutes struct {
-	CompositeModelRouteRepository
-	routes []CompositeModelRoute
-}
-
-func (r gatewayCatalogRoutes) ListByGroup(context.Context, int64, bool) ([]CompositeModelRoute, error) {
-	return r.routes, nil
-}
 func filterCatalogModelIDs(ctx context.Context, repo AccountRepository, accounts []Account, ids []string, endpoint string) []string {
 	if _, ok := repo.(ModelCatalogAccountRepository); !ok {
 		return ids
