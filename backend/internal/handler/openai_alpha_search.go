@@ -75,6 +75,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		return
 	}
 	requestedModel := strings.TrimSpace(modelResult.String())
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestedModel, "search", h.maxAccountSwitches)()
 	if !compositeTargetPlatformAllowed(c, apiKey, requestedModel, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Codex alpha search only supports OpenAI models for Composite groups")
 		return
@@ -112,10 +113,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 	searchID := strings.TrimSpace(gjson.GetBytes(body, "id").String())
 	sessionHash := h.gatewayService.GenerateSessionHashWithFallback(c, nil, searchID)
 	profitVetoCount := 0
-	failedAccountIDs := make(map[int64]struct{})
-	sameAccountRetryCount := make(map[int64]int)
-	var lastFailoverErr *service.UpstreamFailoverError
-	switchCount := 0
+	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	routingStart := time.Now()
 
@@ -131,7 +129,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			"",
 			sessionHash,
 			requestedModel,
-			failedAccountIDs,
+			failoverState.FailedAccountIDs,
 			service.OpenAIUpstreamTransportHTTPSSE,
 			service.OpenAIEndpointCapabilityAlphaSearch,
 			false,
@@ -144,7 +142,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				reqLog.Info("openai_alpha_search.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
-			if len(failedAccountIDs) == 0 {
+			if len(failoverState.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestedModel, requestedModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -152,8 +150,8 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 				return
 			}
-			if lastFailoverErr != nil {
-				h.handleFailoverExhausted(c, lastFailoverErr, false)
+			if failoverState.LastFailoverErr != nil {
+				h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 			} else {
 				h.errorResponse(c, http.StatusBadGateway, "upstream_error", "Upstream request failed")
 			}
@@ -165,7 +163,7 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 		accountRelease, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, false, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+			if !recordOpenAIProfitVeto(failoverState.FailedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -216,42 +214,21 @@ func (h *OpenAIGatewayHandler) AlphaSearch(c *gin.Context) {
 			)
 			return
 		}
-		if failoverErr.RetryableOnSameAccount {
-			retryLimit := account.GetPoolModeRetryCount()
-			if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
-				sameAccountRetryCount[account.ID]++
-				retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
-				reqLog.Warn("openai_alpha_search.same_account_retry",
-					zap.Int64("account_id", account.ID),
-					zap.Int("upstream_status", failoverErr.StatusCode),
-					zap.Int("retry_limit", retryLimit),
-					zap.Int("retry_count", sameAccountRetryCount[account.ID]),
-					zap.Duration("retry_delay", retryDelay),
-				)
-				select {
-				case <-c.Request.Context().Done():
-					return
-				case <-time.After(retryDelay):
-				}
-				continue
-			}
-		}
-		h.gatewayService.RecordOpenAIAccountSwitch()
-		failedAccountIDs[account.ID] = struct{}{}
-		lastFailoverErr = failoverErr
-		if switchCount >= h.maxAccountSwitches {
-			h.handleFailoverExhausted(c, failoverErr, false)
+		switch failoverState.HandleFailoverError(c.Request.Context(), nil, account.ID, account.Platform, effectiveSameAccountRetryLimit(failoverErr, account), failoverErr) {
+		case FailoverCanceled:
+			return
+		case FailoverExhausted:
+			h.handleFailoverExhausted(c, failoverErr, streamStarted)
 			return
 		}
-		switchCount++
-		if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+		if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, failoverState.SwitchCount, &oauth429FailoverState) {
 			h.handleFailoverExhausted(c, failoverErr, false)
 			return
 		}
 		reqLog.Warn("openai_alpha_search.upstream_failover_switching",
 			zap.Int64("account_id", account.ID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
-			zap.Int("switch_count", switchCount),
+			zap.Int("switch_count", failoverState.SwitchCount),
 		)
 	}
 }

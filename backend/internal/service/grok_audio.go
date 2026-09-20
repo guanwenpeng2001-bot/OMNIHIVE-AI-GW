@@ -138,7 +138,10 @@ func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Con
 	return s.ProxyGrokRealtimeConn(ctx, c, client, upstream)
 }
 
-type GrokRealtimeUpstream struct{ conn openAIWSClientConn }
+type GrokRealtimeUpstream struct {
+	conn      openAIWSClientConn
+	accountID int64
+}
 
 // GrokRealtimeDialError preserves an HTTP status returned before WebSocket
 // upgrade so handlers can apply the normal Grok account policy.
@@ -186,7 +189,7 @@ func (s *OpenAIGatewayService) OpenGrokRealtime(ctx context.Context, account *Ac
 	if err != nil {
 		return nil, &GrokRealtimeDialError{StatusCode: status, Err: err}
 	}
-	return &GrokRealtimeUpstream{conn: conn}, nil
+	return &GrokRealtimeUpstream{conn: conn, accountID: account.ID}, nil
 }
 
 // HandleGrokRealtimeUpstreamError applies the shared Grok account policy to a
@@ -204,7 +207,7 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 	}
 	conn := upstream.conn
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := AttemptExecutionContext(ctx)
 	defer cancel()
 	errCh := make(chan error, 2)
 	var audioObserved atomic.Bool
@@ -229,6 +232,13 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 
 	// Client → upstream (JSON events only)
 	go func() {
+		logicalTurn := 0
+		var turnPlan *GatewayRequestPlan
+		defer func() {
+			if turnPlan != nil {
+				turnPlan.Finalize(false)
+			}
+		}()
 		for {
 			kind, msg, readErr := client.Read(ctx)
 			if readErr != nil {
@@ -246,7 +256,20 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 				errCh <- fmt.Errorf("invalid realtime event: %w", unmarshalErr)
 				return
 			}
-			if writeErr := conn.WriteJSON(ctx, raw); writeErr != nil {
+			turnContext := ctx
+			if gjson.GetBytes(raw, "type").String() == "response.create" {
+				logicalTurn++
+				BeginAttemptStreamTurn(ctx, logicalTurn)
+				if turnPlan != nil {
+					turnPlan.Finalize(false)
+				}
+				if parent := GatewayRequestPlanFromContext(ctx); parent != nil {
+					spec := parent.Snapshot()
+					spec.ExecutionID = fmt.Sprintf("%s:turn:%d", spec.ExecutionID, logicalTurn)
+					turnContext, turnPlan = s.CaptureRequestTurn(ctx, spec)
+				}
+			}
+			if writeErr := generationWS(turnContext, upstream.accountID, raw, func(sendContext context.Context) error { return conn.WriteJSON(sendContext, raw) }); writeErr != nil {
 				errCh <- writeErr
 				return
 			}
