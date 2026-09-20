@@ -34,6 +34,11 @@ const (
 )
 
 type UpstreamModelMetadata struct {
+	CreatedAt          string `json:"created_at,omitempty"`
+	ModelVersion       string `json:"model_version,omitempty"`
+	CreatedAtStatus    string `json:"created_at_status,omitempty"`
+	ModelVersionStatus string `json:"model_version_status,omitempty"`
+
 	SupportsPDF             *bool                              `json:"supports_pdf,omitempty"`
 	RejectedCandidates      []ModelCapabilityRejection         `json:"rejected_candidates,omitempty"`
 	SupportsVision          *bool                              `json:"supports_vision,omitempty"`
@@ -542,7 +547,7 @@ func upstreamCatalogNeedsRegistry(models []string, metadata map[string]UpstreamM
 }
 
 func upstreamModelMetadataIsUseful(metadata UpstreamModelMetadata) bool {
-	return metadata.SupportsFunctionCalling != nil || metadata.SupportsPromptCaching != nil || metadata.ReasoningControl != nil || strings.TrimSpace(metadata.Category) != "" || strings.TrimSpace(metadata.TaskType) != "" ||
+	return metadata.CreatedAt != "" || metadata.ModelVersion != "" || metadata.SupportsFunctionCalling != nil || metadata.SupportsPromptCaching != nil || metadata.ReasoningControl != nil || strings.TrimSpace(metadata.Category) != "" || strings.TrimSpace(metadata.TaskType) != "" ||
 		strings.TrimSpace(metadata.DefaultReasoningLevel) != "" ||
 		metadata.SupportedMethods != nil || metadata.OutputModalities != nil || strings.TrimSpace(metadata.DisplayName) != "" ||
 		strings.TrimSpace(metadata.Description) != "" ||
@@ -655,7 +660,7 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.MaxOutputTokens = fallback.MaxOutputTokens
 		changed = true
 	}
-	for _, name := range []string{"ProviderProfile", "SupportsVision", "SupportsPDF", "SupportsFunctionCalling", "SupportsPromptCaching", "ReasoningControl", "ContextLimitKind", "InputModalitiesStatus", "EndpointStatus", "EmbeddingDimensions", "ContextHint", "FamilyHint"} {
+	for _, name := range []string{"CreatedAt", "ModelVersion", "ProviderProfile", "SupportsVision", "SupportsPDF", "SupportsFunctionCalling", "SupportsPromptCaching", "ReasoningControl", "ContextLimitKind", "InputModalitiesStatus", "EndpointStatus", "EmbeddingDimensions", "ContextHint", "FamilyHint"} {
 		if (name == "SupportsVision" || name == "SupportsPDF") && merged.InputModalities != nil && merged.InputModalitiesStatus != "partial" {
 			modality, flag := "image", fallback.SupportsVision
 			if name == "SupportsPDF" {
@@ -1795,6 +1800,10 @@ type upstreamModelEntryMetadata struct {
 }
 
 type upstreamModelCapabilityEntry struct {
+	CreatedAt string `json:"created_at"`
+	Created   *int64 `json:"created"`
+	Version   string `json:"version"`
+
 	ThinkingBudget          *int64                     `json:"thinkingBudget"`
 	ToolCall                *bool                      `json:"tool_call"`
 	SupportsFunctionCalling *bool                      `json:"supports_function_calling,omitempty"`
@@ -2033,6 +2042,8 @@ func upstreamMetadataFromCapabilityEntry(modelID string, entry upstreamModelCapa
 		displayName = strings.TrimSpace(entry.Name)
 	}
 	metadata := UpstreamModelMetadata{
+		CreatedAt:                nativeModelCreatedAt(entry),
+		ModelVersion:             strings.TrimSpace(entry.Version),
 		ID:                       modelID,
 		Category:                 strings.TrimSpace(entry.Category),
 		TaskType:                 strings.TrimSpace(entry.TaskType),
@@ -2381,6 +2392,16 @@ func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest
 // fields always acquire independent ownership; scalar fields need only a copy.
 func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) bool {
 	switch field {
+	case "CreatedAt":
+		if merged.CreatedAt == "" && fallback.CreatedAt != "" {
+			merged.CreatedAt = fallback.CreatedAt
+			return true
+		}
+	case "ModelVersion":
+		if merged.ModelVersion == "" && fallback.ModelVersion != "" {
+			merged.ModelVersion = fallback.ModelVersion
+			return true
+		}
 	case "ProviderProfile":
 		if merged.ProviderProfile == "" && fallback.ProviderProfile != "" {
 			merged.ProviderProfile = fallback.ProviderProfile

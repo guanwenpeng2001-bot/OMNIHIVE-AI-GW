@@ -38,6 +38,9 @@ type LiteLLMCapabilityFields struct {
 // CapabilityRecord contains specifications only; it cannot authorize a model
 // or provide any billing or Codex-specific tool defaults.
 type CapabilityRecord struct {
+	CreatedAt    string `json:"created_at,omitempty"`
+	ModelVersion string `json:"model_version,omitempty"`
+
 	ContextWindow         int64                      `json:"context_window,omitempty"`
 	ContextLimitKind      string                     `json:"context_limit_kind,omitempty"`
 	InputModalitiesStatus string                     `json:"input_modalities_status,omitempty"`
@@ -166,6 +169,11 @@ func cloneCapabilityRecord(r CapabilityRecord) CapabilityRecord {
 }
 
 func validateCapabilityRecord(r CapabilityRecord) error {
+	if r.CreatedAt != "" {
+		if _, err := time.Parse(time.RFC3339Nano, r.CreatedAt); err != nil {
+			return fmt.Errorf("invalid model creation time: %w", err)
+		}
+	}
 	if strings.TrimSpace(r.ModelID) == "" || strings.ContainsRune(r.ModelID, 0) || strings.ContainsRune(r.Profile, 0) {
 		return fmt.Errorf("invalid model identity")
 	}
@@ -233,6 +241,14 @@ func fillCapabilityFields(primary, fallback CapabilityRecord) CapabilityRecord {
 			name := strings.Split(a.Type().Field(i).Tag.Get("json"), ",")[0]
 			primary.FieldSources[name] = fallback.FieldSources[name]
 		}
+	}
+	if primary.CreatedAt == "" && fallback.CreatedAt != "" {
+		primary.CreatedAt = fallback.CreatedAt
+		primary.FieldSources["created_at"] = fallback.FieldSources["created_at"]
+	}
+	if primary.ModelVersion == "" && fallback.ModelVersion != "" {
+		primary.ModelVersion = fallback.ModelVersion
+		primary.FieldSources["model_version"] = fallback.FieldSources["model_version"]
 	}
 	if primary.Mode == "" && fallback.Mode != "" {
 		primary.Mode = fallback.Mode
@@ -378,6 +394,11 @@ func buildModelCapabilitySnapshotFromCatalog(runtime, supplement []byte) (*Model
 		// The independently pinned release approves exact profile/model identities.
 		// Historical input hashes are provenance, never a live pricing predicate.
 		r.FieldSources = make(map[string]CapabilityFieldSource)
+		for name, value := range map[string]string{"created_at": r.CreatedAt, "model_version": r.ModelVersion} {
+			if value != "" {
+				r.FieldSources[name] = CapabilityFieldSource{r.Source, r.SourceContentHash}
+			}
+		}
 		v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 		for i := 0; i < v.NumField(); i++ {
 			if !v.Field(i).IsNil() {

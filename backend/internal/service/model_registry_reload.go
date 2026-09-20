@@ -52,7 +52,7 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 			if record.ModelID == "" {
 				record = CapabilityRecord{Provider: preset.Platform, Profile: profile, ModelID: model.ID, Source: "platform-preset", SourceContentHash: binding.PresetsSHA256}
 			}
-			fallback := CapabilityRecord{Mode: model.TaskType, SupportedMethods: model.Methods, ContextWindow: model.ContextWindow, ContextLimitKind: model.ContextLimitKind, Control: model.ReasoningControl, TaskLimits: model.TaskLimits, InputModalitiesStatus: model.InputModalitiesStatus, LiteLLMCapabilityFields: LiteLLMCapabilityFields{InputModalities: model.InputModalities, OutputModalities: model.OutputModalities}, FieldSources: make(map[string]CapabilityFieldSource)}
+			fallback := CapabilityRecord{CreatedAt: model.CreatedAt, ModelVersion: model.ModelVersion, Mode: model.TaskType, SupportedMethods: model.Methods, ContextWindow: model.ContextWindow, ContextLimitKind: model.ContextLimitKind, Control: model.ReasoningControl, TaskLimits: model.TaskLimits, InputModalitiesStatus: model.InputModalitiesStatus, LiteLLMCapabilityFields: LiteLLMCapabilityFields{InputModalities: model.InputModalities, OutputModalities: model.OutputModalities}, FieldSources: make(map[string]CapabilityFieldSource)}
 			if model.MaxInputTokens > 0 {
 				limit := model.MaxInputTokens
 				fallback.MaxInputTokens = &limit
@@ -65,7 +65,7 @@ func (r *ModelRegistry) build(catalog, manifest, presets []byte, previous *model
 				limit := model.MaxOutputTokens
 				fallback.MaxOutputTokens = &limit
 			}
-			for _, field := range []string{"max_input_tokens", "max_output_tokens", "input_modalities", "output_modalities", "context_window", "context_limit_kind", "control", "mode", "supported_methods", "embedding_dimensions"} {
+			for _, field := range []string{"created_at", "model_version", "max_input_tokens", "max_output_tokens", "input_modalities", "output_modalities", "context_window", "context_limit_kind", "control", "mode", "supported_methods", "embedding_dimensions"} {
 				fallback.FieldSources[field] = CapabilityFieldSource{Source: "platform-preset", ContentHash: binding.PresetsSHA256}
 			}
 			for name := range model.TaskLimits {
