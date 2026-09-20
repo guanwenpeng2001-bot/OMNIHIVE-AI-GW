@@ -10,15 +10,117 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// TestDingTalkOAuthStart_Disabled は sentinel テスト。
-// TODO(task-1.10): newTestAuthHandlerWithDingTalk helper が追加されたら t.Skip を外す。
 func TestDingTalkOAuthStart_Disabled(t *testing.T) {
-	t.Skip("helper newTestAuthHandlerWithDingTalk added in Task 1.10; sentinel only")
+	handler, _ := newOAuthPendingFlowTestHandler(t, false)
+	recorder := httptest.NewRecorder()
+	requestContext, _ := gin.CreateTestContext(recorder)
+	requestContext.Request = httptest.NewRequest(http.MethodGet, dingTalkOAuthCookiePath+"/start", nil)
+	handler.DingTalkOAuthStart(requestContext)
+	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, "dingtalk_not_enabled", parseOAuthRedirectFragment(t, recorder.Header().Get("Location")).Get("error"))
+}
+
+func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
+	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected"} {
+		testingT.Run(scenario, func(testingT *testing.T) {
+			handler, database := newOAuthPendingFlowTestHandler(testingT, false)
+			ctx := context.Background()
+			user, err := database.User.Create().SetEmail("dingtalk-bind@example.test").SetUsername("Existing user").SetPasswordHash("hash").SetRole(service.RoleUser).SetStatus(service.StatusActive).Save(ctx)
+			require.NoError(testingT, err)
+			var calls []string
+			provider := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				calls = append(calls, request.URL.Path)
+				writer.Header().Set("Content-Type", "application/json")
+				switch request.URL.Path {
+				case "/oauth2/userAccessToken":
+					var payload map[string]string
+					assert.NoError(testingT, json.NewDecoder(request.Body).Decode(&payload))
+					assert.Equal(testingT, "fixture-code", payload["code"])
+					assert.Equal(testingT, "fixture-client", payload["clientId"])
+					assert.Equal(testingT, "fixture-secret", payload["clientSecret"])
+					if scenario == "exchange_rejected" {
+						writer.WriteHeader(http.StatusUnauthorized)
+						_, _ = writer.Write([]byte(`{"code":"InvalidCode","message":"fixture rejection"}`))
+						return
+					}
+					_, _ = writer.Write([]byte(`{"accessToken":"fixture-user-token","expireIn":7200,"corpId":"fixture-corp"}`))
+				case "/contact/users/me":
+					assert.Equal(testingT, "fixture-user-token", request.Header.Get("x-acs-dingtalk-access-token"))
+					_, _ = writer.Write([]byte(`{"unionId":"fixture-union","nick":"Fixture user"}`))
+				case "/oauth2/accessToken":
+					_, _ = writer.Write([]byte(`{"accessToken":"fixture-app-token","expireIn":7200}`))
+				case "/topapi/user/getbyunionid":
+					assert.Equal(testingT, "fixture-app-token", request.URL.Query().Get("access_token"))
+					if scenario == "directory_rejected" {
+						_, _ = writer.Write([]byte(`{"errcode":60011,"errmsg":"not in directory"}`))
+						return
+					}
+					_, _ = writer.Write([]byte(`{"errcode":0,"result":{"userid":"fixture-staff"}}`))
+				case "/topapi/v2/user/get":
+					_, _ = writer.Write([]byte(`{"errcode":0,"result":{"userid":"fixture-staff","name":"Fixture user","email":"fixture@example.test"}}`))
+				default:
+					testingT.Errorf("unexpected IdP request: %s", request.URL)
+					http.NotFound(writer, request)
+				}
+			}))
+			defer provider.Close()
+			handler.settingSvc = nil // Use this test's explicit local IdP config.
+			handler.cfg = &config.Config{JWT: config.JWTConfig{Secret: "test-secret"}}
+			handler.cfg.DingTalk = config.DingTalkConnectConfig{Enabled: true, ClientID: "fixture-client", ClientSecret: "fixture-secret", TokenURL: provider.URL + "/oauth2/userAccessToken", UserInfoURL: provider.URL + "/contact/users/me", CorpRestrictionPolicy: "internal_only"}
+			recorder := httptest.NewRecorder()
+			requestContext, _ := gin.CreateTestContext(recorder)
+			request := httptest.NewRequest(http.MethodGet, dingTalkOAuthCookiePath+"/callback?code=fixture-code&state=fixture-state", nil)
+			state := "fixture-state"
+			if scenario == "state_mismatch" {
+				state = "other-state"
+			}
+			request.AddCookie(encodedCookie(dingTalkOAuthStateCookieName, state))
+			request.AddCookie(encodedCookie(dingTalkOAuthIntentCookieName, oauthIntentBindCurrentUser))
+			request.AddCookie(encodedCookie(dingTalkOAuthBindUserCookieName, buildEncodedOAuthBindUserCookie(testingT, user.ID, handler.cfg.JWT.Secret)))
+			request.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
+			requestContext.Request = request
+			handler.DingTalkOAuthCallback(requestContext)
+			require.Equal(testingT, http.StatusFound, recorder.Code)
+			if scenario != "bind" {
+				require.NotEmpty(testingT, parseOAuthRedirectFragment(testingT, recorder.Header().Get("Location")).Get("error"))
+				count, err := database.PendingAuthSession.Query().Count(ctx)
+				require.NoError(testingT, err)
+				require.Zero(testingT, count)
+				if scenario == "state_mismatch" {
+					require.Empty(testingT, calls)
+				}
+				if scenario == "exchange_rejected" {
+					require.Len(testingT, calls, 1)
+				}
+				return
+			}
+			require.Len(testingT, calls, 5)
+			session, err := database.PendingAuthSession.Query().Only(ctx)
+			require.NoError(testingT, err)
+			require.Equal(testingT, "fixture-union", session.ProviderSubject)
+			require.Equal(testingT, user.ID, *session.TargetUserID)
+			finalize := httptest.NewRecorder()
+			finalizeContext, _ := gin.CreateTestContext(finalize)
+			finalizeRequest := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/pending/exchange", strings.NewReader(`{"adopt_display_name":false,"adopt_avatar":false}`))
+			finalizeRequest.Header.Set("Content-Type", "application/json")
+			finalizeRequest.AddCookie(encodedCookie(oauthPendingSessionCookieName, session.SessionToken))
+			finalizeRequest.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
+			finalizeContext.Request = finalizeRequest
+			handler.ExchangePendingOAuthCompletion(finalizeContext)
+			require.Equal(testingT, http.StatusOK, finalize.Code, finalize.Body.String())
+			identity, err := database.AuthIdentity.Query().Where(authidentity.ProviderTypeEQ("dingtalk"), authidentity.ProviderSubjectEQ("fixture-union")).Only(ctx)
+			require.NoError(testingT, err)
+			require.Equal(testingT, user.ID, identity.UserID)
+		})
+	}
 }
 
 // TestBuildDingTalkSyntheticEmail_UsesUnionID 验证合成邮箱种子使用 unionID。

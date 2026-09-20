@@ -1,4 +1,4 @@
-//go:build unit && !windows
+//go:build unit
 
 package main
 
@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"syscall"
@@ -25,6 +26,9 @@ import (
 // Run in a separate OS process so this exercises SIGTERM, not a simulated
 // client disconnect. The fake provider sends response.done only after drain.
 func TestRealtimeSIGTERMReceiptBeforeCleanup(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows cannot deliver SIGTERM; TestRealtimeShutdownReceiptBeforeCleanup covers drain and cleanup")
+	}
 	if os.Getenv("REALTIME_SHUTDOWN_CHILD") != "1" {
 		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 		defer cancel()
@@ -50,11 +54,21 @@ func TestRealtimeSIGTERMReceiptBeforeCleanup(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	signal.Notify(signals, syscall.SIGTERM)
 	defer signal.Stop(signals)
+	testRealtimeReceiptBeforeCleanup(t, func() { fmt.Println("COMMIT_ACCEPTED") }, signals)
+}
+
+func TestRealtimeShutdownReceiptBeforeCleanup(testingT *testing.T) {
+	shutdown := make(chan os.Signal, 1)
+	testRealtimeReceiptBeforeCleanup(testingT, func() { shutdown <- os.Interrupt }, shutdown)
+}
+
+func testRealtimeReceiptBeforeCleanup(testingT *testing.T, commitAccepted func(), shutdown <-chan os.Signal) {
+	testingT.Helper()
 	svc := service.NewUpstreamJobService(nil, nil, nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	relayCtx, release, err := svc.RegisterQianwenRealtime(ctx)
-	require.NoError(t, err)
+	require.NoError(testingT, err)
 	var receipt, closed atomic.Bool
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := ws.Accept(w, r, nil)
@@ -69,18 +83,18 @@ func TestRealtimeSIGTERMReceiptBeforeCleanup(t *testing.T) {
 			}
 			switch {
 			case strings.Contains(string(raw), "session.update"):
-				require.NoError(t, conn.Write(ctx, ws.MessageText, []byte(`{"type":"session.updated","session":{"mode":"commit"}}`)))
+				require.NoError(testingT, conn.Write(ctx, ws.MessageText, []byte(`{"type":"session.updated","session":{"mode":"commit"}}`)))
 			case strings.Contains(string(raw), "input_text_buffer.commit"):
-				fmt.Println("COMMIT_ACCEPTED")
+				commitAccepted()
 			case strings.Contains(string(raw), "session.finish"):
-				require.NoError(t, conn.Write(ctx, ws.MessageText, []byte(`{"type":"response.done","response":{"id":"late","status":"completed","usage":{"characters":5}}}`)))
+				require.NoError(testingT, conn.Write(ctx, ws.MessageText, []byte(`{"type":"response.done","response":{"id":"late","status":"completed","usage":{"characters":5}}}`)))
 				return
 			}
 		}
 	}))
 	defer provider.Close()
 	upstream, _, err := ws.Dial(ctx, strings.Replace(provider.URL, "http", "ws", 1), nil)
-	require.NoError(t, err)
+	require.NoError(testingT, err)
 	relayDone := make(chan error, 1)
 	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		defer release()
@@ -92,9 +106,9 @@ func TestRealtimeSIGTERMReceiptBeforeCleanup(t *testing.T) {
 		relayDone <- service.RelayQianwenRealtime(relayCtx, conn, &service.QianwenRealtimeUpstream{Conn: upstream, Created: []byte(`{"type":"session.created"}`)}, service.QianwenRealtimeCallbacks{
 			BeforeCommit: func(context.Context, string) error { return nil },
 			Receipt: func(_ context.Context, id string, raw []byte, status string) error {
-				require.False(t, closed.Load())
-				require.Equal(t, "late", id)
-				require.JSONEq(t, `{"characters":5}`, string(raw))
+				require.False(testingT, closed.Load())
+				require.Equal(testingT, "late", id)
+				require.JSONEq(testingT, `{"characters":5}`, string(raw))
 				receipt.Store(true)
 				return nil
 			},
@@ -102,22 +116,22 @@ func TestRealtimeSIGTERMReceiptBeforeCleanup(t *testing.T) {
 	}))
 	defer gateway.Close()
 	client, _, err := ws.Dial(ctx, strings.Replace(gateway.URL, "http", "ws", 1), nil)
-	require.NoError(t, err)
+	require.NoError(testingT, err)
 	defer client.CloseNow()
 	_, _, err = client.Read(ctx)
-	require.NoError(t, err)
-	require.NoError(t, client.Write(ctx, ws.MessageText, []byte(`{"type":"session.update","session":{"mode":"commit","response_format":"pcm","sample_rate":24000}}`)))
+	require.NoError(testingT, err)
+	require.NoError(testingT, client.Write(ctx, ws.MessageText, []byte(`{"type":"session.update","session":{"mode":"commit","response_format":"pcm","sample_rate":24000}}`)))
 	_, _, err = client.Read(ctx)
-	require.NoError(t, err)
-	require.NoError(t, client.Write(ctx, ws.MessageText, []byte(`{"type":"input_text_buffer.append","text":"hello"}`)))
-	require.NoError(t, client.Write(ctx, ws.MessageText, []byte(`{"type":"input_text_buffer.commit"}`)))
+	require.NoError(testingT, err)
+	require.NoError(testingT, client.Write(ctx, ws.MessageText, []byte(`{"type":"input_text_buffer.append","text":"hello"}`)))
+	require.NoError(testingT, client.Write(ctx, ws.MessageText, []byte(`{"type":"input_text_buffer.commit"}`)))
 	select {
-	case <-signals:
+	case <-shutdown:
 	case <-ctx.Done():
-		t.Fatal("SIGTERM missing")
+		testingT.Fatal("shutdown trigger missing")
 	}
-	app := &Application{UpstreamJobs: svc, Server: gateway.Config, Cleanup: func() { require.True(t, receipt.Load(), "receipt precedes DB/Redis close"); closed.Store(true) }}
-	require.NoError(t, shutdownApplication(ctx, app))
-	require.True(t, closed.Load())
-	require.NoError(t, <-relayDone)
+	app := &Application{UpstreamJobs: svc, Server: gateway.Config, Cleanup: func() { require.True(testingT, receipt.Load(), "receipt precedes DB/Redis close"); closed.Store(true) }}
+	require.NoError(testingT, shutdownApplication(ctx, app))
+	require.True(testingT, closed.Load())
+	require.NoError(testingT, <-relayDone)
 }
