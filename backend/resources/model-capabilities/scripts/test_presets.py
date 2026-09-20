@@ -57,9 +57,55 @@ class PresetEvidenceTests(unittest.TestCase):
         models = {model["id"]: model for model in hunyuan["models"]}
         self.assertNotIn("hy3-preview", models)
         self.assertFalse(any("customized" in identifier for identifier in models))
-        self.assertEqual("deprecated", models["hunyuan-turbos-latest"]["lifecycle"])
-        self.assertEqual("2026-09-30", models["hunyuan-turbos-latest"]["retirement_date"])
-        self.assertEqual("unknown", models["hunyuan-turbos-latest"]["task_type"])
+        self.assertNotIn("hunyuan-turbos-latest", models)
+        self.assertEqual("preview", models["hy4-preview"]["lifecycle"])
+        self.assertEqual("active", models["hunyuan-role-latest"]["lifecycle"])
+        self.assertNotIn("retirement_date", models["hunyuan-role-latest"])
+        self.assertEqual(["chat_completions"], models["hy-mt2-pro"]["methods"])
+        self.assertEqual(["chat_completions", "responses", "messages"], models["hy3"]["methods"])
+        self.assertEqual("2026-06-22", hunyuan["coverage_scope"]["legacy_model_shutdown_date"])
+        self.assertEqual("2026-09-30", hunyuan["coverage_scope"]["legacy_platform_shutdown_date"])
+        self.assertFalse(any(identifier.startswith(("deepseek", "glm", "kimi", "minimax", "qwen", "mimo"))
+                             for identifier in models))
+
+    def test_reviewed_legacy_defaults_keep_exact_platform_identity(self):
+        profiles = {profile["platform"]: profile for profile in self.generated}
+        included_count = excluded_count = 0
+        for platform in ("openai", "gemini", "cursor", "antigravity", "grok"):
+            profile = profiles[platform]
+            audit = profile["coverage_scope"]["legacy_default_review"]
+            models = {model["id"]: model for model in profile["models"]}
+            self.assertFalse(set(audit["included_ids"]) & set(audit["excluded_ids"]))
+            self.assertTrue(set(audit["included_ids"]) <= models.keys())
+            self.assertFalse(set(audit["excluded_ids"]) & models.keys())
+            self.assertEqual("partial", profile["coverage_status"])
+            included_count += len(audit["included_ids"])
+            excluded_count += len(audit["excluded_ids"])
+            for identifier in audit["included_ids"]:
+                model = models[identifier]
+                self.assertNotIn("models.dev", model["field_sources"]["id"])
+                if platform == "cursor":
+                    self.assertEqual("code_generation", model["task_type"])
+                    self.assertEqual("partial", model["input_modalities_status"])
+                    self.assertEqual({"kind": "unknown"}, model["reasoning_control"])
+                    self.assertEqual([], model["methods"])
+                    self.assertNotIn("max_input_tokens", model)
+        self.assertEqual((31, 49), (included_count, excluded_count))
+        self.assertIn("claude-opus-4-6", profiles["cursor"]["coverage_scope"]["legacy_default_review"]["excluded_ids"])
+        self.assertIn("gemini-3.8-flash-high", profiles["antigravity"]["coverage_scope"]["legacy_default_review"]["excluded_ids"])
+
+    def test_reviewed_image_models_keep_image_output_and_future_retirement(self):
+        for profile in self.generated:
+            for model in profile["models"]:
+                if model["id"] in {"gpt-image-2.5-flare", "gpt-image-2.5-sunburst",
+                                    "grok-imagine-image-2.0", "grok-imagine-image-quality"}:
+                    self.assertEqual("image_generation", model["task_type"])
+                    self.assertEqual(["text", "image"], model["input_modalities"])
+                    self.assertEqual(["image"], model["output_modalities"])
+                    self.assertNotIn("chat_completions", model["methods"])
+                    if model["id"] == "grok-imagine-image-quality":
+                        self.assertEqual("deprecated", model["lifecycle"])
+                        self.assertEqual("2026-11-02", model["retirement_date"])
 
     def test_nontext_tasks_and_reasoning_have_specific_evidence(self):
         mistral = next(profile for profile in self.generated if profile["platform"] == "mistral")

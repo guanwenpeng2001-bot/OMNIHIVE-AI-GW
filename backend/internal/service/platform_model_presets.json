@@ -548,10 +548,22 @@
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:49Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "as_of": "2026-09-20T14:53:49Z",
+      "as_of": "2026-09-20T20:24:26Z",
       "description": "Exact provider namespace in the captured models.dev registry; region and plan availability require provider-specific confirmation.",
+      "legacy_default_review": {
+        "excluded_ids": [
+          "codex-auto-review",
+          "gpt-6"
+        ],
+        "exclusion_scope": "Approved candidates only; absent IDs are not asserted globally nonexistent or retired without explicit lifecycle evidence.",
+        "included_ids": [
+          "gpt-image-2.5-flare",
+          "gpt-image-2.5-sunburst"
+        ],
+        "observed_at": "2026-09-20T20:24:26Z"
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -1933,6 +1945,62 @@
         "verified_at": "2026-09-20T14:30:00Z"
       },
       {
+        "display_name": "gpt-image-2.5-flare",
+        "field_sources": {
+          "display_name": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "id": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "input_modalities": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "lifecycle": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "methods": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "output_modalities": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+          "task_type": "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare"
+        },
+        "id": "gpt-image-2.5-flare",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "active",
+        "methods": [
+          "images/generations",
+          "images/edits"
+        ],
+        "output_modalities": [
+          "image"
+        ],
+        "source_content_hash": "85317fb3f28398ae4ed6ff17725043e65dc9c9d01a329164062379c76e0035a9",
+        "task_type": "image_generation",
+        "verified_at": "2026-09-20T20:14:14Z"
+      },
+      {
+        "display_name": "gpt-image-2.5-sunburst",
+        "field_sources": {
+          "display_name": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "id": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "input_modalities": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "lifecycle": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "methods": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "output_modalities": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
+          "task_type": "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst"
+        },
+        "id": "gpt-image-2.5-sunburst",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "active",
+        "methods": [
+          "images/generations",
+          "images/edits"
+        ],
+        "output_modalities": [
+          "image"
+        ],
+        "source_content_hash": "c51f9fc6c156a1b3fcec8970f38da3460adbfdf354ce399db01c48724bf9f55b",
+        "task_type": "image_generation",
+        "verified_at": "2026-09-20T20:14:14Z"
+      },
+      {
         "context_limit_kind": "total",
         "context_window": 128000,
         "display_name": "GPT-Realtime-2.1",
@@ -2279,17 +2347,28 @@
     ],
     "platform": "openai",
     "provider_profile": "openai",
-    "revision": "934345ab34ff5e57",
+    "revision": "a68ade83f093b7f5",
     "source_refs": [
       "https://developers.openai.com/api/docs/models",
+      "https://developers.openai.com/api/docs/models/gpt-image-2.5-flare",
+      "https://developers.openai.com/api/docs/models/gpt-image-2.5-sunburst",
       "https://models.dev/api.json#openai"
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:49Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "as_of": "2026-09-20T14:53:49Z",
+      "as_of": "2026-09-20T20:24:26Z",
       "description": "Exact provider namespace in the captured models.dev registry; region and plan availability require provider-specific confirmation.",
+      "legacy_default_review": {
+        "excluded_ids": [
+          "gemini-2.0-flash",
+          "gemini-3-pro-preview"
+        ],
+        "exclusion_scope": "Approved candidates only; absent IDs are not asserted globally nonexistent or retired without explicit lifecycle evidence.",
+        "included_ids": [],
+        "observed_at": "2026-09-20T20:24:26Z"
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -3770,21 +3849,28 @@
     ],
     "platform": "gemini",
     "provider_profile": "google",
-    "revision": "7ed196110139336c",
+    "revision": "0b3f96df2c4ea8f6",
     "source_refs": [
       "https://ai.google.dev/gemini-api/docs/models",
       "https://models.dev/api.json#google"
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:49Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "absent_from_current_source": [
-        "grok-imagine-image-2.0",
-        "grok-imagine-image-quality"
-      ],
-      "as_of": "2026-09-20T14:53:49Z",
+      "as_of": "2026-09-20T20:24:26Z",
       "description": "Exact provider namespace in the captured models.dev registry; region and plan availability require provider-specific confirmation.",
+      "legacy_default_review": {
+        "excluded_ids": [
+          "grok-composer-2.5-fast"
+        ],
+        "exclusion_scope": "Approved candidates only; absent IDs are not asserted globally nonexistent or retired without explicit lifecycle evidence.",
+        "included_ids": [
+          "grok-imagine-image-2.0",
+          "grok-imagine-image-quality"
+        ],
+        "observed_at": "2026-09-20T20:24:26Z"
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -3807,8 +3893,8 @@
     },
     "coverage_status": "partial",
     "gaps": [
-      "Official inventory, regional availability, plan restrictions, and lifecycle are not fully enumerated by this registry snapshot.",
-      "Previous candidate IDs absent from this source were removed from this preset; absence does not establish retirement or revoke account evidence."
+      "Official inventory, regional availability, plan restrictions, and lifecycle are not fully enumerated by this source union.",
+      "grok-composer-2.5-fast has no exact xAI identity evidence in the reviewed official inventory."
     ],
     "models": [
       {
@@ -4099,6 +4185,64 @@
         "verified_at": "2026-09-20T14:30:00Z"
       },
       {
+        "display_name": "grok-imagine-image-2.0",
+        "field_sources": {
+          "display_name": "https://docs.x.ai/developers/models",
+          "id": "https://docs.x.ai/developers/models",
+          "input_modalities": "https://docs.x.ai/developers/models",
+          "lifecycle": "https://docs.x.ai/developers/models",
+          "methods": "https://docs.x.ai/developers/models",
+          "output_modalities": "https://docs.x.ai/developers/models",
+          "task_type": "https://docs.x.ai/developers/models"
+        },
+        "id": "grok-imagine-image-2.0",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "active",
+        "methods": [
+          "images/generations",
+          "images/edits"
+        ],
+        "output_modalities": [
+          "image"
+        ],
+        "source_content_hash": "81aa5ad9c9e6f1d8d66739ba39523f7021a049c6ecd4ec4e736bee933bf1e0f9",
+        "task_type": "image_generation",
+        "verified_at": "2026-09-20T20:14:15Z"
+      },
+      {
+        "display_name": "grok-imagine-image-quality",
+        "field_sources": {
+          "display_name": "https://docs.x.ai/developers/models",
+          "id": "https://docs.x.ai/developers/models",
+          "input_modalities": "https://docs.x.ai/developers/models",
+          "lifecycle": "https://docs.x.ai/developers/migration/imagine-image-quality-nov-2",
+          "methods": "https://docs.x.ai/developers/models",
+          "output_modalities": "https://docs.x.ai/developers/models",
+          "retirement_date": "https://docs.x.ai/developers/migration/imagine-image-quality-nov-2",
+          "task_type": "https://docs.x.ai/developers/models"
+        },
+        "id": "grok-imagine-image-quality",
+        "input_modalities": [
+          "text",
+          "image"
+        ],
+        "lifecycle": "deprecated",
+        "methods": [
+          "images/generations",
+          "images/edits"
+        ],
+        "output_modalities": [
+          "image"
+        ],
+        "retirement_date": "2026-11-02",
+        "source_content_hash": "81aa5ad9c9e6f1d8d66739ba39523f7021a049c6ecd4ec4e736bee933bf1e0f9",
+        "task_type": "image_generation",
+        "verified_at": "2026-09-20T20:14:15Z"
+      },
+      {
         "context_limit_kind": "total",
         "context_window": 1024,
         "display_name": "Grok Imagine Video",
@@ -4171,8 +4315,9 @@
     ],
     "platform": "grok",
     "provider_profile": "xai",
-    "revision": "de75a50c6b21dd2c",
+    "revision": "e90535ef0c0aa7af",
     "source_refs": [
+      "https://docs.x.ai/developers/migration/imagine-image-quality-nov-2",
       "https://docs.x.ai/developers/models",
       "https://models.dev/api.json#xai"
     ]
@@ -15485,10 +15630,53 @@
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:51Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "as_of": "2026-09-20T14:53:51Z",
-      "description": "Exact includeModelIds in the official Cursor Models pricing component; third-party picker IDs are not exposed by the pricing table.",
+      "as_of": "2026-09-20T20:24:26Z",
+      "description": "Exact IDs from the official pricing component and individual Cursor Model ID cards; no native-provider aliases or account eligibility inferred.",
+      "legacy_default_review": {
+        "excluded_ids": [
+          "claude-haiku-4-5",
+          "claude-opus-4-5",
+          "claude-opus-4-6",
+          "claude-sonnet-4",
+          "claude-sonnet-4-5",
+          "claude-sonnet-4-6",
+          "default",
+          "gpt-5.1"
+        ],
+        "exclusion_scope": "Approved candidates only; absent IDs are not asserted globally nonexistent or retired without explicit lifecycle evidence.",
+        "included_ids": [
+          "claude-fable-5",
+          "claude-fable-5-1",
+          "claude-opus-4-7",
+          "claude-opus-4-8",
+          "claude-opus-5",
+          "claude-sonnet-5",
+          "gemini-2.5-flash",
+          "gemini-3-flash",
+          "gemini-3.1-pro",
+          "gemini-3.5-flash",
+          "gemini-3.6-flash",
+          "gemini-3.7-flash",
+          "gemini-3.8-flash",
+          "glm-5.2",
+          "gpt-5-mini",
+          "gpt-5.2",
+          "gpt-5.3-codex",
+          "gpt-5.4",
+          "gpt-5.4-mini",
+          "gpt-5.4-nano",
+          "gpt-5.5",
+          "gpt-5.6-luna",
+          "gpt-5.6-sol",
+          "gpt-5.6-terra",
+          "kimi-k2.7-code",
+          "kimi-k3",
+          "muse-spark-1.3"
+        ],
+        "observed_at": "2026-09-20T20:24:26Z"
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -15504,10 +15692,190 @@
     },
     "coverage_status": "partial",
     "gaps": [
-      "The remaining official pricing rows expose display names rather than exact hosted model IDs; account model discovery supplies those IDs.",
-      "Context, reasoning controls, regional restrictions and plan eligibility are not proven by pricing rows."
+      "Some legacy IDs have no exact first-party Cursor identity evidence; no aliases are inferred from documentation URL slugs.",
+      "Default/max context labels are rounded and configuration-dependent; exact limits, full modalities, reasoning controls, regional and plan eligibility remain unverified."
     ],
     "models": [
+      {
+        "display_name": "claude-fable-5",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-fable-5",
+          "id": "https://cursor.com/docs/models/claude-fable-5",
+          "input_modalities": "https://cursor.com/docs/models/claude-fable-5",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-fable-5",
+          "lifecycle": "https://cursor.com/docs/models/claude-fable-5",
+          "methods": "https://cursor.com/docs/models/claude-fable-5",
+          "output_modalities": "https://cursor.com/docs/models/claude-fable-5",
+          "reasoning_control": "https://cursor.com/docs/models/claude-fable-5",
+          "task_type": "https://cursor.com/docs/models/claude-fable-5"
+        },
+        "id": "claude-fable-5",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "bce2419ac5dc583ccbe2089fff6d23534e5a77da976b1514ecd5cc4e86a9c1a4",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:15Z"
+      },
+      {
+        "display_name": "claude-fable-5-1",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-fable-5-1",
+          "id": "https://cursor.com/docs/models/claude-fable-5-1",
+          "input_modalities": "https://cursor.com/docs/models/claude-fable-5-1",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-fable-5-1",
+          "lifecycle": "https://cursor.com/docs/models/claude-fable-5-1",
+          "methods": "https://cursor.com/docs/models/claude-fable-5-1",
+          "output_modalities": "https://cursor.com/docs/models/claude-fable-5-1",
+          "reasoning_control": "https://cursor.com/docs/models/claude-fable-5-1",
+          "task_type": "https://cursor.com/docs/models/claude-fable-5-1"
+        },
+        "id": "claude-fable-5-1",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "dcff75d0b8b8d032166758d719507bf56ac4d4308d0a6d9363e2ba3c1379c323",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:16Z"
+      },
+      {
+        "display_name": "claude-opus-4-7",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-opus-4-7",
+          "id": "https://cursor.com/docs/models/claude-opus-4-7",
+          "input_modalities": "https://cursor.com/docs/models/claude-opus-4-7",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-opus-4-7",
+          "lifecycle": "https://cursor.com/docs/models/claude-opus-4-7",
+          "methods": "https://cursor.com/docs/models/claude-opus-4-7",
+          "output_modalities": "https://cursor.com/docs/models/claude-opus-4-7",
+          "reasoning_control": "https://cursor.com/docs/models/claude-opus-4-7",
+          "task_type": "https://cursor.com/docs/models/claude-opus-4-7"
+        },
+        "id": "claude-opus-4-7",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "e8a0e522e62b41914c2489320de2a609107c6bc10aa6bed9a7ab1510e7d66e32",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:17Z"
+      },
+      {
+        "display_name": "claude-opus-4-8",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-opus-4-8",
+          "id": "https://cursor.com/docs/models/claude-opus-4-8",
+          "input_modalities": "https://cursor.com/docs/models/claude-opus-4-8",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-opus-4-8",
+          "lifecycle": "https://cursor.com/docs/models/claude-opus-4-8",
+          "methods": "https://cursor.com/docs/models/claude-opus-4-8",
+          "output_modalities": "https://cursor.com/docs/models/claude-opus-4-8",
+          "reasoning_control": "https://cursor.com/docs/models/claude-opus-4-8",
+          "task_type": "https://cursor.com/docs/models/claude-opus-4-8"
+        },
+        "id": "claude-opus-4-8",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "63dabd1146e375d21292d75b9f38e675cd6d3c2a6833b7dfb7f4ea4888684774",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:17Z"
+      },
+      {
+        "display_name": "claude-opus-5",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-opus-5",
+          "id": "https://cursor.com/docs/models/claude-opus-5",
+          "input_modalities": "https://cursor.com/docs/models/claude-opus-5",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-opus-5",
+          "lifecycle": "https://cursor.com/docs/models/claude-opus-5",
+          "methods": "https://cursor.com/docs/models/claude-opus-5",
+          "output_modalities": "https://cursor.com/docs/models/claude-opus-5",
+          "reasoning_control": "https://cursor.com/docs/models/claude-opus-5",
+          "task_type": "https://cursor.com/docs/models/claude-opus-5"
+        },
+        "id": "claude-opus-5",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "7a88c123156b3bad6e5e4d6811a02c00dd68ac16967bc2b71899692ab4476901",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:15:46Z"
+      },
+      {
+        "display_name": "claude-sonnet-5",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/claude-sonnet-5",
+          "id": "https://cursor.com/docs/models/claude-sonnet-5",
+          "input_modalities": "https://cursor.com/docs/models/claude-sonnet-5",
+          "input_modalities_status": "https://cursor.com/docs/models/claude-sonnet-5",
+          "lifecycle": "https://cursor.com/docs/models/claude-sonnet-5",
+          "methods": "https://cursor.com/docs/models/claude-sonnet-5",
+          "output_modalities": "https://cursor.com/docs/models/claude-sonnet-5",
+          "reasoning_control": "https://cursor.com/docs/models/claude-sonnet-5",
+          "task_type": "https://cursor.com/docs/models/claude-sonnet-5"
+        },
+        "id": "claude-sonnet-5",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "460e959451e7c774b0c5710956c853918887bcf9b35e4c5ce90e790c229637bd",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:15:47Z"
+      },
       {
         "display_name": "composer-2.5",
         "field_sources": {
@@ -15533,6 +15901,546 @@
         "source_content_hash": "8df73e8c2d28bce9de4020c0093936d801ec369cd351961061b5756de8ec8067",
         "task_type": "code_generation",
         "verified_at": "2026-09-20T14:30:00Z"
+      },
+      {
+        "display_name": "gemini-2.5-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "id": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "methods": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-2-5-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-2-5-flash"
+        },
+        "id": "gemini-2.5-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "1a498b174534b026f17b843d7670c4c266a260d7f957ad8dd1073523aea069b8",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:18Z"
+      },
+      {
+        "display_name": "gemini-3-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-flash",
+          "id": "https://cursor.com/docs/models/gemini-3-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-flash",
+          "methods": "https://cursor.com/docs/models/gemini-3-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-3-flash"
+        },
+        "id": "gemini-3-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "42939b84e66f1d9e87d800d6d4ea79679473aa97fc98c3a6e7e7650ab9a52a06",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:18Z"
+      },
+      {
+        "display_name": "gemini-3.1-pro",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "id": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "methods": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-1-pro",
+          "task_type": "https://cursor.com/docs/models/gemini-3-1-pro"
+        },
+        "id": "gemini-3.1-pro",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "2e49c71f902245126025132cdbc358b3aa7e74d5d580168d806411096dda71b3",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:18Z"
+      },
+      {
+        "display_name": "gemini-3.5-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "id": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "methods": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-5-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-3-5-flash"
+        },
+        "id": "gemini-3.5-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "c549ba23406eeffaa6659d91d4baec1688626cc033463c13786ff8445e3e3694",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:18Z"
+      },
+      {
+        "display_name": "gemini-3.6-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "id": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "methods": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-6-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-3-6-flash"
+        },
+        "id": "gemini-3.6-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "67c547667c9c005017fc8320edee2e6f692eff0c22b3f34cc8d19a57acb5beaa",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:19Z"
+      },
+      {
+        "display_name": "gemini-3.7-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "id": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "methods": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-7-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-3-7-flash"
+        },
+        "id": "gemini-3.7-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "6fcc36d50c138e13c644b4ddf090510f53aaf4a8d4a9eca253826d5f3faed035",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:19Z"
+      },
+      {
+        "display_name": "gemini-3.8-flash",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "id": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "input_modalities": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "input_modalities_status": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "lifecycle": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "methods": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "output_modalities": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "reasoning_control": "https://cursor.com/docs/models/gemini-3-8-flash",
+          "task_type": "https://cursor.com/docs/models/gemini-3-8-flash"
+        },
+        "id": "gemini-3.8-flash",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "303d67b6f2a2ef0760812a1f03a11f043cdf9e8d2f4324723479ac0e07f5f2ad",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:19Z"
+      },
+      {
+        "display_name": "glm-5.2",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/glm-5-2",
+          "id": "https://cursor.com/docs/models/glm-5-2",
+          "input_modalities": "https://cursor.com/docs/models/glm-5-2",
+          "input_modalities_status": "https://cursor.com/docs/models/glm-5-2",
+          "lifecycle": "https://cursor.com/docs/models/glm-5-2",
+          "methods": "https://cursor.com/docs/models/glm-5-2",
+          "output_modalities": "https://cursor.com/docs/models/glm-5-2",
+          "reasoning_control": "https://cursor.com/docs/models/glm-5-2",
+          "task_type": "https://cursor.com/docs/models/glm-5-2"
+        },
+        "id": "glm-5.2",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "83d15624437fc2bf136cca2cadf9af78b1b205b74b3971ea2f5bb456625839ad",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:19Z"
+      },
+      {
+        "display_name": "gpt-5-mini",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-mini",
+          "id": "https://cursor.com/docs/models/gpt-5-mini",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-mini",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-mini",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-mini",
+          "methods": "https://cursor.com/docs/models/gpt-5-mini",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-mini",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-mini",
+          "task_type": "https://cursor.com/docs/models/gpt-5-mini"
+        },
+        "id": "gpt-5-mini",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "3ec5f14c8afdab6e2a17a6f7a22b918c9d10349afdd73bf2f79edfbfbee416f1",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:20Z"
+      },
+      {
+        "display_name": "gpt-5.2",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-2",
+          "id": "https://cursor.com/docs/models/gpt-5-2",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-2",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-2",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-2",
+          "methods": "https://cursor.com/docs/models/gpt-5-2",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-2",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-2",
+          "task_type": "https://cursor.com/docs/models/gpt-5-2"
+        },
+        "id": "gpt-5.2",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a30e65daf925406727ccbeecf02f4d929f4e88548d6f9a321d297f84de1df089",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:20Z"
+      },
+      {
+        "display_name": "gpt-5.3-codex",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "id": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "methods": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-3-codex",
+          "task_type": "https://cursor.com/docs/models/gpt-5-3-codex"
+        },
+        "id": "gpt-5.3-codex",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "f8350d7202b1722ffec24ce6f2463da8002c90e0e9f0fe613d481a984e99a338",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:20Z"
+      },
+      {
+        "display_name": "gpt-5.4",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-4",
+          "id": "https://cursor.com/docs/models/gpt-5-4",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-4",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-4",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-4",
+          "methods": "https://cursor.com/docs/models/gpt-5-4",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-4",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-4",
+          "task_type": "https://cursor.com/docs/models/gpt-5-4"
+        },
+        "id": "gpt-5.4",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a2d4248a2eb07dd080e6aa03fe924f7c4e6f84244d006da449b0cb61a540894b",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:21Z"
+      },
+      {
+        "display_name": "gpt-5.4-mini",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "id": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "methods": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-4-mini",
+          "task_type": "https://cursor.com/docs/models/gpt-5-4-mini"
+        },
+        "id": "gpt-5.4-mini",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "f58502fd911ea810dfee0ea555d3a75fc9647f9d41a286ee0a8c521e41b1bd17",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:21Z"
+      },
+      {
+        "display_name": "gpt-5.4-nano",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "id": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "methods": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-4-nano",
+          "task_type": "https://cursor.com/docs/models/gpt-5-4-nano"
+        },
+        "id": "gpt-5.4-nano",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "00a91190e902d87e47d5b64c2bbb4339e190588dd490754628dbe1eafca66253",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:21Z"
+      },
+      {
+        "display_name": "gpt-5.5",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-5",
+          "id": "https://cursor.com/docs/models/gpt-5-5",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-5",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-5",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-5",
+          "methods": "https://cursor.com/docs/models/gpt-5-5",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-5",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-5",
+          "task_type": "https://cursor.com/docs/models/gpt-5-5"
+        },
+        "id": "gpt-5.5",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "28c763bec36f799c7d7ab1d3d5990c851707c678bd1792b022fca703039190a8",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
+      },
+      {
+        "display_name": "gpt-5.6-luna",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "id": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "methods": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-6-luna",
+          "task_type": "https://cursor.com/docs/models/gpt-5-6-luna"
+        },
+        "id": "gpt-5.6-luna",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "79f6544ea39bf3b34cb08213be1cf695e179d23bd08a691b8dbf620dfbd98911",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
+      },
+      {
+        "display_name": "gpt-5.6-sol",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "id": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "methods": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-6-sol",
+          "task_type": "https://cursor.com/docs/models/gpt-5-6-sol"
+        },
+        "id": "gpt-5.6-sol",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "0f4a2eeec5fed915385aa80c593f2e77040cf14397f800f6950ab377479d64da",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
+      },
+      {
+        "display_name": "gpt-5.6-terra",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "id": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "input_modalities": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "input_modalities_status": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "lifecycle": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "methods": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "output_modalities": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "reasoning_control": "https://cursor.com/docs/models/gpt-5-6-terra",
+          "task_type": "https://cursor.com/docs/models/gpt-5-6-terra"
+        },
+        "id": "gpt-5.6-terra",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "75a62a24d17b343c5a5accea715b2bec7f11fd0452f7eb11851530ab68f55350",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
       },
       {
         "display_name": "grok-4.5",
@@ -15585,20 +16493,180 @@
         "source_content_hash": "8df73e8c2d28bce9de4020c0093936d801ec369cd351961061b5756de8ec8067",
         "task_type": "code_generation",
         "verified_at": "2026-09-20T14:30:00Z"
+      },
+      {
+        "display_name": "kimi-k2.7-code",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "id": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "input_modalities": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "input_modalities_status": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "lifecycle": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "methods": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "output_modalities": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "reasoning_control": "https://cursor.com/docs/models/kimi-k2-7-code",
+          "task_type": "https://cursor.com/docs/models/kimi-k2-7-code"
+        },
+        "id": "kimi-k2.7-code",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "3eb2a937c986603a019cc6637d02f3b497cfc9b4d856fd4025b361a9c5cea80e",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
+      },
+      {
+        "display_name": "kimi-k3",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/kimi-k3",
+          "id": "https://cursor.com/docs/models/kimi-k3",
+          "input_modalities": "https://cursor.com/docs/models/kimi-k3",
+          "input_modalities_status": "https://cursor.com/docs/models/kimi-k3",
+          "lifecycle": "https://cursor.com/docs/models/kimi-k3",
+          "methods": "https://cursor.com/docs/models/kimi-k3",
+          "output_modalities": "https://cursor.com/docs/models/kimi-k3",
+          "reasoning_control": "https://cursor.com/docs/models/kimi-k3",
+          "task_type": "https://cursor.com/docs/models/kimi-k3"
+        },
+        "id": "kimi-k3",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "6a70debfddb71ab4b96a91b78c1f21b92386cb5566a5d9aa6f0b6567f8af956a",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:14:22Z"
+      },
+      {
+        "display_name": "muse-spark-1.3",
+        "field_sources": {
+          "display_name": "https://cursor.com/docs/models/muse-spark-1-3",
+          "id": "https://cursor.com/docs/models/muse-spark-1-3",
+          "input_modalities": "https://cursor.com/docs/models/muse-spark-1-3",
+          "input_modalities_status": "https://cursor.com/docs/models/muse-spark-1-3",
+          "lifecycle": "https://cursor.com/docs/models/muse-spark-1-3",
+          "methods": "https://cursor.com/docs/models/muse-spark-1-3",
+          "output_modalities": "https://cursor.com/docs/models/muse-spark-1-3",
+          "reasoning_control": "https://cursor.com/docs/models/muse-spark-1-3",
+          "task_type": "https://cursor.com/docs/models/muse-spark-1-3"
+        },
+        "id": "muse-spark-1.3",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "unknown",
+        "methods": [],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a7104dab18e31376d6373bf71d8d03928636c2e1a768b57e12fea0a03ab8151c",
+        "task_type": "code_generation",
+        "verified_at": "2026-09-20T20:15:48Z"
       }
     ],
     "platform": "cursor",
     "provider_profile": "native",
-    "revision": "0e7be4496c850699",
+    "revision": "f41f8c412f415d21",
     "source_refs": [
+      "https://cursor.com/docs/models/claude-fable-5",
+      "https://cursor.com/docs/models/claude-fable-5-1",
+      "https://cursor.com/docs/models/claude-opus-4-7",
+      "https://cursor.com/docs/models/claude-opus-4-8",
+      "https://cursor.com/docs/models/claude-opus-5",
+      "https://cursor.com/docs/models/claude-sonnet-5",
+      "https://cursor.com/docs/models/gemini-2-5-flash",
+      "https://cursor.com/docs/models/gemini-3-1-pro",
+      "https://cursor.com/docs/models/gemini-3-5-flash",
+      "https://cursor.com/docs/models/gemini-3-6-flash",
+      "https://cursor.com/docs/models/gemini-3-7-flash",
+      "https://cursor.com/docs/models/gemini-3-8-flash",
+      "https://cursor.com/docs/models/gemini-3-flash",
+      "https://cursor.com/docs/models/glm-5-2",
+      "https://cursor.com/docs/models/gpt-5-2",
+      "https://cursor.com/docs/models/gpt-5-3-codex",
+      "https://cursor.com/docs/models/gpt-5-4",
+      "https://cursor.com/docs/models/gpt-5-4-mini",
+      "https://cursor.com/docs/models/gpt-5-4-nano",
+      "https://cursor.com/docs/models/gpt-5-5",
+      "https://cursor.com/docs/models/gpt-5-6-luna",
+      "https://cursor.com/docs/models/gpt-5-6-sol",
+      "https://cursor.com/docs/models/gpt-5-6-terra",
+      "https://cursor.com/docs/models/gpt-5-mini",
+      "https://cursor.com/docs/models/kimi-k2-7-code",
+      "https://cursor.com/docs/models/kimi-k3",
+      "https://cursor.com/docs/models/muse-spark-1-3",
       "https://prod.cursor.com/docs/models-and-pricing"
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:51Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "as_of": "2026-09-20T14:53:51Z",
+      "as_of": "2026-09-20T20:24:26Z",
       "description": "Official model-picker IDs for Free/Plus/Pro/Ultra; enterprise excludes third-party models. UI IDs are not asserted to be wire-level IDs.",
+      "legacy_default_review": {
+        "excluded_ids": [
+          "claude-fable-5",
+          "claude-fable-5-1",
+          "claude-opus-4-5-thinking",
+          "claude-opus-4-6",
+          "claude-opus-4-6-thinking",
+          "claude-opus-4-7",
+          "claude-opus-4-8",
+          "claude-sonnet-4-5",
+          "claude-sonnet-4-5-thinking",
+          "claude-sonnet-4-6",
+          "gemini-2.5-flash",
+          "gemini-2.5-flash-image",
+          "gemini-2.5-flash-image-preview",
+          "gemini-2.5-flash-lite",
+          "gemini-2.5-flash-thinking",
+          "gemini-3-flash",
+          "gemini-3-pro-high",
+          "gemini-3-pro-image",
+          "gemini-3-pro-low",
+          "gemini-3-pro-preview",
+          "gemini-3.1-flash-image",
+          "gemini-3.1-flash-image-preview",
+          "gemini-3.1-pro-high",
+          "gemini-3.1-pro-low",
+          "gemini-3.6-flash-high",
+          "gemini-3.6-flash-low",
+          "gemini-3.6-flash-medium",
+          "gemini-3.6-flash-tiered",
+          "gemini-3.7-flash-high",
+          "gemini-3.7-flash-low",
+          "gemini-3.7-flash-medium",
+          "gemini-3.7-flash-tiered",
+          "gemini-3.8-flash-high",
+          "gemini-3.8-flash-low",
+          "gemini-3.8-flash-medium",
+          "gemini-3.8-flash-tiered"
+        ],
+        "exclusion_scope": "Approved candidates only; absent IDs are not asserted globally nonexistent or retired without explicit lifecycle evidence.",
+        "included_ids": [],
+        "observed_at": "2026-09-20T20:24:26Z"
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -15807,7 +16875,7 @@
     ],
     "platform": "antigravity",
     "provider_profile": "native",
-    "revision": "19c7ed84223caff1",
+    "revision": "3144b3bd0340b0de",
     "source_refs": [
       "https://www.antigravity.google/docs/models/"
     ]
@@ -20912,758 +21980,83 @@
     ]
   },
   {
-    "checked_at": "2026-09-20T14:53:52Z",
+    "checked_at": "2026-09-20T20:24:26Z",
     "coverage_scope": {
-      "as_of": "2026-09-20T14:53:52Z",
-      "description": "Public API names in the Hunyuan model overview and the September 30 retirement notice; excludes TokenHub replacements and private customized deployments.",
+      "as_of": "2026-09-20T20:24:26Z",
+      "description": "Hunyuan-branded language and understanding model IDs in the official TokenHub inventory; platform identity retained, no third-party provider aliases.",
+      "legacy_model_shutdown_date": "2026-06-22",
+      "legacy_platform_shutdown_date": "2026-09-30",
       "official_full_inventory": false,
       "official_review": {
-        "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
+        "comparison": "Exact model-call parameters in official inventory; per-model language protocol support from the TokenHub protocol table.",
         "matched_ids": [
-          "hunyuan",
-          "hunyuan-a13b",
+          "hy4-preview",
+          "hy3",
+          "hy-mt2-pro",
+          "hy-mt2-plus",
+          "hy-mt2-lite",
           "hunyuan-role-latest",
-          "hunyuan-standard-256K",
+          "hy-role",
+          "hy-vision-2.0-instruct",
           "hunyuan-t1-vision-20250916",
-          "hunyuan-translation",
-          "hunyuan-translation-lite",
-          "hunyuan-turbos-vision-video",
-          "hunyuan-vision-1.5-instruct"
+          "hunyuan-turbos-vision-video-20250728"
         ],
-        "observed_at": "2026-09-20T14:30:00Z",
-        "source": "hunyuan",
-        "unmatched_ids": [
-          "deepsearch",
-          "hunyuan-2.0-instruct-20251111",
-          "hunyuan-2.0-thinking-20251109",
-          "hunyuan-2.0-thinking-dev-20251012",
-          "hunyuan-code",
-          "hunyuan-funcall",
-          "hunyuan-large",
-          "hunyuan-large-longcontext",
-          "hunyuan-large-role",
-          "hunyuan-large-role-20250822",
-          "hunyuan-large-role-latest",
-          "hunyuan-large-role-plus",
-          "hunyuan-lite",
-          "hunyuan-pro",
-          "hunyuan-role",
-          "hunyuan-role-plus",
-          "hunyuan-standard",
-          "hunyuan-standard-32K",
-          "hunyuan-t1-20250321",
-          "hunyuan-t1-20250403",
-          "hunyuan-t1-20250521",
-          "hunyuan-t1-20250529",
-          "hunyuan-t1-20250711",
-          "hunyuan-t1-20250822",
-          "hunyuan-t1-dev-20250822",
-          "hunyuan-t1-latest",
-          "hunyuan-translation-preview",
-          "hunyuan-turbo",
-          "hunyuan-turbo-20241120",
-          "hunyuan-turbo-20241223",
-          "hunyuan-turbo-latest",
-          "hunyuan-turbos-20250226",
-          "hunyuan-turbos-20250313",
-          "hunyuan-turbos-20250416",
-          "hunyuan-turbos-20250515",
-          "hunyuan-turbos-20250604",
-          "hunyuan-turbos-20250716",
-          "hunyuan-turbos-20250926",
-          "hunyuan-turbos-latest",
-          "hunyuan-turbos-longtext-128k-20250325",
-          "hunyuan-turbos-role-20251114"
-        ]
+        "observed_at": "2026-09-20T20:22:46Z",
+        "source": "gap-review-tokenhub-inventory",
+        "unmatched_ids": []
       }
     },
     "coverage_status": "partial",
     "gaps": [
-      "TokenHub migration targets belong to a different endpoint and are not aliases of this profile.",
-      "Image-generation product names without a published model parameter are not invented as API IDs; task limits and methods require their operation documentation."
+      "Only Hunyuan-branded language and understanding models are reviewed here; TokenHub third-party, media and private deployment inventories are outside this projection.",
+      "Guangzhou and Singapore account inventories and plan access require native discovery; rounded context labels and per-model reasoning controls are not inferred."
     ],
     "models": [
       {
-        "display_name": "deepsearch",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "deepsearch",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-2.0-instruct-20251111",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-2.0-instruct-20251111",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-2.0-thinking-20251109",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-2.0-thinking-20251109",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-2.0-thinking-dev-20251012",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-2.0-thinking-dev-20251012",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-a13b",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
-        },
-        "id": "hunyuan-a13b",
-        "input_modalities": [
-          "text"
-        ],
-        "input_modalities_status": "partial",
-        "lifecycle": "unknown",
-        "methods": [],
-        "output_modalities": [
-          "text"
-        ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
-        "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-code",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-code",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-funcall",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-funcall",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large-longcontext",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large-longcontext",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large-role",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large-role",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large-role-20250822",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large-role-20250822",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large-role-latest",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large-role-latest",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-large-role-plus",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-large-role-plus",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-lite",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-lite",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-pro",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-pro",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-role",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-role",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
         "display_name": "hunyuan-role-latest",
         "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
         },
         "id": "hunyuan-role-latest",
         "input_modalities": [
           "text"
         ],
         "input_modalities_status": "partial",
-        "lifecycle": "deprecated",
-        "methods": [],
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions",
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
         "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-role-plus",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-role-plus",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-standard",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-standard",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-standard-256K",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-standard-256K",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-standard-32K",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-standard-32K",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250321",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250321",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250403",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250403",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250521",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250521",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250529",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250529",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250711",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250711",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-20250822",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-20250822",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-dev-20250822",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-dev-20250822",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-t1-latest",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-t1-latest",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
+        "verified_at": "2026-09-20T20:22:46Z"
       },
       {
         "display_name": "hunyuan-t1-vision-20250916",
         "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130051",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
         },
         "id": "hunyuan-t1-vision-20250916",
         "input_modalities": [
@@ -21671,457 +22064,284 @@
           "image"
         ],
         "input_modalities_status": "partial",
-        "lifecycle": "unknown",
+        "lifecycle": "active",
         "methods": [],
         "output_modalities": [
           "text"
         ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
         "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
+        "verified_at": "2026-09-20T20:22:46Z"
       },
       {
-        "display_name": "hunyuan-translation",
+        "display_name": "hunyuan-turbos-vision-video-20250728",
         "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130051",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
         },
-        "id": "hunyuan-translation",
-        "input_modalities": [
-          "text"
-        ],
-        "input_modalities_status": "partial",
-        "lifecycle": "unknown",
-        "methods": [],
-        "output_modalities": [
-          "text"
-        ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
-        "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-translation-lite",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
-        },
-        "id": "hunyuan-translation-lite",
-        "input_modalities": [
-          "text"
-        ],
-        "input_modalities_status": "partial",
-        "lifecycle": "unknown",
-        "methods": [],
-        "output_modalities": [
-          "text"
-        ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
-        "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-translation-preview",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-translation-preview",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbo",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbo",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbo-20241120",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbo-20241120",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbo-20241223",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbo-20241223",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbo-latest",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbo-latest",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250226",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250226",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250313",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250313",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250416",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250416",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250515",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250515",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250604",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250604",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250716",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250716",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-20250926",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-20250926",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-latest",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-latest",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-longtext-128k-20250325",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-longtext-128k-20250325",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-role-20251114",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/131925",
-          "id": "https://cloud.tencent.com/document/product/1729/131925",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/131925",
-          "methods": "https://cloud.tencent.com/document/product/1729/131925",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/131925",
-          "retirement_date": "https://cloud.tencent.com/document/product/1729/131925",
-          "task_type": "https://cloud.tencent.com/document/product/1729/131925"
-        },
-        "id": "hunyuan-turbos-role-20251114",
-        "input_modalities": [],
-        "lifecycle": "deprecated",
-        "methods": [],
-        "output_modalities": [],
-        "retirement_date": "2026-09-30",
-        "source_content_hash": "b44de68d5e34469a7428cd5d6a1deb00063a0325c81964d85374556d6eb0b54b",
-        "task_type": "unknown",
-        "verified_at": "2026-09-20T14:30:00Z"
-      },
-      {
-        "display_name": "hunyuan-turbos-vision-video",
-        "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
-        },
-        "id": "hunyuan-turbos-vision-video",
+        "id": "hunyuan-turbos-vision-video-20250728",
         "input_modalities": [
           "text",
           "video"
         ],
         "input_modalities_status": "partial",
-        "lifecycle": "unknown",
+        "lifecycle": "active",
         "methods": [],
         "output_modalities": [
           "text"
         ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
         "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
+        "verified_at": "2026-09-20T20:22:46Z"
       },
       {
-        "display_name": "hunyuan-vision-1.5-instruct",
+        "display_name": "hy-mt2-lite",
         "field_sources": {
-          "display_name": "https://cloud.tencent.com/document/product/1729/104753",
-          "id": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "input_modalities_status": "https://cloud.tencent.com/document/product/1729/104753",
-          "lifecycle": "https://cloud.tencent.com/document/product/1729/104753",
-          "methods": "https://cloud.tencent.com/document/product/1729/104753",
-          "output_modalities": "https://cloud.tencent.com/document/product/1729/104753",
-          "task_type": "https://cloud.tencent.com/document/product/1729/104753"
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
         },
-        "id": "hunyuan-vision-1.5-instruct",
+        "id": "hy-mt2-lite",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy-mt2-plus",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy-mt2-plus",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy-mt2-pro",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy-mt2-pro",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy-role",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy-role",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions",
+          "messages"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy-vision-2.0-instruct",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130051",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy-vision-2.0-instruct",
         "input_modalities": [
           "text",
           "image"
         ],
         "input_modalities_status": "partial",
-        "lifecycle": "unknown",
+        "lifecycle": "active",
         "methods": [],
         "output_modalities": [
           "text"
         ],
-        "source_content_hash": "76b88b00124efc528dacc5f0412c117d67eca3c22a005a325787945f5094bf47",
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
         "task_type": "text_generation",
-        "verified_at": "2026-09-20T14:30:00Z"
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy3",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy3",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "active",
+        "methods": [
+          "chat_completions",
+          "responses",
+          "messages"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
+      },
+      {
+        "display_name": "hy4-preview",
+        "field_sources": {
+          "display_name": "https://cloud.tencent.com/document/product/1823/130051",
+          "id": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "input_modalities_status": "https://cloud.tencent.com/document/product/1823/130051",
+          "lifecycle": "https://cloud.tencent.com/document/product/1823/130051",
+          "methods": "https://cloud.tencent.com/document/product/1823/130079",
+          "output_modalities": "https://cloud.tencent.com/document/product/1823/130051",
+          "reasoning_control": "https://cloud.tencent.com/document/product/1823/130051",
+          "task_type": "https://cloud.tencent.com/document/product/1823/130051"
+        },
+        "id": "hy4-preview",
+        "input_modalities": [
+          "text"
+        ],
+        "input_modalities_status": "partial",
+        "lifecycle": "preview",
+        "methods": [
+          "chat_completions",
+          "responses",
+          "messages"
+        ],
+        "output_modalities": [
+          "text"
+        ],
+        "reasoning_control": {
+          "kind": "unknown"
+        },
+        "source_content_hash": "a76075582bb8923b632a1d88b7954b213c07d1fadfbe9bf1a4d9382ee9083144",
+        "task_type": "text_generation",
+        "verified_at": "2026-09-20T20:22:46Z"
       }
     ],
     "platform": "hunyuan",
     "provider_profile": "native",
-    "revision": "e5542319b0149d2f",
+    "revision": "f3ba1e0b6babad2d",
     "source_refs": [
-      "https://cloud.tencent.com/document/product/1729/104753",
+      "https://cloud.tencent.com/document/product/1823/130051",
+      "https://cloud.tencent.com/document/product/1823/130079",
       "https://cloud.tencent.com/document/product/1729/131925"
     ]
   },
