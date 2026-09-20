@@ -3,6 +3,7 @@ package securityaudit
 import (
 	"context"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/net/dns/dnsmessage"
 )
 
 func TestNormalizeBaseURLAllowsAdministratorConfiguredDestinations(t *testing.T) {
@@ -38,12 +41,171 @@ func TestNormalizeBaseURLAllowsAdministratorConfiguredDestinations(t *testing.T)
 }
 
 func TestHTTPClientUsesDirectStandardDialer(t *testing.T) {
-	client, err := NewSecureHTTPClient(ActiveEndpoint{BaseURL: "https://guard.example.com", TimeoutMS: 1000})
+	client, err := NewSecureHTTPClient(ActiveEndpoint{BaseURL: "https://guard.example.com", TimeoutMS: 1000}, config.URLAllowlistConfig{})
 	require.NoError(t, err)
 	transport, ok := client.Transport.(*http.Transport)
 	require.True(t, ok)
 	require.Nil(t, transport.Proxy)
 	require.NotNil(t, transport.DialContext)
+}
+
+func TestPromptOutboundAllowlistAppliesToScanAndProbe(t *testing.T) {
+	for _, scenario := range []struct {
+		name    string
+		policy  config.URLAllowlistConfig
+		allowed bool
+	}{
+		{name: "disabled preserves private access", policy: config.URLAllowlistConfig{UpstreamHosts: []string{"other.invalid"}}, allowed: true},
+		{name: "explicit private match", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"127.0.0.1"}, AllowPrivateHosts: true, AllowInsecureHTTP: true}, allowed: true},
+		{name: "unmatched private host", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"other.invalid"}, AllowPrivateHosts: true, AllowInsecureHTTP: true}},
+		{name: "empty allowlist", policy: config.URLAllowlistConfig{Enabled: true, AllowPrivateHosts: true, AllowInsecureHTTP: true}},
+		{name: "private disabled", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"127.0.0.1"}, AllowInsecureHTTP: true}},
+		{name: "http disabled", policy: config.URLAllowlistConfig{Enabled: true, UpstreamHosts: []string{"127.0.0.1"}, AllowPrivateHosts: true}},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			for _, path := range []string{"scan", "models", "probe fallback"} {
+				t.Run(path, func(t *testing.T) {
+					var calls atomic.Int64
+					server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+						calls.Add(1)
+						if request.URL.Path == "/v1/models" {
+							if path == "probe fallback" {
+								writer.WriteHeader(http.StatusNotFound)
+								return
+							}
+							_, _ = writer.Write([]byte(`{"data":[{"id":"` + DefaultGuardModel + `"}]}`))
+							return
+						}
+						_, _ = writer.Write([]byte(`{"choices":[{"message":{"content":"Safety: Safe\nCategories: None"}}]}`))
+					}))
+					defer server.Close()
+					cfg := &config.Config{}
+					cfg.Security.URLAllowlist = scenario.policy
+					scanner := NewConfiguredOpenAICompatibleScanner(cfg)
+					if path == "scan" {
+						_, err := scanner.Scan(context.Background(), ActiveEndpoint{BaseURL: server.URL, Model: DefaultGuardModel, TimeoutMS: 1000}, "hello", AllScannerIDs)
+						require.Equal(t, scenario.allowed, err == nil)
+					} else {
+						service := newProbeTestService()
+						service.scanner = scanner
+						result := service.Probe(context.Background(), ProbeRequest{Endpoint: probeEndpoint(server.URL, "")})
+						require.Equal(t, scenario.allowed, result.OK)
+					}
+					if !scenario.allowed {
+						require.Zero(t, calls.Load(), "rejected destinations must not receive requests")
+					} else if path == "probe fallback" {
+						require.EqualValues(t, 2, calls.Load())
+					} else {
+						require.EqualValues(t, 1, calls.Load())
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestPromptOutboundAllowlistChecksRedirectAndDial(t *testing.T) {
+	var targetCalls atomic.Int64
+	target := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		targetCalls.Add(1)
+		writer.WriteHeader(http.StatusOK)
+	}))
+	defer target.Close()
+	for _, allowed := range []bool{true, false} {
+		t.Run(map[bool]string{true: "matching redirect", false: "unmatched redirect"}[allowed], func(t *testing.T) {
+			destination := target.URL
+			if !allowed {
+				destination = strings.Replace(destination, "127.0.0.1", "localhost", 1)
+			}
+			redirect := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				http.Redirect(writer, request, destination, http.StatusFound)
+			}))
+			defer redirect.Close()
+			client, err := NewSecureHTTPClient(ActiveEndpoint{BaseURL: redirect.URL, TimeoutMS: 1000}, config.URLAllowlistConfig{
+				Enabled: true, UpstreamHosts: []string{"127.0.0.1"}, AllowPrivateHosts: true, AllowInsecureHTTP: true,
+			})
+			require.NoError(t, err)
+			defer client.CloseIdleConnections()
+			before := targetCalls.Load()
+			response, err := client.Get(redirect.URL)
+			require.Equal(t, allowed, err == nil)
+			if response != nil {
+				_ = response.Body.Close()
+			}
+			if allowed {
+				require.Equal(t, before+1, targetCalls.Load())
+			} else {
+				require.Equal(t, before, targetCalls.Load())
+			}
+			transport := client.Transport.(*http.Transport)
+			connection, err := transport.DialContext(context.Background(), "tcp", "localhost:80")
+			require.Error(t, err)
+			require.Nil(t, connection)
+		})
+	}
+}
+
+func TestPromptOutboundAllowlistChecksResolvedPrivateAddress(t *testing.T) {
+	// Resolve a permitted domain using an isolated DNS fixture, never public DNS.
+	dnsServer, err := net.ListenPacket("udp", "127.0.0.1:0")
+	require.NoError(t, err)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		buffer := make([]byte, 4096)
+		for {
+			length, peer, err := dnsServer.ReadFrom(buffer)
+			if err != nil {
+				return
+			}
+			var query dnsmessage.Message
+			if query.Unpack(buffer[:length]) != nil {
+				continue
+			}
+			response := dnsmessage.Message{
+				Header:    dnsmessage.Header{ID: query.ID, Response: true, RecursionAvailable: true},
+				Questions: query.Questions,
+			}
+			for _, question := range query.Questions {
+				if question.Type == dnsmessage.TypeA {
+					response.Answers = append(response.Answers, dnsmessage.Resource{
+						Header: dnsmessage.ResourceHeader{Name: question.Name, Type: dnsmessage.TypeA, Class: dnsmessage.ClassINET},
+						Body:   &dnsmessage.AResource{A: [4]byte{127, 0, 0, 1}},
+					})
+				}
+			}
+			packed, err := response.Pack()
+			if err == nil {
+				_, _ = dnsServer.WriteTo(packed, peer)
+			}
+		}
+	}()
+	originalResolver := net.DefaultResolver
+	net.DefaultResolver = &net.Resolver{PreferGo: true, Dial: func(ctx context.Context, network, address string) (net.Conn, error) {
+		return (&net.Dialer{}).DialContext(ctx, "udp", dnsServer.LocalAddr().String())
+	}}
+	t.Cleanup(func() {
+		net.DefaultResolver = originalResolver
+		_ = dnsServer.Close()
+		<-done
+	})
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) { writer.WriteHeader(http.StatusOK) }))
+	defer server.Close()
+	endpoint := strings.Replace(server.URL, "127.0.0.1", "guard.test", 1)
+	for _, allowPrivate := range []bool{false, true} {
+		client, err := NewSecureHTTPClient(ActiveEndpoint{BaseURL: endpoint, TimeoutMS: 1000}, config.URLAllowlistConfig{
+			Enabled: true, UpstreamHosts: []string{"*.test"}, AllowPrivateHosts: allowPrivate, AllowInsecureHTTP: true,
+		})
+		require.NoError(t, err)
+		response, err := client.Get(endpoint)
+		if allowPrivate {
+			require.NoError(t, err)
+			_ = response.Body.Close()
+		} else {
+			require.ErrorContains(t, err, "resolved address is not allowed")
+		}
+		client.CloseIdleConnections()
+	}
 }
 
 func TestOpenAICompatibleScannerRequestContract(t *testing.T) {

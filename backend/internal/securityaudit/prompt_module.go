@@ -8,7 +8,7 @@ var ProviderSet = wire.NewSet(
 	wire.Bind(new(EventRepository), new(*PostgreSQLRepository)),
 	NewRedisPayloadStore,
 	wire.Bind(new(PayloadStore), new(*RedisPayloadStore)),
-	NewOpenAICompatibleScanner,
+	NewConfiguredOpenAICompatibleScanner,
 	wire.Bind(new(PromptScanner), new(*OpenAICompatibleScanner)),
 	NewAtomicMetrics,
 	wire.Bind(new(Metrics), new(*AtomicMetrics)),
