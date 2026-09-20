@@ -337,7 +337,7 @@
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
               <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
                 <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -818,7 +818,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1031,7 +1031,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="account?.platform || 'anthropic'" discovery-disabled />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
@@ -1249,7 +1249,7 @@
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
             <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" platform="anthropic" />
+                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
               <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
@@ -2993,9 +2993,9 @@
       <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
         :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
-      <ModelWhitelistSelector :candidate-identity="{ host: editBaseUrl, type: account.type, profile: String(account.credentials?.provider_profile || ''), region: account.type === 'bedrock' ? editBedrockRegion : editVertexLocation, mode: editAccountMode }" :active="show" :account-id="account.id" :platform="account.platform" :model-value="allowedModels" :model-mappings="modelMappings"
+      <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :active="show" :account-id="account.id" :platform="account.platform" v-model="allowedModels" :model-mappings="modelMappings"
         :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
-        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only />
+        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only catalog-selection-enabled />
     </form>
 
     <template #footer>
@@ -3404,6 +3404,14 @@ const editBedrockApiKeyValue = ref('')
 const editVertexProjectId = ref('')
 const editVertexClientEmail = ref('')
 const editVertexLocation = ref('us-central1')
+const modelCandidateIdentity = computed(() => ({
+  host: editBaseUrl.value,
+  type: props.account?.type,
+  profile: String(props.account?.credentials?.provider_profile || ''),
+  region: props.account?.type === 'bedrock' ? editBedrockRegion.value
+    : props.account?.type === 'service_account' ? editVertexLocation.value : '',
+  mode: currentOpenCodeOrCNMode()
+}))
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'

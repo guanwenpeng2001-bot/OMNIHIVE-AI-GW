@@ -75,6 +75,7 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
+import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
 import EditAccountModal from '../EditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -2089,6 +2090,66 @@ describe('Management error contract edit confirmation', () => {
     } else {
       expect(wrapper.emitted('updated')).toBeUndefined()
     }
+    wrapper.unmount()
+  })
+})
+
+
+describe('editor candidate identity and additive discovery', () => {
+  it.each([
+    ['bedrock', 'bedrock', 'us-east-1'],
+    ['anthropic', 'bedrock', 'eu-west-1'],
+    ['gemini', 'service_account', 'us-central1']
+  ])('keeps native presets out of %s/%s and permits manual IDs', async (platform, type, region) => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValueOnce([
+      { platform: 'anthropic', provider_profile: 'native', models: [{ id: 'claude-native-fixture' }] },
+      { platform: 'gemini', provider_profile: 'native', models: [{ id: 'gemini-native-fixture' }] }
+    ] as any)
+    const account = type === 'service_account' ? buildVertexAccount() : {
+      ...buildAccount(), platform, type,
+      credentials: { auth_mode: 'api_key', api_key: 'fixture', aws_region: region }
+    }
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const selector = wrapper.findAllComponents(ModelWhitelistSelector).find(component => !component.props('catalogOnly'))!
+    await selector.findAll('button').find(button => button.text() === 'admin.accounts.fillRelatedModels')!.trigger('click')
+    expect(selector.props('modelValue')).toEqual([])
+    expect(selector.props('platform')).toBe(platform)
+    expect(selector.props('candidateIdentity')).toMatchObject({ type, region, profile: '', mode: 'payg' })
+    await selector.get('input[aria-label="admin.accounts.customModelName"]').setValue('hosted-custom-id')
+    await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+    expect(selector.props('modelValue')).toEqual(['hosted-custom-id'])
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('adds sparse discovery (complete=%s) while retaining selections and the saved snapshot', async discoveryComplete => {
+    const snapshot = { discovered_models: ['saved-native'], eligible_models: [{ id: 'saved-native' }] }
+    const summary = { synced: true, warnings: [], state: { rules_revision: '1' }, effective_snapshot: snapshot }
+    catalogRead.mockResolvedValueOnce(summary)
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({
+      discovered_models: ['new-native'], candidate_models: ['new-native'], eligible_models: [],
+      models: [], discovery_complete: discoveryComplete, complete: false, capability_status: 'incomplete',
+      review: { account_id: 1, digest: 'review' }
+    })
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(buildAccount(), false, true)
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).find(component => component.props('catalogOnly'))!
+    const add = panel.get('[data-testid="add-preview-models"]')
+    expect(add.attributes('disabled')).toBeUndefined()
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)
+    await add.trigger('click')
+    await flushPromises()
+    expect(panel.props('modelValue')).toEqual(['gpt-5.2', 'new-native'])
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('result').discovered_models).toEqual(['new-native'])
+    expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('summary').effective_snapshot).toEqual({
+      discovered_models: ['saved-native'], eligible_models: [{ id: 'saved-native' }]
+    })
+    expect(syncUpstreamModelsMock.mock.calls).toEqual([[1, false]])
+    expect(updateAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 })

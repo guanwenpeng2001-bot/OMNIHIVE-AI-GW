@@ -21,7 +21,7 @@
       >
         {{ isSyncingUpstream ? t('admin.accounts.syncUpstreamModelsLoading') : t('admin.accounts.syncUpstreamModels') }}
       </button>
-      <button v-if="!catalogOnly && syncResult" type="button" data-testid="add-preview-models"
+      <button v-if="(!catalogOnly || catalogSelectionEnabled) && syncResult" type="button" data-testid="add-preview-models"
         :disabled="!canAddPreview || !previewModels.length" @click="addPreviewModels"
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 disabled:opacity-60 dark:text-emerald-300">
         {{ t(previewModels.length && !previewAdditions.length ? 'admin.accounts.modelSync.previewAlreadyAdded' : 'admin.accounts.modelSync.addPreviewModels', { count: previewAdditions.length }) }}
@@ -222,6 +222,7 @@ const props = withDefaults(defineProps<{
   capabilityDefaultsDirty?: boolean
   capabilityDefaultsJSON?: string
   catalogOnly?: boolean
+  catalogSelectionEnabled?: boolean
   discoveryDisabled?: boolean
   previewUnavailableReason?: string
   candidateIdentity?: ModelCandidateIdentity
@@ -330,7 +331,7 @@ const context = computed(() => {
 const selectionContext = computed(() => JSON.stringify([props.modelValue, props.modelMappings, props.syncCredentials?.model_mapping, props.configurationDirty]))
 const previewModels = computed(() => [...new Set((syncResult.value?.candidate_models ?? syncResult.value?.discovered_models ?? []).map(model => model.trim()).filter(Boolean))])
 const previewAdditions = computed(() => previewModels.value.filter(model => !props.modelValue.includes(model)))
-const canAddPreview = computed(() => props.active && !props.catalogOnly && !!syncResult.value &&
+const canAddPreview = computed(() => props.active && (!props.catalogOnly || props.catalogSelectionEnabled) && !!syncResult.value &&
   catalogState.value === 'ready' && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
 watch(selectionContext, () => {
   needsPreview.value = true
