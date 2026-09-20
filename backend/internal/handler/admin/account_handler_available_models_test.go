@@ -39,7 +39,7 @@ func TestAccountModelCatalogPlatformDefaultsAndConfiguredAliases(t *testing.T) {
 				ids = append(ids, model.ID)
 				require.Equal(t, "preset", model.Source)
 			}
-			require.ElementsMatch(t, service.DefaultModelIDsForPlatform(descriptor.ID), ids)
+			require.ElementsMatch(t, service.NewModelRegistry().Snapshot().CandidateIDs(descriptor.ID, ""), ids)
 		})
 	}
 	account := service.Account{ID: 2, Platform: service.PlatformKimi, Type: service.AccountTypeAPIKey, Credentials: map[string]any{"model_mapping": map[string]any{"MyAlias": "kimi-k3", "myalias": "kimi-k2.5"}}}
@@ -283,7 +283,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIOAuthPassthroughFallsBackToDefau
 	require.NotEqual(t, "gpt-5", resp.Data[0].ID)
 }
 
-func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol(t *testing.T) {
+func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyUsesApprovedPresetOrder(t *testing.T) {
 	svc := &availableModelsAdminService{
 		stubAdminService: newStubAdminService(),
 		account: service.Account{
@@ -312,7 +312,7 @@ func TestAccountHandlerGetAvailableModels_OpenAIAPIKeyDefaultsToConcreteGPT56Sol
 	}
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
 	require.NotEmpty(t, resp.Data)
-	require.Equal(t, "gpt-5.6-sol", resp.Data[0].ID)
+	require.Equal(t, service.OpenAIPresetModels()[0].ID, resp.Data[0].ID)
 }
 
 func TestAccountHandlerGetAvailableModels_OpenAISparkShadowReturnsMappingModels(t *testing.T) {

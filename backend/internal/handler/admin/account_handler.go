@@ -20,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -2950,13 +2949,13 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// OpenAI 自动透传会绕过常规模型改写，测试/模型列表也应回落到默认模型集。
 		if account.IsOpenAIPassthroughEnabled() {
 			catalogSource = "preset"
-			respond(openai.DefaultModels)
+			respond(service.OpenAIPresetModels())
 			return
 		}
 
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			respond(openai.DefaultModels)
+			respond(service.OpenAIPresetModels())
 			return
 		}
 
@@ -2964,7 +2963,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		var models []openai.Model
 		for requestedModel := range mapping {
 			var found bool
-			for _, dm := range openai.DefaultModels {
+			for _, dm := range service.OpenAIPresetModels() {
 				if dm.ID == requestedModel {
 					models = append(models, dm)
 					found = true
@@ -2991,24 +2990,24 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		// channel cannot serve.
 		if account.IsOAuth() && catalogSource != "configured" {
 			if account.IsGeminiGoogleOne() {
-				respond(geminicli.GoogleOneModels)
+				respond(service.GoogleOnePresetModels())
 				return
 			}
-			respond(geminicli.DefaultModels)
+			respond(service.GeminiPresetModels())
 			return
 		}
 
 		// For API Key accounts: return models based on model_mapping
 		mapping := account.GetModelMapping()
 		if len(mapping) == 0 {
-			respond(geminicli.DefaultModels)
+			respond(service.GeminiPresetModels())
 			return
 		}
 
 		var models []geminicli.Model
 		for requestedModel := range mapping {
 			var found bool
-			for _, dm := range geminicli.DefaultModels {
+			for _, dm := range service.GeminiPresetModels() {
 				if dm.ID == requestedModel {
 					models = append(models, dm)
 					found = true
@@ -3030,14 +3029,14 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 
 	// Handle Antigravity accounts: return Claude + Gemini models
 	if account.Platform == service.PlatformAntigravity && catalogSource != "configured" {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		respond(antigravity.DefaultModels())
+		// 直接复用 service.AntigravityPresetModels()，与 /v1/models 端点保持同步
+		respond(service.AntigravityPresetModels())
 		return
 	}
 
 	// Handle Grok accounts
 	if account.Platform == service.PlatformGrok {
-		defaultModels := xai.DefaultModels()
+		defaultModels := service.GrokPresetModels()
 
 		hasExplicitMapping := false
 		switch rawMapping := account.Credentials["model_mapping"].(type) {
@@ -3085,7 +3084,7 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	defaults := service.DefaultModelIDsForPlatform(account.Platform)
+	defaults := service.NewModelRegistry().Snapshot().CandidateIDs(account.Platform, "")
 	source := "preset"
 	if mapping := account.GetModelMapping(); len(mapping) > 0 {
 		defaults = make([]string, 0, len(mapping))

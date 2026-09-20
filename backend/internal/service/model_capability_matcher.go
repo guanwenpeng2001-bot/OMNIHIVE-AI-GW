@@ -61,6 +61,8 @@ func resolveCapabilityProfile(account *Account) string {
 		return "qianfan"
 	case "api.hunyuan.cloud.tencent.com", "hunyuan.tencentcloudapi.com", "hunyuan.ai.tencentcloudapi.com":
 		return "hunyuan"
+	case "tokenhub.tencentmaas.com", "tokenhub.tencentmaas.cn", "tokenhub-intl.tencentmaas.com", "tokenhub-intl.tencentmaas.cn":
+		return "hunyuan"
 	case "api.mistral.ai":
 		return "mistral"
 	case "api.openai.com":
@@ -122,23 +124,29 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 	}
 	m := UpstreamModelMetadata{ID: modelID, ProviderProfile: profile, SupportsVision: r.SupportsVision, SupportsFunctionCalling: r.SupportsFunctionCalling, SupportsPromptCaching: r.SupportsPromptCaching, Reasoning: r.SupportsReasoning, InputModalities: r.InputModalities, OutputModalities: r.OutputModalities, ContextLimitKind: "input"}
 	m.SupportedMethods = r.SupportedMethods
+	m.TaskLimits = r.TaskLimits
 	if r.EmbeddingDimensions != nil {
 		m.EmbeddingDimensions = *r.EmbeddingDimensions
 	}
 	if r.MaxInputTokens != nil {
 		m.ContextWindow = *r.MaxInputTokens
+	} else {
+		m.ContextWindow, m.ContextLimitKind = r.ContextWindow, r.ContextLimitKind
 	}
 	if r.MaxOutputTokens != nil {
 		m.MaxOutputTokens = *r.MaxOutputTokens
 	}
 	switch r.Mode {
-	case "chat", "completion":
+	case "chat", "completion", "text_generation":
 		m.TaskType = "text_generation"
 	case "embedding", "rerank", "image_generation", "audio_generation", "video_generation", "transcription":
 		m.TaskType = r.Mode
 	}
 	if m.InputModalities != nil {
 		m.InputModalitiesStatus = "complete"
+		if r.InputModalitiesStatus != "" {
+			m.InputModalitiesStatus = r.InputModalitiesStatus
+		}
 	} else if r.SupportsVision != nil {
 		m.InputModalitiesStatus = "partial"
 		if *r.SupportsVision {
@@ -153,6 +161,28 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 	m.ReasoningControl = normalizeReasoningControl(m)
 	projectReasoningEffort(&m)
 	stampCapabilityEvidence(&m, r.Source, snapshot.Version(), profile, r.ModelID, rule, "verified")
+	for target, field := range map[string]string{"task_type": "mode", "supported_methods": "supported_methods", "embedding_dimensions": "embedding_dimensions", "reasoning_control": "control", "context_limit_kind": "context_limit_kind"} {
+		if source, ok := r.FieldSources[field]; ok && source.Source != "" {
+			evidence := m.FieldEvidence[target]
+			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
+			m.FieldEvidence[target] = evidence
+		}
+	}
+	for name := range r.TaskLimits {
+		if source, ok := r.FieldSources["task_limits."+name]; ok {
+			evidence := m.FieldEvidence["task_limits."+name]
+			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
+			m.FieldEvidence["task_limits."+name] = evidence
+		}
+	}
+	if r.MaxInputTokens == nil && r.ContextWindow > 0 {
+		evidence := m.FieldEvidence["context_window"]
+		source := r.FieldSources["context_window"]
+		if source.Source != "" {
+			evidence.Source, evidence.ContentHash = source.Source, source.ContentHash
+			m.FieldEvidence["context_window"] = evidence
+		}
+	}
 	for target, field := range map[string]string{"context_window": "max_input_tokens", "max_output_tokens": "max_output_tokens", "reasoning": "supports_reasoning", "supports_function_calling": "supports_function_calling", "supports_prompt_caching": "supports_prompt_caching", "input_modalities": "input_modalities", "output_modalities": "output_modalities"} {
 		if source, ok := r.FieldSources[field]; ok {
 			e := m.FieldEvidence[target]

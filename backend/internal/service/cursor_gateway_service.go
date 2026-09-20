@@ -125,7 +125,7 @@ func (gateway *CursorGatewayService) picker(ctx context.Context, account *Accoun
 	}
 	models, err := gateway.native.AvailableModels(ctx, credentials)
 	if err != nil {
-		models = cursor.FallbackModels()
+		models = CursorPresetModels()
 	}
 	gateway.catalogMu.Lock()
 	if gateway.catalog == nil {

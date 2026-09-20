@@ -15,6 +15,26 @@ func inferModelCapabilityHints(modelID string) UpstreamModelMetadata {
 		return m
 	}
 	name := strings.ToLower(modelID)
+	// Display-only hints carry estimated evidence. They cannot establish support,
+	// credential eligibility, a billing unit or an unsupported-action rejection.
+	for _, hint := range []struct{ token, task, output string }{
+		{"rerank", "rerank", "text"},
+		{"tts", "audio_generation", "audio"},
+		{"whisper", "transcription", "text"},
+		{"video", "video_generation", "video"},
+		{"image", "image_generation", "image"},
+	} {
+		for _, token := range strings.FieldsFunc(name, func(character rune) bool { return character == '-' || character == '_' || character == '/' }) {
+			if token == hint.token {
+				m.TaskType = hint.task
+				m.OutputModalities = []string{hint.output}
+				break
+			}
+		}
+		if m.TaskType != "" {
+			break
+		}
+	}
 	if capabilityEmbeddingToken.MatchString(name) {
 		m.TaskType = "embedding"
 		m.InputModalities = []string{"text"}

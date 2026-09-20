@@ -405,7 +405,7 @@ func TestCapabilityObservationEquivalent(t *testing.T) {
 
 func TestCapabilityProjectionOwnsCachedFields(t *testing.T) {
 	fixture := newCapabilityMixedFixture(t, 5)
-	provider := &PricingService{}
+	provider := &capabilityTestProvider{}
 	enricher, err := NewCapabilityReadOnlyEnricher(provider, nil)
 	require.NoError(t, err)
 	_, err = fixture.pipeline(provider, enricher, fixture.observations)

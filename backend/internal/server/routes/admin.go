@@ -356,6 +356,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	admin.GET("/platform-model-presets", h.Admin.Account.GetPlatformModelPresets)
+	admin.POST("/model-registry/reload", h.Admin.Account.ReloadModelRegistry)
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)

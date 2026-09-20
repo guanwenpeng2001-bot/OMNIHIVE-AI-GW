@@ -198,13 +198,14 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg            *config.Config
-	remoteClient   PricingRemoteClient
-	mu             sync.RWMutex
-	pricingData    map[string]*LiteLLMModelPricing
-	capabilityData *ModelCapabilitySnapshot
-	lastUpdated    time.Time
-	localHash      string
+	cfg              *config.Config
+	remoteClient     PricingRemoteClient
+	mu               sync.RWMutex
+	pricingData      map[string]*LiteLLMModelPricing
+	registry         *ModelRegistry
+	registrySnapshot *ModelRegistrySnapshot
+	lastUpdated      time.Time
+	localHash        string
 	// fallback/override 文件在最近一次成功重建时的内容指纹，定时器据此判断是否
 	// 需要从本地目录缓存重建叠加层。
 	customFilesHash string
@@ -217,12 +218,12 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
+		registry:     NewModelRegistry(),
 		cfg:          cfg,
 		remoteClient: remoteClient,
 		pricingData:  make(map[string]*LiteLLMModelPricing),
 		stopCh:       make(chan struct{}),
 	}
-	s.capabilityData, _ = buildModelCapabilitySnapshot(nil)
 	return s
 }
 
@@ -475,7 +476,6 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	// 否则丢弃这次混合快照并重试，避免短暂应用不匹配的 fallback/override。
 	var data map[string]*LiteLLMModelPricing
 	var fingerprint string
-	var capability *ModelCapabilitySnapshot
 	var err error
 	for attempt := 0; attempt < 3; attempt++ {
 		if validateErr := s.validateCustomPricingFiles(); validateErr != nil {
@@ -486,7 +486,6 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 		if readErr != nil {
 			return fmt.Errorf("read file failed: %w", readErr)
 		}
-		capability = s.loadCapabilityCandidate(body, pricingFile)
 		data, fingerprint, err = s.buildPricingData(body)
 		if err != nil {
 			return fmt.Errorf("parse pricing data: %w", err)
@@ -506,9 +505,6 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
-	if capability != nil {
-		s.capabilityData = capability
-	}
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
 
@@ -553,7 +549,7 @@ func (s *PricingService) downloadPricingData() error {
 	capability := s.buildCapabilityCandidate(body, remoteHash)
 	data, customFilesHash, err := s.buildPricingData(body)
 	if err != nil {
-		s.publishCapabilityCandidate(capability)
+		s.stageCapabilityReview(s.getPricingFilePath(), body, capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
@@ -578,9 +574,6 @@ func (s *PricingService) downloadPricingData() error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
 	s.pricingData = data
-	if capability != nil {
-		s.capabilityData = capability
-	}
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
 	s.customFilesHash = customFilesHash
@@ -994,10 +987,8 @@ func (s *PricingService) loadPricingData(filePath string) error {
 		return fmt.Errorf("read file failed: %w", err)
 	}
 
-	capability := s.loadCapabilityCandidate(data, filePath)
 	pricingData, customFilesHash, err := s.buildPricingData(data)
 	if err != nil {
-		s.publishCapabilityCandidate(capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
@@ -1008,9 +999,6 @@ func (s *PricingService) loadPricingData(filePath string) error {
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
 	s.pricingData = pricingData
-	if capability != nil {
-		s.capabilityData = capability
-	}
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
 

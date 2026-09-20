@@ -104,7 +104,7 @@ func (fixture capabilityMixedFixture) candidate(generation int64) (*ModelCapabil
 	return &ModelCapabilitySnapshot{generation: generation, version: fmt.Sprint(generation), records: records, aliases: buildCapabilityAliasIndex(records)}, nil
 }
 
-func (fixture capabilityMixedFixture) pipeline(provider *PricingService, enricher *CapabilityReadOnlyEnricher, observations map[string]capabilitysources.Observation) (map[string]UpstreamModelMetadata, error) {
+func (fixture capabilityMixedFixture) pipeline(provider *capabilityTestProvider, enricher *CapabilityReadOnlyEnricher, observations map[string]capabilitysources.Observation) (map[string]UpstreamModelMetadata, error) {
 	candidate, err := fixture.candidate(0)
 	if err != nil {
 		return nil, err
@@ -168,7 +168,7 @@ func TestCapabilityEnrichmentMixedSnapshots(test *testing.T) {
 	for _, count := range []int{252, 1000} {
 		test.Run(fmt.Sprint(count), func(test *testing.T) {
 			fixture := newCapabilityMixedFixture(test, count)
-			provider := &PricingService{}
+			provider := &capabilityTestProvider{}
 			enricher, err := NewCapabilityReadOnlyEnricher(provider, nil)
 			require.NoError(test, err)
 			before, err := json.Marshal(fixture.account)
@@ -237,7 +237,7 @@ func BenchmarkCapabilityEnrichmentMixed(benchmark *testing.B) {
 	for _, count := range []int{252, 1000} {
 		benchmark.Run(fmt.Sprintf("full-merge-%d", count), func(benchmark *testing.B) {
 			fixture := newCapabilityMixedFixture(benchmark, count)
-			provider := &PricingService{}
+			provider := &capabilityTestProvider{}
 			enricher, err := NewCapabilityReadOnlyEnricher(provider, nil)
 			require.NoError(benchmark, err)
 			budget := 10 * time.Millisecond
@@ -282,7 +282,7 @@ func BenchmarkCapabilityEnrichmentMixed(benchmark *testing.B) {
 				copyRequest.Host = copyURL.Host
 				return transport.RoundTrip(copyRequest)
 			})}
-			provider := &PricingService{}
+			provider := &capabilityTestProvider{}
 			enricher, err := NewCapabilityReadOnlyEnricher(provider, client)
 			require.NoError(benchmark, err)
 			runCapabilityMixedMeasurement(benchmark, fixture, 0, func() (map[string]UpstreamModelMetadata, error) {

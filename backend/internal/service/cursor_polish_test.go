@@ -18,7 +18,7 @@ import (
 type cursorPolishDriver struct{ cursorDriverStub }
 
 func (cursorPolishDriver) AvailableModels(context.Context, cursor.Credentials) ([]cursor.AvailableModel, error) {
-	return cursor.FallbackModels(), nil
+	return cursor.ProtocolVariantModels(), nil
 }
 
 func TestCursorNativeConcurrencyConfiguredPeakAndProbe(t *testing.T) {

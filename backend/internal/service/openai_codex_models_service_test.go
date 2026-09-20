@@ -299,7 +299,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromConfiguredCodexLevels(grok45.SupportedReasoningLevels))
 
 	grokNonReasoning := newConfiguredCodexModelDescriptor("grok-4.20-0309-non-reasoning")
-	require.Equal(t, "Grok 4.20 Non Reasoning", grokNonReasoning.DisplayName)
+	require.Equal(t, "Grok 4.20 (Non-Reasoning)", grokNonReasoning.DisplayName)
 	require.NotNil(t, grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, "none", *grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, []configuredCodexReasoningLevel{
@@ -1252,7 +1252,7 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.True(t, configured)
 	models := decodeCodexManifestModels(t, manifest.Body)
 	require.Equal(t, "glm-5.3", models[0]["slug"])
-	require.Contains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
+	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-image-2")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "codex-auto-review")
 	require.Equal(t, "GLM 5.3", models[0]["display_name"])

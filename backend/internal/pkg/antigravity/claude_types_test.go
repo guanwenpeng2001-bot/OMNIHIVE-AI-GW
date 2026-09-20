@@ -1,12 +1,15 @@
-package antigravity
+package antigravity_test
 
-import "testing"
+import ("testing"
+ "github.com/Wei-Shaw/sub2api/internal/service"
+ "github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+)
 
 func TestDefaultModels_ContainsNewAndLegacyImageModels(t *testing.T) {
 	t.Parallel()
 
-	models := DefaultModels()
-	byID := make(map[string]ClaudeModel, len(models))
+	models := service.AntigravityPresetModels()
+	byID := make(map[string]antigravity.ClaudeModel, len(models))
 	for _, m := range models {
 		byID[m.ID] = m
 	}

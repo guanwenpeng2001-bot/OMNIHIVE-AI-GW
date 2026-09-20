@@ -674,7 +674,7 @@ func openaiCodexDisplayName(modelID string) string {
 	if normalized == "" {
 		return modelID
 	}
-	for _, model := range openai.DefaultModels {
+	for _, model := range OpenAIPresetModels() {
 		if strings.EqualFold(model.ID, normalized) && strings.TrimSpace(model.DisplayName) != "" {
 			return model.DisplayName
 		}
@@ -730,7 +730,7 @@ func grokCodexDisplayName(modelID string) string {
 }
 
 func grokDefaultDisplayName(modelID string) string {
-	for _, model := range xai.DefaultModels() {
+	for _, model := range GrokPresetModels() {
 		if model.ID == modelID {
 			return strings.TrimSpace(model.DisplayName)
 		}
@@ -757,13 +757,13 @@ func claudeCodexDisplayName(modelID string) string {
 	if normalized == "" {
 		return modelID
 	}
-	for _, model := range claude.DefaultModels {
+	for _, model := range ClaudePresetModels() {
 		if strings.EqualFold(model.ID, normalized) && strings.TrimSpace(model.DisplayName) != "" {
 			return model.DisplayName
 		}
 	}
 	if canonical, ok := claude.ModelIDOverrides[normalized]; ok {
-		for _, model := range claude.DefaultModels {
+		for _, model := range ClaudePresetModels() {
 			if model.ID == canonical && strings.TrimSpace(model.DisplayName) != "" {
 				return model.DisplayName
 			}

@@ -286,6 +286,12 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 
 // DiscoverModelCapabilities enriches native discoveries without persisting or authorizing models.
 func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, account *Account, provider ModelCapabilityProvider) (*UpstreamModelCatalog, error) {
+	snapshot := ModelRegistrySnapshotFromContext(ctx).CapabilitySnapshot()
+	if provider != nil {
+		if provided := provider.CapabilitySnapshot(); provided != nil {
+			snapshot = provided
+		}
+	}
 	if account == nil {
 		return nil, newUpstreamModelSyncConfigError("Account is required for capability discovery", nil)
 	}
@@ -350,16 +356,6 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 			if changed {
 				catalog.MetadataSources = dedupeAndSortModelIDs(append(catalog.MetadataSources, "account-declaration"))
 			}
-		}
-	}
-	var snapshot *ModelCapabilitySnapshot
-	if provider != nil {
-		snapshot = provider.CapabilitySnapshot()
-	}
-	if snapshot == nil {
-		snapshot, err = buildModelCapabilitySnapshot(nil)
-		if err != nil {
-			return nil, newUpstreamModelSyncInternalError("Failed to load capability baseline", err)
 		}
 	}
 	catalog.SchemaVersion, catalog.EnrichmentVersion = AccountModelCatalogSchemaVersion, "capability-v2"
