@@ -1,0 +1,269 @@
+package service
+
+import (
+	"context"
+	"crypto/subtle"
+	"encoding/json"
+	"strings"
+	"time"
+
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+)
+
+const accountCredentialDraftPurpose = "account-credential-draft"
+
+// AccountCredentialDraft is the entire browser-visible authorization result.
+// Credentials and provider responses never belong in this projection.
+type AccountCredentialDraft struct {
+	Reference string    `json:"credential_draft"`
+	Platform  string    `json:"platform"`
+	Type      string    `json:"type"`
+	ExpiresAt time.Time `json:"expires_at"`
+	Revision  string    `json:"revision"`
+}
+
+type accountCredentialDraftState struct {
+	Platform     string         `json:"platform"`
+	Type         string         `json:"type"`
+	Credentials  map[string]any `json:"credentials,omitempty"`
+	Revision     string         `json:"revision"`
+	Submission   string         `json:"submission,omitempty"`
+	AccountID    int64          `json:"account_id,omitempty"`
+	Cancelled    bool           `json:"cancelled,omitempty"`
+	ReviewDigest string         `json:"review_digest,omitempty"`
+}
+
+var ErrAccountCredentialDraftConflict = infraerrors.Conflict("ACCOUNT_CREDENTIAL_DRAFT_CONFLICT", "Credential draft changed; preview and confirm again")
+
+func (s *AuthPendingIdentityService) IssueAccountCredentialDraft(ctx context.Context, binding, platform, accountType string, credentials map[string]any) (*AccountCredentialDraft, error) {
+	if strings.TrimSpace(platform) == "" || (accountType != AccountTypeOAuth && accountType != AccountTypeSetupToken) || len(credentials) == 0 {
+		return nil, ErrPendingAuthCodeInvalid
+	}
+	revision, err := randomOpaqueToken(24)
+	if err != nil {
+		return nil, err
+	}
+	state := accountCredentialDraftState{Platform: platform, Type: accountType, Credentials: SanitizeStoredCredentials(platform, credentials), Revision: revision}
+	data, err := accountCredentialDraftData(state)
+	if err != nil {
+		return nil, err
+	}
+	reference, err := s.IssueIdentityTicket(ctx, accountCredentialDraftPurpose, binding, data, 10*time.Minute)
+	if err != nil {
+		return nil, err
+	}
+	return s.PreviewAccountCredentialDraft(ctx, reference, binding)
+}
+
+func accountCredentialDraftData(state accountCredentialDraftState) (map[string]any, error) {
+	encoded, err := json.Marshal(state)
+	if err != nil {
+		return nil, err
+	}
+	// One encoded payload avoids lossy float64 round trips for IDs and revisions.
+	return map[string]any{"credential_draft_state": string(encoded)}, nil
+}
+
+func readAccountCredentialDraft(session *dbent.PendingAuthSession, binding string) (*accountCredentialDraftState, error) {
+	if session.ProviderKey != identityTicketProviderKey || session.ProviderSubject != accountCredentialDraftPurpose {
+		return nil, ErrPendingAuthSessionNotFound
+	}
+	if strings.TrimSpace(binding) == "" || subtle.ConstantTimeCompare([]byte(session.BrowserSessionKey), []byte(binding)) != 1 {
+		return nil, ErrPendingAuthBrowserMismatch
+	}
+	if !time.Now().Before(session.ExpiresAt) {
+		return nil, ErrPendingAuthSessionExpired
+	}
+	encoded, ok := session.LocalFlowState["credential_draft_state"].(string)
+	if !ok {
+		return nil, ErrPendingAuthSessionNotFound
+	}
+	var state accountCredentialDraftState
+	if err := json.Unmarshal([]byte(encoded), &state); err != nil {
+		return nil, ErrPendingAuthSessionNotFound
+	}
+	return &state, nil
+}
+
+func (s *AuthPendingIdentityService) accountCredentialDraft(ctx context.Context, reference, binding string) (*dbent.PendingAuthSession, *accountCredentialDraftState, error) {
+	if strings.TrimSpace(reference) == "" {
+		return nil, nil, ErrPendingAuthSessionNotFound
+	}
+	session, err := s.getBrowserSession(ctx, hashPendingAuthCode(reference))
+	if err != nil {
+		return nil, nil, err
+	}
+	state, err := readAccountCredentialDraft(session, binding)
+	return session, state, err
+}
+
+func (s *AuthPendingIdentityService) PreviewAccountCredentialDraft(ctx context.Context, reference, binding string) (*AccountCredentialDraft, error) {
+	session, state, err := s.accountCredentialDraft(ctx, reference, binding)
+	if err != nil {
+		return nil, err
+	}
+	if session.ConsumedAt != nil {
+		return nil, ErrPendingAuthSessionConsumed
+	}
+	return &AccountCredentialDraft{Reference: reference, Platform: state.Platform, Type: state.Type, ExpiresAt: session.ExpiresAt, Revision: state.Revision}, nil
+}
+
+// ResolveAccountCredentialDraft is internal to preview/review services. The
+// returned credentials must never be serialized as a handler response.
+func (s *AuthPendingIdentityService) ResolveAccountCredentialDraft(ctx context.Context, reference, binding string) (*Account, string, error) {
+	session, state, err := s.accountCredentialDraft(ctx, reference, binding)
+	if err != nil {
+		return nil, "", err
+	}
+	if session.ConsumedAt != nil {
+		return nil, "", ErrPendingAuthSessionConsumed
+	}
+	return &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials}, state.Revision, nil
+}
+
+// ReviewAccountCredentialDraft binds confirmation to the exact non-secret
+// configuration reviewed by the operator. A new review invalidates older tabs.
+func (s *AuthPendingIdentityService) ReviewAccountCredentialDraft(ctx context.Context, reference, binding, revision, digest string) (*AccountCredentialDraft, error) {
+	if digest == "" {
+		return nil, ErrAccountCredentialDraftConflict
+	}
+	transaction, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	_, err = transaction.PendingAuthSession.Update().Where(pendingauthsession.SessionTokenEQ(hashPendingAuthCode(reference)), pendingauthsession.BrowserSessionKeyEQ(binding)).SetUpdatedAt(time.Now()).Save(ctx)
+	if err != nil {
+		return nil, err
+	}
+	pending := NewAuthPendingIdentityService(transaction.Client())
+	session, state, err := pending.accountCredentialDraft(ctx, reference, binding)
+	if err != nil {
+		return nil, err
+	}
+	if session.ConsumedAt != nil {
+		return nil, ErrPendingAuthSessionConsumed
+	}
+	if state.Revision != revision && state.ReviewDigest != digest {
+		return nil, ErrAccountCredentialDraftConflict
+	}
+	if state.ReviewDigest != digest {
+		state.Revision, err = randomOpaqueToken(24)
+		if err != nil {
+			return nil, err
+		}
+		state.ReviewDigest = digest
+		data, err := accountCredentialDraftData(*state)
+		if err != nil {
+			return nil, err
+		}
+		if err := transaction.PendingAuthSession.UpdateOneID(session.ID).SetLocalFlowState(data).Exec(ctx); err != nil {
+			return nil, err
+		}
+	}
+	if err := transaction.Commit(); err != nil {
+		return nil, err
+	}
+	return &AccountCredentialDraft{Reference: reference, Platform: state.Platform, Type: state.Type, ExpiresAt: session.ExpiresAt, Revision: state.Revision}, nil
+}
+
+func (s *AuthPendingIdentityService) CancelAccountCredentialDraft(ctx context.Context, reference, binding string) error {
+	session, state, err := s.accountCredentialDraft(ctx, reference, binding)
+	if err != nil {
+		return err
+	}
+	if state.Cancelled {
+		return nil
+	}
+	if session.ConsumedAt != nil {
+		return ErrPendingAuthSessionConsumed
+	}
+	state.Credentials, state.Cancelled = nil, true
+	data, err := accountCredentialDraftData(*state)
+	if err != nil {
+		return err
+	}
+	changed, err := s.entClient.PendingAuthSession.Update().Where(
+		pendingauthsession.IDEQ(session.ID), pendingauthsession.ConsumedAtIsNil(), pendingauthsession.ExpiresAtGT(time.Now().UTC()),
+	).SetConsumedAt(time.Now()).SetLocalFlowState(data).Save(ctx)
+	if err != nil {
+		return err
+	}
+	if changed == 0 {
+		_, current, err := s.accountCredentialDraft(ctx, reference, binding)
+		if err != nil {
+			return err
+		}
+		if !current.Cancelled {
+			return ErrPendingAuthSessionConsumed
+		}
+	}
+	return nil
+}
+
+// ConfirmAccountCredentialDraft keeps the claim, account write and retry receipt
+// in one transaction. create must use the transaction in its context for every
+// database write and must defer external effects until this method succeeds.
+// submission is a digest of the complete reviewed request, not a client chosen ID.
+func (s *AuthPendingIdentityService) ConfirmAccountCredentialDraft(ctx context.Context, reference, binding, revision, submission string, create func(context.Context, *Account) (int64, error)) (int64, error) {
+	if strings.TrimSpace(submission) == "" || create == nil {
+		return 0, ErrAccountCredentialDraftConflict
+	}
+	transaction, err := s.entClient.Tx(ctx)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = transaction.Rollback() }()
+	transactionContext := dbent.NewTxContext(ctx, transaction)
+	pending := NewAuthPendingIdentityService(transaction.Client())
+	// UPDATE obtains the row lock before reading: concurrent confirmations and
+	// cancellation serialize on the same durable row, including across replicas.
+	_, err = transaction.PendingAuthSession.Update().Where(
+		pendingauthsession.SessionTokenEQ(hashPendingAuthCode(reference)),
+		pendingauthsession.ProviderKeyEQ(identityTicketProviderKey), pendingauthsession.ProviderSubjectEQ(accountCredentialDraftPurpose),
+		pendingauthsession.BrowserSessionKeyEQ(binding),
+	).SetUpdatedAt(time.Now()).Save(transactionContext)
+	if err != nil {
+		return 0, err
+	}
+	session, state, err := pending.accountCredentialDraft(transactionContext, reference, binding)
+	if err != nil {
+		return 0, err
+	}
+	if state.Cancelled {
+		return 0, ErrPendingAuthSessionConsumed
+	}
+	if state.Revision != revision {
+		return 0, ErrAccountCredentialDraftConflict
+	}
+	if state.ReviewDigest != "" && state.ReviewDigest != submission {
+		return 0, ErrAccountCredentialDraftConflict
+	}
+	if session.ConsumedAt != nil {
+		if state.Submission != submission || state.AccountID <= 0 {
+			return 0, ErrAccountCredentialDraftConflict
+		}
+		return state.AccountID, transaction.Commit()
+	}
+	accountID, err := create(transactionContext, &Account{Platform: state.Platform, Type: state.Type, Credentials: state.Credentials})
+	if err != nil {
+		return 0, err
+	}
+	if accountID <= 0 {
+		return 0, ErrAccountCredentialDraftConflict
+	}
+	state.Credentials, state.AccountID, state.Submission = nil, accountID, submission
+	data, err := accountCredentialDraftData(*state)
+	if err != nil {
+		return 0, err
+	}
+	if err = transaction.PendingAuthSession.UpdateOneID(session.ID).SetConsumedAt(time.Now()).SetLocalFlowState(data).Exec(transactionContext); err != nil {
+		return 0, err
+	}
+	if err = transaction.Commit(); err != nil {
+		return 0, err
+	}
+	return accountID, nil
+}

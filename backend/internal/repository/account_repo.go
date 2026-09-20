@@ -125,6 +125,13 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
 	defer invalidateCatalogAfterWrite(ctx)
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		client := transaction.Client()
+		if err := createAccountRecord(ctx, client, account); err != nil {
+			return err
+		}
+		return enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs))
+	}
 	if err := createAccountRecord(ctx, r.client, account); err != nil {
 		return err
 	}
@@ -219,18 +226,23 @@ func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account
 	if account == nil {
 		return service.ErrAccountNilInput
 	}
-	tx, err := r.client.Tx(ctx)
-	if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
-		return err
-	}
-
+	var tx *dbent.Tx
 	var txClient *dbent.Client
-	if err == nil {
-		defer func() { _ = tx.Rollback() }()
-		txClient = tx.Client()
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		txClient = transaction.Client()
 	} else {
-		// Reuse a caller-owned transaction when this repository is already transactional.
-		txClient = r.client
+		var err error
+		tx, err = r.client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if err == nil {
+			defer func() { _ = tx.Rollback() }()
+			txClient = tx.Client()
+		} else {
+			// The repository itself may already carry a caller-owned transaction.
+			txClient = r.client
+		}
 	}
 	groupIDs := make([]int64, 0, len(groups))
 	for i := range groups {

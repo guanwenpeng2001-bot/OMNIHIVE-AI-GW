@@ -17,12 +17,13 @@ const cursorAuthorizationLifetime = 10 * time.Minute
 const cursorAuthorizationInterval = 4 * time.Second
 
 type CursorAuthorizationStatus struct {
-	ID        string    `json:"id"`
-	URL       string    `json:"url,omitempty"`
-	Status    string    `json:"status"`
-	ExpiresAt time.Time `json:"expires_at"`
-	AccountID int64     `json:"account_id,omitempty"`
-	Message   string    `json:"message,omitempty"`
+	ID        string                  `json:"id"`
+	URL       string                  `json:"url,omitempty"`
+	Status    string                  `json:"status"`
+	ExpiresAt time.Time               `json:"expires_at"`
+	AccountID int64                   `json:"account_id,omitempty"`
+	Message   string                  `json:"message,omitempty"`
+	Draft     *AccountCredentialDraft `json:"draft,omitempty"`
 }
 
 type cursorAuthorization struct {
@@ -31,6 +32,8 @@ type cursorAuthorization struct {
 	pkce     cursor.PKCE
 	nextPoll time.Time
 	persist  func(context.Context, map[string]any) (int64, error)
+	binding  string
+	draft    func(context.Context, map[string]any) (*AccountCredentialDraft, error)
 }
 
 // Pending logins are bounded ephemeral state, not a second credential store.
@@ -70,6 +73,25 @@ func (service *CursorAuthService) Start(persist func(context.Context, map[string
 }
 
 func (service *CursorAuthService) Poll(ctx context.Context, id string, cancel bool) (CursorAuthorizationStatus, error) {
+	return service.PollBound(ctx, id, "", cancel)
+}
+
+func (service *CursorAuthService) StartDraft(binding string, draft func(context.Context, map[string]any) (*AccountCredentialDraft, error)) (CursorAuthorizationStatus, error) {
+	if binding == "" || draft == nil {
+		return CursorAuthorizationStatus{}, ErrPendingAuthBrowserMismatch
+	}
+	state, err := service.Start(nil)
+	if err != nil {
+		return state, err
+	}
+	service.mu.Lock()
+	session := service.sessions[state.ID]
+	session.binding, session.draft = binding, draft
+	service.mu.Unlock()
+	return state, nil
+}
+
+func (service *CursorAuthService) PollBound(ctx context.Context, id, binding string, cancel bool) (CursorAuthorizationStatus, error) {
 	service.mu.Lock()
 	session := service.sessions[id]
 	service.mu.Unlock()
@@ -78,10 +100,17 @@ func (service *CursorAuthService) Poll(ctx context.Context, id string, cancel bo
 	}
 	session.mu.Lock()
 	defer session.mu.Unlock()
+	if session.binding != binding {
+		return CursorAuthorizationStatus{}, ErrPendingAuthBrowserMismatch
+	}
 	finish := func(status, message string) {
 		session.state.Status, session.state.Message = status, message
 		session.pkce = cursor.PKCE{}
 		session.persist = nil
+		session.draft = nil
+	}
+	if cancel && session.state.Draft != nil {
+		finish("cancelled", "Cursor authorization cancelled")
 	}
 	if session.state.Status != "waiting" {
 		return session.state, nil
@@ -128,6 +157,16 @@ func (service *CursorAuthService) Poll(ctx context.Context, id string, cancel bo
 			return session.state, nil
 		}
 		credentials[field] = hex.EncodeToString(identity)
+	}
+	if session.draft != nil {
+		draft, err := session.draft(pollCtx, credentials)
+		if err != nil {
+			finish("failed", "Cursor authorization could not save draft; start again")
+			return session.state, nil
+		}
+		session.state.Draft = draft
+		finish("ready", "Cursor authorization is ready for review and confirmation")
+		return session.state, nil
 	}
 	accountID, err := session.persist(pollCtx, credentials)
 	if err != nil {

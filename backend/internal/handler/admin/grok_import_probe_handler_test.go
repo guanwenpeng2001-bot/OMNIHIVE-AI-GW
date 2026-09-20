@@ -71,7 +71,7 @@ func (grokImportOAuthClientStub) ConvertSSOToBuild(context.Context, string, stri
 	return &xai.TokenResponse{AccessToken: "access-token", RefreshToken: "refresh-token", ExpiresIn: 3600}, nil
 }
 
-func TestGrokSSOBatchImportKeepsCreatedAccountsWhenOneAutomaticProbeFails(t *testing.T) {
+func TestGrokSSOBatchImportOnlyIssuesDraftsBeforeConfirmation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	adminService := newGrokImportAdminService()
 	oauthService := service.NewGrokOAuthService(nil, grokImportOAuthClientStub{})
@@ -80,6 +80,7 @@ func TestGrokSSOBatchImportKeepsCreatedAccountsWhenOneAutomaticProbeFails(t *tes
 	prober.failures[502] = infraerrors.New(502, "GROK_TEST_PROBE_FAILED", "sensitive-upstream-body")
 	handler := NewGrokOAuthHandler(oauthService, adminService, nil, nil)
 	handler.importProber = prober
+	handler.SetCredentialDraftService(credentialDraftTestStore(t))
 
 	router := gin.New()
 	router.POST("/api/v1/admin/grok/sso-to-oauth", handler.CreateAccountsFromSSO)
@@ -93,31 +94,32 @@ func TestGrokSSOBatchImportKeepsCreatedAccountsWhenOneAutomaticProbeFails(t *tes
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
-	require.Contains(t, recorder.Body.String(), `"created"`)
+	require.Contains(t, recorder.Body.String(), `"ready"`)
+	require.Contains(t, recorder.Body.String(), `"credential_draft"`)
+	require.NotContains(t, recorder.Body.String(), `access-token`)
+	require.Equal(t, int64(500), adminService.nextID)
 	require.NotContains(t, recorder.Body.String(), `GROK_TEST_PROBE_FAILED`)
-	for i := 0; i < 3; i++ {
-		awaitGrokProbeSignal(t, prober.done)
-	}
 	calls, _, _ := prober.snapshot()
-	require.Equal(t, map[int64]int{501: 1, 502: 1, 503: 1}, calls)
+	require.Empty(t, calls)
 }
 
 func TestAccountCreateWithoutAutomaticGrokProbeServiceStillSucceeds(t *testing.T) {
 	gin.SetMode(gin.TestMode)
+	pending := credentialDraftTestStore(t)
 	handler := NewAccountHandler(
 		newGrokImportAdminService(),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)
+	handler.SetCredentialDraftService(pending)
+	cookie, draft := issueHTTPCredentialDraft(t, pending, service.PlatformGrok, service.AccountTypeOAuth, map[string]any{"refresh_token": "secret"})
 
 	router := gin.New()
 	router.POST("/api/v1/admin/accounts", handler.Create)
 	recorder := httptest.NewRecorder()
-	request := httptest.NewRequest(
-		http.MethodPost,
-		"/api/v1/admin/accounts",
-		strings.NewReader(`{"name":"grok-rt","platform":"grok","type":"oauth","credentials":{"refresh_token":"secret"}}`),
-	)
+	body := `{"name":"grok-rt","platform":"grok","type":"oauth","credentials":{},"credential_draft":"` + draft.Reference + `","credential_draft_revision":"` + draft.Revision + `"}`
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", strings.NewReader(body))
 	request.Header.Set("Content-Type", "application/json")
+	request.AddCookie(cookie)
 	router.ServeHTTP(recorder, request)
 
 	require.Equal(t, http.StatusOK, recorder.Code)
