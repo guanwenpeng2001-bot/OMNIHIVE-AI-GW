@@ -497,43 +497,28 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	defer cancelGeneration()
 	stopDisconnect := context.AfterFunc(clientReader.ctx, cancelGeneration)
 	defer stopDisconnect()
+	clientLifecycleCtx := context.Background()
+	if c.Request != nil {
+		clientLifecycleCtx = c.Request.Context()
+	}
+	if hooks != nil && hooks.ClientLifecycleContext != nil {
+		clientLifecycleCtx = hooks.ClientLifecycleContext
+	}
 	readClientMessage := func() ([]byte, error) {
 		idleTimeout := s.openAIWSIngressInterTurnIdleTimeout()
-		var msgType coderws.MessageType
-		var payload []byte
-		var readErr error
-		idleTimer := time.NewTimer(idleTimeout)
-		defer idleTimer.Stop()
-		var idleDeadline <-chan time.Time
-		if idleTimeout > 0 {
-			idleDeadline = idleTimer.C
-		}
-		select {
-		case frame, ok := <-clientReader.frames:
-			if !ok {
-				readErr = context.Cause(clientReader.ctx)
-			} else {
-				msgType, payload = frame.messageType, frame.payload
-			}
-		case <-ctx.Done():
-			readErr = ctx.Err()
-			if clientReader.ctx.Err() != nil {
-				readErr = context.Cause(clientReader.ctx)
-			} else {
-				status, reason := coderws.StatusGoingAway, "websocket request canceled"
-				if errors.Is(context.Cause(ctx), ErrOpenAIWSIngressLeaseLost) {
-					status, reason = coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect"
-				}
-				_ = clientConn.Close(status, reason)
-				_ = clientConn.CloseNow()
-			}
-		case <-idleDeadline:
-			_ = clientConn.Close(coderws.StatusNormalClosure, "websocket idle timeout")
-			_ = clientConn.CloseNow()
-			readErr = NewOpenAIWSClientCloseError(coderws.StatusNormalClosure, "websocket idle timeout", context.DeadlineExceeded)
+		// All ingress modes share the same serialized, pending-first consumer.
+		// Attempt cancellation relinquishes frames without closing the transport.
+		msgType, payload, readErr := readOpenAIWSClientMessageWithTimeoutStart(
+			clientLifecycleCtx, clientConn, idleTimeout, coderws.StatusNormalClosure,
+			"websocket idle timeout", nil, nil, clientReader, ctx,
+		)
+		if errors.Is(readErr, context.Canceled) && clientReader.ctx.Err() != nil {
+			readErr = context.Cause(clientReader.ctx)
 		}
 		if readErr != nil {
 			if errors.Is(context.Cause(ctx), ErrOpenAIWSIngressLeaseLost) {
+				_ = clientConn.Close(coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect")
+				_ = clientConn.CloseNow()
 				return nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect", context.Cause(ctx))
 			}
 			var closeErr *OpenAIWSClientCloseError

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -318,4 +319,110 @@ func TestOpenAIWSClientReaderReturnsFrameCanceledDuringDequeue(test *testing.T) 
 	}
 	require.Nil(test, reader.pending)
 	require.Empty(test, reader.frames)
+}
+
+// Exercise the production ingress after a passthrough attempt relinquishes a
+// frame. Both non-passthrough modes must consume pending before newer frames.
+func TestOpenAIWSClientReaderPendingFrameSurvivesIngressModeHandoff(test *testing.T) {
+	for _, mode := range []string{OpenAIWSIngressModeCtxPool, OpenAIWSIngressModeHTTPBridge} {
+		test.Run(mode, func(test *testing.T) {
+			for _, retainPending := range []bool{false, true} {
+				name := "channel_control"
+				if retainPending {
+					name = "canceled_dequeue_pending"
+				}
+				test.Run(name, func(test *testing.T) {
+					cfg := newOpenAIWSV2TestConfig()
+					cfg.Gateway.OpenAIWS.ModeRouterV2Enabled = true
+					cfg.Gateway.OpenAIWS.IngressModeDefault = mode
+					cfg.Gateway.OpenAIWS.MaxConnsPerAccount = 1
+					cfg.Gateway.OpenAIWS.MaxIdlePerAccount = 1
+					cfg.Gateway.OpenAIWS.QueueLimitPerConn = 8
+					cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
+					cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
+					upstream := &openAIWSCaptureConn{events: [][]byte{[]byte(`{"type":"response.completed","response":{"id":"review_first","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)}}
+					httpUpstream := &httpUpstreamRecorder{resp: &http.Response{
+						StatusCode: http.StatusOK,
+						Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
+						Body:       io.NopCloser(strings.NewReader("data: " + string(upstream.events[0]) + "\n\n")),
+					}}
+					pool := newOpenAIWSConnPool(cfg)
+					defer pool.Close()
+					pool.setClientDialerForTest(&openAIWSCaptureDialer{conn: upstream})
+					service := &OpenAIGatewayService{cfg: cfg, httpUpstream: httpUpstream, cache: &stubGatewayCache{}, openaiWSResolver: NewOpenAIWSProtocolResolver(cfg), toolCorrector: NewCodexToolCorrector(), openaiWSPool: pool}
+					account := &Account{ID: 114, Name: "review-handoff", Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"api_key": "sk-test"}, Extra: map[string]any{"responses_websockets_v2_enabled": true}}
+					followup := []byte(`{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"queued-followup"}]}`)
+					type outcome struct {
+						reached bool
+						pending bool
+						queued  int
+						err     error
+					}
+					results := make(chan outcome, 1)
+					server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+						connection, acceptErr := coderws.Accept(response, request, nil)
+						if acceptErr != nil {
+							results <- outcome{err: acceptErr}
+							return
+						}
+						defer connection.CloseNow()
+						clientContext, _ := gin.CreateTestContext(httptest.NewRecorder())
+						clientContext.Request = request
+						reader := openAIWSIngressClientReader(clientContext, connection)
+						fixtureContext, stopFixture := context.WithTimeout(request.Context(), 3*time.Second)
+						defer stopFixture()
+						if retainPending {
+							oldContext, cancelOld := context.WithCancel(fixtureContext)
+							attempt := &cancelAfterDequeueContext{Context: oldContext, afterDequeue: cancelOld}
+							oldAccount := &openAIWSClientFrameConn{conn: connection, reader: reader, controlCtx: fixtureContext}
+							_, stalePayload, staleErr := oldAccount.ReadFrame(attempt)
+							cancelOld()
+							if !errors.Is(staleErr, context.Canceled) || len(stalePayload) != 0 || reader.pending == nil {
+								results <- outcome{err: errors.New("failed to establish canceled dequeue pending state")}
+								return
+							}
+						}
+						if retainPending {
+							reader.frames <- openAIWSClientReadResult{messageType: coderws.MessageText, payload: []byte("newer-frame")}
+						}
+						reached := false
+						hooks := &OpenAIWSIngressHooks{BeforeRequest: func(turn int, payload []byte, model string) error {
+							if turn == 2 {
+								reached = strings.Contains(string(payload), "queued-followup")
+								return errors.New("review follow-up reached")
+							}
+							return nil
+						}}
+						nextContext, stopNext := context.WithTimeout(fixtureContext, 2*time.Second)
+						defer stopNext()
+						proxyErr := service.ProxyResponsesWebSocketFromClient(nextContext, clientContext, connection, account, "sk-test", []byte(`{"type":"response.create","model":"gpt-5.1","input":[{"role":"user","content":"first"}]}`), hooks)
+						results <- outcome{reached: reached, pending: reader.pending != nil, queued: len(reader.frames), err: proxyErr}
+					}))
+					defer server.Close()
+					fixtureContext, stopFixture := context.WithTimeout(context.Background(), 5*time.Second)
+					defer stopFixture()
+					client, _, dialErr := coderws.Dial(fixtureContext, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+					require.NoError(test, dialErr)
+					defer client.CloseNow()
+					require.NoError(test, client.Write(fixtureContext, coderws.MessageText, followup))
+					_, firstResponse, firstErr := client.Read(fixtureContext)
+					require.NoError(test, firstErr)
+					require.Contains(test, string(firstResponse), "review_first")
+					// Continue reading so any bounded control close can complete.
+					go func() { _, _, _ = client.Read(fixtureContext) }()
+					select {
+					case result := <-results:
+						test.Logf("followup_reached=%v pending_retained=%v proxy_error=%v", result.reached, result.pending, result.err)
+						require.True(test, result.reached, "next ingress mode must deliver the oldest frame")
+						require.False(test, result.pending, "next mode must release the retained frame")
+						if retainPending {
+							require.Equal(test, 1, result.queued, "newer frame must remain behind pending")
+						}
+					case <-fixtureContext.Done():
+						test.Fatal("handoff fixture timed out")
+					}
+				})
+			}
+		})
+	}
 }
