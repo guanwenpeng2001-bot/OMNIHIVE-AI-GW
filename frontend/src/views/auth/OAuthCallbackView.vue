@@ -147,8 +147,9 @@
 
 <script setup lang="ts">
 import { extractApiErrorMessage } from '@/utils/apiError'
+import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
 
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClipboard } from '@/composables/useClipboard'
@@ -172,6 +173,7 @@ const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const { isActive, waitForCallback } = useCallbackLifetime()
 const isProcessing = ref(false)
 const isSubmitting = ref(false)
 const needsRegistrationCompletion = ref(false)
@@ -197,9 +199,6 @@ type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
 
 const code = computed(() => (route.query.code as string) || '')
 const state = computed(() => (route.query.state as string) || '')
-const error = computed(
-  () => (route.query.error as string) || (route.query.error_description as string) || ''
-)
 
 const fullUrl = computed(() => {
   if (typeof window === 'undefined') return ''
@@ -263,7 +262,7 @@ function redirectProviderCallbackToBackend(provider: 'github' | 'google'): void 
 
 async function finalizeTokenResponse(tokenResponse: OAuthTokenResponse, redirect: string) {
   persistOAuthTokenContext(tokenResponse)
-  await authStore.setToken(tokenResponse.access_token)
+  await waitForCallback(authStore.setToken(tokenResponse.access_token))
   if (typeof window !== 'undefined') {
     window.sessionStorage.removeItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
   }
@@ -279,7 +278,7 @@ function hasOAuthTokenResponse(value: Partial<OAuthTokenResponse>): value is OAu
 async function resumePendingEmailOAuth(code?: string) {
   isProcessing.value = true
   try {
-    const completion = await exchangePendingOAuthCompletion(undefined, code) as EmailOAuthPendingCompletion
+    const completion = await waitForCallback(exchangePendingOAuthCompletion(undefined, code)) as EmailOAuthPendingCompletion
     const completionRedirect = completion.redirect || '/dashboard'
     if (hasOAuthTokenResponse(completion)) {
       await finalizeTokenResponse(completion, completionRedirect)
@@ -302,18 +301,20 @@ async function resumePendingEmailOAuth(code?: string) {
 
     appStore.showError(completion.error || t('auth.loginFailed'))
   } catch (e: unknown) {
+    if (!isActive()) return
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     const message = extractApiErrorMessage(err, '') || t('auth.loginFailed')
     appStore.showError(message)
     invalidCallback.value = true
   } finally {
-    if (!needsRegistrationCompletion.value) {
+    if (isActive() && !needsRegistrationCompletion.value) {
       isProcessing.value = false
     }
   }
 }
 
 async function handleSubmitRegistration() {
+  if (!isActive() || isSubmitting.value) return
   registrationError.value = ''
   if (!registrationEmail.value.trim()) {
     registrationError.value = t('auth.emailRequired')
@@ -343,13 +344,15 @@ async function handleSubmitRegistration() {
       `/auth/oauth/${pendingProvider.value}/complete-registration`,
       payload
     )
+    if (!isActive()) return
     await finalizeTokenResponse(data, redirectTo.value)
   } catch (e: unknown) {
+    if (!isActive()) return
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     registrationError.value =
       extractApiErrorMessage(err, '') || t('auth.oidc.completeRegistrationFailed')
   } finally {
-    isSubmitting.value = false
+    if (isActive()) isSubmitting.value = false
   }
 }
 
@@ -360,9 +363,9 @@ onMounted(async () => {
     isProcessing.value = false
     return
   }
-  const fragmentError = params.get('error') || ''
+  const fragmentError = params.get('error') || (route.query.error as string) || (route.query.error_description as string) || ''
   const fragmentErrorDescription =
-    params.get('error_description') || params.get('error_message') || ''
+    params.get('error_description') || params.get('error_message') || (route.query.error_description as string) || ''
 
   if (fragmentError) {
     appStore.showError(fragmentErrorDescription || fragmentError)
@@ -377,16 +380,6 @@ onMounted(async () => {
     await resumePendingEmailOAuth(params.get('code') || undefined)
   }
 })
-
-watch(
-  error,
-  (message) => {
-    if (message) {
-      appStore.showError(message)
-    }
-  },
-  { immediate: true }
-)
 
 const copy = (value: string) => {
   if (!value) return

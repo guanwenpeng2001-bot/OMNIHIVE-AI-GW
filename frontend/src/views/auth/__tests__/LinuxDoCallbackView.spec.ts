@@ -98,6 +98,19 @@ describe('LinuxDoCallbackView', () => {
     sessionStorage.clear()
   })
 
+  it.each([LinuxDoCallbackView, DingTalkCallbackView])('ignores an exchange completion after its callback unmounts', async component => {
+    let resolveExchange!: (response: unknown) => void
+    exchangePendingOAuthCompletion.mockImplementationOnce(() => new Promise(resolve => { resolveExchange = resolve }))
+    const wrapper = mount(component, { global: { stubs: { AuthLayout: { template: '<div><slot /></div>' } } } })
+    wrapper.unmount()
+    resolveExchange({ access_token: 'obsolete-token' })
+    await flushPromises()
+    expect(setToken).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+    expect(setPendingAuthSession).not.toHaveBeenCalled()
+  })
+
   it('rejects legacy token fragments after removing them from browser history', async () => {
     window.location.hash =
       '#access_token=legacy-access-token&refresh_token=legacy-refresh-token&expires_in=3600&token_type=Bearer&redirect=%2Flegacy-dashboard'

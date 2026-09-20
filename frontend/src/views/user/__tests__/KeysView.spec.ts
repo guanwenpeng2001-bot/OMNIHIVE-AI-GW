@@ -309,6 +309,27 @@ describe('user KeysView column settings', () => {
     isCurrentStep.mockReturnValue(false)
   })
 
+  it('aborts all auxiliary requests and ignores late failures after a same-user session change', async () => {
+    authState.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
+    const rejectRequests: Array<(error: unknown) => void> = []
+    const auxiliaryApis = [getAvailableGroups, getUserGroupRates, getPublicSettings]
+    auxiliaryApis.forEach(request => request.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectRequests.push(reject) })))
+    const logger = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const wrapper = await mountView(true)
+    const signals = auxiliaryApis.map(request => request.mock.calls[0][0].signal as AbortSignal)
+    expect(signals.every(signal => !signal.aborted)).toBe(true)
+    authState.current.sessionRevision = 'second'
+    await flushPromises()
+    expect(signals.every(signal => signal.aborted)).toBe(true)
+    auxiliaryApis.forEach(request => expect(request).toHaveBeenCalledTimes(2))
+    rejectRequests.forEach(reject => reject(new Error('late request failed')))
+    await flushPromises()
+    expect(logger).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+    logger.mockRestore()
+  })
+
   it.each(['AUTH_SESSION_CHANGED', 'NETWORK_ERROR'])('ignores a delayed old-session %s after same-user relogin', async (code) => {
     authState.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
     let rejectOld!: (error: unknown) => void
