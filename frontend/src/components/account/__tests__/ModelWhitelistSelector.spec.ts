@@ -74,6 +74,76 @@ vi.mock('@/composables/useClipboard', () => ({
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import ModelCatalogDetails from '../ModelCatalogDetails.vue'
+
+describe('descriptor-backed provider previews', () => {
+  const repairedPlatforms = ['volcengine', 'qianfan', 'hunyuan', 'mistral', 'bedrock']
+
+  beforeEach(() => {
+    realLocale = null
+    syncUpstreamModels.mockReset()
+    syncUpstreamModelsPreview.mockReset()
+  })
+
+  it.each(CONCRETE_PLATFORM_OPTIONS.map(option => option.value))('previews saved %s accounts', async platform => {
+    syncUpstreamModels.mockResolvedValueOnce({ discovered_models: [], candidate_models: [], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' })
+    const wrapper = mountSelector({ platform, accountId: 19 })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModels.mock.calls).toEqual([[19, false]])
+    wrapper.unmount()
+  })
+
+  it.each(repairedPlatforms)('consumes the five-field draft DTO for %s without promoting candidates to eligibility', async platform => {
+    const credentials = { platform, type: 'apikey', api_key: 'fixture-key' }
+    const result = { discovered_models: [`${platform}-native`], candidate_models: [`${platform}-native`, `${platform}-candidate`], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' }
+    syncUpstreamModelsPreview.mockResolvedValueOnce(result)
+    const wrapper = mountSelector({ platform, syncCredentials: credentials })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModelsPreview.mock.calls).toEqual([[credentials]])
+    expect(wrapper.getComponent(ModelCatalogDetails).props('result')).toEqual(result)
+    expect(wrapper.text()).toContain('admin.accounts.modelSync.incomplete')
+    expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('D 1 · M 0 · U 1 · E 0')
+    await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([result.candidate_models])
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(repairedPlatforms)('keeps empty %s presets and previews empty while permitting manual IDs', async platform => {
+    getPlatformModelPresets.mockResolvedValueOnce([{ platform, coverage_status: 'unconfigured', models: [] }])
+    syncUpstreamModelsPreview.mockResolvedValueOnce({ discovered_models: [], candidate_models: [], eligible_models: [], discovery_complete: false, capability_status: 'incomplete', catalog_source: 'platform-candidates' })
+    const wrapper = mountSelector({ platform, syncCredentials: { platform, api_key: 'fixture-key' } })
+    await flushPromises()
+    await wrapper.get('button[aria-expanded]').trigger('click')
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(0)
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.findAll('[data-testid="model-option"]')).toHaveLength(0)
+    const custom = wrapper.get('input[aria-label="admin.accounts.customModelName"]')
+    await custom.setValue('private-deployment')
+    await custom.trigger('keydown', { key: 'Enter' })
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['private-deployment']])
+    wrapper.unmount()
+  })
+
+  it.each(repairedPlatforms.flatMap(platform => [true, false].map(complete => ({ platform, complete }))))('uses discovery completeness for $platform snapshot application ($complete)', async ({ platform, complete }) => {
+    syncUpstreamModels.mockResolvedValueOnce({ discovered_models: ['native'], candidate_models: ['native'], eligible_models: [], discovery_complete: complete, capability_status: 'incomplete', review: { account_id: 19, digest: 'fixture-review' } })
+    const wrapper = mountSelector({ platform, accountId: 19 })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') === undefined).toBe(complete)
+    expect(wrapper.text().includes('admin.accounts.modelSync.incomplete')).toBe(!complete)
+    expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+})
 
 describe('saved catalog evidence states', () => {
   it.each([

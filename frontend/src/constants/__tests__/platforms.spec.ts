@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth, platformSupportsModelCatalog } from '@/constants/platforms'
 
 import * as platformColors from '@/utils/platformColors'
 import englishAccounts from '@/i18n/locales/en/admin/accounts'
@@ -14,6 +14,7 @@ interface BackendPlatform {
   activeProbe: boolean
   quotaMonitor: boolean
   passiveMonitor: boolean
+  modelCatalog: boolean
 }
 
 let backend: BackendPlatform[]
@@ -34,6 +35,7 @@ beforeAll(() => { backend = exportBackend() }, 130_000)
 function assertConcreteContract(descriptors: BackendPlatform[]) {
   expect(CONCRETE_PLATFORM_OPTIONS.map(p => p.value).sort()).toEqual(descriptors.map(p => p.id).sort())
   for (const p of descriptors) expect(platformSupportsOAuth(p.id), p.id).toBe(p.oauth)
+  for (const platform of descriptors) expect(platformSupportsModelCatalog(platform.id), platform.id).toBe(platform.modelCatalog)
 }
 
 describe('platform option catalogs', () => {
@@ -54,6 +56,8 @@ describe('platform option catalogs', () => {
     expect(GROUP_PLATFORM_OPTIONS.map(p => p.value).sort()).toEqual([...backend.map(p => p.id), 'composite'].sort())
     expect(platformSupportsOAuth('composite')).toBe(true)
     expect(platformSupportsOAuth('unknown')).toBe(false)
+    expect(platformSupportsModelCatalog('unknown')).toBe(false)
+    expect(platformSupportsModelCatalog('composite')).toBe(false)
   })
 
   it('detects an unhandled descriptor added to the backend', () => {

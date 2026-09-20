@@ -204,6 +204,7 @@ import { groupModelsByCategory, type ModelCategoryMetadata } from '@/utils/model
 import { ref, computed, watch, onUnmounted, useId, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { platformSupportsModelCatalog } from '@/constants/platforms'
 import { accountsAPI } from '@/api/admin/accounts'
 import { parseModelCapabilityDefaults, modelCapabilityRequestError } from './modelCapabilityDefaults'
 import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
@@ -285,23 +286,8 @@ const normalizedPlatforms = computed(() => {
   )
 })
 
-const upstreamSyncPlatforms = new Set([
-  'cursor',
-  'anthropic',
-  'openai',
-  'gemini',
-  'antigravity',
-  'grok',
-  'kimi',
-  'zhipu',
-  'deepseek',
-  'minimax',
-  'opencode_go',
-  'qianwen',
-  'commandcode'
-])
 const canSyncUpstream = computed(() => !props.discoveryDisabled && (
-  normalizedPlatforms.value.some(platform => upstreamSyncPlatforms.has(platform.toLowerCase())) ||
+  normalizedPlatforms.value.some(platformSupportsModelCatalog) ||
   Boolean(props.accountId && !normalizedPlatforms.value.length)
 ))
 const previewDisabledReason = computed(() => {

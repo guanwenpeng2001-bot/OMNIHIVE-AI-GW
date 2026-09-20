@@ -16,6 +16,17 @@ import type { AccountModelCatalogDetails } from '@/types'
 beforeEach(() => { testLocale.value = 'zh' })
 
 describe('model catalog evidence display', () => {
+  it.each(['complete', 'estimated', 'incomplete'])('reads %s capability status and eligibility from the five-field DTO', status => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 2, result: {
+      discovered_models: ['native'], candidate_models: ['native', 'candidate'], eligible_models: [{ id: 'native' }], discovery_complete: true, capability_status: status,
+      complete: false, models: [],
+    } } })
+    expect(wrapper.text()).not.toContain('admin.accounts.modelSync.incomplete')
+    expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('E 1')
+    expect(wrapper.get('[data-testid="capability-state"]').text()).toBe(status === 'complete' ? zh.capabilityCatalog.complete : status === 'estimated' ? zh.capabilityCatalog.estimated : zh.capabilityCatalog.partial)
+    wrapper.unmount()
+  })
+
   it.each([
     ['zh', ['上游响应', '补充元数据', '公共模型目录', '启发式估算']],
     ['en', ['Upstream response', 'Supplemental metadata', 'Public model catalog', 'Heuristic estimate']],

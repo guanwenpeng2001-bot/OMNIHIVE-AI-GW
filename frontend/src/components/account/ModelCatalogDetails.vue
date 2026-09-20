@@ -3,15 +3,15 @@
     <p v-if="summary?.staleness === 'stale' && result?.applied !== true" role="alert" class="font-semibold text-amber-700 dark:text-amber-400">{{ t('admin.accounts.modelCatalog.stale') }}</p>
     <p v-if="!summary && !result">{{ t('admin.accounts.modelSync.unknown') }}</p>
     <p v-if="summary && !result">{{ summary.warnings.includes('identity_changed') ? reasonText('identity_changed') : t(`admin.accounts.modelSync.${summary.synced ? (summary.last_error ? 'failedPrevious' : summary.eligible_count ? 'synced' : 'syncedEmpty') : 'notSynced'}`) }}</p>
-    <p v-if="result">{{ t(`admin.accounts.modelSync.${result.applied === true ? ((result.models?.length ?? 0) ? 'synced' : 'syncedEmpty') : 'previewOnly'}`) }}</p>
-    <p v-if="result && result.complete !== true">{{ t('admin.accounts.modelSync.incomplete') }}</p>
+    <p v-if="result">{{ t(`admin.accounts.modelSync.${result.applied === true ? (eligibleCount ? 'synced' : 'syncedEmpty') : 'previewOnly'}`) }}</p>
+    <p v-if="result && (result.discovery_complete ?? result.complete) !== true">{{ t('admin.accounts.modelSync.incomplete') }}</p>
     <p v-for="warning in result?.warnings ?? summary?.warnings ?? []" :key="modelSyncWarningCode(warning)">{{ reasonText(modelSyncWarningCode(warning)) }}</p>
     <p v-if="summary?.last_error">{{ reasonText(summary.last_error) }}</p>
-    <p v-if="result && !result.applied">{{ t('admin.accounts.modelSync.previewCount', { count: (result.models?.length ?? 0) }) }}</p>
+    <p v-if="result && !result.applied">{{ t('admin.accounts.modelSync.previewCount', { count: (result.candidate_models ?? result.discovered_models ?? result.models ?? []).length }) }}</p>
     <p v-if="!stale && result?.diff?.removed?.length" role="alert">{{ t('admin.accounts.modelSync.removalRisk', { count: (result.diff.removed?.length ?? 0) }) }}</p>
     <p v-if="result?.invalid_aliases?.length" role="alert">{{ t('admin.accounts.modelSync.invalidAliases') }}: {{ result.invalid_aliases.join(', ') }}</p>
     <div v-if="result" data-testid="capability-sets" class="space-y-1">
-      <p>{{ labels.sets }}: D {{ discoveredCount }} · M {{ mappingCount }} · U {{ unionCount }} · E {{ stale ? '—' : (result.models?.length ?? 0) }}</p>
+      <p>{{ labels.sets }}: D {{ discoveredCount }} · M {{ mappingCount }} · U {{ unionCount }} · E {{ stale ? '—' : eligibleCount }}</p>
       <p>{{ labels.setsHint }}</p>
       <p role="status" data-testid="capability-state">{{ capabilityState }}</p>
       <p>{{ labels.coverage }}: {{ completeCount }} / {{ metadataRows.length }} · {{ labels.estimated }} {{ estimatedCount }} · {{ labels.missing }} {{ metadataRows.length - completeCount - estimatedCount }}</p>
@@ -65,7 +65,7 @@
         <dl class="grid grid-cols-2 gap-2">
           <div><dt>{{ t('admin.accounts.modelSync.platformCandidates') }}</dt><dd>{{ candidateCount ?? '—' }}</dd></div>
           <div><dt>{{ t('admin.accounts.modelSync.nativeDiscovered') }}</dt><dd>{{ result?.discovered_models?.length ?? (summary?.synced ? summary.discovered_count : '—') }}</dd></div>
-          <div><dt>{{ t('admin.accounts.modelSync.accountEffective') }}</dt><dd>{{ stale ? '—' : result?.models?.length ?? (summary?.synced ? summary.eligible_count : '—') }}</dd></div>
+          <div><dt>{{ t('admin.accounts.modelSync.accountEffective') }}</dt><dd>{{ stale ? '—' : result ? eligibleCount : (summary?.synced ? summary.eligible_count : '—') }}</dd></div>
           <div><dt>{{ t('admin.accounts.modelSync.groupPublic') }}</dt><dd>{{ publicCount }}</dd></div>
         </dl>
         <p>{{ t('admin.accounts.modelSync.candidatesHint') }}</p>
@@ -128,6 +128,7 @@ const labels = computed(() => ({
   noSources: t('capabilityCatalog.noSources'),
   stale: t('capabilityCatalog.stale')
 }))
+const eligibleCount = computed(() => props.result?.eligible_models?.length ?? props.result?.models?.length ?? 0)
 const savedCapabilities = computed(() => props.summary?.snapshot?.capability_summary)
 const mappingTargets = computed(() => [...new Set((props.mappingTargets ?? []).map(id => id.trim()).filter(id => id && !/[*?]/.test(id)))])
 const discoveredCount = computed(() => props.result?.discovered_models ? new Set(props.result.discovered_models).size : '—')
@@ -137,10 +138,10 @@ const unionCount = computed(() => props.result?.discovered_models && props.mappi
 const metadataRows = computed(() => [...new Set([
   ...(props.result?.discovered_models ?? props.summary?.snapshot?.discovered_models ?? []),
   ...mappingTargets.value,
-  ...(props.result?.models ?? props.summary?.snapshot?.eligible_models?.map(model => model.id) ?? []),
+  ...(props.result?.eligible_models?.map(model => model.id) ?? props.result?.models ?? props.summary?.snapshot?.eligible_models?.map(model => model.id) ?? []),
   ...Object.keys(props.summary?.display_metadata ?? {}),
   ...Object.keys(props.result?.metadata ?? {})
-])].sort().map(id => ({ ...props.summary?.display_metadata?.[id], ...props.result?.metadata?.[id], id })))
+])].sort().map(id => ({ ...props.summary?.display_metadata?.[id], ...props.result?.metadata?.[id], ...props.result?.eligible_models?.find(model => model.id === id), id })))
 const query = ref('')
 const statusFilter = ref('all')
 const visibleLimit = ref(50)
@@ -158,7 +159,10 @@ const estimatedCount = computed(() => metadataRows.value.filter(row => row.metad
 const capabilityState = computed(() => {
   if (!props.result?.discovered_models) return labels.value.unknownDiscovery
   if (!props.result.discovered_models.length) return labels.value.noDiscovery
-  if (!(props.result.models?.length ?? 0)) return labels.value.noEligibility
+  if (!eligibleCount.value) return labels.value.noEligibility
+  if (props.result.capability_status === 'complete') return labels.value.complete
+  if (props.result.capability_status === 'estimated') return labels.value.estimated
+  if (props.result.capability_status === 'incomplete') return labels.value.partial
   return metadataRows.value.length === completeCount.value ? labels.value.complete : labels.value.partial
 })
 const filteredMetadata = computed(() => metadataRows.value.filter(row => {
