@@ -6,7 +6,7 @@
 | --- | --- | --- | --- |
 | 火山方舟 `volcengine` | API key；`/v1/chat/completions` 转发到保存的 `/api/v3` runtime，保留精确模型/部署目标 | 自动发现不受支持；保存具体 mapping 目标后明确声明可用性 | 厂商 SSE 终态、工具增量、细粒度错误与余额/额度；本地 SSE fixture 不代表厂商回执 |
 | 千帆 `qianfan` | 国内 API key；`/v1/chat/completions` 使用 `/v2` 上游 | `/v2/models` 保留输出上限、模态等字段；未知分页或损坏响应不覆盖完整快照 | 真实账号可调用范围、国内流终态、细粒度错误与余额/额度 |
-| 混元 `hunyuan` | 旧兼容 Bearer API key；仅非流 `/v1/chat/completions`，不自动迁移到 TokenHub | 自动发现不受支持，使用具体目标声明；流请求在发送前拒绝 | SSE、厂商错误码及余额/额度；缺失用量不产生可结算结果 |
+| 混元 `hunyuan` | Bearer API key；默认广州 TokenHub，白名单接受广州/新加坡主域及备用 `.cn`，已存旧兼容端点仍可读取；Chat 非流及 SSE 共用上游管线，不支持 TC3 | TokenHub `GET /v1/models` 适配器按 `status: online` 发现，空/失败显式错误且不回退旧名单；生产发现入口接线待共享 runtime 任务合并，当前入口仍为候选模式 | 无真实凭据；以脱敏 HTTP/SSE 样本验证尾包用量和错误后已观察用量保留，缺失用量不得零结算；两站 Key 不互通，线上权限/额度未验证 |
 | Mistral `mistral` | API key；`/v1/chat/completions` 的文本/函数工具、非流和 SSE 管线 | 模型卡保留未知/false/空集合区别；模型卡不是其它 ID 的调用授权 | 真实账号、细粒度流增量、错误负例与余额/额度 |
 | Bedrock `bedrock` | 独立 `bedrock` 账号类型；区域 IAM 或 runtime API key；`/v1/messages`，以及既有 Chat/Responses 文本桥 | 区域 foundation、availability 和分页 profile 目录；列表可见不等于 Invoke 权限，profile/ARN 需要具体目标证据 | 真实 AWS 权限、区域/profile/ARN 运行回执、余额/额度 |
 

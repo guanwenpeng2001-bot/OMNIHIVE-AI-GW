@@ -7,6 +7,7 @@ import (
 )
 
 type AntigravityOAuthHandler struct {
+	credentialDraftHandler
 	antigravityOAuthService *service.AntigravityOAuthService
 }
 
@@ -33,6 +34,12 @@ func (h *AntigravityOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "antigravity:oauth", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -52,6 +59,13 @@ func (h *AntigravityOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "antigravity:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.antigravityOAuthService.ExchangeCode(c.Request.Context(), &service.AntigravityExchangeCodeInput{
 		SessionID: req.SessionID,
 		State:     req.State,
@@ -63,7 +77,7 @@ func (h *AntigravityOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAntigravity, service.AccountTypeOAuth, h.antigravityOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 // AntigravityRefreshTokenRequest represents the request for validating Antigravity refresh token
@@ -87,5 +101,5 @@ func (h *AntigravityOAuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformAntigravity, service.AccountTypeOAuth, h.antigravityOAuthService.BuildAccountCredentials(tokenInfo))
 }

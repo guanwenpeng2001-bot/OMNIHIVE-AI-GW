@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -550,6 +551,17 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
+	if dbent.TxFromContext(ctx) != nil {
+		groups := make([]AccountGroup, 0, len(groupIDs))
+		for position, groupID := range groupIDs {
+			groups = append(groups, AccountGroup{GroupID: groupID, Priority: position + 1})
+		}
+		if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, account, groups); err != nil {
+			return nil, err
+		}
+		// The draft confirmation caller publishes effects after committing.
+		return account, nil
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -968,7 +980,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.GroupIDs = *input.GroupIDs
 	}
 	// 账号编辑（模型映射/配额/分组）落库成功后立即失效网关模型列表缓存。
-	InvalidateAvailableModelsCacheForAccount(account)
+	if dbent.TxFromContext(ctx) == nil {
+		InvalidateAvailableModelsCacheForAccount(account)
+	}
 
 	// Credentials-only Cursor reauthorization already has the persisted account.
 	// A redundant read must not turn a committed PKCE login into a failed session.
