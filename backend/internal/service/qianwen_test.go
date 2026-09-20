@@ -91,7 +91,12 @@ func TestQianwenPaginationRejectsIncompleteCatalog(t *testing.T) {
 			s := &AccountTestService{httpUpstream: u, cfg: upstreamModelSyncTestConfig()}
 			ids, err := s.FetchUpstreamSupportedModels(context.Background(), qianwenTestAccount())
 			require.Error(t, err)
-			require.Nil(t, ids)
+			require.Contains(t, ids, "a")
+			var partial *UpstreamModelSyncError
+			require.ErrorAs(t, err, &partial)
+			require.NotNil(t, partial.PartialCatalog)
+			require.Equal(t, ids, partial.PartialCatalog.DiscoveredModels)
+			require.False(t, partial.PartialCatalog.Complete)
 			require.Len(t, u.requests, 2)
 		})
 	}
@@ -227,6 +232,11 @@ func TestQianwenNativeModelPagesRejectPartial(t *testing.T) {
 		s := &AccountTestService{httpUpstream: u, cfg: upstreamModelSyncTestConfig()}
 		ids, _, err := s.fetchUpstreamModelList(context.Background(), qianwenTestAccount())
 		require.Error(t, err)
-		require.Nil(t, ids)
+		require.Contains(t, ids, "a")
+		var partial *UpstreamModelSyncError
+		require.ErrorAs(t, err, &partial)
+		require.NotNil(t, partial.PartialCatalog)
+		require.Equal(t, ids, partial.PartialCatalog.DiscoveredModels)
+		require.False(t, partial.PartialCatalog.Complete)
 	}
 }

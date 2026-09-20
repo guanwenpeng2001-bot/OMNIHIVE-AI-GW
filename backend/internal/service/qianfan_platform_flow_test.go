@@ -37,7 +37,15 @@ func TestQianfanPlatformFlow(test *testing.T) {
 				models, raw, err := service.fetchUpstreamModelList(context.WithValue(context.Background(), catalogDiscoveryKey{}, true), account)
 				if !scenario.valid {
 					require.Error(test, err)
-					require.Nil(test, models)
+					if scenario.name == "partial" {
+						require.Equal(test, []string{"ernie-fixture"}, models)
+						var partial *UpstreamModelSyncError
+						require.ErrorAs(test, err, &partial)
+						require.NotNil(test, partial.PartialCatalog)
+						require.False(test, partial.PartialCatalog.Complete)
+					} else {
+						require.Nil(test, models)
+					}
 					return
 				}
 				require.NoError(test, err)

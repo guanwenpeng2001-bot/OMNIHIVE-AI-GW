@@ -34,8 +34,36 @@ func resolveCapabilityProfile(account *Account) string {
 	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
 		return "openai-codex"
 	}
+	if account.Type == AccountTypeBedrock || account.Platform == PlatformBedrock {
+		return "bedrock"
+	}
 	baseURL := upstreamModelRegistryBaseURL(account)
-	switch modelRegistryHostname(baseURL) {
+	host := modelRegistryHostname(baseURL)
+	// Regional hosting domains must be matched on DNS-label boundaries.
+	if strings.HasSuffix(host, ".aiplatform.googleapis.com") || strings.HasSuffix(host, "-aiplatform.googleapis.com") || host == "aiplatform.googleapis.com" {
+		if account.Type == AccountTypeServiceAccount {
+			return "vertex_ai"
+		}
+	}
+	if strings.HasPrefix(host, "bedrock.") || strings.HasPrefix(host, "bedrock-runtime.") {
+		if strings.HasSuffix(host, ".amazonaws.com") || strings.HasSuffix(host, ".amazonaws.com.cn") {
+			return "bedrock"
+		}
+	}
+	if strings.HasPrefix(host, "ark.") && strings.HasSuffix(host, ".volces.com") {
+		return "volcengine"
+	}
+	switch host {
+	case "open.bigmodel.cn":
+		return "zhipu"
+	case "api.minimax.io", "api.minimaxi.com", "api.minimax.chat":
+		return "minimax"
+	case "qianfan.baidubce.com", "aip.baidubce.com":
+		return "qianfan"
+	case "api.hunyuan.cloud.tencent.com", "hunyuan.tencentcloudapi.com", "hunyuan.ai.tencentcloudapi.com":
+		return "hunyuan"
+	case "api.mistral.ai":
+		return "mistral"
 	case "api.openai.com":
 		return "openai"
 	case "api.anthropic.com":

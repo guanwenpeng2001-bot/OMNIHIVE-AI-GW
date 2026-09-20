@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -629,16 +630,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 	if (account.IsCNProvider() || account.IsCommandCode()) && account.IsAdaptiveAPIProtocol() {
 		baseURL = account.GetCNProtocolBaseURL(APIProtocolChatCompletions)
 	}
-	if account.Platform == PlatformOpenAI {
-		if baseURL == "" {
-			// 保持官方语义：OpenAI 账号无自定义 base 时探官方域（404 → unsupported）。
-			baseURL = "https://api.openai.com"
-		}
-	} else if upstreamBillingProbeTargetIsOfficialAPI(baseURL) {
-		// 其他平台 base_url 为空或指向官方 API 根域（前端创建时会把空值
-		// 填成官方默认域，且提供 us-east-1.api.x.ai 等官方区域预设）⇒
-		// 必无 /v1/sub2api/billing；不发请求，直接记 unsupported，避免
-		// 拿账号 Key 周期性请求官方域的不存在路径。
+	if upstreamBillingProbeTargetIsOfficialAPI(baseURL) {
 		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "unsupported", 0)
 	}
 	normalizedBaseURL, err := s.accountTestService.validateUpstreamBaseURL(baseURL)
@@ -1010,13 +1002,8 @@ func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
 	if accountType != AccountTypeAPIKey {
 		return false
 	}
-	switch platform {
-	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformAntigravity, PlatformGrok,
-		PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode:
-		return true
-	default:
-		return false
-	}
+	descriptor, exists := domain.LookupPlatform(platform)
+	return exists && descriptor.ModelCatalog && platform != PlatformBedrock
 }
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
@@ -1031,8 +1018,7 @@ func isUpstreamBillingProbeAccount(account *Account) bool {
 // subdomain, after stripping the port and a trailing DNS dot — because no
 // third-party sub2api relay can live under these domains, while custom
 // relays (the only targets that can answer /v1/sub2api/billing) always do
-// probe. OpenAI-platform accounts never reach this check: they keep the
-// upstream-official behavior of probing api.openai.com.
+// probe. OpenAI accounts follow the same no-request rule.
 // ollama.com is a first-class configuration here (Ollama Cloud accounts are
 // platform openai/anthropic with base_url https://ollama.com/v1), and it is
 // an official provider API just like the rest, so it belongs on this list.
@@ -1056,6 +1042,17 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"commandcode.ai",
 	"cursor.com",
 	"cursor.sh",
+	"minimax.io",
+	"minimaxi.com",
+	"minimax.chat",
+	"baidubce.com",
+	"tencentcloudapi.com",
+	"tencent.com",
+	"volces.com",
+	"mistral.ai",
+	"amazonaws.com",
+	"amazonaws.com.cn",
+	"moonshot.ai",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

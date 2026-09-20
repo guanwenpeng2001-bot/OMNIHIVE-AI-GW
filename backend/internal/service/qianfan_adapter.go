@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -142,12 +141,9 @@ func parseQianfanModelsResponse(response *http.Response) (*qianfanModelList, err
 	if json.Unmarshal(body, &envelope) != nil || envelope.Object != "list" || envelope.Data == nil || qianfanHasValue(envelope.Error) {
 		return nil, newUpstreamModelSyncUpstreamError("Invalid Qianfan models envelope", nil)
 	}
-	// Pagination is not part of the frozen single-list contract. Never accept a
-	// visible continuation as a complete replacement or guess a cursor request.
-	if envelope.HasMore || qianfanHasValue(envelope.Next) || qianfanHasValue(envelope.NextCursor) {
-		return nil, newUpstreamModelSyncUpstreamError("Incomplete Qianfan models response: unsupported pagination", nil)
-	}
-	result := &qianfanModelList{Models: make([]qianfanModel, 0, len(envelope.Data)), Complete: true}
+	// Native fields remain validated per page; continuation is handled by the
+	// shared discovery executor before any complete snapshot is projected.
+	result := &qianfanModelList{Models: make([]qianfanModel, 0, len(envelope.Data)), Complete: !envelope.HasMore && !qianfanHasValue(envelope.Next) && !qianfanHasValue(envelope.NextCursor)}
 	seen := make(map[string]bool, len(envelope.Data))
 	for index, raw := range envelope.Data {
 		var model qianfanModel
@@ -167,27 +163,5 @@ func qianfanHasValue(value json.RawMessage) bool {
 }
 
 func (service *AccountTestService) fetchQianfanModels(request *http.Request, account *Account) ([]string, []byte, error) {
-	response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
-	if err != nil {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Qianfan discovery request failed", err)
-	}
-	defer func() { _ = response.Body.Close() }()
-	body, err := readUpstreamResponseBodyLimited(response.Body, resolveModelsListReadLimit(service.cfg))
-	if err != nil {
-		return nil, nil, err
-	}
-	if response.StatusCode != http.StatusOK {
-		return nil, nil, newUpstreamModelDiscoveryHTTPError(response.StatusCode, body)
-	}
-	parsedResponse := *response
-	parsedResponse.Body = io.NopCloser(bytes.NewReader(body))
-	list, err := parseQianfanModelsResponse(&parsedResponse)
-	if err != nil {
-		return nil, nil, err
-	}
-	models := make([]string, 0, len(list.Models))
-	for _, model := range list.Models {
-		models = append(models, model.ID)
-	}
-	return models, body, nil
+	return service.fetchCompleteModelPages(request, account)
 }
