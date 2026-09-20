@@ -629,6 +629,14 @@ it('uses server platform candidates, preserving unknown when their request fails
   await flushPromises()
   expect(failed.findComponent({ name: 'ModelCatalogDetails' }).props('candidateCount')).toBeNull()
   expect(failed.text()).toContain('saved-custom-model')
+  expect(failed.get('[role="alert"]').text()).toContain('offline')
+  getPlatformModelPresets.mockResolvedValueOnce([{ platform: 'openai', coverage_status: 'complete', models: [{ id: 'retried-model' }] }])
+  await failed.get('[role="alert"] button').trigger('click')
+  await flushPromises()
+  expect(failed.find('[role="alert"]').exists()).toBe(false)
+  await failed.get('button[aria-expanded]').trigger('click')
+  expect(findModelRow(failed, 'retried-model').exists()).toBe(true)
+
   failed.unmount()
 })
 

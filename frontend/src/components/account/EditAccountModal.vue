@@ -5,6 +5,9 @@
     width="wide"
     @close="handleClose"
   >
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
     <form
       v-if="account"
       id="edit-account-form"
@@ -3050,6 +3053,7 @@
 </template>
 
 <script setup lang="ts">
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
@@ -3216,8 +3220,6 @@ const baseUrlHint = computed(() => {
   return t('admin.accounts.platformBaseUrlHint')
 })
 
-const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
-const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
 
 // Model mapping type
 interface ModelMapping {
@@ -3412,6 +3414,13 @@ const modelCandidateIdentity = computed(() => ({
     : props.account?.type === 'service_account' ? editVertexLocation.value : '',
   mode: currentOpenCodeOrCNMode()
 }))
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  () => [props.account?.platform || ''], modelCandidateIdentity, () => props.show
+)
+const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || '', modelCandidateIdentity.value, platformPresets.value))
+const antigravityPresetMappings = presetMappings
+const bedrockPresets = presetMappings
+
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -3860,8 +3869,6 @@ const openAICompactStatusKey = computed(() => {
   return 'admin.accounts.openai.compactAuto'
 })
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || '', { type: props.account?.type }))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),

@@ -260,7 +260,6 @@ import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
@@ -316,7 +315,7 @@ let codexModelManifestRequestID = 0
 
 const showCodexModelCatalog = computed(() =>
   props.show &&
-  (activeClientTab.value === 'codex' ||
+  (activeClientTab.value === 'codex' || activeClientTab.value === 'opencode' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
 
@@ -646,6 +645,8 @@ async function loadCodexModelManifest() {
   const controller = new AbortController()
   const requestID = ++codexModelManifestRequestID
   codexModelManifestController = controller
+  codexModelManifestContent.value = ''
+  codexModelManifestModelCount.value = 0
   codexModelManifestState.value = 'loading'
 
   try {
@@ -1910,7 +1911,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   } else {
     provider[platform].npm = '@ai-sdk/openai-compatible'
     provider[platform].models = Object.fromEntries(
-      getModelsByPlatform(platform).map((model) => [model, { name: model }])
+      codexCatalogModelSlugs.value.map((model) => [model, { name: model }])
     )
   }
 
