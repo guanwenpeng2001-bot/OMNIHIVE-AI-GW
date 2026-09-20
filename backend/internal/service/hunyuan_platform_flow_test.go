@@ -19,8 +19,21 @@ func TestHunyuanPlatformFlow(test *testing.T) {
 	account := &Account{ID: 101, Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
 	require.True(test, account.IsOpenAICompatible())
 	require.Equal(test, PlatformHunyuan, NormalizeOpenAICompatiblePlatform(account.Platform))
-	_, err := (&AccountTestService{cfg: rawChatCompletionsTestConfig()}).buildUpstreamModelsRequest(context.Background(), account)
-	require.ErrorContains(test, err, "unverified")
+	discoveryTransport := &httpUpstreamRecorder{}
+	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
+	discoveryRequest, err := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
+	require.NoError(test, err)
+	require.Equal(test, hunyuanCompatibilityBaseURL+"/models", discoveryRequest.URL.String())
+	require.Equal(test, "Bearer fixture-key", discoveryRequest.Header.Get("Authorization"))
+	// Official accounts expose candidates without treating them as discovered availability.
+	preview, err := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
+	require.NoError(test, err)
+	require.Equal(test, "platform-candidates", preview.CatalogSource)
+	require.Empty(test, preview.DiscoveredModels)
+	require.Empty(test, preview.EligibleModels)
+	require.False(test, preview.DiscoveryComplete)
+	require.Nil(test, preview.Review)
+	require.Nil(test, discoveryTransport.lastReq)
 	for _, scenario := range []struct {
 		name, body, response string
 		status               int

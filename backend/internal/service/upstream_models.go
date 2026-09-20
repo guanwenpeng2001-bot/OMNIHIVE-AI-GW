@@ -2438,6 +2438,17 @@ func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) b
 	return false
 }
 
+// Invalid optional fields can hide endpoint facts used for eligibility. Keep
+// discovered IDs, but never authorize a destructive diff from malformed facts.
+func validateUpstreamModelMetadata(metadata map[string]UpstreamModelMetadata) error {
+	for _, entry := range metadata {
+		if slices.Contains(entry.Conflicts, "invalid_optional_metadata") {
+			return newUpstreamModelSyncUpstreamError("Invalid optional model metadata", nil)
+		}
+	}
+	return nil
+}
+
 // fetchCompleteModelPages preserves validated pages when a later page fails.
 // All continuation URLs stay on the original origin and redirects are disabled.
 func (service *AccountTestService) fetchCompleteModelPages(request *http.Request, account *Account) ([]string, []byte, error) {
@@ -2461,13 +2472,8 @@ func (service *AccountTestService) fetchCompleteModelPages(request *http.Request
 		if parseErr != nil {
 			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
 		}
-		// Invalid optional fields can hide endpoint facts used for eligibility.
-		// Keep every discovered ID, but do not authorize a destructive diff from
-		// an entry whose capability declaration could not be interpreted.
-		for _, entry := range metadata {
-			if slices.Contains(entry.Conflicts, "invalid_optional_metadata") && cause == nil {
-				cause = newUpstreamModelSyncUpstreamError("Invalid optional model metadata", nil)
-			}
+		if cause == nil {
+			cause = validateUpstreamModelMetadata(metadata)
 		}
 		if cause == nil {
 			return models, merged, nil

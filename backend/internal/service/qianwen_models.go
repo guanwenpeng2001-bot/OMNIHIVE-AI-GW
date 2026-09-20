@@ -31,10 +31,10 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 	if catalogDiscovery {
 		entries = []json.RawMessage{}
 	}
-	// A failed continuation never turns validated earlier pages into an empty
-	// authoritative replacement. Preview consumes this typed partial result.
+	// Failed continuations and invalid optional metadata must not turn discovered
+	// IDs into an authoritative removal. Preview consumes this typed partial result.
 	defer func() {
-		if discoveryErr == nil || (len(entries) == 0 && validatedPages == 0) {
+		if len(entries) == 0 && validatedPages == 0 {
 			return
 		}
 		merged, marshalErr := json.Marshal(struct {
@@ -47,10 +47,16 @@ func fetchQianwenModelPages(req *http.Request, limit int64, do func(*http.Reques
 		if parseErr != nil {
 			return
 		}
+		if discoveryErr == nil {
+			discoveryErr = validateUpstreamModelMetadata(metadata)
+		}
+		if discoveryErr == nil {
+			return
+		}
 		models, catalogBody = partialModels, merged
 		discoveryErr = &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: "Qianwen model discovery is partial; previous availability retained", Err: discoveryErr,
 			PartialCatalog: &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: partialModels, CandidateModels: partialModels, Metadata: metadata, CatalogSource: "partial",
-				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "A Qianwen model page failed; previous availability must be retained"}}},
+				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Qianwen model discovery contains incomplete pages or invalid entries; previous availability must be retained"}}},
 		}
 	}()
 	seen := map[string]bool{}

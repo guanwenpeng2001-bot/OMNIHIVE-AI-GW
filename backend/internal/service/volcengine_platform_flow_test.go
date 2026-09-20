@@ -35,8 +35,21 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	declared.Extra[ModelAvailabilityExtraKey] = []ModelAvailabilityDeclaration{{AccountID: 42, Model: "ep-target", Endpoint: "chat_completions", ConfirmedBy: 7, ConfirmedAt: time.Now().Add(-time.Minute), Reason: "fixture", EvidenceKind: ModelEvidenceAdministrator}}
 	require.True(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "chat_completions"}))
 	require.False(test, AccountSupportsResolvedModel(context.Background(), &declared, "alias", AccountModelBindingOptions{Endpoint: "responses"}))
-	_, discoveryErr := (&AccountTestService{}).buildUpstreamModelsRequest(context.Background(), account)
-	require.ErrorContains(test, discoveryErr, "not supported")
+	discoveryTransport := &httpUpstreamRecorder{}
+	discoveryService := &AccountTestService{cfg: rawChatCompletionsTestConfig(), httpUpstream: discoveryTransport}
+	discoveryRequest, discoveryErr := discoveryService.buildUpstreamModelsRequest(context.Background(), account)
+	require.NoError(test, discoveryErr)
+	require.Equal(test, volcengineRuntimeBaseURL+"/models", discoveryRequest.URL.String())
+	require.Equal(test, "Bearer inference-test-key", discoveryRequest.Header.Get("Authorization"))
+	// Official accounts expose candidates without treating them as discovered availability.
+	preview, discoveryErr := discoveryService.PreviewAccountModelCatalog(context.Background(), account)
+	require.NoError(test, discoveryErr)
+	require.Equal(test, "platform-candidates", preview.CatalogSource)
+	require.Empty(test, preview.DiscoveredModels)
+	require.Empty(test, preview.EligibleModels)
+	require.False(test, preview.DiscoveryComplete)
+	require.Nil(test, preview.Review)
+	require.Nil(test, discoveryTransport.lastReq)
 	for _, stream := range []bool{false, true} {
 		name := "buffered"
 		if stream {

@@ -3,10 +3,48 @@ package service
 import (
 	"context"
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestFinalReviewQianwenMalformedMetadataRetainsSnapshot(test *testing.T) {
+	for name, validBody := range map[string]string{
+		"compatible": `{"data":[{"id":"existing-model","modalities":{"output":["text"]},"context_window":8192}]}`,
+		"native":     `{"success":true,"output":{"total":1,"page_no":1,"models":[{"model":"existing-model","modalities":{"output":["text"]},"context_window":8192}]}}`,
+	} {
+		test.Run(name, func(test *testing.T) {
+			account := &Account{ID: 99, Platform: PlatformQianwen, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://dashscope.aliyuncs.com/compatible-mode/v1"}}
+			repository := &catalogFixtureRepository{accounts: map[int64]*Account{account.ID: account}}
+			invalidBody := strings.Replace(validBody, `"context_window":8192`, `"context_window":"8192"`, 1)
+			upstream := &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(validBody), catalogFixtureResponse(invalidBody), catalogFixtureResponse(invalidBody)}}
+			service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), accountRepo: repository, httpUpstream: upstream,
+				modelMetadataRegistry: map[string]modelsDevProvider{"alibaba": {}}, modelMetadataRegistryAt: time.Now()}
+			applied, err := service.ApplyAccountModelCatalog(context.Background(), account, nil)
+			require.NoError(test, err)
+			require.Len(test, applied.EligibleModels, 1)
+			require.Equal(test, "existing-model", applied.EligibleModels[0].ID)
+			previous := account.GetUpstreamModelCatalog()
+			preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
+			require.NoError(test, err)
+			test.Logf("discovered=%v eligible=%v discovery_complete=%v removed=%v review=%v conflicts=%v", preview.DiscoveredModels, preview.EligibleModels, preview.DiscoveryComplete, preview.Diff.Removed, preview.Review != nil, preview.Metadata["existing-model"].Conflicts)
+			require.False(test, preview.DiscoveryComplete)
+			require.False(test, preview.Complete)
+			require.Equal(test, []string{"existing-model"}, preview.DiscoveredModels)
+			require.Empty(test, preview.Diff.Removed)
+			require.Nil(test, preview.Review)
+			require.Equal(test, "partial", preview.CatalogSource)
+			require.Contains(test, preview.Metadata["existing-model"].Conflicts, "invalid_optional_metadata")
+			require.Equal(test, previous, account.GetUpstreamModelCatalog())
+			_, err = service.ApplyAccountModelCatalog(context.Background(), account, nil)
+			require.Error(test, err)
+			require.Equal(test, previous, account.GetUpstreamModelCatalog())
+			require.Equal(test, previous.EligibleModels, account.EffectiveUpstreamModelCatalog().EligibleModels)
+		})
+	}
+}
 
 func TestDiscoveryPaginationAcrossEntrypoints(test *testing.T) {
 	for _, platform := range []string{PlatformOpenAI, PlatformAnthropic, PlatformMistral, PlatformGemini} {
