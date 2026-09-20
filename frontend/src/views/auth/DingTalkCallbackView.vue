@@ -235,6 +235,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -541,7 +543,7 @@ function switchToCreateAccountMode() {
 
 function getRequestErrorMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; response?: { data?: { detail?: string; message?: string } } }
-  return err.response?.data?.detail || err.response?.data?.message || err.message || fallback
+  return extractApiErrorMessage(err, '') || fallback
 }
 
 function isCreateAccountRecoveryError(error: unknown): boolean {
@@ -654,7 +656,7 @@ async function handleSubmitInvitation() {
   } catch (e: unknown) {
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     invitationError.value =
-      err.response?.data?.message || err.message || t('auth.dingtalk.completeRegistrationFailed')
+      extractApiErrorMessage(err, '') || t('auth.dingtalk.completeRegistrationFailed')
   } finally {
     isSubmitting.value = false
   }

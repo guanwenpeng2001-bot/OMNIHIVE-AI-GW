@@ -438,6 +438,23 @@ describe('user KeysView column settings', () => {
     wrapper.unmount()
   })
 
+  it.each([
+    ['GROUP_NOT_ALLOWED', 'This group is not allowed'],
+    ['KEY_EXISTS', 'This key already exists'],
+    ['INVALID_IP', 'Invalid IP address'],
+  ])('shows the actual %s save failure from a normalized envelope', async (reason, message) => {
+    const key: ApiKey = { ...createApiKey(), group_id: 1 }
+    listKeys.mockResolvedValueOnce({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateKey.mockRejectedValueOnce({ code: 400, status: 400, reason, message, metadata: {} })
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    expect(showError).toHaveBeenCalledWith(message)
+    expect(wrapper.find('#key-form').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it('uses the default API key columns with low-frequency columns hidden', async () => {
     const wrapper = await mountView()
 

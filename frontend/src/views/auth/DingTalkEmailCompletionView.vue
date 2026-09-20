@@ -23,6 +23,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -61,7 +63,7 @@ function sanitizeRedirectPath(path: string | null | undefined): string {
 
 function getRequestErrorMessage(error: unknown, fallback: string): string {
   const err = error as { message?: string; response?: { data?: { detail?: string; message?: string } } }
-  return err.response?.data?.detail || err.response?.data?.message || err.message || fallback
+  return extractApiErrorMessage(err, '') || fallback
 }
 
 async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
@@ -113,8 +115,7 @@ async function handleCreateAccount(payload: PendingOAuthCreateAccountPayload) {
     accountActionError.value = t('auth.loginFailed')
   } catch (e: unknown) {
     // 全局"开放注册"关闭且未开启钉钉企业模式豁免时，引导用户去绑定已有账户而非死路
-    const err = e as { response?: { data?: { reason?: string } } }
-    if (err.response?.data?.reason === 'REGISTRATION_DISABLED') {
+    if (extractApiErrorCode(e) === 'REGISTRATION_DISABLED') {
       appStore.showInfo(t('auth.dingtalk.registrationDisabledRedirectToBind'))
       navigateToBindLogin(payload.email)
       return
