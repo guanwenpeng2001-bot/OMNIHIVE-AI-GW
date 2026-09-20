@@ -257,6 +257,12 @@ func (h *AuthHandler) createDingTalkOAuthChoicePendingSession(
 // DingTalkOAuthCallback 处理钉钉授权回调。
 // GET /api/v1/auth/oauth/dingtalk/callback?code=...&state=...
 func (h *AuthHandler) DingTalkOAuthCallback(c *gin.Context) {
+	// Queue deletions before any response is committed; request cookies remain readable.
+	secureCookie := isRequestHTTPS(c)
+	clearDingTalkCookie(c, dingTalkOAuthStateCookieName, secureCookie)
+	clearDingTalkCookie(c, dingTalkOAuthRedirectCookie, secureCookie)
+	clearDingTalkCookie(c, dingTalkOAuthIntentCookieName, secureCookie)
+	clearOAuthPromoCodeCookie(c, secureCookie)
 	cfg, cfgErr := h.getDingTalkOAuthConfig(c.Request.Context())
 	if cfgErr != nil {
 		response.ErrorFrom(c, cfgErr)
@@ -279,14 +285,6 @@ func (h *AuthHandler) DingTalkOAuthCallback(c *gin.Context) {
 		redirectOAuthError(c, frontendCallback, "missing_params", "missing code/state", "")
 		return
 	}
-
-	secureCookie := isRequestHTTPS(c)
-	defer func() {
-		clearDingTalkCookie(c, dingTalkOAuthStateCookieName, secureCookie)
-		clearDingTalkCookie(c, dingTalkOAuthRedirectCookie, secureCookie)
-		clearDingTalkCookie(c, dingTalkOAuthIntentCookieName, secureCookie)
-		clearOAuthPromoCodeCookie(c, secureCookie)
-	}()
 
 	expectedState, err := readCookieDecoded(c, dingTalkOAuthStateCookieName)
 	if err != nil || state != expectedState {

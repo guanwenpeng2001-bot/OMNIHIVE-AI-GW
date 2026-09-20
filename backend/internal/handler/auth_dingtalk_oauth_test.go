@@ -30,7 +30,7 @@ func TestDingTalkOAuthStart_Disabled(t *testing.T) {
 }
 
 func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
-	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected"} {
+	for _, scenario := range []string{"bind", "exchange_rejected", "state_mismatch", "directory_rejected", "provider_error", "missing_params"} {
 		testingT.Run(scenario, func(testingT *testing.T) {
 			handler, database := newOAuthPendingFlowTestHandler(testingT, false)
 			ctx := context.Background()
@@ -89,7 +89,19 @@ func TestDingTalkOAuthCallbackLocalIdentityProvider(testingT *testing.T) {
 			request.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "fixture-browser"))
 			requestContext.Request = request
 			prepareOAuthCallbackState(testingT, handler, requestContext, "dingtalk", dingTalkOAuthStateCookieName)
+			if scenario == "provider_error" {
+				requestContext.Request.URL.RawQuery = "error=access_denied"
+			}
+			if scenario == "missing_params" {
+				requestContext.Request.URL.RawQuery = ""
+			}
 			handler.DingTalkOAuthCallback(requestContext)
+			for _, cookieName := range []string{dingTalkOAuthStateCookieName, dingTalkOAuthRedirectCookie, dingTalkOAuthIntentCookieName, oauthPromoCodeCookieName} {
+				deletedCookie := findCookie(recorder.Result().Cookies(), cookieName)
+				require.NotNil(testingT, deletedCookie, cookieName)
+				require.Equal(testingT, -1, deletedCookie.MaxAge, cookieName)
+			}
+
 			require.Equal(testingT, http.StatusFound, recorder.Code)
 			if scenario != "bind" {
 				require.NotEmpty(testingT, parseOAuthRedirectFragment(testingT, recorder.Header().Get("Location")).Get("error"))

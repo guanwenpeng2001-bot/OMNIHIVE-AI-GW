@@ -14,14 +14,14 @@ import (
 // compare-and-set consumption. They cannot be used as post-login sessions.
 const identityTicketProviderKey = "urn:sub2api:identity-ticket"
 
-func (s *AuthService) PendingIdentityService() (*AuthPendingIdentityService, error) {
-	if s == nil || s.entClient == nil {
+func (authService *AuthService) PendingIdentityService() (*AuthPendingIdentityService, error) {
+	if authService == nil || authService.entClient == nil {
 		return nil, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready")
 	}
-	return NewAuthPendingIdentityService(s.entClient), nil
+	return NewAuthPendingIdentityService(authService.entClient), nil
 }
 
-func (s *AuthPendingIdentityService) IssueIdentityTicket(ctx context.Context, purpose, binding string, data map[string]any, ttl time.Duration) (string, error) {
+func (pendingService *AuthPendingIdentityService) IssueIdentityTicket(ctx context.Context, purpose, binding string, data map[string]any, ttl time.Duration) (string, error) {
 	if strings.TrimSpace(purpose) == "" || strings.TrimSpace(binding) == "" || ttl <= 0 || ttl > 10*time.Minute {
 		return "", ErrPendingAuthCodeInvalid
 	}
@@ -29,7 +29,7 @@ func (s *AuthPendingIdentityService) IssueIdentityTicket(ctx context.Context, pu
 	if err != nil {
 		return "", err
 	}
-	_, err = s.CreatePendingSession(ctx, CreatePendingAuthSessionInput{
+	_, err = pendingService.CreatePendingSession(ctx, CreatePendingAuthSessionInput{
 		SessionToken:      hashPendingAuthCode(rawToken),
 		Intent:            "login",
 		Identity:          PendingAuthIdentityKey{ProviderType: "oidc", ProviderKey: identityTicketProviderKey, ProviderSubject: purpose},
@@ -43,28 +43,28 @@ func (s *AuthPendingIdentityService) IssueIdentityTicket(ctx context.Context, pu
 	return rawToken, nil
 }
 
-func (s *AuthPendingIdentityService) ConsumeIdentityTicket(ctx context.Context, token, purpose, binding string) (*dbent.PendingAuthSession, error) {
+func (pendingService *AuthPendingIdentityService) ConsumeIdentityTicket(ctx context.Context, token, purpose, binding string) (*dbent.PendingAuthSession, error) {
 	if strings.TrimSpace(token) == "" || strings.TrimSpace(binding) == "" {
 		return nil, ErrPendingAuthCodeInvalid
 	}
-	session, err := s.getBrowserSession(ctx, hashPendingAuthCode(token))
+	session, err := pendingService.getBrowserSession(ctx, hashPendingAuthCode(token))
 	if err != nil {
 		return nil, err
 	}
 	if session.ProviderKey != identityTicketProviderKey || session.ProviderSubject != purpose {
 		return nil, ErrPendingAuthCodeInvalid
 	}
-	return s.consumeSession(ctx, session, binding, ErrPendingAuthCodeExpired, ErrPendingAuthCodeConsumed)
+	return pendingService.consumeSession(ctx, session, binding, ErrPendingAuthCodeExpired, ErrPendingAuthCodeConsumed)
 }
 
 const AdminWebSocketTicketPath = "/api/v1/admin/ops/ws/qps"
 
-func (s *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token string) (string, error) {
-	claims, err := s.ValidateToken(token)
+func (authService *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token string) (string, error) {
+	claims, err := authService.ValidateToken(token)
 	if err != nil {
 		return "", err
 	}
-	user, err := s.userRepo.GetByID(ctx, claims.UserID)
+	user, err := authService.userRepo.GetByID(ctx, claims.UserID)
 	if err != nil {
 		return "", err
 	}
@@ -75,7 +75,7 @@ func (s *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token strin
 	if binding == "" || (claims.BindingHash != "" && binding != claims.BindingHash) {
 		return "", ErrSessionBindingMismatch
 	}
-	pending, err := s.PendingIdentityService()
+	pending, err := authService.PendingIdentityService()
 	if err != nil {
 		return "", err
 	}
@@ -86,11 +86,11 @@ func (s *AuthService) IssueAdminWebSocketTicket(ctx context.Context, token strin
 	return pending.IssueIdentityTicket(ctx, "admin-ws:"+AdminWebSocketTicketPath, binding, map[string]any{"claims": string(encoded)}, time.Minute)
 }
 
-func (s *AuthService) ConsumeAdminWebSocketTicket(ctx context.Context, token, path string) (*JWTClaims, error) {
+func (authService *AuthService) ConsumeAdminWebSocketTicket(ctx context.Context, token, path string) (*JWTClaims, error) {
 	if path != AdminWebSocketTicketPath {
 		return nil, ErrInvalidToken
 	}
-	pending, err := s.PendingIdentityService()
+	pending, err := authService.PendingIdentityService()
 	if err != nil {
 		return nil, err
 	}

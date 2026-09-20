@@ -8,6 +8,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -666,24 +667,24 @@ func ConsumePendingOAuthBrowserSessionTx(
 		return err
 	}
 
-	now := time.Now().UTC()
-	if storedSession.ConsumedAt != nil {
-		return ErrPendingAuthSessionConsumed
-	}
-	if !storedSession.ExpiresAt.IsZero() && now.After(storedSession.ExpiresAt) {
-		return ErrPendingAuthSessionExpired
-	}
-	if strings.TrimSpace(storedSession.BrowserSessionKey) != "" &&
-		strings.TrimSpace(storedSession.BrowserSessionKey) != strings.TrimSpace(session.BrowserSessionKey) {
-		return ErrPendingAuthBrowserMismatch
-	}
-
-	if _, err := tx.Client().PendingAuthSession.UpdateOneID(storedSession.ID).
-		SetConsumedAt(now).
-		SetCompletionCodeHash("").
-		ClearCompletionCodeExpiresAt().
-		Save(ctx); err != nil {
+	if err := validatePendingSessionState(storedSession, session.BrowserSessionKey, ErrPendingAuthSessionExpired, ErrPendingAuthSessionConsumed); err != nil {
 		return err
+	}
+	now := time.Now().UTC()
+
+	affected, err := tx.Client().PendingAuthSession.Update().Where(
+		pendingauthsession.IDEQ(storedSession.ID),
+		pendingauthsession.SessionTokenEQ(session.SessionToken),
+		pendingauthsession.BrowserSessionKeyEQ(session.BrowserSessionKey),
+		pendingauthsession.ConsumedAtIsNil(),
+		pendingauthsession.ExpiresAtGT(now),
+		pendingauthsession.Or(pendingauthsession.CompletionCodeExpiresAtIsNil(), pendingauthsession.CompletionCodeExpiresAtGT(now)),
+	).SetConsumedAt(now).SetLocalFlowState(sanitizePendingAuthLocalFlowState(storedSession.LocalFlowState)).SetCompletionCodeHash("").ClearCompletionCodeExpiresAt().Save(ctx)
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return ErrPendingAuthSessionConsumed
 	}
 
 	return nil
@@ -712,12 +713,13 @@ func ApplyPendingOAuthAdoptionAndConsumeSession(
 	defer func() { _ = tx.Rollback() }()
 
 	txCtx := dbent.NewTxContext(ctx, tx)
-	if err := ApplyPendingOAuthAdoption(txCtx, client, authService, userService, session, decision, &userID); err != nil {
-		return err
-	}
 	if err := ConsumePendingOAuthBrowserSessionTx(txCtx, tx, session); err != nil {
 		return err
 	}
+	if err := ApplyPendingOAuthAdoption(txCtx, client, authService, userService, session, decision, &userID); err != nil {
+		return err
+	}
+
 	return tx.Commit()
 }
 
@@ -830,15 +832,16 @@ func (s *AuthService) FinalizePendingOAuthRegistration(ctx context.Context, user
 	}
 	defer func() { _ = tx.Rollback() }()
 	txCtx := dbent.NewTxContext(ctx, tx)
+	if err := ConsumePendingOAuthBrowserSessionTx(txCtx, tx, session); err != nil {
+		return true, err
+	}
 	if err := ApplyPendingOAuthBinding(txCtx, s.entClient, s, users, session, decision, &user.ID, true, false); err != nil {
 		return false, pendingOAuthBindingError(err)
 	}
 	if err := s.FinalizeOAuthEmailAccount(txCtx, user, strings.TrimSpace(invitationCode), strings.TrimSpace(session.ProviderType), strings.TrimSpace(affiliateCode)); err != nil {
 		return false, err
 	}
-	if err := ConsumePendingOAuthBrowserSessionTx(txCtx, tx, session); err != nil {
-		return true, err
-	}
+
 	if beforeCommit != nil {
 		if err := beforeCommit(txCtx, session); err != nil {
 			return false, pendingOAuthBindingError(err)
@@ -856,14 +859,18 @@ func pendingOAuthBindingError(err error) error {
 	return infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err)
 }
 
-func (s *AuthService) CompletePendingOAuthBindLogin(ctx context.Context, users *UserService, session *dbent.PendingAuthSession, decision *dbent.IdentityAdoptionDecision, userID int64) error {
-	if err := s.ApplyPendingOAuthBinding(ctx, users, session, decision, &userID, true, true); err != nil {
-		return infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err)
-	}
-	pending, err := s.PendingIdentityService()
+func (authService *AuthService) CompletePendingOAuthBindLogin(ctx context.Context, users *UserService, session *dbent.PendingAuthSession, decision *dbent.IdentityAdoptionDecision, userID int64) error {
+	transaction, err := authService.entClient.Tx(ctx)
 	if err != nil {
 		return err
 	}
-	_, err = pending.ConsumeBrowserSession(ctx, session.SessionToken, session.BrowserSessionKey)
-	return err
+	defer func() { _ = transaction.Rollback() }()
+	transactionContext := dbent.NewTxContext(ctx, transaction)
+	if err := ConsumePendingOAuthBrowserSessionTx(transactionContext, transaction, session); err != nil {
+		return err
+	}
+	if err := ApplyPendingOAuthBindingTx(transactionContext, transaction, authService, users, session, decision, &userID, true, true); err != nil {
+		return pendingOAuthBindingError(err)
+	}
+	return transaction.Commit()
 }
