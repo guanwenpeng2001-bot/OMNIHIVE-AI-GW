@@ -1030,7 +1030,6 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		return processDataLine(payload)
 	}
 
-	defer resp.Body.Close()
 	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
 	defer stopCancellation()
 	// Determine keepalive interval

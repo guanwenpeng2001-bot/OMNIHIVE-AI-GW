@@ -540,11 +540,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				if rejected := anthropicStreamRejectionFailover(c, trimmed); rejected != nil {
+					return nil, rejected
+				}
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
+				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" && !IsStreamHeartbeatData(trimmed) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}

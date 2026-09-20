@@ -1047,27 +1047,14 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
 				}
 				// 上游中途读错误（unexpected EOF / connection reset 等，常见于 HTTP/2 GOAWAY）：
-				// 若尚未向客户端写过任何字节，包成 UpstreamFailoverError 让 handler 层走 failover/重试。
+				// 即使尚未输出语义内容，读错误也不能证明生成没有副作用。
 				// 已经开始写流时 SSE 协议无 resume，只能透传错误事件给客户端。
 				// 注意:面向客户端的 disconnectMsg 必须用 sanitizeStreamError 剥离地址,
 				// 默认 *net.OpError 的 Error() 会泄露内部 IP/端口和上游地址。完整 ev.err
 				// 仅在下方 LegacyPrintf 内部日志中保留供运维诊断。
 				disconnectMsg := "upstream stream disconnected: " + sanitizeStreamError(ev.err)
-				if !c.Writer.Written() || c.GetBool("gateway_stream_only_heartbeats") {
-					logger.LegacyPrintf("service.gateway", "Upstream stream read error before any client output (account=%d), failing over: %v", account.ID, ev.err)
-					body, _ := json.Marshal(map[string]any{
-						"type": "error",
-						"error": map[string]string{
-							"type":    "upstream_disconnected",
-							"message": disconnectMsg,
-						},
-					})
-					return nil, &UpstreamFailoverError{
-						StatusCode:             http.StatusBadGateway,
-						ResponseBody:           body,
-						RetryableOnSameAccount: true,
-					}
-				}
+				// A successful send followed by EOF has unknown upstream effects.
+				// Heartbeats alone cannot establish that replay is safe.
 				sendErrorEvent("stream_read_error", disconnectMsg)
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
@@ -1085,7 +1072,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					if clientDisconnected {
 						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
 					}
-					return nil, err
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 
 				for _, block := range outputBlocks {
@@ -1102,7 +1089,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						}
 					}
 					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" && gjson.Get(data, "type").String() != "ping" {
+						if firstTokenMs == nil && data != "[DONE]" && !IsStreamHeartbeatData(data) {
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
 						}
@@ -1500,4 +1487,31 @@ func reconcileCachedTokens(usage map[string]any) bool {
 	}
 	usage["cache_read_input_tokens"] = cached
 	return true
+}
+
+// anthropicStreamRejectionFailover requires both an explicit pre-generation
+// rejection and no semantic output. An EOF or generic server error proves neither.
+func anthropicStreamRejectionFailover(client *gin.Context, payload string) *UpstreamFailoverError {
+	if client.Writer.Written() && !client.GetBool("gateway_stream_only_heartbeats") {
+		return nil
+	}
+	if gjson.Get(payload, "type").String() != "error" {
+		return nil
+	}
+	status := 0
+	switch gjson.Get(payload, "error.type").String() {
+	case "overloaded_error":
+		status = 529
+	case "rate_limit_error":
+		status = http.StatusTooManyRequests
+	case "authentication_error":
+		status = http.StatusUnauthorized
+	case "permission_error":
+		status = http.StatusForbidden
+	case "invalid_request_error":
+		status = http.StatusBadRequest
+	default:
+		return nil
+	}
+	return &UpstreamFailoverError{StatusCode: status, ResponseBody: []byte(payload)}
 }

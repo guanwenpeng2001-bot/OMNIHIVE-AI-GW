@@ -912,7 +912,8 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 							)
 							break
 						}
-						return nil, wrapOpenAIWSIngressTurnError(
+						clientDisconnected = true
+						return resultWithUsage(), wrapOpenAIWSIngressTurnError(
 							"write_client",
 							fmt.Errorf("write client websocket event: %w", err),
 							wroteDownstream,

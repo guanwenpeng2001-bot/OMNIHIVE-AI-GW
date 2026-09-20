@@ -492,16 +492,50 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		return clientConn.Write(writeCtx, coderws.MessageText, message)
 	}
 
+	clientReader := openAIWSIngressClientReader(c, clientConn)
+	ctx, cancelGeneration := context.WithCancel(ctx)
+	defer cancelGeneration()
+	stopDisconnect := context.AfterFunc(clientReader.ctx, cancelGeneration)
+	defer stopDisconnect()
 	readClientMessage := func() ([]byte, error) {
 		idleTimeout := s.openAIWSIngressInterTurnIdleTimeout()
-		msgType, payload, readErr := ReadOpenAIWSClientMessage(
-			ctx,
-			clientConn,
-			idleTimeout,
-			coderws.StatusNormalClosure,
-			"websocket idle timeout",
-		)
+		var msgType coderws.MessageType
+		var payload []byte
+		var readErr error
+		idleTimer := time.NewTimer(idleTimeout)
+		defer idleTimer.Stop()
+		var idleDeadline <-chan time.Time
+		if idleTimeout > 0 {
+			idleDeadline = idleTimer.C
+		}
+		select {
+		case frame, ok := <-clientReader.frames:
+			if !ok {
+				readErr = context.Cause(clientReader.ctx)
+			} else {
+				msgType, payload = frame.messageType, frame.payload
+			}
+		case <-ctx.Done():
+			readErr = ctx.Err()
+			if clientReader.ctx.Err() != nil {
+				readErr = context.Cause(clientReader.ctx)
+			} else {
+				status, reason := coderws.StatusGoingAway, "websocket request canceled"
+				if errors.Is(context.Cause(ctx), ErrOpenAIWSIngressLeaseLost) {
+					status, reason = coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect"
+				}
+				_ = clientConn.Close(status, reason)
+				_ = clientConn.CloseNow()
+			}
+		case <-idleDeadline:
+			_ = clientConn.Close(coderws.StatusNormalClosure, "websocket idle timeout")
+			_ = clientConn.CloseNow()
+			readErr = NewOpenAIWSClientCloseError(coderws.StatusNormalClosure, "websocket idle timeout", context.DeadlineExceeded)
+		}
 		if readErr != nil {
+			if errors.Is(context.Cause(ctx), ErrOpenAIWSIngressLeaseLost) {
+				return nil, NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect", context.Cause(ctx))
+			}
 			var closeErr *OpenAIWSClientCloseError
 			if errors.As(readErr, &closeErr) && closeErr.StatusCode() == coderws.StatusNormalClosure {
 				logOpenAIWSModeInfo("ingress_ws_inter_turn_idle_timeout account_id=%d timeout_seconds=%d", account.ID, int(idleTimeout.Seconds()))
@@ -1049,6 +1083,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					return interruptedResult(), ctx.Err()
 				}
 				lease.MarkBroken()
+				if responseID != "" || usage.InputTokens > 0 || usage.OutputTokens > 0 || usage.CacheReadInputTokens > 0 || usage.CacheCreationInputTokens > 0 || imageCounter.Count() > 0 {
+					return interruptedResult(), wrapOpenAIWSIngressTurnError("read_upstream", fmt.Errorf("read upstream websocket event: %w", readErr), wroteDownstream)
+				}
 				return nil, wrapOpenAIWSIngressTurnError(
 					"read_upstream",
 					fmt.Errorf("read upstream websocket event: %w", readErr),
@@ -1233,7 +1270,8 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 							truncateOpenAIWSLogValue(closeReason, openAIWSHeaderValueMaxLen),
 						)
 					} else {
-						return nil, wrapOpenAIWSIngressTurnError(
+						lease.MarkBroken()
+						return interruptedResult(), wrapOpenAIWSIngressTurnError(
 							"write_client",
 							fmt.Errorf("write client websocket event: %w", err),
 							wroteDownstream,

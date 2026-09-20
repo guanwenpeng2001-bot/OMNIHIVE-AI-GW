@@ -6,12 +6,53 @@ import (
 	"time"
 
 	coderws "github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
 )
 
 type openAIWSClientReadResult struct {
 	messageType coderws.MessageType
 	payload     []byte
 	err         error
+}
+
+// One connection-owned reader survives account retries. It observes disconnects
+// during silent generation and holds at most one queued follow-up turn.
+type openAIWSIngressReader struct {
+	ctx     context.Context
+	frames  chan openAIWSClientReadResult
+	stopped chan struct{}
+}
+
+func openAIWSIngressClientReader(ginContext *gin.Context, connection *coderws.Conn) *openAIWSIngressReader {
+	const readerKey = "openai_ws_ingress_reader"
+	if existing, ok := ginContext.Get(readerKey); ok {
+		return existing.(*openAIWSIngressReader)
+	}
+	readerContext, cancelReader := context.WithCancelCause(context.Background())
+	reader := &openAIWSIngressReader{ctx: readerContext, frames: make(chan openAIWSClientReadResult, 1), stopped: make(chan struct{})}
+	ginContext.Set(readerKey, reader)
+	go func() {
+		defer close(reader.stopped)
+		defer cancelReader(context.Canceled)
+		defer close(reader.frames)
+		for {
+			messageType, payload, readErr := connection.Read(context.Background())
+			if readErr != nil {
+				cancelReader(readErr)
+				return
+			}
+			select {
+			case reader.frames <- openAIWSClientReadResult{messageType: messageType, payload: payload}:
+			default:
+				// Never stop observing the socket behind an unbounded turn queue.
+				cancelReader(errors.New("too many pending websocket turns"))
+				_ = connection.Close(coderws.StatusPolicyViolation, "too many pending websocket turns")
+				_ = connection.CloseNow()
+				return
+			}
+		}
+	}()
+	return reader
 }
 
 // ReadOpenAIWSClientMessage keeps one reader alive while control events send
@@ -31,6 +72,8 @@ func ReadOpenAIWSClientMessage(
 		timeoutReason,
 		nil,
 		nil,
+		nil,
+		nil,
 	)
 }
 
@@ -45,6 +88,8 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	timeoutReason string,
 	timeoutStart <-chan struct{},
 	timeoutActive func() bool,
+	reader *openAIWSIngressReader,
+	attemptCtx context.Context,
 ) (coderws.MessageType, []byte, error) {
 	if conn == nil {
 		return 0, nil, errors.New("openai websocket client connection is nil")
@@ -53,11 +98,24 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 		controlCtx = context.Background()
 	}
 
-	readDone := make(chan openAIWSClientReadResult, 1)
-	go func() {
-		messageType, payload, err := conn.Read(context.Background())
-		readDone <- openAIWSClientReadResult{messageType: messageType, payload: payload, err: err}
-	}()
+	var readDone <-chan openAIWSClientReadResult
+	var readStopped <-chan struct{}
+	var attemptDone <-chan struct{}
+	if reader != nil {
+		readDone, readStopped = reader.frames, reader.stopped
+		if attemptCtx != nil {
+			attemptDone = attemptCtx.Done()
+		}
+	} else {
+		incoming := make(chan openAIWSClientReadResult, 1)
+		stopped := make(chan struct{})
+		readDone, readStopped = incoming, stopped
+		go func() {
+			defer close(stopped)
+			messageType, payload, err := conn.Read(context.Background())
+			incoming <- openAIWSClientReadResult{messageType: messageType, payload: payload, err: err}
+		}()
+	}
 
 	var timer *time.Timer
 	var timeoutCh <-chan time.Time
@@ -90,14 +148,21 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	closeAndJoin := func(status coderws.StatusCode, reason string, cause error) (coderws.MessageType, []byte, error) {
 		_ = conn.Close(status, reason)
 		_ = conn.CloseNow()
-		<-readDone
+		<-readStopped
 		return 0, nil, NewOpenAIWSClientCloseError(status, reason, cause)
 	}
 
 	for {
 		select {
-		case result := <-readDone:
+		case result, ok := <-readDone:
+			if !ok {
+				return 0, nil, context.Cause(reader.ctx)
+			}
 			return result.messageType, result.payload, result.err
+		case <-attemptDone:
+			// A failed account attempt relinquishes the queue consumer only;
+			// the connection-owned reader remains available to the next attempt.
+			return 0, nil, attemptCtx.Err()
 		case <-timeoutStart:
 			startTimeout()
 		case <-timeoutCh:

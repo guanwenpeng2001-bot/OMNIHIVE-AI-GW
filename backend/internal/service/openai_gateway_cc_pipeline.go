@@ -255,6 +255,13 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	if err != nil {
 		reported := s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
 		if owned, _ := ctx.Value(boundedStreamContextKey{}).(bool); owned {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				interruption := context.Canceled
+				if errors.Is(err, context.DeadlineExceeded) {
+					interruption = context.DeadlineExceeded
+				}
+				return nil, fmt.Errorf("upstream POST interrupted (acceptance unknown): %w", interruption)
+			}
 			return nil, fmt.Errorf("upstream POST failed (acceptance unknown): %s", sanitizeUpstreamErrorMessage(err.Error()))
 		}
 		return nil, reported

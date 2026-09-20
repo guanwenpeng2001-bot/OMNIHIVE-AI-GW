@@ -10,6 +10,7 @@ import (
 	"time"
 
 	coderws "github.com/coder/websocket"
+	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -139,5 +140,63 @@ func TestReadOpenAIWSClientMessage_ParentCancellationStillJoinsRead(t *testing.T
 	case <-serverResult:
 	case <-time.After(time.Second):
 		t.Fatal("server read goroutine leaked after parent cancellation")
+	}
+}
+
+func TestOpenAIWSClientReaderSurvivesAccountAttemptCancellation(test *testing.T) {
+	firstAttemptEnded := make(chan struct{})
+	received := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		connection, err := coderws.Accept(response, request, nil)
+		if err != nil {
+			return
+		}
+		defer connection.CloseNow()
+		client, _ := gin.CreateTestContext(httptest.NewRecorder())
+		client.Request = request
+		reader := openAIWSIngressClientReader(client, connection)
+		first := &openAIWSClientFrameConn{conn: connection, reader: reader, controlCtx: request.Context()}
+		attempt, cancel := context.WithCancel(request.Context())
+		cancel()
+		_, _, readErr := first.ReadFrame(attempt)
+		if !errors.Is(readErr, context.Canceled) {
+			received <- "first attempt did not stop"
+			return
+		}
+		close(firstAttemptEnded)
+		// The next account (or ctx_pool mode) must reuse the only socket reader.
+		secondReader := openAIWSIngressClientReader(client, connection)
+		if reader != secondReader {
+			received <- "reader replaced"
+			return
+		}
+		second := &openAIWSClientFrameConn{conn: connection, reader: secondReader, controlCtx: request.Context()}
+		readContext, stop := context.WithTimeout(request.Context(), time.Second)
+		defer stop()
+		_, payload, readErr := second.ReadFrame(readContext)
+		if readErr != nil {
+			received <- readErr.Error()
+			return
+		}
+		received <- string(payload)
+	}))
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+	require.NoError(test, err)
+	defer client.CloseNow()
+	select {
+	case <-firstAttemptEnded:
+	case <-ctx.Done():
+		test.Fatal("first account reader did not stop")
+	}
+	payload := `{"type":"response.create","model":"gpt-5.1","input":[]}`
+	require.NoError(test, client.Write(ctx, coderws.MessageText, []byte(payload)))
+	select {
+	case actual := <-received:
+		require.Equal(test, payload, actual)
+	case <-ctx.Done():
+		test.Fatal("follow-up turn was stolen by a stale attempt reader")
 	}
 }

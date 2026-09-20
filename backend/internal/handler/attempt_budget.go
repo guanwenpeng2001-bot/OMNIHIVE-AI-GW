@@ -2,7 +2,6 @@ package handler
 
 import (
 	"context"
-	"encoding/json"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -84,24 +83,7 @@ func isAttemptBudgetPingData(line string) bool {
 	if !ok {
 		return false
 	}
-	var payload map[string]any
-	if json.Unmarshal([]byte(data), &payload) != nil {
-		return false
-	}
-	if len(payload) == 1 && payload["type"] == "ping" {
-		return true
-	}
-	if payload["type"] != "content_block_delta" || len(payload) != 3 {
-		return false
-	}
-	delta, ok := payload["delta"].(map[string]any)
-	if !ok || len(delta) != 2 {
-		return false
-	}
-	fields := map[string]string{"text_delta": "text", "thinking_delta": "thinking", "input_json_delta": "partial_json"}
-	kind, _ := delta["type"].(string)
-	field, known := fields[kind]
-	return known && delta[field] == ""
+	return service.IsStreamHeartbeatData(data)
 }
 
 func installAttemptBudget(c *gin.Context) func() {

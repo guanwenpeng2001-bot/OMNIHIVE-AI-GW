@@ -36,9 +36,9 @@ func (writer *cancellationWriter) WriteString(data string) (int, error) {
 	return writer.Write([]byte(data))
 }
 
-func TestStreamingCancellationPreservesObservedReceipt(t *testing.T) {
+func TestStreamingCancellationPreservesObservedReceipt(test *testing.T) {
 	for _, mode := range []string{"client_cancel", "write_failure", "deadline"} {
-		t.Run(mode, func(test *testing.T) {
+		test.Run(mode, func(test *testing.T) {
 			parent, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			if mode == "deadline" {
@@ -102,7 +102,7 @@ func TestStreamingCancellationPreservesObservedReceipt(t *testing.T) {
 	}
 }
 
-func TestBoundedStreamContextRetainsDeadline(t *testing.T) {
+func TestBoundedStreamContextRetainsDeadline(test *testing.T) {
 	parent, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
 	defer cancel()
 	upstream, headersReceived, release := boundedStreamContext(parent, time.Hour)
@@ -110,13 +110,13 @@ func TestBoundedStreamContextRetainsDeadline(t *testing.T) {
 	headersReceived()
 	select {
 	case <-upstream.Done():
-		require.True(t, errors.Is(upstream.Err(), context.DeadlineExceeded))
+		require.True(test, errors.Is(upstream.Err(), context.DeadlineExceeded))
 	case <-time.After(time.Second):
-		t.Fatal("response headers removed the total deadline")
+		test.Fatal("response headers removed the total deadline")
 	}
 }
 
-func TestGatewayHeartbeatDoesNotCreateUsage(t *testing.T) {
+func TestGatewayHeartbeatDoesNotCreateUsage(test *testing.T) {
 	client, _ := gin.CreateTestContext(httptest.NewRecorder())
 	client.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
 	response := &http.Response{Header: http.Header{}, Body: io.NopCloser(strings.NewReader(
@@ -125,8 +125,42 @@ func TestGatewayHeartbeatDoesNotCreateUsage(t *testing.T) {
 	result, err := newStreamingResponseTestGatewayService().handleStreamingResponse(
 		client.Request.Context(), response, client, &Account{ID: 1}, time.Now(), "model", "model", false,
 	)
-	require.Error(t, err, "heartbeats cannot complete a generation")
-	require.NotNil(t, result)
-	require.Equal(t, ClaudeUsage{}, *result.usage)
-	require.Nil(t, result.firstTokenMs)
+	require.Error(test, err, "heartbeats cannot complete a generation")
+	require.NotNil(test, result)
+	require.Equal(test, ClaudeUsage{}, *result.usage)
+	require.Nil(test, result.firstTokenMs)
+}
+
+func TestAnthropicHeartbeatFirstSemanticLatency(test *testing.T) {
+	for _, route := range []string{"passthrough", "native"} {
+		for _, semantic := range []bool{false, true} {
+			test.Run(fmt.Sprintf("%s/semantic=%v", route, semantic), func(test *testing.T) {
+				payload := "event: ping\ndata: {\"type\":\"ping\"}\n\n"
+				payload += "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}\n\n"
+				if semantic {
+					payload += "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hello\"}}\n\n"
+				}
+				client, _ := gin.CreateTestContext(httptest.NewRecorder())
+				client.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+				response := &http.Response{Header: http.Header{}, Body: io.NopCloser(strings.NewReader(payload))}
+				var firstToken *int
+				if route == "passthrough" {
+					result, err := newStreamingResponseTestGatewayService().handleStreamingResponseAnthropicAPIKeyPassthrough(client.Request.Context(), response, client, &Account{ID: 1}, time.Now(), "model")
+					require.Error(test, err)
+					require.NotNil(test, result)
+					firstToken = result.firstTokenMs
+				} else {
+					result, err := (&OpenAIGatewayService{}).handleNativeAnthropicStreamingResponse(client.Request.Context(), response, client, &Account{ID: 1}, "model", "model", "model", nil, time.Now())
+					require.Error(test, err)
+					require.NotNil(test, result)
+					firstToken = result.FirstTokenMs
+				}
+				if semantic {
+					require.NotNil(test, firstToken)
+				} else {
+					require.Nil(test, firstToken)
+				}
+			})
+		}
+	}
 }

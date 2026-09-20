@@ -222,8 +222,8 @@ func TestHandleStreamingResponse_SpecialCharactersInJSON(t *testing.T) {
 }
 
 // 上游中途读错误（如 HTTP/2 GOAWAY 触发的 unexpected EOF）发生在向客户端写入任何字节前：
-// 网关应返回 *UpstreamFailoverError 触发账号 failover/重试，而不是把错误事件直接发给客户端。
-func TestHandleStreamingResponse_StreamReadErrorBeforeOutput_TriggersFailover(t *testing.T) {
+// 请求已经发送，副作用未知；没有语义输出仍不能重发。
+func TestHandleStreamingResponse_StreamReadErrorBeforeOutput_ForbidsReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newMinimalGatewayService()
 
@@ -239,25 +239,13 @@ func TestHandleStreamingResponse_StreamReadErrorBeforeOutput_TriggersFailover(t 
 
 	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "model", "model", false)
 
-	require.Error(t, err)
-	require.Nil(t, result, "失败移交场景下不应返回 streamingResult")
-
+	require.ErrorIs(t, err, io.ErrUnexpectedEOF)
+	require.NotNil(t, result, "retain observed evidence even when upstream acceptance is unknown")
 	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr), "未输出过字节时 stream read error 必须包成 UpstreamFailoverError，期望: %v", err)
-	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.True(t, failoverErr.RetryableOnSameAccount, "GOAWAY 类错误应允许同账号重试")
-
-	// ResponseBody 必须是 Anthropic 标准 error 格式：
-	// 1) ExtractUpstreamErrorMessage 能正确从 error.message 提取消息（被 handleFailoverExhausted / ops 日志依赖）
-	// 2) error.type 标记为 upstream_disconnected
-	extractedMsg := ExtractUpstreamErrorMessage(failoverErr.ResponseBody)
-	require.NotEmpty(t, extractedMsg, "ExtractUpstreamErrorMessage 必须从 ResponseBody 取到非空 message，否则 ops 日志会丢失诊断信息")
-	require.Contains(t, extractedMsg, "upstream stream disconnected")
-	require.Contains(t, string(failoverErr.ResponseBody), `"type":"error"`)
-	require.Contains(t, string(failoverErr.ResponseBody), `"upstream_disconnected"`)
-
-	// 客户端应收不到任何 stream_read_error 事件，由 handler 层根据 failover 结果再决定
-	require.NotContains(t, rec.Body.String(), "stream_read_error")
+	require.False(t, errors.As(err, &failoverErr), "an upstream read failure cannot establish rejection")
+	require.Zero(t, result.usage.InputTokens)
+	require.Zero(t, result.usage.OutputTokens)
+	require.Contains(t, rec.Body.String(), "stream_read_error")
 }
 
 // 上游已经发送过事件（c.Writer 已写过字节）后再发生读错误：
@@ -353,7 +341,7 @@ func TestSanitizeStreamError_KnownErrors(t *testing.T) {
 
 // failover ResponseBody 必须用 sanitize 过的消息，避免泄露给客户端 / 写入 ops 日志
 // 时携带内部地址信息。
-func TestHandleStreamingResponse_FailoverBodyDoesNotLeakAddresses(t *testing.T) {
+func TestHandleStreamingResponse_InterruptedBodyDoesNotLeakAddresses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newMinimalGatewayService()
 
@@ -381,12 +369,12 @@ func TestHandleStreamingResponse_FailoverBodyDoesNotLeakAddresses(t *testing.T) 
 	require.Error(t, err)
 
 	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr))
+	require.False(t, errors.As(err, &failoverErr))
 
-	body := string(failoverErr.ResponseBody)
-	require.NotContains(t, body, "10.0.0.1", "failover ResponseBody 不得泄露内部源 IP")
+	body := rec.Body.String()
+	require.NotContains(t, body, "10.0.0.1", "interrupted response 不得泄露内部源 IP")
 	require.NotContains(t, body, "54321")
-	require.NotContains(t, body, "52.1.2.3", "failover ResponseBody 不得泄露上游 IP")
+	require.NotContains(t, body, "52.1.2.3", "interrupted response 不得泄露上游 IP")
 	require.NotContains(t, body, "443")
 	// 仍然包含可诊断的根因
 	require.Contains(t, body, "connection reset by peer")
@@ -418,7 +406,9 @@ func TestHandleStreamingResponse_SSEErrorEvent_ReturnsTypedErrorWithRawData(t *t
 	_ = pr.Close()
 
 	require.Error(t, err)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Zero(t, result.usage.InputTokens)
+	require.Zero(t, result.usage.OutputTokens)
 
 	// typed error 必须可被 errors.As 匹配，RawData 必须保留上游 dataLine 原文
 	var sseErr *sseStreamErrorEventError

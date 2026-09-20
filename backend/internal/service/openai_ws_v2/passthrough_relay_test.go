@@ -139,6 +139,9 @@ func (c *delayedReadFrameConn) ReadFrame(ctx context.Context) (coderws.MessageTy
 			}
 		}
 	})
+	if err := ctx.Err(); err != nil {
+		return coderws.MessageText, nil, err
+	}
 	return c.base.ReadFrame(ctx)
 }
 
@@ -399,38 +402,42 @@ func TestRelay_ClientDisconnect(t *testing.T) {
 	require.Equal(t, "gpt-4o", result.RequestModel)
 }
 
-func TestRelay_ClientDisconnectCancelsBeforeLateUsage(t *testing.T) {
-	t.Parallel()
+// cancellationGateFrameConn never releases the next upstream event until canceled.
+// It gives the test an explicit boundary between observed and future usage.
+type cancellationGateFrameConn struct {
+	FrameConn
+	canceled chan struct{}
+}
 
+func (connection *cancellationGateFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
+	<-ctx.Done()
+	close(connection.canceled)
+	return coderws.MessageText, nil, ctx.Err()
+}
+
+func TestRelay_ClientDisconnectCancelsBeforeLateUsage(test *testing.T) {
+	test.Parallel()
 	clientConn := newPassthroughTestFrameConn(nil, true)
-	upstreamBase := newPassthroughTestFrameConn([]passthroughTestFrame{
-		{
-			msgType: coderws.MessageText,
-			payload: []byte(`{"type":"response.completed","response":{"id":"resp_drain","usage":{"input_tokens":6,"output_tokens":4,"input_tokens_details":{"cached_tokens":1}}}}`),
-		},
-	}, true)
-	upstreamConn := &delayedReadFrameConn{
-		base:       upstreamBase,
-		firstDelay: 80 * time.Millisecond,
+	upstreamConn := &cancellationGateFrameConn{
+		FrameConn: newPassthroughTestFrameConn(nil, false),
+		canceled:  make(chan struct{}),
 	}
-
-	firstPayload := []byte(`{"type":"response.create","model":"gpt-4o","input":[]}`)
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-
-	result, relayExit := Relay(ctx, clientConn, upstreamConn, firstPayload, RelayOptions{
-		UpstreamDrainTimeout: 400 * time.Millisecond,
-	})
-	require.NotNil(t, relayExit)
-	require.Equal(t, "client_disconnected", relayExit.Stage)
-	require.Empty(t, result.RequestID)
-	require.Empty(t, result.TerminalEventType)
-	require.Zero(t, result.Usage.InputTokens)
-	require.Zero(t, result.Usage.OutputTokens)
-	require.Zero(t, result.Usage.CacheReadInputTokens)
-	require.Equal(t, int64(1), result.ClientToUpstreamFrames)
-	require.Equal(t, int64(0), result.UpstreamToClientFrames)
-	require.Zero(t, result.DroppedDownstreamFrames)
+	result, relayExit := Relay(ctx, clientConn, upstreamConn,
+		[]byte(`{"type":"response.create","model":"gpt-4o","input":[]}`), RelayOptions{})
+	require.NotNil(test, relayExit)
+	require.Equal(test, "client_disconnected", relayExit.Stage)
+	select {
+	case <-upstreamConn.canceled:
+	default:
+		test.Fatal("upstream generation was not canceled before relay returned")
+	}
+	require.NotNil(test, result.InterruptedTurn)
+	require.Empty(test, result.RequestID)
+	require.Zero(test, result.InterruptedTurn.Usage.InputTokens)
+	require.Equal(test, int64(1), result.ClientToUpstreamFrames)
+	require.Zero(test, result.UpstreamToClientFrames)
 }
 
 func TestRelay_IdleTimeout(t *testing.T) {

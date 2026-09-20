@@ -356,3 +356,25 @@ func anthropicEventHasOutput(event *apicompat.AnthropicStreamEvent) bool {
 	}
 	return event.Delta != nil && (event.Delta.Text != "" || event.Delta.Thinking != "" || event.Delta.PartialJSON != "")
 }
+
+// IsStreamHeartbeatData recognizes only empty keepalives, never content labeled as ping.
+func IsStreamHeartbeatData(data string) bool {
+	var payload map[string]any
+	if json.Unmarshal([]byte(data), &payload) != nil {
+		return false
+	}
+	if len(payload) == 1 && payload["type"] == "ping" {
+		return true
+	}
+	if payload["type"] != "content_block_delta" || len(payload) != 3 {
+		return false
+	}
+	delta, ok := payload["delta"].(map[string]any)
+	if !ok || len(delta) != 2 {
+		return false
+	}
+	fields := map[string]string{"text_delta": "text", "thinking_delta": "thinking", "input_json_delta": "partial_json"}
+	kind, _ := delta["type"].(string)
+	field, known := fields[kind]
+	return known && delta[field] == ""
+}

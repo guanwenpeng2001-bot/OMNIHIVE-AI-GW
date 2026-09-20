@@ -33,6 +33,9 @@ type Usage struct {
 }
 
 type RelayResult struct {
+	// InterruptedTurn contains only evidence from the unfinished turn. Usage
+	// remains the session total for completed turns and must not be billed again.
+	InterruptedTurn       *RelayTurnResult
 	RequestModel          string
 	ResponseModel         string
 	ResponseModelConflict bool
@@ -371,7 +374,11 @@ func Relay(
 	<-upstreamDone
 
 	emitTurnComplete(options.OnTurnComplete, state, finalizePendingBareError(state, nowFn()))
-	enrichResult(&result, state, nowFn().Sub(startAt))
+	finishedAt := nowFn()
+	enrichResult(&result, state, finishedAt.Sub(startAt))
+	if interrupted := result.InterruptedTurn; interrupted != nil && !interrupted.StartedAt.IsZero() {
+		interrupted.Duration = finishedAt.Sub(interrupted.StartedAt)
+	}
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()
 	result.UpstreamToClientFrames = upstreamToClientFrames.Load()
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
@@ -1240,6 +1247,20 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
 	result.FirstTokenMs = state.firstTokenMs
+	if state.hasUnfinishedTurn() {
+		result.InterruptedTurn = &RelayTurnResult{
+			RequestModel: state.currentRequestModel(),
+			RequestID:    openAIWSRelayActiveTurnID(state),
+			Usage:        state.turnUsage,
+			Duration:     duration,
+		}
+		if timing := state.activeTurn; timing != nil {
+			result.InterruptedTurn.StartedAt = timing.startAt
+			result.InterruptedTurn.ResponseModel = relayTurnResponseModel(timing)
+			result.InterruptedTurn.ResponseModelConflict = timing.responseModelConflict
+			result.InterruptedTurn.FirstTokenMs = openAIWSRelayCloneIntPtr(timing.firstTokenMs)
+		}
+	}
 }
 
 func (s *relayState) setRequestModel(model string) {
