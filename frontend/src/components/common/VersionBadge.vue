@@ -638,6 +638,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore, useAppStore } from '@/stores'
@@ -767,7 +769,7 @@ async function handleUpdate() {
     appStore.clearVersionCache()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { message?: string } }; message?: string }
-    updateError.value = err.response?.data?.message || err.message || t('version.updateFailed')
+    updateError.value = extractApiErrorMessage(err, '') || t('version.updateFailed')
   } finally {
     updating.value = false
   }
@@ -806,7 +808,7 @@ async function loadRollbackVersions() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { message?: string } }; message?: string }
     rollbackVersionsError.value =
-      err.response?.data?.message || err.message || t('version.loadVersionsFailed')
+      extractApiErrorMessage(err, '') || t('version.loadVersionsFailed')
   } finally {
     rollbackVersionsLoading.value = false
   }
@@ -842,7 +844,7 @@ async function handleRollback() {
     appStore.clearVersionCache()
   } catch (error: unknown) {
     const err = error as { response?: { data?: { message?: string } }; message?: string }
-    rollbackError.value = err.response?.data?.message || err.message || t('version.rollbackFailed')
+    rollbackError.value = extractApiErrorMessage(err, '') || t('version.rollbackFailed')
   } finally {
     rollingBack.value = false
   }
