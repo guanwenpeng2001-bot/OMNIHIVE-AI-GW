@@ -2261,10 +2261,10 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 
 	h.Responses(c)
 
-	require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
+	require.Equal(t, []int64{9910, 9910}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
 	require.Equal(t, "server_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Equal(t, "Upstream service temporarily unavailable", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.Equal(t, "Upstream request failed", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 }
 
 func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHealthyAccount(t *testing.T) {
@@ -2360,6 +2360,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			})
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1703, Concurrency: 0})
 
+			h.maxAccountSwitches = 2 // Initial + repair + healthy account share three sends.
 			h.Responses(c)
 
 			require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
@@ -2974,7 +2975,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		usageRepo,
 		nil,
@@ -2997,6 +2998,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
+		service.NewUsageSettlementService(&openAIWSUsageReceiptRepoStub{usage: usageRepo}, nil, nil),
 	)
 
 	cache := &concurrencyCacheMock{
@@ -3223,4 +3225,16 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
+}
+
+// Review receipts expose their observed evidence to the WS fixture channel too.
+// This does not assert that a needs-review receipt has a settled usage_logs row.
+type openAIWSUsageReceiptRepoStub struct {
+	service.UsageSettlementReceiptRepository
+	usage *openAIWSUsageHandlerUsageLogRepoStub
+}
+
+func (s *openAIWSUsageReceiptRepoStub) Persist(ctx context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	_, err := s.usage.Create(ctx, &receipt.Usage)
+	return receipt, err
 }

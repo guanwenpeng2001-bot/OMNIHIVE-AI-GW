@@ -71,6 +71,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "embeddings", h.maxAccountSwitches)()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformAllowed(c, apiKey, reqModel, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
@@ -109,13 +110,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 	}
 
 	profitVetoCount := 0
-	failedAccountIDs := make(map[int64]struct{})
-	var lastFailoverErr *service.UpstreamFailoverError
-	switchCount := 0
-	maxAccountSwitches := h.maxAccountSwitches
-	if maxAccountSwitches <= 0 {
-		maxAccountSwitches = 3
-	}
+	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	routingStart := time.Now()
 
 	// 分组利润控制：embeddings 文本入口请求级装门并固定 pricingAt。
@@ -129,7 +124,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			"",
 			"",
 			forwardModel,
-			failedAccountIDs,
+			failoverState.FailedAccountIDs,
 			service.OpenAIUpstreamTransportHTTPSSE,
 			service.OpenAIEndpointCapabilityEmbeddings,
 			false,
@@ -143,9 +138,9 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 			}
 			reqLog.Warn("openai_embeddings.account_select_failed",
 				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				zap.Int("excluded_account_count", len(failoverState.FailedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failoverState.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -153,8 +148,8 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 				return
 			}
-			if lastFailoverErr != nil {
-				h.handleFailoverExhausted(c, lastFailoverErr, false)
+			if failoverState.LastFailoverErr != nil {
+				h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 			} else {
 				h.errorResponse(c, http.StatusBadGateway, "api_error", "Upstream request failed")
 			}
@@ -174,7 +169,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, "", selection, false, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 利润终检否决：排除该账号重新选号；否决次数达上限则按无可用账号终止。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+			if !recordOpenAIProfitVeto(failoverState.FailedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -224,19 +219,15 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 					)
 					return
 				}
-				h.gatewayService.RecordOpenAIAccountSwitch()
-				failedAccountIDs[account.ID] = struct{}{}
-				lastFailoverErr = failoverErr
-				if switchCount >= maxAccountSwitches {
+				if failoverState.HandleFailoverError(c.Request.Context(), nil, account.ID, account.Platform, 0, failoverErr) != FailoverContinue {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
-				switchCount++
 				reqLog.Warn("openai_embeddings.upstream_failover_switching",
 					zap.Int64("account_id", account.ID),
 					zap.Int("upstream_status", failoverErr.StatusCode),
-					zap.Int("switch_count", switchCount),
-					zap.Int("max_switches", maxAccountSwitches),
+					zap.Int("switch_count", failoverState.SwitchCount),
+					zap.Int("max_switches", failoverState.MaxSwitches),
 				)
 				continue
 			}
@@ -288,7 +279,7 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		})
 		reqLog.Debug("openai_embeddings.request_completed",
 			zap.Int64("account_id", account.ID),
-			zap.Int("switch_count", switchCount),
+			zap.Int("switch_count", failoverState.SwitchCount),
 		)
 		return
 	}

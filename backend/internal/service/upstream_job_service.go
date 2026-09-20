@@ -183,7 +183,10 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 		return existing, err
 	}
 	logJobEvent(ctx, existing, "admitted")
-	networkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	ctx, finishPlan := CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: existing.AccountID, UserID: existing.UserID, APIKeyID: existing.APIKeyID, BillingGroupID: valueOrZero(existing.GroupID), Model: existing.Billing.RequestedModel, UpstreamModel: existing.Billing.Model, Action: existing.Family, ExecutionID: existing.PublicRequestID})
+	defer finishPlan()
+
+	networkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	update, upstreamErr := submit(networkCtx)
 	cancel()
 	// Persist the outcome even if the client disconnected during submission.

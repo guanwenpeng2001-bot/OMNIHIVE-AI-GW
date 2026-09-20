@@ -1748,6 +1748,9 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 		return nil, err
 	}
 	timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
+	if timeout <= 0 || timeout > maxContentModerationTimeoutMS*time.Millisecond {
+		timeout = defaultContentModerationTimeoutMS * time.Millisecond
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -1758,7 +1761,7 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client, err := s.moderationHTTPClient(ctx, cfg)
+	client, err := s.moderationHTTPClient(reqCtx, cfg)
 	if err != nil {
 		return nil, err
 	}

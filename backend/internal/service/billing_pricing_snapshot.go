@@ -27,6 +27,7 @@ var ErrInvalidBillingAmount = errors.New("invalid billing amount or quantity")
 // Amounts remain raw for the historical fingerprint; ChargedAmount is the
 // canonical eight-place amount to use for every customer effect and usage log.
 type PricingSnapshot struct {
+	ProxyCacheDiscountInputTokens int                    `json:"proxy_cache_discount_input_tokens,omitempty"`
 	PricingAt                     time.Time              `json:"pricing_at,omitzero"`
 	PricingState                  PricingState           `json:"pricing_state"`
 	QuantizeQuoteBeforeMultiplier bool                   `json:"quantize_quote_before_multiplier,omitempty"`

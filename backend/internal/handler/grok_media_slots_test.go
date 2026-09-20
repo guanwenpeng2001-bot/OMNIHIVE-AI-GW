@@ -200,6 +200,9 @@ func newGrokMediaSlotHandler(t *testing.T, oauth, mismatch bool) (*OpenAIGateway
 			accounts[i].Credentials["expires_at"] = time.Now().Add(7 * 24 * time.Hour).UTC().Format(time.RFC3339)
 		}
 	}
+	for index := range accounts {
+		accounts[index] = preparedGatewayFixtureAccount(accounts[index])
+	}
 	slots := &grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}}
 	concurrency := service.NewConcurrencyService(slots)
 	bindings := &grokMediaSlotBindings{owner: 1}
@@ -339,7 +342,7 @@ func TestGrokMediaEligibilityReleasesBeforeSwitch(t *testing.T) {
 			c, w := grokMediaSlotContext(ctx, true)
 			h.GrokVideoGeneration(c)
 			slots.assertReleased(t)
-			require.Equal(t, 1, slots.peak, "rejected attempts must release before the next selection")
+			require.Equal(t, 1, slots.peak, "rejected attempts must release before the next selection: %s", w.Body.String())
 			if scenario == "switch" {
 				events, _ := c.Get(service.OpsUpstreamErrorsKey)
 				detail, err := json.Marshal(events)

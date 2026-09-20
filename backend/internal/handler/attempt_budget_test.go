@@ -18,6 +18,7 @@ func TestAttemptBudgetWriterCommitBlocksReplay(t *testing.T) {
 			c, _ := gin.CreateTestContext(httptest.NewRecorder())
 			c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 			cleanup := installAttemptBudget(c)
+			service.ConfigureAttemptBudget(c.Request.Context(), 2)
 			defer cleanup()
 			ctx := c.Request.Context()
 			finish, err := service.BeginGenerationAttempt(ctx, 1)
@@ -60,6 +61,7 @@ func TestAttemptBudgetKeepaliveAllowsGeneration(t *testing.T) {
 		t.Run(frames[0], func(t *testing.T) {
 			c, _ := newHelperTestContext(http.MethodPost, "/v1/responses")
 			cleanup := installAttemptBudget(c)
+			service.ConfigureAttemptBudget(c.Request.Context(), 2)
 			defer cleanup()
 			c.Header("Content-Type", "text/event-stream")
 			c.Writer.WriteHeaderNow()
@@ -96,6 +98,7 @@ func TestAttemptBudgetFirstGenerationAfterQueuedHeartbeat(t *testing.T) {
 			helper := NewConcurrencyHelper(service.NewConcurrencyService(cache), format, time.Millisecond)
 			c, rec := newHelperTestContext(http.MethodPost, "/v1/responses")
 			cleanup := installAttemptBudget(c)
+			service.ConfigureAttemptBudget(c.Request.Context(), 2)
 			defer cleanup()
 			started := false
 			release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, true, &started)
@@ -113,6 +116,7 @@ func TestAttemptBudgetFirstGenerationAfterQueuedHeartbeat(t *testing.T) {
 func TestAttemptBudgetFirstGenerationAfterCompactHeartbeat(t *testing.T) {
 	c, rec := newHelperTestContext(http.MethodPost, "/v1/responses")
 	cleanup := installAttemptBudget(c)
+	service.ConfigureAttemptBudget(c.Request.Context(), 2)
 	defer cleanup()
 	service.MarkOpenAICompactClientStream(c)
 	stop := service.StartOpenAICompactSSEKeepalive(c, time.Millisecond)

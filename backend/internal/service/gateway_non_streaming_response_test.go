@@ -40,7 +40,7 @@ func (r *nonJSONTempUnschedAccountRepo) SetModelRateLimit(_ context.Context, _ i
 	return nil
 }
 
-func TestHandleNonStreamingResponse_NonJSON2xxTriggersFailover(t *testing.T) {
+func TestHandleNonStreamingResponse_NonJSON2xxForbidsReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -67,6 +67,7 @@ func TestHandleNonStreamingResponse_NonJSON2xxTriggersFailover(t *testing.T) {
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Equal(t, body, failoverErr.ResponseBody)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Equal(t, "rid-invalid-json", failoverErr.ResponseHeaders.Get("x-request-id"))
 	require.False(t, c.Writer.Written(), "invalid upstream response must not be committed before failover")
 }
@@ -97,7 +98,7 @@ func TestHandleNonStreamingResponse_ValidJSONUnchanged(t *testing.T) {
 	require.JSONEq(t, string(body), rec.Body.String())
 }
 
-func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxTriggersFailover(t *testing.T) {
+func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxForbidsReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
@@ -118,6 +119,7 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_NonJSON2xxTriggers
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Equal(t, body, failoverErr.ResponseBody)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.False(t, c.Writer.Written(), "invalid passthrough response must not be committed before failover")
 }
 
@@ -148,22 +150,18 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ForceCacheBillingR
 	tests := []struct {
 		name string
 		body string
-		want string
 	}{
 		{
-			name: "converts input tokens for downstream billing",
+			name: "preserves input tokens downstream",
 			body: `{"id":"msg_1","type":"message","content":[{"type":"text","text":"unchanged"}],"usage":{"input_tokens":5,"output_tokens":3}}`,
-			want: `{"id":"msg_1","type":"message","content":[{"type":"text","text":"unchanged"}],"usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":5}}`,
 		},
 		{
-			name: "adds to genuine cache reads",
+			name: "preserves genuine cache reads",
 			body: `{"id":"msg_2","type":"message","usage":{"input_tokens":5,"output_tokens":3,"cache_read_input_tokens":7,"cache_creation_input_tokens":11}}`,
-			want: `{"id":"msg_2","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":12,"cache_creation_input_tokens":11}}`,
 		},
 		{
 			name: "zero input leaves response unchanged",
 			body: `{"id":"msg_3","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":7}}`,
-			want: `{"id":"msg_3","type":"message","usage":{"input_tokens":0,"output_tokens":3,"cache_read_input_tokens":7}}`,
 		},
 	}
 
@@ -184,8 +182,8 @@ func TestHandleNonStreamingResponseAnthropicAPIKeyPassthrough_ForceCacheBillingR
 
 			require.NoError(t, err)
 			require.Equal(t, int(gjson.Get(tt.body, "usage.input_tokens").Int()), usage.InputTokens, "local accounting must retain the unclassified usage")
-			require.Equal(t, int(gjson.Get(tt.body, "usage.cache_read_input_tokens").Int()), usage.CacheReadInputTokens, "local accounting must convert exactly once in RecordUsage")
-			require.JSONEq(t, tt.want, rec.Body.String())
+			require.Equal(t, int(gjson.Get(tt.body, "usage.cache_read_input_tokens").Int()), usage.CacheReadInputTokens, "local accounting must retain upstream cache evidence")
+			require.JSONEq(t, tt.body, rec.Body.String())
 		})
 	}
 }
@@ -230,6 +228,7 @@ func TestHandleNonStreamingResponse_NonJSON2xxMatchesModelScopedTempUnschedulabl
 	require.True(t, errors.As(err, &failoverErr))
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 	require.Equal(t, body, failoverErr.ResponseBody)
+	require.False(t, failoverErr.ShouldRetryNextAccount())
 	require.Zero(t, repo.tempUnschedCalls)
 	require.Equal(t, 1, repo.modelRateLimitCalls)
 	require.Equal(t, "claude-sonnet-4-6", repo.modelScope)

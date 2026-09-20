@@ -271,7 +271,7 @@ func wrapUsageRecordTaskContext(parent context.Context, task service.UsageRecord
 		return nil
 	}
 	return func(ctx context.Context) {
-		task(usageRecordContext(parent, ctx))
+		service.RunUsageEvidenceTask(usageRecordContext(parent, ctx), task)
 	}
 }
 
@@ -2314,6 +2314,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	reqLog.Info("openai.websocket_ingress_started")
 	clientIP := ip.GetClientIP(c)
 	userAgent := strings.TrimSpace(c.GetHeader("User-Agent"))
+	defer installAttemptBudget(c)()
 	clientLifecycleCtx := c.Request.Context()
 	ctx := clientLifecycleCtx
 	maxIngressConnections := 0
@@ -2475,7 +2476,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if apiKey.GroupID != nil {
 		wsSpec.BillingGroupID = *apiKey.GroupID
 	}
-	ctx, firstPlan := h.gatewayService.CaptureRequestPlan(ctx, wsSpec)
+	ctx, firstPlan := h.gatewayService.CaptureRequestTurn(ctx, wsSpec)
 	var activePlan atomic.Pointer[service.GatewayRequestPlan]
 	activePlan.Store(firstPlan)
 	defer func() {
@@ -2824,6 +2825,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					}
 					spec := wsSpec
 					spec.Model = model
+					spec.ExecutionID = fmt.Sprintf("%s:turn:%d", firstPlan.Snapshot().ExecutionID, turn)
 					_, plan := h.gatewayService.CaptureRequestTurn(ctx, spec)
 					activePlan.Store(plan)
 				}

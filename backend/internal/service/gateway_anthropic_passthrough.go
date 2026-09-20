@@ -20,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -820,16 +819,14 @@ func invalidNonStreamingJSONFailoverError(
 
 	accountID := int64(0)
 	accountName := ""
-	retryableOnSameAccount := false
 	if account != nil {
 		accountID = account.ID
 		accountName = account.Name
-		retryableOnSameAccount = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
 	}
 
 	logger.LegacyPrintf(
 		"service.gateway",
-		"Account %d(%s): upstream returned non-JSON 2xx response, attempting failover: status=%d request_id=%s error=%v",
+		"Account %d(%s): upstream returned non-JSON 2xx response, replay forbidden: status=%d request_id=%s error=%v",
 		accountID,
 		accountName,
 		resp.StatusCode,
@@ -846,10 +843,10 @@ func invalidNonStreamingJSONFailoverError(
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           body,
-		ResponseHeaders:        resp.Header,
-		RetryableOnSameAccount: retryableOnSameAccount,
+		StatusCode:        statusCode,
+		ResponseBody:      body,
+		ResponseHeaders:   resp.Header,
+		NextAccountAction: NextAccountStop,
 	}
 }
 
@@ -881,12 +878,6 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
-	if IsForceCacheBilling(ctx) && usage.InputTokens > 0 {
-		body, err = classifyAnthropicResponseInputAsCacheRead(body, usage)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -896,18 +887,6 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil
-}
-
-func classifyAnthropicResponseInputAsCacheRead(body []byte, usage *ClaudeUsage) ([]byte, error) {
-	classified, err := sjson.SetBytes(body, "usage.input_tokens", 0)
-	if err != nil {
-		return nil, fmt.Errorf("classify forced cache billing input tokens: %w", err)
-	}
-	classified, err = sjson.SetBytes(classified, "usage.cache_read_input_tokens", usage.CacheReadInputTokens+usage.InputTokens)
-	if err != nil {
-		return nil, fmt.Errorf("classify forced cache billing cache read tokens: %w", err)
-	}
-	return classified, nil
 }
 
 func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

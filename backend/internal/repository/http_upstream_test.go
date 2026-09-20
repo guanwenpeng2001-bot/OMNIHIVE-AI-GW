@@ -572,13 +572,13 @@ func (s *HTTPUpstreamSuite) newService() *httpUpstreamService {
 }
 
 // TestDefaultResponseHeaderTimeout 测试默认响应头超时配置
-// 验证显式 0 会禁用等待响应头超时
+// 验证显式 0 使用有限默认响应头超时
 func (s *HTTPUpstreamSuite) TestDefaultResponseHeaderTimeout() {
 	svc := s.newService()
 	entry := mustGetOrCreateClient(s.T(), svc, "", 0, 0)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
-	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
+	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "ResponseHeaderTimeout mismatch")
 }
 
 // TestNilConfigResponseHeaderTimeoutFallback 验证 nil 配置使用代码级兜底值。
@@ -611,7 +611,7 @@ func (s *HTTPUpstreamSuite) TestGetOrCreateClient_InvalidURLReturnsError() {
 	require.Error(s.T(), err, "expected error for invalid proxy URL")
 }
 
-func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout() {
+func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndFiniteHeaderTimeout() {
 	s.cfg.Gateway = config.GatewayConfig{
 		ResponseHeaderTimeout: 600,
 		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{
@@ -624,7 +624,7 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileDefaultsToHTTP2AndNoHeaderTimeout()
 	require.NoError(s.T(), err)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
-	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "OpenAI profile should not inherit generic header timeout")
+	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "OpenAI profile should not inherit generic header timeout")
 	require.True(s.T(), transport.ForceAttemptHTTP2, "OpenAI profile should prefer HTTP/2")
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH2, entry.protocolMode)
 }
@@ -675,7 +675,7 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileTLSFingerprintDoesNotInheritGeneric
 	require.NoError(s.T(), err)
 	transport, ok := entry.client.Transport.(*http.Transport)
 	require.True(s.T(), ok, "expected *http.Transport")
-	require.Equal(s.T(), time.Duration(0), transport.ResponseHeaderTimeout, "OpenAI TLS path should not inherit generic header timeout")
+	require.Equal(s.T(), defaultResponseHeaderTimeout, transport.ResponseHeaderTimeout, "OpenAI TLS path should not inherit generic header timeout")
 }
 
 func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {
