@@ -388,6 +388,7 @@
               value === 'active' ? 'badge-success' :
               value === 'quota_exhausted' ? 'badge-warning' :
               value === 'expired' ? 'badge-danger' :
+              value === 'disabled' ? 'badge-purple' :
               'badge-gray'
             ]">
               {{ t('keys.status.' + value) }}
@@ -597,8 +598,12 @@
           <Select
             v-model="formData.status"
             :options="statusOptions"
+            :disabled="statusLockedByAdmin"
             :placeholder="t('keys.selectStatus')"
           />
+          <p v-if="statusLockedByAdmin" class="input-hint">
+            {{ t('keys.statusDisabledHint') }}
+          </p>
         </div>
 
         <!-- IP Restriction Section -->
@@ -1555,7 +1560,16 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
+// 管理员（或风控）停用的密钥是管理侧决定：面板不能把它改回 active，
+// 状态控件直接锁死，编辑其它字段时也不提交 status。
+const statusLockedByAdmin = computed(() =>
+  showEditModal.value && selectedKey.value?.status === 'disabled'
+)
+
 const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
+  if (key.status === 'disabled') {
+    return false
+  }
   if (key.status === 'quota_exhausted' || key.status === 'expired') {
     return status === 'active'
   }
@@ -1573,6 +1587,7 @@ const statusFilterOptions = computed(() => [
   { value: '', label: t('keys.allStatus') },
   { value: 'active', label: t('keys.status.active') },
   { value: 'inactive', label: t('keys.status.inactive') },
+  { value: 'disabled', label: t('keys.status.disabled') },
   { value: 'quota_exhausted', label: t('keys.status.quota_exhausted') },
   { value: 'expired', label: t('keys.status.expired') }
 ])
@@ -1742,7 +1757,7 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
-    status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
+    status: key.status === 'quota_exhausted' || key.status === 'expired' || key.status === 'disabled' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
     enable_ip_restriction: hasIPRestriction,

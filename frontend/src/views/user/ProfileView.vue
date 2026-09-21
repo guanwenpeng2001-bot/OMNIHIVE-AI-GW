@@ -32,6 +32,8 @@
         </div>
       </div>
 
+      <ProfileBillingTimelineCard />
+
       <ProfilePasswordForm />
 
       <ProfileBalanceNotifyCard
@@ -55,6 +57,7 @@ import { useI18n } from 'vue-i18n'
 import { Icon } from '@/components/icons'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
+import ProfileBillingTimelineCard from '@/components/user/profile/ProfileBillingTimelineCard.vue'
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'

@@ -1503,10 +1503,9 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 
 // usageQuotaLimited 处理 quota_limited 模式的响应
 func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
-	resp := gin.H{
-		"mode":    "quota_limited",
-		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
-		"status":  apiKey.Status,
+	resp := gin.H{"mode": "quota_limited"}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 
 	// 总额度信息
@@ -1575,12 +1574,6 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		}
 	}
 
-	// 过期时间
-	if apiKey.ExpiresAt != nil {
-		resp["expires_at"] = apiKey.ExpiresAt
-		resp["days_until_expiry"] = apiKey.GetDaysUntilExpiry()
-	}
-
 	if usageData != nil {
 		resp["usage"] = usageData
 	}
@@ -1600,9 +1593,11 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
 			"mode":     "unrestricted",
-			"isValid":  true,
 			"planName": apiKey.Group.Name,
 			"unit":     "USD",
+		}
+		for key, value := range usageAvailabilityFields(apiKey) {
+			resp[key] = value
 		}
 
 		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
@@ -1644,11 +1639,13 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 
 	resp := gin.H{
 		"mode":      "unrestricted",
-		"isValid":   true,
 		"planName":  "钱包余额",
 		"remaining": latestUser.Balance,
 		"unit":      "USD",
 		"balance":   latestUser.Balance,
+	}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 	if usageData != nil {
 		resp["usage"] = usageData

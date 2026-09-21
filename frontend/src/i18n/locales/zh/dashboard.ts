@@ -352,9 +352,11 @@ export default {
     status: {
       active: '活跃',
       inactive: '已停用',
+      disabled: '管理员已停用',
       quota_exhausted: '额度耗尽',
       expired: '已过期'
-    }
+    },
+    statusDisabledHint: '该密钥已被管理员停用，面板无法重新启用，请联系管理员。'
   },
 
   // Usage
@@ -1152,5 +1154,30 @@ export default {
     selectDateRange: '选择日期范围'
   },
 
+
+  // Billing timeline (user-facing)
+  billing: {
+    timeline: {
+      title: '账单历史',
+      description: '充值、扣费、退款、返利、兑换与调账在同一条时间线上，金额按发生时的记录展示。',
+      credits: '累计入账',
+      debits: '累计扣减',
+      net: '净变动',
+      accruedRebate: '未转入返利',
+      accruedOnly: '已累计，尚未转入余额',
+      requests: '{count} 次请求',
+      page: '第 {page} / {pages} 页',
+      empty: '该时间范围内没有账单记录。',
+      loadFailed: '账单历史加载失败。',
+    },
+    kind: {
+      recharge: '充值',
+      charge: '扣费',
+      refund: '退款',
+      rebate: '返利',
+      redeem: '兑换',
+      adjustment: '调账',
+    },
+  },
   // Admin
 }

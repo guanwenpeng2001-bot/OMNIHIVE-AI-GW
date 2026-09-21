@@ -36,6 +36,8 @@ var (
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
 	ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key 额度已用完")
+	// 停用只由管理侧解除：面板编辑不能把 disabled 的凭据改回 active。
+	ErrAPIKeyDisabledByAdmin = infraerrors.Forbidden("API_KEY_DISABLED_BY_ADMIN", "this api key was disabled by an administrator and cannot be re-enabled from the panel")
 
 	// Rate limit errors
 	ErrAPIKeyRateLimit5hExceeded = infraerrors.TooManyRequests("API_KEY_RATE_5H_EXCEEDED", "api key 5小时限额已用完")
@@ -968,6 +970,11 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.Status != nil {
+		// 停用（disabled）是管理侧（管理员/风控）的决定：面板编辑不得把凭据悄悄
+		// 复活。quota_exhausted / expired 属于可由编辑恢复的限额状态，仍允许重置。
+		if originalStatus == StatusAPIKeyDisabled && *req.Status != StatusAPIKeyDisabled {
+			return nil, ErrAPIKeyDisabledByAdmin
+		}
 		apiKey.Status = *req.Status
 		fields.Status = true
 		// 如果状态改变，清除Redis缓存
