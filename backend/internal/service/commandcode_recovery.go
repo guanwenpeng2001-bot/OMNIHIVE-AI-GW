@@ -19,6 +19,11 @@ func isCommandCodeInvalidCredential(status int, body []byte) bool {
 	if commandCodePlanError(status, body) != "" {
 		return false
 	}
+	// 官方错误契约（2026-09-21）：401 的信封类型即 authentication_error，
+	// 表示鉴权缺失或无效。类型本身就是凭据证据，不依赖 message 文案。
+	if status == http.StatusUnauthorized && commandCodeUpstreamErrorType(body) == "authentication_error" {
+		return true
+	}
 	code := strings.ToUpper(strings.TrimSpace(gjson.GetBytes(body, "error.code").String()))
 	switch code {
 	case "INVALID_API_KEY", "INVALID_KEY", "API_KEY_REVOKED", "KEY_REVOKED":
@@ -45,7 +50,9 @@ func (s *RateLimitService) handleCommandCodeError(ctx context.Context, account *
 		return true, true
 	case http.StatusUnauthorized, http.StatusForbidden, http.StatusBadRequest:
 		// Plan/model restrictions, edge failures and unknown denials do not
-		// establish account-wide credential failure.
+		// establish account-wide credential failure. The documented 422
+		// cmd_zdr_no_providers stays with the default flow so an operator's
+		// explicit custom error-code policy keeps its meaning.
 		return true, false
 	case http.StatusTooManyRequests:
 		winner := pickLatestResetSchedulingCandidate(commandCodeUsageWindows(account, time.Now()), 100, time.Now())
