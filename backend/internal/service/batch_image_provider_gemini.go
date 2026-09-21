@@ -41,10 +41,42 @@ type GeminiUploadedFile struct {
 type GeminiBatchJob struct {
 	Name     string               `json:"name"`
 	State    string               `json:"state"`
+	Done     bool                 `json:"done"`
+	Metadata *GeminiBatchMetadata `json:"metadata"`
 	Dest     *GeminiBatchDest     `json:"dest"`
 	Response *GeminiBatchResponse `json:"response"`
 	Error    *GeminiBatchError    `json:"error"`
 	Raw      map[string]any       `json:"-"`
+}
+
+type GeminiBatchMetadata struct {
+	State string `json:"state"`
+}
+
+// UnmarshalJSON accepts google.rpc.Status integer codes as well as the older
+// SDK-shaped string codes. REST Operation evidence: ai.google.dev/api/batch-api,
+// verified 2026-09-21.
+func (e *GeminiBatchError) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	e.Message, e.Status = wire.Message, wire.Status
+	e.Code = ""
+	if len(wire.Code) > 0 && string(wire.Code) != "null" {
+		if err := json.Unmarshal(wire.Code, &e.Code); err != nil {
+			var number json.Number
+			if err := json.Unmarshal(wire.Code, &number); err != nil {
+				return err
+			}
+			e.Code = number.String()
+		}
+	}
+	return nil
 }
 
 type GeminiBatchDest struct {
@@ -628,6 +660,19 @@ func (c *GeminiBatchHTTPClient) doBatchJob(req *http.Request) (*GeminiBatchJob, 
 	var job GeminiBatchJob
 	if err := c.doJSON(req, &job); err != nil {
 		return nil, err
+	}
+	if job.Metadata != nil && job.State == "" {
+		job.State = strings.Replace(job.Metadata.State, "BATCH_STATE_", "JOB_STATE_", 1)
+	}
+	if job.Done {
+		if job.Error != nil {
+			job.State = "JOB_STATE_FAILED"
+			if job.Error.Code == "1" || job.Error.Status == "CANCELLED" {
+				job.State = "JOB_STATE_CANCELLED"
+			}
+		} else if job.Response != nil {
+			job.State = "JOB_STATE_SUCCEEDED"
+		}
 	}
 	job.Raw = map[string]any{}
 	return &job, nil
