@@ -29,6 +29,8 @@ func RegisterGatewayRoutes(
 	compositeResolver *service.CompositeRouteResolver,
 	cfg *config.Config,
 ) {
+	// Public IDs may contain provider/model: match the encoded ID as one raw path segment.
+	r.UseRawPath = true
 	r.Use(middleware.GatewayUnknownRouteProtocol())
 	bodyLimit := middleware.RequestBodyLimit(cfg.Gateway.MaxBodySize)
 	textBodyLimit := middleware.RequestBodyLimit(cfg.Gateway.TextMaxBodySize)
