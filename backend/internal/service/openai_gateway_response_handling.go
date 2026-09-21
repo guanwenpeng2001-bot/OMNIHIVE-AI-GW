@@ -1578,6 +1578,10 @@ func openAICacheReadTokensFromUsage(value gjson.Result) int {
 		value.Get("cache_read_input_tokens"),
 		value.Get("cache_read_tokens"),
 		value.Get("cached_tokens"),
+		// DeepSeek/Kimi 系原生缓存命中别名（对应未命中字段 prompt_cache_miss_tokens）：
+		// CC 主干计费侧按"总输入 − 缓存读 − 缓存写"拆互斥桶（RecordUsage），
+		// 缺此别名会把缓存命中按缓存未命中价重复计费。
+		value.Get("prompt_cache_hit_tokens"),
 	)
 }
 

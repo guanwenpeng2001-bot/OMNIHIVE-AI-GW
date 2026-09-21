@@ -280,8 +280,9 @@ var ErrModelPricingUnavailable = errors.New("pricing not found")
 //
 //	https://api-docs.deepseek.com/quick_start/pricing
 //
-// 高峰价 = 2× 低谷价；高峰时段 01:00–04:00 与 06:00–10:00 UTC（仅工作日），
-// 北京时间周六/周日全天低谷。时段判定见 deepseekPeakMultiplierAt。
+// 高峰价 = 2× 低谷价；高峰时段 01:00–04:00 与 06:00–10:00 UTC（周一至周五，
+// 中国法定节假日除外），北京时间周六/周日与法定节假日全天低谷。
+// 时段判定见 deepseekPeakMultiplierAt。
 const (
 	deepseekFlashOffPeakInputPrice  = 1.5e-7  // $0.15 per MTok (cache miss)
 	deepseekFlashOffPeakOutputPrice = 6.0e-7  // $0.60 per MTok
@@ -302,13 +303,17 @@ func isDeepSeekModel(model string) bool {
 }
 
 // deepseekPeakMultiplierAt 返回指定时刻的 DeepSeek 官方峰谷定价因子。
-// 官方口径（2026-08-23 起生效）：高峰价 = 2× 低谷价；高峰时段为
-// 01:00–04:00 与 06:00–10:00 UTC（半开区间），仅工作日；
-// 周末（北京时间周六/周日）全天低谷。北京时间用固定 +8 偏移（无夏令时）。
+// 官方口径（2026-08-23 起生效；2026-09-20 官方价页快照复核）：高峰价 = 2× 低谷价；
+// 高峰时段为 01:00–04:00 与 06:00–10:00 UTC（半开区间），仅周一至周五且
+// 中国法定节假日除外；北京时间周六/周日与法定节假日全天低谷。
+// 北京时间用固定 +8 偏移（无夏令时）。
 func deepseekPeakMultiplierAt(now time.Time) float64 {
 	beijing := now.In(time.FixedZone("Asia/Shanghai", 8*3600))
 	switch beijing.Weekday() {
 	case time.Saturday, time.Sunday:
+		return 1.0
+	}
+	if isDeepSeekChinesePublicHoliday(beijing) {
 		return 1.0
 	}
 	switch h := now.UTC().Hour(); {
