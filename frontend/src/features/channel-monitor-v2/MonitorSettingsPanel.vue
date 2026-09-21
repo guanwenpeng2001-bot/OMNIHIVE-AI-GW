@@ -26,6 +26,18 @@
     </header>
 
     <div
+      v-if="blockedReason"
+      data-test="monitor-settings-blocked"
+      class="rounded-2xl border border-red-200 bg-red-50/90 px-4 py-3 text-sm text-red-900 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-100"
+      role="alert"
+    >
+      {{ blockedMessage }}
+      <router-link class="ml-1 font-medium underline" to="/admin/settings">
+        {{ t('channelMonitorV2.settings.openSettings') }}
+      </router-link>
+    </div>
+
+    <div
       v-if="!systemModeV2"
       class="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100"
       role="status"
@@ -101,10 +113,14 @@
             <input
               class="input"
               :value="platform.models.join(', ')"
+              :list="`monitor-settings-models-${platform.platform}`"
               type="text"
               :placeholder="t('channelMonitorV2.settings.modelsPlaceholder')"
               @change="setModels(platform, $event)"
             />
+            <datalist :id="`monitor-settings-models-${platform.platform}`">
+              <option v-for="model in presetModelsFor(platform.platform)" :key="model" :value="model" />
+            </datalist>
             <span
               class="badge justify-self-start sm:justify-self-end"
               :class="platform.models.length ? 'badge-gray' : 'badge badge-primary'"
@@ -266,8 +282,9 @@ import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorCode } from '@/utils/apiError'
 import { getChannelMonitorMode, isChannelMonitorV2Mode } from '@/utils/featureFlags'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import {
   getConfig,
   updateConfig,
@@ -285,6 +302,29 @@ const saving = ref(false)
 const draft = ref<MonitorConfig | null>(null)
 const original = ref('')
 const groups = ref<AdminGroup[]>([])
+// 配置接口被规范机器码拒绝时（功能关闭 / 模式不符）展示真实原因，而不是只弹一个 toast。
+const blockedReason = ref<'disabled' | 'modeMismatch' | null>(null)
+const blockedMessage = computed(() =>
+  blockedReason.value === 'modeMismatch'
+    ? t('channelMonitorV2.settings.blockedModeMismatch')
+    : t('channelMonitorV2.settings.blockedDisabled'),
+)
+
+// N10：平台模型候选来自后端预设（可手填部署名等预设外模型）。
+const { presets: platformPresets } = usePlatformModelPresets(
+  () => (draft.value?.platforms ?? []).filter((platform) => platform.enabled).map((platform) => platform.platform)
+)
+const presetModelsByPlatform = computed<Record<string, string[]>>(() => {
+  const byPlatform: Record<string, string[]> = {}
+  for (const preset of platformPresets.value) {
+    const ids = (preset.models ?? []).map((model) => model.id).filter(Boolean)
+    byPlatform[preset.platform] = [...new Set([...(byPlatform[preset.platform] ?? []), ...ids])]
+  }
+  return byPlatform
+})
+function presetModelsFor(platform: string): string[] {
+  return presetModelsByPlatform.value[platform] ?? []
+}
 
 const dirty = computed(() => (draft.value ? JSON.stringify(draft.value) !== original.value : false))
 const namedModelCount = computed(
@@ -382,8 +422,15 @@ async function load() {
     draft.value = structuredClone(normalized)
     groups.value = groupRows
     original.value = JSON.stringify(normalized)
+    blockedReason.value = null
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.settings.loadFailed')))
+    const reason = extractApiErrorCode(error)
+    if (reason === 'CHANNEL_MONITOR_DISABLED' || reason === 'CHANNEL_MONITOR_MODE_MISMATCH') {
+      blockedReason.value = reason === 'CHANNEL_MONITOR_MODE_MISMATCH' ? 'modeMismatch' : 'disabled'
+      draft.value = null
+    } else {
+      appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.settings.loadFailed')))
+    }
   } finally {
     loading.value = false
   }
@@ -400,7 +447,12 @@ async function save() {
     original.value = JSON.stringify(normalized)
     appStore.showSuccess(t('channelMonitorV2.settings.saveSuccess'))
   } catch (error) {
-    appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.settings.saveFailed')))
+    const reason = extractApiErrorCode(error)
+    if (reason === 'CHANNEL_MONITOR_DISABLED' || reason === 'CHANNEL_MONITOR_MODE_MISMATCH') {
+      blockedReason.value = reason === 'CHANNEL_MONITOR_MODE_MISMATCH' ? 'modeMismatch' : 'disabled'
+    } else {
+      appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.settings.saveFailed')))
+    }
     await load()
   } finally {
     saving.value = false

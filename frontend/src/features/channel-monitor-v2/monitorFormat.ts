@@ -78,6 +78,57 @@ export function formatMonitorSuccessRateFromError(errorRate: number): string {
 }
 
 /**
+ * 成功率优先用后端下发的 success_rate（success_requests / request_count）；
+ * 旧响应缺这个字段时才用 1 - error_rate 推导。
+ * 两者不等价：被忽略的错误分类不计入 error_rate，但仍不算成功。
+ */
+export function formatMonitorSuccessRateFromMetric(metrics: {
+  success_rate?: number
+  error_rate: number
+}): string {
+  const successRate = metrics.success_rate
+  if (typeof successRate === 'number' && Number.isFinite(successRate)) {
+    return formatMonitorPercent(successRate)
+  }
+  return formatMonitorSuccessRateFromError(metrics.error_rate)
+}
+
+/** 后端是否下发了绝对 token 拆分（用户视图被服务端清零，不能当真实拆分展示）。 */
+export function hasMonitorTokenSplit(metrics: {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_tokens?: number
+  cache_read_tokens?: number
+}): boolean {
+  return [metrics.input_tokens, metrics.output_tokens, metrics.cache_creation_tokens, metrics.cache_read_tokens]
+    .some((value) => typeof value === 'number')
+}
+
+export interface MonitorTokenSplitParts extends Record<string, string> {
+  input: string
+  output: string
+  cacheRead: string
+  cacheCreation: string
+}
+
+/** 紧凑 token 拆分数值（视图按当前语言组装文案），未知字段显示 '-'。 */
+export function monitorTokenSplitParts(metrics: {
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_tokens?: number
+  cache_read_tokens?: number
+}): MonitorTokenSplitParts {
+  const compact = (value: number | undefined) =>
+    typeof value === 'number' ? formatMonitorNumber(value, 1000) : '-'
+  return {
+    input: compact(metrics.input_tokens),
+    output: compact(metrics.output_tokens),
+    cacheRead: compact(metrics.cache_read_tokens),
+    cacheCreation: compact(metrics.cache_creation_tokens),
+  }
+}
+
+/**
  * Map continuous 0–100 score to 11 fine bands for multi-stop green→yellow→red.
  * score10 = best (green), score0 = worst (red).
  */

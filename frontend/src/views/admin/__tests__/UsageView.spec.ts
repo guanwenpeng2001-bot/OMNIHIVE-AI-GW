@@ -176,6 +176,8 @@ const mountRouteFilteredUsageView = (timeZone?: string) => mount(UsageView, {
     DateRangePicker: true, Icon: true, TokenUsageTrend: true,
     ModelDistributionChart: true, GroupDistributionChart: true,
     EndpointDistributionChart: true, UserTokenRanking: true,
+    OpsErrorLogTable: { template: '<div data-test="ops-error-table" />' },
+    RouterLink: { template: '<a><slot /></a>' },
   } },
 })
 
@@ -474,6 +476,7 @@ describe('admin UsageView distribution metric toggles', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: ModelDistributionChartStub, GroupDistributionChart: GroupDistributionChartStub,
         EndpointDistributionChart: true, UserTokenRanking: true,
+        RouterLink: { template: '<a><slot /></a>' },
       } },
     })
     vi.advanceTimersByTime(120)
@@ -744,6 +747,7 @@ describe('admin UsageView errors tab filter forwarding', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
         UserTokenRanking: true, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        RouterLink: { template: '<a><slot /></a>' },
       } },
     })
     vi.advanceTimersByTime(120)
@@ -800,6 +804,7 @@ describe('admin UsageView ranking tab', () => {
         DateRangePicker: true, Icon: true, TokenUsageTrend: true,
         ModelDistributionChart: true, GroupDistributionChart: true, EndpointDistributionChart: true,
         UserTokenRanking: UserTokenRankingStub, OpsErrorLogTable: true, OpsErrorDetailModal: true,
+        RouterLink: { template: '<a><slot /></a>' },
       } },
     })
     vi.advanceTimersByTime(120)
@@ -932,3 +937,51 @@ describe('ledger export formatting', () => {
     expect(wrapper.findComponent({ name: 'UsageTable' }).props('timeZone')).toBe(timeZone)
     wrapper.unmount()
   })
+
+describe('admin UsageView ops-disabled error tab', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+    Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
+    list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+    getStats.mockReset().mockResolvedValue({ total_requests: 0 })
+    getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockReset().mockResolvedValue({ models: [] })
+    getById.mockReset()
+    listErrorLogs.mockReset()
+  })
+
+  afterEach(() => {
+    Object.keys(routeQuery).forEach((key) => delete routeQuery[key])
+    vi.useRealTimers()
+  })
+
+  it('shows the OPS_DISABLED reason instead of an empty error table', async () => {
+    listErrorLogs.mockRejectedValue({ status: 404, reason: 'OPS_DISABLED', message: 'Ops monitoring is disabled' })
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await (wrapper.vm as any).switchTab('errors')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="usage-errors-ops-disabled"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="ops-error-table"]').exists()).toBe(false)
+    // 用量明细不受运维监控开关影响：列表照常加载
+    expect(list).toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('keeps the error table when ops is available', async () => {
+    listErrorLogs.mockResolvedValue({ items: [], total: 0 })
+    const wrapper = mountRouteFilteredUsageView()
+    vi.advanceTimersByTime(120)
+    await flushPromises()
+
+    await (wrapper.vm as any).switchTab('errors')
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="usage-errors-ops-disabled"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="ops-error-table"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+})

@@ -254,11 +254,37 @@ func (f *ChannelMonitorQuotaFetcher) fetchUncached(ctx context.Context, accountI
 		if account.IsCodingPlan() {
 			return f.fetchCNQuota(ctx, account, now)
 		}
+		if !cnPayGBalanceEndpointAvailable(account.Platform) {
+			// 智谱/稀宇 payg 没有公开余额端点：不发注定失败的探测请求，
+			// 直接给出「无观测源」快照（degraded 配置问题，不是渠道故障），
+			// 也不展示假余额。
+			return cnPayGBalanceUnsupportedSnapshot(account.Platform, now)
+		}
 		return f.fetchCNBalance(ctx, account, now)
 	case domain.PlatformOpenCodeGo, domain.PlatformCommandCode:
 		return f.fetchCNQuota(ctx, account, now)
 	default:
 		return f.fetchUsage(ctx, account, now)
+	}
+}
+
+// cnPayGBalanceEndpointAvailable 报告国产 payg 平台是否有公开余额端点。
+// 只有 Kimi（Moonshot）与 DeepSeek 有：智谱无公开余额端点，稀宇也不提供，
+// 对准它们发探测只会得到固定的「无端点」错误。
+func cnPayGBalanceEndpointAvailable(platform string) bool {
+	return platform == domain.PlatformKimi || platform == domain.PlatformDeepseek
+}
+
+// cnPayGBalanceUnsupportedSnapshot 表示「该平台没有可用的额度/余额观测源」。
+// Source 保持 cn_balance 与抓取路由一致，但带上明确的 unsupported 语义：
+// 不计凭据失效、不发上游请求、不编造余额。
+func cnPayGBalanceUnsupportedSnapshot(platform string, now time.Time) *domain.MonitorQuotaSnapshot {
+	return &domain.MonitorQuotaSnapshot{
+		Source:      "cn_balance",
+		Success:     false,
+		Unsupported: true,
+		Error:       "no balance endpoint for " + platform + " payg account; use local usage statistics",
+		FetchedAt:   now,
 	}
 }
 
@@ -556,6 +582,11 @@ func deriveQuotaCheckResult(snapshot *domain.MonitorQuotaSnapshot, model string,
 		res.Status = MonitorStatusFailed
 		res.Message = snapshot.Error
 	case !snapshot.Success && strings.Contains(snapshot.Error, "linked account not found"):
+		res.Status = MonitorStatusDegraded
+		res.Message = snapshot.Error
+	case !snapshot.Success && snapshot.Unsupported:
+		// 该组合本来就没有额度观测源：是配置问题（degraded），不是渠道故障，
+		// 也不能拿它当错误刷屏。
 		res.Status = MonitorStatusDegraded
 		res.Message = snapshot.Error
 	case !snapshot.Success:

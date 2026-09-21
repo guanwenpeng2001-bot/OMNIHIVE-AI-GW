@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -931,14 +932,40 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Return mock data for now
+	ctx := c.Request.Context()
+	// 归属校验：先确认该分组存在，再按它聚合。少了这一步就会把 :id 丢掉，
+	// 返回与其他分组无关的数字（原实现恒返回 0）。
+	if _, err := h.adminService.GetGroup(ctx, groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.dashboardService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Group usage statistics are unavailable")
+		return
+	}
+
+	totals, err := h.dashboardService.GetGroupUsageTotals(ctx, groupID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to get group usage totals")
+		return
+	}
+	totalKeys, activeKeys, err := h.adminService.GetGroupAPIKeyCounts(ctx, groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
 	response.Success(c, gin.H{
-		"total_api_keys":  0,
-		"active_api_keys": 0,
-		"total_requests":  0,
-		"total_cost":      0.0,
+		"group_id":        groupID,
+		"total_api_keys":  totalKeys,
+		"active_api_keys": activeKeys,
+		"total_requests":  totals.Requests,
+		"total_cost":      totals.TotalCost,
+		"actual_cost":     totals.ActualCost,
+		// 请求数/标准计费只能回溯到原始账本保留窗口起点；调用方不得当成历史全量。
+		"usage_window_start": totals.WindowStart.UTC().Format(time.RFC3339),
+		"usage_window_end":   totals.WindowEnd.UTC().Format(time.RFC3339),
 	})
-	_ = groupID // TODO: implement actual stats
 }
 
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.

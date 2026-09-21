@@ -181,7 +181,7 @@ import {
   formatLatencyPrivacy,
   formatMonitorMs,
   formatMonitorPercent,
-  formatMonitorSuccessRateFromError,
+  formatMonitorSuccessRateFromMetric,
   formatMonitorThroughput,
   formatMonitorTokensPerSecond,
   tokensPerSecondFromTpm,
@@ -364,7 +364,8 @@ function successRate(metrics: MonitorMetric): string {
   const noCount = metrics.request_count <= 0
   const noTP = (metrics.rpm || 0) <= 0 && (metrics.tpm || 0) <= 0
   if (noCount && noTP && props.showThroughput) return '-'
-  return formatMonitorSuccessRateFromError(metrics.error_rate)
+  // 优先用后端下发的 success_rate（被忽略的错误分类不计入 error_rate，两者不等价）。
+  return formatMonitorSuccessRateFromMetric(metrics)
 }
 
 function formatScore(health: MonitorHealth): string {

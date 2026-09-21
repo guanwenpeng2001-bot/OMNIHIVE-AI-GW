@@ -3,6 +3,7 @@ package admin
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -191,13 +192,31 @@ func (h *DashboardHandler) BackfillAggregation(c *gin.Context) {
 
 // GetRealtimeMetrics handles getting real-time system metrics
 // GET /api/v1/admin/dashboard/realtime
+//
+// 真实查询：请求量/平均响应耗时来自本地原始账本 usage_logs 的最近一分钟窗口；
+// 账本保留窗口覆盖不住这一分钟时返回 null（不假填 0）。active_requests 需要在途
+// 计数器、error_rate 需要错误维度，本地账本两者都没有，一律返回 null 而不是 0。
 func (h *DashboardHandler) GetRealtimeMetrics(c *gin.Context) {
-	// Return mock data for now
+	if h.dashboardService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Dashboard service not available")
+		return
+	}
+	windowEnd := time.Now().UTC()
+	windowStart := windowEnd.Add(-time.Minute)
+	stats, err := h.dashboardService.GetRealtimeWindowStats(c.Request.Context(), windowStart, windowEnd)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, gin.H{
-		"active_requests":       0,
-		"requests_per_minute":   0,
-		"average_response_time": 0,
-		"error_rate":            0.0,
+		"requests_per_minute":   stats.Requests,
+		"average_response_time": stats.AverageResponseTimeMs,
+		// 无本地观测源的字段：显式未知。
+		"active_requests":   nil,
+		"error_rate":        nil,
+		"coverage_complete": stats.CoverageComplete,
+		"observed_from":     stats.WindowStart.Format(time.RFC3339),
+		"observed_to":       stats.WindowEnd.Format(time.RFC3339),
 	})
 }
 

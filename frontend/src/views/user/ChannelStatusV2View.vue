@@ -1,6 +1,14 @@
 <template>
   <AppLayout>
-    <p role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
+    <div
+      v-if="blockedReason"
+      role="note"
+      data-test="channel-monitor-v2-blocked"
+      class="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+    >
+      {{ blockedMessage }}
+    </div>
+    <p v-else role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
     <div class="space-y-6 pb-12">
       <!-- Ops-style elevated shell: title toolbar + filters (mirrors OpsDashboardHeader) -->
       <section
@@ -203,8 +211,8 @@
       >
         <MetricCell
           :label="t('channelMonitorV2.metrics.successRate')"
-          :value="formatPercent(1 - snapshot.metrics.error_rate)"
-          :detail="t('channelMonitorV2.metrics.errorRateValue', { value: formatPercent(snapshot.metrics.error_rate) })"
+          :value="successRateValue(snapshot.metrics)"
+          :detail="successRateDetail(snapshot.metrics)"
           :state="snapshot.health.error_rate"
         />
         <MetricCell
@@ -218,7 +226,7 @@
           v-if="showThroughput"
           :label="t('channelMonitorV2.metrics.tps')"
           :value="formatTps(snapshot.metrics.tpm)"
-          :detail="t('channelMonitorV2.metrics.tpsDetail')"
+          :detail="tpsDetail(snapshot.metrics)"
           :title="exactTps(snapshot.metrics.tpm)"
         />
         <MetricCell
@@ -319,8 +327,8 @@
                     </div>
                   </td>
                   <td>
-                    <span class="block">{{ formatPercent(1 - row.metrics.error_rate) }}</span>
-                    <small class="text-xs text-gray-400">{{ t('channelMonitorV2.metrics.errorRateValue', { value: formatPercent(row.metrics.error_rate) }) }}</small>
+                    <span class="block">{{ successRateValue(row.metrics) }}</span>
+                    <small class="text-xs text-gray-400">{{ successRateDetail(row.metrics) }}</small>
                   </td>
                   <td>
                     <span class="block">{{ formatMs(row.metrics.ttft.p50_ms) }}</span>
@@ -420,8 +428,8 @@
                     </strong>
                   </td>
                   <td>
-                    <span class="block">{{ formatPercent(1 - row.metrics.error_rate) }}</span>
-                    <small class="text-xs text-gray-400">{{ t('channelMonitorV2.metrics.errorRateValue', { value: formatPercent(row.metrics.error_rate) }) }}</small>
+                    <span class="block">{{ successRateValue(row.metrics) }}</span>
+                    <small class="text-xs text-gray-400">{{ successRateDetail(row.metrics) }}</small>
                   </td>
                   <td>
                     <span class="block">{{ formatMs(row.metrics.ttft.p50_ms) }}</span>
@@ -474,7 +482,7 @@ import MonitorTrendChart from '@/features/channel-monitor-v2/MonitorTrendChart.v
 import RelayPulseMatrix from '@/features/channel-monitor-v2/RelayPulseMatrix.vue'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorCode } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden, isChannelMonitorUserRankingHidden } from '@/utils/featureFlags'
 import * as api from '@/api/channelMonitorV2'
 import type {
@@ -488,6 +496,7 @@ import type {
   MonitorModelRow,
   MonitorRange,
   MonitorSnapshot,
+  MonitorMetric,
   MonitorUserRow,
 } from '@/api/channelMonitorV2'
 import {
@@ -495,8 +504,11 @@ import {
   formatLatencyPrivacy,
   formatMonitorMs,
   formatMonitorPercent,
+  formatMonitorSuccessRateFromMetric,
   formatMonitorThroughput,
   formatMonitorTokensPerSecond,
+  hasMonitorTokenSplit,
+  monitorTokenSplitParts,
   tokensPerSecondFromTpm,
   healthScoreClass,
   monitorErrorCategoryLabel,
@@ -513,6 +525,13 @@ const authStore = useAuthStore()
 const appStore = useAppStore()
 const { t, te, locale } = useI18n()
 const isAdmin = computed(() => authStore.isAdmin)
+/** 后端规范机器码命中时展示真实原因（功能关闭 / 模式不符），而不是空页 + toast。 */
+const blockedReason = ref<'disabled' | 'modeMismatch' | null>(null)
+const blockedMessage = computed(() =>
+  blockedReason.value === 'modeMismatch'
+    ? t('channelMonitorV2.blocked.modeMismatch')
+    : t('channelMonitorV2.blocked.disabled'),
+)
 /** Admins always see RPM/TPM; users honor the hide-throughput system setting. */
 const showThroughput = computed(() => isAdmin.value || !isChannelMonitorThroughputHidden())
 /** Admins always see ranking; users honor the hide-user-ranking system setting. */
@@ -743,9 +762,17 @@ async function reload(silent = true) {
       loadDimensions(request.signal, id),
       loadMetrics(request.signal, id),
     ])
+    if (id === sequence) blockedReason.value = null
   } catch (error) {
     if ((error as { name?: string }).name !== 'CanceledError') {
-      appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.loadFailed')))
+      const reason = extractApiErrorCode(error)
+      if (reason === 'CHANNEL_MONITOR_DISABLED' || reason === 'CHANNEL_MONITOR_MODE_MISMATCH') {
+        // 规范机器码：展示真实原因并停止轮询，不重复报同一个配置问题。
+        blockedReason.value = reason === 'CHANNEL_MONITOR_MODE_MISMATCH' ? 'modeMismatch' : 'disabled'
+        stopAutoRefresh()
+      } else {
+        appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.loadFailed')))
+      }
     }
   } finally {
     if (id === sequence) {
@@ -810,11 +837,18 @@ function clearDimensions() {
     models: [],
   }
 }
+function stopAutoRefresh() {
+  if (autoRefreshTimer) {
+    window.clearInterval(autoRefreshTimer)
+    autoRefreshTimer = null
+  }
+}
 function scheduleAutoRefresh() {
   if (autoRefreshTimer) {
     window.clearInterval(autoRefreshTimer)
     autoRefreshTimer = null
   }
+  if (blockedReason.value) return
   // Poll faster while first-upgrade bootstrap is filling 90m→30d so the progress bar moves.
   const seconds = bootstrapActive.value
     ? 10
@@ -837,6 +871,25 @@ function exactRate(value: number) {
 }
 function formatTps(tpm: number | null | undefined) {
   return formatMonitorTokensPerSecond(tpm)
+}
+
+// 成功率优先用后端下发的 success_rate（与 ignored 错误分类共存时 1 - error_rate 不等价）。
+function successRateValue(metrics: MonitorMetric) {
+  return formatMonitorSuccessRateFromMetric(metrics)
+}
+
+// 管理端才展示绝对 token 拆分（用户视图由后端清零，不能当真实拆分展示）。
+function successRateDetail(metrics: MonitorMetric) {
+  if (typeof metrics.success_rate === 'number' && Number.isFinite(metrics.success_rate)) {
+    return t('channelMonitorV2.metrics.successRateValue', { value: formatMonitorPercent(metrics.success_rate) })
+  }
+  return t('channelMonitorV2.metrics.errorRateValue', { value: formatMonitorPercent(metrics.error_rate) })
+}
+
+function tpsDetail(metrics: MonitorMetric) {
+  const base = t('channelMonitorV2.metrics.tpsDetail')
+  if (!isAdmin.value || !hasMonitorTokenSplit(metrics)) return base
+  return `${base} · ${t('channelMonitorV2.metrics.tokenSplit', monitorTokenSplitParts(metrics))}`
 }
 function exactTps(tpm: number | null | undefined) {
   return Intl.NumberFormat(locale.value || undefined, { maximumFractionDigits: 3 }).format(

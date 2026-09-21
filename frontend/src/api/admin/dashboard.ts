@@ -27,19 +27,27 @@ export async function getStats(): Promise<DashboardStats> {
 
 /**
  * Get real-time metrics
- * @returns Real-time system metrics
+ * @returns 最近一分钟窗口的真实观测：`requests_per_minute`/`average_response_time`
+ *          来自本地原始账本，账本保留窗口覆盖不住该分钟时为 null；
+ *          `active_requests`/`error_rate` 没有本地观测源，恒为 null（不假填 0）。
  */
 export async function getRealtimeMetrics(): Promise<{
-  active_requests: number
-  requests_per_minute: number
-  average_response_time: number
-  error_rate: number
+  requests_per_minute: number | null
+  average_response_time: number | null
+  active_requests: number | null
+  error_rate: number | null
+  coverage_complete: boolean
+  observed_from: string
+  observed_to: string
 }> {
   const { data } = await apiClient.get<{
-    active_requests: number
-    requests_per_minute: number
-    average_response_time: number
-    error_rate: number
+    requests_per_minute: number | null
+    average_response_time: number | null
+    active_requests: number | null
+    error_rate: number | null
+    coverage_complete: boolean
+    observed_from: string
+    observed_to: string
   }>('/admin/dashboard/realtime')
   return data
 }

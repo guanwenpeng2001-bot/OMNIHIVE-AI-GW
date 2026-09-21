@@ -1230,6 +1230,31 @@ func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return keys, result.Total, nil
 }
 
+// groupAPIKeyStatusCounter 由仓储层按状态计数；未实现时分组统计必须显式失败，
+// 而不是把「启用中的 Key」写成 0。
+type groupAPIKeyStatusCounter interface {
+	CountByGroupIDAndStatus(ctx context.Context, groupID int64, status string) (int64, error)
+}
+
+// GetGroupAPIKeyCounts 返回分组内全部与启用中的 API Key 数量。
+func (s *adminServiceImpl) GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error) {
+	total, err := s.apiKeyRepo.CountByGroupID(ctx, groupID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count group api keys: %w", err)
+	}
+	counter, ok := s.apiKeyRepo.(groupAPIKeyStatusCounter)
+	if !ok {
+		return 0, 0, infraerrors.New(http.StatusInternalServerError,
+			"GROUP_API_KEY_STATUS_COUNT_UNAVAILABLE",
+			"api key repository does not support status counts")
+	}
+	active, err := counter.CountByGroupIDAndStatus(ctx, groupID, StatusAPIKeyActive)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count active group api keys: %w", err)
+	}
+	return total, active, nil
+}
+
 func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error) {
 	if err := s.ValidateSimpleModeGroupOperation(AdminGroupOperationMultiplier); err != nil {
 		return nil, err
