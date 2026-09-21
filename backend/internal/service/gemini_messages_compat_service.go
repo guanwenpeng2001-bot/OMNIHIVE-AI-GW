@@ -16,6 +16,7 @@ import (
 	"math"
 	mathrand "math/rand"
 	"net/http"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -1171,6 +1172,9 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 }
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -1191,7 +1195,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	}
 
 	switch action {
-	case "generateContent", "streamGenerateContent", "countTokens":
+	case "generateContent", "streamGenerateContent", "countTokens", "embedContent", "batchEmbedContents":
 		// ok
 	default:
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
@@ -1204,6 +1208,16 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
+	}
+	if action == "embedContent" || action == "batchEmbedContents" {
+		if stream || account.Type != AccountTypeAPIKey {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, "Native embeddings require a non-streaming Gemini API key request")
+		}
+		var err error
+		body, err = prepareGeminiEmbeddingBody(body, action, originalModel, mappedModel)
+		if err != nil {
+			return nil, s.writeGoogleError(c, http.StatusBadRequest, err.Error())
+		}
 	}
 
 	proxyURL := ""
@@ -1370,6 +1384,12 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return nil, err
+			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
@@ -2955,7 +2975,23 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 	}
 	// path 会被直接拼到上游 base URL 后面，因此按路径护栏逐片段校验，
 	// 见 upstream_path_guard.go。
-	sanitizedPath, ok := sanitizedUpstreamPathSuffix(path)
+	resource, err := url.ParseRequestURI(path)
+	if err != nil || resource.IsAbs() || resource.Host != "" || resource.Fragment != "" {
+		return nil, errors.New("invalid path")
+	}
+	query, err := url.ParseQuery(resource.RawQuery)
+	if err != nil {
+		return nil, errors.New("invalid model query")
+	}
+	for name, values := range query {
+		if (name != "pageSize" && name != "pageToken" && name != "alt") || len(values) != 1 {
+			return nil, errors.New("invalid model query parameter")
+		}
+		if name == "alt" && values[0] != "json" {
+			return nil, errors.New("model listing only supports alt=json")
+		}
+	}
+	sanitizedPath, ok := sanitizedUpstreamPathSuffix(resource.Path)
 	if !ok || sanitizedPath == "" {
 		return nil, errors.New("invalid path")
 	}
@@ -2967,6 +3003,9 @@ func (s *GeminiMessagesCompatService) ForwardAIStudioGET(ctx context.Context, ac
 		return nil, err
 	}
 	fullURL := strings.TrimRight(normalizedBaseURL, "/") + path
+	if len(query) > 0 {
+		fullURL += "?" + query.Encode()
+	}
 
 	var proxyURL string
 	if account.ProxyID != nil && account.Proxy != nil {
