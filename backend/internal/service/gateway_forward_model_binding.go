@@ -56,10 +56,19 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 	switch plan.Snapshot().Protocol {
 	case "media":
 		// Media evidence is recorded per platform: Grok declares its imagine
-		// family, every other OpenAI-compatible platform declares image
-		// endpoints for image and video tasks (account_model_catalog.go).
+		// family, other OpenAI-compatible platforms declare image endpoints for
+		// image and video tasks (account_model_catalog.go).
 		if account != nil && account.IsGrok() {
 			return requestCatalogEndpoint(ctx)
+		}
+		// Chat-only platforms declare no image family at all: the catalog returns
+		// an empty endpoint set for any non-text task, so demanding the image
+		// family here would veto every account they serve. Their media evidence
+		// lives in the platform action matrix, which is bound separately
+		// (multimodal-ingress); until then keep the conservative Responses
+		// evidence this gate used for every protocol before the family split.
+		if account != nil && IsChatOnlyPlatform(account.Platform) {
+			return CompositeRouteEndpointResponses
 		}
 		return CompositeRouteEndpointImages
 	case "images", "embeddings", "search", "live", "realtime":
