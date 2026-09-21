@@ -6,7 +6,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -36,10 +35,8 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -47,6 +44,11 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_realtime")
 	model := grokVoiceRequestModel(c, nil, "realtime")
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "realtime", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, model, nil) {
+		return
+	}
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would
 	// let the wait queue flush an SSE ping before the WebSocket handshake succeeds.
@@ -179,10 +181,8 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -220,6 +220,11 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	failed := failoverState.FailedAccountIDs
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, selectionModel, "audio", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, selectionModel, body) {
+		return
+	}
 
 	for attempts := 0; attempts <= h.maxAccountSwitches; attempts++ {
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(

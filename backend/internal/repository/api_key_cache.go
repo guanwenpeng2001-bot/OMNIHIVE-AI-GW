@@ -36,6 +36,17 @@ func NewAPIKeyCache(rdb *redis.Client) service.APIKeyCache {
 	return &apiKeyCache{rdb: rdb}
 }
 
+// RPMWindowResetAt 给出用户/组 RPM 固定分钟窗口的结束时刻（service 层窄扩展口）。
+// 用与 RPM 计数器同一个 Redis 实例的服务端时间，避免多实例时钟漂移让
+// 用户看到的"重置时间"和实际计数窗口对不上。
+func (c *apiKeyCache) RPMWindowResetAt(ctx context.Context) (time.Time, error) {
+	serverTime, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("redis TIME: %w", err)
+	}
+	return serverTime.Truncate(time.Minute).Add(time.Minute), nil
+}
+
 func (c *apiKeyCache) GetCreateAttemptCount(ctx context.Context, userID int64) (int, error) {
 	key := apiKeyRateLimitKey(userID)
 	count, err := c.rdb.Get(ctx, key).Int()

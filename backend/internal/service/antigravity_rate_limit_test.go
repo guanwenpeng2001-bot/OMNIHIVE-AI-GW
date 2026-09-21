@@ -839,9 +839,10 @@ func TestSetAntigravityModelRateLimits_GeminiWritesFamilyScope(t *testing.T) {
 	)
 
 	require.True(t, success)
-	require.Len(t, repo.modelRateLimitCalls, 2)
+	// 证据只证明这一个模型被限流：只写该模型自己的额度域，
+	// 不再由单模型证据推断整族 Gemini 不可用（T3-2.7）。
+	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gemini-3-pro", repo.modelRateLimitCalls[0].modelKey)
-	require.Equal(t, antigravityGeminiModelRateLimitKey, repo.modelRateLimitCalls[1].modelKey)
 }
 
 func TestSetAntigravityModelRateLimits_DoesNotDoubleMapCustomChain(t *testing.T) {

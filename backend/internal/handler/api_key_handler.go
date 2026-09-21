@@ -174,6 +174,12 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
 
+// apiKeyDetailResponse 是 Key 详情的响应体：既有字段保持原形，仅追加有效 RPM 说明。
+type apiKeyDetailResponse struct {
+	dto.APIKey
+	EffectiveRPM *service.APIKeyEffectiveRPM `json:"effective_rpm,omitempty"`
+}
+
 // GetByID handles getting a single API key
 // GET /api/v1/api-keys/:id
 func (h *APIKeyHandler) GetByID(c *gin.Context) {
@@ -201,7 +207,12 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.APIKeyFromService(key))
+	// 有效 RPM 与 Key 详情同源返回：用户可见的来源/限值/重置时间只由
+	// 用户与组维度决定，不含任何上游账号额度。
+	response.Success(c, apiKeyDetailResponse{
+		APIKey:       *dto.APIKeyFromService(key),
+		EffectiveRPM: h.apiKeyService.EffectiveRPM(c.Request.Context(), key),
+	})
 }
 
 // Create handles creating a new API key

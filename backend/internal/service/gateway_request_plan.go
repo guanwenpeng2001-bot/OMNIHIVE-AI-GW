@@ -57,6 +57,11 @@ type GatewayRequestPlan struct {
 	state            GatewayRequestState
 	leases           map[*gatewayPlanLease]struct{}
 	usage            atomic.Bool
+	// rateLimitCounted 是本逻辑请求的用户级 RPM 计数名额；rateLimitScopes 是已经
+	// 计过数的分组维度。重试/账号切换/同组兜底复用同一个请求计划，因此不会把
+	// 同一个逻辑请求重复计成多次（T3-2.13）。
+	rateLimitCounted atomic.Bool
+	rateLimitScopes  map[int64]struct{}
 	budgetHold       *KeyBudgetReservation
 	budgetAdmitted   bool
 	catalogRepo      AccountRepository
@@ -175,12 +180,63 @@ type RequestBudgetEstimate struct {
 	SkipBalanceHold bool
 }
 
-// Conservative token defaults keep the reservation meaningful when a caller
+// Conservative token bounds keep the reservation meaningful when a caller
 // cannot supply a bound; settlement still adjusts to the real cost.
 const (
 	defaultBudgetEstimateInputTokens  = 1024
 	defaultBudgetEstimateOutputTokens = 4096
 )
+
+// NormalizeBudgetEstimateBounds 把调用方给出的估算收敛成预留用的有界上界。
+//
+// 这些是**上界**，不是用量：媒体/音频/异步 job 请求没有 token 用量，调用方给出的
+// 上界为 0 时使用文档化的默认上界，绝不允许把图片/视频参数折算成 token 数冒充用量。
+// 真正的计费始终来自结算阶段的实际上游用量。
+func NormalizeBudgetEstimateBounds(estimate RequestBudgetEstimate) (inputTokens, outputTokens int, multiplier float64) {
+	inputTokens = estimate.InputTokens
+	if inputTokens <= 0 {
+		inputTokens = defaultBudgetEstimateInputTokens
+	}
+	outputTokens = estimate.OutputTokens
+	if outputTokens <= 0 {
+		outputTokens = defaultBudgetEstimateOutputTokens
+	}
+	multiplier = estimate.RateMultiplier
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	return inputTokens, outputTokens, multiplier
+}
+
+// ClaimUserRateLimitCount 领取本逻辑请求的用户级 RPM 计数名额。
+// 同一个请求计划只成功一次：重试、账号切换、分组兜底都不会把用户的逻辑请求
+// 重复计进用户级计数器。没有请求计划（如单测/非网关调用）时返回 true，
+// 保持既有的一次一计语义。
+func (p *GatewayRequestPlan) ClaimUserRateLimitCount() bool {
+	if p == nil {
+		return true
+	}
+	return p.rateLimitCounted.CompareAndSwap(false, true)
+}
+
+// ClaimRateLimitScope 领取 (逻辑请求, 分组) 维度的 RPM 计数名额。
+// 兜底到另一个分组时那个分组的容量确实被占用，所以按分组分别计数；
+// 同一分组内的重试不会重复计数。
+func (p *GatewayRequestPlan) ClaimRateLimitScope(groupID int64) bool {
+	if p == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rateLimitScopes == nil {
+		p.rateLimitScopes = make(map[int64]struct{}, 1)
+	}
+	if _, counted := p.rateLimitScopes[groupID]; counted {
+		return false
+	}
+	p.rateLimitScopes[groupID] = struct{}{}
+	return true
+}
 
 // BudgetHold returns the live request hold, if any. The settlement path reads it
 // to consume the hold instead of deducting the balance twice.
@@ -252,18 +308,7 @@ func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) 
 	if p.billing == nil {
 		return 0
 	}
-	input := estimate.InputTokens
-	if input <= 0 {
-		input = defaultBudgetEstimateInputTokens
-	}
-	output := estimate.OutputTokens
-	if output <= 0 {
-		output = defaultBudgetEstimateOutputTokens
-	}
-	multiplier := estimate.RateMultiplier
-	if multiplier <= 0 {
-		multiplier = 1
-	}
+	input, output, multiplier := NormalizeBudgetEstimateBounds(estimate)
 	cost, err := p.billing.CalculateCost(estimate.Model, UsageTokens{InputTokens: input, OutputTokens: output}, multiplier)
 	if err != nil || cost == nil {
 		return 0

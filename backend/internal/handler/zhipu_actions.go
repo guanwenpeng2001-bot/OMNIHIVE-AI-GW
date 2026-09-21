@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -149,6 +148,11 @@ func (h *OpenAIGatewayHandler) handleZhipuAction(c *gin.Context, endpoint servic
 
 	reqLog = reqLog.With(zap.String("model", requestModel))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, endpoint.PlanProtocol(), h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
+		return
+	}
 	setOpsRequestContext(c, requestModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 
@@ -208,10 +212,8 @@ func (h *OpenAIGatewayHandler) handleZhipuAction(c *gin.Context, endpoint servic
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("zhipu_action.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -679,10 +681,8 @@ func (h *OpenAIGatewayHandler) ZhipuRealtime(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -695,6 +695,11 @@ func (h *OpenAIGatewayHandler) ZhipuRealtime(c *gin.Context) {
 		model = "glm-realtime"
 	}
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "realtime", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, model, nil) {
+		return
+	}
 
 	failed := map[int64]struct{}{}
 	var selection *service.AccountSelectionResult

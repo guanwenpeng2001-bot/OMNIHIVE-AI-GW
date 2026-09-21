@@ -642,6 +642,21 @@ func (c *concurrencyCache) AcquireAccountSlot(ctx context.Context, accountID int
 	return result == 1, nil
 }
 
+// CountAccountAttempt 记一次账号维度的 attempt，使用账号槽位同一 Redis 实例的
+// 服务端分钟窗口（service.accountAttemptCounter 窄口）。这是账号级 RPM 的唯一写入点：
+// 槽位被授予即代表这次请求真的要用这个账号。
+func (c *concurrencyCache) CountAccountAttempt(ctx context.Context, accountID int64) error {
+	if accountID <= 0 {
+		return nil
+	}
+	serverTime, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return fmt.Errorf("redis TIME: %w", err)
+	}
+	_, err = incrementAccountRPM(ctx, c.rdb, accountRPMKey(accountID, serverTime.Unix()/60))
+	return err
+}
+
 func (c *concurrencyCache) ReleaseAccountSlot(ctx context.Context, accountID int64, requestID string) error {
 	key := accountSlotKey(accountID)
 	if err := c.rdb.ZRem(ctx, key, requestID).Err(); err != nil {

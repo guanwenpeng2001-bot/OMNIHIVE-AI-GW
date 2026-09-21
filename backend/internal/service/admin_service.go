@@ -74,6 +74,12 @@ type AdminService interface {
 	AdminDeleteAPIKey(ctx context.Context, keyID int64) error
 	// AdminRotateAPIKeyCredential rotates any user's key secret, keeping its identity.
 	AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*APIKeyCredentialIssue, error)
+	// AdminSetAPIKeyBudgetPolicy writes a period-budget policy including the
+	// enforced switch. It is the only path that may move a platform-enforced
+	// budget, and it runs behind the existing admin auth + audit middleware.
+	AdminSetAPIKeyBudgetPolicy(ctx context.Context, keyID int64, policy APIKeyBudgetPolicy) (APIKeyBudgetPolicy, error)
+	// AdminAdjustAPIKeyBudgetUsage records an audited consumed-usage adjustment.
+	AdminAdjustAPIKeyBudgetUsage(ctx context.Context, cmd *KeyBudgetAdjustmentCommand) (*APIKeyBudgetState, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
@@ -512,15 +518,23 @@ type UserRPMStatus struct {
 	UserRPMUsed  int                  `json:"user_rpm_used"`
 	UserRPMLimit int                  `json:"user_rpm_limit"`
 	PerGroup     []UserGroupRPMStatus `json:"per_group"`
+	// WindowResetsAt 是 RPM 固定分钟窗口的真实结束时刻（与计数器同源的
+	// 服务端时间）。没有证据时为 nil，不伪造。
+	WindowResetsAt *time.Time `json:"window_resets_at,omitempty"`
+	// Priority 与用户可见展示共用同一份优先级语义。
+	Priority string `json:"priority"`
 }
 
 // UserGroupRPMStatus describes current per-minute RPM usage for one user/group pair.
+// Source 使用与 ResolveEffectiveRPMLimits 相同的取值，展示与判定只有一个词汇表。
 type UserGroupRPMStatus struct {
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
-	Used      int    `json:"used"`
-	Limit     int    `json:"limit"`
-	Source    string `json:"source"` // "group" | "override"
+	GroupID   int64                    `json:"group_id"`
+	GroupName string                   `json:"group_name"`
+	Used      int                      `json:"used"`
+	Limit     int                      `json:"limit"`
+	Source    AdmissionRateLimitSource `json:"source"`
+	// UserCeilingRPM 是无论覆盖/分组如何都始终生效的用户级上限（0=不限制）。
+	UserCeilingRPM int `json:"user_ceiling_rpm"`
 }
 
 // BulkUpdateAccountsResult is the aggregated response for bulk updates.

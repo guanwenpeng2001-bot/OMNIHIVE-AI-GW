@@ -151,10 +151,8 @@ func (h *GatewayResourceHandler) selectResourceAccount(c *gin.Context, key *serv
 func (h *GatewayResourceHandler) checkResourceAdmission(c *gin.Context, key *service.APIKey, subject middleware2.AuthSubject) (func(), bool) {
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.openAI.billingCacheService.CheckBillingEligibility(c.Request.Context(), key.User, key, key.Group, subscription, service.QuotaPlatform(c.Request.Context(), key)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.openAIError(c, status, code, message)
 		return nil, false
 	}
@@ -568,10 +566,8 @@ func (h *GatewayResourceHandler) Moderations(c *gin.Context) {
 	}
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.openAI.billingCacheService.CheckBillingEligibility(c.Request.Context(), key.User, key, key.Group, subscription, service.QuotaPlatform(c.Request.Context(), key)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.openAIError(c, status, code, message)
 		return
 	}

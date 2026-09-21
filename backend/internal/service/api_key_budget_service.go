@@ -157,10 +157,33 @@ func (s *APIKeyService) SaveBudgetPolicy(ctx context.Context, apiKeyID int64, po
 	if err != nil {
 		return APIKeyBudgetPolicy{}, err
 	}
-	current, err := s.BudgetPolicy(ctx, apiKeyID)
+	return SaveAPIKeyBudgetPolicy(ctx, repo, apiKeyID, policy, enforcedChangeAllowed)
+}
+
+// AdjustBudgetUsage records an audited administrative adjustment and returns the
+// resulting state. It is the only supported way to move consumed usage.
+func (s *APIKeyService) AdjustBudgetUsage(ctx context.Context, cmd *KeyBudgetAdjustmentCommand) (*APIKeyBudgetState, error) {
+	repo, err := s.budgetRepository()
+	if err != nil {
+		return nil, err
+	}
+	return AdjustAPIKeyBudgetUsage(ctx, repo, cmd)
+}
+
+// SaveAPIKeyBudgetPolicy 是预算策略写入的唯一实现，按仓储取用，供用户侧与管理端
+// 共用同一条校验与持久化路径（避免管理端另写一套规则）。
+//
+// enforcedChangeAllowed=false 时必须保持"强制预算不可被自助改写"的约束；
+// 管理端通过 audited 调用点传 true 才能移动强制预算。
+func SaveAPIKeyBudgetPolicy(ctx context.Context, repo APIKeyBudgetRepository, apiKeyID int64, policy APIKeyBudgetPolicy, enforcedChangeAllowed bool) (APIKeyBudgetPolicy, error) {
+	if repo == nil {
+		return APIKeyBudgetPolicy{}, errors.New("api key budget repository unavailable")
+	}
+	states, err := repo.LoadAPIKeyBudgetStates(ctx, []int64{apiKeyID})
 	if err != nil {
 		return APIKeyBudgetPolicy{}, err
 	}
+	current := states[apiKeyID].Policy.Normalize()
 	next := policy.Normalize()
 	if err := next.Validate(); err != nil {
 		return APIKeyBudgetPolicy{}, err
@@ -183,12 +206,11 @@ func (s *APIKeyService) SaveBudgetPolicy(ctx context.Context, apiKeyID int64, po
 	return next, nil
 }
 
-// AdjustBudgetUsage records an audited administrative adjustment and returns the
-// resulting state. It is the only supported way to move consumed usage.
-func (s *APIKeyService) AdjustBudgetUsage(ctx context.Context, cmd *KeyBudgetAdjustmentCommand) (*APIKeyBudgetState, error) {
-	repo, err := s.budgetRepository()
-	if err != nil {
-		return nil, err
+// AdjustAPIKeyBudgetUsage 是预算调账的唯一实现，按仓储取用。
+// 它要求非零调整量与可读原因，是移动已消费金额的唯一受支持路径。
+func AdjustAPIKeyBudgetUsage(ctx context.Context, repo APIKeyBudgetRepository, cmd *KeyBudgetAdjustmentCommand) (*APIKeyBudgetState, error) {
+	if repo == nil {
+		return nil, errors.New("api key budget repository unavailable")
 	}
 	if cmd == nil || cmd.APIKeyID <= 0 {
 		return nil, fmt.Errorf("%w: api key id is required", ErrAPIKeyBudgetInvalid)

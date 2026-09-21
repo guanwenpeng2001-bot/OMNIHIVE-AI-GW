@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -88,6 +87,10 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, modelName, "gemini", h.maxAccountSwitchesGemini)()
+	// 入口前置 hold：先把周期预算占用下来再调用上游，结算时按实际消耗修正。
+	if !reserveGatewayRequestBudget(c, apiKey, modelName, body) {
+		return
+	}
 	if !compositeTargetPlatformAllowed(c, apiKey, modelName, service.PlatformOpenCodeGo) {
 		googleError(c, http.StatusBadRequest, "Model is not supported by this OpenCode endpoint for composite groups")
 		return
@@ -110,10 +113,8 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("opencode.generate_content.billing_eligibility_check_failed", zap.Error(err))
-		status, _, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, _, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		googleError(c, status, message)
 		return
 	}

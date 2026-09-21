@@ -123,12 +123,12 @@ func TestIsModelRateLimited(t *testing.T) {
 			expected:       true,
 		},
 		{
-			name: "antigravity platform - gemini family rate limit blocks mapped preview",
+			name: "antigravity platform - same-model rate limit blocks mapped preview",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						antigravityGeminiModelRateLimitKey: map[string]any{
+						"gemini-3-pro-high": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
@@ -138,12 +138,12 @@ func TestIsModelRateLimited(t *testing.T) {
 			expected:       true,
 		},
 		{
-			name: "antigravity platform - gemini family rate limit does not block claude",
+			name: "antigravity platform - gemini model rate limit does not block claude",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						antigravityGeminiModelRateLimitKey: map[string]any{
+						"gemini-3-pro-high": map[string]any{
 							"rate_limit_reset_at": future,
 						},
 					},
@@ -385,12 +385,12 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			maxExpected:    6 * time.Minute,
 		},
 		{
-			name: "antigravity platform - gemini family rate limit remaining",
+			name: "antigravity platform - same-model rate limit remaining",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						antigravityGeminiModelRateLimitKey: map[string]any{
+						"gemini-3-pro-high": map[string]any{
 							"rate_limit_reset_at": future10m,
 						},
 					},
@@ -401,12 +401,12 @@ func TestGetModelRateLimitRemainingTime(t *testing.T) {
 			maxExpected:    11 * time.Minute,
 		},
 		{
-			name: "antigravity platform - gemini family remaining ignored for claude",
+			name: "antigravity platform - gemini model remaining ignored for claude",
 			account: &Account{
 				Platform: PlatformAntigravity,
 				Extra: map[string]any{
 					modelRateLimitsKey: map[string]any{
-						antigravityGeminiModelRateLimitKey: map[string]any{
+						"gemini-3-pro-high": map[string]any{
 							"rate_limit_reset_at": future10m,
 						},
 					},

@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // UserRPMCache 用户/分组级 RPM 计数器接口。
 //
@@ -22,4 +25,10 @@ type UserRPMCache interface {
 
 	// GetUserRPM 获取用户当前分钟已用 RPM（只读，不递增）。
 	GetUserRPM(ctx context.Context, userID int64) (count int, err error)
+
+	// WindowResetAt 返回当前固定分钟窗口的结束时刻。
+	// 时间来源必须是 Redis 服务端（与计数器 key 同源），否则多实例时钟漂移会
+	// 让 Retry-After 与真实窗口边界不一致。Redis 不可用时返回错误，调用方
+	// 必须省略 Retry-After，不允许退回本机时钟推算。
+	WindowResetAt(ctx context.Context) (time.Time, error)
 }

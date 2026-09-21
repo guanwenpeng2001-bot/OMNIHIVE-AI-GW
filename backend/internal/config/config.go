@@ -1088,6 +1088,10 @@ type GatewayConfig struct {
 	// Scheduling: 账号调度相关配置
 	Scheduling GatewaySchedulingConfig `mapstructure:"scheduling"`
 
+	// Admission: 实例级准入闸门（inflight 上限 + 有界排队）。
+	// 默认关闭（max_inflight=0），未配置时行为与未引入闸门完全一致。
+	Admission GatewayAdmissionConfig `mapstructure:"admission"`
+
 	// TLSFingerprint: TLS指纹伪装配置
 	TLSFingerprint TLSFingerprintConfig `mapstructure:"tls_fingerprint"`
 
@@ -1462,6 +1466,22 @@ type TLSProfileConfig struct {
 	// 空则使用内置默认顺序 [0,11,10,35,16,22,23,13,43,45,51]
 	// GREASE值(如0x0a0a)会自动插入GREASE扩展
 	Extensions []uint16 `mapstructure:"extensions"`
+}
+
+// GatewayAdmissionConfig bounds how much concurrent gateway work one instance
+// accepts before it sheds load.
+//
+// MaxInflight<=0 disables the gate entirely, so an unconfigured deployment keeps
+// the behaviour it had before the gate existed. The gate protects this process's
+// own goroutines, upstream connections and memory; it is deliberately not a
+// cross-instance quota.
+type GatewayAdmissionConfig struct {
+	// MaxInflight: 本实例同时进行的网关请求上限；<=0 表示不设闸门。
+	MaxInflight int `mapstructure:"max_inflight"`
+	// MaxWaiting: 有界等待队列长度；<=0 表示不允许等待（超出即过载）。
+	MaxWaiting int `mapstructure:"max_waiting"`
+	// WaitTimeout: 单个请求在队列里的最长等待时间；<=0 表示只做一次立即尝试。
+	WaitTimeout time.Duration `mapstructure:"wait_timeout"`
 }
 
 // GatewaySchedulingConfig accounts scheduling configuration.
@@ -2522,6 +2542,10 @@ func setDefaults() {
 	viper.SetDefault("gateway.image_stream_keepalive_interval", 10)
 	viper.SetDefault("gateway.image_nonstream_keepalive_interval", 0)
 	viper.SetDefault("gateway.max_line_size", 500*1024*1024)
+	// 准入闸门默认关闭：max_inflight=0 即未启用，行为与未引入闸门完全一致。
+	viper.SetDefault("gateway.admission.max_inflight", 0)
+	viper.SetDefault("gateway.admission.max_waiting", 0)
+	viper.SetDefault("gateway.admission.wait_timeout", 0)
 	viper.SetDefault("gateway.scheduling.sticky_session_max_waiting", 3)
 	viper.SetDefault("gateway.scheduling.sticky_session_wait_timeout", 120*time.Second)
 	viper.SetDefault("gateway.scheduling.fallback_wait_timeout", 30*time.Second)
@@ -3661,6 +3685,15 @@ func (c *Config) Validate() error {
 	}
 	if c.Gateway.Scheduling.StickySessionMaxWaiting <= 0 {
 		return fmt.Errorf("gateway.scheduling.sticky_session_max_waiting must be positive")
+	}
+	if c.Gateway.Admission.MaxInflight < 0 {
+		return fmt.Errorf("gateway.admission.max_inflight must be non-negative")
+	}
+	if c.Gateway.Admission.MaxWaiting < 0 {
+		return fmt.Errorf("gateway.admission.max_waiting must be non-negative")
+	}
+	if c.Gateway.Admission.WaitTimeout < 0 {
+		return fmt.Errorf("gateway.admission.wait_timeout must be non-negative")
 	}
 	if c.Gateway.Scheduling.StickySessionWaitTimeout <= 0 {
 		return fmt.Errorf("gateway.scheduling.sticky_session_wait_timeout must be positive")

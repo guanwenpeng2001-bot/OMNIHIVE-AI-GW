@@ -12,6 +12,8 @@ import (
 type stubAdminService struct {
 	users                               []service.User
 	apiKeys                             []service.APIKey
+	budgetPolicies                      map[int64]service.APIKeyBudgetPolicy
+	budgetAdjustments                   []service.KeyBudgetAdjustmentCommand
 	groups                              []service.Group
 	accounts                            []service.Account
 	accountSchedulerScoreFilterAccounts []service.Account
@@ -807,6 +809,22 @@ func (s *stubAdminService) AdminDeleteAPIKey(ctx context.Context, keyID int64) e
 		}
 	}
 	return service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminSetAPIKeyBudgetPolicy(ctx context.Context, keyID int64, policy service.APIKeyBudgetPolicy) (service.APIKeyBudgetPolicy, error) {
+	if s.budgetPolicies == nil {
+		s.budgetPolicies = make(map[int64]service.APIKeyBudgetPolicy)
+	}
+	s.budgetPolicies[keyID] = policy
+	return policy, nil
+}
+
+func (s *stubAdminService) AdminAdjustAPIKeyBudgetUsage(ctx context.Context, cmd *service.KeyBudgetAdjustmentCommand) (*service.APIKeyBudgetState, error) {
+	if cmd == nil {
+		return nil, service.ErrAPIKeyBudgetInvalid
+	}
+	s.budgetAdjustments = append(s.budgetAdjustments, *cmd)
+	return &service.APIKeyBudgetState{UsedUSD: cmd.DeltaUSD}, nil
 }
 
 func (s *stubAdminService) AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*service.APIKeyCredentialIssue, error) {
