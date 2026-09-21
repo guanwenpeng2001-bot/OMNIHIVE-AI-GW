@@ -13,7 +13,10 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 
 const props = defineProps<{
   accountId: number
-  accountRevision: string
+  // Optimistic-concurrency token for convertCredentialSecret. Callers may not
+  // always hold it (a payload without updated_at), so it is optional here and
+  // the convert action stays unavailable until it is present.
+  accountRevision?: string
   active: boolean
 }>()
 const emit = defineEmits<{ changed: [] }>()
@@ -39,6 +42,9 @@ const rotateError = computed(() => {
   }
 })
 const canRotate = computed(() => !!metadata.value && !revoked.value && !busy.value && !!rotatePayload.value.trim() && !rotateError.value)
+// Conversion needs the account revision as its concurrency token; without one the
+// action stays unavailable instead of sending an undefined revision upstream.
+const canConvert = computed(() => !!props.accountRevision && !busy.value && inline.value)
 
 watch(() => [props.accountId, props.active] as const, () => {
   generation++
@@ -75,7 +81,7 @@ async function load() {
 }
 
 function prepareConvert() {
-  if (busy.value || !inline.value) return
+  if (!canConvert.value) return
   pending.value = { action: 'convert' }
 }
 
@@ -98,6 +104,9 @@ async function confirm() {
   errorKey.value = ''
   try {
     if (change.action === 'convert') {
+      // No revision means no safe concurrency token; refuse rather than send an
+      // undefined revision upstream. The convert action is gated on canConvert.
+      if (!props.accountRevision) return
       await convertCredentialSecret(props.accountId, props.accountRevision)
     } else if (change.action === 'rotate' && metadata.value && change.credentials) {
       await rotateCredentialSecret(props.accountId, metadata.value.version, change.credentials)
@@ -135,7 +144,10 @@ async function confirm() {
 
     <div v-if="inline && !busy" class="space-y-2" data-testid="credential-secret-inline">
       <p role="status">{{ t('admin.accounts.credentialSecret.inlineState') }}</p>
-      <button type="button" class="btn btn-secondary" data-testid="convert-credential-secret" @click="prepareConvert">
+      <p v-if="!accountRevision" role="status" data-testid="credential-secret-revision-missing">
+        {{ t('admin.accounts.credentialSecret.revisionUnavailable') }}
+      </p>
+      <button type="button" class="btn btn-secondary" data-testid="convert-credential-secret" :disabled="!canConvert" @click="prepareConvert">
         {{ t('admin.accounts.credentialSecret.convert') }}
       </button>
     </div>

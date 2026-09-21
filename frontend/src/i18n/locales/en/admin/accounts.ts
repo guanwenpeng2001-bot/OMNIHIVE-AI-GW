@@ -913,6 +913,7 @@ export default {
         "title": "Encrypted credential reference",
         "hint": "Store this account's sensitive credentials as an encrypted, versioned reference. Reads stay transparent to the gateway; there is no plaintext export.",
         "inlineState": "Credentials are currently stored inline. Conversion is explicit and never automatic.",
+        "revisionUnavailable": "Conversion is unavailable until this account reports a revision.",
         "reference": "Reference",
         "version": "Version",
         "updatedAt": "Updated at",

@@ -990,6 +990,7 @@ export default {
         "title": "凭据加密引用",
         "hint": "将本账号的敏感凭据存储为加密、带版本的引用。网关读取保持透明；不提供明文导出。",
         "inlineState": "凭据当前以 inline 形式存储。转换必须显式进行，绝不自动批量改写。",
+        "revisionUnavailable": "该账号未提供版本标识，暂不能执行转换。",
         "reference": "引用",
         "version": "版本",
         "updatedAt": "更新时间",
