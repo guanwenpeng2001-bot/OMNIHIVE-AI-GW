@@ -11,6 +11,75 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GatewayActionHandlers is the adapter-name to handler binding the gateway
+// ingress registers. It is exposed so the wiring invariant ("every implemented
+// platform×action cell resolves to a registered handler") can be asserted
+// against the authoritative action matrix instead of a copied table.
+func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
+	return service.GatewayActionHandlers{
+		"gateway.chat":              h.Gateway.ChatCompletions,
+		"openai.chat":               h.OpenAIGateway.ChatCompletions,
+		"gateway.messages":          h.Gateway.Messages,
+		"openai.messages":           h.OpenAIGateway.Messages,
+		"gateway.responses":         h.Gateway.Responses,
+		"openai.responses":          h.OpenAIGateway.Responses,
+		"gateway.count_tokens":      h.Gateway.CountTokens,
+		"gateway.generate_content":  h.Gateway.GeminiV1BetaModels,
+		"openai.count_tokens":       h.OpenAIGateway.CountTokens,
+		"cursor.count_tokens":       h.OpenAIGateway.CursorCountTokens,
+		"grok.count_tokens":         h.OpenAIGateway.GrokCountTokens,
+		"openai.embeddings":         h.OpenAIGateway.Embeddings,
+		"openai.images":             h.OpenAIGateway.Images,
+		"openai.image.variation":    h.OpenAIGateway.Images,
+		"grok.images":               h.OpenAIGateway.GrokImages,
+		"grok.video.generate":       h.OpenAIGateway.GrokVideoGeneration,
+		"grok.video.edit":           h.OpenAIGateway.GrokVideoEdit,
+		"grok.video.extend":         h.OpenAIGateway.GrokVideoExtension,
+		"grok.video.status":         h.OpenAIGateway.GrokVideoStatus,
+		"grok.video.content":        h.OpenAIGateway.GrokVideoContent,
+		"grok.realtime":             h.OpenAIGateway.GrokRealtime,
+		"antigravity.images":        h.Gateway.AntigravityImages,
+		"bedrock.embeddings":        h.Gateway.BedrockEmbeddings,
+		"bedrock.rerank":            h.Gateway.BedrockRerank,
+		"bedrock.images":            h.Gateway.BedrockImages,
+		"bedrock.image.variation":   h.Gateway.BedrockImages,
+		"qianwen.embeddings":        h.OpenAIGateway.QianwenEmbeddings,
+		"qianwen.rerank":            h.OpenAIGateway.QianwenRerank,
+		"qianwen.images":            h.OpenAIGateway.QianwenImages,
+		"qianwen.native":            h.OpenAIGateway.QianwenNative,
+		"qianfan.embeddings":        h.OpenAIGateway.QianfanEmbeddings,
+		"qianfan.rerank":            h.OpenAIGateway.QianfanRerank,
+		"qianfan.images":            h.OpenAIGateway.QianfanImages,
+		"qianfan.image.edit":        h.OpenAIGateway.QianfanImageEdit,
+		"qianfan.video.generate":    h.OpenAIGateway.QianfanVideoGeneration,
+		"qianfan.video.status":      h.OpenAIGateway.QianfanVideoStatus,
+		"qianfan.video.cancel":      h.OpenAIGateway.QianfanVideoCancel,
+		"qianfan.video.content":     h.OpenAIGateway.QianfanVideoContent,
+		"qianfan.audio.tts":         h.OpenAIGateway.QianfanAudioSpeech,
+		"qianfan.voice":             qianfanVoiceHandler(h.OpenAIGateway.QianfanVoiceCloneCreate, h.OpenAIGateway.QianfanVoiceCloneList),
+		"qianfan.search":            h.OpenAIGateway.QianfanSearch,
+		"hunyuan.embeddings":        h.OpenAIGateway.HunyuanEmbeddings,
+		"hunyuan.images":            h.OpenAIGateway.HunyuanImageGeneration,
+		"hunyuan.image.edit":        h.OpenAIGateway.HunyuanImageEdit,
+		"hunyuan.video.generate":    h.OpenAIGateway.HunyuanVideoGeneration,
+		"hunyuan.video.status":      h.OpenAIGateway.HunyuanVideoStatus,
+		"hunyuan.video.content":     h.OpenAIGateway.HunyuanVideoContent,
+		"hunyuan.audio.tts":         h.OpenAIGateway.HunyuanAudioSpeech,
+		"hunyuan.audio.stt":         h.OpenAIGateway.HunyuanAudioTranscriptions,
+		"hunyuan.voice":             h.OpenAIGateway.HunyuanVoiceClone,
+		"volcengine.embeddings":     h.OpenAIGateway.VolcengineEmbeddings,
+		"volcengine.images":         h.OpenAIGateway.VolcengineImages,
+		"volcengine.video.generate": h.OpenAIGateway.VolcengineVideoGeneration,
+		"volcengine.video.edit":     h.OpenAIGateway.VolcengineVideoEdit,
+		"volcengine.video.extend":   h.OpenAIGateway.VolcengineVideoExtend,
+		"volcengine.video.status":   h.OpenAIGateway.VolcengineVideoStatus,
+		"volcengine.video.content":  h.OpenAIGateway.VolcengineVideoContent,
+		"opencode.generate_content": h.Gateway.OpenCodeGenerateContent,
+		"image.async":               h.AsyncImage.Submit,
+		"image.batch":               h.BatchImage.Submit,
+	}
+}
+
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）
 func RegisterGatewayRoutes(
 	r *gin.Engine,
@@ -43,65 +112,7 @@ func RegisterGatewayRoutes(
 	groupModelAllowlist := middleware.GroupModelAllowlist()
 	actionRequirement := h.Gateway.ActionRequirement
 
-	dispatch := service.NewGatewayActionDispatch(service.GatewayActionHandlers{
-		"gateway.chat":         h.Gateway.ChatCompletions,
-		"openai.chat":          h.OpenAIGateway.ChatCompletions,
-		"gateway.messages":     h.Gateway.Messages,
-		"openai.messages":      h.OpenAIGateway.Messages,
-		"gateway.responses":    h.Gateway.Responses,
-		"openai.responses":     h.OpenAIGateway.Responses,
-		"gateway.count_tokens": h.Gateway.CountTokens,
-		"openai.count_tokens":  h.OpenAIGateway.CountTokens,
-		"cursor.count_tokens":  h.OpenAIGateway.CursorCountTokens,
-		"grok.count_tokens":    h.OpenAIGateway.GrokCountTokens,
-		"openai.embeddings":    h.OpenAIGateway.Embeddings,
-		"openai.images":        h.OpenAIGateway.Images,
-		"openai.image.variation": h.OpenAIGateway.Images,
-		"grok.images":            h.OpenAIGateway.GrokImages,
-		"grok.video.generate":    h.OpenAIGateway.GrokVideoGeneration,
-		"grok.video.edit":        h.OpenAIGateway.GrokVideoEdit,
-		"grok.video.extend":      h.OpenAIGateway.GrokVideoExtension,
-		"grok.video.status":      h.OpenAIGateway.GrokVideoStatus,
-		"grok.video.content":     h.OpenAIGateway.GrokVideoContent,
-		"grok.realtime":          h.OpenAIGateway.GrokRealtime,
-		"antigravity.images":     h.Gateway.AntigravityImages,
-		"bedrock.embeddings":     h.Gateway.BedrockEmbeddings,
-		"bedrock.rerank":         h.Gateway.BedrockRerank,
-		"bedrock.images":         h.Gateway.BedrockImages,
-		"bedrock.image.variation": h.Gateway.BedrockImages,
-		"qianwen.embeddings":      h.OpenAIGateway.QianwenEmbeddings,
-		"qianwen.rerank":          h.OpenAIGateway.QianwenRerank,
-		"qianwen.images":          h.OpenAIGateway.QianwenImages,
-		"qianwen.native":          h.OpenAIGateway.QianwenNative,
-		"qianfan.embeddings":      h.OpenAIGateway.QianfanEmbeddings,
-		"qianfan.rerank":          h.OpenAIGateway.QianfanRerank,
-		"qianfan.images":          h.OpenAIGateway.QianfanImages,
-		"qianfan.image.edit":      h.OpenAIGateway.QianfanImageEdit,
-		"qianfan.video.generate":  h.OpenAIGateway.QianfanVideoGeneration,
-		"qianfan.video.status":    h.OpenAIGateway.QianfanVideoStatus,
-		"qianfan.video.cancel":    h.OpenAIGateway.QianfanVideoCancel,
-		"qianfan.video.content":   h.OpenAIGateway.QianfanVideoContent,
-		"qianfan.audio.tts":       h.OpenAIGateway.QianfanAudioSpeech,
-		"qianfan.voice":           qianfanVoiceHandler(h.OpenAIGateway.QianfanVoiceCloneCreate, h.OpenAIGateway.QianfanVoiceCloneList),
-		"qianfan.search":          h.OpenAIGateway.QianfanSearch,
-		"hunyuan.embeddings":      h.OpenAIGateway.HunyuanEmbeddings,
-		"hunyuan.images":          h.OpenAIGateway.HunyuanImageGeneration,
-		"hunyuan.image.edit":      h.OpenAIGateway.HunyuanImageEdit,
-		"hunyuan.video.generate":  h.OpenAIGateway.HunyuanVideoGeneration,
-		"hunyuan.video.status":    h.OpenAIGateway.HunyuanVideoStatus,
-		"hunyuan.video.content":   h.OpenAIGateway.HunyuanVideoContent,
-		"hunyuan.audio.tts":       h.OpenAIGateway.HunyuanAudioSpeech,
-		"hunyuan.audio.stt":       h.OpenAIGateway.HunyuanAudioTranscriptions,
-		"hunyuan.voice":           h.OpenAIGateway.HunyuanVoiceClone,
-		"volcengine.embeddings":     h.OpenAIGateway.VolcengineEmbeddings,
-		"volcengine.images":         h.OpenAIGateway.VolcengineImages,
-		"volcengine.video.generate": h.OpenAIGateway.VolcengineVideoGeneration,
-		"volcengine.video.edit":     h.OpenAIGateway.VolcengineVideoEdit,
-		"volcengine.video.extend":   h.OpenAIGateway.VolcengineVideoExtend,
-		"volcengine.video.status":   h.OpenAIGateway.VolcengineVideoStatus,
-		"volcengine.video.content":  h.OpenAIGateway.VolcengineVideoContent,
-		"opencode.generate_content": h.Gateway.OpenCodeGenerateContent,
-	})
+	dispatch := service.NewGatewayActionDispatch(GatewayActionHandlers(h))
 	messagesHandler := dispatch.Handler("messages")
 	countTokensHandler := dispatch.Handler("count_tokens")
 	codexModelsHandler := service.CodexModelsGateway(h.OpenAIGateway.CodexModels, h.Gateway.CodexModels)
@@ -223,7 +234,7 @@ func RegisterGatewayRoutes(
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		gemini.POST("/models/*modelAction", dispatch.Handler("generate_content"))
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
@@ -358,7 +369,7 @@ func RegisterGatewayRoutes(
 	{
 		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
-		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		antigravityV1Beta.POST("/models/*modelAction", dispatch.Handler("generate_content"))
 	}
 
 }

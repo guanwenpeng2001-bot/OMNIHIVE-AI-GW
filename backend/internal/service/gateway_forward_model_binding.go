@@ -61,13 +61,13 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 		if account != nil && account.IsGrok() {
 			return requestCatalogEndpoint(ctx)
 		}
-		// A chat-only platform without a bound image adapter declares no image
-		// family at all, so demanding one here would veto every account it
-		// serves; those entries keep the conservative Responses evidence this
-		// gate used before the family split. Once the platform action matrix
-		// binds the image family (multimodal-ingress), the catalog declares that
-		// endpoint and this gate must read the same evidence the scheduler does.
-		if account != nil && IsChatOnlyPlatform(account.Platform) && !platformActionAdapterBound(account, "image.generate") {
+		// A chat-only platform declares no per-family media evidence: the catalog
+		// returns the conservative chat-completions family for any non-text task,
+		// so demanding the image family here would veto every account it serves.
+		// The platform action gate already decided that the media action is
+		// executable (multimodal-ingress); the catalog endpoint evidence stays the
+		// conservative Responses evidence this gate used before the family split.
+		if account != nil && IsChatOnlyPlatform(account.Platform) {
 			return CompositeRouteEndpointResponses
 		}
 		return CompositeRouteEndpointImages

@@ -52,9 +52,15 @@ func rejectGatewayAction(requestContext *gin.Context) {
 func (d *GatewayActionDispatch) Handler(action string) gin.HandlerFunc {
 	return func(requestContext *gin.Context) {
 		platform := GatewayTargetPlatform(requestContext)
-		// Model-less job lookups retain their existing owner-checked handler.
-		if platform == PlatformComposite && (action == "video.status" || action == "video.content") {
-			platform = PlatformGrok
+		// Every video action shares one target resolution: the request's own
+		// resolved Composite target when the client wrote a model, and the
+		// Grok pin when a model-less job lookup (or a model-less create/edit/
+		// extension) left the target unresolved. Pinning through one helper keeps
+		// creation, edit, extension, status and content on the same platform and
+		// writes that platform into the request context so quota, account
+		// selection and billing observe it too.
+		if platform == PlatformComposite && isCompositeGrokVideoAction(action) {
+			platform = pinUnresolvedCompositeGrokTarget(requestContext)
 		}
 		if platform == PlatformComposite && action == "realtime" {
 			platform = pinUnresolvedCompositeGrokTarget(requestContext)
@@ -66,6 +72,18 @@ func (d *GatewayActionDispatch) Handler(action string) gin.HandlerFunc {
 			return
 		}
 		handler(requestContext)
+	}
+}
+
+// isCompositeGrokVideoAction reports the video-family actions whose native
+// request shape is the xAI video surface. A Composite group that could not
+// resolve a target for one of them still belongs to the Grok video handler.
+func isCompositeGrokVideoAction(action string) bool {
+	switch action {
+	case "video.generate", "video.edit", "video.extend", "video.status", "video.content":
+		return true
+	default:
+		return false
 	}
 }
 func (d *GatewayActionDispatch) ImageHandler() gin.HandlerFunc {
