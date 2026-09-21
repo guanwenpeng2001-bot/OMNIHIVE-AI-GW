@@ -45,6 +45,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/ent/workspace"
+	"github.com/Wei-Shaw/sub2api/ent/workspacemember"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
@@ -54,11 +56,17 @@ import (
 func init() {
 	apikeyMixin := schema.APIKey{}.Mixin()
 	apikeyMixinHooks1 := apikeyMixin[1].Hooks()
+	apikeyMixinHooks2 := apikeyMixin[2].Hooks()
 	apikey.Hooks[0] = apikeyMixinHooks1[0]
+	apikey.Hooks[1] = apikeyMixinHooks2[0]
 	apikeyMixinInters1 := apikeyMixin[1].Interceptors()
+	apikeyMixinInters2 := apikeyMixin[2].Interceptors()
 	apikey.Interceptors[0] = apikeyMixinInters1[0]
+	apikey.Interceptors[1] = apikeyMixinInters2[0]
 	apikeyMixinFields0 := apikeyMixin[0].Fields()
 	_ = apikeyMixinFields0
+	apikeyMixinFields1 := apikeyMixin[1].Fields()
+	_ = apikeyMixinFields1
 	apikeyFields := schema.APIKey{}.Fields()
 	_ = apikeyFields
 	// apikeyDescCreatedAt is the schema descriptor for created_at field.
@@ -71,6 +79,10 @@ func init() {
 	apikey.DefaultUpdatedAt = apikeyDescUpdatedAt.Default.(func() time.Time)
 	// apikey.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	apikey.UpdateDefaultUpdatedAt = apikeyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// apikeyDescWorkspaceID is the schema descriptor for workspace_id field.
+	apikeyDescWorkspaceID := apikeyMixinFields1[0].Descriptor()
+	// apikey.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	apikey.DefaultWorkspaceID = apikeyDescWorkspaceID.Default.(int64)
 	// apikeyDescKey is the schema descriptor for key field.
 	apikeyDescKey := apikeyFields[1].Descriptor()
 	// apikey.KeyValidator is a validator for the "key" field. It is called by the builders before save.
@@ -147,11 +159,17 @@ func init() {
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
 	accountMixin := schema.Account{}.Mixin()
 	accountMixinHooks1 := accountMixin[1].Hooks()
+	accountMixinHooks2 := accountMixin[2].Hooks()
 	account.Hooks[0] = accountMixinHooks1[0]
+	account.Hooks[1] = accountMixinHooks2[0]
 	accountMixinInters1 := accountMixin[1].Interceptors()
+	accountMixinInters2 := accountMixin[2].Interceptors()
 	account.Interceptors[0] = accountMixinInters1[0]
+	account.Interceptors[1] = accountMixinInters2[0]
 	accountMixinFields0 := accountMixin[0].Fields()
 	_ = accountMixinFields0
+	accountMixinFields1 := accountMixin[1].Fields()
+	_ = accountMixinFields1
 	accountFields := schema.Account{}.Fields()
 	_ = accountFields
 	// accountDescCreatedAt is the schema descriptor for created_at field.
@@ -164,6 +182,10 @@ func init() {
 	account.DefaultUpdatedAt = accountDescUpdatedAt.Default.(func() time.Time)
 	// account.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	account.UpdateDefaultUpdatedAt = accountDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// accountDescWorkspaceID is the schema descriptor for workspace_id field.
+	accountDescWorkspaceID := accountMixinFields1[0].Descriptor()
+	// account.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	account.DefaultWorkspaceID = accountDescWorkspaceID.Default.(int64)
 	// accountDescName is the schema descriptor for name field.
 	accountDescName := accountFields[0].Descriptor()
 	// account.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -603,8 +625,14 @@ func init() {
 	// batchimagejob.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	batchimagejob.UpdateDefaultUpdatedAt = batchimagejobDescUpdatedAt.UpdateDefault.(func() time.Time)
 	channelmonitorMixin := schema.ChannelMonitor{}.Mixin()
+	channelmonitorMixinHooks1 := channelmonitorMixin[1].Hooks()
+	channelmonitor.Hooks[0] = channelmonitorMixinHooks1[0]
+	channelmonitorMixinInters1 := channelmonitorMixin[1].Interceptors()
+	channelmonitor.Interceptors[0] = channelmonitorMixinInters1[0]
 	channelmonitorMixinFields0 := channelmonitorMixin[0].Fields()
 	_ = channelmonitorMixinFields0
+	channelmonitorMixinFields1 := channelmonitorMixin[1].Fields()
+	_ = channelmonitorMixinFields1
 	channelmonitorFields := schema.ChannelMonitor{}.Fields()
 	_ = channelmonitorFields
 	// channelmonitorDescCreatedAt is the schema descriptor for created_at field.
@@ -617,6 +645,10 @@ func init() {
 	channelmonitor.DefaultUpdatedAt = channelmonitorDescUpdatedAt.Default.(func() time.Time)
 	// channelmonitor.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	channelmonitor.UpdateDefaultUpdatedAt = channelmonitorDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// channelmonitorDescWorkspaceID is the schema descriptor for workspace_id field.
+	channelmonitorDescWorkspaceID := channelmonitorMixinFields1[0].Descriptor()
+	// channelmonitor.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	channelmonitor.DefaultWorkspaceID = channelmonitorDescWorkspaceID.Default.(int64)
 	// channelmonitorDescName is the schema descriptor for name field.
 	channelmonitorDescName := channelmonitorFields[0].Descriptor()
 	// channelmonitor.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -804,8 +836,14 @@ func init() {
 	// channelmonitorhistory.DefaultCheckedAt holds the default value on creation for the checked_at field.
 	channelmonitorhistory.DefaultCheckedAt = channelmonitorhistoryDescCheckedAt.Default.(func() time.Time)
 	channelmonitorrequesttemplateMixin := schema.ChannelMonitorRequestTemplate{}.Mixin()
+	channelmonitorrequesttemplateMixinHooks1 := channelmonitorrequesttemplateMixin[1].Hooks()
+	channelmonitorrequesttemplate.Hooks[0] = channelmonitorrequesttemplateMixinHooks1[0]
+	channelmonitorrequesttemplateMixinInters1 := channelmonitorrequesttemplateMixin[1].Interceptors()
+	channelmonitorrequesttemplate.Interceptors[0] = channelmonitorrequesttemplateMixinInters1[0]
 	channelmonitorrequesttemplateMixinFields0 := channelmonitorrequesttemplateMixin[0].Fields()
 	_ = channelmonitorrequesttemplateMixinFields0
+	channelmonitorrequesttemplateMixinFields1 := channelmonitorrequesttemplateMixin[1].Fields()
+	_ = channelmonitorrequesttemplateMixinFields1
 	channelmonitorrequesttemplateFields := schema.ChannelMonitorRequestTemplate{}.Fields()
 	_ = channelmonitorrequesttemplateFields
 	// channelmonitorrequesttemplateDescCreatedAt is the schema descriptor for created_at field.
@@ -818,6 +856,10 @@ func init() {
 	channelmonitorrequesttemplate.DefaultUpdatedAt = channelmonitorrequesttemplateDescUpdatedAt.Default.(func() time.Time)
 	// channelmonitorrequesttemplate.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	channelmonitorrequesttemplate.UpdateDefaultUpdatedAt = channelmonitorrequesttemplateDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// channelmonitorrequesttemplateDescWorkspaceID is the schema descriptor for workspace_id field.
+	channelmonitorrequesttemplateDescWorkspaceID := channelmonitorrequesttemplateMixinFields1[0].Descriptor()
+	// channelmonitorrequesttemplate.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	channelmonitorrequesttemplate.DefaultWorkspaceID = channelmonitorrequesttemplateDescWorkspaceID.Default.(int64)
 	// channelmonitorrequesttemplateDescName is the schema descriptor for name field.
 	channelmonitorrequesttemplateDescName := channelmonitorrequesttemplateFields[0].Descriptor()
 	// channelmonitorrequesttemplate.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -994,11 +1036,17 @@ func init() {
 	errorpassthroughrule.DefaultSkipMonitoring = errorpassthroughruleDescSkipMonitoring.Default.(bool)
 	groupMixin := schema.Group{}.Mixin()
 	groupMixinHooks1 := groupMixin[1].Hooks()
+	groupMixinHooks2 := groupMixin[2].Hooks()
 	group.Hooks[0] = groupMixinHooks1[0]
+	group.Hooks[1] = groupMixinHooks2[0]
 	groupMixinInters1 := groupMixin[1].Interceptors()
+	groupMixinInters2 := groupMixin[2].Interceptors()
 	group.Interceptors[0] = groupMixinInters1[0]
+	group.Interceptors[1] = groupMixinInters2[0]
 	groupMixinFields0 := groupMixin[0].Fields()
 	_ = groupMixinFields0
+	groupMixinFields1 := groupMixin[1].Fields()
+	_ = groupMixinFields1
 	groupFields := schema.Group{}.Fields()
 	_ = groupFields
 	// groupDescCreatedAt is the schema descriptor for created_at field.
@@ -1011,6 +1059,10 @@ func init() {
 	group.DefaultUpdatedAt = groupDescUpdatedAt.Default.(func() time.Time)
 	// group.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	group.UpdateDefaultUpdatedAt = groupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// groupDescWorkspaceID is the schema descriptor for workspace_id field.
+	groupDescWorkspaceID := groupMixinFields1[0].Descriptor()
+	// group.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	group.DefaultWorkspaceID = groupDescWorkspaceID.Default.(int64)
 	// groupDescAccountType is the schema descriptor for account_type field.
 	groupDescAccountType := groupFields[0].Descriptor()
 	// group.DefaultAccountType holds the default value on creation for the account_type field.
@@ -1634,11 +1686,17 @@ func init() {
 	promocodeusage.DefaultUsedAt = promocodeusageDescUsedAt.Default.(func() time.Time)
 	proxyMixin := schema.Proxy{}.Mixin()
 	proxyMixinHooks1 := proxyMixin[1].Hooks()
+	proxyMixinHooks2 := proxyMixin[2].Hooks()
 	proxy.Hooks[0] = proxyMixinHooks1[0]
+	proxy.Hooks[1] = proxyMixinHooks2[0]
 	proxyMixinInters1 := proxyMixin[1].Interceptors()
+	proxyMixinInters2 := proxyMixin[2].Interceptors()
 	proxy.Interceptors[0] = proxyMixinInters1[0]
+	proxy.Interceptors[1] = proxyMixinInters2[0]
 	proxyMixinFields0 := proxyMixin[0].Fields()
 	_ = proxyMixinFields0
+	proxyMixinFields1 := proxyMixin[1].Fields()
+	_ = proxyMixinFields1
 	proxyFields := schema.Proxy{}.Fields()
 	_ = proxyFields
 	// proxyDescCreatedAt is the schema descriptor for created_at field.
@@ -1651,6 +1709,10 @@ func init() {
 	proxy.DefaultUpdatedAt = proxyDescUpdatedAt.Default.(func() time.Time)
 	// proxy.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
 	proxy.UpdateDefaultUpdatedAt = proxyDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// proxyDescWorkspaceID is the schema descriptor for workspace_id field.
+	proxyDescWorkspaceID := proxyMixinFields1[0].Descriptor()
+	// proxy.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	proxy.DefaultWorkspaceID = proxyDescWorkspaceID.Default.(int64)
 	// proxyDescName is the schema descriptor for name field.
 	proxyDescName := proxyFields[0].Descriptor()
 	// proxy.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -2496,6 +2558,58 @@ func init() {
 	usersubscriptionDescAssignedAt := usersubscriptionFields[12].Descriptor()
 	// usersubscription.DefaultAssignedAt holds the default value on creation for the assigned_at field.
 	usersubscription.DefaultAssignedAt = usersubscriptionDescAssignedAt.Default.(func() time.Time)
+	workspaceMixin := schema.Workspace{}.Mixin()
+	workspaceMixinFields0 := workspaceMixin[0].Fields()
+	_ = workspaceMixinFields0
+	workspaceFields := schema.Workspace{}.Fields()
+	_ = workspaceFields
+	// workspaceDescCreatedAt is the schema descriptor for created_at field.
+	workspaceDescCreatedAt := workspaceMixinFields0[0].Descriptor()
+	// workspace.DefaultCreatedAt holds the default value on creation for the created_at field.
+	workspace.DefaultCreatedAt = workspaceDescCreatedAt.Default.(func() time.Time)
+	// workspaceDescUpdatedAt is the schema descriptor for updated_at field.
+	workspaceDescUpdatedAt := workspaceMixinFields0[1].Descriptor()
+	// workspace.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	workspace.DefaultUpdatedAt = workspaceDescUpdatedAt.Default.(func() time.Time)
+	// workspace.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	workspace.UpdateDefaultUpdatedAt = workspaceDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// workspaceDescName is the schema descriptor for name field.
+	workspaceDescName := workspaceFields[0].Descriptor()
+	// workspace.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	workspace.NameValidator = func() func(string) error {
+		validators := workspaceDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// workspaceDescIsDefault is the schema descriptor for is_default field.
+	workspaceDescIsDefault := workspaceFields[1].Descriptor()
+	// workspace.DefaultIsDefault holds the default value on creation for the is_default field.
+	workspace.DefaultIsDefault = workspaceDescIsDefault.Default.(bool)
+	workspacememberMixin := schema.WorkspaceMember{}.Mixin()
+	workspacememberMixinFields0 := workspacememberMixin[0].Fields()
+	_ = workspacememberMixinFields0
+	workspacememberFields := schema.WorkspaceMember{}.Fields()
+	_ = workspacememberFields
+	// workspacememberDescCreatedAt is the schema descriptor for created_at field.
+	workspacememberDescCreatedAt := workspacememberMixinFields0[0].Descriptor()
+	// workspacemember.DefaultCreatedAt holds the default value on creation for the created_at field.
+	workspacemember.DefaultCreatedAt = workspacememberDescCreatedAt.Default.(func() time.Time)
+	// workspacememberDescUpdatedAt is the schema descriptor for updated_at field.
+	workspacememberDescUpdatedAt := workspacememberMixinFields0[1].Descriptor()
+	// workspacemember.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	workspacemember.DefaultUpdatedAt = workspacememberDescUpdatedAt.Default.(func() time.Time)
+	// workspacemember.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	workspacemember.UpdateDefaultUpdatedAt = workspacememberDescUpdatedAt.UpdateDefault.(func() time.Time)
 }
 
 const (

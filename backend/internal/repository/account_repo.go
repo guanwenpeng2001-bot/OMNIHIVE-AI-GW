@@ -26,6 +26,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -207,6 +208,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	}
 
 	account.ID = created.ID
+	account.WorkspaceID = created.WorkspaceID
 	if account.Platform == service.PlatformBedrock || account.Platform == "vertex" {
 		identity, readErr := client.Account.Query().Where(dbaccount.IDEQ(created.ID)).Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldExtra).Only(ctx)
 		if readErr != nil {
@@ -996,6 +998,11 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 }
 
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {
+	if _, scoped := domain.WorkspaceScope(ctx); scoped {
+		if _, err := r.GetByID(ctx, id); err != nil {
+			return err
+		}
+	}
 	groupIDs, err := r.loadAccountGroupIDs(ctx, id)
 	if err != nil {
 		return err
@@ -1345,6 +1352,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 			AND schedulable = TRUE
 			AND platform = ANY($1)
 			AND id > $2`
+	query += workspaceClause(ctx, "workspace_id")
 	if options.ActiveOnly {
 		query += `
 			AND status = 'active'`
@@ -2334,7 +2342,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
- FROM accounts a WHERE a.deleted_at IS NULL AND
+ FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
  AND (a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
@@ -3243,6 +3251,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	setClauses = append(setClauses, "updated_at = NOW()")
 
 	whereClause := " WHERE id = ANY($" + itoa(idx) + ") AND deleted_at IS NULL"
+	if _, scoped := domain.WorkspaceScope(ctx); scoped {
+		whereClause += " AND " + workspacePredicate(ctx, "workspace_id")
+	}
 	args = append(args, pq.Array(ids))
 	idx++
 	if updates.ProbeEnabled != nil {
@@ -3652,6 +3663,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 
 	return &service.Account{
 		ID:                      m.ID,
+		WorkspaceID:             m.WorkspaceID,
 		Name:                    m.Name,
 		Notes:                   m.Notes,
 		Platform:                m.Platform,
@@ -3796,7 +3808,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				extra #>> '{upstream_billing_probe,status}' AS probe_status,
 				extra #>> '{upstream_billing_probe,next_probe_at}' AS next_probe_at
 			FROM accounts
-			WHERE deleted_at IS NULL
+			WHERE deleted_at IS NULL`+workspaceClause(ctx, "workspace_id")+`
 				AND status = 'active'
 				AND (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb

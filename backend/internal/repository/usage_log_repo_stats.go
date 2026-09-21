@@ -707,7 +707,7 @@ func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters Us
 			return snapshot.GetStatsWithFilters(ctx, filters)
 		})
 	}
-	conditions := make([]string, 0, 9)
+	conditions := workspaceUsageConditions(ctx)
 	args := make([]any, 0, 9)
 
 	if filters.UserID > 0 {

@@ -74,6 +74,7 @@ func RegisterUserRoutes(
 
 		// API Key管理
 		keys := authenticated.Group("/keys")
+		keys.Use(middleware.DefaultWorkspaceScope())
 		{
 			keys.GET("", h.APIKey.List)
 			keys.GET("/:id", h.APIKey.GetByID)
@@ -84,6 +85,7 @@ func RegisterUserRoutes(
 
 		// 用户可用分组（非管理员接口）
 		groups := authenticated.Group("/groups")
+		groups.Use(middleware.DefaultWorkspaceScope())
 		{
 			groups.GET("/available", h.APIKey.GetAvailableGroups)
 			groups.GET("/rates", h.APIKey.GetUserGroupRates)
@@ -91,6 +93,7 @@ func RegisterUserRoutes(
 
 		// 用户可用渠道（非管理员接口）
 		channels := authenticated.Group("/channels")
+		channels.Use(middleware.DefaultWorkspaceScope())
 		{
 			channels.GET("/available", h.AvailableChannel.List)
 		}
@@ -137,6 +140,7 @@ func RegisterUserRoutes(
 
 		// 渠道监控（用户只读）
 		monitors := authenticated.Group("/channel-monitors")
+		monitors.Use(middleware.DefaultWorkspaceScope())
 		{
 			monitors.GET("", h.ChannelMonitor.List)
 			monitors.GET("/:id/status", h.ChannelMonitor.GetStatus)
@@ -144,6 +148,7 @@ func RegisterUserRoutes(
 
 		// V2 passive views require feature on + mode=v2.
 		monitorV2 := authenticated.Group("/channel-monitor-v2")
+		monitorV2.Use(middleware.DefaultWorkspaceScope())
 		monitorV2.Use(panelRateLimiter.Heavy())
 		monitorV2.Use(channelMonitorModeV2Guard(settingService))
 		{

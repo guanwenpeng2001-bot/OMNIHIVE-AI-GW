@@ -2,6 +2,7 @@ package admin
 
 import (
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"math"
 	"net/http"
 	"strconv"
@@ -26,7 +27,7 @@ type modelAvailabilityResponse struct {
 func modelAvailabilityActor(c *gin.Context) (int64, bool) {
 	subject, exists := middleware.GetAuthSubjectFromContext(c)
 	role, hasRole := middleware.GetUserRoleFromContext(c)
-	if !exists || subject.UserID <= 0 || !hasRole || role != service.RoleAdmin {
+	if !exists || subject.UserID <= 0 || (!domain.WorkspaceAdministration(c.Request.Context()) && (!hasRole || role != service.RoleAdmin)) {
 		response.ErrorWithDetails(c, http.StatusForbidden, "An administrator identity is required", "model_availability_forbidden", nil)
 		return 0, false
 	}

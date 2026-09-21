@@ -16,11 +16,17 @@ import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { lazyIdentityScoped } from './identityScope'
+import { workspacesAPI } from '@/api/workspaces'
 
 /**
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/workspaces', name: 'Workspaces',
+    component: () => import('@/views/user/WorkspacesView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'workspaces.title' },
+  },
   {
     path: '/admin/compliance',
     name: 'AdminCompliance',
@@ -741,6 +747,24 @@ const routes: RouteRecordRaw[] = [
     }
   }
 ]
+
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+for (const resourceRoute of [...routes]) {
+  if (!workspaceResourcePaths.has(resourceRoute.path)) continue
+  const suffix = resourceRoute.path.replace(/^\/admin/, '')
+  routes.push({
+    ...resourceRoute,
+    path: `/workspaces/:workspace_id${suffix}`,
+    name: `Workspace${String(resourceRoute.name)}`,
+    meta: { ...resourceRoute.meta, requiresAdmin: false },
+    beforeEnter: async to => {
+      try {
+        const workspace = (await workspacesAPI.list()).find(item => String(item.id) === to.params.workspace_id)
+        return workspace && (suffix === '/keys' || workspace.role === 'admin') ? true : '/workspaces'
+      } catch { return '/workspaces' }
+    },
+  } as RouteRecordRaw)
+}
 
 // Wrap lazy protected pages so their local state belongs to one login session.
 for (const route of routes) {
