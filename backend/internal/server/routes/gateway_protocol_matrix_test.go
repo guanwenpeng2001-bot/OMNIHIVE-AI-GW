@@ -55,7 +55,10 @@ func TestGatewayPlatformProtocolMatrix(test *testing.T) {
 					catalog := service.AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"fixture-model"}, EligibleModels: []service.AccountCatalogModel{{ID: "fixture-model", Endpoints: []string{endpoint}, EvidenceKind: "synthetic-contract"}}}
 					account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
 					options := service.AccountModelBindingOptions{Endpoint: endpoint, FinalModel: "fixture-model"}
-					require.Equal(test, !descriptor.ChatOnly || endpoint == "chat_completions", service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported, "evidence cannot enable an unimplemented platform action")
+					action := map[string]string{"messages": "messages", "responses": "responses", "chat_completions": "chat", "generate_content": "generate_content", "embeddings": "embeddings", "images": "image.generate", "live": "live"}[endpoint]
+					ctx := service.WithGatewayRequestPlan(context.Background(), service.NewGatewayRequestPlan(service.GatewayRequestSpec{Action: action}))
+					cell := domain.PlatformAction(domain.ActionIdentity{Platform: descriptor.ID, HostedAccountType: accountType}, action)
+					require.Equal(test, cell.Status == domain.ActionImplemented, service.ResolveAccountModelBinding(ctx, account, "public-alias", options).Supported, "action evidence cannot enable a missing adapter")
 					catalog.EligibleModels[0].Endpoints = []string{"unrelated-endpoint"}
 					account.Extra[service.UpstreamModelCatalogExtraKey] = catalog
 					require.False(test, service.ResolveAccountModelBinding(context.Background(), account, "public-alias", options).Supported)
@@ -99,7 +102,8 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 					continue // Supported catalog and usage contracts are tested by the guard suite.
 				}
 			}
-			if route.Method == http.MethodPost && (strings.HasSuffix(path, "/chat/completions") || platform == service.PlatformBedrock && (strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/responses"))) {
+			action := service.GatewayActionForRoute(route.Method, path)
+			if action == "" || domain.PlatformAction(domain.ActionIdentity{Platform: platform}, action).Status == domain.ActionImplemented {
 				continue
 			}
 			for _, stream := range []bool{false, true} {
@@ -116,11 +120,21 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 						request.Header.Set("Content-Type", "application/json")
 						request.Header.Set("Authorization", "Bearer matrix-key")
 						router.ServeHTTP(recorder, request)
-						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						if strings.Contains(request.URL.Path, "/v1beta/") {
-							require.Contains(test, recorder.Body.String(), "NOT_FOUND")
+						require.Equal(test, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+						if strings.HasPrefix(request.URL.Path, "/v1beta/") {
+							// The action remains a 400 rejection; GatewayProtocol renders
+							// the native Google equivalent of invalid_request_error.
+							var envelope struct {
+								Error struct {
+									Code   int    `json:"code"`
+									Status string `json:"status"`
+								} `json:"error"`
+							}
+							require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+							require.Equal(test, http.StatusBadRequest, envelope.Error.Code)
+							require.Equal(test, "INVALID_ARGUMENT", envelope.Error.Status)
 						} else {
-							require.Contains(test, recorder.Body.String(), "not_found_error")
+							require.Contains(test, recorder.Body.String(), "invalid_request_error")
 						}
 						// The real router has no transport or billing services. Reaching
 						// either would panic instead of returning this local rejection.
@@ -161,12 +175,8 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 						request := httptest.NewRequest(feature.method, prefix+feature.path, strings.NewReader(body))
 						request.Header.Set("Content-Type", "application/json")
 						router.ServeHTTP(recorder, request)
-						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						if strings.Contains(request.URL.Path, "/v1beta/") {
-							require.Contains(test, recorder.Body.String(), "NOT_FOUND")
-						} else {
-							require.Contains(test, recorder.Body.String(), "not_found_error")
-						}
+						require.Equal(test, http.StatusBadRequest, recorder.Code, recorder.Body.String())
+						require.Contains(test, recorder.Body.String(), "invalid_request_error")
 					})
 				}
 			}
@@ -177,7 +187,7 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	upstreamCalls, billingCalls := 0, 0
 	router.Use(func(requestContext *gin.Context) {
 		requestContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformMistral}})
-	}, chatOnlyPlatformGuard)
+	}, service.GatewayActionRequirement)
 	router.POST("/v1/responses", func(requestContext *gin.Context) {
 		upstreamCalls++
 		billingCalls++

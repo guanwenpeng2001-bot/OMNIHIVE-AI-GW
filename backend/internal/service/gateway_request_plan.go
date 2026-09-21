@@ -190,7 +190,10 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 		spec.ExecutionID = resolveUsageBillingRequestID(ctx, "")
 	}
 	if spec.Action == "" {
-		spec.Action = spec.Route
+		spec.Action = gatewayRequiredAction(ctx)
+		if spec.Action == "" {
+			spec.Action = spec.Route
+		}
 	}
 	p := NewGatewayRequestPlan(spec)
 	ConfigureAttemptBudget(ctx, spec.MaxAccountSwitches)

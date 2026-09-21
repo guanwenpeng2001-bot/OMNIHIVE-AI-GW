@@ -263,7 +263,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		options.Endpoint, _ = ctx.Value(modelCatalogEndpointContextKey{}).(string)
 	}
 	binding := AccountModelBinding{PublicModel: publicModel, Endpoint: options.Endpoint, RouteSource: CompositeRouteSourceAccount}
-	if !catalogAccountEnabled(account) {
+	if !catalogAccountEnabled(account) || !accountImplementsGatewayAction(ctx, account) {
 		return binding
 	}
 	binding.AccountID = account.ID
@@ -342,6 +342,9 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		}
 	}
 	binding.UpstreamModel = strings.TrimSpace(model)
+	if !accountSupportsGatewayInput(ctx, account, binding.UpstreamModel) {
+		return binding
+	}
 	snapshot := account.EffectiveUpstreamModelCatalogForCredentialAccount(options.CredentialAccount)
 	if snapshot == nil {
 		return binding
