@@ -210,6 +210,12 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformGemini || identity.Platform == PlatformAntigravity {
 			adapter = "gateway.generate_content"
 		}
+		if identity.Platform == PlatformOpenCodeGo {
+			// Zen publishes a Google-protocol column; Go does not. The adapter
+			// itself rejects the Go plan, since the plan is account mode rather
+			// than an action identity dimension.
+			adapter = "opencode.generate_content"
+		}
 	case "responses.compact":
 		if platform.ResponsesCompact {
 			adapter = "openai.responses"
@@ -281,6 +287,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformQianwen {
 		return qianwenActionDescriptor(descriptor, action, adapter)
+	}
+	if identity.Platform == PlatformOpenCodeGo {
+		return openCodeActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor

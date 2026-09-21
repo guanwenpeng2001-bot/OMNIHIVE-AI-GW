@@ -1,0 +1,509 @@
+{
+  "note": "Unauthenticated live route probes against the first-party OpenCode Zen / OpenCode Go gateway. No credential was used and no billable upstream action was performed; every 401 is the gateway's own auth rejection. 404 responses are the site's HTML not-found page, i.e. the route does not exist.",
+  "retrievedAt": "2026-09-21T12:00:18.203216+00:00",
+  "docs": [
+    "https://opencode.ai/docs/zen/ (page footer: Last updated Sep 21, 2026)",
+    "https://opencode.ai/docs/go/ (page footer: Last updated Sep 21, 2026)"
+  ],
+  "surfaceProbes": [
+    {
+      "label": "chat_zen",
+      "method": "POST",
+      "path": "/zen/v1/chat/completions",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "chat_go",
+      "method": "POST",
+      "path": "/zen/go/v1/chat/completions",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "messages_zen",
+      "method": "POST",
+      "path": "/zen/v1/messages",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "messages_go",
+      "method": "POST",
+      "path": "/zen/go/v1/messages",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"ModelError\",\"message\":\"Model claude-sonnet-5 is not supported\"}}"
+    },
+    {
+      "label": "responses_zen",
+      "method": "POST",
+      "path": "/zen/v1/responses",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "responses_go",
+      "method": "POST",
+      "path": "/zen/go/v1/responses",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "responses_compact",
+      "method": "POST",
+      "path": "/zen/v1/responses/compact",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "count_tokens_anthropic_shape",
+      "method": "POST",
+      "path": "/zen/v1/messages/count_tokens",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "count_tokens_google_shape",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:countTokens",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "generate_content_sync",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:generateContent",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "generate_content_stream",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:streamGenerateContent",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "generate_content_unknown_model",
+      "method": "POST",
+      "path": "/zen/v1/models/does-not-exist:generateContent",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"ModelError\",\"message\":\"Model does-not-exist is not supported\"}}"
+    },
+    {
+      "label": "generate_content_go_plan",
+      "method": "POST",
+      "path": "/zen/go/v1/models/glm-5.3:generateContent",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "generate_content_v1beta_shape",
+      "method": "POST",
+      "path": "/zen/v1beta/models/gemini-3.8-flash:generateContent",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "embeddings_zen",
+      "method": "POST",
+      "path": "/zen/v1/embeddings",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "embeddings_go",
+      "method": "POST",
+      "path": "/zen/go/v1/embeddings",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "rerank_zen",
+      "method": "POST",
+      "path": "/zen/v1/rerank",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "rerank_go",
+      "method": "POST",
+      "path": "/zen/go/v1/rerank",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "image_generate",
+      "method": "POST",
+      "path": "/zen/v1/images/generations",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "image_edit",
+      "method": "POST",
+      "path": "/zen/v1/images/edits",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "image_variation",
+      "method": "POST",
+      "path": "/zen/v1/images/variations",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "image_batch",
+      "method": "POST",
+      "path": "/zen/v1/batches",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "video_generate",
+      "method": "POST",
+      "path": "/zen/v1/videos",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "video_generate_alt_shape",
+      "method": "POST",
+      "path": "/zen/v1/video/generations",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "video_status",
+      "method": "GET",
+      "path": "/zen/v1/videos/task-fixture",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "audio_tts",
+      "method": "POST",
+      "path": "/zen/v1/audio/speech",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "audio_stt",
+      "method": "POST",
+      "path": "/zen/v1/audio/transcriptions",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "audio_translate",
+      "method": "POST",
+      "path": "/zen/v1/audio/translations",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "voice_customization",
+      "method": "POST",
+      "path": "/zen/v1/audio/voices",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "voice_alt_shape",
+      "method": "POST",
+      "path": "/zen/v1/voice",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "realtime",
+      "method": "POST",
+      "path": "/zen/v1/realtime",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "search",
+      "method": "POST",
+      "path": "/zen/v1/search",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "alpha_search",
+      "method": "POST",
+      "path": "/zen/v1/alpha/search",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "live",
+      "method": "POST",
+      "path": "/zen/v1/live",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "native_systemone_zen",
+      "method": "POST",
+      "path": "/zen/v1/systemone",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"error\":{\"type\":\"server_error\",\"message\":\"Error from provider (Console): Upstream request failed: Rate-limited Zen models require a workspace\"}}"
+    },
+    {
+      "label": "native_systemone_go",
+      "method": "POST",
+      "path": "/zen/go/v1/systemone",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"ModelError\",\"message\":\"Model jev-1.13 is not supported\"}}"
+    },
+    {
+      "label": "files",
+      "method": "POST",
+      "path": "/zen/v1/files",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "moderations",
+      "method": "POST",
+      "path": "/zen/v1/moderations",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "fine_tuning_jobs",
+      "method": "POST",
+      "path": "/zen/v1/fine_tuning/jobs",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "models_list_zen",
+      "method": "GET",
+      "path": "/zen/v1/models",
+      "authHeaders": [],
+      "status": 200,
+      "bodySample": "{\"object\":\"list\",\"data\":[{\"id\":\"claude-fable-5\",\"object\":\"model\",\"created\":1789992049,\"owned_by\":\"opencode\"},{\"id\":\"claude-fable-5-1\",\"object\":\"model\",\"created\":1789992049,\"owned_by\":\"opencode\"},{\"id\":\"claude-opus-5\",\"object\":\"model\",\"created\":1789992049,\"owned_by\":\"opencode\"},{\"id\":\"claude-opus-4-8\",\"object\":\"model\",\"created\":1789992049,\"owned_by\":\"opencode\"},{\"id\":\"claude-opus-4-7\",\"object\":\"mod"
+    },
+    {
+      "label": "models_list_go",
+      "method": "GET",
+      "path": "/zen/go/v1/models",
+      "authHeaders": [],
+      "status": 200,
+      "bodySample": "{\"object\":\"list\",\"data\":[{\"id\":\"minimax-m3\",\"object\":\"model\",\"created\":1789992050,\"owned_by\":\"opencode\"},{\"id\":\"minimax-m2.7\",\"object\":\"model\",\"created\":1789992050,\"owned_by\":\"opencode\"},{\"id\":\"minimax-m2.5\",\"object\":\"model\",\"created\":1789992050,\"owned_by\":\"opencode\"},{\"id\":\"kimi-k3\",\"object\":\"model\",\"created\":1789992050,\"owned_by\":\"opencode\"},{\"id\":\"kimi-k2.7-code\",\"object\":\"model\",\"created\":1789"
+    },
+    {
+      "label": "quota_usage_go",
+      "method": "GET",
+      "path": "/zen/go/v1/usage",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "quota_usage_zen",
+      "method": "GET",
+      "path": "/zen/v1/usage",
+      "authHeaders": [],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    }
+  ],
+  "authSchemeProbes": [
+    {
+      "label": "auth_chat_bearer",
+      "method": "POST",
+      "path": "/zen/v1/chat/completions",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}}"
+    },
+    {
+      "label": "auth_chat_x_api_key",
+      "method": "POST",
+      "path": "/zen/v1/chat/completions",
+      "authHeaders": [
+        "x-api-key"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_messages_x_api_key",
+      "method": "POST",
+      "path": "/zen/v1/messages",
+      "authHeaders": [
+        "x-api-key"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}}"
+    },
+    {
+      "label": "auth_messages_bearer",
+      "method": "POST",
+      "path": "/zen/v1/messages",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_responses_bearer",
+      "method": "POST",
+      "path": "/zen/v1/responses",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}}"
+    },
+    {
+      "label": "auth_responses_x_api_key",
+      "method": "POST",
+      "path": "/zen/v1/responses",
+      "authHeaders": [
+        "x-api-key"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_generate_content_x_goog_api_key",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:generateContent",
+      "authHeaders": [
+        "x-goog-api-key"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}}"
+    },
+    {
+      "label": "auth_generate_content_bearer",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:generateContent",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_generate_content_x_api_key",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:generateContent",
+      "authHeaders": [
+        "x-api-key"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_generate_content_query_key",
+      "method": "POST",
+      "path": "/zen/v1/models/gemini-3.8-flash:generateContent?key=sk-probe-invalid",
+      "authHeaders": [],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Missing API key.\"}}"
+    },
+    {
+      "label": "auth_systemone_bearer",
+      "method": "POST",
+      "path": "/zen/v1/systemone",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Invalid API key.\"}}"
+    },
+    {
+      "label": "auth_quota_usage_go_bearer",
+      "method": "GET",
+      "path": "/zen/go/v1/usage",
+      "authHeaders": [
+        "Authorization"
+      ],
+      "status": 401,
+      "bodySample": "{\"type\":\"error\",\"error\":{\"type\":\"AuthError\",\"message\":\"Unauthorized\"}}"
+    }
+  ],
+  "websocketUpgradeProbes": [
+    {
+      "label": "ws_responses_zen",
+      "method": "GET",
+      "path": "/zen/v1/responses",
+      "upgradeHeaders": [
+        "Connection: Upgrade",
+        "Upgrade: websocket"
+      ],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "ws_responses_go",
+      "method": "GET",
+      "path": "/zen/go/v1/responses",
+      "upgradeHeaders": [
+        "Connection: Upgrade",
+        "Upgrade: websocket"
+      ],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    },
+    {
+      "label": "ws_realtime",
+      "method": "GET",
+      "path": "/zen/v1/realtime",
+      "upgradeHeaders": [
+        "Connection: Upgrade",
+        "Upgrade: websocket"
+      ],
+      "status": 404,
+      "bodySample": "<html> site 404 page (route absent)"
+    }
+  ]
+}
