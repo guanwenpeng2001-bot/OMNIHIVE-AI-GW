@@ -282,6 +282,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	if identity.Platform == PlatformQianwen {
 		return qianwenActionDescriptor(descriptor, action, adapter)
 	}
+	if identity.Platform == PlatformQianfan {
+		return qianfanActionDescriptor(descriptor, action, adapter)
+	}
 	if adapter == "" {
 		return descriptor
 	}
