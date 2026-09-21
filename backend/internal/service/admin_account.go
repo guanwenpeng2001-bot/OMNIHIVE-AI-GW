@@ -280,6 +280,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account credentials: %w", err)
 	}
+	StripCredentialReferenceKeys(credentials)
 	if source.IsCursorNative() {
 		delete(credentials, "machine_id")
 		delete(credentials, "mac_machine_id")

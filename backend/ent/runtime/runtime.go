@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/credentialsecret"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -977,6 +978,41 @@ func init() {
 	compositemodelrouteDescEnabled := compositemodelrouteFields[8].Descriptor()
 	// compositemodelroute.DefaultEnabled holds the default value on creation for the enabled field.
 	compositemodelroute.DefaultEnabled = compositemodelrouteDescEnabled.Default.(bool)
+	credentialsecretMixin := schema.CredentialSecret{}.Mixin()
+	credentialsecretMixinHooks1 := credentialsecretMixin[1].Hooks()
+	credentialsecret.Hooks[0] = credentialsecretMixinHooks1[0]
+	credentialsecretMixinInters1 := credentialsecretMixin[1].Interceptors()
+	credentialsecret.Interceptors[0] = credentialsecretMixinInters1[0]
+	credentialsecretMixinFields0 := credentialsecretMixin[0].Fields()
+	_ = credentialsecretMixinFields0
+	credentialsecretMixinFields1 := credentialsecretMixin[1].Fields()
+	_ = credentialsecretMixinFields1
+	credentialsecretFields := schema.CredentialSecret{}.Fields()
+	_ = credentialsecretFields
+	// credentialsecretDescCreatedAt is the schema descriptor for created_at field.
+	credentialsecretDescCreatedAt := credentialsecretMixinFields0[0].Descriptor()
+	// credentialsecret.DefaultCreatedAt holds the default value on creation for the created_at field.
+	credentialsecret.DefaultCreatedAt = credentialsecretDescCreatedAt.Default.(func() time.Time)
+	// credentialsecretDescUpdatedAt is the schema descriptor for updated_at field.
+	credentialsecretDescUpdatedAt := credentialsecretMixinFields0[1].Descriptor()
+	// credentialsecret.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	credentialsecret.DefaultUpdatedAt = credentialsecretDescUpdatedAt.Default.(func() time.Time)
+	// credentialsecret.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	credentialsecret.UpdateDefaultUpdatedAt = credentialsecretDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// credentialsecretDescWorkspaceID is the schema descriptor for workspace_id field.
+	credentialsecretDescWorkspaceID := credentialsecretMixinFields1[0].Descriptor()
+	// credentialsecret.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	credentialsecret.DefaultWorkspaceID = credentialsecretDescWorkspaceID.Default.(int64)
+	// credentialsecretDescReference is the schema descriptor for reference field.
+	credentialsecretDescReference := credentialsecretFields[0].Descriptor()
+	// credentialsecret.ReferenceValidator is a validator for the "reference" field. It is called by the builders before save.
+	credentialsecret.ReferenceValidator = credentialsecretDescReference.Validators[0].(func(string) error)
+	// credentialsecretDescVersion is the schema descriptor for version field.
+	credentialsecretDescVersion := credentialsecretFields[2].Descriptor()
+	// credentialsecret.DefaultVersion holds the default value on creation for the version field.
+	credentialsecret.DefaultVersion = credentialsecretDescVersion.Default.(int64)
+	// credentialsecret.VersionValidator is a validator for the "version" field. It is called by the builders before save.
+	credentialsecret.VersionValidator = credentialsecretDescVersion.Validators[0].(func(int64) error)
 	errorpassthroughruleMixin := schema.ErrorPassthroughRule{}.Mixin()
 	errorpassthroughruleMixinFields0 := errorpassthroughruleMixin[0].Fields()
 	_ = errorpassthroughruleMixinFields0

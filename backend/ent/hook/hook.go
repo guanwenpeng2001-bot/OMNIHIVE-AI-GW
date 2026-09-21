@@ -189,6 +189,18 @@ func (f CompositeModelRouteFunc) Mutate(ctx context.Context, m ent.Mutation) (en
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CompositeModelRouteMutation", m)
 }
 
+// The CredentialSecretFunc type is an adapter to allow the use of ordinary
+// function as CredentialSecret mutator.
+type CredentialSecretFunc func(context.Context, *ent.CredentialSecretMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f CredentialSecretFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.CredentialSecretMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.CredentialSecretMutation", m)
+}
+
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary
 // function as ErrorPassthroughRule mutator.
 type ErrorPassthroughRuleFunc func(context.Context, *ent.ErrorPassthroughRuleMutation) (ent.Value, error)

@@ -325,6 +325,9 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 			if len(workspaceSchedulableAccounts(ctx, []Account{*account})) == 0 {
 				return nil, ErrAccountNotFound
 			}
+			if _, referenced := CredentialReference(account.Credentials); referenced {
+				return s.accountRepo.GetByID(ctx, accountID)
+			}
 			return account, nil
 		}
 	}

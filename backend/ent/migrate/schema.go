@@ -868,6 +868,24 @@ var (
 			},
 		},
 	}
+	// CredentialSecretsColumns holds the columns for the "credential_secrets" table.
+	CredentialSecretsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "reference", Type: field.TypeString, Unique: true},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "ciphertext", Type: field.TypeString, Size: 2147483647},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
+	}
+	// CredentialSecretsTable holds the schema information for the "credential_secrets" table.
+	CredentialSecretsTable = &schema.Table{
+		Name:       "credential_secrets",
+		Columns:    CredentialSecretsColumns,
+		PrimaryKey: []*schema.Column{CredentialSecretsColumns[0]},
+	}
 	// ErrorPassthroughRulesColumns holds the columns for the "error_passthrough_rules" table.
 	ErrorPassthroughRulesColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2205,6 +2223,7 @@ var (
 		ChannelMonitorHistoriesTable,
 		ChannelMonitorRequestTemplatesTable,
 		CompositeModelRoutesTable,
+		CredentialSecretsTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,

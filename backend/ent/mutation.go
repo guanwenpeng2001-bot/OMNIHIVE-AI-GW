@@ -27,6 +27,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/credentialsecret"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -83,6 +84,7 @@ const (
 	TypeChannelMonitorHistory         = "ChannelMonitorHistory"
 	TypeChannelMonitorRequestTemplate = "ChannelMonitorRequestTemplate"
 	TypeCompositeModelRoute           = "CompositeModelRoute"
+	TypeCredentialSecret              = "CredentialSecret"
 	TypeErrorPassthroughRule          = "ErrorPassthroughRule"
 	TypeGroup                         = "Group"
 	TypeIdempotencyRecord             = "IdempotencyRecord"
@@ -21166,6 +21168,834 @@ func (m *CompositeModelRouteMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute edge %s", name)
+}
+
+// CredentialSecretMutation represents an operation that mutates the CredentialSecret nodes in the graph.
+type CredentialSecretMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int64
+	created_at      *time.Time
+	updated_at      *time.Time
+	workspace_id    *int64
+	addworkspace_id *int64
+	reference       *string
+	account_id      *int64
+	addaccount_id   *int64
+	version         *int64
+	addversion      *int64
+	ciphertext      *string
+	revoked_at      *time.Time
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*CredentialSecret, error)
+	predicates      []predicate.CredentialSecret
+}
+
+var _ ent.Mutation = (*CredentialSecretMutation)(nil)
+
+// credentialsecretOption allows management of the mutation configuration using functional options.
+type credentialsecretOption func(*CredentialSecretMutation)
+
+// newCredentialSecretMutation creates new mutation for the CredentialSecret entity.
+func newCredentialSecretMutation(c config, op Op, opts ...credentialsecretOption) *CredentialSecretMutation {
+	m := &CredentialSecretMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeCredentialSecret,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withCredentialSecretID sets the ID field of the mutation.
+func withCredentialSecretID(id int64) credentialsecretOption {
+	return func(m *CredentialSecretMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *CredentialSecret
+		)
+		m.oldValue = func(ctx context.Context) (*CredentialSecret, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().CredentialSecret.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withCredentialSecret sets the old CredentialSecret of the mutation.
+func withCredentialSecret(node *CredentialSecret) credentialsecretOption {
+	return func(m *CredentialSecretMutation) {
+		m.oldValue = func(context.Context) (*CredentialSecret, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m CredentialSecretMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m CredentialSecretMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *CredentialSecretMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *CredentialSecretMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().CredentialSecret.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *CredentialSecretMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *CredentialSecretMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *CredentialSecretMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *CredentialSecretMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *CredentialSecretMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *CredentialSecretMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetWorkspaceID sets the "workspace_id" field.
+func (m *CredentialSecretMutation) SetWorkspaceID(i int64) {
+	m.workspace_id = &i
+	m.addworkspace_id = nil
+}
+
+// WorkspaceID returns the value of the "workspace_id" field in the mutation.
+func (m *CredentialSecretMutation) WorkspaceID() (r int64, exists bool) {
+	v := m.workspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWorkspaceID returns the old "workspace_id" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldWorkspaceID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWorkspaceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWorkspaceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWorkspaceID: %w", err)
+	}
+	return oldValue.WorkspaceID, nil
+}
+
+// AddWorkspaceID adds i to the "workspace_id" field.
+func (m *CredentialSecretMutation) AddWorkspaceID(i int64) {
+	if m.addworkspace_id != nil {
+		*m.addworkspace_id += i
+	} else {
+		m.addworkspace_id = &i
+	}
+}
+
+// AddedWorkspaceID returns the value that was added to the "workspace_id" field in this mutation.
+func (m *CredentialSecretMutation) AddedWorkspaceID() (r int64, exists bool) {
+	v := m.addworkspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWorkspaceID resets all changes to the "workspace_id" field.
+func (m *CredentialSecretMutation) ResetWorkspaceID() {
+	m.workspace_id = nil
+	m.addworkspace_id = nil
+}
+
+// SetReference sets the "reference" field.
+func (m *CredentialSecretMutation) SetReference(s string) {
+	m.reference = &s
+}
+
+// Reference returns the value of the "reference" field in the mutation.
+func (m *CredentialSecretMutation) Reference() (r string, exists bool) {
+	v := m.reference
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReference returns the old "reference" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldReference(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReference is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReference requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReference: %w", err)
+	}
+	return oldValue.Reference, nil
+}
+
+// ResetReference resets all changes to the "reference" field.
+func (m *CredentialSecretMutation) ResetReference() {
+	m.reference = nil
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *CredentialSecretMutation) SetAccountID(i int64) {
+	m.account_id = &i
+	m.addaccount_id = nil
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *CredentialSecretMutation) AccountID() (r int64, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldAccountID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// AddAccountID adds i to the "account_id" field.
+func (m *CredentialSecretMutation) AddAccountID(i int64) {
+	if m.addaccount_id != nil {
+		*m.addaccount_id += i
+	} else {
+		m.addaccount_id = &i
+	}
+}
+
+// AddedAccountID returns the value that was added to the "account_id" field in this mutation.
+func (m *CredentialSecretMutation) AddedAccountID() (r int64, exists bool) {
+	v := m.addaccount_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *CredentialSecretMutation) ResetAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+}
+
+// SetVersion sets the "version" field.
+func (m *CredentialSecretMutation) SetVersion(i int64) {
+	m.version = &i
+	m.addversion = nil
+}
+
+// Version returns the value of the "version" field in the mutation.
+func (m *CredentialSecretMutation) Version() (r int64, exists bool) {
+	v := m.version
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldVersion returns the old "version" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldVersion(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldVersion is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldVersion requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldVersion: %w", err)
+	}
+	return oldValue.Version, nil
+}
+
+// AddVersion adds i to the "version" field.
+func (m *CredentialSecretMutation) AddVersion(i int64) {
+	if m.addversion != nil {
+		*m.addversion += i
+	} else {
+		m.addversion = &i
+	}
+}
+
+// AddedVersion returns the value that was added to the "version" field in this mutation.
+func (m *CredentialSecretMutation) AddedVersion() (r int64, exists bool) {
+	v := m.addversion
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetVersion resets all changes to the "version" field.
+func (m *CredentialSecretMutation) ResetVersion() {
+	m.version = nil
+	m.addversion = nil
+}
+
+// SetCiphertext sets the "ciphertext" field.
+func (m *CredentialSecretMutation) SetCiphertext(s string) {
+	m.ciphertext = &s
+}
+
+// Ciphertext returns the value of the "ciphertext" field in the mutation.
+func (m *CredentialSecretMutation) Ciphertext() (r string, exists bool) {
+	v := m.ciphertext
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCiphertext returns the old "ciphertext" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldCiphertext(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCiphertext is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCiphertext requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCiphertext: %w", err)
+	}
+	return oldValue.Ciphertext, nil
+}
+
+// ResetCiphertext resets all changes to the "ciphertext" field.
+func (m *CredentialSecretMutation) ResetCiphertext() {
+	m.ciphertext = nil
+}
+
+// SetRevokedAt sets the "revoked_at" field.
+func (m *CredentialSecretMutation) SetRevokedAt(t time.Time) {
+	m.revoked_at = &t
+}
+
+// RevokedAt returns the value of the "revoked_at" field in the mutation.
+func (m *CredentialSecretMutation) RevokedAt() (r time.Time, exists bool) {
+	v := m.revoked_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevokedAt returns the old "revoked_at" field's value of the CredentialSecret entity.
+// If the CredentialSecret object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CredentialSecretMutation) OldRevokedAt(ctx context.Context) (v *time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevokedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevokedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevokedAt: %w", err)
+	}
+	return oldValue.RevokedAt, nil
+}
+
+// ClearRevokedAt clears the value of the "revoked_at" field.
+func (m *CredentialSecretMutation) ClearRevokedAt() {
+	m.revoked_at = nil
+	m.clearedFields[credentialsecret.FieldRevokedAt] = struct{}{}
+}
+
+// RevokedAtCleared returns if the "revoked_at" field was cleared in this mutation.
+func (m *CredentialSecretMutation) RevokedAtCleared() bool {
+	_, ok := m.clearedFields[credentialsecret.FieldRevokedAt]
+	return ok
+}
+
+// ResetRevokedAt resets all changes to the "revoked_at" field.
+func (m *CredentialSecretMutation) ResetRevokedAt() {
+	m.revoked_at = nil
+	delete(m.clearedFields, credentialsecret.FieldRevokedAt)
+}
+
+// Where appends a list predicates to the CredentialSecretMutation builder.
+func (m *CredentialSecretMutation) Where(ps ...predicate.CredentialSecret) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the CredentialSecretMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *CredentialSecretMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.CredentialSecret, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *CredentialSecretMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *CredentialSecretMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (CredentialSecret).
+func (m *CredentialSecretMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *CredentialSecretMutation) Fields() []string {
+	fields := make([]string, 0, 8)
+	if m.created_at != nil {
+		fields = append(fields, credentialsecret.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, credentialsecret.FieldUpdatedAt)
+	}
+	if m.workspace_id != nil {
+		fields = append(fields, credentialsecret.FieldWorkspaceID)
+	}
+	if m.reference != nil {
+		fields = append(fields, credentialsecret.FieldReference)
+	}
+	if m.account_id != nil {
+		fields = append(fields, credentialsecret.FieldAccountID)
+	}
+	if m.version != nil {
+		fields = append(fields, credentialsecret.FieldVersion)
+	}
+	if m.ciphertext != nil {
+		fields = append(fields, credentialsecret.FieldCiphertext)
+	}
+	if m.revoked_at != nil {
+		fields = append(fields, credentialsecret.FieldRevokedAt)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *CredentialSecretMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case credentialsecret.FieldCreatedAt:
+		return m.CreatedAt()
+	case credentialsecret.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case credentialsecret.FieldWorkspaceID:
+		return m.WorkspaceID()
+	case credentialsecret.FieldReference:
+		return m.Reference()
+	case credentialsecret.FieldAccountID:
+		return m.AccountID()
+	case credentialsecret.FieldVersion:
+		return m.Version()
+	case credentialsecret.FieldCiphertext:
+		return m.Ciphertext()
+	case credentialsecret.FieldRevokedAt:
+		return m.RevokedAt()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *CredentialSecretMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case credentialsecret.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case credentialsecret.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case credentialsecret.FieldWorkspaceID:
+		return m.OldWorkspaceID(ctx)
+	case credentialsecret.FieldReference:
+		return m.OldReference(ctx)
+	case credentialsecret.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case credentialsecret.FieldVersion:
+		return m.OldVersion(ctx)
+	case credentialsecret.FieldCiphertext:
+		return m.OldCiphertext(ctx)
+	case credentialsecret.FieldRevokedAt:
+		return m.OldRevokedAt(ctx)
+	}
+	return nil, fmt.Errorf("unknown CredentialSecret field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CredentialSecretMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case credentialsecret.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case credentialsecret.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case credentialsecret.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWorkspaceID(v)
+		return nil
+	case credentialsecret.FieldReference:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReference(v)
+		return nil
+	case credentialsecret.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case credentialsecret.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetVersion(v)
+		return nil
+	case credentialsecret.FieldCiphertext:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCiphertext(v)
+		return nil
+	case credentialsecret.FieldRevokedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevokedAt(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialSecret field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *CredentialSecretMutation) AddedFields() []string {
+	var fields []string
+	if m.addworkspace_id != nil {
+		fields = append(fields, credentialsecret.FieldWorkspaceID)
+	}
+	if m.addaccount_id != nil {
+		fields = append(fields, credentialsecret.FieldAccountID)
+	}
+	if m.addversion != nil {
+		fields = append(fields, credentialsecret.FieldVersion)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *CredentialSecretMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case credentialsecret.FieldWorkspaceID:
+		return m.AddedWorkspaceID()
+	case credentialsecret.FieldAccountID:
+		return m.AddedAccountID()
+	case credentialsecret.FieldVersion:
+		return m.AddedVersion()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *CredentialSecretMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case credentialsecret.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWorkspaceID(v)
+		return nil
+	case credentialsecret.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountID(v)
+		return nil
+	case credentialsecret.FieldVersion:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddVersion(v)
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialSecret numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *CredentialSecretMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(credentialsecret.FieldRevokedAt) {
+		fields = append(fields, credentialsecret.FieldRevokedAt)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *CredentialSecretMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *CredentialSecretMutation) ClearField(name string) error {
+	switch name {
+	case credentialsecret.FieldRevokedAt:
+		m.ClearRevokedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialSecret nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *CredentialSecretMutation) ResetField(name string) error {
+	switch name {
+	case credentialsecret.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case credentialsecret.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case credentialsecret.FieldWorkspaceID:
+		m.ResetWorkspaceID()
+		return nil
+	case credentialsecret.FieldReference:
+		m.ResetReference()
+		return nil
+	case credentialsecret.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case credentialsecret.FieldVersion:
+		m.ResetVersion()
+		return nil
+	case credentialsecret.FieldCiphertext:
+		m.ResetCiphertext()
+		return nil
+	case credentialsecret.FieldRevokedAt:
+		m.ResetRevokedAt()
+		return nil
+	}
+	return fmt.Errorf("unknown CredentialSecret field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *CredentialSecretMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *CredentialSecretMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *CredentialSecretMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *CredentialSecretMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *CredentialSecretMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *CredentialSecretMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *CredentialSecretMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown CredentialSecret unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *CredentialSecretMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown CredentialSecret edge %s", name)
 }
 
 // ErrorPassthroughRuleMutation represents an operation that mutates the ErrorPassthroughRule nodes in the graph.

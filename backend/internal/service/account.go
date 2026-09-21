@@ -27,6 +27,7 @@ type Account struct {
 	Platform                string
 	Type                    string
 	Credentials             map[string]any
+	CredentialRevision      string
 	Extra                   map[string]any
 	ProxyID                 *int64
 	ProxyFallbackOriginID   *int64

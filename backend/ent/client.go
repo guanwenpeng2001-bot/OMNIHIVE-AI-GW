@@ -30,6 +30,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/credentialsecret"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
@@ -97,6 +98,8 @@ type Client struct {
 	ChannelMonitorRequestTemplate *ChannelMonitorRequestTemplateClient
 	// CompositeModelRoute is the client for interacting with the CompositeModelRoute builders.
 	CompositeModelRoute *CompositeModelRouteClient
+	// CredentialSecret is the client for interacting with the CredentialSecret builders.
+	CredentialSecret *CredentialSecretClient
 	// ErrorPassthroughRule is the client for interacting with the ErrorPassthroughRule builders.
 	ErrorPassthroughRule *ErrorPassthroughRuleClient
 	// Group is the client for interacting with the Group builders.
@@ -179,6 +182,7 @@ func (c *Client) init() {
 	c.ChannelMonitorHistory = NewChannelMonitorHistoryClient(c.config)
 	c.ChannelMonitorRequestTemplate = NewChannelMonitorRequestTemplateClient(c.config)
 	c.CompositeModelRoute = NewCompositeModelRouteClient(c.config)
+	c.CredentialSecret = NewCredentialSecretClient(c.config)
 	c.ErrorPassthroughRule = NewErrorPassthroughRuleClient(c.config)
 	c.Group = NewGroupClient(c.config)
 	c.IdempotencyRecord = NewIdempotencyRecordClient(c.config)
@@ -314,6 +318,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
+		CredentialSecret:              NewCredentialSecretClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
@@ -376,6 +381,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ChannelMonitorHistory:         NewChannelMonitorHistoryClient(cfg),
 		ChannelMonitorRequestTemplate: NewChannelMonitorRequestTemplateClient(cfg),
 		CompositeModelRoute:           NewCompositeModelRouteClient(cfg),
+		CredentialSecret:              NewCredentialSecretClient(cfg),
 		ErrorPassthroughRule:          NewErrorPassthroughRuleClient(cfg),
 		Group:                         NewGroupClient(cfg),
 		IdempotencyRecord:             NewIdempotencyRecordClient(cfg),
@@ -437,14 +443,14 @@ func (c *Client) Use(hooks ...Hook) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
-		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.CompositeModelRoute, c.CredentialSecret, c.ErrorPassthroughRule, c.Group,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAccessGroup,
+		c.ModelAccessRule, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Use(hooks...)
 	}
@@ -458,14 +464,14 @@ func (c *Client) Intercept(interceptors ...Interceptor) {
 		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
 		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
 		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
-		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
-		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
-		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
-		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
-		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
-		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
-		c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.CompositeModelRoute, c.CredentialSecret, c.ErrorPassthroughRule, c.Group,
+		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAccessGroup,
+		c.ModelAccessRule, c.PaymentAuditLog, c.PaymentOrder,
+		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
+		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
+		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
+		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
+		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -504,6 +510,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 		return c.ChannelMonitorRequestTemplate.mutate(ctx, m)
 	case *CompositeModelRouteMutation:
 		return c.CompositeModelRoute.mutate(ctx, m)
+	case *CredentialSecretMutation:
+		return c.CredentialSecret.mutate(ctx, m)
 	case *ErrorPassthroughRuleMutation:
 		return c.ErrorPassthroughRule.mutate(ctx, m)
 	case *GroupMutation:
@@ -2918,6 +2926,141 @@ func (c *CompositeModelRouteClient) mutate(ctx context.Context, m *CompositeMode
 		return (&CompositeModelRouteDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown CompositeModelRoute mutation op: %q", m.Op())
+	}
+}
+
+// CredentialSecretClient is a client for the CredentialSecret schema.
+type CredentialSecretClient struct {
+	config
+}
+
+// NewCredentialSecretClient returns a client for the CredentialSecret from the given config.
+func NewCredentialSecretClient(c config) *CredentialSecretClient {
+	return &CredentialSecretClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `credentialsecret.Hooks(f(g(h())))`.
+func (c *CredentialSecretClient) Use(hooks ...Hook) {
+	c.hooks.CredentialSecret = append(c.hooks.CredentialSecret, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `credentialsecret.Intercept(f(g(h())))`.
+func (c *CredentialSecretClient) Intercept(interceptors ...Interceptor) {
+	c.inters.CredentialSecret = append(c.inters.CredentialSecret, interceptors...)
+}
+
+// Create returns a builder for creating a CredentialSecret entity.
+func (c *CredentialSecretClient) Create() *CredentialSecretCreate {
+	mutation := newCredentialSecretMutation(c.config, OpCreate)
+	return &CredentialSecretCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of CredentialSecret entities.
+func (c *CredentialSecretClient) CreateBulk(builders ...*CredentialSecretCreate) *CredentialSecretCreateBulk {
+	return &CredentialSecretCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *CredentialSecretClient) MapCreateBulk(slice any, setFunc func(*CredentialSecretCreate, int)) *CredentialSecretCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &CredentialSecretCreateBulk{err: fmt.Errorf("calling to CredentialSecretClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*CredentialSecretCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &CredentialSecretCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for CredentialSecret.
+func (c *CredentialSecretClient) Update() *CredentialSecretUpdate {
+	mutation := newCredentialSecretMutation(c.config, OpUpdate)
+	return &CredentialSecretUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *CredentialSecretClient) UpdateOne(_m *CredentialSecret) *CredentialSecretUpdateOne {
+	mutation := newCredentialSecretMutation(c.config, OpUpdateOne, withCredentialSecret(_m))
+	return &CredentialSecretUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *CredentialSecretClient) UpdateOneID(id int64) *CredentialSecretUpdateOne {
+	mutation := newCredentialSecretMutation(c.config, OpUpdateOne, withCredentialSecretID(id))
+	return &CredentialSecretUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for CredentialSecret.
+func (c *CredentialSecretClient) Delete() *CredentialSecretDelete {
+	mutation := newCredentialSecretMutation(c.config, OpDelete)
+	return &CredentialSecretDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *CredentialSecretClient) DeleteOne(_m *CredentialSecret) *CredentialSecretDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *CredentialSecretClient) DeleteOneID(id int64) *CredentialSecretDeleteOne {
+	builder := c.Delete().Where(credentialsecret.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &CredentialSecretDeleteOne{builder}
+}
+
+// Query returns a query builder for CredentialSecret.
+func (c *CredentialSecretClient) Query() *CredentialSecretQuery {
+	return &CredentialSecretQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeCredentialSecret},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a CredentialSecret entity by its id.
+func (c *CredentialSecretClient) Get(ctx context.Context, id int64) (*CredentialSecret, error) {
+	return c.Query().Where(credentialsecret.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *CredentialSecretClient) GetX(ctx context.Context, id int64) *CredentialSecret {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// Hooks returns the client hooks.
+func (c *CredentialSecretClient) Hooks() []Hook {
+	hooks := c.hooks.CredentialSecret
+	return append(hooks[:len(hooks):len(hooks)], credentialsecret.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *CredentialSecretClient) Interceptors() []Interceptor {
+	inters := c.inters.CredentialSecret
+	return append(inters[:len(inters):len(inters)], credentialsecret.Interceptors[:]...)
+}
+
+func (c *CredentialSecretClient) mutate(ctx context.Context, m *CredentialSecretMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&CredentialSecretCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&CredentialSecretUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&CredentialSecretUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&CredentialSecretDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown CredentialSecret mutation op: %q", m.Op())
 	}
 }
 
@@ -7414,11 +7557,11 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAccessGroup,
-		ModelAccessRule, PaymentAuditLog, PaymentOrder, PaymentProviderInstance,
-		PendingAuthSession, PromoCode, PromoCodeUsage, Proxy, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		ChannelMonitorRequestTemplate, CompositeModelRoute, CredentialSecret,
+		ErrorPassthroughRule, Group, IdempotencyRecord, IdentityAdoptionDecision,
+		ModelAccessGroup, ModelAccessRule, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
 		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
 		WorkspaceMember []ent.Hook
@@ -7427,11 +7570,11 @@ type (
 		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
 		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
 		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, ErrorPassthroughRule,
-		Group, IdempotencyRecord, IdentityAdoptionDecision, ModelAccessGroup,
-		ModelAccessRule, PaymentAuditLog, PaymentOrder, PaymentProviderInstance,
-		PendingAuthSession, PromoCode, PromoCodeUsage, Proxy, RedeemCode,
-		SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
+		ChannelMonitorRequestTemplate, CompositeModelRoute, CredentialSecret,
+		ErrorPassthroughRule, Group, IdempotencyRecord, IdentityAdoptionDecision,
+		ModelAccessGroup, ModelAccessRule, PaymentAuditLog, PaymentOrder,
+		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
+		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
 		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
 		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
 		WorkspaceMember []ent.Interceptor
