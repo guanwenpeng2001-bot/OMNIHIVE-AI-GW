@@ -309,6 +309,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		return bedrockActionDescriptor(descriptor, action, adapter)
 	if identity.Platform == PlatformOpenCodeGo {
 		return openCodeActionDescriptor(descriptor, action, adapter)
+	if identity.Platform == PlatformVolcengine {
+		return volcengineActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor
