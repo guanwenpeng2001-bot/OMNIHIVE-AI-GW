@@ -171,9 +171,16 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
+	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组。
+	// OpenCode 自己公布的 Google 协议列（{base}/models/{model}:{method}）复用同一入口，
+	// 但它有自己的方法→动作判定、计划感知选号与转发，交给 OpenCode 入口处理。
 	if !middleware.HasForcePlatform(c) {
-		if effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+		switch effectiveAPIKeyPlatform(c, apiKey) {
+		case service.PlatformGemini:
+		case service.PlatformOpenCodeGo:
+			h.OpenCodeGenerateContent(c)
+			return
+		default:
 			googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
 			return
 		}

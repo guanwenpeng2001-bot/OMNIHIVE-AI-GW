@@ -71,8 +71,11 @@ func (d *GatewayActionDispatch) Handler(action string) gin.HandlerFunc {
 func (d *GatewayActionDispatch) ImageHandler() gin.HandlerFunc {
 	return func(requestContext *gin.Context) {
 		action := "image.generate"
-		if strings.HasSuffix(requestContext.Request.URL.Path, "/edits") {
+		switch {
+		case strings.HasSuffix(requestContext.Request.URL.Path, "/edits"):
 			action = "image.edit"
+		case strings.HasSuffix(requestContext.Request.URL.Path, "/variations"):
+			action = "image.variation"
 		}
 		d.Handler(action)(requestContext)
 	}
@@ -177,6 +180,8 @@ func GatewayActionForRoute(method, path string) string {
 		return ""
 	case strings.Contains(path, "/images/edits"):
 		return "image.edit"
+	case strings.Contains(path, "/images/variations"):
+		return "image.variation"
 	case strings.Contains(path, "/images/generations"):
 		return "image.generate"
 	case strings.Contains(path, "/videos"):
@@ -208,6 +213,8 @@ func GatewayActionForRoute(method, path string) string {
 		return "responses"
 	case strings.HasSuffix(path, "/embeddings"):
 		return "embeddings"
+	case strings.HasSuffix(path, "/rerank"):
+		return "rerank"
 	case strings.HasSuffix(path, "/audio/speech"):
 		return "audio.tts"
 	case strings.HasSuffix(path, "/audio/transcriptions"):
