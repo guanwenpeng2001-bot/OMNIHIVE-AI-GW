@@ -285,6 +285,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	if identity.Platform == PlatformQianfan {
 		return qianfanActionDescriptor(descriptor, action, adapter)
 	}
+	if identity.Platform == PlatformAntigravity {
+		return antigravityActionDescriptor(descriptor, action, adapter)
+	}
 	if adapter == "" {
 		return descriptor
 	}
