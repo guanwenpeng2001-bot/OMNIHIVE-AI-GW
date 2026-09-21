@@ -66,9 +66,11 @@ const messages: Record<string, string> = {
   'keys.rateLimitColumn': 'Rate Limit',
   'keys.searchPlaceholder': 'Search name or key...',
   'keys.status.active': 'Active',
+  'keys.status.disabled': 'Disabled by admin',
   'keys.status.expired': 'Expired',
   'keys.status.inactive': 'Inactive',
   'keys.status.quota_exhausted': 'Quota exhausted',
+  'keys.statusDisabledHint': 'An administrator disabled this key; it cannot be re-enabled from the panel.',
   'keys.usage': 'Usage',
 }
 
@@ -226,6 +228,12 @@ const DataTableStub = {
         <div data-test="rate-limit-cell">
           <slot name="cell-rate_limit" :value="row" :row="row" />
         </div>
+        <div
+          v-if="columns.some((col) => col.key === 'status')"
+          data-test="status-cell"
+        >
+          <slot name="cell-status" :value="row.status" :row="row" />
+        </div>
       </div>
       <slot name="empty" />
     </div>
@@ -234,9 +242,23 @@ const DataTableStub = {
 
 const SelectStub = {
   name: 'Select',
-  props: ['modelValue', 'options'],
+  props: ['modelValue', 'options', 'disabled'],
   emits: ['update:modelValue'],
-  template: '<select :value="modelValue" @change="$emit(\'update:modelValue\', $event.target.value)"></select>',
+  template: `
+    <select
+      :value="modelValue"
+      :disabled="disabled"
+      :data-test="disabled ? 'select-disabled' : 'select-enabled'"
+      @change="$emit('update:modelValue', $event.target.value)"
+    >
+      <option
+        v-for="option in options"
+        :key="option.value"
+        :value="option.value"
+        :data-test="'select-option-' + option.value"
+      >{{ option.label }}</option>
+    </select>
+  `,
 }
 
 const SearchInputStub = {
@@ -475,6 +497,56 @@ describe('user KeysView column settings', () => {
     expect(updates).not.toHaveProperty('reset_quota')
     expect(updates).not.toHaveProperty('reset_rate_limit_usage')
     expect(updates.name).toBe('Unsaved name')
+    wrapper.unmount()
+  })
+
+  it('expresses expired, exhausted and administratively disabled keys apart', async () => {
+    const disabled: ApiKey = { ...createApiKey(), id: 11, name: 'admin-disabled', status: 'disabled' }
+    const expired: ApiKey = { ...createApiKey(), id: 12, name: 'expired', status: 'expired', expires_at: '2026-01-01T00:00:00Z' }
+    const exhausted: ApiKey = { ...createApiKey(), id: 13, name: 'exhausted', status: 'quota_exhausted' }
+    listKeys.mockResolvedValueOnce({ items: [disabled, expired, exhausted], total: 3, page: 1, page_size: 20, pages: 1 })
+
+    const wrapper = await mountView()
+
+    const statuses = wrapper.findAll('[data-test="status-cell"] .badge')
+    expect(statuses.map((badge) => badge.text())).toEqual([
+      'Disabled by admin',
+      'Expired',
+      'Quota exhausted',
+    ])
+    const classes = statuses.map((badge) => badge.classes().join(' '))
+    expect(new Set(classes).size).toBe(3)
+    wrapper.unmount()
+  })
+
+  it('offers an explicit disabled status filter', async () => {
+    const wrapper = await mountView()
+    expect(wrapper.find('[data-test="select-option-disabled"]').text()).toBe('Disabled by admin')
+    wrapper.unmount()
+  })
+
+  it('never sends status when editing an administratively disabled key', async () => {
+    const disabled: ApiKey = { ...createApiKey(), id: 11, name: 'admin-disabled', group_id: 1, status: 'disabled' }
+    listKeys.mockResolvedValueOnce({ items: [disabled], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateKey.mockResolvedValue(disabled)
+
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+
+    // The status control is locked and the reason is spelled out.
+    expect(wrapper.find('[data-test="select-disabled"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('An administrator disabled this key; it cannot be re-enabled from the panel.')
+
+    await wrapper.get('[data-tour="key-form-name"]').setValue('Renamed disabled key')
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(updateKey).toHaveBeenCalledTimes(1)
+    const [, updates] = updateKey.mock.calls[0]
+    expect(updates).not.toHaveProperty('status')
+    expect(updates.name).toBe('Renamed disabled key')
+    // Editing keeps the key in its original group instead of re-attributing it.
+    expect(updates.group_id).toBe(1)
     wrapper.unmount()
   })
 

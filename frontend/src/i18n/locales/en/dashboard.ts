@@ -347,9 +347,11 @@ export default {
     status: {
       active: 'Active',
       inactive: 'Inactive',
+      disabled: 'Disabled by admin',
       quota_exhausted: 'Quota Exhausted',
       expired: 'Expired',
     },
+    statusDisabledHint: 'An administrator disabled this key; it cannot be re-enabled from the panel.',
   },
 
   // Usage
@@ -1148,5 +1150,30 @@ export default {
     selectDateRange: 'Select date range'
   },
 
+
+  // Billing timeline (user-facing)
+  billing: {
+    timeline: {
+      title: 'Billing Timeline',
+      description: 'Recharges, deductions, refunds, rebates, redeemed cards and balance adjustments on one axis.',
+      credits: 'Credited',
+      debits: 'Deducted',
+      net: 'Net change',
+      accruedRebate: 'Rebate not transferred',
+      accruedOnly: 'Accrued, not yet transferred',
+      requests: '{count} requests',
+      page: 'Page {page} / {pages}',
+      empty: 'No billing entries in this range.',
+      loadFailed: 'Failed to load the billing timeline.',
+    },
+    kind: {
+      recharge: 'Recharge',
+      charge: 'Deduction',
+      refund: 'Refund',
+      rebate: 'Rebate',
+      redeem: 'Redeem',
+      adjustment: 'Adjustment',
+    },
+  },
   // Admin
 }
