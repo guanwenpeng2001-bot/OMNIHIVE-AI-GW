@@ -295,6 +295,16 @@ export default {
     failedToResetQuota: 'Failed to reset quota',
     rateLimitColumn: 'Rate Limit',
     rateLimitSection: 'Rate Limit',
+    // Effective RPM (requests per minute): the value that actually applies, who
+    // owns it and when its minute window resets. Kept separate from the USD
+    // windows above and from the period budget below.
+    effectiveRpmTitle: 'Effective RPM',
+    effectiveRpmSourceUserGroupOverride: 'Group override',
+    effectiveRpmSourceGroup: 'Group limit',
+    effectiveRpmSourceUser: 'Account ceiling',
+    effectiveRpmValue: '{limit} req/min',
+    effectiveRpmResetsIn: 'resets in {value}',
+    effectiveRpmPriorityHint: 'A group override replaces that group limit; your account-level ceiling always applies on top.',
     // Period budget (USD): named separately from RPM/TPM and the legacy USD windows
     budgetColumn: 'Period Budget',
     budgetSection: 'Period Budget (USD)',

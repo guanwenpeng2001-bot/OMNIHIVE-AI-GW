@@ -167,14 +167,33 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.APIKey, 0, len(keys))
+	// 列表同样给出有效 RPM：按分组去重解析，避免逐 Key 重复查组与覆盖。
+	out := make([]apiKeyListEntry, 0, len(keys))
+	effectiveByGroup := make(map[int64]*service.APIKeyEffectiveRPM, len(keys))
 	for i := range keys {
-		out = append(out, *dto.APIKeyFromService(&keys[i]))
+		entry := apiKeyListEntry{APIKey: *dto.APIKeyFromService(&keys[i])}
+		groupID := int64(0)
+		if keys[i].GroupID != nil {
+			groupID = *keys[i].GroupID
+		}
+		effective, cached := effectiveByGroup[groupID]
+		if !cached {
+			effective = h.apiKeyService.EffectiveRPM(c.Request.Context(), &keys[i])
+			effectiveByGroup[groupID] = effective
+		}
+		entry.EffectiveRPM = effective
+		out = append(out, entry)
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
 
-// apiKeyDetailResponse 是 Key 详情的响应体：既有字段保持原形，仅追加有效 RPM 说明。
+// apiKeyListEntry / apiKeyDetailResponse 保持既有字段原形，仅追加有效 RPM 说明。
+// 用户可见的限额只来自用户/组维度，绝不包含上游账号额度。
+type apiKeyListEntry struct {
+	dto.APIKey
+	EffectiveRPM *service.APIKeyEffectiveRPM `json:"effective_rpm,omitempty"`
+}
+
 type apiKeyDetailResponse struct {
 	dto.APIKey
 	EffectiveRPM *service.APIKeyEffectiveRPM `json:"effective_rpm,omitempty"`

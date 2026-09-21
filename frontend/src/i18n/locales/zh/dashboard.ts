@@ -300,6 +300,15 @@ export default {
     failedToResetQuota: '重置额度失败',
     rateLimitColumn: '速率限制',
     rateLimitSection: '速率限制',
+    // 有效 RPM（每分钟请求数）：真正生效的限值、它的来源，以及分钟窗口的重置时间。
+    // 与上方的 USD 窗口、下方的周期预算分别命名，不混用同一组字段。
+    effectiveRpmTitle: '有效 RPM',
+    effectiveRpmSourceUserGroupOverride: '分组覆盖',
+    effectiveRpmSourceGroup: '分组限额',
+    effectiveRpmSourceUser: '账户上限',
+    effectiveRpmValue: '{limit} 请求/分钟',
+    effectiveRpmResetsIn: '{value} 后重置',
+    effectiveRpmPriorityHint: '分组覆盖会替代该分组自身的限额；账户级上限始终在最外层生效。',
     // 周期预算 (USD)：与 RPM/TPM 速率限制、以及 5h/1d/7d USD 窗口分开命名
     budgetColumn: '周期预算',
     budgetSection: '周期预算 (USD)',

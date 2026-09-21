@@ -1299,7 +1299,7 @@ func (s *APIKeyService) EffectiveRPM(ctx context.Context, key *APIKey) *APIKeyEf
 		Priority: EffectiveRPMPriority,
 	}
 	if reader, ok := s.cache.(rpmWindowReader); ok {
-		if resetAt, err := reader.RPMWindowResetAt(ctx); err == nil {
+		if resetAt, err := reader.RPMWindowResetAt(ctx); err == nil && RetryAfterSecondsUntil(resetAt, time.Now()) > 0 {
 			out.WindowResetsAt = &resetAt
 		}
 	}

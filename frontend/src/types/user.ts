@@ -425,6 +425,29 @@ export interface ApiKey {
   budget_anchor: '' | 'first_use' | 'day'
   budget_timezone: string
   budget_enforced: boolean
+  /**
+   * Effective RPM explained to the user: which dimension owns each limit, what
+   * the limit is and when the current minute window ends. Only user/group scope
+   * facts appear here; upstream account quota is never exposed.
+   */
+  effective_rpm?: ApiKeyEffectiveRPM
+}
+
+/** One effective RPM limit that actually applies to a key. */
+export interface ApiKeyEffectiveRPMLimit {
+  source: 'user' | 'group' | 'user_group_override'
+  limit: number
+  scope_id: number
+  window_seconds: number
+}
+
+/** User-visible explanation of the effective RPM limits of one key. */
+export interface ApiKeyEffectiveRPM {
+  limits: ApiKeyEffectiveRPMLimit[]
+  /** Real window end; absent when no trustworthy reset time is available. */
+  window_resets_at?: string | null
+  /** Machine-readable precedence contract: override, then group, then the user ceiling. */
+  priority: string
 }
 
 /**

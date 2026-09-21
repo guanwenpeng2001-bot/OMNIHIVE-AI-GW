@@ -37,11 +37,12 @@ const (
 )
 
 // EffectiveRPM 是一条对当前请求实际生效的 RPM 限额。
+// JSON 字段名是小写下划线，供用户可见响应与前端类型直接对齐。
 type EffectiveRPM struct {
-	Source        AdmissionRateLimitSource
-	Limit         int
-	ScopeID       int64
-	WindowSeconds int
+	Source        AdmissionRateLimitSource `json:"source"`
+	Limit         int                      `json:"limit"`
+	ScopeID       int64                    `json:"scope_id"`
+	WindowSeconds int                      `json:"window_seconds"`
 }
 
 // ResolveEffectiveRPMLimits 解析 (用户,分组) 上实际生效的 RPM 限额。
