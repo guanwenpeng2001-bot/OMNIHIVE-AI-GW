@@ -32,6 +32,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessgroup"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessrule"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -87,6 +89,8 @@ const (
 	TypeGroup                         = "Group"
 	TypeIdempotencyRecord             = "IdempotencyRecord"
 	TypeIdentityAdoptionDecision      = "IdentityAdoptionDecision"
+	TypeModelAccessGroup              = "ModelAccessGroup"
+	TypeModelAccessRule               = "ModelAccessRule"
 	TypePaymentAuditLog               = "PaymentAuditLog"
 	TypePaymentOrder                  = "PaymentOrder"
 	TypePaymentProviderInstance       = "PaymentProviderInstance"
@@ -30934,6 +30938,1728 @@ func (m *IdentityAdoptionDecisionMutation) ResetEdge(name string) error {
 		return nil
 	}
 	return fmt.Errorf("unknown IdentityAdoptionDecision edge %s", name)
+}
+
+// ModelAccessGroupMutation represents an operation that mutates the ModelAccessGroup nodes in the graph.
+type ModelAccessGroupMutation struct {
+	config
+	op              Op
+	typ             string
+	id              *int64
+	created_at      *time.Time
+	updated_at      *time.Time
+	workspace_id    *int64
+	addworkspace_id *int64
+	name            *string
+	models          *[]string
+	appendmodels    []string
+	revision        *int64
+	addrevision     *int64
+	clearedFields   map[string]struct{}
+	done            bool
+	oldValue        func(context.Context) (*ModelAccessGroup, error)
+	predicates      []predicate.ModelAccessGroup
+}
+
+var _ ent.Mutation = (*ModelAccessGroupMutation)(nil)
+
+// modelaccessgroupOption allows management of the mutation configuration using functional options.
+type modelaccessgroupOption func(*ModelAccessGroupMutation)
+
+// newModelAccessGroupMutation creates new mutation for the ModelAccessGroup entity.
+func newModelAccessGroupMutation(c config, op Op, opts ...modelaccessgroupOption) *ModelAccessGroupMutation {
+	m := &ModelAccessGroupMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeModelAccessGroup,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withModelAccessGroupID sets the ID field of the mutation.
+func withModelAccessGroupID(id int64) modelaccessgroupOption {
+	return func(m *ModelAccessGroupMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ModelAccessGroup
+		)
+		m.oldValue = func(ctx context.Context) (*ModelAccessGroup, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ModelAccessGroup.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withModelAccessGroup sets the old ModelAccessGroup of the mutation.
+func withModelAccessGroup(node *ModelAccessGroup) modelaccessgroupOption {
+	return func(m *ModelAccessGroupMutation) {
+		m.oldValue = func(context.Context) (*ModelAccessGroup, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ModelAccessGroupMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ModelAccessGroupMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ModelAccessGroupMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ModelAccessGroupMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ModelAccessGroup.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ModelAccessGroupMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ModelAccessGroupMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ModelAccessGroupMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ModelAccessGroupMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ModelAccessGroupMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ModelAccessGroupMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetWorkspaceID sets the "workspace_id" field.
+func (m *ModelAccessGroupMutation) SetWorkspaceID(i int64) {
+	m.workspace_id = &i
+	m.addworkspace_id = nil
+}
+
+// WorkspaceID returns the value of the "workspace_id" field in the mutation.
+func (m *ModelAccessGroupMutation) WorkspaceID() (r int64, exists bool) {
+	v := m.workspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWorkspaceID returns the old "workspace_id" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldWorkspaceID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWorkspaceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWorkspaceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWorkspaceID: %w", err)
+	}
+	return oldValue.WorkspaceID, nil
+}
+
+// AddWorkspaceID adds i to the "workspace_id" field.
+func (m *ModelAccessGroupMutation) AddWorkspaceID(i int64) {
+	if m.addworkspace_id != nil {
+		*m.addworkspace_id += i
+	} else {
+		m.addworkspace_id = &i
+	}
+}
+
+// AddedWorkspaceID returns the value that was added to the "workspace_id" field in this mutation.
+func (m *ModelAccessGroupMutation) AddedWorkspaceID() (r int64, exists bool) {
+	v := m.addworkspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWorkspaceID resets all changes to the "workspace_id" field.
+func (m *ModelAccessGroupMutation) ResetWorkspaceID() {
+	m.workspace_id = nil
+	m.addworkspace_id = nil
+}
+
+// SetName sets the "name" field.
+func (m *ModelAccessGroupMutation) SetName(s string) {
+	m.name = &s
+}
+
+// Name returns the value of the "name" field in the mutation.
+func (m *ModelAccessGroupMutation) Name() (r string, exists bool) {
+	v := m.name
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldName returns the old "name" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldName(ctx context.Context) (v string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldName is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldName requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldName: %w", err)
+	}
+	return oldValue.Name, nil
+}
+
+// ResetName resets all changes to the "name" field.
+func (m *ModelAccessGroupMutation) ResetName() {
+	m.name = nil
+}
+
+// SetModels sets the "models" field.
+func (m *ModelAccessGroupMutation) SetModels(s []string) {
+	m.models = &s
+	m.appendmodels = nil
+}
+
+// Models returns the value of the "models" field in the mutation.
+func (m *ModelAccessGroupMutation) Models() (r []string, exists bool) {
+	v := m.models
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModels returns the old "models" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldModels(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModels is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModels requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModels: %w", err)
+	}
+	return oldValue.Models, nil
+}
+
+// AppendModels adds s to the "models" field.
+func (m *ModelAccessGroupMutation) AppendModels(s []string) {
+	m.appendmodels = append(m.appendmodels, s...)
+}
+
+// AppendedModels returns the list of values that were appended to the "models" field in this mutation.
+func (m *ModelAccessGroupMutation) AppendedModels() ([]string, bool) {
+	if len(m.appendmodels) == 0 {
+		return nil, false
+	}
+	return m.appendmodels, true
+}
+
+// ResetModels resets all changes to the "models" field.
+func (m *ModelAccessGroupMutation) ResetModels() {
+	m.models = nil
+	m.appendmodels = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *ModelAccessGroupMutation) SetRevision(i int64) {
+	m.revision = &i
+	m.addrevision = nil
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *ModelAccessGroupMutation) Revision() (r int64, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the ModelAccessGroup entity.
+// If the ModelAccessGroup object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessGroupMutation) OldRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// AddRevision adds i to the "revision" field.
+func (m *ModelAccessGroupMutation) AddRevision(i int64) {
+	if m.addrevision != nil {
+		*m.addrevision += i
+	} else {
+		m.addrevision = &i
+	}
+}
+
+// AddedRevision returns the value that was added to the "revision" field in this mutation.
+func (m *ModelAccessGroupMutation) AddedRevision() (r int64, exists bool) {
+	v := m.addrevision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *ModelAccessGroupMutation) ResetRevision() {
+	m.revision = nil
+	m.addrevision = nil
+}
+
+// Where appends a list predicates to the ModelAccessGroupMutation builder.
+func (m *ModelAccessGroupMutation) Where(ps ...predicate.ModelAccessGroup) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ModelAccessGroupMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ModelAccessGroupMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ModelAccessGroup, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ModelAccessGroupMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ModelAccessGroupMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ModelAccessGroup).
+func (m *ModelAccessGroupMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ModelAccessGroupMutation) Fields() []string {
+	fields := make([]string, 0, 6)
+	if m.created_at != nil {
+		fields = append(fields, modelaccessgroup.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, modelaccessgroup.FieldUpdatedAt)
+	}
+	if m.workspace_id != nil {
+		fields = append(fields, modelaccessgroup.FieldWorkspaceID)
+	}
+	if m.name != nil {
+		fields = append(fields, modelaccessgroup.FieldName)
+	}
+	if m.models != nil {
+		fields = append(fields, modelaccessgroup.FieldModels)
+	}
+	if m.revision != nil {
+		fields = append(fields, modelaccessgroup.FieldRevision)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ModelAccessGroupMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case modelaccessgroup.FieldCreatedAt:
+		return m.CreatedAt()
+	case modelaccessgroup.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case modelaccessgroup.FieldWorkspaceID:
+		return m.WorkspaceID()
+	case modelaccessgroup.FieldName:
+		return m.Name()
+	case modelaccessgroup.FieldModels:
+		return m.Models()
+	case modelaccessgroup.FieldRevision:
+		return m.Revision()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ModelAccessGroupMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case modelaccessgroup.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case modelaccessgroup.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case modelaccessgroup.FieldWorkspaceID:
+		return m.OldWorkspaceID(ctx)
+	case modelaccessgroup.FieldName:
+		return m.OldName(ctx)
+	case modelaccessgroup.FieldModels:
+		return m.OldModels(ctx)
+	case modelaccessgroup.FieldRevision:
+		return m.OldRevision(ctx)
+	}
+	return nil, fmt.Errorf("unknown ModelAccessGroup field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAccessGroupMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case modelaccessgroup.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case modelaccessgroup.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case modelaccessgroup.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWorkspaceID(v)
+		return nil
+	case modelaccessgroup.FieldName:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetName(v)
+		return nil
+	case modelaccessgroup.FieldModels:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModels(v)
+		return nil
+	case modelaccessgroup.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessGroup field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ModelAccessGroupMutation) AddedFields() []string {
+	var fields []string
+	if m.addworkspace_id != nil {
+		fields = append(fields, modelaccessgroup.FieldWorkspaceID)
+	}
+	if m.addrevision != nil {
+		fields = append(fields, modelaccessgroup.FieldRevision)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ModelAccessGroupMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case modelaccessgroup.FieldWorkspaceID:
+		return m.AddedWorkspaceID()
+	case modelaccessgroup.FieldRevision:
+		return m.AddedRevision()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAccessGroupMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case modelaccessgroup.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWorkspaceID(v)
+		return nil
+	case modelaccessgroup.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessGroup numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ModelAccessGroupMutation) ClearedFields() []string {
+	return nil
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ModelAccessGroupMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ModelAccessGroupMutation) ClearField(name string) error {
+	return fmt.Errorf("unknown ModelAccessGroup nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ModelAccessGroupMutation) ResetField(name string) error {
+	switch name {
+	case modelaccessgroup.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case modelaccessgroup.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case modelaccessgroup.FieldWorkspaceID:
+		m.ResetWorkspaceID()
+		return nil
+	case modelaccessgroup.FieldName:
+		m.ResetName()
+		return nil
+	case modelaccessgroup.FieldModels:
+		m.ResetModels()
+		return nil
+	case modelaccessgroup.FieldRevision:
+		m.ResetRevision()
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessGroup field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ModelAccessGroupMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ModelAccessGroupMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ModelAccessGroupMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ModelAccessGroupMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ModelAccessGroupMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ModelAccessGroupMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ModelAccessGroupMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ModelAccessGroup unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ModelAccessGroupMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ModelAccessGroup edge %s", name)
+}
+
+// ModelAccessRuleMutation represents an operation that mutates the ModelAccessRule nodes in the graph.
+type ModelAccessRuleMutation struct {
+	config
+	op                 Op
+	typ                string
+	id                 *int64
+	created_at         *time.Time
+	updated_at         *time.Time
+	workspace_id       *int64
+	addworkspace_id    *int64
+	account_id         *int64
+	addaccount_id      *int64
+	api_key_id         *int64
+	addapi_key_id      *int64
+	access_group_id    *int64
+	addaccess_group_id *int64
+	models             *[]string
+	appendmodels       []string
+	exclude            *[]string
+	appendexclude      []string
+	revision           *int64
+	addrevision        *int64
+	clearedFields      map[string]struct{}
+	done               bool
+	oldValue           func(context.Context) (*ModelAccessRule, error)
+	predicates         []predicate.ModelAccessRule
+}
+
+var _ ent.Mutation = (*ModelAccessRuleMutation)(nil)
+
+// modelaccessruleOption allows management of the mutation configuration using functional options.
+type modelaccessruleOption func(*ModelAccessRuleMutation)
+
+// newModelAccessRuleMutation creates new mutation for the ModelAccessRule entity.
+func newModelAccessRuleMutation(c config, op Op, opts ...modelaccessruleOption) *ModelAccessRuleMutation {
+	m := &ModelAccessRuleMutation{
+		config:        c,
+		op:            op,
+		typ:           TypeModelAccessRule,
+		clearedFields: make(map[string]struct{}),
+	}
+	for _, opt := range opts {
+		opt(m)
+	}
+	return m
+}
+
+// withModelAccessRuleID sets the ID field of the mutation.
+func withModelAccessRuleID(id int64) modelaccessruleOption {
+	return func(m *ModelAccessRuleMutation) {
+		var (
+			err   error
+			once  sync.Once
+			value *ModelAccessRule
+		)
+		m.oldValue = func(ctx context.Context) (*ModelAccessRule, error) {
+			once.Do(func() {
+				if m.done {
+					err = errors.New("querying old values post mutation is not allowed")
+				} else {
+					value, err = m.Client().ModelAccessRule.Get(ctx, id)
+				}
+			})
+			return value, err
+		}
+		m.id = &id
+	}
+}
+
+// withModelAccessRule sets the old ModelAccessRule of the mutation.
+func withModelAccessRule(node *ModelAccessRule) modelaccessruleOption {
+	return func(m *ModelAccessRuleMutation) {
+		m.oldValue = func(context.Context) (*ModelAccessRule, error) {
+			return node, nil
+		}
+		m.id = &node.ID
+	}
+}
+
+// Client returns a new `ent.Client` from the mutation. If the mutation was
+// executed in a transaction (ent.Tx), a transactional client is returned.
+func (m ModelAccessRuleMutation) Client() *Client {
+	client := &Client{config: m.config}
+	client.init()
+	return client
+}
+
+// Tx returns an `ent.Tx` for mutations that were executed in transactions;
+// it returns an error otherwise.
+func (m ModelAccessRuleMutation) Tx() (*Tx, error) {
+	if _, ok := m.driver.(*txDriver); !ok {
+		return nil, errors.New("ent: mutation is not running in a transaction")
+	}
+	tx := &Tx{config: m.config}
+	tx.init()
+	return tx, nil
+}
+
+// ID returns the ID value in the mutation. Note that the ID is only available
+// if it was provided to the builder or after it was returned from the database.
+func (m *ModelAccessRuleMutation) ID() (id int64, exists bool) {
+	if m.id == nil {
+		return
+	}
+	return *m.id, true
+}
+
+// IDs queries the database and returns the entity ids that match the mutation's predicate.
+// That means, if the mutation is applied within a transaction with an isolation level such
+// as sql.LevelSerializable, the returned ids match the ids of the rows that will be updated
+// or updated by the mutation.
+func (m *ModelAccessRuleMutation) IDs(ctx context.Context) ([]int64, error) {
+	switch {
+	case m.op.Is(OpUpdateOne | OpDeleteOne):
+		id, exists := m.ID()
+		if exists {
+			return []int64{id}, nil
+		}
+		fallthrough
+	case m.op.Is(OpUpdate | OpDelete):
+		return m.Client().ModelAccessRule.Query().Where(m.predicates...).IDs(ctx)
+	default:
+		return nil, fmt.Errorf("IDs is not allowed on %s operations", m.op)
+	}
+}
+
+// SetCreatedAt sets the "created_at" field.
+func (m *ModelAccessRuleMutation) SetCreatedAt(t time.Time) {
+	m.created_at = &t
+}
+
+// CreatedAt returns the value of the "created_at" field in the mutation.
+func (m *ModelAccessRuleMutation) CreatedAt() (r time.Time, exists bool) {
+	v := m.created_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCreatedAt returns the old "created_at" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldCreatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCreatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCreatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCreatedAt: %w", err)
+	}
+	return oldValue.CreatedAt, nil
+}
+
+// ResetCreatedAt resets all changes to the "created_at" field.
+func (m *ModelAccessRuleMutation) ResetCreatedAt() {
+	m.created_at = nil
+}
+
+// SetUpdatedAt sets the "updated_at" field.
+func (m *ModelAccessRuleMutation) SetUpdatedAt(t time.Time) {
+	m.updated_at = &t
+}
+
+// UpdatedAt returns the value of the "updated_at" field in the mutation.
+func (m *ModelAccessRuleMutation) UpdatedAt() (r time.Time, exists bool) {
+	v := m.updated_at
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpdatedAt returns the old "updated_at" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldUpdatedAt(ctx context.Context) (v time.Time, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpdatedAt is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpdatedAt requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpdatedAt: %w", err)
+	}
+	return oldValue.UpdatedAt, nil
+}
+
+// ResetUpdatedAt resets all changes to the "updated_at" field.
+func (m *ModelAccessRuleMutation) ResetUpdatedAt() {
+	m.updated_at = nil
+}
+
+// SetWorkspaceID sets the "workspace_id" field.
+func (m *ModelAccessRuleMutation) SetWorkspaceID(i int64) {
+	m.workspace_id = &i
+	m.addworkspace_id = nil
+}
+
+// WorkspaceID returns the value of the "workspace_id" field in the mutation.
+func (m *ModelAccessRuleMutation) WorkspaceID() (r int64, exists bool) {
+	v := m.workspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldWorkspaceID returns the old "workspace_id" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldWorkspaceID(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldWorkspaceID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldWorkspaceID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldWorkspaceID: %w", err)
+	}
+	return oldValue.WorkspaceID, nil
+}
+
+// AddWorkspaceID adds i to the "workspace_id" field.
+func (m *ModelAccessRuleMutation) AddWorkspaceID(i int64) {
+	if m.addworkspace_id != nil {
+		*m.addworkspace_id += i
+	} else {
+		m.addworkspace_id = &i
+	}
+}
+
+// AddedWorkspaceID returns the value that was added to the "workspace_id" field in this mutation.
+func (m *ModelAccessRuleMutation) AddedWorkspaceID() (r int64, exists bool) {
+	v := m.addworkspace_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetWorkspaceID resets all changes to the "workspace_id" field.
+func (m *ModelAccessRuleMutation) ResetWorkspaceID() {
+	m.workspace_id = nil
+	m.addworkspace_id = nil
+}
+
+// SetAccountID sets the "account_id" field.
+func (m *ModelAccessRuleMutation) SetAccountID(i int64) {
+	m.account_id = &i
+	m.addaccount_id = nil
+}
+
+// AccountID returns the value of the "account_id" field in the mutation.
+func (m *ModelAccessRuleMutation) AccountID() (r int64, exists bool) {
+	v := m.account_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountID returns the old "account_id" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldAccountID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountID: %w", err)
+	}
+	return oldValue.AccountID, nil
+}
+
+// AddAccountID adds i to the "account_id" field.
+func (m *ModelAccessRuleMutation) AddAccountID(i int64) {
+	if m.addaccount_id != nil {
+		*m.addaccount_id += i
+	} else {
+		m.addaccount_id = &i
+	}
+}
+
+// AddedAccountID returns the value that was added to the "account_id" field in this mutation.
+func (m *ModelAccessRuleMutation) AddedAccountID() (r int64, exists bool) {
+	v := m.addaccount_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAccountID clears the value of the "account_id" field.
+func (m *ModelAccessRuleMutation) ClearAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	m.clearedFields[modelaccessrule.FieldAccountID] = struct{}{}
+}
+
+// AccountIDCleared returns if the "account_id" field was cleared in this mutation.
+func (m *ModelAccessRuleMutation) AccountIDCleared() bool {
+	_, ok := m.clearedFields[modelaccessrule.FieldAccountID]
+	return ok
+}
+
+// ResetAccountID resets all changes to the "account_id" field.
+func (m *ModelAccessRuleMutation) ResetAccountID() {
+	m.account_id = nil
+	m.addaccount_id = nil
+	delete(m.clearedFields, modelaccessrule.FieldAccountID)
+}
+
+// SetAPIKeyID sets the "api_key_id" field.
+func (m *ModelAccessRuleMutation) SetAPIKeyID(i int64) {
+	m.api_key_id = &i
+	m.addapi_key_id = nil
+}
+
+// APIKeyID returns the value of the "api_key_id" field in the mutation.
+func (m *ModelAccessRuleMutation) APIKeyID() (r int64, exists bool) {
+	v := m.api_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAPIKeyID returns the old "api_key_id" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldAPIKeyID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAPIKeyID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAPIKeyID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAPIKeyID: %w", err)
+	}
+	return oldValue.APIKeyID, nil
+}
+
+// AddAPIKeyID adds i to the "api_key_id" field.
+func (m *ModelAccessRuleMutation) AddAPIKeyID(i int64) {
+	if m.addapi_key_id != nil {
+		*m.addapi_key_id += i
+	} else {
+		m.addapi_key_id = &i
+	}
+}
+
+// AddedAPIKeyID returns the value that was added to the "api_key_id" field in this mutation.
+func (m *ModelAccessRuleMutation) AddedAPIKeyID() (r int64, exists bool) {
+	v := m.addapi_key_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAPIKeyID clears the value of the "api_key_id" field.
+func (m *ModelAccessRuleMutation) ClearAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+	m.clearedFields[modelaccessrule.FieldAPIKeyID] = struct{}{}
+}
+
+// APIKeyIDCleared returns if the "api_key_id" field was cleared in this mutation.
+func (m *ModelAccessRuleMutation) APIKeyIDCleared() bool {
+	_, ok := m.clearedFields[modelaccessrule.FieldAPIKeyID]
+	return ok
+}
+
+// ResetAPIKeyID resets all changes to the "api_key_id" field.
+func (m *ModelAccessRuleMutation) ResetAPIKeyID() {
+	m.api_key_id = nil
+	m.addapi_key_id = nil
+	delete(m.clearedFields, modelaccessrule.FieldAPIKeyID)
+}
+
+// SetAccessGroupID sets the "access_group_id" field.
+func (m *ModelAccessRuleMutation) SetAccessGroupID(i int64) {
+	m.access_group_id = &i
+	m.addaccess_group_id = nil
+}
+
+// AccessGroupID returns the value of the "access_group_id" field in the mutation.
+func (m *ModelAccessRuleMutation) AccessGroupID() (r int64, exists bool) {
+	v := m.access_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccessGroupID returns the old "access_group_id" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldAccessGroupID(ctx context.Context) (v *int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccessGroupID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccessGroupID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccessGroupID: %w", err)
+	}
+	return oldValue.AccessGroupID, nil
+}
+
+// AddAccessGroupID adds i to the "access_group_id" field.
+func (m *ModelAccessRuleMutation) AddAccessGroupID(i int64) {
+	if m.addaccess_group_id != nil {
+		*m.addaccess_group_id += i
+	} else {
+		m.addaccess_group_id = &i
+	}
+}
+
+// AddedAccessGroupID returns the value that was added to the "access_group_id" field in this mutation.
+func (m *ModelAccessRuleMutation) AddedAccessGroupID() (r int64, exists bool) {
+	v := m.addaccess_group_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAccessGroupID clears the value of the "access_group_id" field.
+func (m *ModelAccessRuleMutation) ClearAccessGroupID() {
+	m.access_group_id = nil
+	m.addaccess_group_id = nil
+	m.clearedFields[modelaccessrule.FieldAccessGroupID] = struct{}{}
+}
+
+// AccessGroupIDCleared returns if the "access_group_id" field was cleared in this mutation.
+func (m *ModelAccessRuleMutation) AccessGroupIDCleared() bool {
+	_, ok := m.clearedFields[modelaccessrule.FieldAccessGroupID]
+	return ok
+}
+
+// ResetAccessGroupID resets all changes to the "access_group_id" field.
+func (m *ModelAccessRuleMutation) ResetAccessGroupID() {
+	m.access_group_id = nil
+	m.addaccess_group_id = nil
+	delete(m.clearedFields, modelaccessrule.FieldAccessGroupID)
+}
+
+// SetModels sets the "models" field.
+func (m *ModelAccessRuleMutation) SetModels(s []string) {
+	m.models = &s
+	m.appendmodels = nil
+}
+
+// Models returns the value of the "models" field in the mutation.
+func (m *ModelAccessRuleMutation) Models() (r []string, exists bool) {
+	v := m.models
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldModels returns the old "models" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldModels(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldModels is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldModels requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldModels: %w", err)
+	}
+	return oldValue.Models, nil
+}
+
+// AppendModels adds s to the "models" field.
+func (m *ModelAccessRuleMutation) AppendModels(s []string) {
+	m.appendmodels = append(m.appendmodels, s...)
+}
+
+// AppendedModels returns the list of values that were appended to the "models" field in this mutation.
+func (m *ModelAccessRuleMutation) AppendedModels() ([]string, bool) {
+	if len(m.appendmodels) == 0 {
+		return nil, false
+	}
+	return m.appendmodels, true
+}
+
+// ClearModels clears the value of the "models" field.
+func (m *ModelAccessRuleMutation) ClearModels() {
+	m.models = nil
+	m.appendmodels = nil
+	m.clearedFields[modelaccessrule.FieldModels] = struct{}{}
+}
+
+// ModelsCleared returns if the "models" field was cleared in this mutation.
+func (m *ModelAccessRuleMutation) ModelsCleared() bool {
+	_, ok := m.clearedFields[modelaccessrule.FieldModels]
+	return ok
+}
+
+// ResetModels resets all changes to the "models" field.
+func (m *ModelAccessRuleMutation) ResetModels() {
+	m.models = nil
+	m.appendmodels = nil
+	delete(m.clearedFields, modelaccessrule.FieldModels)
+}
+
+// SetExclude sets the "exclude" field.
+func (m *ModelAccessRuleMutation) SetExclude(s []string) {
+	m.exclude = &s
+	m.appendexclude = nil
+}
+
+// Exclude returns the value of the "exclude" field in the mutation.
+func (m *ModelAccessRuleMutation) Exclude() (r []string, exists bool) {
+	v := m.exclude
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldExclude returns the old "exclude" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldExclude(ctx context.Context) (v []string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldExclude is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldExclude requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldExclude: %w", err)
+	}
+	return oldValue.Exclude, nil
+}
+
+// AppendExclude adds s to the "exclude" field.
+func (m *ModelAccessRuleMutation) AppendExclude(s []string) {
+	m.appendexclude = append(m.appendexclude, s...)
+}
+
+// AppendedExclude returns the list of values that were appended to the "exclude" field in this mutation.
+func (m *ModelAccessRuleMutation) AppendedExclude() ([]string, bool) {
+	if len(m.appendexclude) == 0 {
+		return nil, false
+	}
+	return m.appendexclude, true
+}
+
+// ResetExclude resets all changes to the "exclude" field.
+func (m *ModelAccessRuleMutation) ResetExclude() {
+	m.exclude = nil
+	m.appendexclude = nil
+}
+
+// SetRevision sets the "revision" field.
+func (m *ModelAccessRuleMutation) SetRevision(i int64) {
+	m.revision = &i
+	m.addrevision = nil
+}
+
+// Revision returns the value of the "revision" field in the mutation.
+func (m *ModelAccessRuleMutation) Revision() (r int64, exists bool) {
+	v := m.revision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRevision returns the old "revision" field's value of the ModelAccessRule entity.
+// If the ModelAccessRule object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *ModelAccessRuleMutation) OldRevision(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRevision is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRevision requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRevision: %w", err)
+	}
+	return oldValue.Revision, nil
+}
+
+// AddRevision adds i to the "revision" field.
+func (m *ModelAccessRuleMutation) AddRevision(i int64) {
+	if m.addrevision != nil {
+		*m.addrevision += i
+	} else {
+		m.addrevision = &i
+	}
+}
+
+// AddedRevision returns the value that was added to the "revision" field in this mutation.
+func (m *ModelAccessRuleMutation) AddedRevision() (r int64, exists bool) {
+	v := m.addrevision
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRevision resets all changes to the "revision" field.
+func (m *ModelAccessRuleMutation) ResetRevision() {
+	m.revision = nil
+	m.addrevision = nil
+}
+
+// Where appends a list predicates to the ModelAccessRuleMutation builder.
+func (m *ModelAccessRuleMutation) Where(ps ...predicate.ModelAccessRule) {
+	m.predicates = append(m.predicates, ps...)
+}
+
+// WhereP appends storage-level predicates to the ModelAccessRuleMutation builder. Using this method,
+// users can use type-assertion to append predicates that do not depend on any generated package.
+func (m *ModelAccessRuleMutation) WhereP(ps ...func(*sql.Selector)) {
+	p := make([]predicate.ModelAccessRule, len(ps))
+	for i := range ps {
+		p[i] = ps[i]
+	}
+	m.Where(p...)
+}
+
+// Op returns the operation name.
+func (m *ModelAccessRuleMutation) Op() Op {
+	return m.op
+}
+
+// SetOp allows setting the mutation operation.
+func (m *ModelAccessRuleMutation) SetOp(op Op) {
+	m.op = op
+}
+
+// Type returns the node type of this mutation (ModelAccessRule).
+func (m *ModelAccessRuleMutation) Type() string {
+	return m.typ
+}
+
+// Fields returns all fields that were changed during this mutation. Note that in
+// order to get all numeric fields that were incremented/decremented, call
+// AddedFields().
+func (m *ModelAccessRuleMutation) Fields() []string {
+	fields := make([]string, 0, 9)
+	if m.created_at != nil {
+		fields = append(fields, modelaccessrule.FieldCreatedAt)
+	}
+	if m.updated_at != nil {
+		fields = append(fields, modelaccessrule.FieldUpdatedAt)
+	}
+	if m.workspace_id != nil {
+		fields = append(fields, modelaccessrule.FieldWorkspaceID)
+	}
+	if m.account_id != nil {
+		fields = append(fields, modelaccessrule.FieldAccountID)
+	}
+	if m.api_key_id != nil {
+		fields = append(fields, modelaccessrule.FieldAPIKeyID)
+	}
+	if m.access_group_id != nil {
+		fields = append(fields, modelaccessrule.FieldAccessGroupID)
+	}
+	if m.models != nil {
+		fields = append(fields, modelaccessrule.FieldModels)
+	}
+	if m.exclude != nil {
+		fields = append(fields, modelaccessrule.FieldExclude)
+	}
+	if m.revision != nil {
+		fields = append(fields, modelaccessrule.FieldRevision)
+	}
+	return fields
+}
+
+// Field returns the value of a field with the given name. The second boolean
+// return value indicates that this field was not set, or was not defined in the
+// schema.
+func (m *ModelAccessRuleMutation) Field(name string) (ent.Value, bool) {
+	switch name {
+	case modelaccessrule.FieldCreatedAt:
+		return m.CreatedAt()
+	case modelaccessrule.FieldUpdatedAt:
+		return m.UpdatedAt()
+	case modelaccessrule.FieldWorkspaceID:
+		return m.WorkspaceID()
+	case modelaccessrule.FieldAccountID:
+		return m.AccountID()
+	case modelaccessrule.FieldAPIKeyID:
+		return m.APIKeyID()
+	case modelaccessrule.FieldAccessGroupID:
+		return m.AccessGroupID()
+	case modelaccessrule.FieldModels:
+		return m.Models()
+	case modelaccessrule.FieldExclude:
+		return m.Exclude()
+	case modelaccessrule.FieldRevision:
+		return m.Revision()
+	}
+	return nil, false
+}
+
+// OldField returns the old value of the field from the database. An error is
+// returned if the mutation operation is not UpdateOne, or the query to the
+// database failed.
+func (m *ModelAccessRuleMutation) OldField(ctx context.Context, name string) (ent.Value, error) {
+	switch name {
+	case modelaccessrule.FieldCreatedAt:
+		return m.OldCreatedAt(ctx)
+	case modelaccessrule.FieldUpdatedAt:
+		return m.OldUpdatedAt(ctx)
+	case modelaccessrule.FieldWorkspaceID:
+		return m.OldWorkspaceID(ctx)
+	case modelaccessrule.FieldAccountID:
+		return m.OldAccountID(ctx)
+	case modelaccessrule.FieldAPIKeyID:
+		return m.OldAPIKeyID(ctx)
+	case modelaccessrule.FieldAccessGroupID:
+		return m.OldAccessGroupID(ctx)
+	case modelaccessrule.FieldModels:
+		return m.OldModels(ctx)
+	case modelaccessrule.FieldExclude:
+		return m.OldExclude(ctx)
+	case modelaccessrule.FieldRevision:
+		return m.OldRevision(ctx)
+	}
+	return nil, fmt.Errorf("unknown ModelAccessRule field %s", name)
+}
+
+// SetField sets the value of a field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAccessRuleMutation) SetField(name string, value ent.Value) error {
+	switch name {
+	case modelaccessrule.FieldCreatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCreatedAt(v)
+		return nil
+	case modelaccessrule.FieldUpdatedAt:
+		v, ok := value.(time.Time)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpdatedAt(v)
+		return nil
+	case modelaccessrule.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetWorkspaceID(v)
+		return nil
+	case modelaccessrule.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountID(v)
+		return nil
+	case modelaccessrule.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAPIKeyID(v)
+		return nil
+	case modelaccessrule.FieldAccessGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccessGroupID(v)
+		return nil
+	case modelaccessrule.FieldModels:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetModels(v)
+		return nil
+	case modelaccessrule.FieldExclude:
+		v, ok := value.([]string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetExclude(v)
+		return nil
+	case modelaccessrule.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessRule field %s", name)
+}
+
+// AddedFields returns all numeric fields that were incremented/decremented during
+// this mutation.
+func (m *ModelAccessRuleMutation) AddedFields() []string {
+	var fields []string
+	if m.addworkspace_id != nil {
+		fields = append(fields, modelaccessrule.FieldWorkspaceID)
+	}
+	if m.addaccount_id != nil {
+		fields = append(fields, modelaccessrule.FieldAccountID)
+	}
+	if m.addapi_key_id != nil {
+		fields = append(fields, modelaccessrule.FieldAPIKeyID)
+	}
+	if m.addaccess_group_id != nil {
+		fields = append(fields, modelaccessrule.FieldAccessGroupID)
+	}
+	if m.addrevision != nil {
+		fields = append(fields, modelaccessrule.FieldRevision)
+	}
+	return fields
+}
+
+// AddedField returns the numeric value that was incremented/decremented on a field
+// with the given name. The second boolean return value indicates that this field
+// was not set, or was not defined in the schema.
+func (m *ModelAccessRuleMutation) AddedField(name string) (ent.Value, bool) {
+	switch name {
+	case modelaccessrule.FieldWorkspaceID:
+		return m.AddedWorkspaceID()
+	case modelaccessrule.FieldAccountID:
+		return m.AddedAccountID()
+	case modelaccessrule.FieldAPIKeyID:
+		return m.AddedAPIKeyID()
+	case modelaccessrule.FieldAccessGroupID:
+		return m.AddedAccessGroupID()
+	case modelaccessrule.FieldRevision:
+		return m.AddedRevision()
+	}
+	return nil, false
+}
+
+// AddField adds the value to the field with the given name. It returns an error if
+// the field is not defined in the schema, or if the type mismatched the field
+// type.
+func (m *ModelAccessRuleMutation) AddField(name string, value ent.Value) error {
+	switch name {
+	case modelaccessrule.FieldWorkspaceID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddWorkspaceID(v)
+		return nil
+	case modelaccessrule.FieldAccountID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountID(v)
+		return nil
+	case modelaccessrule.FieldAPIKeyID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAPIKeyID(v)
+		return nil
+	case modelaccessrule.FieldAccessGroupID:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccessGroupID(v)
+		return nil
+	case modelaccessrule.FieldRevision:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRevision(v)
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessRule numeric field %s", name)
+}
+
+// ClearedFields returns all nullable fields that were cleared during this
+// mutation.
+func (m *ModelAccessRuleMutation) ClearedFields() []string {
+	var fields []string
+	if m.FieldCleared(modelaccessrule.FieldAccountID) {
+		fields = append(fields, modelaccessrule.FieldAccountID)
+	}
+	if m.FieldCleared(modelaccessrule.FieldAPIKeyID) {
+		fields = append(fields, modelaccessrule.FieldAPIKeyID)
+	}
+	if m.FieldCleared(modelaccessrule.FieldAccessGroupID) {
+		fields = append(fields, modelaccessrule.FieldAccessGroupID)
+	}
+	if m.FieldCleared(modelaccessrule.FieldModels) {
+		fields = append(fields, modelaccessrule.FieldModels)
+	}
+	return fields
+}
+
+// FieldCleared returns a boolean indicating if a field with the given name was
+// cleared in this mutation.
+func (m *ModelAccessRuleMutation) FieldCleared(name string) bool {
+	_, ok := m.clearedFields[name]
+	return ok
+}
+
+// ClearField clears the value of the field with the given name. It returns an
+// error if the field is not defined in the schema.
+func (m *ModelAccessRuleMutation) ClearField(name string) error {
+	switch name {
+	case modelaccessrule.FieldAccountID:
+		m.ClearAccountID()
+		return nil
+	case modelaccessrule.FieldAPIKeyID:
+		m.ClearAPIKeyID()
+		return nil
+	case modelaccessrule.FieldAccessGroupID:
+		m.ClearAccessGroupID()
+		return nil
+	case modelaccessrule.FieldModels:
+		m.ClearModels()
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessRule nullable field %s", name)
+}
+
+// ResetField resets all changes in the mutation for the field with the given name.
+// It returns an error if the field is not defined in the schema.
+func (m *ModelAccessRuleMutation) ResetField(name string) error {
+	switch name {
+	case modelaccessrule.FieldCreatedAt:
+		m.ResetCreatedAt()
+		return nil
+	case modelaccessrule.FieldUpdatedAt:
+		m.ResetUpdatedAt()
+		return nil
+	case modelaccessrule.FieldWorkspaceID:
+		m.ResetWorkspaceID()
+		return nil
+	case modelaccessrule.FieldAccountID:
+		m.ResetAccountID()
+		return nil
+	case modelaccessrule.FieldAPIKeyID:
+		m.ResetAPIKeyID()
+		return nil
+	case modelaccessrule.FieldAccessGroupID:
+		m.ResetAccessGroupID()
+		return nil
+	case modelaccessrule.FieldModels:
+		m.ResetModels()
+		return nil
+	case modelaccessrule.FieldExclude:
+		m.ResetExclude()
+		return nil
+	case modelaccessrule.FieldRevision:
+		m.ResetRevision()
+		return nil
+	}
+	return fmt.Errorf("unknown ModelAccessRule field %s", name)
+}
+
+// AddedEdges returns all edge names that were set/added in this mutation.
+func (m *ModelAccessRuleMutation) AddedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// AddedIDs returns all IDs (to other nodes) that were added for the given edge
+// name in this mutation.
+func (m *ModelAccessRuleMutation) AddedIDs(name string) []ent.Value {
+	return nil
+}
+
+// RemovedEdges returns all edge names that were removed in this mutation.
+func (m *ModelAccessRuleMutation) RemovedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// RemovedIDs returns all IDs (to other nodes) that were removed for the edge with
+// the given name in this mutation.
+func (m *ModelAccessRuleMutation) RemovedIDs(name string) []ent.Value {
+	return nil
+}
+
+// ClearedEdges returns all edge names that were cleared in this mutation.
+func (m *ModelAccessRuleMutation) ClearedEdges() []string {
+	edges := make([]string, 0, 0)
+	return edges
+}
+
+// EdgeCleared returns a boolean which indicates if the edge with the given name
+// was cleared in this mutation.
+func (m *ModelAccessRuleMutation) EdgeCleared(name string) bool {
+	return false
+}
+
+// ClearEdge clears the value of the edge with the given name. It returns an error
+// if that edge is not defined in the schema.
+func (m *ModelAccessRuleMutation) ClearEdge(name string) error {
+	return fmt.Errorf("unknown ModelAccessRule unique edge %s", name)
+}
+
+// ResetEdge resets all changes to the edge with the given name in this mutation.
+// It returns an error if the edge is not defined in the schema.
+func (m *ModelAccessRuleMutation) ResetEdge(name string) error {
+	return fmt.Errorf("unknown ModelAccessRule edge %s", name)
 }
 
 // PaymentAuditLogMutation represents an operation that mutates the PaymentAuditLog nodes in the graph.

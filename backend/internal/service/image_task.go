@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/google/uuid"
@@ -32,16 +33,21 @@ var (
 // ImageTaskRecord is the private Redis representation of an asynchronous image
 // request. Ownership fields are intentionally omitted from the public view.
 type ImageTaskRecord struct {
-	ID          string          `json:"id"`
-	UserID      int64           `json:"user_id"`
-	APIKeyID    int64           `json:"api_key_id"`
-	Status      string          `json:"status"`
-	HTTPStatus  int             `json:"http_status,omitempty"`
-	Result      json.RawMessage `json:"result,omitempty"`
-	Error       json.RawMessage `json:"error,omitempty"`
-	CreatedAt   int64           `json:"created_at"`
-	CompletedAt *int64          `json:"completed_at,omitempty"`
-	ExpiresAt   int64           `json:"expires_at"`
+	WorkspaceID       int64           `json:"workspace_id"`
+	Version           int64           `json:"version"`
+	ExecutionDeadline int64           `json:"execution_deadline,omitempty"`
+	PublicModel       string          `json:"public_model,omitempty"`
+	AccountID         int64           `json:"account_id,omitempty"`
+	ID                string          `json:"id"`
+	UserID            int64           `json:"user_id"`
+	APIKeyID          int64           `json:"api_key_id"`
+	Status            string          `json:"status"`
+	HTTPStatus        int             `json:"http_status,omitempty"`
+	Result            json.RawMessage `json:"result,omitempty"`
+	Error             json.RawMessage `json:"error,omitempty"`
+	CreatedAt         int64           `json:"created_at"`
+	CompletedAt       *int64          `json:"completed_at,omitempty"`
+	ExpiresAt         int64           `json:"expires_at"`
 }
 
 // ImageTask is the API-safe task representation returned to callers.
@@ -60,8 +66,9 @@ type ImageTask struct {
 }
 
 type ImageTaskOwner struct {
-	UserID   int64
-	APIKeyID int64
+	WorkspaceID int64
+	UserID      int64
+	APIKeyID    int64
 }
 
 type ImageTaskStore interface {
@@ -150,18 +157,30 @@ func (s *ImageTaskService) ExecutionTimeout() time.Duration {
 	return s.executionTimeout
 }
 
-func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner) (*ImageTask, error) {
+func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner, publicModels ...string) (*ImageTask, error) {
 	if s == nil || s.store == nil {
 		return nil, ErrImageTaskUnavailable
 	}
 	now := time.Now().UTC()
+	if owner.WorkspaceID <= 0 {
+		owner.WorkspaceID = domain.ResourceWorkspaceID(ctx)
+	}
 	task := &ImageTaskRecord{
-		ID:        "imgtask_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
-		UserID:    owner.UserID,
-		APIKeyID:  owner.APIKeyID,
-		Status:    ImageTaskStatusProcessing,
-		CreatedAt: now.Unix(),
-		ExpiresAt: now.Add(s.ttl).Unix(),
+		WorkspaceID:       owner.WorkspaceID,
+		Version:           1,
+		ExecutionDeadline: now.Add(s.ExecutionTimeout()).Unix(),
+		ID:                "imgtask_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
+		UserID:            owner.UserID,
+		APIKeyID:          owner.APIKeyID,
+		Status:            ImageTaskStatusProcessing,
+		CreatedAt:         now.Unix(),
+		ExpiresAt:         now.Add(s.ttl).Unix(),
+	}
+	if len(publicModels) > 0 {
+		task.PublicModel = publicModels[0]
+	}
+	if !visibleModelPolicyAllows(ctx, task.PublicModel) {
+		return nil, ErrImageTaskNotFound
 	}
 	if err := s.store.Save(ctx, task, s.ttl); err != nil {
 		return nil, ErrImageTaskUnavailable.WithCause(err)
@@ -180,14 +199,39 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 		}
 		return nil, ErrImageTaskUnavailable.WithCause(err)
 	}
-	if task.UserID != owner.UserID || task.APIKeyID != owner.APIKeyID {
+	if owner.WorkspaceID <= 0 {
+		owner.WorkspaceID = domain.ResourceWorkspaceID(ctx)
+	}
+	taskWorkspace := task.WorkspaceID
+	if taskWorkspace <= 0 {
+		taskWorkspace = domain.DefaultWorkspaceID
+	}
+	if task.UserID != owner.UserID || task.APIKeyID != owner.APIKeyID || taskWorkspace != owner.WorkspaceID {
 		// Do not reveal whether a random task ID exists for another caller.
 		return nil, ErrImageTaskNotFound
+	}
+	if !visibleModelPolicyAllows(ctx, task.PublicModel) || !modelAccessAccountAllows(ctx, task.AccountID, task.PublicModel) {
+		return nil, ErrImageTaskNotFound
+	}
+	// Sync image providers cannot be replayed safely after a worker crash.
+	// Recover the durable receipt to an explicit unknown outcome; never regenerate.
+	deadline := task.ExecutionDeadline
+	if deadline == 0 {
+		deadline = task.CreatedAt + int64(s.ExecutionTimeout()/time.Second)
+	}
+	if task.Status == ImageTaskStatusProcessing && time.Now().Unix() >= deadline {
+		if err := s.Fail(ctx, task.ID, http.StatusGatewayTimeout, imageTaskErrorJSON("execution_outcome_unknown", "image worker deadline elapsed; upstream outcome is unknown and the request will not be replayed")); err != nil {
+			return nil, err
+		}
+		task, err = s.store.Get(ctx, task.ID)
+		if err != nil {
+			return nil, err
+		}
 	}
 	return imageTaskToPublic(task), nil
 }
 
-func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
+func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage, accountIDs ...int64) error {
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
@@ -200,7 +244,7 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 		}
 		result = rewritten
 	}
-	return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+	return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil, accountIDs...)
 }
 
 func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, taskErr json.RawMessage) error {
@@ -210,7 +254,7 @@ func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, 
 	return s.finish(ctx, id, ImageTaskStatusFailed, statusCode, nil, taskErr)
 }
 
-func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage) error {
+func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage, accountIDs ...int64) error {
 	if s == nil || s.store == nil {
 		return ErrImageTaskUnavailable
 	}
@@ -221,8 +265,15 @@ func (s *ImageTaskService) finish(ctx context.Context, id, status string, status
 		}
 		return ErrImageTaskUnavailable.WithCause(err)
 	}
+	if task.Status != ImageTaskStatusProcessing {
+		return nil
+	}
+	task.Version++
 	now := time.Now().UTC()
 	completedAt := now.Unix()
+	if len(accountIDs) > 0 {
+		task.AccountID = accountIDs[0]
+	}
 	task.Status = status
 	task.HTTPStatus = statusCode
 	task.Result = result

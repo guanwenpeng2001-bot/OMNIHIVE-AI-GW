@@ -1,6 +1,14 @@
 package service
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
+	"github.com/gin-gonic/gin"
+	"strings"
+)
+
+func redactPassthroughMessage(message string) string {
+	return logredact.RedactDiagnostic(message)
+}
 
 const errorPassthroughServiceContextKey = "error_passthrough_service"
 
@@ -39,7 +47,7 @@ func applyErrorPassthroughRule(
 ) (status int, errType string, errMsg string, matched bool) {
 	status = defaultStatus
 	errType = defaultErrType
-	errMsg = defaultErrMsg
+	errMsg = redactPassthroughMessage(defaultErrMsg)
 
 	svc := getBoundErrorPassthroughService(c)
 	if svc == nil {
@@ -58,10 +66,14 @@ func applyErrorPassthroughRule(
 
 	errMsg = "Upstream request failed"
 	if rule.PassthroughBody {
-		errMsg = ExtractUpstreamErrorMessage(responseBody)
+		if message := strings.TrimSpace(ExtractUpstreamErrorMessage(responseBody)); message != "" {
+			errMsg = message
+		}
 	} else if rule.CustomMessage != nil && *rule.CustomMessage != "" {
 		errMsg = *rule.CustomMessage
 	}
+
+	errMsg = redactPassthroughMessage(errMsg)
 
 	// 命中 skip_monitoring 时在 context 中标记，供 ops_error_logger 跳过记录。
 	if rule.SkipMonitoring {

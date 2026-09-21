@@ -40,7 +40,7 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformGemini, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenAI, ResponsesCompact: true, ResponsesWS: EndpointNative, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformAntigravity, ResponsesPOST: EndpointBridge, OAuth: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformGrok, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformGrok, ResponsesCompact: true, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformKimi, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformZhipu, ResponsesPOST: EndpointBridge, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformDeepseek, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
@@ -90,3 +90,216 @@ func IsConcretePlatform(id string) bool {
 }
 
 func IsGroupPlatform(id string) bool { return id == PlatformComposite || IsConcretePlatform(id) }
+
+// ActionStatus describes adapter evidence, not a provider-wide capability claim.
+type ActionStatus string
+
+const (
+	ActionImplemented  ActionStatus = "implemented"
+	ActionUnverified   ActionStatus = "unverified"
+	ActionHardConflict ActionStatus = "hard_conflict"
+)
+
+// ActionIdentity keeps hosted credentials and protocol/profile selection separate
+// from the product platform. Empty dimensions select the platform ingress bound;
+// account/model evidence must still be checked before sending.
+type ActionIdentity struct{ Platform, HostedAccountType, Protocol, Profile string }
+type ActionDescriptor struct {
+	Identity         ActionIdentity `json:"identity"`
+	Action           string         `json:"action"`
+	Status           ActionStatus   `json:"status"`
+	Adapter          string         `json:"adapter,omitempty"`
+	Evidence         string         `json:"evidence"`
+	CredentialPolicy string         `json:"credentialPolicy,omitempty"`
+	ModelPolicy      string         `json:"modelPolicy,omitempty"`
+	UsagePolicy      string         `json:"usagePolicy,omitempty"`
+	Lifecycle        string         `json:"lifecycle,omitempty"`
+}
+
+func GatewayActions() []string {
+	return []string{"chat", "messages", "responses", "responses.compact", "count_tokens", "generate_content", "embeddings", "rerank", "image.generate", "image.edit", "image.variation", "image.async", "image.batch", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "audio.translate", "voice", "realtime", "search", "alpha_search", "live", "responses.websocket", "native"}
+}
+
+// PlatformAction resolves only adapters already present in the gateway. Missing
+// adapters stay unverified: absence in this repository is not proof a supplier
+// cannot implement an action. No exposure switch grants an adapter.
+func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
+	descriptor := ActionDescriptor{Identity: identity, Action: action, Status: ActionUnverified, Evidence: "No verified gateway adapter; provider actions task must verify this cell"}
+	platform, known := LookupPlatform(identity.Platform)
+	if !known {
+		return descriptor
+	}
+	if identity.HostedAccountType == AccountTypeBedrock && identity.Platform != PlatformAnthropic && identity.Platform != PlatformBedrock {
+		return descriptor
+	}
+	if identity.HostedAccountType == AccountTypeServiceAccount && identity.Platform != PlatformAnthropic && identity.Platform != PlatformGemini {
+		return descriptor
+	}
+	if action == "count_tokens" && (identity.HostedAccountType == AccountTypeBedrock || identity.Platform == PlatformBedrock) {
+		descriptor.Evidence = "gateway_count_tokens.go: ForwardCountTokens has no Bedrock adapter; native/bridge verification remains open"
+		return descriptor
+	}
+	// Credential restrictions mirror the existing endpoint adapters. Missing
+	// identity dimensions are ingress bounds, never account authorization.
+	if identity.Platform == PlatformOpenAI {
+		// Verified against the official OpenAI API specification
+		// (openai/openai-openapi@master, 224 paths enumerated 2026-09-21): there is
+		// no rerank endpoint and no standalone search endpoint, so no native or
+		// faithful bridge exists. Web search remains available as a Responses API
+		// tool, already served by the responses action.
+		switch action {
+		case "rerank":
+			descriptor.Status = ActionHardConflict
+			descriptor.Evidence = "Official OpenAI API specification (openai/openai-openapi@master, checked 2026-09-21) publishes no rerank endpoint and no rerank model; no faithful bridge exists"
+			return descriptor
+		case "search":
+			descriptor.Status = ActionHardConflict
+			descriptor.Evidence = "Official OpenAI API specification (openai/openai-openapi@master, checked 2026-09-21) publishes no standalone search endpoint; web search exists only as a Responses API tool, already served by the responses action"
+			return descriptor
+		}
+	}
+	if identity.HostedAccountType != "" {
+		if platform.ChatOnly && identity.HostedAccountType != AccountTypeAPIKey {
+			return descriptor
+		}
+		if identity.Platform == PlatformOpenAI {
+			switch action {
+			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
+				// Open-API data-plane actions are verified for first-party API keys
+				// only; Codex OAuth credentials do not grant these endpoints.
+				if identity.HostedAccountType != AccountTypeAPIKey {
+					return descriptor
+				}
+			case "live":
+				if identity.HostedAccountType != AccountTypeOAuth {
+					return descriptor
+				}
+			case "alpha_search":
+				if identity.HostedAccountType != AccountTypeAPIKey && identity.HostedAccountType != AccountTypeOAuth {
+					return descriptor
+				}
+			case "image.generate", "image.edit", "image.async", "image.batch":
+				if identity.HostedAccountType != AccountTypeAPIKey && identity.HostedAccountType != AccountTypeOAuth && identity.HostedAccountType != AccountTypeSetupToken {
+					return descriptor
+				}
+			}
+		}
+	}
+	adapter := ""
+	openAITrunk := platform.ResponsesPOST == EndpointNative || identity.Platform == PlatformZhipu || identity.Platform == PlatformCommandCode
+	switch action {
+	case "chat":
+		adapter = "gateway.chat"
+		if openAITrunk || platform.ChatOnly {
+			adapter = "openai.chat"
+		}
+	case "messages", "responses", "count_tokens":
+		if !platform.ChatOnly {
+			adapter = "gateway." + action
+			if openAITrunk {
+				adapter = "openai." + action
+			}
+			if action == "count_tokens" && identity.Platform == PlatformCursor {
+				adapter = "cursor.count_tokens"
+			}
+			if action == "count_tokens" && identity.Platform == PlatformGrok {
+				adapter = "grok.count_tokens"
+			}
+		}
+	case "generate_content":
+		if identity.Platform == PlatformGemini || identity.Platform == PlatformAntigravity {
+			adapter = "gateway.generate_content"
+		}
+	case "responses.compact":
+		if platform.ResponsesCompact {
+			adapter = "openai.responses"
+		}
+	case "embeddings":
+		if identity.Platform == PlatformOpenAI {
+			adapter = "openai.embeddings"
+		}
+	case "image.generate", "image.edit":
+		if identity.Platform == PlatformOpenAI {
+			adapter = "openai.images"
+		}
+		if identity.Platform == PlatformGrok {
+			adapter = "grok.images"
+		}
+	case "image.variation":
+		if identity.Platform == PlatformOpenAI {
+			adapter = "openai.image.variation"
+		}
+	case "image.async", "image.batch":
+		if identity.Platform == PlatformOpenAI || identity.Platform == PlatformGrok {
+			adapter = action
+		}
+	case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "voice", "realtime", "search":
+		if identity.Platform == PlatformGrok {
+			adapter = "grok." + action
+		}
+		if identity.Platform == PlatformOpenAI {
+			switch action {
+			case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "realtime":
+				adapter = "openai." + action
+			}
+		}
+	case "audio.translate":
+		if identity.Platform == PlatformOpenAI {
+			adapter = "openai.audio.translate"
+		}
+	case "alpha_search", "live":
+		if identity.Platform == PlatformOpenAI {
+			adapter = "openai." + action
+		}
+	case "responses.websocket":
+		if platform.ResponsesWS != EndpointRejected {
+			adapter = "openai.responses.websocket"
+		}
+	case "native":
+		if identity.Platform == PlatformQianwen {
+			adapter = "qianwen.native"
+		}
+	}
+	if adapter == "" {
+		return descriptor
+	}
+	descriptor.Status, descriptor.Adapter = ActionImplemented, adapter
+	descriptor.Evidence = "Existing gateway adapter: " + adapter
+	descriptor.CredentialPolicy = "account credential owner; native adapter authentication"
+	if identity.HostedAccountType == AccountTypeBedrock || identity.Platform == PlatformBedrock {
+		descriptor.CredentialPolicy = "bedrock account authentication (SigV4 or bearer)"
+	}
+	if identity.HostedAccountType == AccountTypeServiceAccount {
+		descriptor.CredentialPolicy = "service account project and region"
+	}
+	descriptor.ModelPolicy = "resolved account model evidence and task limits"
+	descriptor.UsagePolicy = "existing adapter usage and frozen request pricing"
+	descriptor.Lifecycle = "request plan"
+	if action == "count_tokens" {
+		descriptor.UsagePolicy = "non-billable token counting"
+		descriptor.Lifecycle = "synchronous request"
+	}
+	if identity.Platform == PlatformOpenAI {
+		switch action {
+		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
+			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio/realtime references checked 2026-09-21"
+			descriptor.CredentialPolicy = "OpenAI API key account only (open-API data plane); Codex OAuth credentials are not valid for this action"
+		}
+		if action == "video.status" || action == "video.content" {
+			descriptor.Lifecycle = "request plan and upstream job"
+		}
+	}
+	if action == "image.async" || action == "image.batch" || action == "video.generate" || action == "video.edit" || action == "video.extend" {
+		descriptor.Lifecycle = "request plan and upstream job"
+	}
+	return descriptor
+}
+
+func PlatformActionMatrix(identity ActionIdentity) []ActionDescriptor {
+	actions := GatewayActions()
+	result := make([]ActionDescriptor, 0, len(actions))
+	for _, action := range actions {
+		result = append(result, PlatformAction(identity, action))
+	}
+	return result
+}

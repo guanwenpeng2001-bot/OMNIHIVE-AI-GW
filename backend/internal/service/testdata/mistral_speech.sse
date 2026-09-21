@@ -1,0 +1,9 @@
+event: speech.audio.delta
+data: {"type":"speech.audio.delta","audio_data":"UklGRmQAAABXQVZFZm10"}
+
+event: speech.audio.delta
+data: {"type":"speech.audio.delta","audio_data":"IBAAAAAhAAEAIlYh"}
+
+event: speech.audio.done
+data: {"type":"speech.audio.done","usage":{"prompt_tokens":9,"completion_tokens":0,"total_tokens":9,"prompt_audio_seconds":null}}
+

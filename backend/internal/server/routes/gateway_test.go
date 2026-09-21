@@ -102,8 +102,8 @@ func TestGatewayRoutesAlphaSearchRejectsUnsupportedGroup(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "only available for OpenAI and Composite groups")
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "action_not_implemented")
 }
 
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
@@ -342,8 +342,8 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
-		require.Contains(t, w.Body.String(), "Videos API is not supported for this platform")
+		require.Equal(t, http.StatusBadRequest, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.Contains(t, w.Body.String(), "action_not_implemented")
 	}
 }
 
@@ -367,7 +367,7 @@ func TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget(t *testing
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	req = httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"text-embedding-3-small","input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")

@@ -76,7 +76,10 @@ func TestPlatformResponsesSurfaces(t *testing.T) {
 		compact  bool
 	}{
 		{PlatformOpenAI, EndpointNative, EndpointNative, true},
-		{PlatformGrok, EndpointNative, EndpointBridge, false},
+		// Grok compact: native xAI POST /v1/responses/compact (docs.x.ai
+		// Context Compaction, retrieved 2026-09-21), served through the
+		// existing Grok compact bridge on the responses trunk.
+		{PlatformGrok, EndpointNative, EndpointBridge, true},
 		{PlatformGemini, EndpointRejected, EndpointRejected, false},
 		{PlatformAnthropic, EndpointBridge, EndpointRejected, false},
 		{PlatformCursor, EndpointBridge, EndpointRejected, false},

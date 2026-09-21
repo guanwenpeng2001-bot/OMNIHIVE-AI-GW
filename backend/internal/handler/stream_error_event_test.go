@@ -132,7 +132,7 @@ func TestOpenAIUpstreamRateLimitWithoutLocalCodeRemainsUnchanged(t *testing.T) {
 	h.handleStreamingAwareError(c, http.StatusTooManyRequests, "rate_limit_error", "upstream limited", false)
 
 	assert.Equal(t, "rate_limit_error", gjson.GetBytes(w.Body.Bytes(), "error.type").String())
-	assert.False(t, gjson.GetBytes(w.Body.Bytes(), "error.code").Exists())
+	assert.Equal(t, "rate_limit_error", gjson.GetBytes(w.Body.Bytes(), "error.code").String())
 }
 
 // 当 setOpsRequestContext 写过 model，合成事件应回填该字段（与 codebase 已有 makeResponsesCompletedEvent 对齐）。
@@ -241,7 +241,7 @@ func TestGatewayAdmissionError_MessagesStreamingIncludesGatewayCode(t *testing.T
 		gatewayConcurrencyLimitCode, "Concurrency limit exceeded for account, please retry later", true)
 
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, `data: {"type":"error"`))
+	assert.True(t, strings.HasPrefix(body, "event: error\ndata: "))
 	payload := body[strings.Index(body, "{"):]
 	assert.Equal(t, "rate_limit_error", gjson.Get(payload, "error.type").String())
 	assert.Equal(t, gatewayConcurrencyLimitCode, gjson.Get(payload, "error.code").String())
@@ -265,7 +265,9 @@ func TestGatewayHandleStreamingAwareError_MessagesStreamingKeepsLegacy(t *testin
 	h.handleStreamingAwareError(c, http.StatusBadGateway, "upstream_error", "boom", true)
 
 	body := w.Body.String()
-	assert.True(t, strings.HasPrefix(body, `data: {"type":"error"`), "got: %q", body)
+	require.True(t, strings.HasPrefix(body, "event: error\ndata: "), "got: %q", body)
+	require.Equal(t, "error", gjson.Get(strings.TrimPrefix(body, "event: error\ndata: "), "type").String())
+	require.Equal(t, "api_error", gjson.Get(strings.TrimPrefix(body, "event: error\ndata: "), "error.type").String())
 }
 
 // 项目里 /responses 注册在多组路由：/v1/responses（gateway）、裸 /responses（top-level）、

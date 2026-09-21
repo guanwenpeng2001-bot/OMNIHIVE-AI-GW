@@ -66,6 +66,12 @@ type IdempotencyRecord func(*sql.Selector)
 // IdentityAdoptionDecision is the predicate function for identityadoptiondecision builders.
 type IdentityAdoptionDecision func(*sql.Selector)
 
+// ModelAccessGroup is the predicate function for modelaccessgroup builders.
+type ModelAccessGroup func(*sql.Selector)
+
+// ModelAccessRule is the predicate function for modelaccessrule builders.
+type ModelAccessRule func(*sql.Selector)
+
 // PaymentAuditLog is the predicate function for paymentauditlog builders.
 type PaymentAuditLog func(*sql.Selector)
 

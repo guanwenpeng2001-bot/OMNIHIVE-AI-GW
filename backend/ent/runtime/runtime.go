@@ -25,6 +25,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessgroup"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessrule"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -1385,6 +1387,66 @@ func init() {
 	identityadoptiondecisionDescDecidedAt := identityadoptiondecisionFields[4].Descriptor()
 	// identityadoptiondecision.DefaultDecidedAt holds the default value on creation for the decided_at field.
 	identityadoptiondecision.DefaultDecidedAt = identityadoptiondecisionDescDecidedAt.Default.(func() time.Time)
+	modelaccessgroupMixin := schema.ModelAccessGroup{}.Mixin()
+	modelaccessgroupMixinFields0 := modelaccessgroupMixin[0].Fields()
+	_ = modelaccessgroupMixinFields0
+	modelaccessgroupFields := schema.ModelAccessGroup{}.Fields()
+	_ = modelaccessgroupFields
+	// modelaccessgroupDescCreatedAt is the schema descriptor for created_at field.
+	modelaccessgroupDescCreatedAt := modelaccessgroupMixinFields0[0].Descriptor()
+	// modelaccessgroup.DefaultCreatedAt holds the default value on creation for the created_at field.
+	modelaccessgroup.DefaultCreatedAt = modelaccessgroupDescCreatedAt.Default.(func() time.Time)
+	// modelaccessgroupDescUpdatedAt is the schema descriptor for updated_at field.
+	modelaccessgroupDescUpdatedAt := modelaccessgroupMixinFields0[1].Descriptor()
+	// modelaccessgroup.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	modelaccessgroup.DefaultUpdatedAt = modelaccessgroupDescUpdatedAt.Default.(func() time.Time)
+	// modelaccessgroup.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	modelaccessgroup.UpdateDefaultUpdatedAt = modelaccessgroupDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// modelaccessgroupDescName is the schema descriptor for name field.
+	modelaccessgroupDescName := modelaccessgroupFields[1].Descriptor()
+	// modelaccessgroup.NameValidator is a validator for the "name" field. It is called by the builders before save.
+	modelaccessgroup.NameValidator = func() func(string) error {
+		validators := modelaccessgroupDescName.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(name string) error {
+			for _, fn := range fns {
+				if err := fn(name); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// modelaccessgroupDescRevision is the schema descriptor for revision field.
+	modelaccessgroupDescRevision := modelaccessgroupFields[3].Descriptor()
+	// modelaccessgroup.DefaultRevision holds the default value on creation for the revision field.
+	modelaccessgroup.DefaultRevision = modelaccessgroupDescRevision.Default.(int64)
+	modelaccessruleMixin := schema.ModelAccessRule{}.Mixin()
+	modelaccessruleMixinFields0 := modelaccessruleMixin[0].Fields()
+	_ = modelaccessruleMixinFields0
+	modelaccessruleFields := schema.ModelAccessRule{}.Fields()
+	_ = modelaccessruleFields
+	// modelaccessruleDescCreatedAt is the schema descriptor for created_at field.
+	modelaccessruleDescCreatedAt := modelaccessruleMixinFields0[0].Descriptor()
+	// modelaccessrule.DefaultCreatedAt holds the default value on creation for the created_at field.
+	modelaccessrule.DefaultCreatedAt = modelaccessruleDescCreatedAt.Default.(func() time.Time)
+	// modelaccessruleDescUpdatedAt is the schema descriptor for updated_at field.
+	modelaccessruleDescUpdatedAt := modelaccessruleMixinFields0[1].Descriptor()
+	// modelaccessrule.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	modelaccessrule.DefaultUpdatedAt = modelaccessruleDescUpdatedAt.Default.(func() time.Time)
+	// modelaccessrule.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	modelaccessrule.UpdateDefaultUpdatedAt = modelaccessruleDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// modelaccessruleDescExclude is the schema descriptor for exclude field.
+	modelaccessruleDescExclude := modelaccessruleFields[5].Descriptor()
+	// modelaccessrule.DefaultExclude holds the default value on creation for the exclude field.
+	modelaccessrule.DefaultExclude = modelaccessruleDescExclude.Default.([]string)
+	// modelaccessruleDescRevision is the schema descriptor for revision field.
+	modelaccessruleDescRevision := modelaccessruleFields[6].Descriptor()
+	// modelaccessrule.DefaultRevision holds the default value on creation for the revision field.
+	modelaccessrule.DefaultRevision = modelaccessruleDescRevision.Default.(int64)
 	paymentauditlogFields := schema.PaymentAuditLog{}.Fields()
 	_ = paymentauditlogFields
 	// paymentauditlogDescOrderID is the schema descriptor for order_id field.

@@ -15,8 +15,7 @@ func TestBillingErrorDetails_MapsGroupRPMExceededToTooManyRequests(t *testing.T)
 	require.Equal(t, http.StatusTooManyRequests, status)
 	require.Equal(t, "rate_limit_exceeded", code)
 	require.NotEmpty(t, msg)
-	require.Greater(t, retryAfter, 0, "RPM exceeded should return positive Retry-After")
-	require.LessOrEqual(t, retryAfter, 60)
+	require.Zero(t, retryAfter, "bare RPM error does not contain authoritative window timing")
 }
 
 func TestBillingErrorDetails_MapsUserRPMExceededToTooManyRequests(t *testing.T) {
@@ -24,8 +23,7 @@ func TestBillingErrorDetails_MapsUserRPMExceededToTooManyRequests(t *testing.T) 
 	require.Equal(t, http.StatusTooManyRequests, status)
 	require.Equal(t, "rate_limit_exceeded", code)
 	require.NotEmpty(t, msg)
-	require.Greater(t, retryAfter, 0, "RPM exceeded should return positive Retry-After")
-	require.LessOrEqual(t, retryAfter, 60)
+	require.Zero(t, retryAfter, "bare RPM error does not contain authoritative window timing")
 }
 
 func TestBillingErrorDetails_APIKeyRateLimitStillMaps(t *testing.T) {
@@ -50,8 +48,8 @@ func TestBillingErrorDetails_BillingServiceUnavailableMapsTo503(t *testing.T) {
 
 func TestBillingErrorDetails_UnknownErrorFallsBackTo403(t *testing.T) {
 	status, code, msg, _ := billingErrorDetails(service.ErrInsufficientBalance)
-	require.Equal(t, http.StatusForbidden, status)
-	require.Equal(t, "billing_error", code)
+	require.Equal(t, http.StatusTooManyRequests, status)
+	require.Equal(t, "insufficient_quota", code)
 	require.NotEmpty(t, msg)
 }
 
@@ -66,8 +64,8 @@ func TestExtractQuotaResetSeconds_T19_HappyPath(t *testing.T) {
 }
 
 func TestExtractQuotaResetSeconds_T20_NoMetadataFallback(t *testing.T) {
-	if got := extractQuotaResetSeconds(errors.New("naked error")); got != 60 {
-		t.Errorf("T20: got %d, want 60 fallback", got)
+	if got := extractQuotaResetSeconds(errors.New("naked error")); got != 0 {
+		t.Errorf("T20: got %d, want 0 without reset evidence", got)
 	}
 }
 
@@ -75,8 +73,8 @@ func TestExtractQuotaResetSeconds_T21_BadFormatFallback(t *testing.T) {
 	err := service.ErrUserPlatformDailyQuotaExhausted.WithMetadata(map[string]string{
 		"window_resets_at": "not-a-time",
 	})
-	if got := extractQuotaResetSeconds(err); got != 60 {
-		t.Errorf("T21: got %d, want 60 fallback", got)
+	if got := extractQuotaResetSeconds(err); got != 0 {
+		t.Errorf("T21: got %d, want 0 without reset evidence", got)
 	}
 }
 
@@ -87,8 +85,8 @@ func TestExtractQuotaResetSeconds_T22_PastResetFallsBackToDefault(t *testing.T) 
 	err := service.ErrUserPlatformDailyQuotaExhausted.WithMetadata(map[string]string{
 		"window_resets_at": time.Now().Add(-5 * time.Second).UTC().Format(time.RFC3339),
 	})
-	if got := extractQuotaResetSeconds(err); got != 60 {
-		t.Errorf("T22: got %d, want 60 (fallback on past reset)", got)
+	if got := extractQuotaResetSeconds(err); got != 0 {
+		t.Errorf("T22: got %d, want 0 (unknown future reset)", got)
 	}
 }
 
@@ -125,4 +123,12 @@ func TestBillingErrorDetails_T10_QuotaExhaustedReturns429WithRetryAfter(t *testi
 			}
 		})
 	}
+}
+
+func TestBillingRPMUsesOnlyAuthoritativeWindowMetadata(t *testing.T) {
+	err := service.ErrGroupRPMExceeded.WithMetadata(map[string]string{"window_resets_at": time.Now().Add(40 * time.Second).UTC().Format(time.RFC3339)})
+	status, reason, _, retryAfter := billingErrorDetails(err)
+	require.Equal(t, 429, status)
+	require.Equal(t, "rate_limit_exceeded", reason)
+	require.InDelta(t, 40, retryAfter, 1)
 }

@@ -2340,6 +2340,7 @@
 
       <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
         :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
+      <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
       <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
@@ -2406,6 +2407,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { navigateAccountChoices } from './accountChoiceNavigation'
 import { apiClient } from '@/api/client'
 import type { AccountCredentialDraft, AccountWorkflowRequest } from './accountCredentialDraft'

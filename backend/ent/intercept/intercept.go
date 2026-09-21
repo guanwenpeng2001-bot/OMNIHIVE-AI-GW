@@ -28,6 +28,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessgroup"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessrule"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -647,6 +649,60 @@ func (f TraverseIdentityAdoptionDecision) Traverse(ctx context.Context, q ent.Qu
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.IdentityAdoptionDecisionQuery", q)
+}
+
+// The ModelAccessGroupFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ModelAccessGroupFunc func(context.Context, *ent.ModelAccessGroupQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ModelAccessGroupFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ModelAccessGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessGroupQuery", q)
+}
+
+// The TraverseModelAccessGroup type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseModelAccessGroup func(context.Context, *ent.ModelAccessGroupQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseModelAccessGroup) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseModelAccessGroup) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ModelAccessGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessGroupQuery", q)
+}
+
+// The ModelAccessRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ModelAccessRuleFunc func(context.Context, *ent.ModelAccessRuleQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ModelAccessRuleFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ModelAccessRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessRuleQuery", q)
+}
+
+// The TraverseModelAccessRule type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseModelAccessRule func(context.Context, *ent.ModelAccessRuleQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseModelAccessRule) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseModelAccessRule) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ModelAccessRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessRuleQuery", q)
 }
 
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1286,6 +1342,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.IdempotencyRecordQuery, predicate.IdempotencyRecord, idempotencyrecord.OrderOption]{typ: ent.TypeIdempotencyRecord, tq: q}, nil
 	case *ent.IdentityAdoptionDecisionQuery:
 		return &query[*ent.IdentityAdoptionDecisionQuery, predicate.IdentityAdoptionDecision, identityadoptiondecision.OrderOption]{typ: ent.TypeIdentityAdoptionDecision, tq: q}, nil
+	case *ent.ModelAccessGroupQuery:
+		return &query[*ent.ModelAccessGroupQuery, predicate.ModelAccessGroup, modelaccessgroup.OrderOption]{typ: ent.TypeModelAccessGroup, tq: q}, nil
+	case *ent.ModelAccessRuleQuery:
+		return &query[*ent.ModelAccessRuleQuery, predicate.ModelAccessRule, modelaccessrule.OrderOption]{typ: ent.TypeModelAccessRule, tq: q}, nil
 	case *ent.PaymentAuditLogQuery:
 		return &query[*ent.PaymentAuditLogQuery, predicate.PaymentAuditLog, paymentauditlog.OrderOption]{typ: ent.TypePaymentAuditLog, tq: q}, nil
 	case *ent.PaymentOrderQuery:

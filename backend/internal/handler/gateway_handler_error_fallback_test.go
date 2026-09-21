@@ -29,10 +29,10 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	var parsed map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &parsed)
 	require.NoError(t, err)
-	assert.Equal(t, "error", parsed["type"])
+	assert.Nil(t, parsed["type"])
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -51,7 +51,8 @@ func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) 
 	require.True(t, wrote)
 	require.Equal(t, http.StatusTeapot, w.Code)
 	assert.Contains(t, w.Body.String(), "already written")
-	assert.Contains(t, w.Body.String(), `data: {"type":"error"`)
+	assert.Contains(t, w.Body.String(), `event: error`)
+	assert.Contains(t, w.Body.String(), `"type":"server_error"`)
 }
 
 func TestGatewayEnsureForwardErrorResponse_SkipsCommittedSSEError(t *testing.T) {

@@ -92,7 +92,7 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 			// 验证结构
 			errorObj, ok := parsed["error"].(map[string]any)
 			require.True(t, ok, "应包含 error 对象")
-			assert.Equal(t, tt.errType, errorObj["type"])
+			assert.Equal(t, "server_error", errorObj["type"])
 			assert.Equal(t, tt.message, errorObj["message"])
 		})
 	}
@@ -117,7 +117,7 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_EmitsStableClassification(t *te
 
 	body := w.Body.String()
 	require.Contains(t, body, "event: error\n")
-	require.Equal(t, "upstream_error", gjson.Get(body[strings.Index(body, "{"):], "error.type").String())
+	require.Equal(t, "server_error", gjson.Get(body[strings.Index(body, "{"):], "error.type").String())
 	require.Equal(t, service.OpenAIUpstreamHTTP2StreamErrorCode, gjson.Get(body[strings.Index(body, "{"):], "error.code").String())
 	require.NotContains(t, body, "stream ID")
 
@@ -254,7 +254,7 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	require.NoError(t, err)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "test error", errorObj["message"])
 }
 
@@ -296,7 +296,7 @@ func TestOpenAIEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testin
 	require.NoError(t, err)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -427,7 +427,7 @@ func TestOpenAIEnsureForwardErrorResponse_ImageJSONKeepaliveWritesSingleJSONFall
 	var payload map[string]any
 	require.NoError(t, decoder.Decode(&payload))
 	require.ErrorIs(t, decoder.Decode(&payload), io.EOF)
-	require.Equal(t, "upstream_error", gjson.Get(w.Body.String(), "error.type").String())
+	require.Equal(t, "server_error", gjson.Get(w.Body.String(), "error.type").String())
 	require.Equal(t, "Upstream request failed", gjson.Get(w.Body.String(), "error.message").String())
 }
 
@@ -546,7 +546,7 @@ func TestOpenAIRecoverResponsesPanic_WritesFallbackResponse(t *testing.T) {
 
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -2263,7 +2263,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 
 	require.Equal(t, []int64{9910, 9910}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, "server_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, "Upstream request failed", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 }
 
@@ -3230,10 +3230,11 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 // Review receipts expose their observed evidence to the WS fixture channel too.
 // This does not assert that a needs-review receipt has a settled usage_logs row.
 type openAIWSUsageReceiptRepoStub struct {
- service.UsageSettlementReceiptRepository
- usage *openAIWSUsageHandlerUsageLogRepoStub
+	service.UsageSettlementReceiptRepository
+	usage *openAIWSUsageHandlerUsageLogRepoStub
 }
+
 func (s *openAIWSUsageReceiptRepoStub) Persist(ctx context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
- _, err := s.usage.Create(ctx, &receipt.Usage)
- return receipt, err
+	_, err := s.usage.Create(ctx, &receipt.Usage)
+	return receipt, err
 }

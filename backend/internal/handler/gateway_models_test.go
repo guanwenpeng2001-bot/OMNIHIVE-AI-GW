@@ -5,8 +5,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
+	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -58,13 +61,7 @@ type gatewayReasoningEffortOptionForTest struct {
 }
 
 func (s *gatewayModelsAccountRepoStub) ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]service.Account, error) {
-	accounts, ok := s.byGroup[groupID]
-	if !ok {
-		return nil, nil
-	}
-	out := make([]service.Account, len(accounts))
-	copy(out, accounts)
-	return out, nil
+	return s.ListModelCatalogAccounts(ctx, &groupID, nil, false)
 }
 
 func (s *gatewayModelsAccountRepoStub) ListByGroup(ctx context.Context, groupID int64) ([]service.Account, error) {
@@ -78,11 +75,74 @@ func (s *gatewayModelsAccountRepoStub) ListModelAvailabilityCandidates(ctx conte
 	return s.ListSchedulableByGroupID(ctx, *groupID)
 }
 
-func newGatewayModelsHandlerForTest(repo service.AccountRepository) *GatewayHandler {
+// These fixtures represent confirmed discovery, not registry candidates.
+func (s *gatewayModelsAccountRepoStub) GetModelCatalogAccount(ctx context.Context, id int64) (*service.Account, error) {
+	for groupID := range s.byGroup {
+		accounts, _ := s.ListModelCatalogAccounts(ctx, &groupID, nil, false)
+		for _, account := range accounts {
+			if account.ID == id {
+				return &account, nil
+			}
+		}
+	}
+	return nil, nil
+}
+func (s *gatewayModelsAccountRepoStub) ListModelCatalogAccounts(ctx context.Context, groupID *int64, platforms []string, _ bool) ([]service.Account, error) {
+	result := []service.Account{}
+	if groupID == nil {
+		return result, nil
+	}
+	for _, account := range s.byGroup[*groupID] {
+		if len(platforms) > 0 && !slices.Contains(platforms, account.Platform) {
+			continue
+		}
+		if account.Type == "" {
+			account.Type = service.AccountTypeAPIKey
+		}
+		account.Status = service.StatusActive
+		account.Schedulable = true
+		snapshot := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1}
+		mapping, _ := account.Credentials["model_mapping"].(map[string]any)
+		for _, rawTarget := range mapping {
+			target, _ := rawTarget.(string)
+			if target == "" || strings.Contains(target, "*") {
+				continue
+			}
+			snapshot.DiscoveredModels = append(snapshot.DiscoveredModels, target)
+			snapshot.EligibleModels = append(snapshot.EligibleModels, service.AccountCatalogModel{ID: target, Endpoints: []string{"responses", "chat_completions", "messages", "gemini", "count_tokens"}, EvidenceKind: "synthetic-contract"})
+		}
+		extra := map[string]any{}
+		for key, value := range account.Extra {
+			extra[key] = value
+		}
+		extra[service.UpstreamModelCatalogExtraKey] = snapshot
+		account.Extra = extra
+		result = append(result, account)
+	}
+	return result, nil
+}
+
+type publicListingGroupRepository struct {
+	service.GroupRepository
+	current *service.Group
+}
+
+func (repo *publicListingGroupRepository) GetByIDLite(ctx context.Context, _ int64) (*service.Group, error) {
+	if repo.current != nil {
+		return repo.current, nil
+	}
+	group, _ := ctx.Value(ctxkey.Group).(*service.Group)
+	return group, nil
+}
+func newGatewayModelsHandlerForTest(repo service.AccountRepository, groupRepos ...service.GroupRepository) *GatewayHandler {
+	groupRepo := service.GroupRepository(&publicListingGroupRepository{})
+	if len(groupRepos) > 0 {
+		groupRepo = groupRepos[0]
+	}
 	return &GatewayHandler{
 		gatewayService: service.NewGatewayService(
 			repo,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			groupRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 	}
@@ -255,12 +315,12 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "unmapped parent and Spark shadow retain defaults and aliases",
 			accounts: accounts,
-			want:     []string{sparkModel, alias},
+			want:     []string{alias},
 		},
 		{
 			name:     "unmapped API key account also contributes defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}}, accounts[1:]...),
-			want:     []string{sparkModel, alias},
+			want:     []string{alias},
 		},
 		{
 			name:     "unmapped accounts alone retain default response shape",
@@ -271,7 +331,7 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 			name:     "custom list can select defaults and aliases",
 			accounts: accounts,
 			config:   service.GroupModelAllowlist{Enabled: true, Models: []string{alias, "gpt-5.6-sol", sparkModel, "unknown-model"}},
-			want:     []string{alias, sparkModel},
+			want:     []string{alias},
 		},
 		{
 			name:     "unavailable custom selection remains empty",
@@ -282,12 +342,12 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		{
 			name:     "mapped accounts alone do not gain defaults",
 			accounts: accounts[1:],
-			want:     []string{sparkModel, alias},
+			want:     []string{alias},
 		},
 		{
 			name:     "unmapped accounts from another platform do not add defaults",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformAnthropic}}, accounts[1:]...),
-			want:     []string{sparkModel, alias},
+			want:     []string{alias},
 		},
 	}
 	for _, tt := range tests {
@@ -531,9 +591,9 @@ func assertGrokGatewayReasoningEfforts(t *testing.T, groupID int64, modelID stri
 	require.Len(t, got.Data, 1)
 	model := got.Data[0]
 	require.Equal(t, modelID, model.ID)
-	require.True(t, model.SupportsReasoningEffort)
-	require.Equal(t, "high", model.ReasoningEffort)
-	require.Equal(t, want, model.ReasoningEfforts)
+	require.False(t, model.SupportsReasoningEffort, "standard model entries exclude capability fields")
+	require.Empty(t, model.ReasoningEffort)
+	require.Empty(t, model.ReasoningEfforts)
 }
 
 func TestGatewayModels_GeminiGroupFiltersMappedModelsByPlatform(t *testing.T) {
@@ -635,8 +695,8 @@ func TestGatewayModels_CompositeAntigravityAdvertisesAntigravityDefaults(t *test
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
 	ids := modelIDsForTest(got.Data)
-	require.Contains(t, ids, "claude-opus-4-6")
-	require.Contains(t, ids, "gemini-2.5-flash")
+	require.NotContains(t, ids, "claude-opus-4-6")
+	require.NotContains(t, ids, "gemini-2.5-flash")
 }
 
 func TestGatewayModels_CustomModelsListDisabledKeepsOriginalModels(t *testing.T) {
@@ -729,7 +789,7 @@ func TestGatewayModels_CustomModelsListFiltersAndOrdersMappedModels(t *testing.T
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gpt-5.5", "gpt-5.4"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"gpt-5.4", "gpt-5.5"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t *testing.T) {
@@ -821,7 +881,7 @@ func TestGatewayModels_CompositeCustomModelsListFiltersAcrossConcretePlatforms(t
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"gemini-2.5-flash", "ag-custom-model", "gpt-5.5", "kimi-custom", "glm-custom", "deepseek-custom", "minimax-custom"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"ag-custom-model", "gemini-2.5-flash", "gpt-5.5"}, modelIDsForTest(got.Data))
 }
 
 func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t *testing.T) {
@@ -855,7 +915,7 @@ func TestGatewayModels_CompositeUnmappedAccountsFallbackToLinkedPlatformsOnly(t 
 
 	ids := modelIDsForTest(got.Data)
 	require.NotContains(t, ids, "gpt-5.5")
-	require.Contains(t, ids, "grok-4.3")
+	require.NotContains(t, ids, "grok-4.3")
 	require.NotContains(t, ids, "claude-sonnet-4-6")
 	require.NotContains(t, ids, "gemini-2.5-flash")
 }
@@ -945,8 +1005,8 @@ func TestGatewayCodexModels_DeepSeekWithoutMappingUsesDeepSeekDefaults(t *testin
 	for _, model := range got.Models {
 		slugs = append(slugs, model.Slug)
 	}
-	require.Contains(t, slugs, "deepseek-v4-pro")
-	require.Contains(t, slugs, "deepseek-v4-flash")
+	require.Empty(t, slugs, "no discovery means no authorized default models")
+	require.NotContains(t, slugs, "deepseek-v4-flash")
 	require.NotContains(t, slugs, "claude-sonnet-4-6")
 	require.NotContains(t, slugs, "claude-opus-4-6")
 }
@@ -1032,7 +1092,7 @@ func TestGatewayModels_CustomModelsListKeepsConcreteModelAllowedByWildcardMappin
 
 	var got gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &got))
-	require.Equal(t, []string{"claude-sonnet-4-6"}, modelIDsForTest(got.Data))
+	require.Equal(t, []string{"claude-sonnet-4-6"}, modelIDsForTest(got.Data), "finite public names must still bind to confirmed target evidence")
 }
 
 func TestGatewayModels_AnthropicCustomModelsListIncludesOAuthClaudeAndMappedDeepSeek(t *testing.T) {

@@ -519,7 +519,7 @@ func TestApiKeyAuthWithSubscriptionGoogle_MarksUnavailableGroupBusinessLimited(t
 	require.Equal(t, http.StatusForbidden, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "API Key 所属分组已删除", resp.Error.Message)
+	require.Equal(t, "API key group has been deleted", resp.Error.Message)
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable, businessLimitedReason)
 	require.True(t, rejected)
@@ -610,12 +610,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_InsufficientBalance(t *testing.T) {
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, http.StatusForbidden, resp.Error.Code)
+	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "Insufficient account balance", resp.Error.Message)
-	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
+	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_BalanceBelowMinimumReserve(t *testing.T) {
@@ -678,12 +678,12 @@ func TestApiKeyAuthWithSubscriptionGoogle_RejectsExhaustedBalance(t *testing.T) 
 	rec := httptest.NewRecorder()
 	r.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusTooManyRequests, rec.Code)
 	var resp googleErrorResponse
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, http.StatusForbidden, resp.Error.Code)
+	require.Equal(t, http.StatusTooManyRequests, resp.Error.Code)
 	require.Equal(t, "Insufficient account balance", resp.Error.Message)
-	require.Equal(t, "PERMISSION_DENIED", resp.Error.Status)
+	require.Equal(t, "RESOURCE_EXHAUSTED", resp.Error.Status)
 }
 
 func TestApiKeyAuthWithSubscriptionGoogle_TouchesLastUsedOnSuccess(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 )
@@ -142,7 +143,8 @@ type TestDatabaseRequest struct {
 func testDatabase(c *gin.Context) {
 	var req TestDatabaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -203,7 +205,8 @@ type TestRedisRequest struct {
 func testRedis(c *gin.Context) {
 	var req TestRedisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -265,7 +268,8 @@ func install(c *gin.Context) {
 
 	var req InstallRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -319,7 +323,8 @@ func install(c *gin.Context) {
 		return
 	}
 	if err := validatePassword(req.Admin.Password); err != nil {
-		response.Error(c, http.StatusBadRequest, err.Error())
+		slog.Warn("setup administrator password validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid administrator password")
 		return
 	}
 

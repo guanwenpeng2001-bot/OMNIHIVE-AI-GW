@@ -120,7 +120,7 @@ func groupModelAllowlistModelsFromBody(c *gin.Context) ([]string, bool) {
 			status = http.StatusRequestEntityTooLarge
 			message = "Request body is too large"
 		}
-		c.JSON(status, gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}})
+		groupModelAllowlistErrorWriter(c)(c, status, message)
 		c.Abort()
 		return nil, false
 	}

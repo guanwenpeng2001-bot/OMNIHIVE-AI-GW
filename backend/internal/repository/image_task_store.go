@@ -25,7 +25,14 @@ func (s *imageTaskStore) Save(ctx context.Context, task *service.ImageTaskRecord
 	if err != nil {
 		return err
 	}
-	return s.rdb.Set(ctx, imageTaskKey(task.ID), data, ttl).Err()
+	result, err := imageTaskSaveScript.Run(ctx, s.rdb, []string{imageTaskKey(task.ID), "image_task:active"}, string(data), ttl.Milliseconds(), time.Now().Unix(), task.ID, task.ExecutionDeadline).Int()
+	if err != nil {
+		return err
+	}
+	if result < 0 {
+		return service.ErrImageTaskUnavailable
+	}
+	return nil
 }
 
 func (s *imageTaskStore) Get(ctx context.Context, id string) (*service.ImageTaskRecord, error) {
@@ -46,3 +53,25 @@ func (s *imageTaskStore) Get(ctx context.Context, id string) (*service.ImageTask
 func imageTaskKey(id string) string {
 	return imageTaskKeyPrefix + strings.TrimSpace(id)
 }
+
+// Creation/admission and terminal writes are atomic across instances. The record
+// is the recovery receipt; only bounded execution metadata is kept in Redis.
+var imageTaskSaveScript = redis.NewScript(`
+local incoming = cjson.decode(ARGV[1])
+local previous = redis.call('GET', KEYS[1])
+if previous then
+ local current = cjson.decode(previous)
+ if current.status ~= 'processing' then return 0 end
+ if (incoming.version or 0) ~= (current.version or 0) + 1 then return 0 end
+else
+ if incoming.status ~= 'processing' then return 0 end
+ redis.call('ZREMRANGEBYSCORE', KEYS[2], '-inf', ARGV[3])
+ if redis.call('ZCARD', KEYS[2]) >= 1024 then return -1 end
+ local deadline = tonumber(ARGV[5])
+ if deadline == 0 then deadline = tonumber(ARGV[3]) + 1800 end
+ redis.call('ZADD', KEYS[2], deadline, ARGV[4])
+end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[2])
+if incoming.status ~= 'processing' then redis.call('ZREM', KEYS[2], ARGV[4]) end
+return 1
+`)

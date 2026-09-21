@@ -21,6 +21,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 	"github.com/imroc/req/v3"
@@ -233,13 +234,13 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 			log.Printf(
 				"[LinuxDo OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q body=%s",
 				exchangeErr.StatusCode,
-				exchangeErr.ProviderError,
-				exchangeErr.ProviderDescription,
+				truncateLogValue(exchangeErr.ProviderError, 128),
+				truncateLogValue(exchangeErr.ProviderDescription, 2048),
 				truncateLogValue(exchangeErr.Body, 2048),
 			)
 			description = exchangeErr.Error()
 		} else {
-			log.Printf("[LinuxDo OAuth] token exchange failed: %v", err)
+			log.Printf("[LinuxDo OAuth] token exchange failed: %s", logredact.RedactDiagnostic(err.Error()))
 			description = err.Error()
 		}
 		redirectOAuthError(c, frontendCallback, "token_exchange_failed", "failed to exchange oauth code", singleLine(description))
@@ -478,7 +479,7 @@ type completeLinuxDoOAuthRequest struct {
 func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 	var req completeLinuxDoOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": "Invalid request"})
 		return
 	}
 
@@ -771,6 +772,20 @@ func buildLinuxDoAuthorizeURL(cfg config.LinuxDoConnectConfig, state string, cod
 }
 
 func redirectOAuthError(c *gin.Context, frontendCallback string, code string, message string, description string) {
+	if description != "" {
+		log.Printf("[OAuth] request failed code=%s diagnostic=%s", code, logredact.RedactDiagnostic(description))
+		switch code {
+		case "token_exchange_failed", "userinfo_failed", "provider_error":
+			description = "OAuth provider request failed"
+		default:
+			description = logredact.RedactDiagnostic(description)
+		}
+	}
+	if code == "provider_error" {
+		message = "OAuth provider request failed"
+	} else {
+		message = logredact.RedactDiagnostic(message)
+	}
 	fragment := url.Values{}
 	fragment.Set("error", truncateFragmentValue(code))
 	if strings.TrimSpace(message) != "" {
@@ -934,7 +949,7 @@ func getGJSON(body string, path string) string {
 }
 
 func truncateLogValue(value string, maxLen int) string {
-	value = strings.TrimSpace(value)
+	value = logredact.RedactText(value)
 	if value == "" || maxLen <= 0 {
 		return ""
 	}
