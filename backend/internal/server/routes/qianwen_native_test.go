@@ -18,7 +18,7 @@ func TestQianwenNativeUnsupportedFamilies(t *testing.T) {
 		require.Equal(t, 404, w.Code)
 		require.Contains(t, w.Body.String(), "Unsupported DashScope operation")
 	}
-	for _, path := range []string{"/api/v1/tasks/task-id", "/api/v1/apps/app-id/completion", "/api/v1/files", "/api/v1/files/file-id", "/api/v1/batches", "/api/v1/realtime", "/api-ws/v1/realtime", "/api-ws/v1/inference", "/api/v1/services/aigc/text2image/image-synthesis"} {
+	for _, path := range []string{"/api/v1/tasks/task-id", "/api/v1/apps/app-id/completion", "/api/v1/files", "/api/v1/files/file-id", "/api/v1/batches", "/api/v1/realtime", "/api-ws/v1/realtime", "/api-ws/v1/inference"} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{"model":"qwen-plus"}`)))
 		require.Equal(t, 404, w.Code)
@@ -45,7 +45,7 @@ func TestQianwenNativeKnowledgeSearchFailsClosed(t *testing.T) {
 
 func TestQianwenNativeAsyncPathsRegistered(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformQianwen)
-	for _, path := range []string{service.QianwenNative3DPath, service.QianwenNativeASRPath} {
+	for _, path := range []string{service.QianwenNative3DPath, service.QianwenNativeASRPath, service.QianwenNativeText2ImagePath} {
 		w := httptest.NewRecorder()
 		router.ServeHTTP(w, httptest.NewRequest("POST", path, strings.NewReader(`{"model":"qwen-plus"}`)))
 		require.Equal(t, 503, w.Code)

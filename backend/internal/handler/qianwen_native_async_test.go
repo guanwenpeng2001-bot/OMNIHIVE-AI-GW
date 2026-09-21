@@ -41,7 +41,7 @@ func TestQianwenAsyncResultsAreOwnerScoped(t *testing.T) {
 }
 
 func TestQianwenAsyncRejectsUnknownTariffsBeforeScheduling(t *testing.T) {
-	for _, path := range []string{service.QianwenNative3DPath, service.QianwenNativeASRPath} {
+	for _, path := range []string{service.QianwenNative3DPath, service.QianwenNativeASRPath, service.QianwenNativeText2ImagePath} {
 		h := &OpenAIGatewayHandler{upstreamJobs: service.NewUpstreamJobService(nil, nil, nil)}
 		w := httptest.NewRecorder()
 		c, _ := gin.CreateTestContext(w)

@@ -117,7 +117,12 @@ func GatewayVoiceHandler(handler func(*gin.Context, string), endpoint func(*gin.
 		if path == "stt" {
 			action = "audio.stt"
 		}
-		if domain.PlatformAction(domain.ActionIdentity{Platform: GatewayTargetPlatform(requestContext)}, action).Adapter == "" {
+		descriptor := domain.PlatformAction(domain.ActionIdentity{Platform: GatewayTargetPlatform(requestContext)}, action)
+		// This route wraps only the Grok voice adapter. Other platforms may
+		// implement the same action on their own native ingress; without a
+		// wired handler for their adapter here, the request must fail closed
+		// instead of reaching the Grok forwarder.
+		if descriptor.Adapter == "" || descriptor.Adapter != "grok."+action {
 			rejectGatewayAction(requestContext)
 			return
 		}

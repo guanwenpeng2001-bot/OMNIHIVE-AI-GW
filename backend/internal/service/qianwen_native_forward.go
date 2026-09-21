@@ -17,6 +17,75 @@ import (
 const qianwenNativeMaxFrame = 8 << 20
 const qianwenNativeImageTimeout = 3 * time.Minute
 
+// forwardQianwenNativeSyncResource is the shared wire adapter for synchronous
+// non-conversation DashScope families (text rerank, text embedding, voice
+// enrollment): native JSON in, native JSON out, per-family usage observation.
+// It runs inside the shared native Chat admission, scheduling, failover and
+// queued RecordUsage lifecycle; no asynchronous jobs are ever created here.
+func (s *OpenAIGatewayService) forwardQianwenNativeSyncResource(ctx context.Context, c *gin.Context, account *Account, operation QianwenNativeOperation, body []byte) (*OpenAIForwardResult, error) {
+	started := time.Now()
+	clientCtx := ctx
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	model, err := ParseQianwenNativeBody(body)
+	if err != nil {
+		return nil, err
+	}
+	mapped := account.GetMappedModel(model)
+	// Voice clone creation is billed per created clone; the documented Beijing
+	// tariff with operator FX provenance must resolve before upstream work.
+	var clonePrice *float64
+	if operation == QianwenNativeVoiceEnrollment && qianwenVoiceEnrollmentAction(body) == "create" {
+		price, priceErr := qianwenVoiceEnrollmentPrice(account)
+		if priceErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "unsupported_error", priceErr.Error())
+			return nil, priceErr
+		}
+		clonePrice = &price
+	}
+	req, err := s.BuildQianwenNativeRequest(ctx, account, operation, body, false)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := req.URL.Path
+	SetActualOpenAIUpstreamEndpoint(c, endpoint)
+	SetOpsUpstreamModel(c, mapped)
+	resp, err := s.doOpenAIUpstream(req, upstreamModelsProxyURL(account), account)
+	if err != nil {
+		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+	}
+	defer func() { cancel(); _ = resp.Body.Close() }()
+	if resp.StatusCode >= 400 {
+		return s.handleChatCompletionsErrorResponse(resp, c, account, model)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, qianwenNativeMaxFrame+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > qianwenNativeMaxFrame {
+		return nil, fmt.Errorf("DashScope response exceeds size limit")
+	}
+	result := &OpenAIForwardResult{Model: model, BillingModel: mapped, UpstreamModel: mapped, UpstreamEndpoint: endpoint, UpstreamHeaders: resp.Header.Clone(), RequestID: resp.Header.Get("X-Request-Id")}
+	switch operation {
+	case QianwenNativeRerank:
+		err = observeQianwenNativeRerank(data, result)
+	case QianwenNativeEmbedding:
+		err = observeQianwenNativeEmbedding(data, result)
+	case QianwenNativeVoiceEnrollment:
+		err = observeQianwenVoiceEnrollment(data, qianwenVoiceEnrollmentAction(body), result)
+		result.QianwenVoiceCloneUSDPerClone = clonePrice
+	default:
+		err = fmt.Errorf("unsupported DashScope sync resource operation: %s", operation)
+	}
+	if err != nil {
+		return nil, err
+	}
+	c.Data(resp.StatusCode, "application/json", data)
+	result.Duration = time.Since(started)
+	result.ClientDisconnect = clientCtx.Err() != nil
+	return result, nil
+}
+
 // observeQianwenNative preserves cumulative usage (also for incremental text).
 // Missing usage in a later frame never erases tokens already observed.
 func observeQianwenNative(body []byte, result *OpenAIForwardResult) error {
@@ -57,6 +126,9 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		return nil, err
 	}
 	image := IsQianwenNativeImageModel(account.GetMappedModel(model))
+	if operation == QianwenNativeRerank || operation == QianwenNativeEmbedding || operation == QianwenNativeVoiceEnrollment {
+		return s.forwardQianwenNativeSyncResource(ctx, c, account, operation, body)
+	}
 	if qianwenNativeAudioMode(account.GetMappedModel(model)) != "" {
 		return s.forwardQianwenNativeAudio(ctx, c, account, operation, body, stream)
 	}

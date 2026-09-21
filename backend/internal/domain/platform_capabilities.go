@@ -199,6 +199,13 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformOpenAI {
 			adapter = "openai.embeddings"
 		}
+		if identity.Platform == PlatformQianwen {
+			adapter = "qianwen.embeddings"
+		}
+	case "rerank":
+		if identity.Platform == PlatformQianwen {
+			adapter = "qianwen.rerank"
+		}
 	case "image.generate", "image.edit":
 		if identity.Platform == PlatformOpenAI {
 			adapter = "openai.images"
@@ -206,13 +213,25 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformGrok {
 			adapter = "grok.images"
 		}
+		if identity.Platform == PlatformQianwen {
+			adapter = "qianwen.native"
+			if action == "image.generate" {
+				adapter = "qianwen.images"
+			}
+		}
 	case "image.async", "image.batch":
 		if identity.Platform == PlatformOpenAI || identity.Platform == PlatformGrok {
 			adapter = action
 		}
+		if identity.Platform == PlatformQianwen && action == "image.async" {
+			adapter = "qianwen.native"
+		}
 	case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "voice", "realtime", "search":
 		if identity.Platform == PlatformGrok {
 			adapter = "grok." + action
+		}
+		if identity.Platform == PlatformQianwen && action != "search" {
+			adapter = "qianwen.native"
 		}
 	case "alpha_search", "live":
 		if identity.Platform == PlatformOpenAI {
@@ -226,6 +245,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformQianwen {
 			adapter = "qianwen.native"
 		}
+	}
+	if identity.Platform == PlatformQianwen {
+		return qianwenActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor

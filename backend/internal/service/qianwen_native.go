@@ -12,10 +12,13 @@ import (
 type QianwenNativeOperation string
 
 const (
-	QianwenNativeText           QianwenNativeOperation = "text_generation"
-	QianwenNativeMultimodal     QianwenNativeOperation = "multimodal_generation"
-	QianwenNativeTextPath                              = "/api/v1/services/aigc/text-generation/generation"
-	QianwenNativeMultimodalPath                        = "/api/v1/services/aigc/multimodal-generation/generation"
+	QianwenNativeText            QianwenNativeOperation = "text_generation"
+	QianwenNativeMultimodal      QianwenNativeOperation = "multimodal_generation"
+	QianwenNativeEmbedding       QianwenNativeOperation = "text_embedding"
+	QianwenNativeRerank          QianwenNativeOperation = "text_rerank"
+	QianwenNativeVoiceEnrollment QianwenNativeOperation = "voice_enrollment"
+	QianwenNativeTextPath                               = "/api/v1/services/aigc/text-generation/generation"
+	QianwenNativeMultimodalPath                         = "/api/v1/services/aigc/multimodal-generation/generation"
 )
 
 func QianwenNativeOperationForPath(path string) (QianwenNativeOperation, bool) {
@@ -24,6 +27,12 @@ func QianwenNativeOperationForPath(path string) (QianwenNativeOperation, bool) {
 		return QianwenNativeText, true
 	case QianwenNativeMultimodalPath:
 		return QianwenNativeMultimodal, true
+	case QianwenNativeEmbeddingPath:
+		return QianwenNativeEmbedding, true
+	case QianwenNativeRerankPath:
+		return QianwenNativeRerank, true
+	case QianwenNativeVoiceEnrollmentPath:
+		return QianwenNativeVoiceEnrollment, true
 	default:
 		return "", false
 	}
@@ -50,7 +59,16 @@ func ParseQianwenNativeBody(body []byte) (string, error) {
 	if strings.TrimSpace(payload.Model) == "" {
 		return "", fmt.Errorf("DashScope model is required")
 	}
+	if handled, err := parseQianwenVoiceEnrollmentBody(payload.Model, body); handled {
+		return payload.Model, err
+	}
 	if handled, err := parseQianwenNativeAudioBody(payload.Model, body); handled {
+		return payload.Model, err
+	}
+	if handled, err := parseQianwenNativeRerankBody(payload.Model, body); handled {
+		return payload.Model, err
+	}
+	if handled, err := parseQianwenNativeEmbeddingBody(payload.Model, body); handled {
 		return payload.Model, err
 	}
 	if payload.Input.Prompt == "" && len(payload.Input.Messages) == 0 {
@@ -95,6 +113,12 @@ func (s *OpenAIGatewayService) BuildQianwenNativeRequest(ctx context.Context, ac
 		path = "/services/aigc/text-generation/generation"
 	case QianwenNativeMultimodal:
 		path = "/services/aigc/multimodal-generation/generation"
+	case QianwenNativeEmbedding:
+		path = "/services/embeddings/text-embedding/text-embedding"
+	case QianwenNativeRerank:
+		path = "/services/rerank/text-rerank/text-rerank"
+	case QianwenNativeVoiceEnrollment:
+		path = "/services/audio/tts/customization"
 	default:
 		return nil, fmt.Errorf("unsupported DashScope operation: %s", operation)
 	}
