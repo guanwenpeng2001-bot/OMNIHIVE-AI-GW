@@ -45,6 +45,35 @@ func TestBatchImageWorker_AcksTerminalResult(t *testing.T) {
 	require.Empty(t, queue.requeued)
 }
 
+// Shutdown cancellation of the parent context must not lose the completion ACK:
+// the worker acknowledges exactly once through an independent short-lived
+// context (BE-batch-image-ack-uses-parent-ctx).
+func TestBatchImageWorker_AcksOnceAfterParentContextCancelled(t *testing.T) {
+	queue := newFakeBatchImageQueue("imgbatch_worker_parent_cancelled")
+	parent, cancelParent := context.WithCancel(context.Background())
+	processor := &cancelParentContextProcessor{cancel: cancelParent, result: BatchImageProcessResult{Terminal: true}}
+	worker := NewBatchImageWorker(queue, processor, BatchImageWorkerOptions{})
+
+	require.NoError(t, worker.RunOnce(parent))
+	require.Error(t, parent.Err(), "parent context is cancelled before completion")
+	require.Equal(t, []string{"imgbatch_worker_parent_cancelled"}, queue.acked)
+	require.Len(t, queue.ackContextErrors, 1)
+	require.NoError(t, queue.ackContextErrors[0], "completion ACK context must stay live after parent cancellation")
+}
+
+type cancelParentContextProcessor struct {
+	cancel context.CancelFunc
+	result BatchImageProcessResult
+}
+
+func (p *cancelParentContextProcessor) Process(ctx context.Context, batchID string) (BatchImageProcessResult, error) {
+	p.cancel()
+	if err := ctx.Err(); err == nil {
+		return BatchImageProcessResult{}, errors.New("process context must observe parent cancellation")
+	}
+	return p.result, nil
+}
+
 func TestBatchImageWorker_RequeuesOnProcessorError(t *testing.T) {
 	queue := newFakeBatchImageQueue("imgbatch_worker_error")
 	processor := &fakeBatchImageProcessor{err: errors.New("processor failed")}
@@ -78,11 +107,12 @@ func TestNewBatchImageWorkerOptionsFromConfig_UsesFiniteReserveTimeout(t *testin
 }
 
 type fakeBatchImageQueue struct {
-	reserved     ReservedBatchImageJob
-	lockAcquired bool
-	acked        []string
-	requeued     []fakeBatchImageRequeue
-	releaseCount int
+	reserved         ReservedBatchImageJob
+	lockAcquired     bool
+	acked            []string
+	ackContextErrors []error
+	requeued         []fakeBatchImageRequeue
+	releaseCount     int
 }
 
 type fakeBatchImageRequeue struct {
@@ -110,8 +140,9 @@ func (q *fakeBatchImageQueue) RequeueAfter(_ context.Context, batchID string, de
 	return nil
 }
 
-func (q *fakeBatchImageQueue) Ack(_ context.Context, batchID string) error {
+func (q *fakeBatchImageQueue) Ack(ctx context.Context, batchID string) error {
 	q.acked = append(q.acked, batchID)
+	q.ackContextErrors = append(q.ackContextErrors, ctx.Err())
 	return nil
 }
 

@@ -202,17 +202,29 @@ func (w *BatchImageWorker) RunOnce(ctx context.Context) error {
 	}
 	close(hbStop)
 	<-hbDone
-	if err := validateLease(); err != nil {
-		return err
+	// Completion has its own short deadline, even after shutdown cancellation.
+	// Fenced completion still checks the token atomically.
+	completionCtx, cancelCompletion := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancelCompletion()
+	leaseMu.Lock()
+	leaseLive := time.Now().Before(leaseUntil)
+	leaseMu.Unlock()
+	if !leaseLive {
+		return ErrBatchImageLockNotAcquired
+	}
+	if refresher, ok := lock.(BatchImageJobLockRefresher); ok {
+		if err := refresher.Refresh(completionCtx, w.opts.JobLockTTL); err != nil {
+			return err
+		}
 	}
 	finish := func(terminal bool, delay time.Duration) error {
 		if fenced, ok := lock.(BatchImageJobLockCompletion); ok {
-			return fenced.Complete(ctx, terminal, delay)
+			return fenced.Complete(completionCtx, terminal, delay)
 		}
 		if terminal {
-			return w.queue.Ack(ctx, reserved.BatchID)
+			return w.queue.Ack(completionCtx, reserved.BatchID)
 		}
-		return w.queue.RequeueAfter(ctx, reserved.BatchID, delay)
+		return w.queue.RequeueAfter(completionCtx, reserved.BatchID, delay)
 	}
 	if err != nil {
 		logger.L().Warn("batch_image.worker_process_failed",

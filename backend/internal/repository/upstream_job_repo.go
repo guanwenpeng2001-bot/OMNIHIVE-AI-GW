@@ -32,6 +32,13 @@ func scanUpstreamJob(row interface{ Scan(...any) error }) (*service.UpstreamJob,
 }
 
 func (r *upstreamJobRepository) Create(ctx context.Context, upstreamJob *service.UpstreamJob) (*service.UpstreamJob, bool, error) {
+	// Resolve from the persisted Key, never a caller-supplied workspace or task ID.
+	if err := r.db.QueryRowContext(ctx, `SELECT workspace_id FROM api_keys WHERE id=$1 AND user_id=$2`+workspaceClause(ctx, "workspace_id"), upstreamJob.APIKeyID, upstreamJob.UserID).Scan(&upstreamJob.WorkspaceID); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, false, service.ErrUpstreamJobNotFound
+		}
+		return nil, false, err
+	}
 	snapshot, err := json.Marshal(upstreamJob.Billing)
 	if err != nil {
 		return nil, false, err
@@ -78,7 +85,7 @@ func (repository *upstreamJobRepository) InsertRealtimeReceipt(ctx context.Conte
 }
 
 func (r *upstreamJobRepository) Get(ctx context.Context, id string, userID, keyID int64) (*service.UpstreamJob, error) {
-	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`, id, userID, keyID))
+	return scanUpstreamJob(r.db.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 AND user_id=$2 AND api_key_id=$3`+workspaceClause(ctx, "workspace_id"), id, userID, keyID))
 }
 func (r *upstreamJobRepository) Due(ctx context.Context, now time.Time, limit int) (ids []string, resultErr error) {
 	if limit <= 0 || limit > 100 {
@@ -108,13 +115,18 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 			resultErr = errors.Join(resultErr, err)
 		}
 	}()
-	upstreamJob, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1 FOR UPDATE`, id))
+	upstreamJob, err := scanUpstreamJob(tx.QueryRowContext(ctx, `SELECT row_to_json(upstreamJob) FROM upstream_jobs upstreamJob WHERE public_request_id=$1`+workspaceClause(ctx, "workspace_id")+` FOR UPDATE`, id))
 	if err != nil {
 		return nil, err
 	}
+	expectedVersion, expectedStatus := upstreamJob.Version, upstreamJob.Status
+	settled := upstreamJob.ChargedUsageLogID != nil
 	frozenPricing := upstreamJob.Billing.PricingSnapshot
 	if err = fn(upstreamJob, &upstreamJobTx{tx: tx, job: upstreamJob}); err != nil {
 		return nil, err
+	}
+	if settled && (upstreamJob.Status != expectedStatus || upstreamJob.ChargedUsageLogID == nil) {
+		return nil, service.ErrUsageBillingRequestConflict
 	}
 	if frozenPricing != "" && upstreamJob.Billing.PricingSnapshot != frozenPricing {
 		return nil, service.ErrUsageBillingRequestConflict
@@ -130,24 +142,32 @@ func (r *upstreamJobRepository) WithLocked(ctx context.Context, id string, fn fu
 	if err != nil {
 		return nil, err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE upstream_jobs SET upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12,resource_state=$13,
+	result, err := tx.ExecContext(ctx, `UPDATE upstream_jobs SET version=version+1, upstream_task_id=$2,status=$3,attempt_count=$4,last_polled_at=$5,next_poll_at=$6,finished_at=$7,result_ref=$8,usage_json=$9,charged_usage_log_id=$10,error_code=$11,error_message=$12,resource_state=$13,
  billing_snapshot=CASE WHEN $14::text='' THEN billing_snapshot ELSE
  jsonb_set(
   CASE WHEN COALESCE(billing_snapshot->>'pricing_snapshot','')='' AND $15::text<>''
    THEN jsonb_set(billing_snapshot,'{pricing_snapshot}',to_jsonb($15::text),true)
    ELSE billing_snapshot END,
   '{pricing_state}',to_jsonb($14::text),true) END
- WHERE id=$1`, upstreamJob.ID, upstreamJob.UpstreamTaskID, upstreamJob.Status, upstreamJob.AttemptCount, upstreamJob.LastPolledAt, upstreamJob.NextPollAt, upstreamJob.FinishedAt, upstreamJob.ResultRef, usage, upstreamJob.ChargedUsageLogID, upstreamJob.ErrorCode, upstreamJob.ErrorMessage, string(resourceState), string(upstreamJob.Billing.PricingState), upstreamJob.Billing.PricingSnapshot)
+ WHERE id=$1 AND version=$16 AND status=$17`, upstreamJob.ID, upstreamJob.UpstreamTaskID, upstreamJob.Status, upstreamJob.AttemptCount, upstreamJob.LastPolledAt, upstreamJob.NextPollAt, upstreamJob.FinishedAt, upstreamJob.ResultRef, usage, upstreamJob.ChargedUsageLogID, upstreamJob.ErrorCode, upstreamJob.ErrorMessage, string(resourceState), string(upstreamJob.Billing.PricingState), upstreamJob.Billing.PricingSnapshot, expectedVersion, expectedStatus)
 	if err != nil {
 		return nil, err
 	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if affected != 1 {
+		return nil, service.ErrUsageBillingRequestConflict
+	}
+	upstreamJob.Version = expectedVersion + 1
 	if err = tx.Commit(); err != nil {
 		return nil, err
 	}
 	return upstreamJob, nil
 }
 func (r *upstreamJobRepository) Expire(ctx context.Context, now time.Time) (int64, error) {
-	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET status='expired',finished_at=$1,error_code=CASE WHEN error_code='usage_pending' THEN error_code ELSE 'expired' END,error_message=CASE WHEN error_code='usage_pending' THEN error_message ELSE 'Task expired' END WHERE status IN ('submitted','running') AND expires_at<=$1 AND NOT (family='realtime_turn' AND usage_json IS NOT NULL AND error_code<>'usage_conflict')`, now)
+	result, err := r.db.ExecContext(ctx, `UPDATE upstream_jobs SET version=version+1,status='expired',finished_at=$1,error_code=CASE WHEN error_code='usage_pending' THEN error_code ELSE 'expired' END,error_message=CASE WHEN error_code='usage_pending' THEN error_message ELSE 'Task expired' END WHERE status IN ('submitted','running') AND expires_at<=$1 AND NOT (family='realtime_turn' AND usage_json IS NOT NULL AND error_code<>'usage_conflict')`, now)
 	if err != nil {
 		return 0, err
 	}
