@@ -38,6 +38,12 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 		"grok.video.status":         h.OpenAIGateway.GrokVideoStatus,
 		"grok.video.content":        h.OpenAIGateway.GrokVideoContent,
 		"grok.realtime":             h.OpenAIGateway.GrokRealtime,
+		"openai.video.generate":     h.OpenAIGateway.OpenAIVideoGeneration,
+		"openai.video.edit":         h.OpenAIGateway.OpenAIVideoEdit,
+		"openai.video.extend":       h.OpenAIGateway.OpenAIVideoExtension,
+		"openai.video.status":       h.OpenAIGateway.OpenAIVideoStatus,
+		"openai.video.content":      h.OpenAIGateway.OpenAIVideoContent,
+		"openai.audio.translate":    h.OpenAIGateway.OpenAIAudioTranslations,
 		"antigravity.images":        h.Gateway.AntigravityImages,
 		"bedrock.embeddings":        h.Gateway.BedrockEmbeddings,
 		"bedrock.rerank":            h.Gateway.BedrockRerank,
@@ -123,6 +129,14 @@ func RegisterGatewayRoutes(
 	videoExtensionHandler := dispatch.Handler("video.extend")
 	videoStatusHandler := dispatch.Handler("video.status")
 	videoContentHandler := dispatch.Handler("video.content")
+	// Standard OpenAI audio paths: the action matrix resolves each one to the
+	// platform's own adapter, so the same routes serve the platforms whose cell
+	// binds an OpenAI-shaped audio adapter (Hunyuan, Qianfan) and reject a platform
+	// without that cell before scheduling. Speech synthesis is a JSON body and
+	// keeps the tighter text limit; recognition and translation carry uploads.
+	audioSpeechHandler := dispatch.Handler("audio.tts")
+	audioTranscriptionsHandler := dispatch.Handler("audio.stt")
+	audioTranslationsHandler := dispatch.Handler("audio.translate")
 	rerankHandler := dispatch.Handler("rerank")
 	guardResponsesSubpath := func(next gin.HandlerFunc) gin.HandlerFunc {
 		return service.GuardResponsesSubpath(next, h.OpenAIGateway.ResponsesInputTokens)
@@ -198,6 +212,9 @@ func RegisterGatewayRoutes(
 		gateway.GET("/videos/extensions/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id/content", videoContentHandler)
+		gateway.POST("/audio/speech", textBodyLimit, audioSpeechHandler)
+		gateway.POST("/audio/transcriptions", bodyLimit, audioTranscriptionsHandler)
+		gateway.POST("/audio/translations", bodyLimit, audioTranslationsHandler)
 
 		// xAI Voice APIs (Grok platform only): HTTP TTS/STT + Realtime WS.
 		// Not part of the creation-center product surface — gateway relay only.
@@ -316,6 +333,9 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/videos/extensions/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id/content", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodPost, "/audio/speech", textBodyLimit, audioSpeechHandler)
+	rootRoute(http.MethodPost, "/audio/transcriptions", bodyLimit, audioTranscriptionsHandler)
+	rootRoute(http.MethodPost, "/audio/translations", bodyLimit, audioTranslationsHandler)
 
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return service.GatewayVoiceHandler(h.OpenAIGateway.GrokVoice, func(*gin.Context) string { return endpoint })

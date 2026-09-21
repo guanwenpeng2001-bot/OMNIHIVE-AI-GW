@@ -91,11 +91,11 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | POST | /v1/images/batches/:id/cancel | Existing cancellation lifecycle, no refund inference |
 | DELETE | /v1/images/batches/:id | Owned record deletion |
 | DELETE | /v1/images/batches/:id/outputs | Owned output deletion |
-| POST | /v1/videos; /v1/videos/generations | Grok or resolved Composite creation |
-| POST | /v1/videos/edits | Grok video edit; existing platform guard retained |
-| POST | /v1/videos/extensions | Grok video extension; existing platform guard retained |
-| GET | /v1/videos/:request_id | Grok/Composite status lookup |
-| GET | /v1/videos/:request_id/content | Grok/Composite content lookup |
+| POST | /v1/videos; /v1/videos/generations | Grok creation; OpenAI sora-2 job submission through the shared upstream job trunk |
+| POST | /v1/videos/edits | Grok video edit; OpenAI edit inherits the owner-checked source video |
+| POST | /v1/videos/extensions | Grok video extension; OpenAI extension bills the documented segment |
+| GET | /v1/videos/:request_id | Grok status lookup; owner-bound OpenAI durable job state |
+| GET | /v1/videos/:request_id/content | Grok content lookup; owner-bound OpenAI content stream |
 | GET | /v1/videos/generations/:request_id | Generation status |
 | GET | /v1/videos/generations/:request_id/content | Generation content |
 | GET | /v1/videos/edits/:request_id | Edit status |
@@ -104,6 +104,9 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | GET | /v1/videos/extensions/:request_id/content | Extension content |
 | POST | /v1/tts; /tts | Grok TTS, account-specific native transport |
 | POST | /v1/stt; /stt | Grok STT, account-specific native transport |
+| POST | /v1/audio/speech; /audio/speech | Platform action matrix: Hunyuan and Qianfan bind an OpenAI-shaped speech adapter; Qianwen keeps its DashScope native path, Grok keeps the native /v1/tts entry and OpenAI speech stays unverified |
+| POST | /v1/audio/transcriptions; /audio/transcriptions | Platform action matrix: Hunyuan speech recognition binds an adapter; OpenAI transcription stays unverified |
+| POST | /v1/audio/translations; /audio/translations | OpenAI audio translation adapter; every other platform rejects before scheduling |
 | POST | /v1/custom-voices; /custom-voices | Grok custom voice creation |
 | GET | /v1/custom-voices; /custom-voices | Grok custom voice list |
 | GET | /v1/custom-voices/:voice_id; /custom-voices/:voice_id | Grok voice metadata |
@@ -342,6 +345,9 @@ these methods. The action and platform tables above constrain it.
 | `POST /api/v1/services/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `POST /api/v1/tasks` | DashScope exact action/resource gate; see individual actions above |
 | `POST /api/v1/tasks/*nativePath` | DashScope exact action/resource gate; see individual actions above |
+| `POST /audio/speech` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /audio/transcriptions` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /audio/translations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/alpha/search` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/realtime/calls` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/responses` | Existing gateway handler; platform, account and endpoint qualification |
@@ -369,6 +375,9 @@ these methods. The action and platform tables above constrain it.
 | `POST /stt` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /tts` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/alpha/search` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/speech` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/transcriptions` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/translations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/chat/completions` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/embeddings` | Existing gateway handler; platform, account and endpoint qualification |

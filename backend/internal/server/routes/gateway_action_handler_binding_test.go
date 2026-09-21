@@ -24,21 +24,14 @@ func TestGatewayActionHandlersCoverEveryImplementedCell(t *testing.T) {
 		OpenAIGateway: &handler.OpenAIGatewayHandler{},
 	})
 	// Pre-existing gaps this task does not close: the action matrix advertises
-	// these cells, but no ingress handler was ever registered for them and the
-	// route suite already pins the resulting local 400
-	// (TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate). They are named
-	// here with their evidence instead of being silently skipped, so any *new*
+	// these cells, but the ingress serves them through a mechanism other than the
+	// adapter table, so no dispatch key exists to assert here. They are named
+	// with their evidence instead of being silently skipped, so any *new*
 	// unregistered adapter still fails this test.
 	preExisting := map[string]string{
-		"openai.video.generate":      "service/openai_video_jobs.go implements SubmitOpenAIVideo/PollOpenAIVideo but no ingress handler calls them; the OpenAI video ingress belongs to a separate task, and TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate pins the current local 400",
-		"openai.video.edit":          "same OpenAI video job service, no ingress handler",
-		"openai.video.extend":        "same OpenAI video job service, no ingress handler",
-		"openai.video.status":        "same OpenAI video job service, no ingress handler",
-		"openai.video.content":       "same OpenAI video job service, no ingress handler",
 		"openai.live":                "the Live call ingress is registered as an explicit route handler (h.OpenAIGateway.Live) and never through the adapter table",
 		"openai.realtime":            "the OpenAI realtime session is served by the Live ingress; no separate realtime adapter handler is registered",
 		"openai.alpha_search":        "alpha/search is registered as an explicit route handler (h.OpenAIGateway.AlphaSearch)",
-		"openai.audio.translate":     "the OpenAI audio translation adapter has no registered ingress handler",
 		"openai.responses.websocket": "the Responses WebSocket ingress is registered as an explicit route handler (h.OpenAIGateway.ResponsesWebSocket), not through the adapter table",
 		"grok.audio.stt":             "the Grok voice family is dispatched by GatewayVoiceHandler, which resolves the endpoint itself instead of the adapter table",
 		"grok.audio.tts":             "same GatewayVoiceHandler family",
