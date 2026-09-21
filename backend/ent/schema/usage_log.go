@@ -17,6 +17,12 @@ import (
 //
 // 使用日志记录每次 API 调用的详细信息，包括 token 使用量、成本计算等。
 // 这是一个只追加的表，不支持更新和删除。
+//
+// usage_logs 是 SQL-owned 表：migrations/*.sql 才是线上表结构的权威来源，
+// 运行期由 internal/repository 的 SQL runner 建表，绝不调用 Ent 自动迁移。
+// 本文件的 Fields 只作为 Ent 模型投影，必须与 usage_log_repo_insert.go 的
+// INSERT 列清单保持一致（由 usage_log_schema_ownership_unit_test.go 守卫）；
+// 新增列时先加 SQL 迁移，再同步本投影。
 type UsageLog struct {
 	ent.Schema
 }
@@ -80,6 +86,48 @@ func (UsageLog) Fields() []ent.Field {
 		field.String("price_source").Optional().Nillable(),
 		field.String("price_card_version").Optional().Nillable(),
 
+		// 请求画像与路由元数据（SQL-owned；迁移 060/061/070/074/231/232 等定义）。
+		field.Int16("request_type").
+			Default(0).
+			Comment("请求类型：0 unknown/1 sync/2 stream/3 ws_v2/4 cyber/5 live"),
+		field.Bool("openai_ws_mode").
+			Default(false).
+			Comment("OpenAI WS 模式请求"),
+		field.String("service_tier").
+			MaxLen(16).
+			Optional().
+			Nillable(),
+		field.String("reasoning_effort").
+			MaxLen(20).
+			Optional().
+			Nillable(),
+		field.String("requested_reasoning_effort").
+			MaxLen(20).
+			Optional().
+			Nillable(),
+		field.String("inbound_endpoint").
+			MaxLen(128).
+			Optional().
+			Nillable(),
+		field.String("upstream_endpoint").
+			MaxLen(128).
+			Optional().
+			Nillable(),
+		// upstream_request_id：上游响应头声明的请求标识；NULL 表示历史行或该路径无标识。
+		field.String("upstream_request_id").
+			MaxLen(128).
+			Optional().
+			Nillable(),
+		// session_id：客户端显式提供的会话关联标识；NULL 表示历史行或未提供。
+		// 仅存显式客户端关联值，prompt_cache_key 等内容派生哈希一律不落库。
+		field.String("session_id").
+			MaxLen(255).
+			Optional().
+			Nillable(),
+		field.Bool("native_compaction_v2").
+			Default(false).
+			Comment("OpenAI 原生远程 compaction v2 请求"),
+
 		// Token 计数字段
 		field.Int("input_tokens").
 			Default(0),
@@ -93,6 +141,16 @@ func (UsageLog) Fields() []ent.Field {
 			Default(0),
 		field.Int("cache_creation_1h_tokens").
 			Default(0),
+
+		// 图片 token 计数字段（image_output_tokens/image_input_tokens 与费用成对出现）
+		field.Int("image_output_tokens").Default(0),
+		field.Float("image_output_cost").
+			Default(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
+		field.Int("image_input_tokens").Default(0),
+		field.Float("image_input_cost").
+			Default(0).
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 
 		// 成本字段
 		field.Float("input_cost").
@@ -125,6 +183,11 @@ func (UsageLog) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}),
+		// account_stats_cost: 账号侧成本快照（NULL 表示历史行按 actual_cost 回退）
+		field.Float("account_stats_cost").
+			Optional().
+			Nillable().
+			SchemaType(map[string]string{dialect.Postgres: "decimal(20,10)"}),
 
 		// 其他字段
 		field.Int8("billing_type").
@@ -240,5 +303,7 @@ func (UsageLog) Indexes() []ent.Index {
 		index.Fields("api_key_id", "created_at"),
 		// 分组维度时间范围查询（线上由 SQL 迁移创建 group_id IS NOT NULL 的部分索引）
 		index.Fields("group_id", "created_at"),
+		// 会话关联查询（线上由 SQL 迁移创建 session_id IS NOT NULL 的部分索引）
+		index.Fields("session_id"),
 	}
 }

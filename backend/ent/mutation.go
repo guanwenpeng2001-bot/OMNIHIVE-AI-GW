@@ -47827,6 +47827,17 @@ type UsageLogMutation struct {
 	thinking_enabled             *bool
 	price_source                 *string
 	price_card_version           *string
+	request_type                 *int16
+	addrequest_type              *int16
+	openai_ws_mode               *bool
+	service_tier                 *string
+	reasoning_effort             *string
+	requested_reasoning_effort   *string
+	inbound_endpoint             *string
+	upstream_endpoint            *string
+	upstream_request_id          *string
+	session_id                   *string
+	native_compaction_v2         *bool
 	input_tokens                 *int
 	addinput_tokens              *int
 	output_tokens                *int
@@ -47839,6 +47850,14 @@ type UsageLogMutation struct {
 	addcache_creation_5m_tokens  *int
 	cache_creation_1h_tokens     *int
 	addcache_creation_1h_tokens  *int
+	image_output_tokens          *int
+	addimage_output_tokens       *int
+	image_output_cost            *float64
+	addimage_output_cost         *float64
+	image_input_tokens           *int
+	addimage_input_tokens        *int
+	image_input_cost             *float64
+	addimage_input_cost          *float64
 	input_cost                   *float64
 	addinput_cost                *float64
 	output_cost                  *float64
@@ -47856,6 +47875,8 @@ type UsageLogMutation struct {
 	long_context_billing_applied *bool
 	account_rate_multiplier      *float64
 	addaccount_rate_multiplier   *float64
+	account_stats_cost           *float64
+	addaccount_stats_cost        *float64
 	billing_type                 *int8
 	addbilling_type              *int8
 	stream                       *bool
@@ -48831,6 +48852,477 @@ func (m *UsageLogMutation) ResetPriceCardVersion() {
 	delete(m.clearedFields, usagelog.FieldPriceCardVersion)
 }
 
+// SetRequestType sets the "request_type" field.
+func (m *UsageLogMutation) SetRequestType(i int16) {
+	m.request_type = &i
+	m.addrequest_type = nil
+}
+
+// RequestType returns the value of the "request_type" field in the mutation.
+func (m *UsageLogMutation) RequestType() (r int16, exists bool) {
+	v := m.request_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestType returns the old "request_type" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldRequestType(ctx context.Context) (v int16, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestType is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestType requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestType: %w", err)
+	}
+	return oldValue.RequestType, nil
+}
+
+// AddRequestType adds i to the "request_type" field.
+func (m *UsageLogMutation) AddRequestType(i int16) {
+	if m.addrequest_type != nil {
+		*m.addrequest_type += i
+	} else {
+		m.addrequest_type = &i
+	}
+}
+
+// AddedRequestType returns the value that was added to the "request_type" field in this mutation.
+func (m *UsageLogMutation) AddedRequestType() (r int16, exists bool) {
+	v := m.addrequest_type
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetRequestType resets all changes to the "request_type" field.
+func (m *UsageLogMutation) ResetRequestType() {
+	m.request_type = nil
+	m.addrequest_type = nil
+}
+
+// SetOpenaiWsMode sets the "openai_ws_mode" field.
+func (m *UsageLogMutation) SetOpenaiWsMode(b bool) {
+	m.openai_ws_mode = &b
+}
+
+// OpenaiWsMode returns the value of the "openai_ws_mode" field in the mutation.
+func (m *UsageLogMutation) OpenaiWsMode() (r bool, exists bool) {
+	v := m.openai_ws_mode
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOpenaiWsMode returns the old "openai_ws_mode" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldOpenaiWsMode(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOpenaiWsMode is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOpenaiWsMode requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOpenaiWsMode: %w", err)
+	}
+	return oldValue.OpenaiWsMode, nil
+}
+
+// ResetOpenaiWsMode resets all changes to the "openai_ws_mode" field.
+func (m *UsageLogMutation) ResetOpenaiWsMode() {
+	m.openai_ws_mode = nil
+}
+
+// SetServiceTier sets the "service_tier" field.
+func (m *UsageLogMutation) SetServiceTier(s string) {
+	m.service_tier = &s
+}
+
+// ServiceTier returns the value of the "service_tier" field in the mutation.
+func (m *UsageLogMutation) ServiceTier() (r string, exists bool) {
+	v := m.service_tier
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldServiceTier returns the old "service_tier" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldServiceTier(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldServiceTier is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldServiceTier requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldServiceTier: %w", err)
+	}
+	return oldValue.ServiceTier, nil
+}
+
+// ClearServiceTier clears the value of the "service_tier" field.
+func (m *UsageLogMutation) ClearServiceTier() {
+	m.service_tier = nil
+	m.clearedFields[usagelog.FieldServiceTier] = struct{}{}
+}
+
+// ServiceTierCleared returns if the "service_tier" field was cleared in this mutation.
+func (m *UsageLogMutation) ServiceTierCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldServiceTier]
+	return ok
+}
+
+// ResetServiceTier resets all changes to the "service_tier" field.
+func (m *UsageLogMutation) ResetServiceTier() {
+	m.service_tier = nil
+	delete(m.clearedFields, usagelog.FieldServiceTier)
+}
+
+// SetReasoningEffort sets the "reasoning_effort" field.
+func (m *UsageLogMutation) SetReasoningEffort(s string) {
+	m.reasoning_effort = &s
+}
+
+// ReasoningEffort returns the value of the "reasoning_effort" field in the mutation.
+func (m *UsageLogMutation) ReasoningEffort() (r string, exists bool) {
+	v := m.reasoning_effort
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldReasoningEffort returns the old "reasoning_effort" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldReasoningEffort(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldReasoningEffort is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldReasoningEffort requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldReasoningEffort: %w", err)
+	}
+	return oldValue.ReasoningEffort, nil
+}
+
+// ClearReasoningEffort clears the value of the "reasoning_effort" field.
+func (m *UsageLogMutation) ClearReasoningEffort() {
+	m.reasoning_effort = nil
+	m.clearedFields[usagelog.FieldReasoningEffort] = struct{}{}
+}
+
+// ReasoningEffortCleared returns if the "reasoning_effort" field was cleared in this mutation.
+func (m *UsageLogMutation) ReasoningEffortCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldReasoningEffort]
+	return ok
+}
+
+// ResetReasoningEffort resets all changes to the "reasoning_effort" field.
+func (m *UsageLogMutation) ResetReasoningEffort() {
+	m.reasoning_effort = nil
+	delete(m.clearedFields, usagelog.FieldReasoningEffort)
+}
+
+// SetRequestedReasoningEffort sets the "requested_reasoning_effort" field.
+func (m *UsageLogMutation) SetRequestedReasoningEffort(s string) {
+	m.requested_reasoning_effort = &s
+}
+
+// RequestedReasoningEffort returns the value of the "requested_reasoning_effort" field in the mutation.
+func (m *UsageLogMutation) RequestedReasoningEffort() (r string, exists bool) {
+	v := m.requested_reasoning_effort
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldRequestedReasoningEffort returns the old "requested_reasoning_effort" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldRequestedReasoningEffort(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldRequestedReasoningEffort is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldRequestedReasoningEffort requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldRequestedReasoningEffort: %w", err)
+	}
+	return oldValue.RequestedReasoningEffort, nil
+}
+
+// ClearRequestedReasoningEffort clears the value of the "requested_reasoning_effort" field.
+func (m *UsageLogMutation) ClearRequestedReasoningEffort() {
+	m.requested_reasoning_effort = nil
+	m.clearedFields[usagelog.FieldRequestedReasoningEffort] = struct{}{}
+}
+
+// RequestedReasoningEffortCleared returns if the "requested_reasoning_effort" field was cleared in this mutation.
+func (m *UsageLogMutation) RequestedReasoningEffortCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldRequestedReasoningEffort]
+	return ok
+}
+
+// ResetRequestedReasoningEffort resets all changes to the "requested_reasoning_effort" field.
+func (m *UsageLogMutation) ResetRequestedReasoningEffort() {
+	m.requested_reasoning_effort = nil
+	delete(m.clearedFields, usagelog.FieldRequestedReasoningEffort)
+}
+
+// SetInboundEndpoint sets the "inbound_endpoint" field.
+func (m *UsageLogMutation) SetInboundEndpoint(s string) {
+	m.inbound_endpoint = &s
+}
+
+// InboundEndpoint returns the value of the "inbound_endpoint" field in the mutation.
+func (m *UsageLogMutation) InboundEndpoint() (r string, exists bool) {
+	v := m.inbound_endpoint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldInboundEndpoint returns the old "inbound_endpoint" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldInboundEndpoint(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldInboundEndpoint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldInboundEndpoint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldInboundEndpoint: %w", err)
+	}
+	return oldValue.InboundEndpoint, nil
+}
+
+// ClearInboundEndpoint clears the value of the "inbound_endpoint" field.
+func (m *UsageLogMutation) ClearInboundEndpoint() {
+	m.inbound_endpoint = nil
+	m.clearedFields[usagelog.FieldInboundEndpoint] = struct{}{}
+}
+
+// InboundEndpointCleared returns if the "inbound_endpoint" field was cleared in this mutation.
+func (m *UsageLogMutation) InboundEndpointCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldInboundEndpoint]
+	return ok
+}
+
+// ResetInboundEndpoint resets all changes to the "inbound_endpoint" field.
+func (m *UsageLogMutation) ResetInboundEndpoint() {
+	m.inbound_endpoint = nil
+	delete(m.clearedFields, usagelog.FieldInboundEndpoint)
+}
+
+// SetUpstreamEndpoint sets the "upstream_endpoint" field.
+func (m *UsageLogMutation) SetUpstreamEndpoint(s string) {
+	m.upstream_endpoint = &s
+}
+
+// UpstreamEndpoint returns the value of the "upstream_endpoint" field in the mutation.
+func (m *UsageLogMutation) UpstreamEndpoint() (r string, exists bool) {
+	v := m.upstream_endpoint
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamEndpoint returns the old "upstream_endpoint" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldUpstreamEndpoint(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamEndpoint is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamEndpoint requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamEndpoint: %w", err)
+	}
+	return oldValue.UpstreamEndpoint, nil
+}
+
+// ClearUpstreamEndpoint clears the value of the "upstream_endpoint" field.
+func (m *UsageLogMutation) ClearUpstreamEndpoint() {
+	m.upstream_endpoint = nil
+	m.clearedFields[usagelog.FieldUpstreamEndpoint] = struct{}{}
+}
+
+// UpstreamEndpointCleared returns if the "upstream_endpoint" field was cleared in this mutation.
+func (m *UsageLogMutation) UpstreamEndpointCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldUpstreamEndpoint]
+	return ok
+}
+
+// ResetUpstreamEndpoint resets all changes to the "upstream_endpoint" field.
+func (m *UsageLogMutation) ResetUpstreamEndpoint() {
+	m.upstream_endpoint = nil
+	delete(m.clearedFields, usagelog.FieldUpstreamEndpoint)
+}
+
+// SetUpstreamRequestID sets the "upstream_request_id" field.
+func (m *UsageLogMutation) SetUpstreamRequestID(s string) {
+	m.upstream_request_id = &s
+}
+
+// UpstreamRequestID returns the value of the "upstream_request_id" field in the mutation.
+func (m *UsageLogMutation) UpstreamRequestID() (r string, exists bool) {
+	v := m.upstream_request_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldUpstreamRequestID returns the old "upstream_request_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldUpstreamRequestID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldUpstreamRequestID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldUpstreamRequestID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldUpstreamRequestID: %w", err)
+	}
+	return oldValue.UpstreamRequestID, nil
+}
+
+// ClearUpstreamRequestID clears the value of the "upstream_request_id" field.
+func (m *UsageLogMutation) ClearUpstreamRequestID() {
+	m.upstream_request_id = nil
+	m.clearedFields[usagelog.FieldUpstreamRequestID] = struct{}{}
+}
+
+// UpstreamRequestIDCleared returns if the "upstream_request_id" field was cleared in this mutation.
+func (m *UsageLogMutation) UpstreamRequestIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldUpstreamRequestID]
+	return ok
+}
+
+// ResetUpstreamRequestID resets all changes to the "upstream_request_id" field.
+func (m *UsageLogMutation) ResetUpstreamRequestID() {
+	m.upstream_request_id = nil
+	delete(m.clearedFields, usagelog.FieldUpstreamRequestID)
+}
+
+// SetSessionID sets the "session_id" field.
+func (m *UsageLogMutation) SetSessionID(s string) {
+	m.session_id = &s
+}
+
+// SessionID returns the value of the "session_id" field in the mutation.
+func (m *UsageLogMutation) SessionID() (r string, exists bool) {
+	v := m.session_id
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldSessionID returns the old "session_id" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldSessionID(ctx context.Context) (v *string, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldSessionID is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldSessionID requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldSessionID: %w", err)
+	}
+	return oldValue.SessionID, nil
+}
+
+// ClearSessionID clears the value of the "session_id" field.
+func (m *UsageLogMutation) ClearSessionID() {
+	m.session_id = nil
+	m.clearedFields[usagelog.FieldSessionID] = struct{}{}
+}
+
+// SessionIDCleared returns if the "session_id" field was cleared in this mutation.
+func (m *UsageLogMutation) SessionIDCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldSessionID]
+	return ok
+}
+
+// ResetSessionID resets all changes to the "session_id" field.
+func (m *UsageLogMutation) ResetSessionID() {
+	m.session_id = nil
+	delete(m.clearedFields, usagelog.FieldSessionID)
+}
+
+// SetNativeCompactionV2 sets the "native_compaction_v2" field.
+func (m *UsageLogMutation) SetNativeCompactionV2(b bool) {
+	m.native_compaction_v2 = &b
+}
+
+// NativeCompactionV2 returns the value of the "native_compaction_v2" field in the mutation.
+func (m *UsageLogMutation) NativeCompactionV2() (r bool, exists bool) {
+	v := m.native_compaction_v2
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldNativeCompactionV2 returns the old "native_compaction_v2" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldNativeCompactionV2(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldNativeCompactionV2 is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldNativeCompactionV2 requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldNativeCompactionV2: %w", err)
+	}
+	return oldValue.NativeCompactionV2, nil
+}
+
+// ResetNativeCompactionV2 resets all changes to the "native_compaction_v2" field.
+func (m *UsageLogMutation) ResetNativeCompactionV2() {
+	m.native_compaction_v2 = nil
+}
+
 // SetInputTokens sets the "input_tokens" field.
 func (m *UsageLogMutation) SetInputTokens(i int) {
 	m.input_tokens = &i
@@ -49165,6 +49657,230 @@ func (m *UsageLogMutation) AddedCacheCreation1hTokens() (r int, exists bool) {
 func (m *UsageLogMutation) ResetCacheCreation1hTokens() {
 	m.cache_creation_1h_tokens = nil
 	m.addcache_creation_1h_tokens = nil
+}
+
+// SetImageOutputTokens sets the "image_output_tokens" field.
+func (m *UsageLogMutation) SetImageOutputTokens(i int) {
+	m.image_output_tokens = &i
+	m.addimage_output_tokens = nil
+}
+
+// ImageOutputTokens returns the value of the "image_output_tokens" field in the mutation.
+func (m *UsageLogMutation) ImageOutputTokens() (r int, exists bool) {
+	v := m.image_output_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageOutputTokens returns the old "image_output_tokens" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldImageOutputTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageOutputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageOutputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageOutputTokens: %w", err)
+	}
+	return oldValue.ImageOutputTokens, nil
+}
+
+// AddImageOutputTokens adds i to the "image_output_tokens" field.
+func (m *UsageLogMutation) AddImageOutputTokens(i int) {
+	if m.addimage_output_tokens != nil {
+		*m.addimage_output_tokens += i
+	} else {
+		m.addimage_output_tokens = &i
+	}
+}
+
+// AddedImageOutputTokens returns the value that was added to the "image_output_tokens" field in this mutation.
+func (m *UsageLogMutation) AddedImageOutputTokens() (r int, exists bool) {
+	v := m.addimage_output_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageOutputTokens resets all changes to the "image_output_tokens" field.
+func (m *UsageLogMutation) ResetImageOutputTokens() {
+	m.image_output_tokens = nil
+	m.addimage_output_tokens = nil
+}
+
+// SetImageOutputCost sets the "image_output_cost" field.
+func (m *UsageLogMutation) SetImageOutputCost(f float64) {
+	m.image_output_cost = &f
+	m.addimage_output_cost = nil
+}
+
+// ImageOutputCost returns the value of the "image_output_cost" field in the mutation.
+func (m *UsageLogMutation) ImageOutputCost() (r float64, exists bool) {
+	v := m.image_output_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageOutputCost returns the old "image_output_cost" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldImageOutputCost(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageOutputCost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageOutputCost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageOutputCost: %w", err)
+	}
+	return oldValue.ImageOutputCost, nil
+}
+
+// AddImageOutputCost adds f to the "image_output_cost" field.
+func (m *UsageLogMutation) AddImageOutputCost(f float64) {
+	if m.addimage_output_cost != nil {
+		*m.addimage_output_cost += f
+	} else {
+		m.addimage_output_cost = &f
+	}
+}
+
+// AddedImageOutputCost returns the value that was added to the "image_output_cost" field in this mutation.
+func (m *UsageLogMutation) AddedImageOutputCost() (r float64, exists bool) {
+	v := m.addimage_output_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageOutputCost resets all changes to the "image_output_cost" field.
+func (m *UsageLogMutation) ResetImageOutputCost() {
+	m.image_output_cost = nil
+	m.addimage_output_cost = nil
+}
+
+// SetImageInputTokens sets the "image_input_tokens" field.
+func (m *UsageLogMutation) SetImageInputTokens(i int) {
+	m.image_input_tokens = &i
+	m.addimage_input_tokens = nil
+}
+
+// ImageInputTokens returns the value of the "image_input_tokens" field in the mutation.
+func (m *UsageLogMutation) ImageInputTokens() (r int, exists bool) {
+	v := m.image_input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageInputTokens returns the old "image_input_tokens" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldImageInputTokens(ctx context.Context) (v int, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageInputTokens is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageInputTokens requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageInputTokens: %w", err)
+	}
+	return oldValue.ImageInputTokens, nil
+}
+
+// AddImageInputTokens adds i to the "image_input_tokens" field.
+func (m *UsageLogMutation) AddImageInputTokens(i int) {
+	if m.addimage_input_tokens != nil {
+		*m.addimage_input_tokens += i
+	} else {
+		m.addimage_input_tokens = &i
+	}
+}
+
+// AddedImageInputTokens returns the value that was added to the "image_input_tokens" field in this mutation.
+func (m *UsageLogMutation) AddedImageInputTokens() (r int, exists bool) {
+	v := m.addimage_input_tokens
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageInputTokens resets all changes to the "image_input_tokens" field.
+func (m *UsageLogMutation) ResetImageInputTokens() {
+	m.image_input_tokens = nil
+	m.addimage_input_tokens = nil
+}
+
+// SetImageInputCost sets the "image_input_cost" field.
+func (m *UsageLogMutation) SetImageInputCost(f float64) {
+	m.image_input_cost = &f
+	m.addimage_input_cost = nil
+}
+
+// ImageInputCost returns the value of the "image_input_cost" field in the mutation.
+func (m *UsageLogMutation) ImageInputCost() (r float64, exists bool) {
+	v := m.image_input_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldImageInputCost returns the old "image_input_cost" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldImageInputCost(ctx context.Context) (v float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldImageInputCost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldImageInputCost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldImageInputCost: %w", err)
+	}
+	return oldValue.ImageInputCost, nil
+}
+
+// AddImageInputCost adds f to the "image_input_cost" field.
+func (m *UsageLogMutation) AddImageInputCost(f float64) {
+	if m.addimage_input_cost != nil {
+		*m.addimage_input_cost += f
+	} else {
+		m.addimage_input_cost = &f
+	}
+}
+
+// AddedImageInputCost returns the value that was added to the "image_input_cost" field in this mutation.
+func (m *UsageLogMutation) AddedImageInputCost() (r float64, exists bool) {
+	v := m.addimage_input_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetImageInputCost resets all changes to the "image_input_cost" field.
+func (m *UsageLogMutation) ResetImageInputCost() {
+	m.image_input_cost = nil
+	m.addimage_input_cost = nil
 }
 
 // SetInputCost sets the "input_cost" field.
@@ -49663,6 +50379,76 @@ func (m *UsageLogMutation) ResetAccountRateMultiplier() {
 	m.account_rate_multiplier = nil
 	m.addaccount_rate_multiplier = nil
 	delete(m.clearedFields, usagelog.FieldAccountRateMultiplier)
+}
+
+// SetAccountStatsCost sets the "account_stats_cost" field.
+func (m *UsageLogMutation) SetAccountStatsCost(f float64) {
+	m.account_stats_cost = &f
+	m.addaccount_stats_cost = nil
+}
+
+// AccountStatsCost returns the value of the "account_stats_cost" field in the mutation.
+func (m *UsageLogMutation) AccountStatsCost() (r float64, exists bool) {
+	v := m.account_stats_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldAccountStatsCost returns the old "account_stats_cost" field's value of the UsageLog entity.
+// If the UsageLog object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *UsageLogMutation) OldAccountStatsCost(ctx context.Context) (v *float64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldAccountStatsCost is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldAccountStatsCost requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldAccountStatsCost: %w", err)
+	}
+	return oldValue.AccountStatsCost, nil
+}
+
+// AddAccountStatsCost adds f to the "account_stats_cost" field.
+func (m *UsageLogMutation) AddAccountStatsCost(f float64) {
+	if m.addaccount_stats_cost != nil {
+		*m.addaccount_stats_cost += f
+	} else {
+		m.addaccount_stats_cost = &f
+	}
+}
+
+// AddedAccountStatsCost returns the value that was added to the "account_stats_cost" field in this mutation.
+func (m *UsageLogMutation) AddedAccountStatsCost() (r float64, exists bool) {
+	v := m.addaccount_stats_cost
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ClearAccountStatsCost clears the value of the "account_stats_cost" field.
+func (m *UsageLogMutation) ClearAccountStatsCost() {
+	m.account_stats_cost = nil
+	m.addaccount_stats_cost = nil
+	m.clearedFields[usagelog.FieldAccountStatsCost] = struct{}{}
+}
+
+// AccountStatsCostCleared returns if the "account_stats_cost" field was cleared in this mutation.
+func (m *UsageLogMutation) AccountStatsCostCleared() bool {
+	_, ok := m.clearedFields[usagelog.FieldAccountStatsCost]
+	return ok
+}
+
+// ResetAccountStatsCost resets all changes to the "account_stats_cost" field.
+func (m *UsageLogMutation) ResetAccountStatsCost() {
+	m.account_stats_cost = nil
+	m.addaccount_stats_cost = nil
+	delete(m.clearedFields, usagelog.FieldAccountStatsCost)
 }
 
 // SetBillingType sets the "billing_type" field.
@@ -50712,7 +51498,7 @@ func (m *UsageLogMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *UsageLogMutation) Fields() []string {
-	fields := make([]string, 0, 50)
+	fields := make([]string, 0, 65)
 	if m.user != nil {
 		fields = append(fields, usagelog.FieldUserID)
 	}
@@ -50767,6 +51553,36 @@ func (m *UsageLogMutation) Fields() []string {
 	if m.price_card_version != nil {
 		fields = append(fields, usagelog.FieldPriceCardVersion)
 	}
+	if m.request_type != nil {
+		fields = append(fields, usagelog.FieldRequestType)
+	}
+	if m.openai_ws_mode != nil {
+		fields = append(fields, usagelog.FieldOpenaiWsMode)
+	}
+	if m.service_tier != nil {
+		fields = append(fields, usagelog.FieldServiceTier)
+	}
+	if m.reasoning_effort != nil {
+		fields = append(fields, usagelog.FieldReasoningEffort)
+	}
+	if m.requested_reasoning_effort != nil {
+		fields = append(fields, usagelog.FieldRequestedReasoningEffort)
+	}
+	if m.inbound_endpoint != nil {
+		fields = append(fields, usagelog.FieldInboundEndpoint)
+	}
+	if m.upstream_endpoint != nil {
+		fields = append(fields, usagelog.FieldUpstreamEndpoint)
+	}
+	if m.upstream_request_id != nil {
+		fields = append(fields, usagelog.FieldUpstreamRequestID)
+	}
+	if m.session_id != nil {
+		fields = append(fields, usagelog.FieldSessionID)
+	}
+	if m.native_compaction_v2 != nil {
+		fields = append(fields, usagelog.FieldNativeCompactionV2)
+	}
 	if m.input_tokens != nil {
 		fields = append(fields, usagelog.FieldInputTokens)
 	}
@@ -50784,6 +51600,18 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.cache_creation_1h_tokens != nil {
 		fields = append(fields, usagelog.FieldCacheCreation1hTokens)
+	}
+	if m.image_output_tokens != nil {
+		fields = append(fields, usagelog.FieldImageOutputTokens)
+	}
+	if m.image_output_cost != nil {
+		fields = append(fields, usagelog.FieldImageOutputCost)
+	}
+	if m.image_input_tokens != nil {
+		fields = append(fields, usagelog.FieldImageInputTokens)
+	}
+	if m.image_input_cost != nil {
+		fields = append(fields, usagelog.FieldImageInputCost)
 	}
 	if m.input_cost != nil {
 		fields = append(fields, usagelog.FieldInputCost)
@@ -50811,6 +51639,9 @@ func (m *UsageLogMutation) Fields() []string {
 	}
 	if m.account_rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
+	}
+	if m.account_stats_cost != nil {
+		fields = append(fields, usagelog.FieldAccountStatsCost)
 	}
 	if m.billing_type != nil {
 		fields = append(fields, usagelog.FieldBillingType)
@@ -50907,6 +51738,26 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.PriceSource()
 	case usagelog.FieldPriceCardVersion:
 		return m.PriceCardVersion()
+	case usagelog.FieldRequestType:
+		return m.RequestType()
+	case usagelog.FieldOpenaiWsMode:
+		return m.OpenaiWsMode()
+	case usagelog.FieldServiceTier:
+		return m.ServiceTier()
+	case usagelog.FieldReasoningEffort:
+		return m.ReasoningEffort()
+	case usagelog.FieldRequestedReasoningEffort:
+		return m.RequestedReasoningEffort()
+	case usagelog.FieldInboundEndpoint:
+		return m.InboundEndpoint()
+	case usagelog.FieldUpstreamEndpoint:
+		return m.UpstreamEndpoint()
+	case usagelog.FieldUpstreamRequestID:
+		return m.UpstreamRequestID()
+	case usagelog.FieldSessionID:
+		return m.SessionID()
+	case usagelog.FieldNativeCompactionV2:
+		return m.NativeCompactionV2()
 	case usagelog.FieldInputTokens:
 		return m.InputTokens()
 	case usagelog.FieldOutputTokens:
@@ -50919,6 +51770,14 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.CacheCreation5mTokens()
 	case usagelog.FieldCacheCreation1hTokens:
 		return m.CacheCreation1hTokens()
+	case usagelog.FieldImageOutputTokens:
+		return m.ImageOutputTokens()
+	case usagelog.FieldImageOutputCost:
+		return m.ImageOutputCost()
+	case usagelog.FieldImageInputTokens:
+		return m.ImageInputTokens()
+	case usagelog.FieldImageInputCost:
+		return m.ImageInputCost()
 	case usagelog.FieldInputCost:
 		return m.InputCost()
 	case usagelog.FieldOutputCost:
@@ -50937,6 +51796,8 @@ func (m *UsageLogMutation) Field(name string) (ent.Value, bool) {
 		return m.LongContextBillingApplied()
 	case usagelog.FieldAccountRateMultiplier:
 		return m.AccountRateMultiplier()
+	case usagelog.FieldAccountStatsCost:
+		return m.AccountStatsCost()
 	case usagelog.FieldBillingType:
 		return m.BillingType()
 	case usagelog.FieldStream:
@@ -51016,6 +51877,26 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldPriceSource(ctx)
 	case usagelog.FieldPriceCardVersion:
 		return m.OldPriceCardVersion(ctx)
+	case usagelog.FieldRequestType:
+		return m.OldRequestType(ctx)
+	case usagelog.FieldOpenaiWsMode:
+		return m.OldOpenaiWsMode(ctx)
+	case usagelog.FieldServiceTier:
+		return m.OldServiceTier(ctx)
+	case usagelog.FieldReasoningEffort:
+		return m.OldReasoningEffort(ctx)
+	case usagelog.FieldRequestedReasoningEffort:
+		return m.OldRequestedReasoningEffort(ctx)
+	case usagelog.FieldInboundEndpoint:
+		return m.OldInboundEndpoint(ctx)
+	case usagelog.FieldUpstreamEndpoint:
+		return m.OldUpstreamEndpoint(ctx)
+	case usagelog.FieldUpstreamRequestID:
+		return m.OldUpstreamRequestID(ctx)
+	case usagelog.FieldSessionID:
+		return m.OldSessionID(ctx)
+	case usagelog.FieldNativeCompactionV2:
+		return m.OldNativeCompactionV2(ctx)
 	case usagelog.FieldInputTokens:
 		return m.OldInputTokens(ctx)
 	case usagelog.FieldOutputTokens:
@@ -51028,6 +51909,14 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldCacheCreation5mTokens(ctx)
 	case usagelog.FieldCacheCreation1hTokens:
 		return m.OldCacheCreation1hTokens(ctx)
+	case usagelog.FieldImageOutputTokens:
+		return m.OldImageOutputTokens(ctx)
+	case usagelog.FieldImageOutputCost:
+		return m.OldImageOutputCost(ctx)
+	case usagelog.FieldImageInputTokens:
+		return m.OldImageInputTokens(ctx)
+	case usagelog.FieldImageInputCost:
+		return m.OldImageInputCost(ctx)
 	case usagelog.FieldInputCost:
 		return m.OldInputCost(ctx)
 	case usagelog.FieldOutputCost:
@@ -51046,6 +51935,8 @@ func (m *UsageLogMutation) OldField(ctx context.Context, name string) (ent.Value
 		return m.OldLongContextBillingApplied(ctx)
 	case usagelog.FieldAccountRateMultiplier:
 		return m.OldAccountRateMultiplier(ctx)
+	case usagelog.FieldAccountStatsCost:
+		return m.OldAccountStatsCost(ctx)
 	case usagelog.FieldBillingType:
 		return m.OldBillingType(ctx)
 	case usagelog.FieldStream:
@@ -51215,6 +52106,76 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 		}
 		m.SetPriceCardVersion(v)
 		return nil
+	case usagelog.FieldRequestType:
+		v, ok := value.(int16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestType(v)
+		return nil
+	case usagelog.FieldOpenaiWsMode:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOpenaiWsMode(v)
+		return nil
+	case usagelog.FieldServiceTier:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetServiceTier(v)
+		return nil
+	case usagelog.FieldReasoningEffort:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetReasoningEffort(v)
+		return nil
+	case usagelog.FieldRequestedReasoningEffort:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetRequestedReasoningEffort(v)
+		return nil
+	case usagelog.FieldInboundEndpoint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetInboundEndpoint(v)
+		return nil
+	case usagelog.FieldUpstreamEndpoint:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamEndpoint(v)
+		return nil
+	case usagelog.FieldUpstreamRequestID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetUpstreamRequestID(v)
+		return nil
+	case usagelog.FieldSessionID:
+		v, ok := value.(string)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetSessionID(v)
+		return nil
+	case usagelog.FieldNativeCompactionV2:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetNativeCompactionV2(v)
+		return nil
 	case usagelog.FieldInputTokens:
 		v, ok := value.(int)
 		if !ok {
@@ -51256,6 +52217,34 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetCacheCreation1hTokens(v)
+		return nil
+	case usagelog.FieldImageOutputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageOutputTokens(v)
+		return nil
+	case usagelog.FieldImageOutputCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageOutputCost(v)
+		return nil
+	case usagelog.FieldImageInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageInputTokens(v)
+		return nil
+	case usagelog.FieldImageInputCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetImageInputCost(v)
 		return nil
 	case usagelog.FieldInputCost:
 		v, ok := value.(float64)
@@ -51319,6 +52308,13 @@ func (m *UsageLogMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetAccountRateMultiplier(v)
+		return nil
+	case usagelog.FieldAccountStatsCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetAccountStatsCost(v)
 		return nil
 	case usagelog.FieldBillingType:
 		v, ok := value.(int8)
@@ -51450,6 +52446,9 @@ func (m *UsageLogMutation) AddedFields() []string {
 	if m.addchannel_id != nil {
 		fields = append(fields, usagelog.FieldChannelID)
 	}
+	if m.addrequest_type != nil {
+		fields = append(fields, usagelog.FieldRequestType)
+	}
 	if m.addinput_tokens != nil {
 		fields = append(fields, usagelog.FieldInputTokens)
 	}
@@ -51467,6 +52466,18 @@ func (m *UsageLogMutation) AddedFields() []string {
 	}
 	if m.addcache_creation_1h_tokens != nil {
 		fields = append(fields, usagelog.FieldCacheCreation1hTokens)
+	}
+	if m.addimage_output_tokens != nil {
+		fields = append(fields, usagelog.FieldImageOutputTokens)
+	}
+	if m.addimage_output_cost != nil {
+		fields = append(fields, usagelog.FieldImageOutputCost)
+	}
+	if m.addimage_input_tokens != nil {
+		fields = append(fields, usagelog.FieldImageInputTokens)
+	}
+	if m.addimage_input_cost != nil {
+		fields = append(fields, usagelog.FieldImageInputCost)
 	}
 	if m.addinput_cost != nil {
 		fields = append(fields, usagelog.FieldInputCost)
@@ -51491,6 +52502,9 @@ func (m *UsageLogMutation) AddedFields() []string {
 	}
 	if m.addaccount_rate_multiplier != nil {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
+	}
+	if m.addaccount_stats_cost != nil {
+		fields = append(fields, usagelog.FieldAccountStatsCost)
 	}
 	if m.addbilling_type != nil {
 		fields = append(fields, usagelog.FieldBillingType)
@@ -51520,6 +52534,8 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case usagelog.FieldChannelID:
 		return m.AddedChannelID()
+	case usagelog.FieldRequestType:
+		return m.AddedRequestType()
 	case usagelog.FieldInputTokens:
 		return m.AddedInputTokens()
 	case usagelog.FieldOutputTokens:
@@ -51532,6 +52548,14 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedCacheCreation5mTokens()
 	case usagelog.FieldCacheCreation1hTokens:
 		return m.AddedCacheCreation1hTokens()
+	case usagelog.FieldImageOutputTokens:
+		return m.AddedImageOutputTokens()
+	case usagelog.FieldImageOutputCost:
+		return m.AddedImageOutputCost()
+	case usagelog.FieldImageInputTokens:
+		return m.AddedImageInputTokens()
+	case usagelog.FieldImageInputCost:
+		return m.AddedImageInputCost()
 	case usagelog.FieldInputCost:
 		return m.AddedInputCost()
 	case usagelog.FieldOutputCost:
@@ -51548,6 +52572,8 @@ func (m *UsageLogMutation) AddedField(name string) (ent.Value, bool) {
 		return m.AddedRateMultiplier()
 	case usagelog.FieldAccountRateMultiplier:
 		return m.AddedAccountRateMultiplier()
+	case usagelog.FieldAccountStatsCost:
+		return m.AddedAccountStatsCost()
 	case usagelog.FieldBillingType:
 		return m.AddedBillingType()
 	case usagelog.FieldDurationMs:
@@ -51575,6 +52601,13 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddChannelID(v)
+		return nil
+	case usagelog.FieldRequestType:
+		v, ok := value.(int16)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddRequestType(v)
 		return nil
 	case usagelog.FieldInputTokens:
 		v, ok := value.(int)
@@ -51617,6 +52650,34 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddCacheCreation1hTokens(v)
+		return nil
+	case usagelog.FieldImageOutputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageOutputTokens(v)
+		return nil
+	case usagelog.FieldImageOutputCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageOutputCost(v)
+		return nil
+	case usagelog.FieldImageInputTokens:
+		v, ok := value.(int)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageInputTokens(v)
+		return nil
+	case usagelog.FieldImageInputCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddImageInputCost(v)
 		return nil
 	case usagelog.FieldInputCost:
 		v, ok := value.(float64)
@@ -51673,6 +52734,13 @@ func (m *UsageLogMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddAccountRateMultiplier(v)
+		return nil
+	case usagelog.FieldAccountStatsCost:
+		v, ok := value.(float64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddAccountStatsCost(v)
 		return nil
 	case usagelog.FieldBillingType:
 		v, ok := value.(int8)
@@ -51763,8 +52831,32 @@ func (m *UsageLogMutation) ClearedFields() []string {
 	if m.FieldCleared(usagelog.FieldPriceCardVersion) {
 		fields = append(fields, usagelog.FieldPriceCardVersion)
 	}
+	if m.FieldCleared(usagelog.FieldServiceTier) {
+		fields = append(fields, usagelog.FieldServiceTier)
+	}
+	if m.FieldCleared(usagelog.FieldReasoningEffort) {
+		fields = append(fields, usagelog.FieldReasoningEffort)
+	}
+	if m.FieldCleared(usagelog.FieldRequestedReasoningEffort) {
+		fields = append(fields, usagelog.FieldRequestedReasoningEffort)
+	}
+	if m.FieldCleared(usagelog.FieldInboundEndpoint) {
+		fields = append(fields, usagelog.FieldInboundEndpoint)
+	}
+	if m.FieldCleared(usagelog.FieldUpstreamEndpoint) {
+		fields = append(fields, usagelog.FieldUpstreamEndpoint)
+	}
+	if m.FieldCleared(usagelog.FieldUpstreamRequestID) {
+		fields = append(fields, usagelog.FieldUpstreamRequestID)
+	}
+	if m.FieldCleared(usagelog.FieldSessionID) {
+		fields = append(fields, usagelog.FieldSessionID)
+	}
 	if m.FieldCleared(usagelog.FieldAccountRateMultiplier) {
 		fields = append(fields, usagelog.FieldAccountRateMultiplier)
+	}
+	if m.FieldCleared(usagelog.FieldAccountStatsCost) {
+		fields = append(fields, usagelog.FieldAccountStatsCost)
 	}
 	if m.FieldCleared(usagelog.FieldDurationMs) {
 		fields = append(fields, usagelog.FieldDurationMs)
@@ -51852,8 +52944,32 @@ func (m *UsageLogMutation) ClearField(name string) error {
 	case usagelog.FieldPriceCardVersion:
 		m.ClearPriceCardVersion()
 		return nil
+	case usagelog.FieldServiceTier:
+		m.ClearServiceTier()
+		return nil
+	case usagelog.FieldReasoningEffort:
+		m.ClearReasoningEffort()
+		return nil
+	case usagelog.FieldRequestedReasoningEffort:
+		m.ClearRequestedReasoningEffort()
+		return nil
+	case usagelog.FieldInboundEndpoint:
+		m.ClearInboundEndpoint()
+		return nil
+	case usagelog.FieldUpstreamEndpoint:
+		m.ClearUpstreamEndpoint()
+		return nil
+	case usagelog.FieldUpstreamRequestID:
+		m.ClearUpstreamRequestID()
+		return nil
+	case usagelog.FieldSessionID:
+		m.ClearSessionID()
+		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ClearAccountRateMultiplier()
+		return nil
+	case usagelog.FieldAccountStatsCost:
+		m.ClearAccountStatsCost()
 		return nil
 	case usagelog.FieldDurationMs:
 		m.ClearDurationMs()
@@ -51950,6 +53066,36 @@ func (m *UsageLogMutation) ResetField(name string) error {
 	case usagelog.FieldPriceCardVersion:
 		m.ResetPriceCardVersion()
 		return nil
+	case usagelog.FieldRequestType:
+		m.ResetRequestType()
+		return nil
+	case usagelog.FieldOpenaiWsMode:
+		m.ResetOpenaiWsMode()
+		return nil
+	case usagelog.FieldServiceTier:
+		m.ResetServiceTier()
+		return nil
+	case usagelog.FieldReasoningEffort:
+		m.ResetReasoningEffort()
+		return nil
+	case usagelog.FieldRequestedReasoningEffort:
+		m.ResetRequestedReasoningEffort()
+		return nil
+	case usagelog.FieldInboundEndpoint:
+		m.ResetInboundEndpoint()
+		return nil
+	case usagelog.FieldUpstreamEndpoint:
+		m.ResetUpstreamEndpoint()
+		return nil
+	case usagelog.FieldUpstreamRequestID:
+		m.ResetUpstreamRequestID()
+		return nil
+	case usagelog.FieldSessionID:
+		m.ResetSessionID()
+		return nil
+	case usagelog.FieldNativeCompactionV2:
+		m.ResetNativeCompactionV2()
+		return nil
 	case usagelog.FieldInputTokens:
 		m.ResetInputTokens()
 		return nil
@@ -51967,6 +53113,18 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldCacheCreation1hTokens:
 		m.ResetCacheCreation1hTokens()
+		return nil
+	case usagelog.FieldImageOutputTokens:
+		m.ResetImageOutputTokens()
+		return nil
+	case usagelog.FieldImageOutputCost:
+		m.ResetImageOutputCost()
+		return nil
+	case usagelog.FieldImageInputTokens:
+		m.ResetImageInputTokens()
+		return nil
+	case usagelog.FieldImageInputCost:
+		m.ResetImageInputCost()
 		return nil
 	case usagelog.FieldInputCost:
 		m.ResetInputCost()
@@ -51994,6 +53152,9 @@ func (m *UsageLogMutation) ResetField(name string) error {
 		return nil
 	case usagelog.FieldAccountRateMultiplier:
 		m.ResetAccountRateMultiplier()
+		return nil
+	case usagelog.FieldAccountStatsCost:
+		m.ResetAccountStatsCost()
 		return nil
 	case usagelog.FieldBillingType:
 		m.ResetBillingType()
