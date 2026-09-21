@@ -8,7 +8,7 @@ import (
 )
 
 func TestUsageLogSessionIDIndexMigration(t *testing.T) {
-	content, err := FS.ReadFile("273_add_usage_log_session_id_index_notx.sql")
+	content, err := FS.ReadFile("274_add_usage_log_session_id_index_notx.sql")
 	require.NoError(t, err)
 
 	sql := strings.Join(strings.Fields(string(content)), " ")
