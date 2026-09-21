@@ -20,14 +20,14 @@ import (
 )
 
 // GrokRealtime exposes xAI's native Voice Realtime WebSocket.
-// Only Grok-platform API keys may use this endpoint.
+// Grok groups and Composite requests resolved to Grok use the same adapter.
 func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	if c == nil || c.Request == nil || !isOpenAIWSUpgradeRequest(c.Request) {
 		h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "WebSocket upgrade required (Upgrade: websocket)")
 		return
 	}
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGrok {
+	if !ok || apiKey.Group == nil || service.GatewayTargetPlatform(c) != service.PlatformGrok {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Realtime API is not supported for this platform")
 		return
 	}
@@ -45,10 +45,7 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	}
 
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_realtime")
-	model := c.Query("model")
-	if strings.TrimSpace(model) == "" {
-		model = "grok-voice-latest"
-	}
+	model := grokVoiceRequestModel(c, nil, "realtime")
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "realtime", h.maxAccountSwitches)()
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would
@@ -173,7 +170,7 @@ func isExpectedGrokRealtimeClose(err error) bool {
 // GrokVoice handles xAI Voice HTTP endpoints. endpoint is "tts", "stt", or "custom-voices".
 func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
-	if !ok || apiKey.Group == nil || apiKey.Group.Platform != service.PlatformGrok {
+	if !ok || apiKey.Group == nil || service.GatewayTargetPlatform(c) != service.PlatformGrok {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Voice API is not supported for this platform")
 		return
 	}
@@ -195,6 +192,7 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	selectionModel := grokVoiceRequestModel(c, body, endpoint)
 	if endpoint == "tts" {
 		subject, _ := middleware2.GetAuthSubjectFromContext(c)
 		reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
@@ -208,7 +206,7 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 				auditBody = b
 			}
 		}
-		if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, "grok-4.5", auditBody); decision != nil && !decision.AllowNextStage {
+		if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIChat, selectionModel, auditBody); decision != nil && !decision.AllowNextStage {
 			h.openAISecurityAuditError(c, decision)
 			return
 		}
@@ -221,7 +219,6 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	failed := failoverState.FailedAccountIDs
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
-	selectionModel := "grok-4.5"
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, selectionModel, "audio", h.maxAccountSwitches)()
 
 	for attempts := 0; attempts <= h.maxAccountSwitches; attempts++ {
@@ -285,6 +282,24 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 	if failoverState.LastFailoverErr != nil {
 		h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 	}
+}
+
+// Resolve the selected voice identity instead of borrowing a text model's
+// eligibility and price. Native TTS/STT have no required model selector.
+func grokVoiceRequestModel(c *gin.Context, body []byte, endpoint string) string {
+	if model, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok {
+		return model
+	}
+	if model := service.ExtractGrokMediaModel(c.GetHeader("Content-Type"), body); model != "" {
+		return model
+	}
+	if endpoint == "realtime" {
+		if model := strings.TrimSpace(c.Query("model")); model != "" {
+			return model
+		}
+		return "grok-voice-latest"
+	}
+	return strings.Split(endpoint, "/")[0]
 }
 
 // recordGrokVoiceUsage bills TTS/STT/realtime via group audio prices when AudioUsage is set.

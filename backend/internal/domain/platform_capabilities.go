@@ -40,7 +40,7 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformGemini, OAuth: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenAI, ResponsesCompact: true, ResponsesWS: EndpointNative, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformAntigravity, ResponsesPOST: EndpointBridge, OAuth: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformGrok, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformGrok, ResponsesCompact: true, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformKimi, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformZhipu, ResponsesPOST: EndpointBridge, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformDeepseek, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},

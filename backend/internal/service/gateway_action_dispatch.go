@@ -56,6 +56,9 @@ func (d *GatewayActionDispatch) Handler(action string) gin.HandlerFunc {
 		if platform == PlatformComposite && (action == "video.status" || action == "video.content") {
 			platform = PlatformGrok
 		}
+		if platform == PlatformComposite && action == "realtime" {
+			platform = pinUnresolvedCompositeGrokTarget(requestContext)
+		}
 		descriptor := domain.PlatformAction(domain.ActionIdentity{Platform: platform, HostedAccountType: RequiredRouteAccountType(requestContext.Request.Context())}, action)
 		handler := d.handlers[descriptor.Adapter]
 		if handler == nil {
@@ -117,7 +120,8 @@ func GatewayVoiceHandler(handler func(*gin.Context, string), endpoint func(*gin.
 		if path == "stt" {
 			action = "audio.stt"
 		}
-		if domain.PlatformAction(domain.ActionIdentity{Platform: GatewayTargetPlatform(requestContext)}, action).Adapter == "" {
+		platform := pinUnresolvedCompositeGrokTarget(requestContext)
+		if domain.PlatformAction(domain.ActionIdentity{Platform: platform}, action).Adapter == "" {
 			rejectGatewayAction(requestContext)
 			return
 		}
@@ -126,12 +130,31 @@ func GatewayVoiceHandler(handler func(*gin.Context, string), endpoint func(*gin.
 }
 func GatewaySearchHandler(handler gin.HandlerFunc) gin.HandlerFunc {
 	return func(requestContext *gin.Context) {
-		if domain.PlatformAction(domain.ActionIdentity{Platform: GatewayTargetPlatform(requestContext)}, "search").Adapter == "" {
+		platform := pinUnresolvedCompositeGrokTarget(requestContext)
+		if domain.PlatformAction(domain.ActionIdentity{Platform: platform}, "search").Adapter == "" {
 			rejectGatewayAction(requestContext)
 			return
 		}
 		handler(requestContext)
 	}
+}
+
+// pinUnresolvedCompositeGrokTarget resolves Composite groups for actions that
+// only Grok implements and whose native requests carry no model selector
+// (voice/tts/stt, standalone search, realtime without a query model). An
+// explicit composite resolution always wins — GatewayTargetPlatform only
+// returns PlatformComposite when nothing was resolved — so pinning never
+// overrides a client-chosen target. The pin is written into the request
+// context so quota, account selection and billing observe the same concrete
+// platform; groups without Grok accounts still fail at account selection.
+func pinUnresolvedCompositeGrokTarget(requestContext *gin.Context) string {
+	platform := GatewayTargetPlatform(requestContext)
+	if platform != PlatformComposite {
+		return platform
+	}
+	requestContext.Request = requestContext.Request.WithContext(
+		WithResolvedTargetPlatform(requestContext.Request.Context(), PlatformGrok))
+	return PlatformGrok
 }
 
 // GatewayActionForRoute describes the inbound action; upstream bridges must not
@@ -256,9 +279,11 @@ func CompositeTargetPlatformMiddleware(resolver *CompositeRouteResolver) gin.Han
 			return
 		}
 		if c.Request.Method == http.MethodGet {
-			// Only this native WS ingress binds a public query model. Other
-			// GET routes retain their existing ownership/authentication flow.
-			if c.Request.URL.Path == "/api-ws/v1/realtime" {
+			// Native WS ingresses bind a public query model. Other GET routes
+			// retain their existing ownership/authentication flow. This covers
+			// Qianwen /api-ws/v1/realtime and the Grok voice realtime aliases
+			// (/v1/realtime, /realtime).
+			if strings.HasSuffix(c.Request.URL.Path, "/realtime") {
 				model := c.Query("model")
 				decision, err := resolver.Resolve(c.Request.Context(), apiKey.Group.ID, model, CompositeRouteEndpointAny)
 				if err != nil {
