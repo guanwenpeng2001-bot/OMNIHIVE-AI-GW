@@ -311,6 +311,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		return openCodeActionDescriptor(descriptor, action, adapter)
 	if identity.Platform == PlatformVolcengine {
 		return volcengineActionDescriptor(descriptor, action, adapter)
+	if identity.Platform == PlatformHunyuan {
+		return hunyuanActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor

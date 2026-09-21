@@ -15,9 +15,14 @@ import (
 const hunyuanCompatibilityBaseURL = "https://tokenhub.tencentmaas.com/v1"
 const hunyuanLegacyBaseURL = "https://api.hunyuan.cloud.tencent.com/v1"
 
-func hunyuanAccountEndpoint(account *Account) (string, string, error) {
+// hunyuanActionBaseURL resolves the account v1 base URL shared by chat and the
+// native TokenHub action families. Accounts that stored the bare legacy host
+// keep resolving to the documented legacy v1 path; every other value must be
+// one of the official TokenHub sites so a custom URL cannot silently redirect
+// vendor credentials to an unverified host.
+func hunyuanActionBaseURL(account *Account) (string, error) {
 	if account == nil || account.Platform != PlatformHunyuan || account.Type != AccountTypeAPIKey {
-		return "", "", errors.New("hunyuan requires a hunyuan API key account")
+		return "", errors.New("hunyuan requires a hunyuan API key account")
 	}
 	baseURL := strings.TrimSuffix(strings.TrimSpace(account.GetCredential("base_url")), "/")
 	switch baseURL {
@@ -28,7 +33,15 @@ func hunyuanAccountEndpoint(account *Account) (string, string, error) {
 	case hunyuanCompatibilityBaseURL, "https://tokenhub.tencentmaas.cn/v1",
 		"https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.cn/v1", hunyuanLegacyBaseURL:
 	default:
-		return "", "", errors.New("hunyuan base URL must use an official TokenHub or legacy endpoint")
+		return "", errors.New("hunyuan base URL must use an official TokenHub or legacy endpoint")
+	}
+	return baseURL, nil
+}
+
+func hunyuanAccountEndpoint(account *Account) (string, string, error) {
+	baseURL, err := hunyuanActionBaseURL(account)
+	if err != nil {
+		return "", "", err
 	}
 	apiKey := strings.TrimSpace(account.GetCredential("api_key"))
 	if apiKey == "" || strings.ContainsAny(apiKey, "\r\n") {
