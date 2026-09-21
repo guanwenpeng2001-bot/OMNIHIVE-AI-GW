@@ -108,12 +108,12 @@ func (s *UsageService) UserBillingTimeline(ctx context.Context, userID int64, qu
 		return nil, ErrUserBillingTimelinePageOutOfRange
 	}
 
-	heading, err := s.loadUserBillingTimelineEntries(ctx, userID, query)
+	loaded, err := s.loadUserBillingTimelineEntries(ctx, userID, query)
 	if err != nil {
 		return nil, err
 	}
-	paged, chargeEntries := heading.paged, heading.charges
-	sortUserBillingTimelineEntries(paged)
+	entries := append(loaded.paged, loaded.charges...)
+	sortUserBillingTimelineEntries(entries)
 
 	totals, total, err := s.loadUserBillingTimelineTotals(ctx, userID, query)
 	if err != nil {
@@ -121,10 +121,10 @@ func (s *UsageService) UserBillingTimeline(ctx context.Context, userID int64, qu
 	}
 	// Charge rows are day buckets that were loaded in full, so their entry count
 	// comes from the loaded rows while every other kind is counted in SQL.
-	total += int64(len(chargeEntries))
+	total += int64(len(loaded.charges))
 
 	return &UserBillingTimelinePage{
-		Entries:  paginateUserBillingTimeline(paged, query),
+		Entries:  paginateUserBillingTimeline(entries, query),
 		Totals:   totals,
 		Total:    total,
 		Page:     query.Page,
