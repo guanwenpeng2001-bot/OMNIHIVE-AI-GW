@@ -126,6 +126,9 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		return nil, err
 	}
 	apiKey.DisplaySuffix = displayKey[0].DisplaySuffix
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{apiKey}); err != nil {
+		return nil, err
+	}
 	return apiKey, nil
 }
 
@@ -171,7 +174,11 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	apiKey := apiKeyEntityToService(m)
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{apiKey}); err != nil {
+		return nil, err
+	}
+	return apiKey, nil
 }
 
 // authProjectionQuery selects the minimal fields the auth path needs, including the
@@ -417,6 +424,11 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 	}
 	out := apiKeyEntityToService(m)
 	out.CredentialValidUntil = resolution.validUntil
+	// The period budget is part of the auth projection: the gateway must know
+	// whether a request has to reserve budget without an extra round trip.
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{out}); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 
@@ -660,6 +672,9 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	if err := r.attachCredentialDisplaySuffixes(ctx, outKeys); err != nil {
 		return nil, nil, err
 	}
+	if err := r.attachBudgetStates(ctx, apiKeyPointers(outKeys)); err != nil {
+		return nil, nil, err
+	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
 }
@@ -683,7 +698,19 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	if err := r.attachCredentialDisplaySuffixes(ctx, outKeys); err != nil {
 		return nil, err
 	}
+	if err := r.attachBudgetStates(ctx, apiKeyPointers(outKeys)); err != nil {
+		return nil, err
+	}
 	return outKeys, nil
+}
+
+// apiKeyPointers adapts a value slice for helpers that fill extra fields.
+func apiKeyPointers(keys []service.APIKey) []*service.APIKey {
+	out := make([]*service.APIKey, 0, len(keys))
+	for i := range keys {
+		out = append(out, &keys[i])
+	}
+	return out
 }
 
 // attachCredentialDisplaySuffixes fills the non-secret tail of each key's current

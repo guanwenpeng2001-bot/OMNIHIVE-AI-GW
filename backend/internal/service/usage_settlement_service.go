@@ -231,6 +231,13 @@ func IsUsageSettlementRecovery(ctx context.Context) bool {
 
 func (s *UsageSettlementService) Recover(ctx context.Context) error {
 	ctx = context.WithValue(ctx, usageSettlementRecoveryContextKey{}, true)
+	// Abandoned request holds (process death, lost client) are refunded before
+	// recovery so a crashed request cannot strand budget or balance.
+	if released, err := s.ReleaseExpiredKeyBudgetReservations(ctx, 100); err != nil {
+		slog.Error("release expired key budget reservations", "failure_category", billingFailureCategory(err))
+	} else if released > 0 {
+		slog.Info("released expired key budget reservations", "count", released)
+	}
 	var cursor int64
 	for {
 		rows, err := s.repo.ListPending(ctx, cursor, 100)
@@ -267,6 +274,14 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	cmd := buildUsageBillingCommand(usage.RequestID, usage, p)
 	if cmd == nil {
 		return ErrUsageBillingRequestIDRequired
+	}
+	// A request-level budget hold belongs to this settlement: consuming it keeps
+	// the estimated hold and the actual cost in one transaction. When the hold is
+	// gone (released/expired) the repository falls back to the ordinary deduction.
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if hold := plan.BudgetHold(); hold != nil {
+			cmd.BudgetReservationID = hold.ID
+		}
 	}
 	completion := "complete"
 	if interrupted {

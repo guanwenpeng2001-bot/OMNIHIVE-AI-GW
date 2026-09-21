@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 27 // Credential grace deadline must bound cached entries.
+const apiKeyAuthSnapshotVersion = 28 // Period budget policy must be part of the cached auth projection.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -356,6 +356,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		RateLimit5h:          apiKey.RateLimit5h,
 		RateLimit1d:          apiKey.RateLimit1d,
 		RateLimit7d:          apiKey.RateLimit7d,
+		BudgetPolicy:         budgetPolicySnapshot(apiKey.BudgetPolicy),
 		User: APIKeyAuthUserSnapshot{
 			ID:                         apiKey.User.ID,
 			Status:                     apiKey.User.Status,
@@ -447,6 +448,23 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	return snapshot
 }
 
+// budgetPolicySnapshot keeps the cached projection canonical; a nil policy means
+// the key has no period budget.
+func budgetPolicySnapshot(policy APIKeyBudgetPolicy) *APIKeyBudgetPolicy {
+	if !policy.IsActive() {
+		return nil
+	}
+	normalized := policy.Normalize()
+	return &normalized
+}
+
+func budgetPolicyFromSnapshot(policy *APIKeyBudgetPolicy) APIKeyBudgetPolicy {
+	if policy == nil {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}
+	}
+	return policy.Normalize()
+}
+
 func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapshot) *APIKey {
 	if snapshot == nil {
 		return nil
@@ -468,6 +486,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		RateLimit5h:          snapshot.RateLimit5h,
 		RateLimit1d:          snapshot.RateLimit1d,
 		RateLimit7d:          snapshot.RateLimit7d,
+		BudgetPolicy:         budgetPolicyFromSnapshot(snapshot.BudgetPolicy),
 		User: &User{
 			ID:                         snapshot.User.ID,
 			Status:                     snapshot.User.Status,

@@ -31,6 +31,11 @@ type APIKeyAuthSnapshot struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+
+	// Period budget policy (opt-in). It is cached with the rest of the auth
+	// projection so the gateway can decide whether a request must reserve budget
+	// without an extra database round trip per request.
+	BudgetPolicy *APIKeyBudgetPolicy `json:"budget_policy,omitempty"`
 }
 
 // APIKeyAuthUserSnapshot 用户快照

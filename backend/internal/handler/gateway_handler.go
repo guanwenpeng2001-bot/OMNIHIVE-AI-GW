@@ -266,6 +266,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 
+	// 2.5 周期预算预留：预算不足直接拒绝，不进入上游（并发下不无条件透支）
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
+		return
+	}
+
 	// 设置请求所属分组 ID（用于渠道级功能判断，如 WebSearch 模拟）
 	parsedReq.GroupID = apiKey.GroupID
 

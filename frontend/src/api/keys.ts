@@ -5,7 +5,7 @@ import { postIdempotentCreate } from './idempotency'
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
+import type { ApiKey, ApiKeyPeriodBudgetRequest, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
 import type { PaginatedResponse } from '@/types/common'
 
 /**
@@ -57,6 +57,7 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param quota - Optional quota limit in USD (0 = unlimited)
  * @param expiresInDays - Optional days until expiry (undefined = never expires)
  * @param rateLimitData - Optional rate limit fields
+ * @param budgetData - Optional period budget (USD) fields, separate from rate limits
  * @returns The created key plus its secret, which is shown only once
  */
 export async function create(
@@ -67,7 +68,8 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
+  budgetData?: ApiKeyPeriodBudgetRequest
 ): Promise<ApiKeyCredentialIssue> {
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
@@ -96,6 +98,29 @@ export async function create(
   }
   if (rateLimitData?.rate_limit_7d && rateLimitData.rate_limit_7d > 0) {
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
+  }
+  if (budgetData) {
+    if (budgetData.legacy_budget_anchor) {
+      payload.legacy_budget_anchor = budgetData.legacy_budget_anchor
+    }
+    if (budgetData.budget_period_mode) {
+      payload.budget_period_mode = budgetData.budget_period_mode
+    }
+    if (budgetData.budget_limit !== undefined) {
+      payload.budget_limit = budgetData.budget_limit
+    }
+    if (budgetData.budget_duration_seconds !== undefined) {
+      payload.budget_duration_seconds = budgetData.budget_duration_seconds
+    }
+    if (budgetData.budget_anchor) {
+      payload.budget_anchor = budgetData.budget_anchor
+    }
+    if (budgetData.budget_calendar_unit) {
+      payload.budget_calendar_unit = budgetData.budget_calendar_unit
+    }
+    if (budgetData.budget_timezone) {
+      payload.budget_timezone = budgetData.budget_timezone
+    }
   }
 
   return postIdempotentCreate<ApiKeyCredentialIssue>('/keys', payload)

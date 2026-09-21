@@ -42,6 +42,12 @@ type UsageBillingCommand struct {
 	APIKeyQuotaCost     float64
 	APIKeyRateLimitCost float64
 	AccountQuotaCost    float64
+
+	// BudgetReservationID is the live period-budget hold of this request. When it
+	// is set and still reserved, settlement consumes the hold instead of taking
+	// the balance twice. It is additive: old receipts decode as 0 and keep the
+	// legacy deduction path.
+	BudgetReservationID int64
 }
 
 func (c *UsageBillingCommand) Normalize() {
@@ -163,11 +169,14 @@ type AccountQuotaState struct {
 }
 
 type UsageBillingApplyResult struct {
-	Applied              bool
-	APIKeyQuotaExhausted bool
-	NewBalance           *float64           // post-deduction balance (nil = no balance deduction)
-	BalanceOverdrafted   bool               // true when the sufficient-balance guard missed and debt was still recorded
-	QuotaState           *AccountQuotaState // post-increment quota state (nil = no quota increment)
+	Applied                  bool
+	APIKeyQuotaExhausted     bool
+	NewBalance               *float64           // post-deduction balance (nil = no balance deduction)
+	BalanceOverdrafted       bool               // true when the actual cost exceeded the available balance
+	BalanceUncovered         float64            // amount the balance could not cover; still recorded in usage/receipt
+	BudgetReservationSettled bool               // true when this settlement consumed a live request hold
+	BudgetOverrun            float64            // spend that did not fit the period limit, recorded as overrun
+	QuotaState               *AccountQuotaState // post-increment quota state (nil = no quota increment)
 }
 
 // BatchImageBalanceHoldCommand describes an idempotent balance hold operation.

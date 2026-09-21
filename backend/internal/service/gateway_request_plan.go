@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,8 @@ type GatewayRequestPlan struct {
 	state            GatewayRequestState
 	leases           map[*gatewayPlanLease]struct{}
 	usage            atomic.Bool
+	budgetHold       *KeyBudgetReservation
+	budgetAdmitted   bool
 	catalogRepo      AccountRepository
 	affinityState    *AffinityBindingState
 	bindingAccountID int64
@@ -135,10 +138,141 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	p.state.ClientCommitted = p.state.ClientCommitted || committed
 	leases := p.leases
 	p.leases = make(map[*gatewayPlanLease]struct{})
+	hold := p.budgetHold
+	settled := p.state.ReceiptState == UsageSettlementSettled
 	p.mu.Unlock()
 	for lease := range leases {
 		lease.once.Do(lease.release)
 	}
+	// A hold that never settled must be refunded here; the expiry sweep is only
+	// the crash fallback. A settled receipt already consumed its hold.
+	if hold != nil && !settled {
+		p.releaseBudgetHold(hold)
+	}
+}
+
+// releaseBudgetHold refunds an unconsumed request hold with a detached context:
+// the request context is usually already canceled at this point.
+func (p *GatewayRequestPlan) releaseBudgetHold(hold *KeyBudgetReservation) {
+	if p == nil || hold == nil || p.settlement == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.settlement.ReleaseKeyBudgetReservation(ctx, hold.APIKeyID, hold.RequestID); err != nil {
+		slog.Warn("release request budget hold", "api_key_id", hold.APIKeyID, "request_id", hold.RequestID, "error", err)
+	}
+}
+
+// RequestBudgetEstimate is the bounded cost estimate used to reserve budget
+// before a request is forwarded. Token counts are upper bounds, never usage.
+type RequestBudgetEstimate struct {
+	Model          string
+	InputTokens    int
+	OutputTokens   int
+	RateMultiplier float64
+	// SkipBalanceHold keeps the reservation on the period budget only.
+	SkipBalanceHold bool
+}
+
+// Conservative token defaults keep the reservation meaningful when a caller
+// cannot supply a bound; settlement still adjusts to the real cost.
+const (
+	defaultBudgetEstimateInputTokens  = 1024
+	defaultBudgetEstimateOutputTokens = 4096
+)
+
+// BudgetHold returns the live request hold, if any. The settlement path reads it
+// to consume the hold instead of deducting the balance twice.
+func (p *GatewayRequestPlan) BudgetHold() *KeyBudgetReservation {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.budgetHold
+}
+
+// BudgetAdmitted reports whether admission was already decided for this plan.
+func (p *GatewayRequestPlan) BudgetAdmitted() bool {
+	if p == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.budgetAdmitted
+}
+
+// ReserveBudget admits one request against the key's period budget and payer
+// balance. It is idempotent per plan: failover retries reuse the first hold.
+//
+// The estimate is priced with the plan's frozen pricing snapshot, so a price
+// reload cannot change what this request reserved.
+func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate RequestBudgetEstimate) error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.budgetAdmitted {
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+	if p.settlement == nil {
+		return ErrAPIKeyBudgetUnavailable
+	}
+	spec := p.Snapshot()
+	if spec.APIKeyID <= 0 || spec.UserID <= 0 || strings.TrimSpace(spec.ExecutionID) == "" {
+		return ErrAPIKeyBudgetUnavailable
+	}
+	hold := p.estimateBudgetHold(estimate)
+	outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
+		RequestID:       spec.ExecutionID,
+		APIKeyID:        spec.APIKeyID,
+		UserID:          spec.UserID,
+		HoldAmount:      hold,
+		SkipBalanceHold: estimate.SkipBalanceHold,
+	})
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.budgetAdmitted = true
+	if outcome != nil {
+		p.budgetHold = outcome.Reservation
+	}
+	p.mu.Unlock()
+	return nil
+}
+
+// estimateBudgetHold prices the request bound with the frozen snapshot. An
+// unpriced model yields no hold: the existing pricing-error path owns that case
+// and must not be replaced by an admission error here.
+func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) float64 {
+	if p.billing == nil {
+		return 0
+	}
+	input := estimate.InputTokens
+	if input <= 0 {
+		input = defaultBudgetEstimateInputTokens
+	}
+	output := estimate.OutputTokens
+	if output <= 0 {
+		output = defaultBudgetEstimateOutputTokens
+	}
+	multiplier := estimate.RateMultiplier
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	cost, err := p.billing.CalculateCost(estimate.Model, UsageTokens{InputTokens: input, OutputTokens: output}, multiplier)
+	if err != nil || cost == nil {
+		return 0
+	}
+	hold := cost.ActualCost
+	if hold < 0 || math.IsNaN(hold) || math.IsInf(hold, 0) {
+		return 0
+	}
+	return QuantizeUsageBillingAmount(hold)
 }
 
 func (p *GatewayRequestPlan) Finalize(clientCommitted bool) { p.finish(false, clientCommitted) }

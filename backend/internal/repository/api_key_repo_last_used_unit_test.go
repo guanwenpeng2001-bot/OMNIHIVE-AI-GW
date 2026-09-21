@@ -32,7 +32,33 @@ func newAPIKeyRepoSQLite(t *testing.T) (*apiKeyRepository, *dbent.Client) {
 	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(drv)))
 	t.Cleanup(func() { _ = client.Close() })
 
+	addSQLiteAPIKeyBudgetColumns(t, db)
 	return &apiKeyRepository{client: client, sql: db}, client
+}
+
+// addSQLiteAPIKeyBudgetColumns mirrors migration 275. The period budget is
+// SQL-owned (Ent does not declare these columns), so SQLite fixtures must add
+// them explicitly or the budget projection cannot be read.
+func addSQLiteAPIKeyBudgetColumns(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, statement := range []string{
+		`ALTER TABLE api_keys ADD COLUMN budget_period_mode TEXT NOT NULL DEFAULT 'off'`,
+		`ALTER TABLE api_keys ADD COLUMN budget_period_seconds INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_period_anchor TEXT NOT NULL DEFAULT 'first_use'`,
+		`ALTER TABLE api_keys ADD COLUMN budget_calendar_unit TEXT NOT NULL DEFAULT 'day'`,
+		`ALTER TABLE api_keys ADD COLUMN budget_timezone TEXT NOT NULL DEFAULT 'UTC'`,
+		`ALTER TABLE api_keys ADD COLUMN budget_limit REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_enforced INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_used REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_reserved REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_overrun REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE api_keys ADD COLUMN budget_period_start TIMESTAMP`,
+		`ALTER TABLE api_keys ADD COLUMN budget_period_end TIMESTAMP`,
+	} {
+		if _, err := db.Exec(statement); err != nil {
+			t.Fatalf("add sqlite budget column: %v", err)
+		}
+	}
 }
 
 func mustCreateAPIKeyRepoUser(t *testing.T, ctx context.Context, client *dbent.Client, email string) *service.User {
