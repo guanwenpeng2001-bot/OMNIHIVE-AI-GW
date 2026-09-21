@@ -126,6 +126,21 @@ export default {
     keyUpdatedSuccess: 'API key updated successfully',
     keyDeletedSuccess: 'API key deleted successfully',
     keyEnabledSuccess: 'API key enabled successfully',
+    rotateKey: 'Rotate key',
+    rotation: {
+      description: 'Generate a new secret for "{name}". The key keeps its ID, so usage and billing history continue.',
+      revokePrevious: 'Revoke the previous secret immediately (no grace window)',
+      graceHours: 'Grace window (hours)',
+      graceDefault: 'Default: 24 hours',
+      graceHint: 'The previous secret keeps working until the grace window ends, then it stops.',
+      success: 'API key rotated successfully'
+    },
+    secretOnce: {
+      title: 'Copy your new secret',
+      warning: 'This secret is shown only once. Copy it now; you cannot view it again.',
+      graceUntil: 'The previous secret stops working at {time}.',
+      confirm: 'I have saved it'
+    },
     keyDisabledSuccess: 'API key disabled successfully',
     failedToLoad: 'Failed to load API keys',
     failedToSave: 'Failed to save API key',

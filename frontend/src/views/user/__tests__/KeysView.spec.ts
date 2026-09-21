@@ -30,6 +30,7 @@ const {
   copyToClipboard,
   isCurrentStep,
   nextStep,
+  createKey,
 } = vi.hoisted(() => ({
   listKeys: vi.fn(),
   updateKey: vi.fn(),
@@ -42,6 +43,7 @@ const {
   copyToClipboard: vi.fn(),
   isCurrentStep: vi.fn(),
   nextStep: vi.fn(),
+  createKey: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -73,10 +75,12 @@ const messages: Record<string, string> = {
 vi.mock('@/api', () => ({
   keysAPI: {
     list: listKeys,
-    create: vi.fn(),
+    create: createKey,
     update: updateKey,
     delete: vi.fn(),
     toggleStatus: vi.fn(),
+    rotate: vi.fn(),
+    revokeCredentials: vi.fn(),
   },
   authAPI: {
     getPublicSettings,
@@ -106,6 +110,7 @@ vi.mock('@/stores/onboarding', () => ({
 
 vi.mock('@/composables/useClipboard', () => ({
   useClipboard: () => ({
+    copied: { value: false },
     copyToClipboard,
   }),
 }))
@@ -197,6 +202,12 @@ const DataTableStub = {
         >
           <slot name="cell-last_used_ip" :value="row.last_used_ip" :row="row" />
         </div>
+        <div
+          v-if="columns.some((col) => col.key === 'key')"
+          data-test="key-cell"
+        >
+          <slot name="cell-key" :value="row.key" :row="row" />
+        </div>
       </div>
       <slot name="empty" />
     </div>
@@ -285,6 +296,7 @@ describe('user KeysView column settings', () => {
 
     listKeys.mockReset()
     updateKey.mockReset()
+    createKey.mockReset()
     getPublicSettings.mockReset()
     getDashboardApiKeysUsage.mockReset()
     getAvailableGroups.mockReset()
@@ -592,6 +604,53 @@ describe('user KeysView column settings', () => {
       (column) => column.key === 'current_concurrency'
     )
     expect(currentConcurrencyColumn?.sortable).toBe(true)
+  })
+
+  it('shows the created secret once through the one-time dialog', async () => {
+    getAvailableGroups.mockResolvedValue([{ id: 42, name: 'OpenAI' }])
+    createKey.mockResolvedValue({
+      api_key: { ...createApiKey(), id: 9 },
+      secret: 'sk-created-once',
+      grace_until: null,
+    })
+    const wrapper = await mountView()
+
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('new key')
+    const groupSelect = wrapper
+      .findAllComponents({ name: 'Select' })
+      .find((select) => (select.element as Element).getAttribute('data-tour') === 'key-form-group')!
+    groupSelect.vm.$emit('update:modelValue', 42)
+    await flushPromises()
+
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    expect(createKey).toHaveBeenCalledWith('new key', 42, undefined, [], [], 0, undefined, {
+      rate_limit_5h: 0,
+      rate_limit_1d: 0,
+      rate_limit_7d: 0,
+    })
+    expect(wrapper.text()).toContain('sk-created-once')
+    expect(wrapper.text()).toContain('keys.secretOnce.warning')
+    wrapper.unmount()
+  })
+
+  it('never renders a plaintext credential in the key column', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [{ ...createApiKey(), key: '****abcd' }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+
+    const table = wrapper.findComponent({ name: 'DataTable' })
+    expect(table.props('data')[0].key).toBe('****abcd')
+    expect(wrapper.html()).not.toContain('maskApiKey')
+    wrapper.unmount()
   })
 
   it('keeps filters and selected page size when sorting by current concurrency', async () => {
