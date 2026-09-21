@@ -89,3 +89,28 @@ func TestImageTaskServiceMapsStoreFailures(t *testing.T) {
 	_, err := svc.Create(context.Background(), ImageTaskOwner{UserID: 1, APIKeyID: 2})
 	require.ErrorIs(t, err, ErrImageTaskUnavailable)
 }
+
+// The same user/key pair inside another workspace must not resolve the task:
+// task ownership includes the workspace recorded at admission.
+func TestImageTaskServiceRejectsCrossWorkspaceAccess(t *testing.T) {
+	store := &imageTaskMemoryStore{}
+	svc := NewImageTaskServiceWithOptions(store, time.Hour, 10*time.Minute)
+	owner := ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 1}
+	created, err := svc.Create(context.Background(), owner)
+	require.NoError(t, err)
+	require.Equal(t, int64(1), store.task.WorkspaceID)
+
+	_, err = svc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, created.ID)
+	require.ErrorIs(t, err, ErrImageTaskNotFound)
+
+	// A legacy record without a workspace belongs to the default workspace.
+	legacy := &imageTaskMemoryStore{}
+	legacySvc := NewImageTaskServiceWithOptions(legacy, time.Hour, 10*time.Minute)
+	legacyCreated, err := legacySvc.Create(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9})
+	require.NoError(t, err)
+	legacy.task.WorkspaceID = 0
+	_, err = legacySvc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 2}, legacyCreated.ID)
+	require.ErrorIs(t, err, ErrImageTaskNotFound)
+	_, err = legacySvc.Get(context.Background(), ImageTaskOwner{UserID: 7, APIKeyID: 9, WorkspaceID: 1}, legacyCreated.ID)
+	require.NoError(t, err)
+}

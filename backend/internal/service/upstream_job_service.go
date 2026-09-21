@@ -44,6 +44,8 @@ type UpstreamJobBilling struct {
 }
 
 type UpstreamJob struct {
+	WorkspaceID        int64                 `json:"workspace_id"`
+	Version            int64                 `json:"version"`
 	ResourceState      UpstreamResourceState `json:"resource_state"`
 	SubmissionKey      string                `json:"submission_key"`
 	ID                 int64                 `json:"id"`

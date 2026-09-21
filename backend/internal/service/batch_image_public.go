@@ -222,7 +222,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 			}
 			if existing.Status == BatchImageJobStatusSubmitted && s.Queue != nil {
 				if enqueueErr := s.Queue.Enqueue(ctx, existing.BatchID); enqueueErr != nil && !errors.Is(enqueueErr, ErrBatchImageAlreadyQueued) {
-					_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, existing.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(enqueueErr.Error()), false)
+					_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, existing.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(enqueueErr.Error()), false, existing.Version)
 					return nil, ErrBatchImageQueueFailed
 				}
 			}
@@ -294,7 +294,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		if errors.Is(err, ErrBatchImageInsufficientBalance) {
 			code = "INSUFFICIENT_BALANCE"
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, code, sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, code, sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		return nil, err
 	}
@@ -303,7 +303,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
 			return nil, releaseErr
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "ITEM_CREATE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "ITEM_CREATE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		return nil, ErrBatchImageQueueFailed
 	}
@@ -344,12 +344,13 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		}
 		// 并发 Cancel 等导致的非法转换：job 已处于终态，不再覆盖其状态。
 		if !errors.Is(err, ErrBatchImageInvalidTransition) {
-			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "UPLOAD_TRANSITION_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "UPLOAD_TRANSITION_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 			s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		}
 		return nil, err
 	}
 	job.Status = BatchImageJobStatusUploading
+	job.Version++
 
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	hbDone := make(chan struct{})
@@ -363,7 +364,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		// existing terminal billing recovery. The request may already be cancelled.
 		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		if persistErr := s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_NOT_CREATED", sanitizeBatchImagePublicMessage(err.Error()), true); persistErr != nil {
+		if persistErr := s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_NOT_CREATED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version); persistErr != nil {
 			return nil, persistErr
 		}
 		if releaseErr := s.releaseFailedSubmitHold(persistCtx, job, requestHash); releaseErr != nil {
@@ -377,7 +378,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		// the connection failed. Keep uploading and the hold for reconciliation.
 		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer cancel()
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_UNKNOWN", "upstream submission outcome requires reconciliation", false)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_UNKNOWN", "upstream submission outcome requires reconciliation", false, job.Version)
 		return nil, ErrBatchImageProviderSubmitFailed
 	}
 	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
@@ -398,9 +399,11 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		return nil, err
 	}
 
+	job.Status = BatchImageJobStatusSubmitted
+	job.Version++
 	if s.Queue != nil {
 		if err := s.Queue.Enqueue(ctx, job.BatchID); err != nil && !errors.Is(err, ErrBatchImageAlreadyQueued) {
-			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), false)
+			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), false, job.Version)
 			return nil, ErrBatchImageQueueFailed
 		}
 	}
@@ -414,7 +417,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 
 func (s *BatchImagePublicService) releaseFailedSubmitHold(ctx context.Context, job *BatchImageJob, requestHash string) error {
 	if err := releaseBatchImageBalanceHold(ctx, s.BillingRepo, job, requestHash); err != nil {
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "BILLING_RELEASE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "BILLING_RELEASE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.enqueueBillingRetry(ctx, job.BatchID)
 		return ErrBatchImageBillingHoldFailed
 	}
