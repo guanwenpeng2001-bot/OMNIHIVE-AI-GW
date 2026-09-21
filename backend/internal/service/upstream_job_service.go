@@ -41,6 +41,10 @@ type UpstreamJobBilling struct {
 	Async *QianwenAsyncSnapshot `json:"async,omitempty"`
 	// FileBatch contains only validated resource metadata, never file contents.
 	FileBatch *QianwenFileBatchSnapshot `json:"file_batch,omitempty"`
+	// ResourceFile and ResourceBatch carry the standard resource-action
+	// admission snapshots. They contain hashes, counts and frozen rates only.
+	ResourceFile  *GatewayResourceFileSnapshot  `json:"resource_file,omitempty"`
+	ResourceBatch *GatewayResourceBatchSnapshot `json:"resource_batch,omitempty"`
 }
 
 type UpstreamJob struct {
