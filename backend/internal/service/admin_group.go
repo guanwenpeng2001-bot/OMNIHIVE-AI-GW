@@ -296,7 +296,8 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// Older clients send the false zero value, so Grok groups must default enabled.
 	// MiniMax has native image/video generation (image-01 / MiniMax-H3), so new
 	// MiniMax groups default to the actual capability as well.
-	return platform == PlatformGrok || platform == PlatformMiniMax
+	// Volcengine Ark has native Seedream image generation (doubao-seedream-*).
+	return platform == PlatformGrok || platform == PlatformMiniMax || platform == PlatformVolcengine
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {
