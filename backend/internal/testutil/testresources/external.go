@@ -98,6 +98,12 @@ func RequireDisposableDatabase(test *testing.T, variable string) {
 	if !External() {
 		return
 	}
+	if strings.TrimSpace(os.Getenv(variable)) == "" {
+		// An unset variable means this suite's disposable database was not
+		// configured; that is a coverage gap to skip, not a misconfiguration to
+		// fail on. A variable that is set but unusable still fails below.
+		test.Skipf("external services: %s is not set; this suite needs a fresh disposable database", variable)
+	}
 	if err := ValidatePostgres(os.Getenv(variable), "job_test"); err != nil {
 		test.Fatal(err)
 	}

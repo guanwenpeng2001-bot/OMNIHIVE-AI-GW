@@ -56,6 +56,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"usage_dashboard_hourly_users", "usage_dashboard_daily_users",
 		"usage_dashboard_hourly", "usage_dashboard_daily", "scheduler_outbox",
 		"user_affiliate_ledger", "payment_orders", "usage_cleanup_tasks",
+		"credential_secrets", "api_key_credentials",
 		"user_subscriptions", "user_allowed_groups", "api_keys",
 		"identity_adoption_decisions", "auth_identity_channels", "auth_identities",
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
@@ -71,11 +72,12 @@ func cleanupRepositoryRows(t *testing.T) {
 		"announcements", "content_moderation_logs", "prompt_audit_events", "prompt_audit_jobs",
 		"redeem_codes", "sub2api_plugin_installations", "channel_monitors",
 		"channel_groups", "composite_model_routes", "model_access_groups")
-	var unreviewed int
-	require.NoError(t, tx.QueryRowContext(ctx, `SELECT count(*) FROM pg_constraint
+	var unreviewed string
+	require.NoError(t, tx.QueryRowContext(ctx, `SELECT coalesce(string_agg(DISTINCT conrelid::regclass::text, ', '), '') FROM pg_constraint
  WHERE contype = 'f' AND confrelid = ANY($1::regclass[])
  AND NOT (conrelid = ANY($2::regclass[]))`, pq.Array(parents), pq.Array(dependents)).Scan(&unreviewed))
-	require.Zero(t, unreviewed, "fixture cleanup has unreviewed foreign-key dependents")
+	require.Empty(t, unreviewed,
+		"fixture cleanup has unreviewed foreign-key dependents: %s; review them and add to the delete order above", unreviewed)
 	for _, table := range tables {
 		_, err := tx.ExecContext(ctx, "DELETE FROM "+pq.QuoteIdentifier(table))
 		require.NoError(t, err, "clear fixture table %s", table)
