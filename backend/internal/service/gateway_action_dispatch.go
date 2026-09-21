@@ -120,8 +120,12 @@ func GatewayVoiceHandler(handler func(*gin.Context, string), endpoint func(*gin.
 		if path == "stt" {
 			action = "audio.stt"
 		}
+		// Composite Grok targets must be pinned first, then this route - which
+		// wraps only the Grok voice adapter - fails closed for any other
+		// platform whose action is served by its own native ingress.
 		platform := pinUnresolvedCompositeGrokTarget(requestContext)
-		if domain.PlatformAction(domain.ActionIdentity{Platform: platform}, action).Adapter == "" {
+		descriptor := domain.PlatformAction(domain.ActionIdentity{Platform: platform}, action)
+		if descriptor.Adapter == "" || descriptor.Adapter != "grok."+action {
 			rejectGatewayAction(requestContext)
 			return
 		}

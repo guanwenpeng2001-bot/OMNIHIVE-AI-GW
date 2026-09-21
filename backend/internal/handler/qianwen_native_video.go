@@ -38,14 +38,20 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool
 		return true
 	}
 	if lookup {
-		id := strings.TrimPrefix(path, "/api/v1/tasks/")
+		rawID := strings.TrimPrefix(path, "/api/v1/tasks/")
+		content := strings.HasSuffix(rawID, "/content")
+		id := strings.TrimSuffix(rawID, "/content")
 		job, err := h.upstreamJobs.Get(c.Request.Context(), id, key.UserID, key.ID)
-		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && (job.Platform != service.PlatformQianwen || job.Family != "video" && job.Family != "3d" && job.Family != "asr") {
+		if errors.Is(err, service.ErrUpstreamJobNotFound) || err == nil && (job.Platform != service.PlatformQianwen || job.Family != "video" && job.Family != "3d" && job.Family != "asr" && job.Family != "image") {
 			h.errorResponse(c, 404, "not_found_error", "Task not found")
 			return true
 		}
 		if err != nil {
 			h.errorResponse(c, 503, "api_error", "Task store unavailable")
+			return true
+		}
+		if content {
+			h.writeQianwenVideoContent(c, job)
 			return true
 		}
 		writeQianwenAsyncJob(c, job, http.StatusOK)
@@ -130,6 +136,35 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	writeQianwenAsyncJob(c, job, http.StatusAccepted)
 	return true
+}
+
+// qianwenVideoContentOpener is the provider result download boundary; tests
+// substitute it to keep owner-permission flows off the network.
+var qianwenVideoContentOpener = service.OpenQianwenVideoContent
+
+// writeQianwenVideoContent streams a settled video result to the task owner.
+// Only succeeded video jobs with a single recorded provider URL qualify; the
+// upstream task ID is never exposed and the download crosses no tenant line.
+func (h *OpenAIGatewayHandler) writeQianwenVideoContent(c *gin.Context, j *service.UpstreamJob) {
+	if j.Family != "video" {
+		h.errorResponse(c, 404, "not_found_error", "Task content not found")
+		return
+	}
+	if j.Status != "succeeded" || j.ResultRef == "" {
+		h.errorResponse(c, 409, "resource_not_ready", "Task content is not ready")
+		return
+	}
+	resp, err := qianwenVideoContentOpener(c.Request.Context(), j.ResultRef)
+	if err != nil {
+		h.errorResponse(c, 502, "resource_content_unavailable", "Task content unavailable")
+		return
+	}
+	defer func() { _ = resp.Body.Close() }()
+	contentType := resp.Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "video/mp4"
+	}
+	c.DataFromReader(http.StatusOK, resp.ContentLength, contentType, resp.Body, nil)
 }
 
 func writeQianwenAsyncJob(c *gin.Context, j *service.UpstreamJob, status int) {
