@@ -41,15 +41,38 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 	return repo.GetByID(ctx, *account.ParentAccountID)
 }
 
+// openAICompatiblePlanCatalogEndpoint reports the catalog endpoint family a
+// planned OpenAI-compatible request is judged on. Media families read the
+// endpoint their protocol actually executes on; every other protocol keeps the
+// Responses evidence, whose bridge accepts native Chat Completions evidence for
+// bridged accounts but never an unrelated endpoint. The scheduler's model gate
+// and the earlier pre-profit gate both read this single rule, so the earlier
+// veto can never refuse an account the scheduler gate would admit.
+func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) string {
+	plan := GatewayRequestPlanFromContext(ctx)
+	if plan == nil {
+		return ""
+	}
+	switch plan.Snapshot().Protocol {
+	case "media":
+		// Media evidence is recorded per platform: Grok declares its imagine
+		// family, every other OpenAI-compatible platform declares image
+		// endpoints for image and video tasks (account_model_catalog.go).
+		if account != nil && account.IsGrok() {
+			return requestCatalogEndpoint(ctx)
+		}
+		return CompositeRouteEndpointImages
+	case "images", "embeddings", "search", "live", "realtime":
+		return requestCatalogEndpoint(ctx)
+	default:
+		return CompositeRouteEndpointResponses
+	}
+}
+
 func (s *OpenAIGatewayService) supportsOpenAIAccountModel(ctx context.Context, account *Account, model string, capability OpenAIEndpointCapability) bool {
 	endpoint := string(capability)
-	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-		switch plan.Snapshot().Protocol {
-		case "images", "embeddings", "media", "search", "live", "realtime":
-			endpoint = requestCatalogEndpoint(ctx)
-		default:
-			endpoint = CompositeRouteEndpointResponses
-		}
+	if GatewayRequestPlanFromContext(ctx) != nil {
+		endpoint = openAICompatiblePlanCatalogEndpoint(ctx, account)
 	}
 	options := AccountModelBindingOptions{Endpoint: endpoint}
 	if account != nil && account.IsShadow() {
