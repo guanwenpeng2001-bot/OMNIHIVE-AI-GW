@@ -109,6 +109,11 @@ func (h *OpenAIGatewayHandler) Embeddings(c *gin.Context) {
 		return
 	}
 
+	// Period budget hold: insufficient budget is rejected before the upstream.
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
+		return
+	}
+
 	profitVetoCount := 0
 	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	routingStart := time.Now()

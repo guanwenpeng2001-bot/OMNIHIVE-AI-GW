@@ -223,6 +223,16 @@ type CreateAPIKeyRequest struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+
+	// Period budget (optional, self-set upper limit). Exactly one of
+	// LegacyBudgetAnchor or BudgetPeriodMode/BudgetLimit describes the period.
+	LegacyBudgetAnchor    string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      string  `json:"budget_period_mode"`
+	BudgetLimit           float64 `json:"budget_limit"`
+	BudgetDurationSeconds int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          string  `json:"budget_anchor"`
+	BudgetCalendarUnit    string  `json:"budget_calendar_unit"`
+	BudgetTimezone        string  `json:"budget_timezone"`
 }
 
 // UpdateAPIKeyRequest 更新API Key请求
@@ -243,7 +253,18 @@ type UpdateAPIKeyRequest struct {
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Owner-facing reset is rejected; see ErrAPIKeyUsageResetForbidden.
+
+	// Period budget (nil = no change). ClearBudget removes a self-set budget and
+	// is rejected for platform-enforced budgets.
+	LegacyBudgetAnchor    *string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      *string  `json:"budget_period_mode"`
+	BudgetLimit           *float64 `json:"budget_limit"`
+	BudgetDurationSeconds *int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          *string  `json:"budget_anchor"`
+	BudgetCalendarUnit    *string  `json:"budget_calendar_unit"`
+	BudgetTimezone        *string  `json:"budget_timezone"`
+	ClearBudget           *bool    `json:"clear_budget"`
 }
 
 func validateAPIKeyLimit(v float64) error {
@@ -254,7 +275,7 @@ func validateAPIKeyLimit(v float64) error {
 }
 
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
-	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if err := validateAPIKeyLimit(v); err != nil {
 			return err
 		}
@@ -262,11 +283,45 @@ func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
 		return infraerrors.BadRequest("API_KEY_EXPIRY_INVALID", "expires_in_days must be greater than zero")
 	}
+	if _, err := apiKeyBudgetPolicyFromCreateRequest(req); err != nil {
+		return err
+	}
 	return nil
 }
 
+// apiKeyBudgetPolicyFromCreateRequest builds the period budget of a new key.
+// A legacy anchor keeps its historical window; an explicit mode describes a
+// fixed calendar period or a custom duration.
+func apiKeyBudgetPolicyFromCreateRequest(req CreateAPIKeyRequest) (APIKeyBudgetPolicy, error) {
+	if anchor := strings.TrimSpace(req.LegacyBudgetAnchor); anchor != "" {
+		policy, ok := LegacyAPIKeyBudgetPolicy(anchor, req.BudgetLimit, false)
+		if !ok {
+			return APIKeyBudgetPolicy{}, fmt.Errorf("%w: unknown legacy budget anchor %q", ErrAPIKeyBudgetInvalid, anchor)
+		}
+		if err := policy.Validate(); err != nil {
+			return APIKeyBudgetPolicy{}, err
+		}
+		return policy.Normalize(), nil
+	}
+	policy := APIKeyBudgetPolicy{
+		Mode:            req.BudgetPeriodMode,
+		LimitUSD:        req.BudgetLimit,
+		DurationSeconds: req.BudgetDurationSeconds,
+		Anchor:          req.BudgetAnchor,
+		CalendarUnit:    req.BudgetCalendarUnit,
+		Timezone:        req.BudgetTimezone,
+	}
+	if policy.Normalize().Mode == APIKeyBudgetModeOff && policy.LimitUSD == 0 {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, nil
+	}
+	if err := policy.Validate(); err != nil {
+		return APIKeyBudgetPolicy{}, err
+	}
+	return policy.Normalize(), nil
+}
+
 func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
-	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if v != nil {
 			if err := validateAPIKeyLimit(*v); err != nil {
 				return err
@@ -274,6 +329,58 @@ func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
 		}
 	}
 	return nil
+}
+
+// apiKeyBudgetPolicyFromUpdateRequest merges a partial budget update onto the
+// stored policy. Absent fields keep their current value; a legacy anchor wins
+// over an explicit mode.
+func apiKeyBudgetPolicyFromUpdateRequest(current APIKeyBudgetPolicy, req UpdateAPIKeyRequest) (APIKeyBudgetPolicy, bool, error) {
+	if req.ClearBudget != nil && *req.ClearBudget {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+	}
+	changed := req.LegacyBudgetAnchor != nil || req.BudgetPeriodMode != nil || req.BudgetLimit != nil ||
+		req.BudgetDurationSeconds != nil || req.BudgetAnchor != nil || req.BudgetCalendarUnit != nil || req.BudgetTimezone != nil
+	if !changed {
+		return current.Normalize(), false, nil
+	}
+	next := current.Normalize()
+	if req.LegacyBudgetAnchor != nil {
+		anchor := strings.TrimSpace(*req.LegacyBudgetAnchor)
+		if anchor == "" {
+			// Empty anchor explicitly returns to the legacy-only configuration.
+			return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+		}
+		policy, ok := LegacyAPIKeyBudgetPolicy(anchor, next.LimitUSD, next.Enforced)
+		if !ok {
+			return APIKeyBudgetPolicy{}, false, fmt.Errorf("%w: unknown legacy budget anchor %q", ErrAPIKeyBudgetInvalid, anchor)
+		}
+		next = policy
+	}
+	if req.BudgetPeriodMode != nil {
+		next.Mode = strings.TrimSpace(*req.BudgetPeriodMode)
+	}
+	if req.BudgetLimit != nil {
+		next.LimitUSD = *req.BudgetLimit
+	}
+	if req.BudgetDurationSeconds != nil {
+		next.DurationSeconds = *req.BudgetDurationSeconds
+	}
+	if req.BudgetAnchor != nil {
+		next.Anchor = strings.TrimSpace(*req.BudgetAnchor)
+	}
+	if req.BudgetCalendarUnit != nil {
+		next.CalendarUnit = strings.TrimSpace(*req.BudgetCalendarUnit)
+	}
+	if req.BudgetTimezone != nil {
+		next.Timezone = strings.TrimSpace(*req.BudgetTimezone)
+	}
+	if next.Mode == APIKeyBudgetModeOff || next.LimitUSD <= 0 {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+	}
+	if err := next.Validate(); err != nil {
+		return APIKeyBudgetPolicy{}, false, err
+	}
+	return next.Normalize(), true, nil
 }
 
 // APIKeyService API Key服务
@@ -564,6 +671,20 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 
+	// The period budget lives in its own SQL projection; persist it after the key
+	// row exists so a failed budget write cannot leave a key without its policy.
+	policy, err := apiKeyBudgetPolicyFromCreateRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if policy.IsActive() {
+		saved, err := s.SaveBudgetPolicy(ctx, apiKey.ID, policy, false)
+		if err != nil {
+			return nil, err
+		}
+		apiKey.BudgetPolicy = saved
+	}
+
 	s.InvalidateAuthCacheByKey(ctx, APIKeyCredentialDigest(apiKey.Key))
 	s.compileAPIKeyIPRules(apiKey)
 
@@ -792,8 +913,17 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 	}
 
+	// 用户自助清零已消费额度是禁止的：强制预算与已结算消费都只能通过
+	// 管理员的审计化调整（AdjustBudgetUsage）移动，面板不能把它们归零。
+	if req.ResetQuota != nil && *req.ResetQuota {
+		return nil, ErrAPIKeyUsageResetForbidden
+	}
+	if req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage {
+		return nil, ErrAPIKeyUsageResetForbidden
+	}
+
 	// fields 只登记本次请求真正要改的列。quota_used 与 usage_5h/1d/7d 由计费热路径
-	// 原子递增，除非用户显式点了"重置"，否则这里不用快照把它们写回去。
+	// 原子递增，面板不再提供把它们写回去的路径。
 	var fields APIKeyUpdateFields
 	// 下面若干分支会顺带把 Status 改回 active（配额扩容、清除过期等），
 	// 所以用原始值比对来决定是否写 status，而不是只看 req.Status。
@@ -855,14 +985,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			apiKey.Status = StatusActive
 		}
 	}
-	if req.ResetQuota != nil && *req.ResetQuota {
-		apiKey.QuotaUsed = 0
-		fields.QuotaUsed = true
-		// If resetting quota and status was quota_exhausted, reactivate
-		if apiKey.Status == StatusAPIKeyQuotaExhausted {
-			apiKey.Status = StatusActive
-		}
-	}
 	if req.ClearExpiration {
 		apiKey.ExpiresAt = nil
 		fields.ExpiresAt = true
@@ -902,17 +1024,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.RateLimit7d = *req.RateLimit7d
 		fields.RateLimits = true
 	}
-	resetRateLimit := req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage
-	if resetRateLimit {
-		apiKey.Usage5h = 0
-		apiKey.Usage1d = 0
-		apiKey.Usage7d = 0
-		apiKey.Window5hStart = nil
-		apiKey.Window1dStart = nil
-		apiKey.Window7dStart = nil
-		fields.RateLimitUsage = true
-	}
-
 	// 上面的自动复活分支可能改了 status，这里统一登记。
 	if apiKey.Status != originalStatus {
 		fields.Status = true
@@ -922,13 +1033,22 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		return nil, fmt.Errorf("update api key: %w", err)
 	}
 
+	// Period budget: the owner may edit their own limit and period, but consumed
+	// usage is never reset and an enforced budget cannot be changed or cleared.
+	nextPolicy, policyChanged, err := apiKeyBudgetPolicyFromUpdateRequest(apiKey.BudgetPolicy, req)
+	if err != nil {
+		return nil, err
+	}
+	if policyChanged {
+		saved, err := s.SaveBudgetPolicy(ctx, apiKey.ID, nextPolicy, false)
+		if err != nil {
+			return nil, err
+		}
+		apiKey.BudgetPolicy = saved
+	}
+
 	s.InvalidateAuthCacheByAPIKeyID(ctx, apiKey.ID)
 	s.compileAPIKeyIPRules(apiKey)
-
-	// Invalidate Redis rate limit cache so reset takes effect immediately
-	if resetRateLimit && s.rateLimitCacheInvalid != nil {
-		_ = s.rateLimitCacheInvalid.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)
-	}
 
 	return apiKey, nil
 }

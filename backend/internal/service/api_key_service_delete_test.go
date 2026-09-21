@@ -45,6 +45,13 @@ type apiKeyRepoStub struct {
 	updateLastUsed         func(ctx context.Context, id int64, usedAt time.Time) error
 	touchedIDs             []int64
 	touchedUsedAts         []time.Time
+
+	// Period budget persistence port (see api_key_budget_service_test.go).
+	budgetStates        map[int64]APIKeyBudgetState
+	budgetLoadErr       error
+	budgetSaveErr       error
+	savedBudgetPolicies []APIKeyBudgetPolicy
+	adjustments         []KeyBudgetAdjustmentCommand
 }
 
 // 以下方法在本测试中不应被调用，使用 panic 确保测试失败时能快速定位问题

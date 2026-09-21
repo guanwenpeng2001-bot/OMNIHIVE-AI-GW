@@ -244,7 +244,8 @@
           </template>
 
           <template #cell-rate_limit="{ row }">
-            <div v-if="row.rate_limit_5h > 0 || row.rate_limit_1d > 0 || row.rate_limit_7d > 0" class="space-y-1.5 min-w-[140px]">
+            <div class="space-y-2 min-w-[140px]">
+            <div v-if="row.rate_limit_5h > 0 || row.rate_limit_1d > 0 || row.rate_limit_7d > 0" class="space-y-1.5">
               <!-- 5h window -->
               <div v-if="row.rate_limit_5h > 0">
                 <div class="flex items-center justify-between text-xs">
@@ -329,18 +330,46 @@
                   ⟳ {{ formatResetTime(row.reset_7d_at) }}
                 </div>
               </div>
-              <!-- Reset button -->
-              <button
-                v-if="row.usage_5h > 0 || row.usage_1d > 0 || row.usage_7d > 0"
-                @click.stop="confirmResetRateLimitFromTable(row)"
-                class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                :title="t('keys.resetRateLimitUsage')"
-              >
-                <Icon name="refresh" size="xs" />
-                {{ t('keys.resetUsage') }}
-              </button>
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+
+            <!-- Period budget (USD): a spend limit over one explicit period, kept
+                 visually separate from the RPM/TPM rate limits above. -->
+            <div v-if="row.budget_period_mode !== 'off' && row.budget_limit > 0" class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600">
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.budgetPeriodHint')">
+                  {{ t('keys.budgetColumn') }}
+                </span>
+                <span :class="[
+                  'font-medium tabular-nums',
+                  row.budget_remaining <= 0 ? 'text-red-500' :
+                  row.budget_remaining <= row.budget_limit * 0.2 ? 'text-yellow-500' :
+                  'text-gray-700 dark:text-gray-300'
+                ]">
+                  ${{ row.budget_used?.toFixed(2) || '0.00' }}/${{ row.budget_limit?.toFixed(2) || '0.00' }}
+                </span>
+              </div>
+              <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div
+                  :class="[
+                    'h-full rounded-full transition-all',
+                    row.budget_remaining <= 0 ? 'bg-red-500' :
+                    row.budget_remaining <= row.budget_limit * 0.2 ? 'bg-yellow-500' :
+                    'bg-sky-500'
+                  ]"
+                  :style="{ width: Math.min((row.budget_used / row.budget_limit) * 100, 100) + '%' }"
+                />
+              </div>
+              <div class="flex items-center justify-between gap-2 text-[10px] text-gray-400 dark:text-gray-500">
+                <span class="truncate" :title="row.budget_period_display">
+                  {{ row.budget_legacy_anchor || row.budget_period_display || row.budget_period_mode }}
+                </span>
+                <span v-if="row.budget_period_end && formatResetTime(row.budget_period_end)" class="tabular-nums">
+                  ⟳ {{ formatResetTime(row.budget_period_end) }}
+                </span>
+              </div>
+            </div>
+            </div>
           </template>
 
           <template #cell-expires_at="{ value }">
@@ -671,15 +700,8 @@
                     ${{ selectedKey.quota?.toFixed(2) || '0.00' }}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  @click="confirmResetQuota"
-                  class="btn btn-secondary text-sm"
-                  :title="t('keys.resetQuotaUsed')"
-                >
-                  {{ t('keys.reset') }}
-                </button>
               </div>
+              <p class="input-hint">{{ t('keys.usageSelfServiceHint') }}</p>
             </div>
           </div>
         </div>
@@ -845,15 +867,130 @@
               </div>
             </div>
 
-            <!-- Reset Rate Limit button (edit mode only) -->
-            <div v-if="showEditModal && selectedKey && (selectedKey.rate_limit_5h > 0 || selectedKey.rate_limit_1d > 0 || selectedKey.rate_limit_7d > 0)">
-              <button
-                type="button"
-                @click="confirmResetRateLimit"
-                class="btn btn-secondary text-sm"
-              >
-                {{ t('keys.resetRateLimitUsage') }}
-              </button>
+          </div>
+        </div>
+
+        <!-- Period Budget Section (USD, separate from RPM/TPM) -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('keys.budgetSection') }}</label>
+            <button
+              type="button"
+              data-test="key-form-budget-toggle"
+              :disabled="formData.budget_enforced"
+              @click="formData.enable_budget = !formData.enable_budget"
+              :class="[
+                'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                formData.budget_enforced ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                formData.enable_budget ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  formData.enable_budget ? 'translate-x-4' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <p v-if="formData.budget_enforced" class="input-hint -mt-2 text-amber-600 dark:text-amber-400">
+            {{ t('keys.budgetEnforced') }}
+          </p>
+          <p v-else class="input-hint -mt-2">{{ t('keys.budgetHint') }}</p>
+
+          <div v-if="formData.enable_budget" class="space-y-4 pt-2">
+            <div>
+              <label class="input-label">{{ t('keys.budgetAmount') }}</label>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  v-model.number="formData.budget_limit"
+                  data-test="key-form-budget-limit"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="input pl-7"
+                  :disabled="formData.budget_enforced"
+                  placeholder="0"
+                />
+              </div>
+              <p class="input-hint">{{ t('keys.budgetAmountHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('keys.budgetPeriod') }}</label>
+              <select v-model="formData.budget_period_kind" data-test="key-form-budget-period" class="input" :disabled="formData.budget_enforced">
+                <option value="legacy_5h">{{ t('keys.budgetPeriodLegacy5h') }}</option>
+                <option value="legacy_1d">{{ t('keys.budgetPeriodLegacy1d') }}</option>
+                <option value="legacy_7d">{{ t('keys.budgetPeriodLegacy7d') }}</option>
+                <option value="duration">{{ t('keys.budgetPeriodDuration') }}</option>
+                <option value="calendar_day">{{ t('keys.budgetPeriodCalendarDay') }}</option>
+                <option value="calendar_week">{{ t('keys.budgetPeriodCalendarWeek') }}</option>
+                <option value="calendar_month">{{ t('keys.budgetPeriodCalendarMonth') }}</option>
+              </select>
+              <p class="input-hint">{{ t('keys.budgetPeriodHint') }}</p>
+            </div>
+
+            <div v-if="formData.budget_period_kind === 'duration'" class="flex items-end gap-2">
+              <div class="flex-1">
+                <label class="input-label">{{ t('keys.budgetDurationValue') }}</label>
+                <input
+                  v-model.number="formData.budget_duration_value"
+                  data-test="key-form-budget-duration-value"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="input"
+                  :disabled="formData.budget_enforced"
+                />
+              </div>
+              <div class="w-32">
+                <label class="input-label">{{ t('keys.budgetDurationUnit') }}</label>
+                <select v-model="formData.budget_duration_unit" class="input" :disabled="formData.budget_enforced">
+                  <option value="minutes">{{ t('keys.budgetDurationMinutes') }}</option>
+                  <option value="hours">{{ t('keys.budgetDurationHours') }}</option>
+                  <option value="days">{{ t('keys.budgetDurationDays') }}</option>
+                </select>
+              </div>
+            </div>
+
+            <div v-if="formData.budget_period_kind.startsWith('calendar_')">
+              <label class="input-label">{{ t('keys.budgetTimezone') }}</label>
+              <input
+                v-model.trim="formData.budget_timezone"
+                type="text"
+                class="input"
+                :disabled="formData.budget_enforced"
+                placeholder="Asia/Shanghai"
+              />
+              <p class="input-hint">{{ t('keys.budgetTimezoneHint') }}</p>
+            </div>
+
+            <div v-if="showEditModal && selectedKey && selectedKey.budget_period_mode !== 'off'" class="space-y-1">
+              <label class="input-label">{{ t('keys.budgetUsage') }}</label>
+              <div class="rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-dark-700">
+                <span class="font-medium text-gray-900 dark:text-white">
+                  ${{ selectedKey.budget_used?.toFixed(4) || '0.0000' }}
+                </span>
+                <span class="mx-2 text-gray-400">/</span>
+                <span class="text-gray-500 dark:text-gray-400">
+                  ${{ selectedKey.budget_limit?.toFixed(2) || '0.00' }}
+                </span>
+                <span v-if="selectedKey.budget_reserved > 0" class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('keys.budgetReserved') }} ${{ selectedKey.budget_reserved.toFixed(4) }}
+                </span>
+                <span v-if="selectedKey.budget_overrun > 0" class="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                  {{ t('keys.budgetOverrun') }} ${{ selectedKey.budget_overrun.toFixed(4) }}
+                </span>
+              </div>
+              <p class="input-hint">
+                {{ selectedKey.budget_legacy_anchor || selectedKey.budget_period_display }}
+                <template v-if="selectedKey.budget_period_end">
+                  · {{ t('keys.budgetNextReset') }} {{ formatResetTime(selectedKey.budget_period_end) }}
+                </template>
+              </p>
+              <p class="input-hint">{{ t('keys.usageSelfServiceHint') }}</p>
             </div>
           </div>
         </div>
@@ -985,30 +1122,6 @@
       :danger="true"
       @confirm="handleDelete"
       @cancel="showDeleteDialog = false"
-    />
-
-    <!-- Reset Quota Confirmation Dialog -->
-    <ConfirmDialog
-      :show="showResetQuotaDialog"
-      :title="t('keys.resetQuotaTitle')"
-      :message="t('keys.resetQuotaConfirmMessage', { name: selectedKey?.name, used: selectedKey?.quota_used?.toFixed(4) })"
-      :confirm-text="t('keys.reset')"
-      :cancel-text="t('common.cancel')"
-      :danger="true"
-      @confirm="resetQuotaUsed"
-      @cancel="showResetQuotaDialog = false"
-    />
-
-    <!-- Reset Rate Limit Confirmation Dialog -->
-    <ConfirmDialog
-      :show="showResetRateLimitDialog"
-      :title="t('keys.resetRateLimitTitle')"
-      :message="t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })"
-      :confirm-text="t('keys.reset')"
-      :cancel-text="t('common.cancel')"
-      :danger="true"
-      @confirm="resetRateLimitUsage"
-      @cancel="showResetRateLimitDialog = false"
     />
 
     <!-- Use Key Modal -->
@@ -1185,7 +1298,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
-	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+	import type { ApiKey, ApiKeyPeriodBudgetRequest, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -1350,8 +1463,6 @@ const filterGroupId = ref<string | number>('')
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
-const showResetQuotaDialog = ref(false)
-const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
 const showRotateModal = ref(false)
 const rotateTarget = ref<ApiKey | null>(null)
@@ -1403,6 +1514,21 @@ const formData = ref({
   rate_limit_5h: null as number | null,
   rate_limit_1d: null as number | null,
   rate_limit_7d: null as number | null,
+  // Period budget (USD): one explicit period, separate from rate limits.
+  enable_budget: false,
+  budget_limit: null as number | null,
+  budget_period_kind: 'legacy_5h' as
+    | 'legacy_5h'
+    | 'legacy_1d'
+    | 'legacy_7d'
+    | 'duration'
+    | 'calendar_day'
+    | 'calendar_week'
+    | 'calendar_month',
+  budget_duration_value: 12 as number | null,
+  budget_duration_unit: 'hours' as 'minutes' | 'hours' | 'days',
+  budget_timezone: 'UTC',
+  budget_enforced: false,
   enable_expiration: false,
   expiration_preset: '30' as '7' | '30' | '90' | 'custom',
   expiration_date: ''
@@ -1628,6 +1754,13 @@ const editKey = (key: ApiKey) => {
     rate_limit_5h: key.rate_limit_5h || null,
     rate_limit_1d: key.rate_limit_1d || null,
     rate_limit_7d: key.rate_limit_7d || null,
+    enable_budget: (key.budget_period_mode || 'off') !== 'off' && key.budget_limit > 0,
+    budget_limit: key.budget_limit > 0 ? key.budget_limit : null,
+    budget_period_kind: budgetPeriodKindOf(key),
+    budget_duration_value: budgetDurationValueOf(key),
+    budget_duration_unit: budgetDurationUnitOf(key),
+    budget_timezone: key.budget_timezone || 'UTC',
+    budget_enforced: !!key.budget_enforced,
     enable_expiration: hasExpiration,
     expiration_preset: 'custom',
     expiration_date: key.expires_at ? formatDateTimeLocal(key.expires_at) : ''
@@ -1730,6 +1863,87 @@ const confirmDelete = (key: ApiKey) => {
   showDeleteDialog.value = true
 }
 
+// Period-budget form helpers. The legacy 5h/1d/7d anchors stay selectable and
+// are reported by name, so the panel never has to explain a raw duration.
+const budgetPeriodKindOf = (key: ApiKey): 'legacy_5h' | 'legacy_1d' | 'legacy_7d' | 'duration' | 'calendar_day' | 'calendar_week' | 'calendar_month' => {
+  if (key.budget_legacy_anchor === '5h') return 'legacy_5h'
+  if (key.budget_legacy_anchor === '1d') return 'legacy_1d'
+  if (key.budget_legacy_anchor === '7d') return 'legacy_7d'
+  if (key.budget_period_mode === 'calendar') {
+    if (key.budget_calendar_unit === 'week') return 'calendar_week'
+    if (key.budget_calendar_unit === 'month') return 'calendar_month'
+    return 'calendar_day'
+  }
+  return 'duration'
+}
+
+const budgetDurationValueOf = (key: ApiKey): number | null => {
+  if (!key.budget_duration_seconds || key.budget_duration_seconds <= 0) return null
+  if (key.budget_duration_seconds % 86400 === 0) return key.budget_duration_seconds / 86400
+  if (key.budget_duration_seconds % 3600 === 0) return key.budget_duration_seconds / 3600
+  return Math.max(1, Math.round(key.budget_duration_seconds / 60))
+}
+
+const budgetDurationUnitOf = (key: ApiKey): 'minutes' | 'hours' | 'days' => {
+  if (!key.budget_duration_seconds || key.budget_duration_seconds <= 0) return 'hours'
+  if (key.budget_duration_seconds % 86400 === 0) return 'days'
+  if (key.budget_duration_seconds % 3600 === 0) return 'hours'
+  return 'minutes'
+}
+
+const budgetDurationSeconds = (): number => {
+  const value = formData.value.budget_duration_value && formData.value.budget_duration_value > 0
+    ? formData.value.budget_duration_value
+    : 1
+  const unit = formData.value.budget_duration_unit
+  if (unit === 'days') return Math.round(value * 86400)
+  if (unit === 'hours') return Math.round(value * 3600)
+  return Math.round(value * 60)
+}
+
+// buildBudgetPayload renders the form into the create/update contract. It returns
+// null when the owner keeps an enforced budget untouched, and clear_budget when
+// the toggle is switched off.
+const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
+  if (formData.value.budget_enforced) {
+    return null
+  }
+  if (!formData.value.enable_budget) {
+    if (showEditModal.value && selectedKey.value && selectedKey.value.budget_period_mode !== 'off') {
+      return { clear_budget: true }
+    }
+    return null
+  }
+  const limit = formData.value.budget_limit && formData.value.budget_limit > 0 ? formData.value.budget_limit : 0
+  if (limit <= 0) {
+    return null
+  }
+  switch (formData.value.budget_period_kind) {
+    case 'legacy_5h':
+      return { legacy_budget_anchor: '5h', budget_limit: limit }
+    case 'legacy_1d':
+      return { legacy_budget_anchor: '1d', budget_limit: limit }
+    case 'legacy_7d':
+      return { legacy_budget_anchor: '7d', budget_limit: limit }
+    case 'calendar_day':
+    case 'calendar_week':
+    case 'calendar_month':
+      return {
+        budget_period_mode: 'calendar',
+        budget_calendar_unit: formData.value.budget_period_kind.replace('calendar_', ''),
+        budget_timezone: formData.value.budget_timezone || 'UTC',
+        budget_limit: limit
+      }
+    default:
+      return {
+        budget_period_mode: 'duration',
+        budget_duration_seconds: budgetDurationSeconds(),
+        budget_anchor: 'first_use',
+        budget_limit: limit
+      }
+  }
+}
+
 const handleSubmit = async () => {
   // Validate group_id is required
   if (formData.value.group_id === null) {
@@ -1798,6 +2012,10 @@ const handleSubmit = async () => {
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
       }
+      const budgetPayload = buildBudgetPayload()
+      if (budgetPayload) {
+        Object.assign(updates, budgetPayload)
+      }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
       }
@@ -1813,7 +2031,8 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        buildBudgetPayload() ?? undefined
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (issue?.secret) {
@@ -1876,15 +2095,17 @@ const closeModals = () => {
     rate_limit_5h: null,
     rate_limit_1d: null,
     rate_limit_7d: null,
+    enable_budget: false,
+    budget_limit: null,
+    budget_period_kind: 'legacy_5h',
+    budget_duration_value: 12,
+    budget_duration_unit: 'hours',
+    budget_timezone: 'UTC',
+    budget_enforced: false,
     enable_expiration: false,
     expiration_preset: '30',
     expiration_date: ''
   }
-}
-
-// Show reset quota confirmation dialog
-const confirmResetQuota = () => {
-  showResetQuotaDialog.value = true
 }
 
 // Set expiration date based on quick select days
@@ -1893,58 +2114,6 @@ const setExpirationDays = (days: number) => {
   const expDate = new Date()
   expDate.setDate(expDate.getDate() + days)
   formData.value.expiration_date = formatDateTimeLocal(expDate.toISOString())
-}
-
-// Reset quota used for an API key
-const resetQuotaUsed = async () => {
-  const key = selectedKey.value
-  if (!key) return
-  showResetQuotaDialog.value = false
-  try {
-    const updatedKey = await keysAPI.update(key.id, { reset_quota: true })
-    appStore.showSuccess(t('keys.quotaResetSuccess'))
-    key.quota_used = updatedKey.quota_used
-    if (key.status !== updatedKey.status) {
-      key.status = updatedKey.status
-      if (selectedKey.value?.id === key.id) {
-        formData.value.status = updatedKey.status === 'active' ? 'active' : 'inactive'
-      }
-    }
-  } catch (error: any) {
-    const errorMsg = extractApiErrorMessage(error, '') || t('keys.failedToResetQuota')
-    appStore.showError(errorMsg)
-  }
-}
-
-// Show reset rate limit confirmation dialog (from edit modal)
-const confirmResetRateLimit = () => {
-  showResetRateLimitDialog.value = true
-}
-
-// Show reset rate limit confirmation dialog (from table row)
-const confirmResetRateLimitFromTable = (row: ApiKey) => {
-  selectedKey.value = row
-  showResetRateLimitDialog.value = true
-}
-
-// Reset rate limit usage for an API key
-const resetRateLimitUsage = async () => {
-  if (!selectedKey.value) return
-  showResetRateLimitDialog.value = false
-  try {
-    await keysAPI.update(selectedKey.value.id, { reset_rate_limit_usage: true })
-    appStore.showSuccess(t('keys.rateLimitResetSuccess'))
-    // Refresh key data
-    await loadApiKeys()
-    // Update the editing key with fresh data
-    const refreshedKey = apiKeys.value.find(k => k.id === selectedKey.value!.id)
-    if (refreshedKey) {
-      selectedKey.value = refreshedKey
-    }
-  } catch (error: any) {
-    const errorMsg = extractApiErrorMessage(error, '') || t('keys.failedToResetRateLimit')
-    appStore.showError(errorMsg)
-  }
 }
 
 const importToCcswitch = (row: ApiKey) => {

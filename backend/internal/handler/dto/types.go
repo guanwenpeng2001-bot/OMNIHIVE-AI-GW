@@ -86,6 +86,25 @@ type APIKey struct {
 	Reset1dAt     *time.Time `json:"reset_1d_at,omitempty"`
 	Reset7dAt     *time.Time `json:"reset_7d_at,omitempty"`
 
+	// Period budget (USD). This is a spend limit over one explicit period and is
+	// deliberately separate from RPM/TPM and from the legacy USD windows above:
+	// budget_period_mode/limit/used/reserved describe money, not request rates.
+	BudgetPeriodMode      string     `json:"budget_period_mode"`
+	BudgetLimit           float64    `json:"budget_limit"`
+	BudgetUsed            float64    `json:"budget_used"`
+	BudgetReserved        float64    `json:"budget_reserved"`
+	BudgetRemaining       float64    `json:"budget_remaining"`
+	BudgetOverrun         float64    `json:"budget_overrun"`
+	BudgetPeriodStart     *time.Time `json:"budget_period_start,omitempty"`
+	BudgetPeriodEnd       *time.Time `json:"budget_period_end,omitempty"`
+	BudgetPeriodDisplay   string     `json:"budget_period_display,omitempty"`
+	BudgetLegacyAnchor    string     `json:"budget_legacy_anchor,omitempty"`
+	BudgetDurationSeconds int64      `json:"budget_duration_seconds,omitempty"`
+	BudgetCalendarUnit    string     `json:"budget_calendar_unit,omitempty"`
+	BudgetAnchor          string     `json:"budget_anchor,omitempty"`
+	BudgetTimezone        string     `json:"budget_timezone,omitempty"`
+	BudgetEnforced        bool       `json:"budget_enforced"`
+
 	User  *User  `json:"user,omitempty"`
 	Group *Group `json:"group,omitempty"`
 }

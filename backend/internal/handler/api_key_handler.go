@@ -44,6 +44,16 @@ type CreateAPIKeyRequest struct {
 	RateLimit5h *float64 `json:"rate_limit_5h"`
 	RateLimit1d *float64 `json:"rate_limit_1d"`
 	RateLimit7d *float64 `json:"rate_limit_7d"`
+
+	// Period budget (USD): one explicit period, separate from RPM/TPM and from
+	// the legacy USD windows above. LegacyBudgetAnchor keeps 5h/1d/7d compatible.
+	LegacyBudgetAnchor    string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      string  `json:"budget_period_mode"`
+	BudgetLimit           float64 `json:"budget_limit"`
+	BudgetDurationSeconds int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          string  `json:"budget_anchor"`
+	BudgetCalendarUnit    string  `json:"budget_calendar_unit"`
+	BudgetTimezone        string  `json:"budget_timezone"`
 }
 
 // UpdateAPIKeyRequest represents the update API key request payload
@@ -61,7 +71,18 @@ type UpdateAPIKeyRequest struct {
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 面板自助重置被拒绝；管理员用审计化调整
+
+	// Period budget (nil = no change). ClearBudget removes a self-set budget; an
+	// enforced platform budget cannot be changed or cleared from the panel.
+	LegacyBudgetAnchor    *string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      *string  `json:"budget_period_mode"`
+	BudgetLimit           *float64 `json:"budget_limit"`
+	BudgetDurationSeconds *int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          *string  `json:"budget_anchor"`
+	BudgetCalendarUnit    *string  `json:"budget_calendar_unit"`
+	BudgetTimezone        *string  `json:"budget_timezone"`
+	ClearBudget           *bool    `json:"clear_budget"`
 }
 
 func validAPIKeyLimit(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
@@ -82,6 +103,9 @@ func validateAPIKeyCreateRequest(req CreateAPIKeyRequest) error {
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
 		return errors.New("invalid expires_in_days")
 	}
+	if !validAPIKeyLimit(req.BudgetLimit) {
+		return errors.New("invalid budget_limit")
+	}
 	return nil
 }
 
@@ -97,6 +121,9 @@ func validateAPIKeyUpdateRequest(req UpdateAPIKeyRequest) error {
 	}
 	if req.RateLimit7d != nil && !validAPIKeyLimit(*req.RateLimit7d) {
 		return errors.New("invalid rate_limit_7d")
+	}
+	if req.BudgetLimit != nil && !validAPIKeyLimit(*req.BudgetLimit) {
+		return errors.New("invalid budget_limit")
 	}
 	return nil
 }
@@ -216,6 +243,13 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	if req.RateLimit7d != nil {
 		svcReq.RateLimit7d = *req.RateLimit7d
 	}
+	svcReq.LegacyBudgetAnchor = req.LegacyBudgetAnchor
+	svcReq.BudgetPeriodMode = req.BudgetPeriodMode
+	svcReq.BudgetLimit = req.BudgetLimit
+	svcReq.BudgetDurationSeconds = req.BudgetDurationSeconds
+	svcReq.BudgetAnchor = req.BudgetAnchor
+	svcReq.BudgetCalendarUnit = req.BudgetCalendarUnit
+	svcReq.BudgetTimezone = req.BudgetTimezone
 
 	executeUserIdempotentJSON(c, "user.api_keys.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		key, err := h.apiKeyService.Create(ctx, subject.UserID, svcReq)
@@ -252,14 +286,22 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
-		IPWhitelist:         req.IPWhitelist,
-		IPBlacklist:         req.IPBlacklist,
-		Quota:               req.Quota,
-		ResetQuota:          req.ResetQuota,
-		RateLimit5h:         req.RateLimit5h,
-		RateLimit1d:         req.RateLimit1d,
-		RateLimit7d:         req.RateLimit7d,
-		ResetRateLimitUsage: req.ResetRateLimitUsage,
+		IPWhitelist:           req.IPWhitelist,
+		IPBlacklist:           req.IPBlacklist,
+		Quota:                 req.Quota,
+		ResetQuota:            req.ResetQuota,
+		RateLimit5h:           req.RateLimit5h,
+		RateLimit1d:           req.RateLimit1d,
+		RateLimit7d:           req.RateLimit7d,
+		ResetRateLimitUsage:   req.ResetRateLimitUsage,
+		LegacyBudgetAnchor:    req.LegacyBudgetAnchor,
+		BudgetPeriodMode:      req.BudgetPeriodMode,
+		BudgetLimit:           req.BudgetLimit,
+		BudgetDurationSeconds: req.BudgetDurationSeconds,
+		BudgetAnchor:          req.BudgetAnchor,
+		BudgetCalendarUnit:    req.BudgetCalendarUnit,
+		BudgetTimezone:        req.BudgetTimezone,
+		ClearBudget:           req.ClearBudget,
 	}
 	if req.Name != "" {
 		svcReq.Name = &req.Name

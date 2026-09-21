@@ -233,21 +233,39 @@ func (r *usageBillingRepository) applyBatchImageBalanceHoldOnce(ctx context.Cont
 }
 
 func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, result *service.UsageBillingApplyResult) error {
+	// Request budget holds lock first: a hold is claimed by exactly one
+	// settlement, and release uses the same reservation -> user -> key order.
+	hold, err := lockKeyBudgetReservation(ctx, tx, cmd)
+	if err != nil {
+		return err
+	}
 	// Universal financial row order: user -> subscription -> API key -> account
 	// -> platform quota (derived effect). Receipt/job and dedup/usage identities
 	// precede these rows; never acquire an identity after a financial row.
 	// NO KEY UPDATE is compatible with usage foreign-key KEY SHARE locks.
-	if err := lockUsageBillingEffects(ctx, tx, cmd); err != nil {
+	if err := lockUsageBillingEffects(ctx, tx, cmd, hold != nil); err != nil {
 		return err
 	}
 
-	if cmd.BalanceCost > 0 {
-		newBalance, sufficient, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
+	if cmd.BalanceCost > 0 || hold != nil {
+		// A live hold already moved the estimated cost out of the balance, so the
+		// actual cost replaces the hold instead of being deducted twice.
+		if err := refundKeyBudgetHold(ctx, tx, hold); err != nil {
+			return err
+		}
+		newBalance, uncovered, err := deductUsageBillingBalance(ctx, tx, cmd.UserID, cmd.BalanceCost)
 		if err != nil {
 			return err
 		}
 		result.NewBalance = &newBalance
-		result.BalanceOverdrafted = !sufficient
+		result.BalanceUncovered = uncovered
+		result.BalanceOverdrafted = uncovered > 0
+		if err := recordKeyBudgetUncovered(ctx, tx, hold, uncovered); err != nil {
+			return err
+		}
+	}
+	if err := settleKeyBudgetCounters(ctx, tx, hold, cmd.APIKeyID, cmd.BalanceCost, result); err != nil {
+		return err
 	}
 	if cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil {
 		if err := incrementUsageBillingSubscription(ctx, tx, *cmd.SubscriptionID, cmd.SubscriptionCost); err != nil {
@@ -280,14 +298,14 @@ func (r *usageBillingRepository) applyUsageBillingEffects(ctx context.Context, t
 	return nil
 }
 
-func lockUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand) error {
+func lockUsageBillingEffects(ctx context.Context, tx *sql.Tx, cmd *service.UsageBillingCommand, hasBudgetHold bool) error {
 	rows := []struct {
 		table   string
 		id      int64
 		needed  bool
 		missing error
 	}{
-		{"users", cmd.UserID, cmd.BalanceCost > 0, service.ErrUserNotFound},
+		{"users", cmd.UserID, cmd.BalanceCost > 0 || hasBudgetHold, service.ErrUserNotFound},
 		{"user_subscriptions", 0, cmd.SubscriptionCost > 0 && cmd.SubscriptionID != nil, service.ErrSubscriptionNotFound},
 		{"api_keys", cmd.APIKeyID, cmd.APIKeyQuotaCost > 0 || cmd.APIKeyRateLimitCost > 0, service.ErrAPIKeyNotFound},
 		{"accounts", cmd.AccountID, cmd.AccountQuotaCost > 0 && (strings.EqualFold(cmd.AccountType, service.AccountTypeAPIKey) || strings.EqualFold(cmd.AccountType, service.AccountTypeBedrock)), service.ErrAccountNotFound},
@@ -341,36 +359,55 @@ func incrementUsageBillingSubscription(ctx context.Context, tx *sql.Tx, subscrip
 	return service.ErrSubscriptionNotFound
 }
 
-func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (float64, bool, error) {
-	var newBalance float64
-	err := tx.QueryRowContext(ctx, `
-		UPDATE users
-		SET balance = balance - $1,
-			updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL AND balance >= $1
-		RETURNING balance
-	`, amount, userID).Scan(&newBalance)
-	if err == nil {
-		return newBalance, true, nil
+// deductUsageBillingBalance charges what the payer balance can actually cover.
+//
+// The unconditional fallback that used to write a negative balance is gone: an
+// overrun is returned as an explicit uncovered amount (recorded on the receipt,
+// the reservation and the ops signal) instead of being hidden in a negative
+// balance that concurrent requests could each re-spend. The usage row always
+// keeps the full actual cost, so nothing is dropped from the books.
+func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, amount float64) (newBalance float64, uncovered float64, err error) {
+	if amount <= 0 {
+		var balance float64
+		err = tx.QueryRowContext(ctx, `
+			SELECT balance FROM users WHERE id = $1 AND deleted_at IS NULL`, userID).Scan(&balance)
+		if errors.Is(err, sql.ErrNoRows) {
+			return 0, 0, service.ErrUserNotFound
+		}
+		if err != nil {
+			return 0, 0, err
+		}
+		return balance, 0, nil
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return 0, false, err
-	}
-
+	var balance float64
 	err = tx.QueryRowContext(ctx, `
+		SELECT balance FROM users WHERE id = $1 AND deleted_at IS NULL FOR NO KEY UPDATE`, userID).Scan(&balance)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, 0, service.ErrUserNotFound
+	}
+	if err != nil {
+		return 0, 0, err
+	}
+	covered := balance
+	if covered > amount {
+		covered = amount
+	}
+	if covered < 0 {
+		covered = 0
+	}
+	if _, err := tx.ExecContext(ctx, `
 		UPDATE users
 		SET balance = balance - $1,
 			updated_at = NOW()
 		WHERE id = $2 AND deleted_at IS NULL
-		RETURNING balance
-	`, amount, userID).Scan(&newBalance)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, false, service.ErrUserNotFound
+	`, covered, userID); err != nil {
+		return 0, 0, err
 	}
-	if err != nil {
-		return 0, false, err
+	uncovered = amount - covered
+	if uncovered > 0 {
+		observeBillingBalanceUncovered(uncovered)
 	}
-	return newBalance, false, nil
+	return balance - covered, uncovered, nil
 }
 
 func reserveUsageBillingBatchImageBalance(ctx context.Context, tx *sql.Tx, cmd *service.BatchImageBalanceHoldCommand) (*service.BatchImageBalanceHoldResult, error) {

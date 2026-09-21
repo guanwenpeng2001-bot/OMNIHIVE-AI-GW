@@ -404,9 +404,45 @@ export interface ApiKey {
   reset_5h_at: string | null
   reset_1d_at: string | null
   reset_7d_at: string | null
+  /**
+   * Period budget in USD. This is a spend limit over one explicit period and is
+   * deliberately separate from RPM/TPM and from the legacy USD windows above:
+   * budget_* describes money, not request rates.
+   */
+  budget_period_mode: 'off' | 'duration' | 'calendar'
+  budget_limit: number
+  budget_used: number
+  budget_reserved: number
+  budget_remaining: number
+  budget_overrun: number
+  budget_period_start: string | null
+  budget_period_end: string | null
+  budget_period_display: string
+  /** Historical 5h/1d/7d anchor when the period is one of the compatible presets. */
+  budget_legacy_anchor: string
+  budget_duration_seconds: number
+  budget_calendar_unit: '' | 'day' | 'week' | 'month'
+  budget_anchor: '' | 'first_use' | 'day'
+  budget_timezone: string
+  budget_enforced: boolean
 }
 
-export interface CreateApiKeyRequest {
+/**
+ * Period budget request fields (USD). Shared by the create and update contracts;
+ * `clear_budget` removes a self-set budget and is rejected for enforced ones.
+ */
+export interface ApiKeyPeriodBudgetRequest {
+  legacy_budget_anchor?: string
+  budget_period_mode?: string
+  budget_limit?: number
+  budget_duration_seconds?: number
+  budget_anchor?: string
+  budget_calendar_unit?: string
+  budget_timezone?: string
+  clear_budget?: boolean
+}
+
+export interface CreateApiKeyRequest extends ApiKeyPeriodBudgetRequest {
   name: string
   group_id?: number | null
   custom_key?: string // Optional custom API Key
@@ -419,7 +455,7 @@ export interface CreateApiKeyRequest {
   rate_limit_7d?: number
 }
 
-export interface UpdateApiKeyRequest {
+export interface UpdateApiKeyRequest extends ApiKeyPeriodBudgetRequest {
   name?: string
   group_id?: number | null
   status?: 'active' | 'inactive'
@@ -431,6 +467,7 @@ export interface UpdateApiKeyRequest {
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
+  /** Owner-facing usage resets are rejected by the server; use an audited adjustment instead. */
   reset_rate_limit_usage?: boolean
 }
 

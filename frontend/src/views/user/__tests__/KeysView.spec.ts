@@ -156,6 +156,21 @@ const createApiKey = (): ApiKey => ({
   reset_5h_at: null,
   reset_1d_at: null,
   reset_7d_at: null,
+  budget_period_mode: 'off',
+  budget_limit: 0,
+  budget_used: 0,
+  budget_reserved: 0,
+  budget_remaining: 0,
+  budget_overrun: 0,
+  budget_period_start: null,
+  budget_period_end: null,
+  budget_period_display: '',
+  budget_legacy_anchor: '',
+  budget_duration_seconds: 0,
+  budget_calendar_unit: '',
+  budget_anchor: '',
+  budget_timezone: 'UTC',
+  budget_enforced: false,
 })
 
 const AppLayoutStub = {
@@ -207,6 +222,9 @@ const DataTableStub = {
           data-test="key-cell"
         >
           <slot name="cell-key" :value="row.key" :row="row" />
+        </div>
+        <div data-test="rate-limit-cell">
+          <slot name="cell-rate_limit" :value="row" :row="row" />
         </div>
       </div>
       <slot name="empty" />
@@ -434,40 +452,29 @@ describe('user KeysView column settings', () => {
     wrapper.unmount()
   })
 
-  it.each([
-    { initialStatus: 'quota_exhausted', status: 'active', formStatus: 'active' },
-    { initialStatus: 'inactive', status: 'inactive', formStatus: 'inactive' },
-    { initialStatus: 'active', status: 'active', formStatus: 'inactive' },
-  ] as const)('syncs quota reset from $initialStatus to $status with form status $formStatus', async ({ initialStatus, status, formStatus }) => {
+  it('keeps quota editing without any panel-side usage reset', async () => {
     const key: ApiKey = {
       ...createApiKey(), group_id: 1, quota: 10, quota_used: 10,
-      status: initialStatus,
+      status: 'quota_exhausted',
     }
     listKeys.mockResolvedValueOnce({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
-    updateKey.mockResolvedValue({ ...key, status, quota_used: 0 })
+    updateKey.mockResolvedValue({ ...key, status: 'active', quota: 20 })
     const wrapper = await mountView()
     await getButtonByText(wrapper, 'common.edit').trigger('click')
     await wrapper.get('[data-tour="key-form-name"]').setValue('Unsaved name')
-    const statusSelect = wrapper.findAllComponents({ name: 'Select' })
-      .find((select) => select.props('options').length === 2 &&
-        select.props('options')[0].value === 'active')!
-    statusSelect.vm.$emit('update:modelValue', 'inactive')
-    await wrapper.get('button[title="keys.resetQuotaUsed"]').trigger('click')
-    const confirmation = wrapper.findAllComponents({ name: 'ConfirmDialog' })
-      .find((dialog) => dialog.props('title') === 'keys.resetQuotaTitle')!
-    confirmation.vm.$emit('confirm')
-    await flushPromises()
-
-    expect(updateKey).toHaveBeenNthCalledWith(1, key.id, { reset_quota: true })
-    expect(wrapper.findComponent({ name: 'DataTable' }).props('data')[0])
-      .toMatchObject({ status, quota_used: 0 })
-    expect(statusSelect.props('modelValue')).toBe(formStatus)
-    expect((wrapper.get('[data-tour="key-form-name"]').element as HTMLInputElement).value)
-      .toBe('Unsaved name')
+    // Consumed usage cannot be cleared from the panel any more.
+    expect(wrapper.find('button[title="keys.resetQuotaUsed"]').exists()).toBe(false)
+    expect(wrapper.findAllComponents({ name: 'ConfirmDialog' })
+      .find((dialog) => dialog.props('title') === 'keys.resetQuotaTitle')).toBeUndefined()
 
     await wrapper.get('#key-form').trigger('submit')
     await flushPromises()
-    expect(updateKey).toHaveBeenNthCalledWith(2, key.id, expect.objectContaining({ name: 'Unsaved name', status: formStatus }))
+
+    expect(updateKey).toHaveBeenCalledTimes(1)
+    const [, updates] = updateKey.mock.calls[0]
+    expect(updates).not.toHaveProperty('reset_quota')
+    expect(updates).not.toHaveProperty('reset_rate_limit_usage')
+    expect(updates.name).toBe('Unsaved name')
     wrapper.unmount()
   })
 
@@ -631,7 +638,7 @@ describe('user KeysView column settings', () => {
       rate_limit_5h: 0,
       rate_limit_1d: 0,
       rate_limit_7d: 0,
-    })
+    }, undefined)
     expect(wrapper.text()).toContain('sk-created-once')
     expect(wrapper.text()).toContain('keys.secretOnce.warning')
     wrapper.unmount()
@@ -688,4 +695,118 @@ describe('user KeysView column settings', () => {
       expect.objectContaining({ signal: expect.any(AbortSignal) })
     )
   })
+
+  it('names the period budget separately from RPM/TPM and keeps the legacy 5h/1d/7d anchors visible', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [
+        {
+          ...createApiKey(),
+          budget_period_mode: 'duration',
+          budget_limit: 25,
+          budget_used: 5,
+          budget_remaining: 20,
+          budget_period_display: '7d rolling window',
+          budget_legacy_anchor: '7d',
+          budget_duration_seconds: 604800,
+          budget_period_end: '2026-07-04T00:00:00Z',
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+
+    const budgetCell = wrapper.get('[data-test="rate-limit-cell"]').text()
+    expect(budgetCell).toContain('keys.budgetColumn')
+    expect(budgetCell).toContain('7d')
+    expect(budgetCell).toContain('$5.00')
+    expect(budgetCell).toContain('$25.00')
+    // The USD period budget is not a rate limit and must not be labelled as one.
+    expect(budgetCell).not.toContain('keys.rateLimit5h')
+    wrapper.unmount()
+  })
+
+  it('submits a custom duration period budget and offers the fixed calendar periods', async () => {
+    getAvailableGroups.mockResolvedValue([{ id: 42, name: 'OpenAI' }])
+    createKey.mockResolvedValue({
+      api_key: { ...createApiKey(), id: 11 },
+      secret: 'sk-budget-once',
+      grace_until: null,
+    })
+    const wrapper = await mountView()
+
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('budgeted key')
+    const groupSelect = wrapper
+      .findAllComponents({ name: 'Select' })
+      .find((select) => (select.element as Element).getAttribute('data-tour') === 'key-form-group')!
+    groupSelect.vm.$emit('update:modelValue', 42)
+    await flushPromises()
+
+    await wrapper.get('[data-test="key-form-budget-toggle"]').trigger('click')
+    await flushPromises()
+
+    // The compatible 5h/1d/7d anchors stay selectable next to custom and fixed periods.
+    const periodOptions = wrapper
+      .get('[data-test="key-form-budget-period"]')
+      .findAll('option')
+      .map((option) => option.attributes('value'))
+    expect(periodOptions).toEqual([
+      'legacy_5h',
+      'legacy_1d',
+      'legacy_7d',
+      'duration',
+      'calendar_day',
+      'calendar_week',
+      'calendar_month',
+    ])
+
+    await wrapper.get('[data-test="key-form-budget-limit"]').setValue('12')
+    await wrapper.get('[data-test="key-form-budget-period"]').setValue('duration')
+    await wrapper.get('[data-test="key-form-budget-duration-value"]').setValue('90')
+    await flushPromises()
+
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+    const createArgs = createKey.mock.calls.at(-1)!
+    expect(createArgs[8]).toMatchObject({
+      budget_period_mode: 'duration',
+      budget_duration_seconds: 90 * 3600,
+      budget_anchor: 'first_use',
+      budget_limit: 12,
+    })
+    wrapper.unmount()
+  })
+
+  it('does not offer self-service reset of consumed usage', async () => {
+    listKeys.mockResolvedValueOnce({
+      items: [
+        {
+          ...createApiKey(),
+          quota: 10,
+          quota_used: 4,
+          rate_limit_5h: 5,
+          usage_5h: 1,
+        },
+      ],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'common.edit').trigger('click')
+    await flushPromises()
+
+    const resetButtons = wrapper
+      .findAll('button')
+      .filter((button) => /reset/i.test(button.text()) || button.text().includes('keys.resetUsage'))
+    expect(resetButtons).toHaveLength(0)
+    expect(wrapper.text()).toContain('keys.usageSelfServiceHint')
+    wrapper.unmount()
+  })
+
 })
