@@ -162,8 +162,8 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 		require.Contains(t, w.Header().Get("Content-Type"), "application/json")
 		require.NotContains(t, strings.ToLower(w.Body.String()), "<!doctype html>")
 		require.JSONEq(t, `{
-			"type": "error",
 			"error": {
+				"code": "not_found_error", "param": null,
 				"type": "not_found_error",
 				"message": "Billing information is not supported in simple mode"
 			}

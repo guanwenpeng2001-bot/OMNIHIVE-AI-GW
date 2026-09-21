@@ -50,7 +50,7 @@ func TestChatOnlyPlatformProtocolGuard(test *testing.T) {
 				router := gin.New()
 				router.Use(func(requestContext *gin.Context) {
 					requestContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: platform}})
-				}, chatOnlyPlatformGuard)
+				}, service.GatewayActionRequirement)
 				router.Handle(endpoint.method, endpoint.path, func(requestContext *gin.Context) { calls++; requestContext.Status(http.StatusNoContent) })
 				recorder := httptest.NewRecorder()
 				router.ServeHTTP(recorder, httptest.NewRequest(endpoint.method, concreteMatrixPath(endpoint.path), nil))

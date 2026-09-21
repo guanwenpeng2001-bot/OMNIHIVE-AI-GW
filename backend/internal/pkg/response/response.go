@@ -65,6 +65,7 @@ func Error(c *gin.Context, statusCode int, message string) {
 // NewErrorResponse constructs the management envelope, including empty metadata.
 // A domain reason takes precedence over the stable HTTP fallback.
 func NewErrorResponse(statusCode int, message, reason string, metadata any) Response {
+	message = logredact.RedactDiagnostic(message)
 	if reason == "" {
 		switch statusCode {
 		case http.StatusBadRequest:
@@ -105,6 +106,10 @@ func NewErrorResponse(statusCode int, message, reason string, metadata any) Resp
 
 // ErrorWithDetails writes the shared management error envelope.
 func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata any) {
+	if sanitized := logredact.RedactDiagnostic(message); sanitized != message {
+		log.Printf("[ERROR] upstream diagnostic: %s", logredact.RedactText(message))
+		message = sanitized
+	}
 	c.JSON(statusCode, NewErrorResponse(statusCode, message, reason, metadata))
 }
 

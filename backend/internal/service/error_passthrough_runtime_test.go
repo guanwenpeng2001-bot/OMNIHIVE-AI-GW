@@ -390,3 +390,35 @@ func TestErrorPassthroughUnsetBodyDoesNotExposeOriginal(t *testing.T) {
 	require.True(t, matched)
 	require.Equal(t, "Upstream request failed", message)
 }
+
+func TestErrorPassthroughRulesCannotBypassRedaction(t *testing.T) {
+	for _, passthrough := range []bool{false, true} {
+		ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+		message := "Quota exhausted for user@example.internal at https://private.internal/path?key=credential-secret Authorization: Bearer credential-secret"
+		rule := newNonFailoverPassthroughRule(422, "Quota", 422, message)
+		rule.PassthroughBody = passthrough
+		rules := &ErrorPassthroughService{}
+		rules.setLocalCache([]*model.ErrorPassthroughRule{rule})
+		BindErrorPassthroughService(ctx, rules)
+		body, err := json.Marshal(map[string]any{"error": map[string]any{"message": message}})
+		require.NoError(t, err)
+		status, kind, public, matched := applyErrorPassthroughRule(ctx, PlatformOpenAI, 422, body, 502, "upstream_error", "fallback")
+		require.True(t, matched)
+		require.Equal(t, 422, status)
+		require.Equal(t, "upstream_error", kind)
+		require.Contains(t, public, "Quota exhausted")
+		for _, private := range []string{"credential-secret", "private.internal", "user@example.internal"} {
+			require.NotContains(t, public, private)
+		}
+	}
+}
+
+func TestErrorPassthroughUnstructuredHTTPBodyUsesStableMessage(t *testing.T) {
+	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
+	rules := &ErrorPassthroughService{}
+	rules.setLocalCache([]*model.ErrorPassthroughRule{{ID: 1, Enabled: true, PassthroughCode: true, PassthroughBody: true, ErrorCodes: []int{502}, MatchMode: model.MatchModeAny}})
+	BindErrorPassthroughService(ctx, rules)
+	_, _, message, matched := applyErrorPassthroughRule(ctx, PlatformOpenAI, 502, []byte("HTTP/1.1 502\n<html>private-host credential-secret</html>"), 502, "upstream_error", "fallback")
+	require.True(t, matched)
+	require.Equal(t, "Upstream request failed", message)
+}

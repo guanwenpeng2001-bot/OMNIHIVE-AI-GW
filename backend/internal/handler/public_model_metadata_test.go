@@ -4,8 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
-	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
@@ -63,145 +61,103 @@ func publicMetadataAccount() service.Account {
 	return account
 }
 
-func TestPublicModelMetadataProjection(test *testing.T) {
-	for _, scenario := range []struct {
-		name, platform, forced string
-		allowlist, failure     bool
-	}{
-		{name: "ordinary", platform: service.PlatformOpenAI},
-		{name: "forced-platform", platform: service.PlatformAnthropic, forced: service.PlatformOpenAI},
-		{name: "composite", platform: service.PlatformComposite},
-		{name: "allowlist", platform: service.PlatformOpenAI, allowlist: true},
-		{name: "catalog-failure", platform: service.PlatformOpenAI, failure: true},
-	} {
-		test.Run(scenario.name, func(test *testing.T) {
-			account := publicMetadataAccount()
-			repo := &publicMetadataRepository{accounts: []service.Account{account}}
-			if scenario.failure {
-				repo.err = errors.New("private database failure")
-			}
-			handler := newGatewayModelsHandlerForTest(repo)
-			group := &service.Group{ID: 31, Platform: scenario.platform}
-			if scenario.allowlist {
-				group.ModelAllowlist = service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-alias"}}
-			}
-			request := func() *httptest.ResponseRecorder {
-				recorder := httptest.NewRecorder()
-				requestContext, _ := gin.CreateTestContext(recorder)
-				requestContext.Request = httptest.NewRequest(http.MethodGet, "/v1/models", nil)
-				requestContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{GroupID: &group.ID, Group: group})
-				if scenario.forced != "" {
-					middleware.ForcePlatform(scenario.forced)(requestContext)
-				}
-				handler.Models(requestContext)
-				return recorder
-			}
-			before, err := json.Marshal(account)
-			require.NoError(test, err)
-			got := request()
-			require.Equal(test, 1, repo.reads, "one request captures one account snapshot")
-			after, err := json.Marshal(account)
-			require.NoError(test, err)
-			require.Equal(test, string(before), string(after), "projection cannot mutate catalog, credentials, or prices")
-			require.NotContains(test, got.Body.String(), "private")
-			if scenario.failure {
-				require.Equal(test, http.StatusServiceUnavailable, got.Code)
-				require.JSONEq(test, `{"type":"error","error":{"type":"api_error","message":"Model catalog unavailable"}}`, got.Body.String())
-				return
-			}
-			require.Equal(test, http.StatusOK, got.Code, got.Body.String())
-			var enriched map[string]json.RawMessage
-			require.NoError(test, json.Unmarshal(got.Body.Bytes(), &enriched))
-			var entries []map[string]json.RawMessage
-			require.NoError(test, json.Unmarshal(enriched["data"], &entries))
-			found := false
-			for _, entry := range entries {
-				if string(entry["id"]) == `"gpt-alias"` {
-					found = true
-					require.JSONEq(test, `{"context_window":128000,"context_limit_kind":"total","max_output_tokens":4096,"input_modalities":[],"output_modalities":["text"],"reasoning":false}`, string(entry["capabilities"]))
-				}
-				delete(entry, "capabilities")
-			}
-			require.True(test, found)
-			require.Len(test, entries, 1, "metadata and unresolved mappings cannot create extra members")
-			stripped, err := json.Marshal(gin.H{"object": "list", "data": entries})
-			require.NoError(test, err)
-			// Frozen pre-projection fields from writeModelsList at baseline 2279965a.
-			golden := `{"object":"list","data":[{"id":"gpt-alias","object":"model","created":1704067200,"owned_by":"openai","type":"model","display_name":"gpt-alias"}]}`
-			if scenario.platform == service.PlatformComposite {
-				golden = `{"object":"list","data":[{"id":"gpt-alias","type":"model","display_name":"gpt-alias","created_at":"2024-01-01T00:00:00Z"}]}`
-			}
-			require.JSONEq(test, golden, string(stripped))
-			// Same membership with no specifications is the pre-addition wire form.
-			delete(repo.accounts[0].Extra, service.UpstreamModelMetadataExtraKey)
-			legacy := request()
-			require.JSONEq(test, legacy.Body.String(), string(stripped))
-		})
+func TestPublicModelMetadataProjection(t *testing.T) {
+	negative, positive := false, true
+	facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{
+		{Reasoning: &negative, SupportsVision: &positive, ContextWindow: 1000, ContextLimitKind: "total", EmbeddingDimensions: 1536, InputModalities: []string{"TEXT", "image", "text"}},
+		{Reasoning: &negative, SupportsVision: &negative, ContextWindow: 2000, ContextLimitKind: "total", EmbeddingDimensions: 3072, InputModalities: []string{"image", "text"}},
+	})
+	require.Equal(t, int64(1000), *facts.TotalContext.Guaranteed)
+	require.Equal(t, []int64{1536, 3072}, facts.EmbeddingDimensions.Available)
+	require.Nil(t, facts.EmbeddingDimensions.Guaranteed, "fixed dimensions must never be minimized")
+	require.Equal(t, []string{"image", "text"}, *facts.InputModalities.Guaranteed)
+	require.False(t, *facts.Reasoning.Guaranteed)
+	require.False(t, *facts.SupportsVision.Guaranteed)
+	require.Equal(t, []bool{false, true}, facts.SupportsVision.Available)
+	unknown := aggregatePublicMetadata([]service.UpstreamModelMetadata{{ContextWindow: 4096}, {}})
+	require.Nil(t, unknown.UnspecifiedContext.Guaranteed)
+	require.True(t, unknown.UnspecifiedContext.Unknown)
+	require.Equal(t, "unspecified", unknown.UnspecifiedContext.Kind)
+	require.Equal(t, int64(4096), *unknown.UnspecifiedContext.ObservedMinimum)
+	require.Nil(t, unknown.TotalContext.ObservedMinimum)
+}
+
+func TestPublicModelCatalogSharesMinimalMembership(t *testing.T) {
+	account := publicMetadataAccount()
+	repo := &publicMetadataRepository{accounts: []service.Account{account}}
+	handler := newGatewayModelsHandlerForTest(repo)
+	group := &service.Group{ID: 31, Platform: service.PlatformOpenAI}
+	before, err := json.Marshal(account)
+	require.NoError(t, err)
+	request := func(path, model string, catalog bool) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest("GET", path, nil)
+		ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 17, GroupID: &group.ID, Group: group})
+		if model != "" {
+			ctx.Params = gin.Params{{Key: "model", Value: model}}
+		}
+		if catalog {
+			handler.ModelCatalog(ctx)
+		} else {
+			handler.Models(ctx)
+		}
+		return recorder
 	}
-	test.Run("tri-state-and-conflicts", func(test *testing.T) {
-		negative, positive := false, true
-		models := []gin.H{{"id": "model", "created": 9007199254740993}}
-		metadata := map[string][]service.UpstreamModelMetadata{"model": {
-			{Reasoning: &negative, SupportsVision: &positive, InputModalities: []string{}, ContextWindow: 1000, ContextLimitKind: "total"},
-			{Reasoning: &negative, SupportsVision: &negative, InputModalities: []string{}, ContextWindow: 2000, ContextLimitKind: "total"},
-		}}
-		projected, err := projectPublicModelMetadata(models, metadata)
-		require.NoError(test, err)
-		body, err := json.Marshal(projected)
-		require.NoError(test, err)
-		require.JSONEq(test, `[{"id":"model","created":9007199254740993,"capabilities":{"reasoning":false,"input_modalities":[]}}]`, string(body))
-	})
-	test.Run("single-snapshot-many-models", func(test *testing.T) {
-		account := publicMetadataAccount()
-		mapping := map[string]any{}
-		for index := range 100 {
-			mapping[fmt.Sprintf("gpt-public-%03d", index)] = "gpt-native"
-		}
-		account.Credentials["model_mapping"] = mapping
-		capture := &metadataSnapshotCapture{snapshot: account.Extra[service.UpstreamModelMetadataExtraKey]}
-		account.Extra[service.UpstreamModelMetadataExtraKey] = capture
-		repo := &publicMetadataRepository{accounts: []service.Account{account}}
-		handler := newGatewayModelsHandlerForTest(repo)
-		group := &service.Group{ID: 31, Platform: service.PlatformOpenAI}
-		response := requestModelForTest(handler, group, "", "")
-		require.Equal(test, http.StatusOK, response.Code)
-		require.Equal(test, 1, capture.reads, "100 models must share one parsed metadata snapshot")
-		require.Equal(test, 1, repo.reads)
-		var catalog struct {
-			Data []struct {
-				Capabilities map[string]any `json:"capabilities"`
-			} `json:"data"`
-		}
-		require.NoError(test, json.Unmarshal(response.Body.Bytes(), &catalog))
-		require.Len(test, catalog.Data, 100)
-		for _, entry := range catalog.Data {
-			require.EqualValues(test, 128000, entry.Capabilities["context_window"])
-		}
-		// A later publication is visible only on the next request.
-		capture.snapshot = service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"gpt-native": {ID: "gpt-native", ProviderProfile: "openai", ContextWindow: 64000, ContextLimitKind: "total"}}}
-		response = requestModelForTest(handler, group, "", "")
-		require.Equal(test, 2, capture.reads)
-		require.NoError(test, json.Unmarshal(response.Body.Bytes(), &catalog))
-		for _, entry := range catalog.Data {
-			require.EqualValues(test, 64000, entry.Capabilities["context_window"])
-		}
-	})
-	test.Run("private-text-and-unknown-exit", func(test *testing.T) {
-		models := []gin.H{{"id": "model"}}
-		for _, observations := range [][]service.UpstreamModelMetadata{
-			{{InputModalities: []string{"https://private.example/evidence"}, ContextWindow: 123, ContextLimitKind: "private-limit", Description: "private-trace"}},
-			{{ContextWindow: 123, ContextLimitKind: "total"}, {}},
-		} {
-			projected, err := projectPublicModelMetadata(models, map[string][]service.UpstreamModelMetadata{"model": observations})
-			require.NoError(test, err)
-			body, err := json.Marshal(projected)
-			require.NoError(test, err)
-			require.JSONEq(test, `[{"id":"model"}]`, string(body))
-		}
-	})
-	test.Run("pinned-manifest", TestRetrievePinnedModelPreservesMetadataFilteringAndErrors)
-	test.Run("client-version", TestGatewayCodexModels_NonOpenAIGroupsUseMappedModels)
-	test.Run("legacy-fallback", TestRetrieveModelMatchesVisibleCatalogue)
+	minimal := request("/v1/models", "", false)
+	require.Equal(t, 200, minimal.Code)
+	require.NotContains(t, minimal.Body.String(), "capabilities")
+	require.NotContains(t, minimal.Body.String(), "created")
+	require.Contains(t, minimal.Body.String(), `"object":"model"`)
+	rich := request("/v1/models/catalog", "", true)
+	require.Equal(t, 200, rich.Code)
+	require.Contains(t, rich.Body.String(), `"observed_minimum":128000`)
+	require.Contains(t, rich.Body.String(), `"created_at_source":"unavailable"`)
+	require.Equal(t, minimal.Header().Get("X-Model-Catalog-Revision"), rich.Header().Get("X-Model-Catalog-Revision"))
+	require.Equal(t, "private, no-store", rich.Header().Get("Cache-Control"))
+	require.NotContains(t, rich.Body.String(), "private")
+	require.NotContains(t, rich.Body.String(), "gpt-native")
+	single := request("/v1/models/gpt-alias", "gpt-alias", false)
+	require.Equal(t, 200, single.Code)
+	missing := request("/v1/models/gpt-native", "gpt-native", false)
+	require.Equal(t, 404, missing.Code)
+	after, err := json.Marshal(account)
+	require.NoError(t, err)
+	require.Equal(t, string(before), string(after))
+	repo.err = errors.New("private database error")
+	failure := request("/v1/models/catalog", "", true)
+	require.Equal(t, 503, failure.Code)
+	require.NotContains(t, failure.Body.String(), "private")
+}
+
+func TestPublicModelCursorRevocation(t *testing.T) {
+	account := publicMetadataAccount()
+	account.Credentials["model_mapping"] = map[string]any{"alpha": "gpt-native", "beta": "gpt-native"}
+	repo := &publicMetadataRepository{accounts: []service.Account{account}}
+	handler := newGatewayModelsHandlerForTest(repo)
+	group := &service.Group{ID: 31, Platform: service.PlatformOpenAI}
+	request := func(path string, policy []string, keyID int64) *httptest.ResponseRecorder {
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest("GET", path, nil)
+		ctx.Request = ctx.Request.WithContext(service.WithVisibleModelKeyPolicy(ctx.Request.Context(), policy))
+		ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: keyID, GroupID: &group.ID, Group: group})
+		handler.ModelCatalog(ctx)
+		return recorder
+	}
+	first := request("/v1/models/catalog?limit=1", nil, 7)
+	require.Equal(t, 200, first.Code)
+	var page struct {
+		Next string `json:"next_cursor"`
+	}
+	require.NoError(t, json.Unmarshal(first.Body.Bytes(), &page))
+	require.NotEmpty(t, page.Next)
+	nextPath := "/v1/models/catalog?limit=1&cursor=" + page.Next
+	require.Equal(t, 200, request(nextPath, nil, 7).Code)
+	require.Equal(t, 400, request(nextPath, []string{"alpha"}, 7).Code)
+	require.Equal(t, 400, request(nextPath, nil, 8).Code)
+	group.ID++
+	require.Equal(t, 400, request(nextPath, nil, 7).Code)
 }
 
 type metadataSnapshotCapture struct {
@@ -212,4 +168,15 @@ type metadataSnapshotCapture struct {
 func (capture *metadataSnapshotCapture) MarshalJSON() ([]byte, error) {
 	capture.reads++
 	return json.Marshal(capture.snapshot)
+}
+
+func TestPublicListingDoesNotReapplyStaleAuthenticatedGroupPolicy(t *testing.T) {
+	repo := &publicMetadataRepository{accounts: []service.Account{publicMetadataAccount()}}
+	current := &service.Group{ID: 31, Platform: service.PlatformOpenAI, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-alias"}}}
+	handler := newGatewayModelsHandlerForTest(repo, &publicListingGroupRepository{current: current})
+	stale := *current
+	stale.ModelAllowlist = service.GroupModelAllowlist{Enabled: true, Models: []string{"old-model"}}
+	response := requestModelForTest(handler, &stale, "", "")
+	require.Equal(t, 200, response.Code)
+	require.Contains(t, response.Body.String(), "gpt-alias")
 }

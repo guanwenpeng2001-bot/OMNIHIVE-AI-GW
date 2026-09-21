@@ -288,13 +288,13 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 			log.Printf(
 				"[OIDC OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q body=%s",
 				exchangeErr.StatusCode,
-				exchangeErr.ProviderError,
-				exchangeErr.ProviderDescription,
+				truncateLogValue(exchangeErr.ProviderError, 128),
+				truncateLogValue(exchangeErr.ProviderDescription, 2048),
 				truncateLogValue(exchangeErr.Body, 2048),
 			)
 			description = exchangeErr.Error()
 		} else {
-			log.Printf("[OIDC OAuth] token exchange failed: %v", err)
+			log.Printf("[OIDC OAuth] token exchange failed: %s", truncateLogValue(err.Error(), 2048))
 			description = err.Error()
 		}
 		redirectOAuthError(c, frontendCallback, "token_exchange_failed", "failed to exchange oauth code", singleLine(description))
@@ -600,7 +600,7 @@ type completeOIDCOAuthRequest struct {
 func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 	var req completeOIDCOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": "Invalid request"})
 		return
 	}
 

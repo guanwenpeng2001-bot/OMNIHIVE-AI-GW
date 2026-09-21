@@ -644,7 +644,7 @@ type channelMonitorV2GroupInfo struct {
 }
 
 func (r *channelMonitorV2Repository) listActiveGroupIDs(ctx context.Context) ([]int64, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id FROM groups WHERE deleted_at IS NULL AND status = 'active' ORDER BY id`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id FROM groups WHERE deleted_at IS NULL AND status = 'active' AND `+workspacePredicate(ctx, "workspace_id")+` ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}
@@ -665,7 +665,7 @@ func (r *channelMonitorV2Repository) loadChannelMonitorV2GroupInfo(ctx context.C
 	if len(groupIDs) == 0 {
 		return out, nil
 	}
-	rows, err := r.db.QueryContext(ctx, `SELECT id, COALESCE(name, ''), lower(COALESCE(NULLIF(TRIM(platform), ''), 'unknown')) FROM groups WHERE id = ANY($1) AND deleted_at IS NULL AND status = 'active'`, pq.Array(groupIDs))
+	rows, err := r.db.QueryContext(ctx, `SELECT id, COALESCE(name, ''), lower(COALESCE(NULLIF(TRIM(platform), ''), 'unknown')) FROM groups WHERE id = ANY($1) AND deleted_at IS NULL AND status = 'active' AND `+workspacePredicate(ctx, "workspace_id"), pq.Array(groupIDs))
 	if err != nil {
 		return nil, err
 	}
@@ -747,6 +747,7 @@ func (r *channelMonitorV2Repository) GetErrors(ctx context.Context, filter servi
 func (r *channelMonitorV2Repository) loadErrorDetails(ctx context.Context, filter service.ChannelMonitorV2Filter, cfg service.ChannelMonitorV2Config) (map[string][]service.ChannelMonitorV2ErrorDetail, error) {
 	conditions := []string{
 		"current_error.created_at >= $1",
+		workspaceGroupPredicate(ctx, "current_error.group_id"),
 		"current_error.created_at < $2",
 		"NOT current_error.is_count_tokens",
 		"(COALESCE(current_error.status_code, 0) >= 400 OR current_error.error_type = 'cyber_policy')",
@@ -1162,6 +1163,9 @@ func channelMonitorV2WhereWithRollup(filter service.ChannelMonitorV2Filter, cfg 
 
 func channelMonitorV2Where(filter service.ChannelMonitorV2Filter, cfg service.ChannelMonitorV2Config, alias string) (string, []any) {
 	conditions := []string{alias + ".bucket_start >= $1", alias + ".bucket_start < $2"}
+	if filter.WorkspaceID > 0 {
+		conditions = append(conditions, fmt.Sprintf("%s.group_id IN (SELECT id FROM groups WHERE workspace_id=%d)", alias, filter.WorkspaceID))
+	}
 	args := []any{filter.Start, filter.End}
 	platforms := channelMonitorV2EnabledPlatforms(cfg)
 	if len(filter.Platforms) > 0 {

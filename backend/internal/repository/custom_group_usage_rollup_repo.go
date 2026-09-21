@@ -17,7 +17,7 @@ func (r *usageLogRepository) getAllGroupUsageSummaryFromRollups(ctx context.Cont
 	todayDate := service.GroupUsageDate(todayStart)
 	yesterdayDate := service.GroupUsageDate(yesterdayStart)
 
-	const query = `
+	query := `
 		WITH state_values AS (
 			SELECT
 				COUNT(*) = 1
@@ -75,6 +75,7 @@ func (r *usageLogRepository) getAllGroupUsageSummaryFromRollups(ctx context.Cont
 		FROM groups g
 		LEFT JOIN historical ON historical.group_id = g.id
 		LEFT JOIN tail ON tail.group_id = g.id
+		WHERE ` + workspacePredicate(ctx, "g.workspace_id") + `
 		ORDER BY g.id
 	`
 

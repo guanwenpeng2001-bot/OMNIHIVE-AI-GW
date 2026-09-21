@@ -8,6 +8,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -148,5 +149,33 @@ func TestLiveRejectsUnapprovedBillingBeforeUpstream(t *testing.T) {
 				require.Equal(t, http.StatusForbidden, recorder.Code)
 			}
 		}
+	}
+}
+
+func TestLiveCreatesRequestPlanAndBudgetBeforeBilling(t *testing.T) {
+	for _, path := range []string{"/v1/live", "/backend-api/codex/realtime/calls"} {
+		cfg := &config.Config{}
+		cfg.Gateway.Live.BillingPolicy = "free"
+		gateway := service.NewOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		handler := &OpenAIGatewayHandler{gatewayService: gateway, cfg: cfg, maxAccountSwitches: 2}
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest("POST", path, bytes.NewBufferString(`{"sdp":"v=0\r\n","session":{"model":"gpt-live-fixture"}}`))
+		ctx.Request.Header.Set("Content-Type", "application/json")
+		group := &service.Group{ID: 31, Platform: service.PlatformOpenAI, AllowLive: true}
+		ctx.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 7, UserID: 9, GroupID: &group.ID, Group: group, User: &service.User{ID: 9}})
+		ctx.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 9, Concurrency: 1})
+		handler.Live(ctx)
+		require.Equal(t, http.StatusServiceUnavailable, recorder.Code, "no billing dependency: fail before dispatch")
+		plan := service.GatewayRequestPlanFromContext(ctx.Request.Context())
+		require.NotNil(t, plan)
+		require.Equal(t, "live", plan.Snapshot().Protocol)
+		require.Equal(t, "gpt-live-fixture", plan.Snapshot().Model)
+		require.Equal(t, path, plan.Snapshot().Route)
+		require.EqualValues(t, 7, plan.Snapshot().APIKeyID)
+		require.True(t, plan.State().Finalized)
+		require.NotNil(t, service.AttemptBudgetFromContext(ctx.Request.Context()))
+		_, deadlineSet := ctx.Request.Context().Deadline()
+		require.True(t, deadlineSet)
 	}
 }

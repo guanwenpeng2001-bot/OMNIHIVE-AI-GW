@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"net/http"
 	"strconv"
 	"strings"
@@ -30,7 +31,7 @@ func NewChannelMonitorV2Handler(svc *service.ChannelMonitorV2Service, apiKeyServ
 // (shared Dimensions/Errors handlers serve both user and admin route groups).
 func channelMonitorV2IsAdmin(c *gin.Context) bool {
 	role, ok := middleware.GetUserRoleFromContext(c)
-	return ok && role == service.RoleAdmin
+	return (ok && role == service.RoleAdmin) || domain.WorkspaceAdministration(c.Request.Context())
 }
 
 func (h *ChannelMonitorV2Handler) GetConfig(c *gin.Context) {
@@ -227,6 +228,7 @@ func (h *ChannelMonitorV2Handler) parseFilter(c *gin.Context) (service.ChannelMo
 		response.BadRequest(c, err.Error())
 		return service.ChannelMonitorV2Filter{}, false
 	}
+	filter.WorkspaceID, _ = domain.WorkspaceScope(c.Request.Context())
 	return filter, true
 }
 

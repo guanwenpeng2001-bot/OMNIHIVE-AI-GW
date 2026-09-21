@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // Hosted group account_type participates in authentication and quota identity.
+const apiKeyAuthSnapshotVersion = 26 // Workspace ownership must survive authentication cache hits.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -339,6 +339,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		Version:     apiKeyAuthSnapshotVersion,
 		APIKeyID:    apiKey.ID,
 		UserID:      apiKey.UserID,
+		WorkspaceID: apiKey.WorkspaceID,
 		GroupID:     apiKey.GroupID,
 		Name:        apiKey.Name,
 		Status:      apiKey.Status,
@@ -448,6 +449,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 	apiKey := &APIKey{
 		ID:          snapshot.APIKeyID,
 		UserID:      snapshot.UserID,
+		WorkspaceID: snapshot.WorkspaceID,
 		GroupID:     snapshot.GroupID,
 		Key:         key,
 		Name:        snapshot.Name,

@@ -16,6 +16,10 @@
 
       <!-- Main Content -->
       <main class="p-4 md:p-6 lg:p-8">
+        <div v-if="route.params?.workspace_id" class="card mb-4 flex items-center gap-3 p-3 text-sm">
+          <RouterLink to="/workspaces" class="text-primary-600 dark:text-primary-400">{{ t('workspaces.title') }}</RouterLink>
+          <span>#{{ route.params.workspace_id }}</span>
+        </div>
         <slot />
       </main>
     </div>
@@ -25,7 +29,8 @@
 <script setup lang="ts">
 import '@/styles/onboarding.css'
 import { computed, onMounted, onUnmounted, watch } from 'vue'
-import { useRoute } from 'vue-router'
+import { RouterLink, useRoute } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'
 import { useAuthStore } from '@/stores/auth'
 import { useOnboardingTour } from '@/composables/useOnboardingTour'
@@ -34,6 +39,7 @@ import AppSidebar from './AppSidebar.vue'
 import AppHeader from './AppHeader.vue'
 
 const appStore = useAppStore()
+const { t } = useI18n()
 const authStore = useAuthStore()
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const isAdmin = computed(() => authStore.user?.role === 'admin')

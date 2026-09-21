@@ -97,7 +97,7 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 			}
 			if route.Method == http.MethodGet {
 				switch route.Path {
-				case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+				case "/models", "/models/:model", "/v1/models", "/v1/models/:model", "/v1/models/catalog", "/v1/models/catalog/:model",
 					"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
 					continue // Supported catalog and usage contracts are tested by the guard suite.
 				}
@@ -121,7 +121,21 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 						request.Header.Set("Authorization", "Bearer matrix-key")
 						router.ServeHTTP(recorder, request)
 						require.Equal(test, http.StatusBadRequest, recorder.Code, recorder.Body.String())
-						require.Contains(test, recorder.Body.String(), "invalid_request_error")
+						if strings.HasPrefix(request.URL.Path, "/v1beta/") {
+							// The action remains a 400 rejection; GatewayProtocol renders
+							// the native Google equivalent of invalid_request_error.
+							var envelope struct {
+								Error struct {
+									Code   int    `json:"code"`
+									Status string `json:"status"`
+								} `json:"error"`
+							}
+							require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &envelope))
+							require.Equal(test, http.StatusBadRequest, envelope.Error.Code)
+							require.Equal(test, "INVALID_ARGUMENT", envelope.Error.Status)
+						} else {
+							require.Contains(test, recorder.Body.String(), "invalid_request_error")
+						}
 						// The real router has no transport or billing services. Reaching
 						// either would panic instead of returning this local rejection.
 					})
@@ -173,7 +187,7 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	upstreamCalls, billingCalls := 0, 0
 	router.Use(func(requestContext *gin.Context) {
 		requestContext.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{Group: &service.Group{Platform: service.PlatformMistral}})
-	}, chatOnlyPlatformGuard)
+	}, service.GatewayActionRequirement)
 	router.POST("/v1/responses", func(requestContext *gin.Context) {
 		upstreamCalls++
 		billingCalls++

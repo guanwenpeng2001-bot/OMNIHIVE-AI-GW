@@ -20,7 +20,7 @@ func NewUserGroupRateRepository(sqlDB *sql.DB) service.UserGroupRateRepository {
 
 // GetByUserID 获取用户所有专属分组 rate_multiplier（仅返回非 NULL 的条目）
 func (r *userGroupRateRepository) GetByUserID(ctx context.Context, userID int64) (map[int64]float64, error) {
-	query := `SELECT group_id, rate_multiplier FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NOT NULL`
+	query := `SELECT group_id, rate_multiplier FROM user_group_rate_multipliers WHERE user_id = $1 AND rate_multiplier IS NOT NULL AND ` + workspaceGroupPredicate(ctx, "group_id")
 	rows, err := r.sql.QueryContext(ctx, query, userID)
 	if err != nil {
 		return nil, err
@@ -100,7 +100,7 @@ func (r *userGroupRateRepository) GetByGroupID(ctx context.Context, groupID int6
 		SELECT ugr.user_id, u.username, u.email, COALESCE(u.notes, ''), u.status, ugr.rate_multiplier, ugr.rpm_override
 		FROM user_group_rate_multipliers ugr
 		JOIN users u ON u.id = ugr.user_id AND u.deleted_at IS NULL
-		WHERE ugr.group_id = $1
+		WHERE ugr.group_id = $1` + workspaceMemberClause(ctx, "ugr.user_id") + `
 		ORDER BY ugr.user_id
 	`
 	rows, err := r.sql.QueryContext(ctx, query, groupID)
@@ -254,7 +254,7 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 		if _, err := r.sql.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
 			SET rate_multiplier = NULL, updated_at = NOW()
-			WHERE group_id = $1
+			WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+`
 		`, groupID); err != nil {
 			return err
 		}
@@ -262,7 +262,7 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 		if _, err := r.sql.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
 			SET rate_multiplier = NULL, updated_at = NOW()
-			WHERE group_id = $1 AND user_id <> ALL($2)
+			WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND user_id <> ALL($2)
 		`, groupID, pq.Array(keepUserIDs)); err != nil {
 			return err
 		}
@@ -271,7 +271,7 @@ func (r *userGroupRateRepository) SyncGroupRateMultipliers(ctx context.Context, 
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND rate_multiplier IS NULL AND rpm_override IS NULL
 	`, groupID); err != nil {
 		return err
 	}
@@ -321,7 +321,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 		if _, err := r.sql.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
 			SET rpm_override = NULL, updated_at = NOW()
-			WHERE group_id = $1
+			WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+`
 		`, groupID); err != nil {
 			return err
 		}
@@ -329,7 +329,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 		if _, err := r.sql.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
 			SET rpm_override = NULL, updated_at = NOW()
-			WHERE group_id = $1 AND user_id <> ALL($2)
+			WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND user_id <> ALL($2)
 		`, groupID, pq.Array(keepUserIDs)); err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 		if _, err := r.sql.ExecContext(ctx, `
 			UPDATE user_group_rate_multipliers
 			SET rpm_override = NULL, updated_at = NOW()
-			WHERE group_id = $1 AND user_id = ANY($2)
+			WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND user_id = ANY($2)
 		`, groupID, pq.Array(clearUserIDs)); err != nil {
 			return err
 		}
@@ -349,7 +349,7 @@ func (r *userGroupRateRepository) SyncGroupRPMOverrides(ctx context.Context, gro
 	// 清空后若整行 NULL 则删除。
 	if _, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND rate_multiplier IS NULL AND rpm_override IS NULL
 	`, groupID); err != nil {
 		return err
 	}
@@ -376,20 +376,20 @@ func (r *userGroupRateRepository) ClearGroupRPMOverrides(ctx context.Context, gr
 	if _, err := r.sql.ExecContext(ctx, `
 		UPDATE user_group_rate_multipliers
 		SET rpm_override = NULL, updated_at = NOW()
-		WHERE group_id = $1
+		WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+`
 	`, groupID); err != nil {
 		return err
 	}
 	_, err := r.sql.ExecContext(ctx, `
 		DELETE FROM user_group_rate_multipliers
-		WHERE group_id = $1 AND rate_multiplier IS NULL AND rpm_override IS NULL
+		WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id")+` AND rate_multiplier IS NULL AND rpm_override IS NULL
 	`, groupID)
 	return err
 }
 
 // DeleteByGroupID 删除指定分组的所有用户专属条目
 func (r *userGroupRateRepository) DeleteByGroupID(ctx context.Context, groupID int64) error {
-	_, err := r.sql.ExecContext(ctx, `DELETE FROM user_group_rate_multipliers WHERE group_id = $1`, groupID)
+	_, err := r.sql.ExecContext(ctx, `DELETE FROM user_group_rate_multipliers WHERE group_id = $1`+workspaceMemberClause(ctx, "user_id"), groupID)
 	return err
 }
 

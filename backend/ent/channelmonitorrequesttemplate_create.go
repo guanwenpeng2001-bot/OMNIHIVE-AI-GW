@@ -51,6 +51,20 @@ func (_c *ChannelMonitorRequestTemplateCreate) SetNillableUpdatedAt(v *time.Time
 	return _c
 }
 
+// SetWorkspaceID sets the "workspace_id" field.
+func (_c *ChannelMonitorRequestTemplateCreate) SetWorkspaceID(v int64) *ChannelMonitorRequestTemplateCreate {
+	_c.mutation.SetWorkspaceID(v)
+	return _c
+}
+
+// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
+func (_c *ChannelMonitorRequestTemplateCreate) SetNillableWorkspaceID(v *int64) *ChannelMonitorRequestTemplateCreate {
+	if v != nil {
+		_c.SetWorkspaceID(*v)
+	}
+	return _c
+}
+
 // SetName sets the "name" field.
 func (_c *ChannelMonitorRequestTemplateCreate) SetName(v string) *ChannelMonitorRequestTemplateCreate {
 	_c.mutation.SetName(v)
@@ -139,7 +153,9 @@ func (_c *ChannelMonitorRequestTemplateCreate) Mutation() *ChannelMonitorRequest
 
 // Save creates the ChannelMonitorRequestTemplate in the database.
 func (_c *ChannelMonitorRequestTemplateCreate) Save(ctx context.Context) (*ChannelMonitorRequestTemplate, error) {
-	_c.defaults()
+	if err := _c.defaults(); err != nil {
+		return nil, err
+	}
 	return withHooks(ctx, _c.sqlSave, _c.mutation, _c.hooks)
 }
 
@@ -166,14 +182,24 @@ func (_c *ChannelMonitorRequestTemplateCreate) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_c *ChannelMonitorRequestTemplateCreate) defaults() {
+func (_c *ChannelMonitorRequestTemplateCreate) defaults() error {
 	if _, ok := _c.mutation.CreatedAt(); !ok {
+		if channelmonitorrequesttemplate.DefaultCreatedAt == nil {
+			return fmt.Errorf("ent: uninitialized channelmonitorrequesttemplate.DefaultCreatedAt (forgotten import ent/runtime?)")
+		}
 		v := channelmonitorrequesttemplate.DefaultCreatedAt()
 		_c.mutation.SetCreatedAt(v)
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
+		if channelmonitorrequesttemplate.DefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized channelmonitorrequesttemplate.DefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := channelmonitorrequesttemplate.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		v := channelmonitorrequesttemplate.DefaultWorkspaceID
+		_c.mutation.SetWorkspaceID(v)
 	}
 	if _, ok := _c.mutation.APIMode(); !ok {
 		v := channelmonitorrequesttemplate.DefaultAPIMode
@@ -191,6 +217,7 @@ func (_c *ChannelMonitorRequestTemplateCreate) defaults() {
 		v := channelmonitorrequesttemplate.DefaultBodyOverrideMode
 		_c.mutation.SetBodyOverrideMode(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -200,6 +227,9 @@ func (_c *ChannelMonitorRequestTemplateCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "ChannelMonitorRequestTemplate.updated_at"`)}
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "ChannelMonitorRequestTemplate.workspace_id"`)}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "ChannelMonitorRequestTemplate.name"`)}
@@ -275,6 +305,10 @@ func (_c *ChannelMonitorRequestTemplateCreate) createSpec() (*ChannelMonitorRequ
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(channelmonitorrequesttemplate.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if value, ok := _c.mutation.WorkspaceID(); ok {
+		_spec.SetField(channelmonitorrequesttemplate.FieldWorkspaceID, field.TypeInt64, value)
+		_node.WorkspaceID = value
 	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(channelmonitorrequesttemplate.FieldName, field.TypeString, value)
@@ -493,6 +527,9 @@ func (u *ChannelMonitorRequestTemplateUpsertOne) UpdateNewValues() *ChannelMonit
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(channelmonitorrequesttemplate.FieldCreatedAt)
+		}
+		if _, exists := u.create.mutation.WorkspaceID(); exists {
+			s.SetIgnore(channelmonitorrequesttemplate.FieldWorkspaceID)
 		}
 	}))
 	return u
@@ -829,6 +866,9 @@ func (u *ChannelMonitorRequestTemplateUpsertBulk) UpdateNewValues() *ChannelMoni
 		for _, b := range u.create.builders {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(channelmonitorrequesttemplate.FieldCreatedAt)
+			}
+			if _, exists := b.mutation.WorkspaceID(); exists {
+				s.SetIgnore(channelmonitorrequesttemplate.FieldWorkspaceID)
 			}
 		}
 	}))
