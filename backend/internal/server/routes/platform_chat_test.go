@@ -5,6 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -53,12 +54,14 @@ func TestChatOnlyPlatformProtocolGuard(test *testing.T) {
 				router.Handle(endpoint.method, endpoint.path, func(requestContext *gin.Context) { calls++; requestContext.Status(http.StatusNoContent) })
 				recorder := httptest.NewRecorder()
 				router.ServeHTTP(recorder, httptest.NewRequest(endpoint.method, concreteMatrixPath(endpoint.path), nil))
-				if endpoint.allowed {
+				action := service.GatewayActionForRoute(endpoint.method, endpoint.path)
+				allowed := action == "" || domain.PlatformAction(domain.ActionIdentity{Platform: platform}, action).Status == domain.ActionImplemented
+				if allowed {
 					require.Equal(test, 1, calls)
 					require.Equal(test, http.StatusNoContent, recorder.Code)
 				} else {
 					require.Zero(test, calls, "unsupported protocols must not reach scheduling, transport or billing")
-					require.Equal(test, http.StatusNotFound, recorder.Code)
+					require.Equal(test, http.StatusBadRequest, recorder.Code)
 				}
 			})
 		}
