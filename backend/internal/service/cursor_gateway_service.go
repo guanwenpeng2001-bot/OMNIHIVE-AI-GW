@@ -177,7 +177,14 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		} `json:"stream_options"`
 	}
 	if err := json.Unmarshal(body, &request); err != nil || request.Model == "" || len(request.Messages) == 0 {
-		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": "Cursor requires valid text messages and function tools"}))
+		message := "Cursor requires valid text messages and function tools"
+		if errors.Is(err, cursor.ErrNonTextContent) {
+			// The request carries media that the verified Run text contract has no
+			// field for; keep the error explicit instead of reporting malformed
+			// JSON, and never forward the part as text.
+			message = "cursor: only text content is supported"
+		}
+		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": message}))
 		return nil, fmt.Errorf("cursor: invalid Chat request")
 	}
 	var definitions []cursor.ToolDefinition
