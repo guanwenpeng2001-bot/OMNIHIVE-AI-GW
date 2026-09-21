@@ -7,10 +7,12 @@ import (
 	"fmt"
 	"net/url"
 	"reflect"
+	"slices"
 	"sort"
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
@@ -371,18 +373,7 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 	}
 	task := accountCatalogEndpointTask(account, modelID, metadata)
 	if IsChatOnlyPlatform(account.Platform) {
-		if task != "" && task != "text_generation" {
-			return []string{}
-		}
-		if metadata.SupportedMethods != nil {
-			for _, method := range metadata.SupportedMethods {
-				if method == CompositeRouteEndpointChatCompletions {
-					return []string{CompositeRouteEndpointChatCompletions}
-				}
-			}
-			return []string{}
-		}
-		return []string{CompositeRouteEndpointChatCompletions}
+		return chatOnlyAccountCatalogModelEndpoints(account, task, metadata)
 	}
 
 	endpoints := []string{}
@@ -438,6 +429,63 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 		endpoints = append(endpoints, string(OpenAIEndpointCapabilityAlphaSearch))
 	}
 	return dedupeAndSortModelIDs(endpoints)
+}
+
+// chatOnlyAccountCatalogModelEndpoints keeps a chat-only platform entry
+// conservative without turning the classification into a permanent capability
+// denial: the declared endpoint families are admitted exactly when the platform
+// action matrix binds an adapter for the action they execute on. A text model
+// still requires chat-completions evidence, and an explicit declaration without
+// it remains a denial.
+func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadata UpstreamModelMetadata) []string {
+	endpoints := []string{}
+	if task == "" || task == "text_generation" {
+		if metadata.SupportedMethods == nil || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions) {
+			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
+		}
+	}
+	for _, method := range metadata.SupportedMethods {
+		action := chatOnlyCatalogEndpointAction(method)
+		if action == "" || !platformActionAdapterBound(account, action) {
+			continue
+		}
+		endpoints = append(endpoints, method)
+	}
+	return dedupeAndSortModelIDs(endpoints)
+}
+
+// chatOnlyCatalogEndpointAction resolves the gateway action an endpoint family
+// executes on. An unknown family returns "" and stays out of the catalog.
+func chatOnlyCatalogEndpointAction(endpoint string) string {
+	switch endpoint {
+	case CompositeRouteEndpointChatCompletions:
+		return "chat"
+	case string(OpenAIEndpointCapabilityEmbeddings):
+		return "embeddings"
+	case CompositeRouteEndpointImages, string(OpenAIEndpointCapabilityGrokMediaGeneration):
+		return "image.generate"
+	case "generate_content":
+		return "generate_content"
+	case CompositeRouteEndpointMessages:
+		return "messages"
+	case CompositeRouteEndpointResponses:
+		return "responses"
+	case string(OpenAIEndpointCapabilityLive):
+		return "live"
+	case string(OpenAIEndpointCapabilityAlphaSearch):
+		return "alpha_search"
+	default:
+		return ""
+	}
+}
+
+// platformActionAdapterBound reports whether the authoritative platform×action
+// matrix binds an adapter for this account's identity.
+func platformActionAdapterBound(account *Account, action string) bool {
+	if account == nil {
+		return false
+	}
+	return domain.PlatformAction(domain.ActionIdentity{Platform: account.Platform, HostedAccountType: account.Type}, action).Status == domain.ActionImplemented
 }
 
 // Task evidence precedes platform defaults. Output text alone does not turn an

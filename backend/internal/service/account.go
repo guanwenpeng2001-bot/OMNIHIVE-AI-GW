@@ -108,6 +108,11 @@ const (
 	// credentials["openai_capabilities"] 配置集。仅用于生图意图的 /v1/responses
 	// 调度，避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
 	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
+	// OpenAIEndpointCapabilityGenerateContent keeps Google-protocol generation off
+	// accounts whose hosted plan publishes no Google-shaped route: OpenCode Go has
+	// no such column while Zen does, so the scheduler must skip a Go-plan account
+	// instead of selecting it and failing after the request was claimed.
+	OpenAIEndpointCapabilityGenerateContent OpenAIEndpointCapability = "generate_content"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -1899,7 +1904,16 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return false
 	}
 	if IsChatOnlyPlatform(a.Platform) {
-		return a.Type == AccountTypeAPIKey && capability == OpenAIEndpointCapabilityChatCompletions
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
+		// Chat-only is a platform classification, not a permanent capability
+		// denial: an action whose adapter the platform action matrix has bound is
+		// executable by this API-key account, so the scheduler must not veto it.
+		// The OpenAI-shaped chat trunk stays available because every chat-only
+		// entry is defined by it.
+		action := openAIEndpointCapabilityAction(capability)
+		return action == "" || domain.PlatformAction(domain.ActionIdentity{Platform: a.Platform, HostedAccountType: a.Type}, action).Status == domain.ActionImplemented
 	}
 	if a.IsGrok() {
 		switch capability {
@@ -1946,6 +1960,19 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}
+	case OpenAIEndpointCapabilityGenerateContent:
+		// Only OpenCode publishes a Google-protocol column, and its Go plan
+		// publishes none: the Zen/Pay-as-you-go column is the only account mode
+		// that can serve {base}/models/{model}:generateContent.
+		if !a.IsOpenCodeGo() {
+			return false
+		}
+		if a.IsOpenCodeGoPlan() {
+			return false
+		}
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
 	default:
 		return false
 	}
@@ -1958,6 +1985,29 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return true
 	}
 	return configured[string(capability)]
+}
+
+// openAIEndpointCapabilityAction maps a scheduler capability to the gateway
+// action that decides it. Capabilities that are not platform×action cells (the
+// Grok media family) return "" and keep the per-platform switch in
+// SupportsOpenAIEndpointCapability.
+func openAIEndpointCapabilityAction(capability OpenAIEndpointCapability) string {
+	switch capability {
+	case OpenAIEndpointCapabilityChatCompletions:
+		return "chat"
+	case OpenAIEndpointCapabilityEmbeddings:
+		return "embeddings"
+	case OpenAIEndpointCapabilityAlphaSearch:
+		return "alpha_search"
+	case OpenAIEndpointCapabilityLive:
+		return "live"
+	case OpenAIEndpointCapabilityResponses:
+		return "responses"
+	case OpenAIEndpointCapabilityGenerateContent:
+		return "generate_content"
+	default:
+		return ""
+	}
 }
 
 // GrokMediaGenerationEligibility reports whether a Grok account may receive

@@ -106,6 +106,23 @@ func openCodeGoogleMethodIsStream(method string) bool {
 	return method == openCodeGoogleStreamGenerateContentAction
 }
 
+// OpenCodeGoogleActionForMethod is the inbound inverse of
+// openCodeGoogleMethodForAction: the Google "models/{model}:{method}" ingress
+// path segment carries a method, not a gateway action, and :countTokens must not
+// be mistaken for generate_content because it is a non-billable estimate.
+func OpenCodeGoogleActionForMethod(method string) (action string, stream bool, ok bool) {
+	switch strings.TrimSpace(method) {
+	case openCodeGoogleGenerateContentAction:
+		return "generate_content", false, true
+	case openCodeGoogleStreamGenerateContentAction:
+		return openCodeGoogleStreamGenerateContentAction, true, true
+	case openCodeGoogleCountTokensAction:
+		return "count_tokens", false, true
+	default:
+		return "", false, false
+	}
+}
+
 // openCodeGoogleActionAccount 把 Google 协议面限定在 OpenCode API Key 账号：
 // 托管凭据就是 API Key，本网关没有 OAuth 或上游透传形态。
 func openCodeGoogleActionAccount(account *Account) error {

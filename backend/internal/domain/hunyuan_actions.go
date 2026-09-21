@@ -66,16 +66,16 @@ import "strings"
 //	hunyuan.hy3d.query         -> Hunyuan3DQuery (/api/3d/query)
 
 // hunyuanActionAdapters binds the TokenHub cells a Hunyuan API-key account can
-// execute today. Only chat qualifies: the platform row keeps ChatOnly=true.
+// execute today. The media, vector and voice entries were promoted by
+// multimodal-ingress, which registers each named key in
+// routes/gateway.go GatewayActionHandlers and admits them through the
+// evidence-driven chat-only gates; count_tokens uses the shared non-billable
+// local estimation adapter because TokenHub publishes no token-count endpoint
+// (1823/130077).
 var hunyuanActionAdapters = map[string]string{
-	"chat": "openai.chat",
-}
-
-// hunyuanPendingAdapters names the adapters this branch implements and covers
-// with service-level wire tests, together with the gate that blocks the bind.
-// They are deliberately not advertised as implemented: promoting a cell means
-// registering its key and removing the platform lock in the same change.
-var hunyuanPendingAdapters = map[string]string{
+	"chat":           "openai.chat",
+	"count_tokens":   "openai.count_tokens",
+	"embeddings":     "hunyuan.embeddings",
 	"image.generate": "hunyuan.images",
 	"image.edit":     "hunyuan.image.edit",
 	"video.generate": "hunyuan.video.generate",
@@ -84,12 +84,12 @@ var hunyuanPendingAdapters = map[string]string{
 	"audio.tts":      "hunyuan.audio.tts",
 	"audio.stt":      "hunyuan.audio.stt",
 	"voice":          "hunyuan.voice",
-	"embeddings":     "hunyuan.embeddings",
 }
 
 // hunyuanActionEvidence documents the adapter and first-party protocol evidence
 // for every Hunyuan cell whose adapter exists in this branch.
 var hunyuanActionEvidence = map[string]string{
+	"count_tokens":   "The TokenHub 调用指南 index publishes no token-count endpoint (1823/130077, captured 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation instead of forwarding a request TokenHub would 404",
 	"chat":           "openai.chat trunk to POST {base}/v1/chat/completions with Authorization: Bearer; TokenHub 1823/130079 lists Hy3 on Chat Completions and 1823/130078 fixes the four hosts, the Bearer/x-api-key split and GET /v1/models (captured 2026-09-21). service/openai_gateway_chat_completions_raw.go keeps an unobserved stream unbilled instead of reporting zero usage",
 	"embeddings":     "hunyuan.embeddings handler to POST {base}/v1/embeddings (OpenAI-compatible text vectorization) and POST {base}/v1/embeddings/multimodal for the fused text/image/video vector (1823/133515, captured 2026-09-21); usage.prompt_tokens/total_tokens billing",
 	"image.generate": "hunyuan.images handler to POST {base}/v1/wand/hunyuan-image/v3-generation (Hy-Image-3.0, synchronous, data[].url with a 12-hour temporary COS URL, size/images/seed/footnote/revise parameters) plus POST {base}/v1/wand/hunyuan-image/world2-panorama for the Hy-World-2.1 360 panorama, which answers data[].super_resolution_image_url and cover_image_url (1823/135745, 1823/136578 and the 1823/135744 family list, captured 2026-09-21); per-image billing from the counted outputs",
@@ -127,12 +127,11 @@ var hunyuanHardConflicts = map[string]string{
 // whose adapter exists elsewhere names that adapter and the gate blocking the
 // bind, so no cell ever reads as a bare \"unsupported\".
 var hunyuanUnverifiedReasons = map[string]string{
-	"messages":     "The Anthropic path is documented at POST {base}/v1/messages with x-api-key (1823/130079 protocol table and 1823/130078 auth split, captured 2026-09-21) and the shared trunk already lists hunyuan as an OpenAI-compatible text target (handler/openai_gateway_handler.go openAICompatibleTextTargetAllowed) with Account.GetAnthropicProtocolBaseURL resolving the TokenHub base (service/account.go). The cell stays unbound because PlatformAction gates messages on !ChatOnly, which is the multimodal-ingress platform-classification decision; this branch pins the native endpoint in service/hunyuan_actions.go (HunyuanEndpointMessages) and deliberately ships no second messages forwarder with separate token accounting",
-	"responses":    "The same trunk is the adapter: 1823/133813 documents the Responses compatibility mode over HTTP/SSE and 1823/130079 lists the model protocols, but the Hunyuan platform descriptor records ResponsesPOST as rejected and the cell is gated on !ChatOnly, so the bind is a descriptor decision owned by multimodal-ingress (captured 2026-09-21)",
-	"count_tokens": "The 调用指南 index publishes no token-count endpoint (1823/130077, captured 2026-09-21) and the gateway's non-billable local estimation adapter is gated on !ChatOnly for this platform; the cell records the gate rather than claiming either a supplier absence or a working local counter",
-	"image.async":  "Vidu-Image-q2 is documented as an asynchronous image family in the TokenHub image list (1823/135744) and the international product pages publish POST /wand/vidu-image/generation plus GET /wand/vidu-image/tasks/{task_id} returning creations[].url (intl 1300/83709, captured 2026-09-21); no async image job adapter or upstream-job family is shipped by this branch, and the standard /images/generations/async contract is owned by the upstream job work",
-	"video.edit":   "The Kling omni-video family is the documented TokenHub video-edit surface: POST /wand/kling/omni-video with a contents[] item {type: base_video, url} plus the instruction prompt, and GET /wand/kling/tasks/{task_id} for the task (1823/135742, captured 2026-09-21). The response envelope is documented as following the Kling structure \"以实际返回为准\" with no saved wire sample, and mapping the OpenAI /videos/edits shape onto contents[] is a bridge this branch does not ship; the capability is real, so the cell is unverified rather than a hard conflict",
-	"native":       "TokenHub's native families are the /wand/* and /api/3d/* paths plus /embeddings/multimodal (1823/130077 family index, captured 2026-09-21). The shared route classifier reserves the native action for the DashScope-style /api/v1, /api-ws/v1 and /compatible-mode/v1 paths, which TokenHub does not publish, so those families are reached through the per-action keys listed at the top of this file plus their own native path registrations instead of a native umbrella cell",
+	"messages":    "The Anthropic path is documented at POST {base}/v1/messages with x-api-key (1823/130079 protocol table and 1823/130078 auth split, captured 2026-09-21) and the shared trunk already lists hunyuan as an OpenAI-compatible text target (handler/openai_gateway_handler.go openAICompatibleTextTargetAllowed) with Account.GetAnthropicProtocolBaseURL resolving the TokenHub base (service/account.go). The cell stays unbound because PlatformAction gates messages on !ChatOnly, which is the multimodal-ingress platform-classification decision; this branch pins the native endpoint in service/hunyuan_actions.go (HunyuanEndpointMessages) and deliberately ships no second messages forwarder with separate token accounting",
+	"responses":   "The same trunk is the adapter: 1823/133813 documents the Responses compatibility mode over HTTP/SSE and 1823/130079 lists the model protocols, but the Hunyuan platform descriptor records ResponsesPOST as rejected and the cell is gated on !ChatOnly, so the bind is a descriptor decision owned by multimodal-ingress (captured 2026-09-21)",
+	"image.async": "Vidu-Image-q2 is documented as an asynchronous image family in the TokenHub image list (1823/135744) and the international product pages publish POST /wand/vidu-image/generation plus GET /wand/vidu-image/tasks/{task_id} returning creations[].url (intl 1300/83709, captured 2026-09-21); no async image job adapter or upstream-job family is shipped by this branch, and the standard /images/generations/async contract is owned by the upstream job work",
+	"video.edit":  "The Kling omni-video family is the documented TokenHub video-edit surface: POST /wand/kling/omni-video with a contents[] item {type: base_video, url} plus the instruction prompt, and GET /wand/kling/tasks/{task_id} for the task (1823/135742, captured 2026-09-21). The response envelope is documented as following the Kling structure \"以实际返回为准\" with no saved wire sample, and mapping the OpenAI /videos/edits shape onto contents[] is a bridge this branch does not ship; the capability is real, so the cell is unverified rather than a hard conflict",
+	"native":      "TokenHub's native families are the /wand/* and /api/3d/* paths plus /embeddings/multimodal (1823/130077 family index, captured 2026-09-21). The shared route classifier reserves the native action for the DashScope-style /api/v1, /api-ws/v1 and /compatible-mode/v1 paths, which TokenHub does not publish, so those families are reached through the per-action keys listed at the top of this file plus their own native path registrations instead of a native umbrella cell",
 }
 
 // hunyuanActionDescriptor finalizes the tri-state for every Hunyuan cell:
@@ -148,14 +147,6 @@ func hunyuanActionDescriptor(descriptor ActionDescriptor, action, adapter string
 	serving := strings.TrimSpace(adapter)
 	if serving != "" {
 		bound = serving
-	}
-	// While nothing binds the cell, the pending register explains what the
-	// adapter already does and which platform lock keeps it from running.
-	if serving == "" {
-		if pending, waiting := hunyuanPendingAdapters[action]; waiting {
-			descriptor.Evidence = "TokenHub adapter " + pending + " is implemented in this branch and covered by the service-level wire tests (backend/internal/service/hunyuan_actions_test.go); official evidence: " + hunyuanActionEvidence[action] + ". The cell stays unverified because the Hunyuan platform row keeps ChatOnly=true, which locks service/account_model_catalog.go accountCatalogModelEndpoints, service/account.go SupportsOpenAIEndpointCapability and the chat-only route guard for every non-chat endpoint, and gateway_protocol_matrix_test.go requires an implemented cell to resolve a catalog binding; promote this cell in the change that removes the platform lock and registers the dispatch key"
-			return descriptor
-		}
 	}
 	if implemented || serving != "" {
 		descriptor.Status, descriptor.Adapter = ActionImplemented, bound

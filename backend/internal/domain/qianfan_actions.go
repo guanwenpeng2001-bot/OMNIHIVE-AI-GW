@@ -1,5 +1,7 @@
 package domain
 
+import "strings"
+
 // Baidu Qianfan (百度智能云千帆 ModelBuilder) action authority rows.
 //
 // Evidence was verified against the official Qianfan API reference
@@ -28,11 +30,33 @@ package domain
 // binds the adapter in PlatformAction. Every affected evidence string names the
 // adapter that already exists and the gate that blocks it.
 
+// qianfanActionAdapters binds the ModelBuilder and Baidu speech cells a Qianfan
+// API-key account can execute. The chat trunk and the media/vector/speech entries
+// were promoted by multimodal-ingress, which registers every named key in
+// routes/gateway.go GatewayActionHandlers and admits them through the
+// evidence-driven chat-only gates; count_tokens uses the shared non-billable
+// local estimation adapter because no /v2 token-count route exists.
+var qianfanActionAdapters = map[string]string{
+	"chat":           "openai.chat",
+	"count_tokens":   "openai.count_tokens",
+	"embeddings":     "qianfan.embeddings",
+	"rerank":         "qianfan.rerank",
+	"image.generate": "qianfan.images",
+	"image.edit":     "qianfan.image.edit",
+	"video.generate": "qianfan.video.generate",
+	"video.status":   "qianfan.video.status",
+	"video.content":  "qianfan.video.content",
+	"audio.tts":      "qianfan.audio.tts",
+	"voice":          "qianfan.voice",
+	"search":         "qianfan.search",
+}
+
 // qianfanAdapterEvidence documents the adapter this branch implements and its
 // first-party protocol evidence. It is applied when a cell is bound to the
 // adapter named in its key.
 var qianfanAdapterEvidence = map[string]string{
 	"chat":           "openai.chat trunk through buildQianfanRequest to POST https://qianfan.baidubce.com/v2/chat/completions with Authorization: Bearer bce-v3/ALTAK (official API Key 鉴权 doc and 文本生成 reference, captured 2026-09-21; live probe 401 invalid_iam_token)",
+	"count_tokens":   "No /v2/count_tokens or /v2/tokenizer route exists (404 live probes 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation and never sends an upstream count request",
 	"embeddings":     "qianfan.embeddings handler to POST https://qianfan.baidubce.com/v2/embeddings with the OpenAI-compatible embedding envelope (official 向量 doc, captured 2026-09-21; live probe 401 invalid_iam_token)",
 	"rerank":         "qianfan.rerank handler to POST https://qianfan.baidubce.com/v2/rerank returning object=reranker_list with results[].relevance_score (official 重排序 doc, captured 2026-09-21; live probe 401 invalid_iam_token)",
 	"image.generate": "qianfan.images handler to POST https://qianfan.baidubce.com/v2/images/generations for the documented ernie-image/qwen-image/flux.1-schnell family, plus the verified model-category paths /v2/ernie-image/images/generations and /v2/musesteamer/images/generations (official 通用图像生成 / Ernie-Image-Turbo / 蒸汽机 Air-Image docs, captured 2026-09-21; live probes 401)",
@@ -77,7 +101,6 @@ var qianfanUnverifiedEvidence = map[string]string{
 	"voice":           "Adapter qianfan.voice is implemented in this branch and verified against the Baidu speech host POST /rest/2.0/speech/publiccloudspeech/v1/voice/clone/{create,list} (official 大模型声音复刻 docs, 2026-09-21; live probes 400 status 11014); /v1/custom-voices is not served for a chat-only platform entry, so the cell stays unbound pending the classification decision",
 	"search":          "Adapter qianfan.search is implemented in this branch and verified against POST https://qianfan.baidubce.com/v2/ai_search/web_search with the distinct X-Appbuilder-Authorization credential (official 百度搜索 doc, 2026-09-21; live probes 401 code 216003); /v1/web_search is not served for a chat-only platform entry, so the cell stays unbound pending the classification decision",
 	"responses":       "POST /v2/responses exists (live probe 2026-09-21: 401 invalid_iam_token; official 创建模型响应 doc), but no Qianfan adapter is bound to the OpenAI-compatible responses trunk in this release and the platform is declared chat-only",
-	"count_tokens":    "No /v2/count_tokens or /v2/tokenizer route exists (404 live probes 2026-09-21); the non-billable local token estimation adapter is not bound for Qianfan",
 	"image.batch":     "The official 批量预测任务 doc (captured 2026-09-21) lists /v2/chat/completions, /v2/images/generations and /v2/images/edits as batch interfaces, but the shared files/batches resource adapter does not bind Qianfan yet",
 	"audio.stt":       "No Qianfan audio route exists (POST /v2/audio/transcriptions 404 on 2026-09-21); Baidu's speech product serves short ASR on vop.baidu.com/server_api (probe 2026-09-21: 200 err_no 3314 on an empty body) as a separate credential surface, so an STT bridge remains a candidate, not a verified capability",
 	"audio.translate": "No Qianfan audio route exists (POST /v2/audio/translations 404 on 2026-09-21); Baidu speech translation lives on another product surface whose endpoint is not yet verified",
@@ -90,7 +113,12 @@ var qianfanUnverifiedEvidence = map[string]string{
 // absences become hard conflicts with evidence; the remaining cells stay
 // explicitly unverified with the verification result that produced the status.
 func qianfanActionDescriptor(descriptor ActionDescriptor, action, adapter string) ActionDescriptor {
-	if adapter == "" {
+	bound, implemented := qianfanActionAdapters[action]
+	if serving := strings.TrimSpace(adapter); serving != "" {
+		bound = serving
+		implemented = true
+	}
+	if !implemented {
 		if evidence, conflict := qianfanHardConflicts[action]; conflict {
 			descriptor.Status = ActionHardConflict
 			descriptor.Evidence = evidence
@@ -103,6 +131,7 @@ func qianfanActionDescriptor(descriptor ActionDescriptor, action, adapter string
 		descriptor.Evidence = "No verified Qianfan gateway adapter for this action cell (verified 2026-09-21)"
 		return descriptor
 	}
+	adapter = bound
 	descriptor.Status, descriptor.Adapter = ActionImplemented, adapter
 	if evidence, ok := qianfanAdapterEvidence[action]; ok {
 		descriptor.Evidence = evidence

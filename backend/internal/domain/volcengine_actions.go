@@ -52,27 +52,22 @@ import "strings"
 // first-party material listed above.
 const volcengineEvidenceCaptured = "captured 2026-09-21"
 
-// volcengineActionAdapters binds the Ark cells this branch can actually serve
-// today. internal/server/routes/gateway_protocol_matrix_test.go enforces the
+// volcengineActionAdapters binds the Ark cells this branch can actually serve.
+// internal/server/routes/gateway_protocol_matrix_test.go enforces the
 // repository-wide invariant that an implemented cell must also resolve a
 // catalog account binding, so a cell may only appear here when a Volcengine
 // account can execute it. The names are the dispatch keys the ingress registers
 // for these handlers (service.GatewayActionHandlers).
+//
+// The media, vector and voice entries were promoted by multimodal-ingress: the
+// dispatch keys are registered in routes/gateway.go and the evidence-driven
+// chat-only gates admit them, so a Volcengine API-key account can execute them
+// now. count_tokens uses the shared non-billable local estimation adapter
+// because the Ark data plane publishes no token-count endpoint
+// (docs/82379/1298459).
 var volcengineActionAdapters = map[string]string{
-	"chat": "openai.chat",
-}
-
-// volcenginePendingAdapters names the Ark adapters that are implemented and
-// covered by service-level wire tests in this branch
-// (backend/internal/service/volcengine_actions_test.go) but cannot execute yet:
-// the platform descriptor keeps ChatOnly=true, which locks
-// service/account.go SupportsOpenAIEndpointCapability,
-// service/account_model_catalog.go accountCatalogModelEndpoints and
-// service/gateway_forward_model_binding.go requestCatalogEndpoint for every
-// non-chat endpoint. Promoting a cell means moving its entry into
-// volcengineActionAdapters in the same change that removes the platform lock
-// and registers the dispatch key in routes/gateway.go.
-var volcenginePendingAdapters = map[string]string{
+	"chat":           "openai.chat",
+	"count_tokens":   "openai.count_tokens",
 	"embeddings":     "volcengine.embeddings",
 	"image.generate": "volcengine.images",
 	"image.edit":     "volcengine.images",
@@ -95,6 +90,7 @@ var volcengineActionEvidence = map[string]string{
 	"video.extend":   "volcengine.video.extend handler to POST {root}/contents/generations/tasks with a video_url content item (Seedance 延长视频, docs/82379/1520757, " + volcengineEvidenceCaptured + ")",
 	"video.status":   "volcengine.video.status handler to GET {root}/contents/generations/tasks/{id}, owner-scoped through the create-time account binding; status/content.video_url/resolution/duration per docs/82379/1521309 (" + volcengineEvidenceCaptured + ")",
 	"video.content":  "volcengine.video.content handler: owner-scoped status read then https-only download of content.video_url with Range passthrough; the 24h task video URL is rewritten to the gateway proxy (docs/82379/1521309, " + volcengineEvidenceCaptured + ")",
+	"count_tokens":   "The Ark data plane publishes no token-count endpoint for CN (docs/82379/1298459, " + volcengineEvidenceCaptured + "); the shared openai.count_tokens adapter answers with the non-billable local estimation and never sends an upstream count request",
 }
 
 // volcengineHardConflicts records actions verified absent from the Ark data
@@ -120,7 +116,6 @@ var volcengineHardConflicts = map[string]string{
 var volcengineUnverifiedReasons = map[string]string{
 	"messages":        "The Ark data plane publishes no Anthropic Messages endpoint for CN (docs/82379/1298459, " + volcengineEvidenceCaptured + "); the gateway Claude→chat messages bridge already lists volcengine as an OpenAI-compatible text target (handler/openai_gateway_handler.go openAICompatibleTextTargetAllowed) but the action authority gates messages on !ChatOnly, which is an action-dispatch descriptor decision",
 	"responses":       "Ark publishes a native Responses API at {root}/responses (docs/82379/1298459 Responses API, " + volcengineEvidenceCaptured + ") and the shared trunk already derives that URL from a version-suffixed base, but the Volcengine descriptor still records ResponsesPOST as rejected, so registering the adapter is an action-dispatch descriptor decision",
-	"count_tokens":    "The Ark data plane publishes no token-count endpoint for CN (docs/82379/1298459, " + volcengineEvidenceCaptured + "); the gateway's local estimation adapter is gated on !ChatOnly for this platform",
 	"rerank":          "The Ark data plane publishes no rerank endpoint (docs/82379/1298459, " + volcengineEvidenceCaptured + "); Volcengine rerank is the VikingDB knowledge service (/api/knowledge/service/rerank, docs/82379/1399545) with its own service token, a different product credential than this Ark API-key account",
 	"audio.tts":       "Doubao speech synthesis is served by the speech product on openspeech.bytedance.com with X-Api-Key + X-Api-Resource-Id (V3 HTTP/SSE unidirectional, docs/6561/1598757, " + volcengineEvidenceCaptured + "); no Ark data-plane speech endpoint exists, and that speech credential is not part of an Ark API-key account",
 	"audio.stt":       "Doubao speech recognition is served by the speech product on openspeech.bytedance.com (大模型流式语音识别, docs/6561/1354869, " + volcengineEvidenceCaptured + ") with the speech credential; the Ark data plane publishes no transcription endpoint",
@@ -142,10 +137,6 @@ func volcengineActionDescriptor(descriptor ActionDescriptor, action, adapter str
 	bound, implemented := volcengineActionAdapters[action]
 	if serving := strings.TrimSpace(adapter); serving != "" {
 		bound = serving
-	}
-	if pending, waiting := volcenginePendingAdapters[action]; waiting {
-		descriptor.Evidence = "Ark adapter " + pending + " is implemented and covered by the service-level wire tests, and the official evidence row is: " + volcengineActionEvidence[action] + ". The cell stays unverified because no Volcengine account can execute it while the platform descriptor keeps ChatOnly=true: the platform lock in SupportsOpenAIEndpointCapability / accountCatalogModelEndpoints / requestCatalogEndpoint excludes every non-chat endpoint, and gateway_protocol_matrix_test.go requires an implemented cell to resolve a catalog binding; promote this cell in the change that removes the platform lock"
-		return descriptor
 	}
 	if implemented || strings.TrimSpace(adapter) != "" {
 		descriptor.Status, descriptor.Adapter = ActionImplemented, bound

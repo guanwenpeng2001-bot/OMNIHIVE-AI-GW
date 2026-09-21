@@ -53,7 +53,9 @@ those errors or expand old protocols to make the table uniform.
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
 | POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch | Input-token result, no normal generation claim |
 | POST | Responses other subpaths | IsForwardableOpenAIResponsesRequestPath | Unknown/action-unsafe paths reject before scheduling |
-| POST | /v1/embeddings; /embeddings | Existing OpenAI-only route qualification | No streaming/tools promise |
+| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan and Volcengine bind an embeddings adapter; every other platform rejects before scheduling | No streaming/tools promise |
+| POST | /v1/rerank; /rerank | Platform action matrix: Qianwen, Qianfan and Bedrock bind a rerank adapter; OpenAI and every other platform reject | Ranked results, no generation claim |
+| POST | /v1/images/variations; /images/variations | Platform action matrix: OpenAI and Bedrock bind a variation adapter; chat-only platforms reject | OpenAI variation shape only |
 | GET | /v1/models; /models | Existing membership and allowlist first | Optional capabilities below; no generation |
 | GET | /v1/models/:model; /models/:model | Exact visible entry or model_not_found | Same fields as listing |
 | GET | models with nonempty client_version; /backend-api/codex/models | Existing Codex manifest branch | Original manifest/ETag shape, no capabilities addition |
@@ -215,6 +217,8 @@ these methods. The action and platform tables above constrain it.
 | `DELETE /compatible-mode/v1/files` | DashScope exact action/resource gate; see individual actions above |
 | `DELETE /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `DELETE /custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
+| `DELETE /images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
+| `DELETE /images/batches/:id/outputs` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/images/batches/:id/outputs` | Existing gateway handler; platform, account and endpoint qualification |
@@ -247,11 +251,22 @@ these methods. The action and platform tables above constrain it.
 | `GET /custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /custom-voices/:voice_id/audio` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/download` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/items` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/items/:custom_id/content` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/models` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /images/tasks/:task_id` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /live/:call_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /models` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /models/:model` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /models/catalog` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /models/catalog/:model` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /realtime` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /responses` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /sub2api/billing` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /usage` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices/:voice_id/audio` | Existing gateway handler; platform, account and endpoint qualification |
@@ -338,12 +353,17 @@ these methods. The action and platform tables above constrain it.
 | `POST /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `POST /custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /embeddings` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/batches` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/batches/:id/cancel` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/edits` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/edits/async` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/generations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/generations/async` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/variations` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /live` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /messages` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /messages/count_tokens` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /rerank` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /responses` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /responses/*subpath` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /stt` | Existing gateway handler; platform, account and endpoint qualification |
@@ -358,9 +378,11 @@ these methods. The action and platform tables above constrain it.
 | `POST /v1/images/edits/async` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/images/generations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/images/generations/async` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/images/variations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/live` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/messages` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/messages/count_tokens` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/rerank` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/responses` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/responses/*subpath` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/stt` | Existing gateway handler; platform, account and endpoint qualification |

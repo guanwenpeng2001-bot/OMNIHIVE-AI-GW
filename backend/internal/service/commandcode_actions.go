@@ -190,82 +190,8 @@ func commandCodeProviderError(status int, body []byte) (CommandCodeErrorKind, bo
 // 本分支不修改 domain 权威矩阵（见文件头归口说明）；该表供
 // multimodal-ingress 接线时取用，并由 commandcode_actions_test.go 逐格校验。
 func CommandCodeActionCells() []domain.ActionDescriptor {
-	identity := domain.ActionIdentity{Platform: PlatformCommandCode}
-	implemented := map[string]struct {
-		adapter  string
-		evidence string
-	}{
-		"chat": {
-			adapter:  "openai.chat",
-			evidence: "POST /provider/v1/chat/completions, OpenAI Chat Completions schema; account api_protocol/protocol_rules select this endpoint for non-Claude models (official Provider API reference, 2026-09-21)",
-		},
-		"messages": {
-			adapter:  "openai.messages",
-			evidence: "POST /provider/v1/messages, Anthropic Messages schema; Claude models are served only here, non-Claude models use the Chat Completions bridge (official Provider API reference, 2026-09-21)",
-		},
-		"responses": {
-			adapter:  "openai.responses",
-			evidence: "POST /provider/v1/responses is documented for OpenAI and most open models while Claude stays on /messages, so inbound /responses is bridged; this branch adds the documented endpoint-selection fact but leaves native /responses wiring to multimodal-ingress (official Provider API reference, 2026-09-21)",
-		},
-		"count_tokens": {
-			adapter:  "openai.count_tokens",
-			evidence: "local token-estimation bridge; the Provider API reference (2026-09-21) documents no token-count endpoint, so nothing is forwarded upstream and nothing is billed",
-		},
-	}
-	hardConflicts := map[string]string{
-		"responses.compact":   "the Provider API reference (2026-09-21) documents four endpoints only; no Responses compact subpath exists",
-		"generate_content":    "Gemini generativelanguage surface; the Provider API exposes no Google-native endpoint (2026-09-21)",
-		"embeddings":          "no embeddings endpoint appears in the documented endpoint table; the catalog is a chat/responses proxy (2026-09-21)",
-		"rerank":              "no rerank endpoint is documented for the Provider API (2026-09-21)",
-		"image.generate":      "the FAQ states a message may carry text and images only, so images are input; no image generation endpoint is documented (2026-09-21)",
-		"image.edit":          "no image editing endpoint is documented; the FAQ admits no image output at all (2026-09-21)",
-		"image.variation":     "no /images/variations equivalent is documented; the FAQ admits no image output at all (2026-09-21)",
-		"image.async":         "no asynchronous image task endpoint is documented; the four documented endpoints are all synchronous request/stream (2026-09-21)",
-		"image.batch":         "no batch image endpoint is documented (2026-09-21)",
-		"video.generate":      "no video endpoint is documented, and the FAQ rejects document and file parts that a video action would need (2026-09-21)",
-		"video.edit":          "no video endpoint is documented (2026-09-21)",
-		"video.extend":        "no video endpoint is documented (2026-09-21)",
-		"video.status":        "no video task surface exists, so there is no task to query (2026-09-21)",
-		"video.content":       "no video task surface exists, so there is no content to download (2026-09-21)",
-		"audio.tts":           "the FAQ states audio parts are rejected by the schema and no audio endpoint is documented (2026-09-21)",
-		"audio.stt":           "the FAQ states audio parts are rejected by the schema and no audio endpoint is documented (2026-09-21)",
-		"audio.translate":     "the FAQ states audio parts are rejected by the schema; no /audio/translations equivalent is documented (2026-09-21)",
-		"voice":               "no voice or custom-voice endpoint is documented (2026-09-21)",
-		"realtime":            "no realtime or WebSocket endpoint is documented; the four documented endpoints are HTTP request/SSE (2026-09-21)",
-		"search":              "no standalone search endpoint is documented; web_search exists only as a Responses built-in tool forwarded upstream for a verdict, which the responses cell already covers (2026-09-21)",
-		"alpha_search":        "OpenAI Codex proprietary surface; no Provider API equivalent is documented (2026-09-21)",
-		"live":                "OpenAI Codex live surface; no Provider API equivalent is documented (2026-09-21)",
-		"responses.websocket": "the Provider API is HTTP/SSE only; no Responses-over-WebSocket endpoint is documented (2026-09-21)",
-		"native":              "the adapter surface is the four documented /provider/v1 endpoints; this platform exposes no provider-native /api/v1 family (2026-09-21)",
-	}
-	actions := domain.GatewayActions()
-	cells := make([]domain.ActionDescriptor, 0, len(actions))
-	for _, action := range actions {
-		cell := domain.ActionDescriptor{Identity: identity, Action: action}
-		if binding, ok := implemented[action]; ok {
-			cell.Status = domain.ActionImplemented
-			cell.Adapter = binding.adapter
-			cell.Evidence = binding.evidence
-			cell.CredentialPolicy = "commandcode API-key account credential owner; Bearer is documented on any route and x-api-key on /messages"
-			cell.ModelPolicy = "resolved account model evidence, supported_endpoints and task limits"
-			cell.UsagePolicy = "upstream usage in the stream terminal event with frozen request pricing; explicit official free models settle at zero cost"
-			cell.Lifecycle = "request plan"
-			if action == "count_tokens" {
-				cell.UsagePolicy = "non-billable local token estimation; no Provider API token-count endpoint documented"
-				cell.Lifecycle = "synchronous request"
-			}
-			cells = append(cells, cell)
-			continue
-		}
-		if evidence, conflict := hardConflicts[action]; conflict {
-			cell.Status = domain.ActionHardConflict
-			cell.Evidence = evidence
-			cells = append(cells, cell)
-			continue
-		}
-		cell.Status = domain.ActionUnverified
-		cell.Evidence = "No verified Command Code gateway adapter for this action cell (evidence reviewed 2026-09-21)"
-		cells = append(cells, cell)
-	}
-	return cells
+	// The cells are the authoritative platform matrix bound by
+	// multimodal-ingress (internal/domain/commandcode_actions.go), so the
+	// adapter's own register and Composite target selection cannot diverge.
+	return domain.PlatformActionMatrix(domain.ActionIdentity{Platform: PlatformCommandCode})
 }

@@ -14,11 +14,13 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 		"image.batch", "video.extend", "audio.translate", "realtime", "search",
 		"alpha_search", "live", "responses.websocket",
 	}
-	unverifiedWithAdapter := []string{
+	// Promoted by multimodal-ingress: adapter, dispatch key and evidence-driven
+	// chat-only gates landed together, so these cells are implemented now.
+	implementedWithAdapter := []string{
 		"image.generate", "image.edit", "video.generate", "video.status",
-		"video.content", "audio.tts", "audio.stt", "voice", "embeddings",
+		"video.content", "audio.tts", "audio.stt", "voice", "embeddings", "count_tokens",
 	}
-	unverifiedWithoutAdapter := []string{"messages", "responses", "count_tokens", "image.async", "video.edit", "native"}
+	unverifiedWithoutAdapter := []string{"messages", "responses", "image.async", "video.edit", "native"}
 
 	matrix := PlatformActionMatrix(ActionIdentity{Platform: PlatformHunyuan})
 	if len(matrix) != len(GatewayActions()) {
@@ -45,6 +47,23 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 		t.Fatalf("hunyuan chat cell lacks policy bindings: %+v", chat)
 	}
 
+	for _, action := range implementedWithAdapter {
+		cell := seen[action]
+		if cell.Status != ActionImplemented {
+			t.Fatalf("hunyuan %s: got %s, want implemented after the chat-only release", action, cell.Status)
+		}
+		key := hunyuanActionAdapters[action]
+		if cell.Adapter != key {
+			t.Fatalf("hunyuan %s adapter: got %q, want %q", action, cell.Adapter, key)
+		}
+		if cell.CredentialPolicy == "" || cell.ModelPolicy == "" || cell.UsagePolicy == "" || cell.Lifecycle == "" {
+			t.Fatalf("hunyuan %s lacks policy bindings: %+v", action, cell)
+		}
+		if evidence := hunyuanActionEvidence[action]; cell.Evidence != evidence {
+			t.Fatalf("hunyuan %s evidence: got %q, want %q", action, cell.Evidence, evidence)
+		}
+	}
+
 	for _, action := range hardConflict {
 		cell := seen[action]
 		if cell.Status != ActionHardConflict {
@@ -52,26 +71,6 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 		}
 		if !strings.Contains(cell.Evidence, "1823/") || !strings.Contains(cell.Evidence, "2026-09-21") {
 			t.Fatalf("hunyuan %s hard conflict lacks a dated first-party anchor: %s", action, cell.Evidence)
-		}
-	}
-
-	// Cells whose adapter exists in this branch must never read as a bare
-	// "unsupported": each names its dispatch key and the runtime gate that blocks
-	// the bind.
-	for _, action := range unverifiedWithAdapter {
-		cell := seen[action]
-		if cell.Status != ActionUnverified {
-			t.Fatalf("hunyuan %s: got %s, want unverified while the chat-only classification blocks the bind", action, cell.Status)
-		}
-		key := hunyuanPendingAdapters[action]
-		if key == "" {
-			t.Fatalf("hunyuan %s must name the dispatch key of its implemented adapter", action)
-		}
-		if !strings.Contains(cell.Evidence, key) || !strings.Contains(cell.Evidence, "ChatOnly=true") {
-			t.Fatalf("hunyuan %s must name its adapter and the platform lock: %s", action, cell.Evidence)
-		}
-		if !strings.Contains(cell.Evidence, "1823/") || !strings.Contains(cell.Evidence, "2026-09-21") {
-			t.Fatalf("hunyuan %s lacks the dated first-party evidence anchor: %s", action, cell.Evidence)
 		}
 	}
 
@@ -85,16 +84,17 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 		}
 	}
 
-	// The implemented set must be exactly what this adapter can serve today.
-	if len(hunyuanActionAdapters) != 1 || hunyuanActionAdapters["chat"] != "openai.chat" {
-		t.Fatalf("hunyuan bound adapters changed: %v", hunyuanActionAdapters)
+	if hunyuanActionAdapters["chat"] != "openai.chat" {
+		t.Fatalf("hunyuan chat trunk moved: %v", hunyuanActionAdapters)
 	}
 }
 
-// Adapter keys must stay bindable: every pending cell names a key whose handler
+// Adapter keys must stay bindable: every bound cell names a key whose handler
 // exists in this branch, and the ingress handoff list covers each key once.
-func TestHunyuanPendingAdapterKeysMatchTheirHandlers(t *testing.T) {
+func TestHunyuanBoundAdapterKeysMatchTheirHandlers(t *testing.T) {
 	expected := map[string]string{
+		"chat":           "openai.chat",
+		"count_tokens":   "openai.count_tokens",
 		"image.generate": "hunyuan.images",
 		"image.edit":     "hunyuan.image.edit",
 		"video.generate": "hunyuan.video.generate",
@@ -105,28 +105,27 @@ func TestHunyuanPendingAdapterKeysMatchTheirHandlers(t *testing.T) {
 		"voice":          "hunyuan.voice",
 		"embeddings":     "hunyuan.embeddings",
 	}
-	if len(hunyuanPendingAdapters) != len(expected) {
-		t.Fatalf("unexpected pending adapter count: %d", len(hunyuanPendingAdapters))
+	if len(hunyuanActionAdapters) != len(expected) {
+		t.Fatalf("unexpected bound adapter count: %d", len(hunyuanActionAdapters))
 	}
 	for action, key := range expected {
-		if got := hunyuanPendingAdapters[action]; got != key {
+		if got := hunyuanActionAdapters[action]; got != key {
 			t.Fatalf("hunyuan %s adapter key: got %q, want %q", action, got, key)
 		}
 		if evidence := hunyuanActionEvidence[action]; strings.TrimSpace(evidence) == "" {
 			t.Fatalf("hunyuan %s has no protocol evidence", action)
 		}
 	}
-	for action := range hunyuanPendingAdapters {
+	for action := range hunyuanActionAdapters {
 		if _, documented := hunyuanActionEvidence[action]; !documented {
-			t.Fatalf("hunyuan %s is pending without an evidence row", action)
+			t.Fatalf("hunyuan %s is bound without an evidence row", action)
 		}
 	}
 }
 
-// A pending cell must become implemented the moment its adapter is bound, so the
-// descriptor carries the full policy set instead of a bare status.
+// A bound cell must carry the full policy set instead of a bare status.
 func TestHunyuanBoundCellCarriesPolicies(t *testing.T) {
-	for action, key := range hunyuanPendingAdapters {
+	for action, key := range hunyuanActionAdapters {
 		cell := hunyuanActionDescriptor(ActionDescriptor{Identity: ActionIdentity{Platform: PlatformHunyuan, HostedAccountType: AccountTypeAPIKey}, Action: action}, action, key)
 		if cell.Status != ActionImplemented || cell.Adapter != key {
 			t.Fatalf("hunyuan %s did not bind to %s: %+v", action, key, cell)

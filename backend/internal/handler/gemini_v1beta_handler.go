@@ -171,12 +171,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
-	if !middleware.HasForcePlatform(c) {
-		if effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-			googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-			return
-		}
+	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组。
+	// 平台筛选本身由动作分发表完成（gemini/antigravity → gateway.generate_content，
+	// OpenCode 自己的 Google 协议列 → opencode.generate_content），这里保留的检查是
+	// 分组平台声明与到达的适配器必须一致。
+	if !middleware.HasForcePlatform(c) && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+		return
 	}
 
 	modelName, action, err := parseGeminiModelAction(strings.TrimPrefix(c.Param("modelAction"), "/"))

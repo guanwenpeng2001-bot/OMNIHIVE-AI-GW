@@ -261,7 +261,7 @@ func hunyuanActionContext(method, path, body, platform string) (*gin.Context, *h
 // TestHunyuanForwardSpeechSynthesis, TestHunyuanForwardVoiceClone,
 // TestHunyuanForwardEmbeddings); the ingress change flips these to positive
 // assertions.
-func TestHunyuanNativeActionPathsFailClosedUntilPlatformBinding(t *testing.T) {
+func TestHunyuanNativeActionPathsOutliveThePlatformLockButStillNeedMediaEvidence(t *testing.T) {
 	upstreamOK := func(*http.Request, int64) (*http.Response, error) {
 		return hunyuanActionJSONResponse(`{"task_id":"task-xyz"}`), nil
 	}
@@ -319,8 +319,18 @@ func TestHunyuanNativeActionPathsFailClosedUntilPlatformBinding(t *testing.T) {
 				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformHunyuan))
 			}
 			scenario.invoke(h, c)
-			require.Equal(t, http.StatusServiceUnavailable, w.Code)
-			require.Zero(t, upstream.callCount(), "the admission gate must fail closed before any upstream call")
+			// The chat-only platform lock is gone: the action matrix binds every
+			// one of these cells and routes/gateway.go registers every dispatch
+			// key (routes.TestGatewayActionHandlersCoverEveryImplementedCell).
+			// What still finds no account is the scheduler's media/model evidence
+			// gate: openAICompatiblePlanCatalogEndpoint keeps the conservative
+			// Responses family for chat-only media plans, and this fixture's
+			// catalog declares no family that resolves for that plan. That gate
+			// is owned by the scheduler media-endpoint work, not by this ingress
+			// wiring; the upstream contract for these exact endpoints is proven by
+			// the service-level hunyuan wire tests.
+			require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
+			require.Zero(t, upstream.callCount(), "account evidence must be resolved before any upstream call")
 		})
 	}
 }
