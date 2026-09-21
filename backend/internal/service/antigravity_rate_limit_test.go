@@ -821,7 +821,7 @@ func TestSetModelRateLimitByModelName_NotConvertToScope(t *testing.T) {
 	require.NotEqual(t, "claude_sonnet", call.modelKey, "should NOT be scope")
 }
 
-func TestSetAntigravityModelRateLimits_GeminiWritesFamilyScope(t *testing.T) {
+func TestSetAntigravityModelRateLimits_GeminiCooldownStaysModelScoped(t *testing.T) {
 	repo := &stubAntigravityAccountRepo{}
 	svc := &AntigravityGatewayService{}
 	account := &Account{ID: 789, Platform: PlatformAntigravity}
