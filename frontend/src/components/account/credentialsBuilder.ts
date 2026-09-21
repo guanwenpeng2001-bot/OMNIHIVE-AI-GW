@@ -1,5 +1,42 @@
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
+/** Cursor Relay 上游协议：与后端 NormalizeCursorAccount 的两个字面量保持一致。 */
+export type CursorRelayProtocol = 'adaptive' | 'chat_completions'
+
+function isCursorRelayProtocol(value: unknown): value is CursorRelayProtocol {
+  return value === 'adaptive' || value === 'chat_completions'
+}
+
+/**
+ * 解释 Cursor Relay 已保存的协议：
+ * - 合法值原样返回；
+ * - 缺失（undefined/null）或空串按后端回落语义返回 Adaptive；
+ * - 其余非空值（含纯空白、带空格以及 anthropic/responses 等历史值）返回 null，
+ *   表示需要用户重新选择，既不裁剪成合法值也不静默回落。
+ * 后端此处是精确匹配，`protocol != ""` 即进入校验分支，所以空串之外的空白串同样非法。
+ */
+export function resolveCursorRelayProtocol(storedProtocol: unknown): CursorRelayProtocol | null {
+  if (storedProtocol == null || storedProtocol === '') return 'adaptive'
+  return isCursorRelayProtocol(storedProtocol) ? storedProtocol : null
+}
+
+/**
+ * Relay builder 取值顺序：当前显式合法选择 → 已有合法值 → 缺失默认 Adaptive。
+ * 非空非法且没有明确覆盖时拒绝构造：只改名称不应改变上游路由，
+ * 也不应把后端必然拒绝的值提交上去。表单层需先校验并显示本地化原因。
+ */
+function resolveRelayProtocolForBuild(
+  selectedProtocol: CursorRelayProtocol | undefined,
+  storedProtocol: unknown
+): CursorRelayProtocol {
+  if (isCursorRelayProtocol(selectedProtocol)) return selectedProtocol
+  const stored = resolveCursorRelayProtocol(storedProtocol)
+  if (stored === null) {
+    throw new Error('Cursor relay protocol must be adaptive or chat_completions')
+  }
+  return stored
+}
+
 export function buildCursorCredentials(input: {
   mode: 'official' | 'relay' | 'auto'
   apiKey: string
@@ -7,17 +44,17 @@ export function buildCursorCredentials(input: {
   clientVersion?: string
   existing?: Record<string, unknown>
   autoCredentials?: Record<string, string>
+  apiProtocol?: CursorRelayProtocol
 }): Record<string, unknown> {
   const credentials: Record<string, unknown> = {}
   if (input.mode !== 'auto' && input.apiKey.trim()) credentials.api_key = input.apiKey.trim()
   if (input.existing?.model_mapping) credentials.model_mapping = input.existing.model_mapping
   if (input.mode === 'relay') {
     credentials.base_url = input.baseUrl?.trim() || ''
-    credentials.api_protocol = ['adaptive', 'chat_completions', 'anthropic', 'responses'].includes(String(input.existing?.api_protocol))
-      ? input.existing!.api_protocol
-      : 'adaptive'
+    credentials.api_protocol = resolveRelayProtocolForBuild(input.apiProtocol, input.existing?.api_protocol)
   } else {
-    if (input.existing?.api_protocol) credentials.api_protocol = input.existing.api_protocol
+    // Auto / 官方 Key 走原生协议：不写 base_url、api_protocol、api_base_urls，
+    // 也不回带历史的 Relay 字段（后端会拒绝这些组合）。
     credentials.client_version = input.clientVersion?.trim() || ''
     for (const field of ['machine_id', 'mac_machine_id']) {
       if (input.existing?.[field]) credentials[field] = input.existing[field]
