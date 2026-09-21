@@ -22,7 +22,11 @@ func TestGatewayDiagnosticProjectionReuse(test *testing.T) {
 			(&GatewayHandler{}).errorResponseWithCode(requestContext, http.StatusBadRequest, "invalid_request_error", code, "Request rejected")
 			parsed := parseOpsErrorResponse(recorder.Body.Bytes())
 			require.Equal(test, "invalid_request_error", parsed.ErrorType)
-			require.Equal(test, code, parsed.Code)
+			expectedCode := code
+			if expectedCode == "" {
+				expectedCode = "invalid_request_error"
+			}
+			require.Equal(test, expectedCode, parsed.Code)
 			require.Equal(test, "Request rejected", parsed.Message)
 			require.NotContains(test, recorder.Body.String(), "919")
 			var response map[string]any

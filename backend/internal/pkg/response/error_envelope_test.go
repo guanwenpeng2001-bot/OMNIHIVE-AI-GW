@@ -36,3 +36,19 @@ func TestManagementErrorPreservesDomainReasonAndMetadata(testContext *testing.T)
 		require.Equal(testContext, map[string]any{"scope": "group"}, envelope["metadata"])
 	}
 }
+
+func TestManagementErrorProjectionRedactsProviderAndDriverDiagnostics(t *testing.T) {
+	for _, message := range []string{
+		"Token exchange failed body={\"api_key\":\"credential-secret\"}",
+		"dial tcp 10.2.3.4:5432: connection refused",
+		"OAuth failed for user@example.internal at https://private.internal/token?key=credential-secret",
+	} {
+		envelope := NewErrorResponse(502, message, "UPSTREAM_FAILED", map[string]string{"operation": "connection"})
+		require.Equal(t, 502, envelope.Code)
+		require.Equal(t, "UPSTREAM_FAILED", envelope.Reason)
+		for _, private := range []string{"credential-secret", "10.2.3.4", "private.internal", "user@example.internal"} {
+			require.NotContains(t, envelope.Message, private)
+		}
+		require.Equal(t, map[string]string{"operation": "connection"}, envelope.Metadata)
+	}
+}

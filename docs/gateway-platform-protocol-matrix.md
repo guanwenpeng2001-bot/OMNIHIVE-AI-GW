@@ -264,6 +264,8 @@ these methods. The action and platform tables above constrain it.
 | `GET /v1/images/tasks/:task_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/live/:call_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/models` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /v1/models/catalog` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /v1/models/catalog/:model` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/models/:model` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/realtime` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/responses` | Existing gateway handler; platform, account and endpoint qualification |
@@ -394,3 +396,31 @@ these methods. The action and platform tables above constrain it.
 | `PUT /compatible-mode/v1/batches/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `PUT /compatible-mode/v1/files` | DashScope exact action/resource gate; see individual actions above |
 | `PUT /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
+
+## Public model catalog migration
+
+Ordinary `/v1/models` and `/v1/models/:model` use OpenAI model entries by default,
+including for non-OpenAI providers. `anthropic-version` selects Anthropic entries
+and list pagination (`limit`, `after_id`, `before_id`; `after`/`before` are aliases).
+Both minimal and rich `/v1/models/catalog` (and `/v1/models/catalog/:model`) resolve
+one authorized revision; rich cursors bind that revision and Key. Refresh after a
+cursor invalidation. `catalog` is reserved; use the rich single-model route to
+retrieve a model whose public ID is `catalog`. Responses are private and no-store.
+Capabilities, aliases and uncertainty belong to the rich catalog. Creation time
+is omitted when no trusted persisted value exists, with rich `created_at_source`
+set to `unavailable`; no refresh or account timestamp is substituted.
+
+Codex manifests use `/backend-api/codex/models`. Explicit `client_version` on the
+ordinary collection delegates until 2027-03-21 UTC and emits Sunset and Link
+headers. After that date it is an ordinary list query parameter. User-Agent does
+not select a manifest. A pinned Codex manifest does not establish ordinary model
+visibility. Gemini keeps native query `key` authentication on `/v1beta/`; header
+`x-goog-api-key` is recommended. Query keys are unsupported on `/v1`.
+
+A public ID containing `/` must encode that delimiter as `%2F` in the single
+model-ID path segment, for example `/v1/models/provider%2Fmodel` or
+`/v1/models/catalog/provider%2Fmodel`. Literal `/` continues to separate route
+segments. Gin matches the raw encoded path and then decodes parameter values;
+this engine-wide rule also applies to non-model path parameters. Static route
+segments must use their documented canonical spelling (write `/models`, not
+`/mo%64els`). Resource handlers retain their existing ID validation.

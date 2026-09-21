@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"net/http"
 	"strings"
 	"time"
@@ -60,6 +61,7 @@ type responsesFailedEvent struct {
 // 此时 caller 也无法回退到 JSON（HTTP 200 已固化），通常意味着连接已经损坏，
 // 应当让请求处理函数 return，由上层关闭连接。
 func writeResponsesFailedSSE(c *gin.Context, errType, code, message string) bool {
+	message = logredact.RedactDiagnostic(message)
 	if c.GetBool(apicompat.ResponsesTerminalSentKey) {
 		return true
 	}

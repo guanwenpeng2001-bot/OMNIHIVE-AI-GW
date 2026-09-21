@@ -24,6 +24,12 @@ func (*catalogUnavailableRepository) ListSchedulable(context.Context) ([]service
 func (*catalogUnavailableRepository) ModelCatalogGeneration(context.Context, string) (int64, error) {
 	return 0, errors.New("database unavailable")
 }
+func (*catalogUnavailableRepository) GetModelCatalogAccount(context.Context, int64) (*service.Account, error) {
+	return nil, errors.New("database unavailable")
+}
+func (*catalogUnavailableRepository) ListModelCatalogAccounts(context.Context, *int64, []string, bool) ([]service.Account, error) {
+	return nil, errors.New("database unavailable")
+}
 func TestModelCatalogUnavailableDoesNotPublishDefaultModels(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, platform := range []string{service.PlatformAnthropic, service.PlatformComposite} {

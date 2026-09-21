@@ -94,7 +94,7 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 			}
 			if route.Method == http.MethodGet {
 				switch route.Path {
-				case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+				case "/models", "/models/:model", "/v1/models", "/v1/models/:model", "/v1/models/catalog", "/v1/models/catalog/:model",
 					"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
 					continue // Supported catalog and usage contracts are tested by the guard suite.
 				}
@@ -117,7 +117,11 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 						request.Header.Set("Authorization", "Bearer matrix-key")
 						router.ServeHTTP(recorder, request)
 						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						require.Contains(test, recorder.Body.String(), "not_found_error")
+						if strings.Contains(request.URL.Path, "/v1beta/") {
+							require.Contains(test, recorder.Body.String(), "NOT_FOUND")
+						} else {
+							require.Contains(test, recorder.Body.String(), "not_found_error")
+						}
 						// The real router has no transport or billing services. Reaching
 						// either would panic instead of returning this local rejection.
 					})
@@ -158,7 +162,11 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 						request.Header.Set("Content-Type", "application/json")
 						router.ServeHTTP(recorder, request)
 						require.Equal(test, http.StatusNotFound, recorder.Code, recorder.Body.String())
-						require.Contains(test, recorder.Body.String(), "not_found_error")
+						if strings.Contains(request.URL.Path, "/v1beta/") {
+							require.Contains(test, recorder.Body.String(), "NOT_FOUND")
+						} else {
+							require.Contains(test, recorder.Body.String(), "not_found_error")
+						}
 					})
 				}
 			}
