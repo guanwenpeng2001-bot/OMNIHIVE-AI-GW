@@ -21,7 +21,7 @@
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
       <AccountModelConfigurationSection v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings"
         :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
-        :active="show" :sync-credentials="credentialPreview" :capability-defaults-json="capabilityDefaultsJSON" />
+        :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" :capability-defaults-json="capabilityDefaultsJSON" />
       <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
     </section>
     <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
@@ -92,19 +92,102 @@
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
         <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectPlatform" />
       </div>
-      <div v-if="!['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform)" data-testid="account-type-summary">
+      <!-- Account Type Selection (Cursor): 三张一级卡先于协议与凭据，直接决定实际请求类型 -->
+      <div v-if="form.platform === 'cursor'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="cursor-key-mode-auto"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'oauth-based'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.auto') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.autoDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            data-testid="cursor-key-mode-official"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.official') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.officialDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            data-testid="cursor-key-mode-relay"
+            @click="accountCategory = 'upstream'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'upstream'" :tabindex="accountCategory === 'upstream' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="server" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.relay') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.relayDesc') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+      <!-- Account Type (Command Code): 只读说明，无模式切换、无伪造额度 -->
+      <div v-if="form.platform === 'commandcode'" data-tour="account-form-type">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <div data-testid="commandcode-account-type-card" role="note" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700/40">
+          <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
+        </div>
+      </div>
+      <div v-if="showsAccountTypeSummary" data-testid="account-type-summary">
         <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
         <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
       </div>
-      <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
-      <div v-if="form.platform === 'cursor' && cursorKeyMode === 'relay'" class="flex items-center justify-between gap-4">
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.autoProbeHint') }}</p>
-        </div>
-        <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
-      </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
@@ -353,8 +436,8 @@
         </div>
       </div>
 
-      <!-- OpenCode Zen vs Go -->
-      <div v-if="isOpenCodeGoPlatform">
+      <!-- OpenCode Zen vs Go：该平台唯一的一级账号入口 -->
+      <div v-if="isOpenCodeGoPlatform" data-tour="account-form-type">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <button
@@ -406,10 +489,10 @@
         </div>
       </div>
 
-      <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek) -->
+      <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek)：双模式平台此处即一级账号入口，DeepSeek 保留单项模式锚点 -->
       <div v-if="isCNPlatform && form.platform !== 'qianwen'">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" :data-tour="cnModeTourAnchor" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <!-- Pay-as-you-go (token balance) -->
           <button
             type="button"
@@ -466,14 +549,15 @@
         </div>
       </div>
 
-      <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode) -->
-      <div v-if="isMultiProtocolPlatform" class="mt-4">
+      <!-- API Protocol Selection (国产多协议平台 / Cursor Relay)：同一份网格与选项计算 -->
+      <div v-if="isMultiProtocolPlatform || isCursorRelay" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
+        <div class="mt-2 grid grid-cols-1 gap-3" :class="isCursorRelay ? 'sm:grid-cols-2' : 'sm:grid-cols-3'" data-testid="account-protocol-choices" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
           <button
-            v-for="opt in cnProtocolOptions"
+            v-for="opt in accountProtocolOptions"
             :key="opt.value"
             type="button"
+            :data-testid="opt.testId"
             @click="apiProtocol = opt.value"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
@@ -493,12 +577,23 @@
               <Icon :name="opt.value === 'adaptive' ? 'swap' : opt.value === 'anthropic' ? 'sparkles' : opt.value === 'responses' ? 'terminal' : 'chat'" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}`) }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}Desc`) }}</span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(opt.titleKey) }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(opt.descriptionKey) }}</span>
             </div>
           </button>
         </div>
       </div>
+
+      <!-- Cursor 凭据与专用授权：协议（Relay）之后，仅保留父级已选模式的字段 -->
+      <CursorKeyFields v-if="form.platform === 'cursor'" :mode="cursorKeyMode" v-model:auto-credentials="cursorAutoCredentials" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
+      <div v-if="isCursorRelay" class="flex items-center justify-between gap-4">
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.autoProbeHint') }}</p>
+        </div>
+        <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
+      </div>
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
@@ -1783,7 +1878,7 @@
 
       <!-- Grok OAuth / Cursor relay Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
-        v-if="(form.platform === 'grok' && isOAuthFlow) || (form.platform === 'cursor' && cursorKeyMode === 'relay')"
+        v-if="(form.platform === 'grok' && isOAuthFlow) || isCursorRelay"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="mb-3 flex items-center justify-between">
@@ -3296,7 +3391,7 @@ import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
-import { buildCursorCredentials } from './credentialsBuilder'
+import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -3562,7 +3657,7 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account' | 'upstream'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
@@ -3588,6 +3683,14 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
 const isMultiProtocolPlatform = computed(() => isMultiProtocolApiKeyPlatform(form.platform))
+// Cursor Relay 是 upstream 分类，不能因此进入国产多协议能力集合（端点预设、多 URL、account_mode、规则序列化）。
+const isCursorRelay = computed(() => form.platform === 'cursor' && accountCategory.value === 'upstream')
+// 双模式平台（Kimi/智谱/MiniMax/OpenCode）的一级入口就是模式卡本身，不再叠加只读 "API Key" 摘要。
+const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go'].includes(form.platform))
+const showsAccountTypeSummary = computed(() => !isDualModeAccountPlatform.value && form.platform !== 'commandcode' &&
+  !['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform))
+// DeepSeek 只有单项 PayG，保留旧模式锚点；双模式平台的模式卡就是该平台唯一的一级账号入口。
+const cnModeTourAnchor = computed(() => form.platform === 'deepseek' ? 'account-form-mode' : 'account-form-type')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return isOpenCodeGoPlatform.value ? openCodeAccountMode.value : accountMode.value
 }
@@ -3604,15 +3707,27 @@ const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'co
   if (form.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
 })
-// 当前平台可选的协议档（responses 仅 deepseek / kimi）。
-const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
-  const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
-    { value: 'adaptive', labelKey: 'adaptive' },
-    { value: 'chat_completions', labelKey: 'chatCompletions' },
-    { value: 'anthropic', labelKey: 'anthropic' }
+// 协议网格的唯一选项来源：国产多协议平台与 Cursor Relay 各自取档，标题与说明仍走既有词条。
+interface AccountProtocolOption {
+  value: CnApiProtocol
+  titleKey: string
+  descriptionKey: string
+  testId?: string
+}
+const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
+  if (isCursorRelay.value) {
+    return [
+      { value: 'adaptive', titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cursor.relayAdaptiveDesc', testId: 'cursor-relay-protocol-adaptive' },
+      { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cursor.relayChatCompletionsDesc', testId: 'cursor-relay-protocol-chat_completions' }
+    ]
+  }
+  const opts: AccountProtocolOption[] = [
+    { value: 'adaptive', titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
+    { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
+    { value: 'anthropic', titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' }
   ]
   if (cnSupportsNativeResponses(form.platform)) {
-    opts.push({ value: 'responses', labelKey: 'responses' })
+    opts.push({ value: 'responses', titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' })
   }
   return opts
 })
@@ -4116,14 +4231,23 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
-const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
-watch(cursorKeyMode, () => {
+// Cursor 模式由 accountCategory 派生：三张一级卡是唯一的写入来源，预览与创建读同一个实际类型。
+const cursorKeyMode = computed<'official' | 'relay' | 'auto'>(() => {
+  if (accountCategory.value === 'oauth-based') return 'auto'
+  if (accountCategory.value === 'upstream') return 'relay'
+  return 'official'
+})
+// 只有真正的 Cursor 模式变化才清理 Cursor 草稿；离开 Cursor 后其他平台的分类变化不得再清掉目标平台端点。
+watch(cursorKeyMode, (mode) => {
+  if (form.platform !== 'cursor') return
   allowedModels.value = []
   modelMappings.value = []
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
   cursorAutoCredentials.value = {}
   cursorClientVersion.value = ''
+  // Relay 不跨模式保存草稿：重新进入时回到后端默认协议，避免把上一个模式的协议带进上游路由。
+  if (mode === 'relay') apiProtocol.value = 'adaptive'
 })
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
@@ -4143,7 +4267,7 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-// Helper to check if current type needs OAuth flow
+// Helper to check if current type needs OAuth flow（公共两步 OAuth；Cursor 专用授权不走这里）
 const isOAuthFlow = computed(() => {
   if (form.platform === 'cursor') return false
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -4187,7 +4311,7 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
-const modelCandidateIdentity = computed(() => ({ host: form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.platform === 'cursor' ? cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'relay' ? 'upstream' : 'apikey' : form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
+const modelCandidateIdentity = computed(() => ({ host: form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
 
 const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
   () => [form.platform], modelCandidateIdentity, () => props.show
@@ -4245,6 +4369,11 @@ watch(
       form.type = 'bedrock' as AccountType
       return
     }
+    // Cursor 三张一级卡统一映射为实际请求类型：Auto/官方/Relay 分别是 oauth/apikey/upstream。
+    if (form.platform === 'cursor') {
+      form.type = category === 'oauth-based' ? 'oauth' : category === 'upstream' ? 'upstream' : 'apikey'
+      return
+    }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
       form.type = 'service_account' as AccountType
     } else if (category === 'oauth-based') {
@@ -4260,6 +4389,9 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    // 离开 Cursor 时先消除只对 Relay 有效的 upstream 分类，再走目标平台原有默认规则；
+    // 否则类型卡会停在无对应项的第三态，而目标平台端点又可能被晚到的 Cursor 清理覆盖。
+    if (newPlatform !== 'cursor' && accountCategory.value === 'upstream') accountCategory.value = 'apikey'
     cursorAutoCredentials.value = {}
     cursorClientVersion.value = ''
     if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
@@ -4631,6 +4763,11 @@ const credentialPreview = computed(() => {
     model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {},
     credential_draft: payload.credential_draft, credential_draft_revision: payload.credential_draft_revision }
 })
+// 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
+// 复用 ModelWhitelistSelector 已有的上下文修订栅栏，不新增全局状态。
+const previewConnectionContext = computed(() => [
+  form.platform, form.type, form.proxy_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
+])
 async function cancelAccountReview() {
   if (reviewSubmitting.value) return
   const cancelled = pendingAccountRequests.value
@@ -4763,7 +4900,6 @@ const resetForm = () => {
   createdCatalogAccounts.value = []
   capabilityDefaultsJSON.value = ''
   cursorAutoCredentials.value = {}
-  cursorKeyMode.value = 'official'
   cursorClientVersion.value = ''
   cursorAuthorizing.value = false
   step.value = 1
@@ -5087,17 +5223,22 @@ const handleSubmit = async () => {
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
-    if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError('Base URL is required.'); return }
+    // Relay 只允许 Adaptive / Chat Completions：非空非法值必须让用户改选，不静默回落也不抛未捕获异常。
+    const relayProtocol = isCursorRelay.value ? resolveCursorRelayProtocol(apiProtocol.value) : null
+    if (isCursorRelay.value) {
+      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError('Base URL is required.'); return }
+      if (!relayProtocol) { appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: apiProtocol.value })); return }
+    }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
-    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
+    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, apiProtocol: relayProtocol ?? undefined })
     const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
-    if (cursorKeyMode.value === 'relay') {
+    if (isCursorRelay.value) {
       const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
       if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
       applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
     }
-    await createAccountAndFinish('cursor', cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
+    await createAccountAndFinish('cursor', form.type, credentials)
     return
   }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
