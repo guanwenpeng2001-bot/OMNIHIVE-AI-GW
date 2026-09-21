@@ -59,6 +59,26 @@ type UsageLog struct {
 	PriceSource *string `json:"price_source,omitempty"`
 	// PriceCardVersion holds the value of the "price_card_version" field.
 	PriceCardVersion *string `json:"price_card_version,omitempty"`
+	// 请求类型：0 unknown/1 sync/2 stream/3 ws_v2/4 cyber/5 live
+	RequestType int16 `json:"request_type,omitempty"`
+	// OpenAI WS 模式请求
+	OpenaiWsMode bool `json:"openai_ws_mode,omitempty"`
+	// ServiceTier holds the value of the "service_tier" field.
+	ServiceTier *string `json:"service_tier,omitempty"`
+	// ReasoningEffort holds the value of the "reasoning_effort" field.
+	ReasoningEffort *string `json:"reasoning_effort,omitempty"`
+	// RequestedReasoningEffort holds the value of the "requested_reasoning_effort" field.
+	RequestedReasoningEffort *string `json:"requested_reasoning_effort,omitempty"`
+	// InboundEndpoint holds the value of the "inbound_endpoint" field.
+	InboundEndpoint *string `json:"inbound_endpoint,omitempty"`
+	// UpstreamEndpoint holds the value of the "upstream_endpoint" field.
+	UpstreamEndpoint *string `json:"upstream_endpoint,omitempty"`
+	// UpstreamRequestID holds the value of the "upstream_request_id" field.
+	UpstreamRequestID *string `json:"upstream_request_id,omitempty"`
+	// SessionID holds the value of the "session_id" field.
+	SessionID *string `json:"session_id,omitempty"`
+	// OpenAI 原生远程 compaction v2 请求
+	NativeCompactionV2 bool `json:"native_compaction_v2,omitempty"`
 	// InputTokens holds the value of the "input_tokens" field.
 	InputTokens int `json:"input_tokens,omitempty"`
 	// OutputTokens holds the value of the "output_tokens" field.
@@ -71,6 +91,14 @@ type UsageLog struct {
 	CacheCreation5mTokens int `json:"cache_creation_5m_tokens,omitempty"`
 	// CacheCreation1hTokens holds the value of the "cache_creation_1h_tokens" field.
 	CacheCreation1hTokens int `json:"cache_creation_1h_tokens,omitempty"`
+	// ImageOutputTokens holds the value of the "image_output_tokens" field.
+	ImageOutputTokens int `json:"image_output_tokens,omitempty"`
+	// ImageOutputCost holds the value of the "image_output_cost" field.
+	ImageOutputCost float64 `json:"image_output_cost,omitempty"`
+	// ImageInputTokens holds the value of the "image_input_tokens" field.
+	ImageInputTokens int `json:"image_input_tokens,omitempty"`
+	// ImageInputCost holds the value of the "image_input_cost" field.
+	ImageInputCost float64 `json:"image_input_cost,omitempty"`
 	// InputCost holds the value of the "input_cost" field.
 	InputCost float64 `json:"input_cost,omitempty"`
 	// OutputCost holds the value of the "output_cost" field.
@@ -89,6 +117,8 @@ type UsageLog struct {
 	LongContextBillingApplied bool `json:"long_context_billing_applied,omitempty"`
 	// AccountRateMultiplier holds the value of the "account_rate_multiplier" field.
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier,omitempty"`
+	// AccountStatsCost holds the value of the "account_stats_cost" field.
+	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
 	// BillingType holds the value of the "billing_type" field.
 	BillingType int8 `json:"billing_type,omitempty"`
 	// Stream holds the value of the "stream" field.
@@ -208,13 +238,13 @@ func (*UsageLog) scanValues(columns []string) ([]any, error) {
 		switch columns[i] {
 		case usagelog.FieldImageSizeBreakdown:
 			values[i] = new([]byte)
-		case usagelog.FieldUpstreamModelMismatch, usagelog.FieldThinkingEnabled, usagelog.FieldLongContextBillingApplied, usagelog.FieldStream, usagelog.FieldCacheTTLOverridden:
+		case usagelog.FieldUpstreamModelMismatch, usagelog.FieldThinkingEnabled, usagelog.FieldOpenaiWsMode, usagelog.FieldNativeCompactionV2, usagelog.FieldLongContextBillingApplied, usagelog.FieldStream, usagelog.FieldCacheTTLOverridden:
 			values[i] = new(sql.NullBool)
-		case usagelog.FieldInputCost, usagelog.FieldOutputCost, usagelog.FieldCacheCreationCost, usagelog.FieldCacheReadCost, usagelog.FieldTotalCost, usagelog.FieldActualCost, usagelog.FieldRateMultiplier, usagelog.FieldAccountRateMultiplier:
+		case usagelog.FieldImageOutputCost, usagelog.FieldImageInputCost, usagelog.FieldInputCost, usagelog.FieldOutputCost, usagelog.FieldCacheCreationCost, usagelog.FieldCacheReadCost, usagelog.FieldTotalCost, usagelog.FieldActualCost, usagelog.FieldRateMultiplier, usagelog.FieldAccountRateMultiplier, usagelog.FieldAccountStatsCost:
 			values[i] = new(sql.NullFloat64)
-		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
+		case usagelog.FieldID, usagelog.FieldUserID, usagelog.FieldAPIKeyID, usagelog.FieldAccountID, usagelog.FieldChannelID, usagelog.FieldGroupID, usagelog.FieldSubscriptionID, usagelog.FieldRequestType, usagelog.FieldInputTokens, usagelog.FieldOutputTokens, usagelog.FieldCacheCreationTokens, usagelog.FieldCacheReadTokens, usagelog.FieldCacheCreation5mTokens, usagelog.FieldCacheCreation1hTokens, usagelog.FieldImageOutputTokens, usagelog.FieldImageInputTokens, usagelog.FieldBillingType, usagelog.FieldDurationMs, usagelog.FieldFirstTokenMs, usagelog.FieldImageCount, usagelog.FieldVideoCount, usagelog.FieldVideoDurationSeconds:
 			values[i] = new(sql.NullInt64)
-		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldUpstreamResponseModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldPriceSource, usagelog.FieldPriceCardVersion, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldVideoResolution:
+		case usagelog.FieldRequestID, usagelog.FieldModel, usagelog.FieldRequestedModel, usagelog.FieldUpstreamModel, usagelog.FieldUpstreamResponseModel, usagelog.FieldModelMappingChain, usagelog.FieldBillingTier, usagelog.FieldBillingMode, usagelog.FieldPriceSource, usagelog.FieldPriceCardVersion, usagelog.FieldServiceTier, usagelog.FieldReasoningEffort, usagelog.FieldRequestedReasoningEffort, usagelog.FieldInboundEndpoint, usagelog.FieldUpstreamEndpoint, usagelog.FieldUpstreamRequestID, usagelog.FieldSessionID, usagelog.FieldUserAgent, usagelog.FieldIPAddress, usagelog.FieldImageSize, usagelog.FieldImageInputSize, usagelog.FieldImageOutputSize, usagelog.FieldImageSizeSource, usagelog.FieldVideoResolution:
 			values[i] = new(sql.NullString)
 		case usagelog.FieldCreatedAt:
 			values[i] = new(sql.NullTime)
@@ -360,6 +390,73 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				_m.PriceCardVersion = new(string)
 				*_m.PriceCardVersion = value.String
 			}
+		case usagelog.FieldRequestType:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field request_type", values[i])
+			} else if value.Valid {
+				_m.RequestType = int16(value.Int64)
+			}
+		case usagelog.FieldOpenaiWsMode:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field openai_ws_mode", values[i])
+			} else if value.Valid {
+				_m.OpenaiWsMode = value.Bool
+			}
+		case usagelog.FieldServiceTier:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field service_tier", values[i])
+			} else if value.Valid {
+				_m.ServiceTier = new(string)
+				*_m.ServiceTier = value.String
+			}
+		case usagelog.FieldReasoningEffort:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field reasoning_effort", values[i])
+			} else if value.Valid {
+				_m.ReasoningEffort = new(string)
+				*_m.ReasoningEffort = value.String
+			}
+		case usagelog.FieldRequestedReasoningEffort:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field requested_reasoning_effort", values[i])
+			} else if value.Valid {
+				_m.RequestedReasoningEffort = new(string)
+				*_m.RequestedReasoningEffort = value.String
+			}
+		case usagelog.FieldInboundEndpoint:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field inbound_endpoint", values[i])
+			} else if value.Valid {
+				_m.InboundEndpoint = new(string)
+				*_m.InboundEndpoint = value.String
+			}
+		case usagelog.FieldUpstreamEndpoint:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_endpoint", values[i])
+			} else if value.Valid {
+				_m.UpstreamEndpoint = new(string)
+				*_m.UpstreamEndpoint = value.String
+			}
+		case usagelog.FieldUpstreamRequestID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field upstream_request_id", values[i])
+			} else if value.Valid {
+				_m.UpstreamRequestID = new(string)
+				*_m.UpstreamRequestID = value.String
+			}
+		case usagelog.FieldSessionID:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field session_id", values[i])
+			} else if value.Valid {
+				_m.SessionID = new(string)
+				*_m.SessionID = value.String
+			}
+		case usagelog.FieldNativeCompactionV2:
+			if value, ok := values[i].(*sql.NullBool); !ok {
+				return fmt.Errorf("unexpected type %T for field native_compaction_v2", values[i])
+			} else if value.Valid {
+				_m.NativeCompactionV2 = value.Bool
+			}
 		case usagelog.FieldInputTokens:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
 				return fmt.Errorf("unexpected type %T for field input_tokens", values[i])
@@ -395,6 +492,30 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field cache_creation_1h_tokens", values[i])
 			} else if value.Valid {
 				_m.CacheCreation1hTokens = int(value.Int64)
+			}
+		case usagelog.FieldImageOutputTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field image_output_tokens", values[i])
+			} else if value.Valid {
+				_m.ImageOutputTokens = int(value.Int64)
+			}
+		case usagelog.FieldImageOutputCost:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field image_output_cost", values[i])
+			} else if value.Valid {
+				_m.ImageOutputCost = value.Float64
+			}
+		case usagelog.FieldImageInputTokens:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field image_input_tokens", values[i])
+			} else if value.Valid {
+				_m.ImageInputTokens = int(value.Int64)
+			}
+		case usagelog.FieldImageInputCost:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field image_input_cost", values[i])
+			} else if value.Valid {
+				_m.ImageInputCost = value.Float64
 			}
 		case usagelog.FieldInputCost:
 			if value, ok := values[i].(*sql.NullFloat64); !ok {
@@ -450,6 +571,13 @@ func (_m *UsageLog) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.AccountRateMultiplier = new(float64)
 				*_m.AccountRateMultiplier = value.Float64
+			}
+		case usagelog.FieldAccountStatsCost:
+			if value, ok := values[i].(*sql.NullFloat64); !ok {
+				return fmt.Errorf("unexpected type %T for field account_stats_cost", values[i])
+			} else if value.Valid {
+				_m.AccountStatsCost = new(float64)
+				*_m.AccountStatsCost = value.Float64
 			}
 		case usagelog.FieldBillingType:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -706,6 +834,50 @@ func (_m *UsageLog) String() string {
 		builder.WriteString(*v)
 	}
 	builder.WriteString(", ")
+	builder.WriteString("request_type=")
+	builder.WriteString(fmt.Sprintf("%v", _m.RequestType))
+	builder.WriteString(", ")
+	builder.WriteString("openai_ws_mode=")
+	builder.WriteString(fmt.Sprintf("%v", _m.OpenaiWsMode))
+	builder.WriteString(", ")
+	if v := _m.ServiceTier; v != nil {
+		builder.WriteString("service_tier=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.ReasoningEffort; v != nil {
+		builder.WriteString("reasoning_effort=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.RequestedReasoningEffort; v != nil {
+		builder.WriteString("requested_reasoning_effort=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.InboundEndpoint; v != nil {
+		builder.WriteString("inbound_endpoint=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamEndpoint; v != nil {
+		builder.WriteString("upstream_endpoint=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.UpstreamRequestID; v != nil {
+		builder.WriteString("upstream_request_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	if v := _m.SessionID; v != nil {
+		builder.WriteString("session_id=")
+		builder.WriteString(*v)
+	}
+	builder.WriteString(", ")
+	builder.WriteString("native_compaction_v2=")
+	builder.WriteString(fmt.Sprintf("%v", _m.NativeCompactionV2))
+	builder.WriteString(", ")
 	builder.WriteString("input_tokens=")
 	builder.WriteString(fmt.Sprintf("%v", _m.InputTokens))
 	builder.WriteString(", ")
@@ -723,6 +895,18 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("cache_creation_1h_tokens=")
 	builder.WriteString(fmt.Sprintf("%v", _m.CacheCreation1hTokens))
+	builder.WriteString(", ")
+	builder.WriteString("image_output_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ImageOutputTokens))
+	builder.WriteString(", ")
+	builder.WriteString("image_output_cost=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ImageOutputCost))
+	builder.WriteString(", ")
+	builder.WriteString("image_input_tokens=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ImageInputTokens))
+	builder.WriteString(", ")
+	builder.WriteString("image_input_cost=")
+	builder.WriteString(fmt.Sprintf("%v", _m.ImageInputCost))
 	builder.WriteString(", ")
 	builder.WriteString("input_cost=")
 	builder.WriteString(fmt.Sprintf("%v", _m.InputCost))
@@ -750,6 +934,11 @@ func (_m *UsageLog) String() string {
 	builder.WriteString(", ")
 	if v := _m.AccountRateMultiplier; v != nil {
 		builder.WriteString("account_rate_multiplier=")
+		builder.WriteString(fmt.Sprintf("%v", *v))
+	}
+	builder.WriteString(", ")
+	if v := _m.AccountStatsCost; v != nil {
+		builder.WriteString("account_stats_cost=")
 		builder.WriteString(fmt.Sprintf("%v", *v))
 	}
 	builder.WriteString(", ")
