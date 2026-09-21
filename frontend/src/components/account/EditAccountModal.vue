@@ -2345,6 +2345,13 @@
         v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
         :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
         :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" />
+      <AccountCredentialSecretSection
+        v-if="account && !isSparkShadow"
+        :account-id="account.id"
+        :account-revision="account.updated_at"
+        :active="show"
+        @changed="handleCredentialSecretChanged"
+      />
     </form>
 
     <template #footer>
@@ -2444,6 +2451,7 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 
 import ModelAvailabilityEditor from './ModelAvailabilityEditor.vue'
 import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
+import AccountCredentialSecretSection from './AccountCredentialSecretSection.vue'
 import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
@@ -2543,6 +2551,13 @@ const hideAccountLongContextBilling = computed(() => {
 
 const handleOllamaCloudUsageUpdated = (state: OllamaCloudUsageState) => {
   if (props.account) emit('updated', { ...props.account, ollama_cloud_usage: state })
+}
+
+const handleCredentialSecretChanged = async () => {
+  if (!props.account) return
+  try {
+    emit('updated', await adminAPI.accounts.getById(props.account.id))
+  } catch { /* the section keeps its own loaded state on refresh failure */ }
 }
 
 // Platform-specific hint for Base URL

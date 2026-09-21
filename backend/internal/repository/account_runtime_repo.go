@@ -56,6 +56,9 @@ func (r *accountRepository) withRuntimeIdentity(ctx context.Context, id int64, i
 	}
 	load := func(entity *dbent.Account) (*service.Account, error) {
 		account := accountEntityToService(entity)
+		if err := r.resolveAccountCredentials(lockedCtx, client, account); err != nil {
+			return nil, err
+		}
 		if entity.ProxyID != nil {
 			proxyRows, err := client.QueryContext(lockedCtx, "SELECT id FROM proxies WHERE id = $1 AND deleted_at IS NULL FOR SHARE", *entity.ProxyID)
 			if err != nil {
@@ -112,7 +115,7 @@ func (r *accountRepository) withRuntimeIdentity(ctx context.Context, id int64, i
 	if service.AccountRuntimeIdentityKey(current) != identity {
 		return service.ErrAccountRuntimeIdentityChanged
 	}
-	repository := &accountRepository{client: client, sql: client}
+	repository := &accountRepository{client: client, sql: client, credentialEncryptor: r.credentialEncryptor}
 	if err := write(lockedCtx, repository); err != nil {
 		return err
 	}
@@ -145,7 +148,7 @@ func (r *accountRepository) UpdateAccountRuntimeCredentials(ctx context.Context,
 		return service.ErrAccountNilInput
 	}
 	return r.withRuntimeIdentity(ctx, expected.ID, service.AccountRuntimeIdentityKey(expected), func(lockedCtx context.Context, repository *accountRepository) error {
-		return repository.UpdateCredentials(lockedCtx, expected.ID, credentials)
+		return repository.UpdateCredentials(service.WithCredentialRevision(lockedCtx, expected.CredentialRevision), expected.ID, credentials)
 	})
 }
 

@@ -13,6 +13,9 @@ var _ service.CursorOAuthRefreshRepository = (*accountRepository)(nil)
 var _ service.CursorAccountRecoveryRepository = (*accountRepository)(nil)
 
 func (r *accountRepository) UpdateCursorOAuthCredentialsIfUnchanged(ctx context.Context, id int64, expected, credentials map[string]any) (bool, error) {
+	if _, referenced := service.CredentialReference(expected); referenced {
+		return r.updateReferencedOAuthCredentials(ctx, id, service.PlatformCursor, expected, nil, false, credentials)
+	}
 	replacement, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
 		return false, err
@@ -21,6 +24,18 @@ func (r *accountRepository) UpdateCursorOAuthCredentialsIfUnchanged(ctx context.
 }
 
 func (r *accountRepository) SetCursorOAuthRefreshFailureIfUnchanged(ctx context.Context, id int64, expected map[string]any, permanent bool, until time.Time) (bool, error) {
+	if _, referenced := service.CredentialReference(expected); referenced {
+		if permanent {
+			return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformCursor, expected, nil, false,
+				func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+					return repository.markOAuthErrorLocked(lockedCtx, id, "Cursor reauth required: token refresh rejected", false)
+				})
+		}
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformCursor, expected, nil, false,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthTempUnschedulableLocked(lockedCtx, id, until, "Cursor token refresh temporarily unavailable", false)
+			})
+	}
 	if permanent {
 		return r.mutateCursorOAuthIfUnchanged(ctx, id, expected,
 			"status = 'error', error_message = $5, schedulable = false", "Cursor reauth required: token refresh rejected")

@@ -51,6 +51,9 @@ type ChannelMonitorRequestTemplate func(*sql.Selector)
 // CompositeModelRoute is the predicate function for compositemodelroute builders.
 type CompositeModelRoute func(*sql.Selector)
 
+// CredentialSecret is the predicate function for credentialsecret builders.
+type CredentialSecret func(*sql.Selector)
+
 // ErrorPassthroughRule is the predicate function for errorpassthroughrule builders.
 type ErrorPassthroughRule func(*sql.Selector)
 

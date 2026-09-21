@@ -44,8 +44,9 @@ import (
 //   - sql: 原生 SQL 执行器，用于复杂查询和批量操作
 //   - schedulerCache: 调度器缓存，用于在账号状态变更时同步快照
 type accountRepository struct {
-	client *dbent.Client // Ent ORM 客户端
-	sql    sqlExecutor   // 原生 SQL 执行接口
+	credentialEncryptor service.SecretEncryptor
+	client              *dbent.Client // Ent ORM 客户端
+	sql                 sqlExecutor   // 原生 SQL 执行接口
 	// schedulerCache 用于在账号状态变更时主动同步快照到缓存，
 	// 确保粘性会话能及时感知账号不可用状态。
 	// Used to proactively sync account snapshot to cache when status changes,
@@ -607,12 +608,16 @@ func (r *accountRepository) updateLockedAccount(
 		schedulable = false
 	}
 
+	persistedCredentials, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, account.ID, current.WorkspaceID, current.Credentials, account.Credentials)
+	if err != nil {
+		return nil, err
+	}
 	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
-		SetCredentials(normalizeJSONMap(account.Credentials)).
+		SetCredentials(normalizeJSONMap(persistedCredentials)).
 		SetExtra(extra).
 		SetConcurrency(account.Concurrency).
 		SetPriority(account.Priority).
@@ -919,10 +924,6 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	payload, err := json.Marshal(normalizeJSONMap(credentials))
-	if err != nil {
-		return err
-	}
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
 	client := r.client
@@ -940,6 +941,17 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			ctx = dbent.NewTxContext(ctx, tx)
 			client = tx.Client()
 		}
+	}
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" {
+		var err error
+		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
+		if err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(normalizeJSONMap(credentials))
+	if err != nil {
+		return err
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
@@ -1578,6 +1590,12 @@ func (r *accountRepository) SetGrokOAuthErrorIfCredentialsUnchanged(
 	expectedCredentials map[string]any,
 	errorMsg string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, nil, false,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1639,6 +1657,9 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 	expectedProxyID *int64,
 	credentials map[string]any,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.updateReferencedOAuthCredentials(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true, credentials)
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1700,6 +1721,12 @@ func (r *accountRepository) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 	expectedProxyID *int64,
 	errorMsg string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1761,6 +1788,12 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 	until time.Time,
 	reason string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthTempUnschedulableLocked(lockedCtx, id, until, reason, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -3440,6 +3473,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		out := accountEntityToService(acc)
 		if out == nil {
 			continue
+		}
+		if err := r.resolveAccountCredentials(ctx, r.client, out); err != nil {
+			return nil, err
 		}
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {

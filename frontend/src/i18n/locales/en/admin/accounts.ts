@@ -909,6 +909,31 @@ export default {
         "saveFailed": "Could not save this change. The saved evidence has not been replaced in this view.",
         "conflict": "Configuration changed. Read saved declarations again and review before confirming."
 },
+      credentialSecret: {
+        "title": "Encrypted credential reference",
+        "hint": "Store this account's sensitive credentials as an encrypted, versioned reference. Reads stay transparent to the gateway; there is no plaintext export.",
+        "inlineState": "Credentials are currently stored inline. Conversion is explicit and never automatic.",
+        "reference": "Reference",
+        "version": "Version",
+        "updatedAt": "Updated at",
+        "revokedState": "This reference has been revoked. The account can no longer be used until new credentials are supplied by the owning flow.",
+        "convert": "Convert to encrypted reference",
+        "rotate": "Rotate secrets",
+        "revoke": "Revoke reference",
+        "rotatePayload": "New secret fields (JSON, sensitive keys only)",
+        "rotatePlaceholder": "refresh_token: ...",
+        "invalidJSON": "The payload is not valid JSON.",
+        "invalidPayload": "Provide a non-empty JSON object with sensitive credential keys only.",
+        "loadFailed": "Could not read the credential reference state. Retry to load it.",
+        "saveFailed": "The change could not be saved. The stored credentials were not replaced.",
+        "conflict": "The credential version changed. The latest state has been reloaded; review before confirming again.",
+        "confirmTitle": "Confirm credential reference change",
+        "confirm": {
+          "convert": "Move this account's sensitive credentials into an encrypted reference? Existing inline values remain readable; only new writes use the reference.",
+          "rotate": "Replace the encrypted secrets with the submitted fields? The version increases and concurrent writers lose.",
+          "revoke": "Revoke this reference permanently? The encrypted payload is erased, runtime reads fail explicitly, and there is no historical plaintext recovery."
+        }
+},
       modelSync: {
           previousPreview: "Previous preview only; this attempt has not produced a successful result.",
           applyConfirmation: "Apply this reviewed snapshot to the saved account? Removed models will no longer be available through this snapshot; account aliases remain unchanged.",
