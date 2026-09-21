@@ -123,6 +123,12 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			workspaceID = domain.DefaultWorkspaceID
 		}
 		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), workspaceID))
+		policyContext, policyErr := apiKeyService.AttachModelAccessPolicy(c.Request.Context(), apiKey.ID)
+		if policyErr != nil {
+			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"type": "service_unavailable", "message": "Model access policy unavailable"}})
+			return
+		}
+		c.Request = c.Request.WithContext(policyContext)
 
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 

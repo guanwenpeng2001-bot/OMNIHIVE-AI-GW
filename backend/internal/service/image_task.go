@@ -36,6 +36,8 @@ type ImageTaskRecord struct {
 	WorkspaceID       int64           `json:"workspace_id"`
 	Version           int64           `json:"version"`
 	ExecutionDeadline int64           `json:"execution_deadline,omitempty"`
+	PublicModel       string          `json:"public_model,omitempty"`
+	AccountID         int64           `json:"account_id,omitempty"`
 	ID                string          `json:"id"`
 	UserID            int64           `json:"user_id"`
 	APIKeyID          int64           `json:"api_key_id"`
@@ -155,7 +157,7 @@ func (s *ImageTaskService) ExecutionTimeout() time.Duration {
 	return s.executionTimeout
 }
 
-func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner) (*ImageTask, error) {
+func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner, publicModels ...string) (*ImageTask, error) {
 	if s == nil || s.store == nil {
 		return nil, ErrImageTaskUnavailable
 	}
@@ -173,6 +175,12 @@ func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner) (*I
 		Status:            ImageTaskStatusProcessing,
 		CreatedAt:         now.Unix(),
 		ExpiresAt:         now.Add(s.ttl).Unix(),
+	}
+	if len(publicModels) > 0 {
+		task.PublicModel = publicModels[0]
+	}
+	if !visibleModelPolicyAllows(ctx, task.PublicModel) {
+		return nil, ErrImageTaskNotFound
 	}
 	if err := s.store.Save(ctx, task, s.ttl); err != nil {
 		return nil, ErrImageTaskUnavailable.WithCause(err)
@@ -202,6 +210,9 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 		// Do not reveal whether a random task ID exists for another caller.
 		return nil, ErrImageTaskNotFound
 	}
+	if !visibleModelPolicyAllows(ctx, task.PublicModel) || !modelAccessAccountAllows(ctx, task.AccountID, task.PublicModel) {
+		return nil, ErrImageTaskNotFound
+	}
 	// Sync image providers cannot be replayed safely after a worker crash.
 	// Recover the durable receipt to an explicit unknown outcome; never regenerate.
 	deadline := task.ExecutionDeadline
@@ -220,7 +231,7 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 	return imageTaskToPublic(task), nil
 }
 
-func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
+func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage, accountIDs ...int64) error {
 	if !json.Valid(result) {
 		return s.Fail(ctx, id, http.StatusBadGateway, imageTaskErrorJSON("api_error", "upstream returned a non-JSON image response"))
 	}
@@ -233,7 +244,7 @@ func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode i
 		}
 		result = rewritten
 	}
-	return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil)
+	return s.finish(ctx, id, ImageTaskStatusCompleted, statusCode, result, nil, accountIDs...)
 }
 
 func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, taskErr json.RawMessage) error {
@@ -243,7 +254,7 @@ func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, 
 	return s.finish(ctx, id, ImageTaskStatusFailed, statusCode, nil, taskErr)
 }
 
-func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage) error {
+func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage, accountIDs ...int64) error {
 	if s == nil || s.store == nil {
 		return ErrImageTaskUnavailable
 	}
@@ -260,6 +271,9 @@ func (s *ImageTaskService) finish(ctx context.Context, id, status string, status
 	task.Version++
 	now := time.Now().UTC()
 	completedAt := now.Unix()
+	if len(accountIDs) > 0 {
+		task.AccountID = accountIDs[0]
+	}
 	task.Status = status
 	task.HTTPStatus = statusCode
 	task.Result = result

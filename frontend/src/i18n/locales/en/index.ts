@@ -8,9 +8,11 @@ import batchImage from './batchImage'
 import admin from './admin'
 import misc from './misc'
 import workspaces from './workspaces'
+import modelAccess from './modelAccess'
 
 export default {
   workspaces,
+  modelAccess,
   ...capabilities,
   helpGuide,
   ...landing,

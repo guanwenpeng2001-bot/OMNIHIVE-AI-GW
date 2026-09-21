@@ -185,6 +185,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	modelAccessHandler *ModelAccessHandler,
 	workspaceHandler *WorkspaceHandler,
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
@@ -212,6 +213,7 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		ModelAccess:      modelAccessHandler,
 		Workspace:        workspaceHandler,
 		Auth:             authHandler,
 		User:             userHandler,
@@ -242,6 +244,7 @@ var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	ProvideAuthHandler,
 	NewUserHandler,
+	NewModelAccessHandler,
 	NewWorkspaceHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,

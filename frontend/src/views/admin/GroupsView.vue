@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <ModelAccessGroupsPanel />
     <GroupsTable
       :controller="groupsListController"
       :duplicating-group-ids="duplicatingGroupIds"
@@ -3348,6 +3349,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelAccessGroupsPanel from '@/components/model-access/ModelAccessGroupsPanel.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";

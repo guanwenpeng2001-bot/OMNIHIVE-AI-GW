@@ -1104,6 +1104,60 @@ var (
 			},
 		},
 	}
+	// ModelAccessGroupsColumns holds the columns for the "model_access_groups" table.
+	ModelAccessGroupsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "models", Type: field.TypeJSON},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+	}
+	// ModelAccessGroupsTable holds the schema information for the "model_access_groups" table.
+	ModelAccessGroupsTable = &schema.Table{
+		Name:       "model_access_groups",
+		Columns:    ModelAccessGroupsColumns,
+		PrimaryKey: []*schema.Column{ModelAccessGroupsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "modelaccessgroup_workspace_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{ModelAccessGroupsColumns[3], ModelAccessGroupsColumns[4]},
+			},
+			{
+				Name:    "modelaccessgroup_id_workspace_id",
+				Unique:  true,
+				Columns: []*schema.Column{ModelAccessGroupsColumns[0], ModelAccessGroupsColumns[3]},
+			},
+		},
+	}
+	// ModelAccessRulesColumns holds the columns for the "model_access_rules" table.
+	ModelAccessRulesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "api_key_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "access_group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "models", Type: field.TypeJSON, Nullable: true},
+		{Name: "exclude", Type: field.TypeJSON},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+	}
+	// ModelAccessRulesTable holds the schema information for the "model_access_rules" table.
+	ModelAccessRulesTable = &schema.Table{
+		Name:       "model_access_rules",
+		Columns:    ModelAccessRulesColumns,
+		PrimaryKey: []*schema.Column{ModelAccessRulesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "modelaccessrule_access_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{ModelAccessRulesColumns[6]},
+			},
+		},
+	}
 	// PaymentAuditLogsColumns holds the columns for the "payment_audit_logs" table.
 	PaymentAuditLogsColumns = []*schema.Column{
 		{Name: "id", Type: field.TypeInt64, Increment: true},
@@ -2155,6 +2209,8 @@ var (
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		ModelAccessGroupsTable,
+		ModelAccessRulesTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,

@@ -22,6 +22,7 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	workspaces.GET("", handlers.Workspace.List)
 	workspaces.POST("", handlers.Workspace.Create)
 	members := workspaces.Group("/:workspace_id", middleware.WorkspaceScope(handlers.Workspace.Service, true))
+	registerModelAccessAdminRoutes(members, handlers, true)
 	members.GET("/members", handlers.Workspace.Members)
 	members.PUT("/members/:user_id", handlers.Workspace.SetMember)
 	members.DELETE("/members/:user_id", handlers.Workspace.RemoveMember)
@@ -51,6 +52,13 @@ func RegisterWorkspaceRoutes(parent *gin.RouterGroup, handlers *handler.Handlers
 	keys.GET("/:id", handlers.APIKey.GetByID)
 	keys.PUT("/:id", handlers.APIKey.Update)
 	keys.DELETE("/:id", handlers.APIKey.Delete)
+	access := workspaces.Group("/:workspace_id", middleware.WorkspaceScope(handlers.Workspace.Service, false))
+	if handlers.ModelAccess != nil {
+		access.GET("/model-access-groups", handlers.ModelAccess.List)
+		keys.GET("/:id/model-access", handlers.ModelAccess.Rule("keys", true, false))
+		keys.POST("/:id/model-access/preview", handlers.ModelAccess.Preview("keys", true))
+		keys.PUT("/:id/model-access", handlers.ModelAccess.Rule("keys", true, true))
+	}
 	available := workspaces.Group("/:workspace_id/groups", middleware.WorkspaceScope(handlers.Workspace.Service, false))
 	available.GET("/available", handlers.APIKey.GetAvailableGroups)
 	available.GET("/rates", handlers.APIKey.GetUserGroupRates)
