@@ -146,7 +146,7 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	test.Run("dashscope-resources", TestQianwenNativeUnsupportedFamilies)
 	test.Run("dashscope-owned-resource-gates", TestQianwenNativeResourceLifecycleRoutes)
 	test.Run("responses-actions", TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths)
-	test.Run("other-platform-videos", TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate)
+	test.Run("other-platform-videos", TestGatewayRoutesOpenAIVideosReachTheOpenAIVideoIngress)
 	for _, platform := range service.ConcretePlatforms() {
 		router := protocolMatrixRouter(platform)
 		for _, feature := range []struct {
@@ -162,6 +162,9 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 			{http.MethodPost, "/videos/extensions", "video.extend"},
 			{http.MethodPost, "/tts", "audio.tts"},
 			{http.MethodPost, "/stt", "audio.stt"},
+			{http.MethodPost, "/audio/speech", "audio.tts"},
+			{http.MethodPost, "/audio/transcriptions", "audio.stt"},
+			{http.MethodPost, "/audio/translations", "audio.translate"},
 			{http.MethodPost, "/web_search", "search"},
 			{http.MethodPost, "/x_search", "search"},
 			{http.MethodGet, "/realtime", "realtime"},
