@@ -10,6 +10,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	"github.com/Wei-Shaw/sub2api/ent/batchimageevent"
@@ -89,21 +90,7 @@ func init() {
 	// apikeyDescKey is the schema descriptor for key field.
 	apikeyDescKey := apikeyFields[1].Descriptor()
 	// apikey.KeyValidator is a validator for the "key" field. It is called by the builders before save.
-	apikey.KeyValidator = func() func(string) error {
-		validators := apikeyDescKey.Validators
-		fns := [...]func(string) error{
-			validators[0].(func(string) error),
-			validators[1].(func(string) error),
-		}
-		return func(key string) error {
-			for _, fn := range fns {
-				if err := fn(key); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
-	}()
+	apikey.KeyValidator = apikeyDescKey.Validators[0].(func(string) error)
 	// apikeyDescName is the schema descriptor for name field.
 	apikeyDescName := apikeyFields[2].Descriptor()
 	// apikey.NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -160,6 +147,61 @@ func init() {
 	apikeyDescUsage7d := apikeyFields[16].Descriptor()
 	// apikey.DefaultUsage7d holds the default value on creation for the usage_7d field.
 	apikey.DefaultUsage7d = apikeyDescUsage7d.Default.(float64)
+	apikeycredentialMixin := schema.APIKeyCredential{}.Mixin()
+	apikeycredentialMixinHooks1 := apikeycredentialMixin[1].Hooks()
+	apikeycredential.Hooks[0] = apikeycredentialMixinHooks1[0]
+	apikeycredentialMixinInters1 := apikeycredentialMixin[1].Interceptors()
+	apikeycredential.Interceptors[0] = apikeycredentialMixinInters1[0]
+	apikeycredentialMixinFields0 := apikeycredentialMixin[0].Fields()
+	_ = apikeycredentialMixinFields0
+	apikeycredentialMixinFields1 := apikeycredentialMixin[1].Fields()
+	_ = apikeycredentialMixinFields1
+	apikeycredentialFields := schema.APIKeyCredential{}.Fields()
+	_ = apikeycredentialFields
+	// apikeycredentialDescCreatedAt is the schema descriptor for created_at field.
+	apikeycredentialDescCreatedAt := apikeycredentialMixinFields0[0].Descriptor()
+	// apikeycredential.DefaultCreatedAt holds the default value on creation for the created_at field.
+	apikeycredential.DefaultCreatedAt = apikeycredentialDescCreatedAt.Default.(func() time.Time)
+	// apikeycredentialDescUpdatedAt is the schema descriptor for updated_at field.
+	apikeycredentialDescUpdatedAt := apikeycredentialMixinFields0[1].Descriptor()
+	// apikeycredential.DefaultUpdatedAt holds the default value on creation for the updated_at field.
+	apikeycredential.DefaultUpdatedAt = apikeycredentialDescUpdatedAt.Default.(func() time.Time)
+	// apikeycredential.UpdateDefaultUpdatedAt holds the default value on update for the updated_at field.
+	apikeycredential.UpdateDefaultUpdatedAt = apikeycredentialDescUpdatedAt.UpdateDefault.(func() time.Time)
+	// apikeycredentialDescWorkspaceID is the schema descriptor for workspace_id field.
+	apikeycredentialDescWorkspaceID := apikeycredentialMixinFields1[0].Descriptor()
+	// apikeycredential.DefaultWorkspaceID holds the default value on creation for the workspace_id field.
+	apikeycredential.DefaultWorkspaceID = apikeycredentialDescWorkspaceID.Default.(int64)
+	// apikeycredentialDescCredentialDigest is the schema descriptor for credential_digest field.
+	apikeycredentialDescCredentialDigest := apikeycredentialFields[0].Descriptor()
+	// apikeycredential.CredentialDigestValidator is a validator for the "credential_digest" field. It is called by the builders before save.
+	apikeycredential.CredentialDigestValidator = func() func(string) error {
+		validators := apikeycredentialDescCredentialDigest.Validators
+		fns := [...]func(string) error{
+			validators[0].(func(string) error),
+			validators[1].(func(string) error),
+		}
+		return func(credential_digest string) error {
+			for _, fn := range fns {
+				if err := fn(credential_digest); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+	}()
+	// apikeycredentialDescDisplaySuffix is the schema descriptor for display_suffix field.
+	apikeycredentialDescDisplaySuffix := apikeycredentialFields[2].Descriptor()
+	// apikeycredential.DefaultDisplaySuffix holds the default value on creation for the display_suffix field.
+	apikeycredential.DefaultDisplaySuffix = apikeycredentialDescDisplaySuffix.Default.(string)
+	// apikeycredential.DisplaySuffixValidator is a validator for the "display_suffix" field. It is called by the builders before save.
+	apikeycredential.DisplaySuffixValidator = apikeycredentialDescDisplaySuffix.Validators[0].(func(string) error)
+	// apikeycredentialDescStatus is the schema descriptor for status field.
+	apikeycredentialDescStatus := apikeycredentialFields[3].Descriptor()
+	// apikeycredential.DefaultStatus holds the default value on creation for the status field.
+	apikeycredential.DefaultStatus = apikeycredentialDescStatus.Default.(string)
+	// apikeycredential.StatusValidator is a validator for the "status" field. It is called by the builders before save.
+	apikeycredential.StatusValidator = apikeycredentialDescStatus.Validators[0].(func(string) error)
 	accountMixin := schema.Account{}.Mixin()
 	accountMixinHooks1 := accountMixin[1].Hooks()
 	accountMixinHooks2 := accountMixin[2].Hooks()

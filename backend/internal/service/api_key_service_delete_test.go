@@ -324,6 +324,9 @@ func TestApiKeyService_Delete_Success(t *testing.T) {
 	}
 	cache := &apiKeyCacheStub{}
 	svc := &APIKeyService{apiKeyRepo: repo, cache: cache}
+	// The deleted key's credentials are evicted through the credential repository,
+	// which maps the key identity back to the auth cache identifiers.
+	svc.SetCredentialRepository(&apiKeyCredentialRepoStub{digests: []string{APIKeyCredentialDigest("k")}})
 	svc.lastUsedTouchL1.Store(int64(42), time.Now())
 
 	err := svc.Delete(context.Background(), 42, 7) // API Key ID=42, 调用者 userID=7

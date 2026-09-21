@@ -2,13 +2,40 @@ package service
 
 import "context"
 
-// InvalidateAuthCacheByKey 清除指定 API Key 的认证缓存
-func (s *APIKeyService) InvalidateAuthCacheByKey(ctx context.Context, key string) {
-	if key == "" {
+// apiKeyAuthCacheInvalidatorByAPIKeyID is the optional capability of an auth cache
+// invalidator that evicts every credential of a key from the key identity alone. It
+// stays optional so the narrow APIKeyAuthCacheInvalidator contract used by other
+// services does not grow; *APIKeyService always satisfies it.
+type apiKeyAuthCacheInvalidatorByAPIKeyID interface {
+	InvalidateAuthCacheByAPIKeyID(ctx context.Context, apiKeyID int64)
+}
+
+// InvalidateAuthCacheByKey clears the auth cache entry for a credential digest.
+// The digest is the auth cache identifier, so callers pass one directly; use
+// InvalidateAuthCacheByAPIKeyID to clear every credential of a key.
+func (s *APIKeyService) InvalidateAuthCacheByKey(ctx context.Context, credentialDigest string) {
+	if credentialDigest == "" {
 		return
 	}
-	cacheKey := s.authCacheKey(key)
-	s.deleteAuthCache(ctx, cacheKey)
+	s.deleteAuthCache(ctx, credentialDigest)
+}
+
+// InvalidateAuthCacheByAPIKeyID clears every credential's auth cache entry for a
+// key, without needing any plaintext secret.
+func (s *APIKeyService) InvalidateAuthCacheByAPIKeyID(ctx context.Context, apiKeyID int64) {
+	if apiKeyID <= 0 || s.credentialRepo == nil {
+		return
+	}
+	digests, err := s.credentialRepo.ListDigestsByAPIKeyID(ctx, apiKeyID)
+	if err != nil {
+		return
+	}
+	s.deleteAuthCacheByKeys(ctx, digests)
+}
+
+// InvalidateAuthCacheByDigest clears the auth cache entry for a credential digest.
+func (s *APIKeyService) InvalidateAuthCacheByDigest(ctx context.Context, credentialDigest string) {
+	s.deleteAuthCache(ctx, credentialDigest)
 }
 
 // InvalidateAuthCacheByUserID 清除用户相关的 API Key 认证缓存
@@ -35,14 +62,14 @@ func (s *APIKeyService) InvalidateAuthCacheByGroupID(ctx context.Context, groupI
 	s.deleteAuthCacheByKeys(ctx, keys)
 }
 
-func (s *APIKeyService) deleteAuthCacheByKeys(ctx context.Context, keys []string) {
-	if len(keys) == 0 {
+func (s *APIKeyService) deleteAuthCacheByKeys(ctx context.Context, credentialDigests []string) {
+	if len(credentialDigests) == 0 {
 		return
 	}
-	for _, key := range keys {
-		if key == "" {
+	for _, digest := range credentialDigests {
+		if digest == "" {
 			continue
 		}
-		s.deleteAuthCache(ctx, s.authCacheKey(key))
+		s.deleteAuthCache(ctx, digest)
 	}
 }

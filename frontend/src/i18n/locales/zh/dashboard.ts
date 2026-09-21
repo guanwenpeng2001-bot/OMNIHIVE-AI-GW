@@ -126,6 +126,21 @@ export default {
     keyUpdatedSuccess: 'API 密钥更新成功',
     keyDeletedSuccess: 'API 密钥删除成功',
     keyEnabledSuccess: 'API 密钥已启用',
+    rotateKey: '轮换密钥',
+    rotation: {
+      description: '为「{name}」生成新密钥。Key 的 ID 保持不变，用量与账单历史延续。',
+      revokePrevious: '立即撤销旧密钥（不留宽限期）',
+      graceHours: '宽限期（小时）',
+      graceDefault: '默认：24 小时',
+      graceHint: '旧密钥在宽限期结束前仍可使用，到期后失效。',
+      success: 'API 密钥轮换成功'
+    },
+    secretOnce: {
+      title: '请复制新密钥',
+      warning: '该密钥只显示一次，请立即复制保存；关闭后无法再次查看。',
+      graceUntil: '旧密钥将于 {time} 失效。',
+      confirm: '我已保存'
+    },
     keyDisabledSuccess: 'API 密钥已禁用',
     failedToLoad: '加载 API 密钥失败',
     failedToSave: '保存 API 密钥失败',

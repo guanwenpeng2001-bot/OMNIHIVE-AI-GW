@@ -289,6 +289,7 @@ type APIKeyService struct {
 	userSubRepo               UserSubscriptionRepository
 	userGroupRateRepo         UserGroupRateRepository
 	cache                     APIKeyCache
+	credentialRepo            APIKeyCredentialRepository
 	rateLimitCacheInvalid     RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
 	concurrencyService        *ConcurrencyService
 	cfg                       *config.Config
@@ -363,6 +364,12 @@ func NewAPIKeyService(
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {
 	s.rateLimitCacheInvalid = inv
+}
+
+// SetCredentialRepository sets the credential repository used for rotation,
+// revocation and digest-based cache invalidation.
+func (s *APIKeyService) SetCredentialRepository(repo APIKeyCredentialRepository) {
+	s.credentialRepo = repo
 }
 
 func (s *APIKeyService) SetConcurrencyService(concurrencyService *ConcurrencyService) {
@@ -532,18 +539,19 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     req.GroupID,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:        userID,
+		Key:           key,
+		DisplaySuffix: APIKeyCredentialDisplaySuffix(key),
+		Name:          html.EscapeString(req.Name),
+		GroupID:       req.GroupID,
+		Status:        StatusActive,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		Quota:         req.Quota,
+		QuotaUsed:     0,
+		RateLimit5h:   req.RateLimit5h,
+		RateLimit1d:   req.RateLimit1d,
+		RateLimit7d:   req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -556,7 +564,7 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 
-	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	s.InvalidateAuthCacheByKey(ctx, APIKeyCredentialDigest(apiKey.Key))
 	s.compileAPIKeyIPRules(apiKey)
 
 	return apiKey, nil
@@ -798,23 +806,35 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.GroupID != nil {
-		// 验证分组权限
-		user, err := s.userRepo.GetByID(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("get user: %w", err)
-		}
+		// 与管理员接口一致：nil（省略或 null）= 不变，0 = 解绑，正整数 = 绑定。
+		// 0 走显式解绑分支，不会拿去查分组 ID，避免把「解绑」误判成「分组不存在」。
+		switch {
+		case *req.GroupID < 0:
+			return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be non-negative")
+		case *req.GroupID == 0:
+			apiKey.GroupID = nil
+			apiKey.Group = nil
+			fields.GroupID = true
+		default:
+			// 验证分组权限
+			user, err := s.userRepo.GetByID(ctx, userID)
+			if err != nil {
+				return nil, fmt.Errorf("get user: %w", err)
+			}
 
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
-		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
-		}
+			group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+			if err != nil {
+				return nil, fmt.Errorf("get group: %w", err)
+			}
 
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
+			if !s.canUserBindGroup(ctx, user, group) {
+				return nil, ErrGroupNotAllowed
+			}
 
-		apiKey.GroupID = req.GroupID
-		fields.GroupID = true
+			apiKey.GroupID = req.GroupID
+			apiKey.Group = group
+			fields.GroupID = true
+		}
 	}
 
 	if req.Status != nil {
@@ -902,7 +922,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		return nil, fmt.Errorf("update api key: %w", err)
 	}
 
-	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	s.InvalidateAuthCacheByAPIKeyID(ctx, apiKey.ID)
 	s.compileAPIKeyIPRules(apiKey)
 
 	// Invalidate Redis rate limit cache so reset takes effect immediately
@@ -915,7 +935,7 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 
 // Delete 删除API Key
 func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) error {
-	key, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
+	_, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get api key: %w", err)
 	}
@@ -925,17 +945,14 @@ func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) erro
 		return ErrInsufficientPerms
 	}
 
-	// 事务内:写审计 + 软删除(tombstone)。
-	if err := s.apiKeyRepo.DeleteWithAudit(ctx, id); err != nil {
-		return fmt.Errorf("delete api key: %w", err)
+	if err := s.DeleteAPIKeyByID(ctx, id); err != nil {
+		return err
 	}
 
 	// 删除成功后再清理缓存,避免"缓存已清但删除失败"的竞态。
 	if s.cache != nil {
 		_ = s.cache.DeleteCreateAttemptCount(ctx, userID)
 	}
-	s.InvalidateAuthCacheByKey(ctx, key)
-	s.lastUsedTouchL1.Delete(id)
 
 	return nil
 }
@@ -1140,8 +1157,8 @@ func (s *APIKeyService) UpdateQuotaUsed(ctx context.Context, apiKeyID int64, cos
 		if err != nil {
 			return fmt.Errorf("increment quota used: %w", err)
 		}
-		if state != nil && state.Status == StatusAPIKeyQuotaExhausted && strings.TrimSpace(state.Key) != "" {
-			s.InvalidateAuthCacheByKey(ctx, state.Key)
+		if state != nil && state.Status == StatusAPIKeyQuotaExhausted {
+			s.InvalidateAuthCacheByAPIKeyID(ctx, apiKeyID)
 		}
 		return nil
 	}
@@ -1167,7 +1184,7 @@ func (s *APIKeyService) UpdateQuotaUsed(ctx context.Context, apiKeyID int64, cos
 			return nil // Don't fail the request
 		}
 		// Invalidate cache so next request sees the new status
-		s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		s.InvalidateAuthCacheByAPIKeyID(ctx, apiKeyID)
 	}
 
 	return nil

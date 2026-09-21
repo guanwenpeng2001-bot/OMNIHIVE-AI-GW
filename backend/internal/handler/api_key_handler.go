@@ -222,7 +222,7 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 		if err != nil {
 			return nil, err
 		}
-		return dto.APIKeyFromService(key), nil
+		return dto.APIKeyCredentialIssue{APIKey: dto.APIKeyFromService(key), Secret: key.Key}, nil
 	})
 }
 
@@ -355,4 +355,100 @@ func (h *APIKeyHandler) GetUserGroupRates(c *gin.Context) {
 	}
 
 	response.Success(c, rates)
+}
+
+// RotateAPIKeyCredentialRequest controls a credential rotation.
+type RotateAPIKeyCredentialRequest struct {
+	// GraceTTLHours overrides the dual-read window for the previous secret. Zero
+	// uses the configured default (24h).
+	GraceTTLHours *int `json:"grace_ttl_hours"`
+	// RevokePrevious makes the previous secret stop working immediately instead of
+	// staying valid through the grace window.
+	RevokePrevious *bool `json:"revoke_previous"`
+}
+
+// RotateCredential rotates an existing key's secret in place, keeping its identity.
+// POST /api/v1/api-keys/:id/credentials/rotate
+func (h *APIKeyHandler) RotateCredential(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	var req RotateAPIKeyCredentialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.GraceTTLHours != nil && *req.GraceTTLHours < 0 {
+		response.BadRequest(c, "Invalid request: grace_ttl_hours must be non-negative")
+		return
+	}
+
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID {
+		response.NotFound(c, "API key not found")
+		return
+	}
+
+	var graceTTL time.Duration
+	if req.GraceTTLHours != nil {
+		graceTTL = time.Duration(*req.GraceTTLHours) * time.Hour
+	}
+	revokePrevious := req.RevokePrevious != nil && *req.RevokePrevious
+
+	issue, err := h.apiKeyService.RotateAPIKey(c.Request.Context(), keyID, graceTTL, revokePrevious, service.ConfigurationActor(c.Request.Context()))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.APIKeyCredentialIssue{
+		APIKey:     dto.APIKeyFromService(issue.APIKey),
+		Secret:     issue.Secret,
+		GraceUntil: issue.GraceUntil,
+	})
+}
+
+// RevokeCredential immediately revokes a key's graceful (previous) credentials.
+// POST /api/v1/api-keys/:id/credentials/revoke
+func (h *APIKeyHandler) RevokeCredential(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID {
+		response.NotFound(c, "API key not found")
+		return
+	}
+
+	revoked, err := h.apiKeyService.RevokeAPIKeyCredentials(c.Request.Context(), keyID, service.ConfigurationActor(c.Request.Context()))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"revoked_credentials": revoked})
 }

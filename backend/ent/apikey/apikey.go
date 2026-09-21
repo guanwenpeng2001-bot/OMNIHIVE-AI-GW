@@ -69,6 +69,8 @@ const (
 	EdgeGroup = "group"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
+	EdgeCredentials = "credentials"
 	// Table holds the table name of the apikey in the database.
 	Table = "api_keys"
 	// UserTable is the table that holds the user relation/edge.
@@ -92,6 +94,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "api_key_id"
+	// CredentialsTable is the table that holds the credentials relation/edge.
+	CredentialsTable = "api_key_credentials"
+	// CredentialsInverseTable is the table name for the APIKeyCredential entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeycredential" package.
+	CredentialsInverseTable = "api_key_credentials"
+	// CredentialsColumn is the table column denoting the credentials relation/edge.
+	CredentialsColumn = "api_key_id"
 )
 
 // Columns holds all SQL columns for apikey fields.
@@ -320,6 +329,20 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newUsageLogsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByCredentialsCount orders the results by credentials count.
+func ByCredentialsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCredentialsStep(), opts...)
+	}
+}
+
+// ByCredentials orders the results by credentials terms.
+func ByCredentials(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCredentialsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -339,5 +362,12 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newCredentialsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CredentialsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CredentialsTable, CredentialsColumn),
 	)
 }

@@ -128,30 +128,10 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
 
-          <template #cell-key="{ value, row }">
-            <div class="flex items-center gap-2">
-              <code class="code text-xs">
-                {{ maskApiKey(value) }}
-              </code>
-              <button
-                @click="copyToClipboard(value, row.id)"
-                class="rounded-lg p-1 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700"
-                :class="
-                  copiedKeyId === row.id
-                    ? 'text-green-500'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-                "
-                :title="copiedKeyId === row.id ? t('keys.copied') : t('keys.copyToClipboard')"
-              >
-                <Icon
-                  v-if="copiedKeyId === row.id"
-                  name="check"
-                  size="sm"
-                  :stroke-width="2"
-                />
-                <Icon v-else name="clipboard" size="sm" />
-              </button>
-            </div>
+          <template #cell-key="{ value }">
+            <code class="code text-xs">
+              {{ displayCredential(value) }}
+            </code>
           </template>
 
           <template #cell-name="{ value, row }">
@@ -435,6 +415,14 @@
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
+              </button>
+              <!-- Rotate Button -->
+              <button
+                @click="openRotateModal(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
+              >
+                <Icon name="refresh" size="sm" />
+                <span class="text-xs">{{ t('keys.rotateKey') }}</span>
               </button>
               <!-- Edit Button -->
               <button
@@ -1026,11 +1014,27 @@
     <!-- Use Key Modal -->
     <UseKeyModal
       :show="showUseKeyModal"
-      :api-key="selectedKey?.key || ''"
+      :api-key="'<YOUR_API_KEY>'"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
+    />
+
+    <!-- Key Rotation Dialog -->
+    <KeyRotationDialog
+      :show="showRotateModal"
+      :api-key="rotateTarget"
+      @close="showRotateModal = false"
+      @issued="onCredentialIssued"
+    />
+
+    <!-- One-time secret dialog -->
+    <KeySecretDialog
+      :show="showSecretDialog"
+      :secret="issuedSecret"
+      :grace-until="issuedGraceUntil"
+      @close="showSecretDialog = false"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1176,6 +1180,8 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+	import KeyRotationDialog from '@/components/keys/KeyRotationDialog.vue'
+	import KeySecretDialog from '@/components/keys/KeySecretDialog.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
@@ -1347,11 +1353,15 @@ const showDeleteDialog = ref(false)
 const showResetQuotaDialog = ref(false)
 const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showRotateModal = ref(false)
+const rotateTarget = ref<ApiKey | null>(null)
+const showSecretDialog = ref(false)
+const issuedSecret = ref('')
+const issuedGraceUntil = ref<string | null>(null)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
 const selectedKey = ref<ApiKey | null>(null)
-const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -1483,16 +1493,6 @@ const filteredGroupOptions = computed(() => {
       (opt.description && opt.description.toLowerCase().includes(query))
   })
 })
-
-const copyToClipboard = async (text: string, keyId: number) => {
-  const success = await clipboardCopy(text, t('keys.copied'))
-  if (success) {
-    copiedKeyId.value = keyId
-    setTimeout(() => {
-      copiedKeyId.value = null
-    }, 800)
-  }
-}
 
 const isAbortError = (error: unknown) => {
   if (!error || typeof error !== 'object') return false
@@ -1688,12 +1688,29 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   if (key.group_id === newGroupId) return
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId })
+    // group_id 0 is the explicit unbind value; null would mean "leave unchanged".
+    await keysAPI.update(key.id, { group_id: newGroupId ?? 0 })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
     appStore.showError(t('keys.failedToChangeGroup'))
   }
+}
+
+// The list response already carries a masked credential, so its display suffix stays
+// visible; a plaintext value from an older backend is masked before it is rendered.
+const displayCredential = (value: string) => (value?.startsWith('****') ? value : maskApiKey(value))
+
+const openRotateModal = (key: ApiKey) => {
+  rotateTarget.value = key
+  showRotateModal.value = true
+}
+
+const onCredentialIssued = (payload: { secret: string; graceUntil: string | null }) => {
+  issuedSecret.value = payload.secret
+  issuedGraceUntil.value = payload.graceUntil
+  showSecretDialog.value = true
+  loadApiKeys()
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -1788,7 +1805,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      await keysAPI.create(
+      const issue = await keysAPI.create(
         formData.value.name,
         formData.value.group_id,
         customKey,
@@ -1799,6 +1816,11 @@ const handleSubmit = async () => {
         rateLimitData
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
+      if (issue?.secret) {
+        issuedSecret.value = issue.secret
+        issuedGraceUntil.value = issue.grace_until ?? null
+        showSecretDialog.value = true
+      }
       // Only advance tour if active, on submit step, and creation succeeded
       if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
         onboardingStore.nextStep(500)

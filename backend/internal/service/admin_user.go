@@ -392,11 +392,8 @@ func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
 	}
 
 	if s.authCacheInvalidator != nil {
-		for _, key := range apiKeys {
-			if keyValue := strings.TrimSpace(key.Key); keyValue != "" {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, keyValue)
-			}
-		}
+		// Per-credential entries are dropped by the user-wide invalidation below,
+		// which resolves every credential digest of the user's keys.
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, id)
 	}
 	return nil

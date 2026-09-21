@@ -410,6 +410,16 @@ func KeyHasSuffix(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldHasSuffix(FieldKey, v))
 }
 
+// KeyIsNil applies the IsNil predicate on the "key" field.
+func KeyIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldKey))
+}
+
+// KeyNotNil applies the NotNil predicate on the "key" field.
+func KeyNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldKey))
+}
+
 // KeyEqualFold applies the EqualFold predicate on the "key" field.
 func KeyEqualFold(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEqualFold(FieldKey, v))
@@ -1231,6 +1241,29 @@ func HasUsageLogs() predicate.APIKey {
 func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
 		step := newUsageLogsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCredentials applies the HasEdge predicate on the "credentials" edge.
+func HasCredentials() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, CredentialsTable, CredentialsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCredentialsWith applies the HasEdge predicate on the "credentials" edge with a given conditions (other predicates).
+func HasCredentialsWith(preds ...predicate.APIKeyCredential) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newCredentialsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

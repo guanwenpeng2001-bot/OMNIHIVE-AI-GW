@@ -77,6 +77,15 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 	}
 }
 
+// MaskAPIKeyCredential renders a non-secret mask from the stored display suffix.
+// It never reconstructs a secret and is used on every read path.
+func MaskAPIKeyCredential(displaySuffix string) string {
+	if displaySuffix == "" {
+		return "****"
+	}
+	return "****" + displaySuffix
+}
+
 func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
@@ -84,7 +93,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	out := &APIKey{
 		ID:                 k.ID,
 		UserID:             k.UserID,
-		Key:                k.Key,
+		Key:                MaskAPIKeyCredential(k.DisplaySuffix),
 		Name:               k.Name,
 		GroupID:            k.GroupID,
 		Status:             k.Status,

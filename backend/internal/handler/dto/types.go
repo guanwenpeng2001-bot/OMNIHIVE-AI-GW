@@ -90,6 +90,14 @@ type APIKey struct {
 	Group *Group `json:"group,omitempty"`
 }
 
+// APIKeyCredentialIssue is the one-time result of creating or rotating a key. The
+// secret is returned exactly once; no read path ever returns it again.
+type APIKeyCredentialIssue struct {
+	APIKey     *APIKey    `json:"api_key"`
+	Secret     string     `json:"secret"`
+	GraceUntil *time.Time `json:"grace_until,omitempty"`
+}
+
 type Group struct {
 	AccountType    string  `json:"account_type,omitempty"`
 	ID             int64   `json:"id"`

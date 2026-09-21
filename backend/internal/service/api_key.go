@@ -63,6 +63,15 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
+
+	// CredentialValidUntil bounds how long the presented credential may authenticate
+	// and therefore how long an auth cache entry for it may live. nil means the
+	// credential has no deadline.
+	CredentialValidUntil *time.Time
+
+	// DisplaySuffix is the non-secret tail of the current credential, used only to
+	// render a masked value and never to reconstruct the secret.
+	DisplaySuffix string
 }
 
 func (k *APIKey) IsActive() bool {

@@ -57,7 +57,7 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param quota - Optional quota limit in USD (0 = unlimited)
  * @param expiresInDays - Optional days until expiry (undefined = never expires)
  * @param rateLimitData - Optional rate limit fields
- * @returns Created API key
+ * @returns The created key plus its secret, which is shown only once
  */
 export async function create(
   name: string,
@@ -68,7 +68,7 @@ export async function create(
   quota?: number,
   expiresInDays?: number,
   rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
-): Promise<ApiKey> {
+): Promise<ApiKeyCredentialIssue> {
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
     payload.group_id = groupId
@@ -98,7 +98,50 @@ export async function create(
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
   }
 
-  return postIdempotentCreate<ApiKey>('/keys', payload)
+  return postIdempotentCreate<ApiKeyCredentialIssue>('/keys', payload)
+}
+
+/**
+ * Issue returned once when a key is created or rotated: the plaintext secret is
+ * never readable again from any endpoint.
+ */
+export interface ApiKeyCredentialIssue {
+  api_key: ApiKey
+  secret: string
+  grace_until?: string | null
+}
+
+export interface RotateApiKeyOptions {
+  grace_ttl_hours?: number
+  revoke_previous?: boolean
+}
+
+/**
+ * Rotate a key's secret in place, keeping its identity and history.
+ * @param id - API key ID
+ * @param options - Optional grace window and immediate-revoke flag
+ * @returns The key plus the new secret, shown once
+ */
+export async function rotate(id: number, options?: RotateApiKeyOptions): Promise<ApiKeyCredentialIssue> {
+  const payload: RotateApiKeyOptions = {}
+  if (options?.grace_ttl_hours !== undefined) {
+    payload.grace_ttl_hours = options.grace_ttl_hours
+  }
+  if (options?.revoke_previous !== undefined) {
+    payload.revoke_previous = options.revoke_previous
+  }
+  const { data } = await apiClient.post<ApiKeyCredentialIssue>(`/keys/${id}/credentials/rotate`, payload)
+  return data
+}
+
+/**
+ * Revoke a key's previous (grace) credentials immediately.
+ * @param id - API key ID
+ * @returns Count of revoked credentials
+ */
+export async function revokeCredentials(id: number): Promise<{ revoked_credentials: number }> {
+  const { data } = await apiClient.post<{ revoked_credentials: number }>(`/keys/${id}/credentials/revoke`, {})
+  return data
 }
 
 /**
@@ -138,7 +181,9 @@ export const keysAPI = {
   create,
   update,
   delete: deleteKey,
-  toggleStatus
+  toggleStatus,
+  rotate,
+  revokeCredentials
 }
 
 export default keysAPI

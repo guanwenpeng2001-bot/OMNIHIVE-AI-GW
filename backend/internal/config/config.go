@@ -93,6 +93,7 @@ type Config struct {
 	Pricing                 PricingConfig                 `mapstructure:"pricing"`
 	Gateway                 GatewayConfig                 `mapstructure:"gateway"`
 	APIKeyAuth              APIKeyAuthCacheConfig         `mapstructure:"api_key_auth_cache"`
+	APIKeyCredential        APIKeyCredentialConfig        `mapstructure:"api_key_credential"`
 	SubscriptionCache       SubscriptionCacheConfig       `mapstructure:"subscription_cache"`
 	SubscriptionMaintenance SubscriptionMaintenanceConfig `mapstructure:"subscription_maintenance"`
 	Dashboard               DashboardCacheConfig          `mapstructure:"dashboard_cache"`
@@ -1688,6 +1689,16 @@ type RateLimitConfig struct {
 	OAuth401CooldownMinutes int `mapstructure:"oauth_401_cooldown_minutes"` // OAuth 401临时不可调度冷却(分钟)
 }
 
+// DefaultAPIKeyCredentialGraceTTLHours is the default dual-read window for a
+// rotated API key credential.
+const DefaultAPIKeyCredentialGraceTTLHours = 24
+
+// APIKeyCredentialConfig API Key 凭据轮换配置。
+type APIKeyCredentialConfig struct {
+	// GraceTTLHours 轮换后旧凭据仍可鉴权的时长（小时，默认 24）。
+	GraceTTLHours int `mapstructure:"grace_ttl_hours"`
+}
+
 // APIKeyAuthCacheConfig API Key 认证缓存配置
 type APIKeyAuthCacheConfig struct {
 	L1Size             int                    `mapstructure:"l1_size"`
@@ -2334,6 +2345,7 @@ func setDefaults() {
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.window_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.block_seconds", 60)
 	viper.SetDefault("api_key_auth_cache.invalid_abuse.capacity", 16384)
+	viper.SetDefault("api_key_credential.grace_ttl_hours", DefaultAPIKeyCredentialGraceTTLHours)
 
 	// Subscription auth L1 cache
 	viper.SetDefault("subscription_cache.l1_size", 16384)

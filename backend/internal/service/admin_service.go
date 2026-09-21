@@ -68,6 +68,12 @@ type AdminService interface {
 	// API Key management (admin)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
 	AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error)
+	// AdminSetAPIKeyStatus enables or disables any user's key.
+	AdminSetAPIKeyStatus(ctx context.Context, keyID int64, status string) (*APIKey, error)
+	// AdminDeleteAPIKey removes any user's key and revokes its credentials.
+	AdminDeleteAPIKey(ctx context.Context, keyID int64) error
+	// AdminRotateAPIKeyCredential rotates any user's key secret, keeping its identity.
+	AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*APIKeyCredentialIssue, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)

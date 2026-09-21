@@ -37,8 +37,8 @@ func (APIKey) Fields() []ent.Field {
 		field.Int64("user_id"),
 		field.String("key").
 			MaxLen(128).
-			NotEmpty().
-			Unique(),
+			Optional().
+			Comment("Legacy plaintext credential; unused after the digest migration and never written for new keys"),
 		field.String("name").
 			MaxLen(100).
 			NotEmpty(),
@@ -131,6 +131,7 @@ func (APIKey) Edges() []ent.Edge {
 			Field("group_id").
 			Unique(),
 		edge.To("usage_logs", UsageLog.Type),
+		edge.To("credentials", APIKeyCredential.Type),
 	}
 }
 
