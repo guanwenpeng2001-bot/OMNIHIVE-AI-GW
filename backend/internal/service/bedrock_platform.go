@@ -160,8 +160,8 @@ func (service *AccountTestService) fetchBedrockModels(ctx context.Context, accou
 			return nil, nil, fmt.Errorf("bedrock availability identity mismatch")
 		}
 		methods := []string{}
-		if availability.AuthorizationStatus == "AUTHORIZED" && availability.AgreementAvailability.Status == "AVAILABLE" && availability.EntitlementAvailability == "AVAILABLE" && availability.RegionAvailability == "AVAILABLE" && slices.Contains(model.InferenceTypesSupported, "ON_DEMAND") && slices.Contains(model.OutputModalities, "TEXT") {
-			methods = []string{CompositeRouteEndpointMessages}
+		if availability.AuthorizationStatus == "AUTHORIZED" && availability.AgreementAvailability.Status == "AVAILABLE" && availability.EntitlementAvailability == "AVAILABLE" && availability.RegionAvailability == "AVAILABLE" && slices.Contains(model.InferenceTypesSupported, "ON_DEMAND") {
+			methods = bedrockCatalogServingEndpoints(model.OutputModalities)
 		}
 		entries = append(entries, map[string]any{"id": model.ModelID, "display_name": model.ModelName, "supported_methods": methods, "input_modalities": lowerBedrockModalities(model.InputModalities), "output_modalities": lowerBedrockModalities(model.OutputModalities)})
 		models = append(models, model.ModelID)
@@ -196,4 +196,35 @@ func lowerBedrockModalities(values []string) []string {
 		result[index] = strings.ToLower(value)
 	}
 	return result
+}
+
+// bedrockCatalogServingEndpoints projects the control-plane output modality onto
+// the gateway's catalog endpoints. ListFoundationModels FoundationModelSummary
+// documents outputModalities as TEXT | IMAGE | EMBEDDING (Amazon Bedrock API
+// reference, captured 2026-09-21), and each gateway endpoint is served by its own
+// serving-family adapter:
+//
+//	TEXT      -> messages   (Claude InvokeModel or the Converse bridge)
+//	EMBEDDING -> embeddings (Titan Text Embeddings InvokeModel)
+//	IMAGE     -> images     (Nova Canvas / Titan Image / Stability InvokeModel)
+//
+// Any other value stays unmapped: a model whose serving family has no gateway
+// adapter is not advertised as eligible. Nova Reel is the case in point - its
+// model card lists video output (captured 2026-09-21) and its adapter is the
+// deferred async job, so it must not appear on the messages endpoint through a
+// bare "text in" reading of the catalog entry. Inference profiles keep their own
+// empty projection because listing a profile is not Invoke authorization.
+func bedrockCatalogServingEndpoints(outputModalities []string) []string {
+	endpoints := []string{}
+	for _, modality := range outputModalities {
+		switch strings.ToUpper(strings.TrimSpace(modality)) {
+		case "TEXT":
+			endpoints = append(endpoints, CompositeRouteEndpointMessages)
+		case "EMBEDDING":
+			endpoints = append(endpoints, CompositeRouteEndpointEmbeddings)
+		case "IMAGE":
+			endpoints = append(endpoints, CompositeRouteEndpointImages)
+		}
+	}
+	return dedupeAndSortModelIDs(endpoints)
 }

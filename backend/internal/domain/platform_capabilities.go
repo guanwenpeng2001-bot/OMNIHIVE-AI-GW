@@ -135,10 +135,10 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	if identity.HostedAccountType == AccountTypeServiceAccount && identity.Platform != PlatformAnthropic && identity.Platform != PlatformGemini {
 		return descriptor
 	}
-	if action == "count_tokens" && (identity.HostedAccountType == AccountTypeBedrock || identity.Platform == PlatformBedrock) {
-		descriptor.Evidence = "gateway_count_tokens.go: ForwardCountTokens has no Bedrock adapter; native/bridge verification remains open"
-		return descriptor
-	}
+	// Bedrock cells are finalized in domain/bedrock_actions.go: the runtime
+	// publishes CountTokens (so ForwardCountTokens delegates Bedrock accounts to
+	// the native adapter in bedrock_actions.go), and every media/vector cell carries
+	// its own evidence, hard conflict or deferral reason.
 	// Credential restrictions mirror the existing endpoint adapters. Missing
 	// identity dimensions are ingress bounds, never account authorization.
 	if identity.Platform == PlatformOpenAI {
@@ -221,9 +221,15 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		if identity.Platform == PlatformQianwen {
 			adapter = "qianwen.embeddings"
 		}
+		if identity.Platform == PlatformBedrock {
+			adapter = "bedrock.embeddings"
+		}
 	case "rerank":
 		if identity.Platform == PlatformQianwen {
 			adapter = "qianwen.rerank"
+		}
+		if identity.Platform == PlatformBedrock {
+			adapter = "bedrock.rerank"
 		}
 	case "image.generate", "image.edit":
 		if identity.Platform == PlatformOpenAI {
@@ -238,9 +244,15 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 				adapter = "qianwen.images"
 			}
 		}
+		if identity.Platform == PlatformBedrock {
+			adapter = "bedrock.images"
+		}
 	case "image.variation":
 		if identity.Platform == PlatformOpenAI {
 			adapter = "openai.image.variation"
+		}
+		if identity.Platform == PlatformBedrock {
+			adapter = "bedrock.image.variation"
 		}
 	case "image.async", "image.batch":
 		if identity.Platform == PlatformOpenAI || identity.Platform == PlatformGrok {
@@ -287,6 +299,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformAntigravity {
 		return antigravityActionDescriptor(descriptor, action, adapter)
+	if identity.Platform == PlatformBedrock {
+		return bedrockActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor
@@ -319,6 +333,15 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if action == "image.async" || action == "image.batch" || action == "video.generate" || action == "video.edit" || action == "video.extend" {
 		descriptor.Lifecycle = "request plan and upstream job"
+	}
+	if identity.HostedAccountType == AccountTypeBedrock {
+		// Anthropic product entry with Bedrock hosted credentials. The trunk
+		// adapter for these cells is inherited from the Anthropic column; only the
+		// cell this branch changed (count_tokens now reaches the native Bedrock
+		// operation) gets Bedrock-specific evidence.
+		if evidence, ok := bedrockHostedTrunkEvidence[action]; ok {
+			descriptor.Evidence = evidence
+		}
 	}
 	return descriptor
 }
