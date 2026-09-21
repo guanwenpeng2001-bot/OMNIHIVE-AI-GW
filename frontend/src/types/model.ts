@@ -48,6 +48,35 @@ export type CompositeRouteEndpoint =
 
 export type CompositeRouteSource = 'route' | 'detector' | string
 
+export type CompositeRouteLatencyPreference = 'default' | 'low_latency'
+
+/** Ordered fallback target of a composite route; position is the fallback order. */
+export interface CompositeRouteTarget {
+  position: number
+  target_platform: Exclude<GroupPlatform, 'composite'>
+  account_type?: string
+  upstream_model?: string
+  region?: string
+  provider?: string
+  latency_preference?: CompositeRouteLatencyPreference
+  scheduling_weight: number
+  affinity_ttl_seconds?: number
+  enabled: boolean
+}
+
+export interface CompositeRouteTargetInput {
+  position: number
+  target_platform: Exclude<GroupPlatform, 'composite'>
+  account_type?: string
+  upstream_model?: string
+  region?: string
+  provider?: string
+  latency_preference?: CompositeRouteLatencyPreference
+  scheduling_weight?: number
+  affinity_ttl_seconds?: number
+  enabled?: boolean
+}
+
 export interface CompositeModelRoute {
   account_type?: '' | 'bedrock' | 'service_account'
   id: number
@@ -56,6 +85,8 @@ export interface CompositeModelRoute {
   match_type: CompositeRouteMatchType
   target_platform: Exclude<GroupPlatform, 'composite'>
   upstream_model: string
+  /** Null for legacy single-target routes; the legacy columns mirror targets[0]. */
+  targets?: CompositeRouteTarget[] | null
   endpoint: CompositeRouteEndpoint
   priority: number
   enabled: boolean
@@ -70,6 +101,8 @@ export interface CompositeModelRouteInput {
   match_type: CompositeRouteMatchType
   target_platform: Exclude<GroupPlatform, 'composite'>
   upstream_model?: string
+  /** Omit to keep the legacy single-target columns; target_platform must equal targets[0].target_platform. */
+  targets?: CompositeRouteTargetInput[] | null
   endpoint: CompositeRouteEndpoint
   priority?: number
   enabled?: boolean

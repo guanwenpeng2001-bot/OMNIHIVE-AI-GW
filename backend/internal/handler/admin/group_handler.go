@@ -335,15 +335,34 @@ type UpdateGroupRequest struct {
 }
 
 type CompositeRouteRequest struct {
-	AccountType    *string `json:"account_type"`
-	PublicModel    string  `json:"public_model" binding:"required"`
-	MatchType      string  `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string  `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
-	UpstreamModel  string  `json:"upstream_model"`
-	Endpoint       string  `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
-	Priority       int     `json:"priority"`
-	Enabled        *bool   `json:"enabled"`
-	Notes          string  `json:"notes"`
+	AccountType    *string                        `json:"account_type"`
+	PublicModel    string                         `json:"public_model" binding:"required"`
+	MatchType      string                         `json:"match_type" binding:"omitempty,oneof=exact prefix"`
+	TargetPlatform string                         `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
+	UpstreamModel  string                         `json:"upstream_model"`
+	Endpoint       string                         `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	Priority       int                            `json:"priority"`
+	Enabled        *bool                          `json:"enabled"`
+	Notes          string                         `json:"notes"`
+	Targets        *[]CompositeRouteTargetRequest `json:"targets"`
+}
+
+// CompositeRouteTargetRequest is one admin-declared ordered fallback target.
+// Absent fields keep the documented defaults: weight 100, legacy latency
+// preference, legacy sticky-session TTL, enabled, and no region/provider
+// constraint. Platform validity is enforced by the service so the same rules
+// apply to every caller.
+type CompositeRouteTargetRequest struct {
+	Position           int     `json:"position"`
+	TargetPlatform     string  `json:"target_platform"`
+	AccountType        *string `json:"account_type"`
+	UpstreamModel      string  `json:"upstream_model"`
+	Region             string  `json:"region"`
+	Provider           string  `json:"provider"`
+	LatencyPreference  string  `json:"latency_preference"`
+	SchedulingWeight   *int    `json:"scheduling_weight"`
+	AffinityTTLSeconds *int    `json:"affinity_ttl_seconds"`
+	Enabled            *bool   `json:"enabled"`
 }
 
 type CompositeRoutePreviewRequest struct {
@@ -534,7 +553,46 @@ func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool
 		Priority:       req.Priority,
 		Enabled:        enabled,
 		Notes:          req.Notes,
+		Targets:        compositeRouteTargetsToInput(req.Targets),
 	}
+}
+
+func compositeRouteTargetsToInput(targets *[]CompositeRouteTargetRequest) []service.CompositeRouteTarget {
+	if targets == nil {
+		return nil
+	}
+	out := make([]service.CompositeRouteTarget, 0, len(*targets))
+	for index, target := range *targets {
+		accountType := ""
+		if target.AccountType != nil {
+			accountType = *target.AccountType
+		}
+		weight := 0
+		if target.SchedulingWeight != nil {
+			weight = *target.SchedulingWeight
+		}
+		affinityTTL := 0
+		if target.AffinityTTLSeconds != nil {
+			affinityTTL = *target.AffinityTTLSeconds
+		}
+		targetEnabled := true
+		if target.Enabled != nil {
+			targetEnabled = *target.Enabled
+		}
+		out = append(out, service.CompositeRouteTarget{
+			Position:           index,
+			TargetPlatform:     target.TargetPlatform,
+			AccountType:        accountType,
+			UpstreamModel:      target.UpstreamModel,
+			Region:             target.Region,
+			Provider:           target.Provider,
+			LatencyPreference:  target.LatencyPreference,
+			SchedulingWeight:   weight,
+			AffinityTTLSeconds: affinityTTL,
+			Enabled:            targetEnabled,
+		})
+	}
+	return out
 }
 
 func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {

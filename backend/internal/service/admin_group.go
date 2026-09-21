@@ -176,17 +176,19 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, ro
 	} else if !ok {
 		return nil, ErrCompositeRouteNotFound
 	}
+	existing, err := s.findCompositeRoute(ctx, groupID, routeID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrCompositeRouteNotFound
+	}
 	if !input.AccountTypeSet && input.AccountType == "" {
-		routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
-		if err != nil {
-			return nil, err
-		}
-		for _, existing := range routes {
-			if existing.ID == routeID {
-				input.AccountType = existing.AccountType
-				break
-			}
-		}
+		input.AccountType = existing.AccountType
+	}
+	// 未提供 targets 时保留已配置的有序目标；空数组显式清空回单目标兼容模式。
+	if input.Targets == nil {
+		input.Targets = existing.Targets
 	}
 	route, err := compositeRouteFromInput(groupID, input)
 	if err != nil {
@@ -247,20 +249,33 @@ func (s *adminServiceImpl) requireCompositeGroup(ctx context.Context, groupID in
 }
 
 func (s *adminServiceImpl) compositeRouteBelongsToGroup(ctx context.Context, groupID, routeID int64) (bool, error) {
-	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	route, err := s.findCompositeRoute(ctx, groupID, routeID)
 	if err != nil {
 		return false, err
 	}
+	return route != nil, nil
+}
+
+func (s *adminServiceImpl) findCompositeRoute(ctx context.Context, groupID, routeID int64) (*CompositeModelRoute, error) {
+	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	if err != nil {
+		return nil, err
+	}
 	for i := range routes {
 		if routes[i].ID == routeID {
-			return true, nil
+			route := routes[i]
+			return &route, nil
 		}
 	}
-	return false, nil
+	return nil, nil
 }
 
 func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
-	input = normalizeCompositeRouteInput(input)
+	normalized, err := normalizeCompositeRouteInput(input)
+	if err != nil {
+		return nil, err
+	}
+	input = normalized
 	if input.PublicModel == "" {
 		return nil, fmt.Errorf("public_model is required")
 	}
@@ -284,6 +299,7 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 		Priority:       input.Priority,
 		Enabled:        input.Enabled,
 		Notes:          input.Notes,
+		Targets:        input.Targets,
 	}, nil
 }
 

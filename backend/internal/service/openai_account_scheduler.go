@@ -1214,7 +1214,11 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			release(result)
 			break
 		}
-		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+		fresh, recheckErr := s.service.recheckSelectedOpenAIAccountFromDBErr(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+		if recheckErr != nil {
+			release(result)
+			return nil, compactBlocked, recheckErr
+		}
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			release(result)
 			continue
@@ -1489,6 +1493,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
 	}
+	// 候选池一次载入：后续逐个候选的 DB 复核只读这份快照，不再每人一次 GetByID。
+	recheckBatch, err := s.service.loadOpenAIAccountRecheckBatch(ctx, filtered)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	ctx = withOpenAIAccountRecheckBatch(ctx, recheckBatch)
 
 	loadMap := map[int64]*AccountLoadInfo{}
 	if s.service.concurrencyService != nil {
@@ -1718,7 +1728,10 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 			if !s.consumeOpenAISelectionDBRecheck(budget) {
 				return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked, filterStats.summary("selection_order_exhausted"))
 			}
-			fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+			fresh, recheckErr := s.service.recheckSelectedOpenAIAccountFromDBErr(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+			if recheckErr != nil {
+				return nil, candidateCount, topK, loadSkew, recheckErr
+			}
 			if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 				continue
 			}

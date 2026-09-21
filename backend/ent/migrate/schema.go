@@ -820,6 +820,7 @@ var (
 		{Name: "priority", Type: field.TypeInt, Default: 100},
 		{Name: "enabled", Type: field.TypeBool, Default: true},
 		{Name: "notes", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "ordered_targets", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "group_id", Type: field.TypeInt64},
 	}
 	// CompositeModelRoutesTable holds the schema information for the "composite_model_routes" table.
@@ -830,7 +831,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "composite_model_routes_groups_group",
-				Columns:    []*schema.Column{CompositeModelRoutesColumns[13]},
+				Columns:    []*schema.Column{CompositeModelRoutesColumns[14]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -839,22 +840,22 @@ var (
 			{
 				Name:    "compositemodelroute_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[13]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_enabled",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[13], CompositeModelRoutesColumns[11]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[11]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_endpoint",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[13], CompositeModelRoutesColumns[9]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[9]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_target_platform",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[13], CompositeModelRoutesColumns[7]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[7]},
 			},
 			{
 				Name:    "compositemodelroute_deleted_at",

@@ -3,6 +3,8 @@
 package ent
 
 import (
+	"encoding/json"
+	"encoding/json/jsontext"
 	"fmt"
 	"strings"
 	"time"
@@ -44,6 +46,8 @@ type CompositeModelRoute struct {
 	Enabled bool `json:"enabled,omitempty"`
 	// Notes holds the value of the "notes" field.
 	Notes *string `json:"notes,omitempty"`
+	// 有序目标列表：跨平台 fallback 顺序、权重、区域/供应商约束、延迟偏好与亲和性 TTL
+	OrderedTargets jsontext.Value `json:"ordered_targets,omitempty"`
 	// Edges holds the relations/edges for other nodes in the graph.
 	// The values are being populated by the CompositeModelRouteQuery when eager-loading is set.
 	Edges        CompositeModelRouteEdges `json:"edges"`
@@ -75,6 +79,8 @@ func (*CompositeModelRoute) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
 	for i := range columns {
 		switch columns[i] {
+		case compositemodelroute.FieldOrderedTargets:
+			values[i] = new([]byte)
 		case compositemodelroute.FieldEnabled:
 			values[i] = new(sql.NullBool)
 		case compositemodelroute.FieldID, compositemodelroute.FieldGroupID, compositemodelroute.FieldPriority:
@@ -184,6 +190,14 @@ func (_m *CompositeModelRoute) assignValues(columns []string, values []any) erro
 				_m.Notes = new(string)
 				*_m.Notes = value.String
 			}
+		case compositemodelroute.FieldOrderedTargets:
+			if value, ok := values[i].(*[]byte); !ok {
+				return fmt.Errorf("unexpected type %T for field ordered_targets", values[i])
+			} else if value != nil && len(*value) > 0 {
+				if err := json.Unmarshal(*value, &_m.OrderedTargets); err != nil {
+					return fmt.Errorf("unmarshal field ordered_targets: %w", err)
+				}
+			}
 		default:
 			_m.selectValues.Set(columns[i], values[i])
 		}
@@ -267,6 +281,9 @@ func (_m *CompositeModelRoute) String() string {
 		builder.WriteString("notes=")
 		builder.WriteString(*v)
 	}
+	builder.WriteString(", ")
+	builder.WriteString("ordered_targets=")
+	builder.WriteString(fmt.Sprintf("%v", _m.OrderedTargets))
 	builder.WriteByte(')')
 	return builder.String()
 }

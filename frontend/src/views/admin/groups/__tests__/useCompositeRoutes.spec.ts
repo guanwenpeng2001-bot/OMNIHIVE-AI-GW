@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { defineComponent, h, nextTick } from "vue";
+import { mount } from "@vue/test-utils";
 import type { AdminGroup, CompositeModelRoute } from "@/types";
 import { useCompositeRoutes } from "../useCompositeRoutes";
 import { PRODUCT_PLATFORM_OPTIONS } from "@/constants/platforms";
@@ -99,5 +101,241 @@ describe("Composite routes controller", () => {
     expect(controller.compositeRouteSaving.value).toBe(false);
     expect(controller.compositeRouteForm.public_model).toBe("retry-model");
     expect(controller.showCompositeRoutesModal.value).toBe(true);
+  });
+
+  it("builds an ordered target payload from the edited target list", async () => {
+    const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+    await controller.handleCompositeRoutes({ id: 14 } as AdminGroup);
+    controller.compositeRouteForm.public_model = "public-model";
+    controller.addCompositeRouteTarget();
+    controller.compositeRouteForm.targets[0].target_platform = "anthropic";
+    controller.compositeRouteForm.targets[0].upstream_model = " claude-sonnet ";
+    controller.compositeRouteForm.targets[0].affinity_ttl_seconds = 120;
+    controller.compositeRouteForm.targets[1].target_platform = "gemini";
+    controller.compositeRouteForm.targets[1].region = " us-east-1 ";
+    controller.compositeRouteForm.targets[1].latency_preference = "low_latency";
+    controller.compositeRouteForm.targets[1].scheduling_weight = 30;
+    await controller.saveCompositeRoute();
+
+    expect(createRoute).toHaveBeenCalledWith(14, {
+      public_model: "public-model",
+      match_type: "exact",
+      target_platform: "anthropic",
+      upstream_model: "claude-sonnet",
+      endpoint: "any",
+      priority: 100,
+      enabled: true,
+      notes: "",
+      targets: [
+        {
+          position: 0,
+          target_platform: "anthropic",
+          account_type: "",
+          upstream_model: "claude-sonnet",
+          region: "",
+          provider: "",
+          latency_preference: "default",
+          scheduling_weight: 100,
+          affinity_ttl_seconds: 120,
+          enabled: true,
+        },
+        {
+          position: 1,
+          target_platform: "gemini",
+          account_type: "",
+          upstream_model: "",
+          region: "us-east-1",
+          provider: "",
+          latency_preference: "low_latency",
+          scheduling_weight: 30,
+          affinity_ttl_seconds: 0,
+          enabled: true,
+        },
+      ],
+    });
+  });
+
+  it("loads stored targets in position order and renumbers them when reordered", async () => {
+    const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+    await controller.handleCompositeRoutes({ id: 5 } as AdminGroup);
+    controller.editCompositeRoute({
+      id: 9,
+      public_model: "fallback-model",
+      match_type: "exact",
+      target_platform: "anthropic",
+      upstream_model: "claude-sonnet",
+      endpoint: "any",
+      priority: 10,
+      enabled: true,
+      notes: "",
+      targets: [
+        {
+          position: 1,
+          target_platform: "openai",
+          upstream_model: "gpt-5",
+          scheduling_weight: 20,
+          enabled: true,
+        },
+        {
+          position: 0,
+          target_platform: "anthropic",
+          upstream_model: "claude-sonnet",
+          scheduling_weight: 100,
+          enabled: true,
+        },
+      ],
+    } as CompositeModelRoute);
+    expect(
+      controller.compositeRouteForm.targets.map(
+        (target) => target.target_platform,
+      ),
+    ).toEqual(["anthropic", "openai"]);
+
+    controller.moveCompositeRouteTarget(1, -1);
+    await controller.saveCompositeRoute();
+
+    expect(updateRoute).toHaveBeenCalledWith(
+      5,
+      9,
+      expect.objectContaining({
+        target_platform: "openai",
+        upstream_model: "gpt-5",
+        targets: [
+          expect.objectContaining({
+            position: 0,
+            target_platform: "openai",
+            upstream_model: "gpt-5",
+          }),
+          expect.objectContaining({
+            position: 1,
+            target_platform: "anthropic",
+            upstream_model: "claude-sonnet",
+          }),
+        ],
+      }),
+    );
+  });
+
+  it("rejects invalid target lists before saving", async () => {
+    const invalidTargetLists: Array<{
+      name: string;
+      errorKey: string;
+      edit: (controller: ReturnType<typeof useCompositeRoutes>) => void;
+    }> = [
+      {
+        name: "no enabled target",
+        errorKey: "admin.groups.compositeRoutes.targetsEnabledRequired",
+        edit: (controller) => {
+          controller.compositeRouteForm.targets[0].enabled = false;
+        },
+      },
+      {
+        name: "target without a platform",
+        errorKey: "admin.groups.compositeRoutes.targetPlatformRequired",
+        edit: (controller) => {
+          (
+            controller.compositeRouteForm.targets[0] as {
+              target_platform: string;
+            }
+          ).target_platform = "";
+        },
+      },
+      {
+        name: "weight below one",
+        errorKey: "admin.groups.compositeRoutes.targetWeightInvalid",
+        edit: (controller) => {
+          controller.compositeRouteForm.targets[0].scheduling_weight = 0;
+        },
+      },
+      {
+        name: "affinity TTL out of range",
+        errorKey: "admin.groups.compositeRoutes.targetAffinityTtlInvalid",
+        edit: (controller) => {
+          controller.compositeRouteForm.targets[0].affinity_ttl_seconds = 30;
+        },
+      },
+    ];
+
+    for (const invalidTargetList of invalidTargetLists) {
+      createRoute.mockClear();
+      showError.mockClear();
+      const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+      await controller.handleCompositeRoutes({ id: 3 } as AdminGroup);
+      controller.compositeRouteForm.public_model = "guarded-model";
+      invalidTargetList.edit(controller);
+      await controller.saveCompositeRoute();
+
+      expect(createRoute, invalidTargetList.name).not.toHaveBeenCalled();
+      expect(showError, invalidTargetList.name).toHaveBeenCalledWith(
+        invalidTargetList.errorKey,
+      );
+    }
+  });
+
+  it("caps the target list at the supported maximum", async () => {
+    const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+    await controller.handleCompositeRoutes({ id: 8 } as AdminGroup);
+    for (let index = 0; index < 20; index += 1) {
+      controller.addCompositeRouteTarget();
+    }
+    expect(controller.compositeRouteForm.targets).toHaveLength(
+      controller.compositeRouteMaxTargets,
+    );
+  });
+
+  it("keeps the legacy payload while the target list stays at its defaults", async () => {
+    const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+    await controller.handleCompositeRoutes({ id: 21 } as AdminGroup);
+    controller.compositeRouteForm.public_model = " legacy-model ";
+    controller.compositeRouteForm.notes = "legacy note";
+    await controller.saveCompositeRoute();
+
+    expect(createRoute).toHaveBeenCalledWith(21, {
+      public_model: "legacy-model",
+      match_type: "exact",
+      target_platform: "openai",
+      upstream_model: "",
+      endpoint: "any",
+      priority: 100,
+      enabled: true,
+      notes: "legacy note",
+    });
+  });
+
+  it("keeps the legacy target fields mirrored to the first target in the rendered form", async () => {
+    const controller = useCompositeRoutes(PRODUCT_PLATFORM_OPTIONS);
+    await controller.handleCompositeRoutes({ id: 1 } as AdminGroup);
+    const Harness = defineComponent({
+      setup() {
+        return () =>
+          h("div", [
+            h(
+              "span",
+              { id: "platform" },
+              controller.compositeRouteForm.target_platform,
+            ),
+            h(
+              "span",
+              { id: "upstream" },
+              controller.compositeRouteForm.upstream_model,
+            ),
+          ]);
+      },
+    });
+    const wrapper = mount(Harness);
+    expect(wrapper.get("#platform").text()).toBe("openai");
+
+    controller.compositeRouteForm.targets[0].target_platform = "anthropic";
+    controller.compositeRouteForm.targets[0].upstream_model = "claude-sonnet";
+    controller.addCompositeRouteTarget();
+    await nextTick();
+    expect(wrapper.get("#platform").text()).toBe("anthropic");
+    expect(wrapper.get("#upstream").text()).toBe("claude-sonnet");
+
+    controller.compositeRouteForm.targets[1].target_platform = "gemini";
+    controller.moveCompositeRouteTarget(1, -1);
+    await nextTick();
+    expect(wrapper.get("#platform").text()).toBe("gemini");
+    expect(wrapper.get("#upstream").text()).toBe("");
   });
 });
