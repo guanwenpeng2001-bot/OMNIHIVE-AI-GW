@@ -1,0 +1,18 @@
+export default {
+  title: '工作区',
+  description: '管理工作区内的资源并委派管理权限。',
+  name: '工作区名称',
+  create: '创建工作区',
+  members: '成员与委派',
+  userID: '用户 ID',
+  role: '角色',
+  member: '成员',
+  admin: '工作区管理员',
+  save: '保存成员权限',
+  remove: '移除成员',
+  resources: '资源',
+  select: '选择工作区',
+  empty: '暂无可访问的工作区。',
+  default: '默认工作区',
+  saved: '成员权限已更新',
+}

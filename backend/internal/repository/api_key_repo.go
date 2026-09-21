@@ -67,6 +67,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	created, err := builder.Save(ctx)
 	if err == nil {
 		key.ID = created.ID
+		key.WorkspaceID = created.WorkspaceID
 		key.LastUsedAt = created.LastUsedAt
 		key.CreatedAt = created.CreatedAt
 		key.UpdatedAt = created.UpdatedAt
@@ -132,6 +133,7 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		Where(apikey.KeyEQ(key)).
 		Select(
 			apikey.FieldID,
+			apikey.FieldWorkspaceID,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
 			apikey.FieldName,
@@ -875,6 +877,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 	}
 	out := &service.APIKey{
 		ID:            m.ID,
+		WorkspaceID:   m.WorkspaceID,
 		UserID:        m.UserID,
 		Key:           m.Key,
 		Name:          m.Name,

@@ -58,6 +58,20 @@ func (_c *GroupCreate) SetNillableUpdatedAt(v *time.Time) *GroupCreate {
 	return _c
 }
 
+// SetWorkspaceID sets the "workspace_id" field.
+func (_c *GroupCreate) SetWorkspaceID(v int64) *GroupCreate {
+	_c.mutation.SetWorkspaceID(v)
+	return _c
+}
+
+// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableWorkspaceID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetWorkspaceID(*v)
+	}
+	return _c
+}
+
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *GroupCreate) SetDeletedAt(v time.Time) *GroupCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -1061,6 +1075,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		v := group.DefaultWorkspaceID
+		_c.mutation.SetWorkspaceID(v)
+	}
 	if _, ok := _c.mutation.AccountType(); !ok {
 		v := group.DefaultAccountType
 		_c.mutation.SetAccountType(v)
@@ -1239,6 +1257,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Group.updated_at"`)}
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "Group.workspace_id"`)}
 	}
 	if _, ok := _c.mutation.AccountType(); !ok {
 		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "Group.account_type"`)}
@@ -1478,6 +1499,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(group.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if value, ok := _c.mutation.WorkspaceID(); ok {
+		_spec.SetField(group.FieldWorkspaceID, field.TypeInt64, value)
+		_node.WorkspaceID = value
 	}
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(group.FieldDeletedAt, field.TypeTime, value)
@@ -2977,6 +3002,9 @@ func (u *GroupUpsertOne) UpdateNewValues() *GroupUpsertOne {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(group.FieldCreatedAt)
 		}
+		if _, exists := u.create.mutation.WorkspaceID(); exists {
+			s.SetIgnore(group.FieldWorkspaceID)
+		}
 		if _, exists := u.create.mutation.DuplicateOperationID(); exists {
 			s.SetIgnore(group.FieldDuplicateOperationID)
 		}
@@ -4435,6 +4463,9 @@ func (u *GroupUpsertBulk) UpdateNewValues() *GroupUpsertBulk {
 		for _, b := range u.create.builders {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(group.FieldCreatedAt)
+			}
+			if _, exists := b.mutation.WorkspaceID(); exists {
+				s.SetIgnore(group.FieldWorkspaceID)
 			}
 			if _, exists := b.mutation.DuplicateOperationID(); exists {
 				s.SetIgnore(group.FieldDuplicateOperationID)

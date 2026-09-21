@@ -20,6 +20,7 @@ import (
 )
 
 type Account struct {
+	WorkspaceID             int64
 	ID                      int64
 	Name                    string
 	Notes                   *string

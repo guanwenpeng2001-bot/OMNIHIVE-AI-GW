@@ -93,8 +93,8 @@ func legacyMonitorSnapshot(t *testing.T, db *sql.DB) string {
 	t.Helper()
 	var snapshot string
 	require.NoError(t, db.QueryRow(`SELECT jsonb_build_array(
-		(SELECT jsonb_agg(to_jsonb(m) ORDER BY id) FROM channel_monitors m),
-		(SELECT jsonb_agg(to_jsonb(t) ORDER BY id) FROM channel_monitor_request_templates t),
+		(SELECT jsonb_agg(jsonb_build_object('workspace_id',1) || to_jsonb(m) ORDER BY id) FROM channel_monitors m),
+		(SELECT jsonb_agg(jsonb_build_object('workspace_id',1) || to_jsonb(t) ORDER BY id) FROM channel_monitor_request_templates t),
 		(SELECT jsonb_agg(to_jsonb(h) ORDER BY id) FROM channel_monitor_histories h))::text`).Scan(&snapshot))
 	return snapshot
 }

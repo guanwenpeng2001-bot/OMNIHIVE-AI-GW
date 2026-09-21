@@ -21,6 +21,7 @@ func RegisterModelPlazaRoutes(
 	panelRateLimiter *middleware.PanelRateLimiter,
 ) {
 	plaza := v1.Group("/model-plaza")
+	plaza.Use(middleware.DefaultWorkspaceScope())
 	plaza.Use(panelRateLimiter.PublicIP())
 	plaza.Use(gin.HandlerFunc(optionalJWT))
 	plaza.Use(middleware.BackendModeUserGuard(settingService))

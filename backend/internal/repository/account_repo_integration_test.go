@@ -1055,14 +1055,14 @@ func (s *AccountRepoSuite) TestSetTempUnschedulableSkipsOutboxWhenWindowDoesNotE
 	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, account.ID, until, "first"))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 
 	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, account.ID, until.Add(-5*time.Minute), "older"))
 
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -1533,7 +1533,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFr
 	s.Require().Equal(0.42, got.Extra["session_window_utilization"])
 
 	var outboxCount int
-	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &outboxCount))
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &outboxCount))
 	s.Require().Zero(outboxCount)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().NotNil(cacheRecorder.accounts[account.ID])
@@ -1595,7 +1595,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_ExhaustedCodexSnapshotSyncsSchedulerC
 	}))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(0, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -1619,7 +1619,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerRelevantStillEnqueuesOutbox(
 	}))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 }

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"strconv"
 	"time"
 
@@ -38,7 +39,7 @@ func executeAdminIdempotent(
 	}
 
 	return coordinator.Execute(c.Request.Context(), service.IdempotencyExecuteOptions{
-		Scope:          scope,
+		Scope:          domain.WorkspaceActorScope(c.Request.Context(), scope),
 		ActorScope:     adminActorScope(c),
 		Method:         c.Request.Method,
 		Route:          c.FullPath(),
@@ -54,7 +55,7 @@ func adminActorScope(c *gin.Context) string {
 	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
 		actorScope = "admin:" + strconv.FormatInt(subject.UserID, 10)
 	}
-	return actorScope
+	return domain.WorkspaceActorScope(c.Request.Context(), actorScope)
 }
 
 func executeAdminIdempotentJSON(

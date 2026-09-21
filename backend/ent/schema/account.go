@@ -43,6 +43,7 @@ func (Account) Annotations() []schema.Annotation {
 func (Account) Mixin() []ent.Mixin {
 	return []ent.Mixin{
 		mixins.TimeMixin{},
+		mixins.WorkspaceMixin{},
 		mixins.SoftDeleteMixin{},
 	}
 }

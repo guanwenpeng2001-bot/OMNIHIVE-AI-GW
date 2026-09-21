@@ -18,7 +18,7 @@
               : t('channelMonitorV2.admin.descriptionV2')
           }}
         </p>
-        <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+        <div v-if="!workspaceScoped" class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
           <div
             class="tabs inline-flex w-full max-w-xl flex-wrap sm:w-auto"
             role="tablist"
@@ -177,6 +177,7 @@ import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
+import { workspaceIDFromPath } from '@/api/workspaceScope'
 import type {
   ChannelMonitor,
   CheckResult,
@@ -207,7 +208,8 @@ import { isChannelMonitorV1Mode } from '@/utils/featureFlags'
 const { t } = useI18n()
 const appStore = useAppStore()
 const isV1Mode = computed(() => isChannelMonitorV1Mode())
-const adminMonitorTab = ref<'v2' | 'legacy'>(isChannelMonitorV1Mode() ? 'legacy' : 'v2')
+const workspaceScoped = !!workspaceIDFromPath(window.location.pathname)
+const adminMonitorTab = ref<'v2' | 'legacy'>(workspaceScoped || isChannelMonitorV1Mode() ? 'legacy' : 'v2')
 const {
   providerLabel,
   providerBadgeClass,

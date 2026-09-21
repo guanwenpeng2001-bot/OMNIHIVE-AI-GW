@@ -26,6 +26,7 @@ func (ChannelMonitor) Annotations() []schema.Annotation {
 func (ChannelMonitor) Mixin() []ent.Mixin {
 	return []ent.Mixin{
 		mixins.TimeMixin{},
+		mixins.WorkspaceMixin{},
 	}
 }
 

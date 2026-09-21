@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"log/slog"
 	"time"
 )
@@ -24,6 +25,9 @@ func modelCatalogGeneration(ctx context.Context, repository any, scope string) (
 }
 
 func catalogVersionedCacheKey(ctx context.Context, repository any, key string) (string, error) {
+	if workspaceID, scoped := domain.WorkspaceScope(ctx); scoped {
+		key = fmt.Sprintf("workspace:%d|%s", workspaceID, key)
+	}
 	generation, authoritative, err := modelCatalogGeneration(ctx, repository, "catalog")
 	if err != nil {
 		return "", err
