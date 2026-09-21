@@ -382,6 +382,22 @@ func isOpenAICompatibleAccountEligibleForRequestBeforeProfit(ctx context.Context
 	return openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, account, platform, requestedModel, requireCompact, requiredCapability) == ""
 }
 
+// requestPlanCatalogEndpoint reports the catalog endpoint family the planned
+// request actually executes on, so this pre-profit gate reads the same evidence
+// as the OpenAI scheduler model gate it precedes
+// (openAICompatiblePlanCatalogEndpoint). The family comes from the plan's own
+// protocol through that shared rule; no parallel resolution chain is
+// introduced. An unresolvable family keeps the legacy Responses evidence
+// instead of widening the gate to "any".
+func requestPlanCatalogEndpoint(ctx context.Context, account *Account) string {
+	switch endpoint := openAICompatiblePlanCatalogEndpoint(ctx, account); endpoint {
+	case "", CompositeRouteEndpointAny:
+		return CompositeRouteEndpointResponses
+	default:
+		return endpoint
+	}
+}
+
 func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Context, account *Account, platform string, requestedModel string, requireCompact bool, requiredCapability OpenAIEndpointCapability) string {
 	platform = NormalizeOpenAICompatiblePlatform(platform)
 	if account == nil {
@@ -426,7 +442,7 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 			return "quota_auto_pause"
 		}
 	}
-	if requestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !requestAccountCatalogSupports(ctx, account, requestedModel, CompositeRouteEndpointResponses) {
+	if requestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !requestAccountCatalogSupports(ctx, account, requestedModel, requestPlanCatalogEndpoint(ctx, account)) {
 		return "model_not_supported"
 	}
 	if requestedModel != "" && !account.IsModelSupported(requestedModel) {
