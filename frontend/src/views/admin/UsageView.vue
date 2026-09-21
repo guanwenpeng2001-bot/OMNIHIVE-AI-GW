@@ -145,7 +145,21 @@
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
+          <!-- Ops 关闭：展示真实原因与配置入口，而不是空表格 + 泛化 toast。 -->
+          <div
+            v-if="opsDisabled"
+            data-test="usage-errors-ops-disabled"
+            class="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100"
+            role="status"
+          >
+            <p class="font-medium">{{ t('usage.errors.opsDisabledTitle') }}</p>
+            <p class="mt-1 text-xs leading-relaxed">{{ t('usage.errors.opsDisabled') }}</p>
+            <router-link class="mt-2 inline-block text-xs font-medium underline" to="/admin/settings">
+              {{ t('usage.errors.openOpsSettings') }}
+            </router-link>
+          </div>
           <OpsErrorLogTable
+            v-else
             flat
             :rows="errRows" :total="errTotal" :loading="errLoading"
             :page="errPage" :page-size="errPageSize"
@@ -198,6 +212,7 @@ const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
 
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
+import { extractApiErrorCode } from '@/utils/apiError'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -830,7 +845,7 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
-  if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
+  if (tab === 'errors' && errRows.value.length === 0 && !opsDisabled.value) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }
 
@@ -844,6 +859,8 @@ const errSortBy = ref('created_at')
 const errSortOrder = ref<'asc' | 'desc'>('desc')
 const showErrorModal = ref(false)
 const selectedErrorId = ref<number | null>(null)
+// 错误请求页签依赖运维监控；OPS_DISABLED 时展示真实原因与配置入口（用量明细不受影响）。
+const opsDisabled = ref(false)
 
 // 注意：'YYYY-MM-DDT00:00:00' 无时区后缀，按本地时区解析后再转 UTC——与页面其它日期处理语义一致，刻意如此，勿改成 'T00:00:00Z'
 const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined =>
@@ -871,7 +888,14 @@ const loadAdminErrors = async () => {
     })
     errRows.value = resp.items
     errTotal.value = resp.total
+    opsDisabled.value = false
   } catch (error) {
+    if (extractApiErrorCode(error) === 'OPS_DISABLED') {
+      opsDisabled.value = true
+      errRows.value = []
+      errTotal.value = 0
+      return
+    }
     console.error('Failed to load admin errors:', error)
     appStore.showError(t('usage.errors.failedToLoad'))
   } finally {

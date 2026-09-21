@@ -510,6 +510,9 @@ export default {
       keyName: 'Key Name', keyDeleted: 'Deleted', allKeys: 'All keys',
       modelPlaceholder: 'Search model', allCategories: 'All categories', allStatuses: 'All status codes',
       empty: 'No error requests', failedToLoad: 'Failed to load error requests',
+      opsDisabledTitle: 'Ops monitoring is disabled',
+      opsDisabled: 'The error request list comes from Ops monitoring (OPS_DISABLED: Ops monitoring is disabled), which is turned off in this deployment, so there is no data to show. Usage details are unaffected.',
+      openOpsSettings: 'Open system settings to enable Ops monitoring',
       categories: {
         auth: 'Auth failed', rate_limit: 'Rate limited', quota: 'Balance/Subscription',
         invalid_request: 'Invalid request', service_unavailable: 'Service unavailable',
@@ -557,6 +560,7 @@ export default {
     // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
     quota: {
       unavailable: 'Quota unavailable',
+      noSource: 'No quota endpoint for this platform; local statistics only',
       windows: {
         '5h': '5h',
         '7d': '7d',
@@ -603,6 +607,8 @@ export default {
     searchPlaceholder: 'Search channels...',
     allProviders: 'All Providers',
     loadError: 'Failed to load channel status',
+    disabled: 'Channel monitoring is disabled, so there is no monitoring data to show',
+    modeMismatch: 'Channel monitoring is running in V2 mode; use the V2 channel status page instead',
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
     closeDetail: 'Close',

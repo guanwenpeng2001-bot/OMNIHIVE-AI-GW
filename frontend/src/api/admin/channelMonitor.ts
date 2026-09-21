@@ -57,6 +57,13 @@ export interface MonitorQuotaSnapshot {
   plan_level?: string
   /** 401/403 鉴权失败标记（推导为 failed 状态） */
   credential_invalid?: boolean
+  /**
+   * 该平台/模式没有可用的额度观测源（例如智谱 payg 无公开余额端点）。
+   * 属于配置事实，不是渠道故障：抓取器不会为此发上游请求，状态推导为 degraded。
+   */
+  unsupported?: boolean
+  /** 余额低于阈值或账号被上游标记不可用（仅 cn_balance 来源）。 */
+  balance_low?: boolean
   error?: string
   fetched_at: string
 }

@@ -515,6 +515,9 @@ export default {
       keyName: 'Key 名称', keyDeleted: '已删除', allKeys: '全部 Key',
       modelPlaceholder: '搜索模型', allCategories: '全部分类', allStatuses: '全部状态码',
       empty: '暂无错误请求', failedToLoad: '加载错误请求失败',
+      opsDisabledTitle: '运维监控未启用',
+      opsDisabled: '错误请求列表来自运维监控（OPS_DISABLED：Ops monitoring is disabled），当前部署已关闭该模块，因此没有数据可展示。用量明细不受影响。',
+      openOpsSettings: '打开系统设置开启运维监控',
       categories: {
         auth: '认证失败', rate_limit: '限流', quota: '余额/订阅',
         invalid_request: '参数错误', service_unavailable: '服务暂时不可用',
@@ -562,6 +565,7 @@ export default {
     // 配额快照展示（MonitorQuotaView，管理端与用户端共用）
     quota: {
       unavailable: '配额信息不可用',
+      noSource: '该平台暂无额度查询接口，仅展示本地统计',
       windows: {
         '5h': '5 小时',
         '7d': '7 天',
@@ -608,6 +612,8 @@ export default {
     searchPlaceholder: '搜索渠道...',
     allProviders: '全部供应商',
     loadError: '加载渠道状态失败',
+    disabled: '渠道监控未启用，当前页面没有可展示的监控数据',
+    modeMismatch: '渠道监控当前运行在 V2 模式，请改用渠道状态 V2 页面查看',
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
     closeDetail: '关闭',

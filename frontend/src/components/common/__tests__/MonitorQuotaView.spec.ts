@@ -115,6 +115,19 @@ describe('MonitorQuotaView', () => {
     expect(error.attributes('title')).toBe(longError)
   })
 
+  it('renders an unsupported note (not a red error) when no quota source exists', () => {
+    const wrapper = mount(MonitorQuotaView, {
+      props: {
+        snapshot: makeSnapshot({ success: false, unsupported: true, error: 'no balance endpoint for zhipu payg' }),
+      },
+    })
+
+    // 配置事实用中性提示，而不是红色错误刷屏
+    expect(wrapper.find('[data-testid="monitor-quota-unsupported"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="monitor-quota-error"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('monitorCommon.quota.noSource')
+  })
+
   it('keeps failed snapshots from rendering tier rows', () => {
     const wrapper = mount(MonitorQuotaView, {
       props: {

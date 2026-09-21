@@ -46,6 +46,9 @@ type stubAdminService struct {
 	updateAccountCalls                  int
 	updateAccountExtraCalls             int
 	checkMixedErr                       error
+	proxyStats                          map[int64]*service.ProxyStats
+	proxyStatsErr                       error
+	proxyStatsCalls                     []int64
 	lastMixedCheck                      struct {
 		accountID int64
 		platform  string
@@ -401,6 +404,10 @@ func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
+func (s *stubAdminService) GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error) {
+	return int64(len(s.apiKeys)), int64(len(s.apiKeys)), nil
+}
+
 func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) ([]service.UserGroupRateEntry, error) {
 	return nil, nil
 }
@@ -676,6 +683,20 @@ func (s *stubAdminService) BatchDeleteProxies(ctx context.Context, ids []int64) 
 
 func (s *stubAdminService) GetProxyAccounts(ctx context.Context, proxyID int64) ([]service.ProxyAccountSummary, error) {
 	return []service.ProxyAccountSummary{{ID: 1, Name: "account"}}, nil
+}
+
+func (s *stubAdminService) GetProxyStats(ctx context.Context, proxyID int64) (*service.ProxyStats, error) {
+	s.mu.Lock()
+	s.proxyStatsCalls = append(s.proxyStatsCalls, proxyID)
+	s.mu.Unlock()
+	if s.proxyStatsErr != nil {
+		return nil, s.proxyStatsErr
+	}
+	if stats, ok := s.proxyStats[proxyID]; ok {
+		clone := *stats
+		return &clone, nil
+	}
+	return &service.ProxyStats{ProxyID: proxyID}, nil
 }
 
 func (s *stubAdminService) CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error) {

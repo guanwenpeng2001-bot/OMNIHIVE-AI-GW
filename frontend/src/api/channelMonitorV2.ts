@@ -38,9 +38,23 @@ export interface MonitorMetric {
   error_requests: number
   request_count: number
   token_count: number
+  /**
+   * Token 拆分（可选）：管理端始终下发；用户视图由后端服务端清零绝对量
+   * （redactChannelMonitorV2Metric），不是仅前端隐藏。
+   */
+  input_tokens?: number
+  output_tokens?: number
+  cache_creation_tokens?: number
+  cache_read_tokens?: number
   rpm: number
   tpm: number
   error_rate: number
+  /**
+   * 成功率 = success_requests / request_count（可选）。与 1 - error_rate 不同：
+   * 被忽略的错误分类不计入 error_rate 但仍不算成功，所以有 ignored 分类时
+   * 两者不等；下发时优先用这个字段。
+   */
+  success_rate?: number
   cache_rate: number
   cache_rate_numerator: number
   cache_rate_denominator: number

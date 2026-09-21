@@ -8,6 +8,7 @@ vi.mock('@/stores/app', () => ({ useAppStore: () => ({ cachedPublicSettings: {},
 vi.mock('@/utils/featureFlags', () => ({ getChannelMonitorMode: () => 'v2', isChannelMonitorV2Mode: () => true }))
 vi.mock('@/api/admin', () => ({ adminAPI: { groups: { getAllIncludingInactive: vi.fn().mockResolvedValue([]) } } }))
 vi.mock('@/api/channelMonitorV2', () => ({ getConfig: mocks.getConfig, updateConfig: mocks.updateConfig, MONITOR_ERROR_CATEGORIES: [] }))
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 describe('Cursor monitor dimension option', () => {
   beforeEach(() => { vi.clearAllMocks() })

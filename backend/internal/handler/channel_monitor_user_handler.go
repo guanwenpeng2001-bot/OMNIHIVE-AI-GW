@@ -19,7 +19,9 @@ type ChannelMonitorUserHandler struct {
 }
 
 // NewChannelMonitorUserHandler 创建 handler。
-// settingService 用于每次请求前读取功能开关；关闭时 List/GetStatus 直接返回空/404。
+// settingService 用于每次请求前读取功能开关；关闭或模式不匹配时
+// List/GetStatus 返回规范机器码（CHANNEL_MONITOR_DISABLED /
+// CHANNEL_MONITOR_MODE_MISMATCH），不再返回 200 空列表或 404。
 func NewChannelMonitorUserHandler(
 	monitorService *service.ChannelMonitorService,
 	settingService *service.SettingService,
@@ -30,14 +32,24 @@ func NewChannelMonitorUserHandler(
 	}
 }
 
-// featureEnabled 返回当前渠道监控功能是否开启。
-// settingService 为 nil（测试场景）视为启用。
-func (h *ChannelMonitorUserHandler) featureEnabled(c *gin.Context) bool {
+// monitorViewRuntime 返回当前渠道监控运行时与 V1 用户视图可否提供。
+//
+// 拿不到 settingService（测试场景）时视为启用且 v1。
+func (h *ChannelMonitorUserHandler) monitorViewRuntime(c *gin.Context) (service.ChannelMonitorRuntime, error) {
 	if h.settingService == nil {
-		return true
+		return service.ChannelMonitorRuntime{Enabled: true, Mode: service.ChannelMonitorModeV1}, nil
 	}
 	runtime := h.settingService.GetChannelMonitorRuntime(c.Request.Context())
-	return runtime.Enabled && runtime.Mode == service.ChannelMonitorModeV1
+	if !runtime.Enabled {
+		// 规范机器码（403 CHANNEL_MONITOR_DISABLED）取代旧的「200 空列表 / 404 未找到」：
+		// 功能关闭不是「没有监控」，也不是“请求的资源不存在”。
+		return runtime, service.ErrChannelMonitorDisabled
+	}
+	if runtime.Mode != service.ChannelMonitorModeV1 {
+		// 功能开着但当前是 v2：V1 用户视图不再提供，同样给规范机器码而不是假空。
+		return runtime, service.ErrChannelMonitorModeMismatch
+	}
+	return runtime, nil
 }
 
 // quotaVisible 返回用户端是否展示配额/余额快照（channel_monitor_show_quota，
@@ -158,8 +170,8 @@ func userMonitorDetailToResponse(d *service.UserMonitorDetail) *channelMonitorUs
 
 // List GET /api/v1/channel-monitors
 func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
-	if !h.featureEnabled(c) {
-		response.Success(c, gin.H{"items": []channelMonitorUserListItem{}})
+	if _, err := h.monitorViewRuntime(c); err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 	views, err := h.monitorService.ListUserView(c.Request.Context())
@@ -177,8 +189,8 @@ func (h *ChannelMonitorUserHandler) List(c *gin.Context) {
 
 // GetStatus GET /api/v1/channel-monitors/:id/status
 func (h *ChannelMonitorUserHandler) GetStatus(c *gin.Context) {
-	if !h.featureEnabled(c) {
-		response.ErrorFrom(c, service.ErrChannelMonitorNotFound)
+	if _, err := h.monitorViewRuntime(c); err != nil {
+		response.ErrorFrom(c, err)
 		return
 	}
 	// 复用 admin.ParseChannelMonitorID 保持错误码与日志一致。

@@ -33,7 +33,21 @@
       </span>
     </div>
 
-    <div v-if="!snapshot.success" class="truncate text-[10px] text-red-600 dark:text-red-400" :title="snapshot.error" data-testid="monitor-quota-error">
+    <div
+      v-if="!snapshot.success && snapshot.unsupported"
+      class="truncate text-[10px] text-gray-400 dark:text-dark-400"
+      :title="snapshot.error"
+      data-testid="monitor-quota-unsupported"
+    >
+      {{ t('monitorCommon.quota.noSource') }}
+    </div>
+
+    <div
+      v-else-if="!snapshot.success"
+      class="truncate text-[10px] text-red-600 dark:text-red-400"
+      :title="snapshot.error"
+      data-testid="monitor-quota-error"
+    >
       {{ truncatedError }}
     </div>
   </div>

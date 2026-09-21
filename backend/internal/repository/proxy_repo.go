@@ -486,6 +486,56 @@ func (r *proxyRepository) CountAccountsByProxyID(ctx context.Context, proxyID in
 	return count, nil
 }
 
+// CountAccountsByProxyIDAndStatus 统计绑定到该代理且处于指定状态的账号数。
+// 代理统计要区分「全部账号」与「启用中的账号」，只按代理计数会把停用/报错
+// 账号也报成活跃。
+func (r *proxyRepository) CountAccountsByProxyIDAndStatus(ctx context.Context, proxyID int64, status string) (int64, error) {
+	var count int64
+	if err := scanSingleRow(ctx, r.sql,
+		"SELECT COUNT(*) FROM accounts WHERE proxy_id = $1 AND deleted_at IS NULL AND status = $2",
+		[]any{proxyID, status}, &count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetProxyUsageTotals 汇总代理名下账号在原始用量账本保留窗口内的真实请求量。
+// 账号可能随时改绑代理，这里按「当前绑定到该代理的账号」归属请求；账本保留窗口
+// 起点取自 dashboard 覆盖率水位（raw_retained_from），随返回值一并交给调用方，
+// 避免把窗口内累计当成历史全量。
+func (r *proxyRepository) GetProxyUsageTotals(ctx context.Context, proxyID int64) (*service.ProxyUsageTotals, error) {
+	query := `
+		WITH watermark AS (
+			SELECT COALESCE(
+				(SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id = 1),
+				TIMESTAMPTZ '1970-01-01 00:00:00+00'
+			) AS retained_from
+		)
+		SELECT
+			COUNT(ul.id) AS requests,
+			MAX(ul.created_at) AS last_request_at,
+			watermark.retained_from AS window_start
+		FROM watermark
+		LEFT JOIN usage_logs ul
+			ON ul.created_at >= watermark.retained_from
+			AND ul.account_id IN (
+				SELECT id FROM accounts WHERE proxy_id = $1 AND deleted_at IS NULL
+			)
+		GROUP BY watermark.retained_from
+	`
+
+	totals := &service.ProxyUsageTotals{}
+	if err := scanSingleRow(ctx, r.sql, query, []any{proxyID},
+		&totals.Requests,
+		&totals.LastRequestAt,
+		&totals.WindowStart,
+	); err != nil {
+		return nil, err
+	}
+	totals.WindowEnd = time.Now()
+	return totals, nil
+}
+
 func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, proxyID int64) ([]service.ProxyAccountSummary, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id, name, platform, type, notes

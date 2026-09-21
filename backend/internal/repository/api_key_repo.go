@@ -735,6 +735,13 @@ func (r *apiKeyRepository) CountByGroupID(ctx context.Context, groupID int64) (i
 	return int64(count), err
 }
 
+// CountByGroupIDAndStatus 获取分组内指定状态的 API Key 数量。
+// 分组统计要区分「全部 Key」与「启用中的 Key」，只按分组计数会把停用 Key 也报成活跃。
+func (r *apiKeyRepository) CountByGroupIDAndStatus(ctx context.Context, groupID int64, status string) (int64, error) {
+	count, err := r.activeQuery().Where(apikey.GroupIDEQ(groupID), apikey.StatusEQ(status)).Count(ctx)
+	return int64(count), err
+}
+
 func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) ([]string, error) {
 	keys, err := r.activeQuery().
 		Where(apikey.UserIDEQ(userID)).
