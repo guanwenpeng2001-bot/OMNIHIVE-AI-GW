@@ -368,6 +368,10 @@ func TestAPIContracts(t *testing.T) {
 							"last_used_at": null,
 							"last_used_ip": null,
 							"current_concurrency": 0,
+							"effective_rpm": {
+								"limits": [],
+								"priority": "user_group_override_then_group_then_user_ceiling"
+							},
 							"quota": 0,
 							"quota_used": 0,
 							"rate_limit_5h": 0,
