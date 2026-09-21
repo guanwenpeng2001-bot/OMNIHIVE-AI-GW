@@ -30,7 +30,7 @@ type APIKey struct {
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
-	// Key holds the value of the "key" field.
+	// Legacy plaintext credential; unused after the digest migration and never written for new keys
 	Key string `json:"key,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
@@ -82,9 +82,11 @@ type APIKeyEdges struct {
 	Group *Group `json:"group,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// Credentials holds the value of the credentials edge.
+	Credentials []*APIKeyCredential `json:"credentials,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -116,6 +118,15 @@ func (e APIKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 		return e.UsageLogs, nil
 	}
 	return nil, &NotLoadedError{edge: "usage_logs"}
+}
+
+// CredentialsOrErr returns the Credentials value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyEdges) CredentialsOrErr() ([]*APIKeyCredential, error) {
+	if e.loadedTypes[3] {
+		return e.Credentials, nil
+	}
+	return nil, &NotLoadedError{edge: "credentials"}
 }
 
 // scanValues returns the types for scanning values from sql.Rows.
@@ -335,6 +346,11 @@ func (_m *APIKey) QueryGroup() *GroupQuery {
 // QueryUsageLogs queries the "usage_logs" edge of the APIKey entity.
 func (_m *APIKey) QueryUsageLogs() *UsageLogQuery {
 	return NewAPIKeyClient(_m.config).QueryUsageLogs(_m)
+}
+
+// QueryCredentials queries the "credentials" edge of the APIKey entity.
+func (_m *APIKey) QueryCredentials() *APIKeyCredentialQuery {
+	return NewAPIKeyClient(_m.config).QueryCredentials(_m)
 }
 
 // Update returns a builder for updating this APIKey.

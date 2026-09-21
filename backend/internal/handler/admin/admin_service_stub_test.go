@@ -767,6 +767,37 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 	return nil, service.ErrAPIKeyNotFound
 }
 
+func (s *stubAdminService) AdminSetAPIKeyStatus(ctx context.Context, keyID int64, status string) (*service.APIKey, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys[i].Status = status
+			k := s.apiKeys[i]
+			return &k, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminDeleteAPIKey(ctx context.Context, keyID int64) error {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys = append(s.apiKeys[:i], s.apiKeys[i+1:]...)
+			return nil
+		}
+	}
+	return service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*service.APIKeyCredentialIssue, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			k := s.apiKeys[i]
+			return &service.APIKeyCredentialIssue{APIKey: &k, Secret: "rotated-secret"}, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
 func (s *stubAdminService) AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*service.APIKey, error) {
 	for i := range s.apiKeys {
 		if s.apiKeys[i].ID == keyID {

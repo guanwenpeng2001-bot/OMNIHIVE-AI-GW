@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/announcement"
 	"github.com/Wei-Shaw/sub2api/ent/announcementread"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
 	"github.com/Wei-Shaw/sub2api/ent/authidentity"
 	"github.com/Wei-Shaw/sub2api/ent/authidentitychannel"
 	"github.com/Wei-Shaw/sub2api/ent/batchimageevent"
@@ -70,6 +71,8 @@ type Client struct {
 	Schema *migrate.Schema
 	// APIKey is the client for interacting with the APIKey builders.
 	APIKey *APIKeyClient
+	// APIKeyCredential is the client for interacting with the APIKeyCredential builders.
+	APIKeyCredential *APIKeyCredentialClient
 	// Account is the client for interacting with the Account builders.
 	Account *AccountClient
 	// AccountGroup is the client for interacting with the AccountGroup builders.
@@ -168,6 +171,7 @@ func NewClient(opts ...Option) *Client {
 func (c *Client) init() {
 	c.Schema = migrate.NewSchema(c.driver)
 	c.APIKey = NewAPIKeyClient(c.config)
+	c.APIKeyCredential = NewAPIKeyCredentialClient(c.config)
 	c.Account = NewAccountClient(c.config)
 	c.AccountGroup = NewAccountGroupClient(c.config)
 	c.Announcement = NewAnnouncementClient(c.config)
@@ -304,6 +308,7 @@ func (c *Client) Tx(ctx context.Context) (*Tx, error) {
 		ctx:                           ctx,
 		config:                        cfg,
 		APIKey:                        NewAPIKeyClient(cfg),
+		APIKeyCredential:              NewAPIKeyCredentialClient(cfg),
 		Account:                       NewAccountClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
@@ -367,6 +372,7 @@ func (c *Client) BeginTx(ctx context.Context, opts *sql.TxOptions) (*Tx, error) 
 		ctx:                           ctx,
 		config:                        cfg,
 		APIKey:                        NewAPIKeyClient(cfg),
+		APIKeyCredential:              NewAPIKeyCredentialClient(cfg),
 		Account:                       NewAccountClient(cfg),
 		AccountGroup:                  NewAccountGroupClient(cfg),
 		Announcement:                  NewAnnouncementClient(cfg),
@@ -439,18 +445,19 @@ func (c *Client) Close() error {
 // In order to add hooks to a specific client, call: `client.Node.Use(...)`.
 func (c *Client) Use(hooks ...Hook) {
 	for _, n := range []interface{ Use(...Hook) }{
-		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
-		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
-		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.CredentialSecret, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAccessGroup,
-		c.ModelAccessRule, c.PaymentAuditLog, c.PaymentOrder,
-		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
-		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
-		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.APIKey, c.APIKeyCredential, c.Account, c.AccountGroup, c.Announcement,
+		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent,
+		c.BatchImageItem, c.BatchImageJob, c.ChannelMonitor,
+		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
+		c.ChannelMonitorRequestTemplate, c.CompositeModelRoute, c.CredentialSecret,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
+		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
+		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Use(hooks...)
 	}
@@ -460,18 +467,19 @@ func (c *Client) Use(hooks ...Hook) {
 // In order to add interceptors to a specific client, call: `client.Node.Intercept(...)`.
 func (c *Client) Intercept(interceptors ...Interceptor) {
 	for _, n := range []interface{ Intercept(...Interceptor) }{
-		c.APIKey, c.Account, c.AccountGroup, c.Announcement, c.AnnouncementRead,
-		c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent, c.BatchImageItem,
-		c.BatchImageJob, c.ChannelMonitor, c.ChannelMonitorDailyRollup,
-		c.ChannelMonitorHistory, c.ChannelMonitorRequestTemplate,
-		c.CompositeModelRoute, c.CredentialSecret, c.ErrorPassthroughRule, c.Group,
-		c.IdempotencyRecord, c.IdentityAdoptionDecision, c.ModelAccessGroup,
-		c.ModelAccessRule, c.PaymentAuditLog, c.PaymentOrder,
-		c.PaymentProviderInstance, c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage,
-		c.Proxy, c.RedeemCode, c.SecuritySecret, c.Setting, c.SubscriptionPlan,
-		c.TLSFingerprintProfile, c.UsageCleanupTask, c.UsageLog, c.User,
-		c.UserAllowedGroup, c.UserAttributeDefinition, c.UserAttributeValue,
-		c.UserPlatformQuota, c.UserSubscription, c.Workspace, c.WorkspaceMember,
+		c.APIKey, c.APIKeyCredential, c.Account, c.AccountGroup, c.Announcement,
+		c.AnnouncementRead, c.AuthIdentity, c.AuthIdentityChannel, c.BatchImageEvent,
+		c.BatchImageItem, c.BatchImageJob, c.ChannelMonitor,
+		c.ChannelMonitorDailyRollup, c.ChannelMonitorHistory,
+		c.ChannelMonitorRequestTemplate, c.CompositeModelRoute, c.CredentialSecret,
+		c.ErrorPassthroughRule, c.Group, c.IdempotencyRecord,
+		c.IdentityAdoptionDecision, c.ModelAccessGroup, c.ModelAccessRule,
+		c.PaymentAuditLog, c.PaymentOrder, c.PaymentProviderInstance,
+		c.PendingAuthSession, c.PromoCode, c.PromoCodeUsage, c.Proxy, c.RedeemCode,
+		c.SecuritySecret, c.Setting, c.SubscriptionPlan, c.TLSFingerprintProfile,
+		c.UsageCleanupTask, c.UsageLog, c.User, c.UserAllowedGroup,
+		c.UserAttributeDefinition, c.UserAttributeValue, c.UserPlatformQuota,
+		c.UserSubscription, c.Workspace, c.WorkspaceMember,
 	} {
 		n.Intercept(interceptors...)
 	}
@@ -482,6 +490,8 @@ func (c *Client) Mutate(ctx context.Context, m Mutation) (Value, error) {
 	switch m := m.(type) {
 	case *APIKeyMutation:
 		return c.APIKey.mutate(ctx, m)
+	case *APIKeyCredentialMutation:
+		return c.APIKeyCredential.mutate(ctx, m)
 	case *AccountMutation:
 		return c.Account.mutate(ctx, m)
 	case *AccountGroupMutation:
@@ -729,6 +739,22 @@ func (c *APIKeyClient) QueryUsageLogs(_m *APIKey) *UsageLogQuery {
 	return query
 }
 
+// QueryCredentials queries the credentials edge of a APIKey.
+func (c *APIKeyClient) QueryCredentials(_m *APIKey) *APIKeyCredentialQuery {
+	query := (&APIKeyCredentialClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikey.Table, apikey.FieldID, id),
+			sqlgraph.To(apikeycredential.Table, apikeycredential.FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, apikey.CredentialsTable, apikey.CredentialsColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
 // Hooks returns the client hooks.
 func (c *APIKeyClient) Hooks() []Hook {
 	hooks := c.hooks.APIKey
@@ -753,6 +779,157 @@ func (c *APIKeyClient) mutate(ctx context.Context, m *APIKeyMutation) (Value, er
 		return (&APIKeyDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
 	default:
 		return nil, fmt.Errorf("ent: unknown APIKey mutation op: %q", m.Op())
+	}
+}
+
+// APIKeyCredentialClient is a client for the APIKeyCredential schema.
+type APIKeyCredentialClient struct {
+	config
+}
+
+// NewAPIKeyCredentialClient returns a client for the APIKeyCredential from the given config.
+func NewAPIKeyCredentialClient(c config) *APIKeyCredentialClient {
+	return &APIKeyCredentialClient{config: c}
+}
+
+// Use adds a list of mutation hooks to the hooks stack.
+// A call to `Use(f, g, h)` equals to `apikeycredential.Hooks(f(g(h())))`.
+func (c *APIKeyCredentialClient) Use(hooks ...Hook) {
+	c.hooks.APIKeyCredential = append(c.hooks.APIKeyCredential, hooks...)
+}
+
+// Intercept adds a list of query interceptors to the interceptors stack.
+// A call to `Intercept(f, g, h)` equals to `apikeycredential.Intercept(f(g(h())))`.
+func (c *APIKeyCredentialClient) Intercept(interceptors ...Interceptor) {
+	c.inters.APIKeyCredential = append(c.inters.APIKeyCredential, interceptors...)
+}
+
+// Create returns a builder for creating a APIKeyCredential entity.
+func (c *APIKeyCredentialClient) Create() *APIKeyCredentialCreate {
+	mutation := newAPIKeyCredentialMutation(c.config, OpCreate)
+	return &APIKeyCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// CreateBulk returns a builder for creating a bulk of APIKeyCredential entities.
+func (c *APIKeyCredentialClient) CreateBulk(builders ...*APIKeyCredentialCreate) *APIKeyCredentialCreateBulk {
+	return &APIKeyCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// MapCreateBulk creates a bulk creation builder from the given slice. For each item in the slice, the function creates
+// a builder and applies setFunc on it.
+func (c *APIKeyCredentialClient) MapCreateBulk(slice any, setFunc func(*APIKeyCredentialCreate, int)) *APIKeyCredentialCreateBulk {
+	rv := reflect.ValueOf(slice)
+	if rv.Kind() != reflect.Slice {
+		return &APIKeyCredentialCreateBulk{err: fmt.Errorf("calling to APIKeyCredentialClient.MapCreateBulk with wrong type %T, need slice", slice)}
+	}
+	builders := make([]*APIKeyCredentialCreate, rv.Len())
+	for i := 0; i < rv.Len(); i++ {
+		builders[i] = c.Create()
+		setFunc(builders[i], i)
+	}
+	return &APIKeyCredentialCreateBulk{config: c.config, builders: builders}
+}
+
+// Update returns an update builder for APIKeyCredential.
+func (c *APIKeyCredentialClient) Update() *APIKeyCredentialUpdate {
+	mutation := newAPIKeyCredentialMutation(c.config, OpUpdate)
+	return &APIKeyCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOne returns an update builder for the given entity.
+func (c *APIKeyCredentialClient) UpdateOne(_m *APIKeyCredential) *APIKeyCredentialUpdateOne {
+	mutation := newAPIKeyCredentialMutation(c.config, OpUpdateOne, withAPIKeyCredential(_m))
+	return &APIKeyCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// UpdateOneID returns an update builder for the given id.
+func (c *APIKeyCredentialClient) UpdateOneID(id int64) *APIKeyCredentialUpdateOne {
+	mutation := newAPIKeyCredentialMutation(c.config, OpUpdateOne, withAPIKeyCredentialID(id))
+	return &APIKeyCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// Delete returns a delete builder for APIKeyCredential.
+func (c *APIKeyCredentialClient) Delete() *APIKeyCredentialDelete {
+	mutation := newAPIKeyCredentialMutation(c.config, OpDelete)
+	return &APIKeyCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: mutation}
+}
+
+// DeleteOne returns a builder for deleting the given entity.
+func (c *APIKeyCredentialClient) DeleteOne(_m *APIKeyCredential) *APIKeyCredentialDeleteOne {
+	return c.DeleteOneID(_m.ID)
+}
+
+// DeleteOneID returns a builder for deleting the given entity by its id.
+func (c *APIKeyCredentialClient) DeleteOneID(id int64) *APIKeyCredentialDeleteOne {
+	builder := c.Delete().Where(apikeycredential.ID(id))
+	builder.mutation.id = &id
+	builder.mutation.op = OpDeleteOne
+	return &APIKeyCredentialDeleteOne{builder}
+}
+
+// Query returns a query builder for APIKeyCredential.
+func (c *APIKeyCredentialClient) Query() *APIKeyCredentialQuery {
+	return &APIKeyCredentialQuery{
+		config: c.config,
+		ctx:    &QueryContext{Type: TypeAPIKeyCredential},
+		inters: c.Interceptors(),
+	}
+}
+
+// Get returns a APIKeyCredential entity by its id.
+func (c *APIKeyCredentialClient) Get(ctx context.Context, id int64) (*APIKeyCredential, error) {
+	return c.Query().Where(apikeycredential.ID(id)).Only(ctx)
+}
+
+// GetX is like Get, but panics if an error occurs.
+func (c *APIKeyCredentialClient) GetX(ctx context.Context, id int64) *APIKeyCredential {
+	obj, err := c.Get(ctx, id)
+	if err != nil {
+		panic(err)
+	}
+	return obj
+}
+
+// QueryAPIKey queries the api_key edge of a APIKeyCredential.
+func (c *APIKeyCredentialClient) QueryAPIKey(_m *APIKeyCredential) *APIKeyQuery {
+	query := (&APIKeyClient{config: c.config}).Query()
+	query.path = func(context.Context) (fromV *sql.Selector, _ error) {
+		id := _m.ID
+		step := sqlgraph.NewStep(
+			sqlgraph.From(apikeycredential.Table, apikeycredential.FieldID, id),
+			sqlgraph.To(apikey.Table, apikey.FieldID),
+			sqlgraph.Edge(sqlgraph.M2O, true, apikeycredential.APIKeyTable, apikeycredential.APIKeyColumn),
+		)
+		fromV = sqlgraph.Neighbors(_m.driver.Dialect(), step)
+		return fromV, nil
+	}
+	return query
+}
+
+// Hooks returns the client hooks.
+func (c *APIKeyCredentialClient) Hooks() []Hook {
+	hooks := c.hooks.APIKeyCredential
+	return append(hooks[:len(hooks):len(hooks)], apikeycredential.Hooks[:]...)
+}
+
+// Interceptors returns the client interceptors.
+func (c *APIKeyCredentialClient) Interceptors() []Interceptor {
+	inters := c.inters.APIKeyCredential
+	return append(inters[:len(inters):len(inters)], apikeycredential.Interceptors[:]...)
+}
+
+func (c *APIKeyCredentialClient) mutate(ctx context.Context, m *APIKeyCredentialMutation) (Value, error) {
+	switch m.Op() {
+	case OpCreate:
+		return (&APIKeyCredentialCreate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdate:
+		return (&APIKeyCredentialUpdate{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpUpdateOne:
+		return (&APIKeyCredentialUpdateOne{config: c.config, hooks: c.Hooks(), mutation: m}).Save(ctx)
+	case OpDelete, OpDeleteOne:
+		return (&APIKeyCredentialDelete{config: c.config, hooks: c.Hooks(), mutation: m}).Exec(ctx)
+	default:
+		return nil, fmt.Errorf("ent: unknown APIKeyCredential mutation op: %q", m.Op())
 	}
 }
 
@@ -7554,30 +7731,30 @@ func (c *WorkspaceMemberClient) mutate(ctx context.Context, m *WorkspaceMemberMu
 // hooks and interceptors per client, for fast access.
 type (
 	hooks struct {
-		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
-		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, CredentialSecret,
-		ErrorPassthroughRule, Group, IdempotencyRecord, IdentityAdoptionDecision,
-		ModelAccessGroup, ModelAccessRule, PaymentAuditLog, PaymentOrder,
-		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
-		WorkspaceMember []ent.Hook
+		APIKey, APIKeyCredential, Account, AccountGroup, Announcement, AnnouncementRead,
+		AuthIdentity, AuthIdentityChannel, BatchImageEvent, BatchImageItem,
+		BatchImageJob, ChannelMonitor, ChannelMonitorDailyRollup,
+		ChannelMonitorHistory, ChannelMonitorRequestTemplate, CompositeModelRoute,
+		CredentialSecret, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, ModelAccessGroup, ModelAccessRule, PaymentAuditLog,
+		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
+		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
+		UserSubscription, Workspace, WorkspaceMember []ent.Hook
 	}
 	inters struct {
-		APIKey, Account, AccountGroup, Announcement, AnnouncementRead, AuthIdentity,
-		AuthIdentityChannel, BatchImageEvent, BatchImageItem, BatchImageJob,
-		ChannelMonitor, ChannelMonitorDailyRollup, ChannelMonitorHistory,
-		ChannelMonitorRequestTemplate, CompositeModelRoute, CredentialSecret,
-		ErrorPassthroughRule, Group, IdempotencyRecord, IdentityAdoptionDecision,
-		ModelAccessGroup, ModelAccessRule, PaymentAuditLog, PaymentOrder,
-		PaymentProviderInstance, PendingAuthSession, PromoCode, PromoCodeUsage, Proxy,
-		RedeemCode, SecuritySecret, Setting, SubscriptionPlan, TLSFingerprintProfile,
-		UsageCleanupTask, UsageLog, User, UserAllowedGroup, UserAttributeDefinition,
-		UserAttributeValue, UserPlatformQuota, UserSubscription, Workspace,
-		WorkspaceMember []ent.Interceptor
+		APIKey, APIKeyCredential, Account, AccountGroup, Announcement, AnnouncementRead,
+		AuthIdentity, AuthIdentityChannel, BatchImageEvent, BatchImageItem,
+		BatchImageJob, ChannelMonitor, ChannelMonitorDailyRollup,
+		ChannelMonitorHistory, ChannelMonitorRequestTemplate, CompositeModelRoute,
+		CredentialSecret, ErrorPassthroughRule, Group, IdempotencyRecord,
+		IdentityAdoptionDecision, ModelAccessGroup, ModelAccessRule, PaymentAuditLog,
+		PaymentOrder, PaymentProviderInstance, PendingAuthSession, PromoCode,
+		PromoCodeUsage, Proxy, RedeemCode, SecuritySecret, Setting, SubscriptionPlan,
+		TLSFingerprintProfile, UsageCleanupTask, UsageLog, User, UserAllowedGroup,
+		UserAttributeDefinition, UserAttributeValue, UserPlatformQuota,
+		UserSubscription, Workspace, WorkspaceMember []ent.Interceptor
 	}
 )
 

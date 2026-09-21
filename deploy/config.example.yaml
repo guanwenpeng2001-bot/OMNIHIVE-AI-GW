@@ -726,6 +726,16 @@ api_key_auth_cache:
     capacity: 16384
 
 # =============================================================================
+# API Key Credential Configuration
+# API Key 凭据配置
+# =============================================================================
+api_key_credential:
+  # Dual-read window (hours) during which the previous secret of a rotated key still
+  # authenticates. The key keeps its identity id, so usage and billing stay attached.
+  # 轮换后旧密钥仍可鉴权的双读窗口（小时）。Key 的 ID 不变，用量与账单继续挂在同一 Key 上。
+  grace_ttl_hours: 24
+
+# =============================================================================
 # Dashboard Cache Configuration
 # 仪表盘缓存配置
 # =============================================================================

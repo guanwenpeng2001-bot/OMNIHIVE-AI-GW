@@ -333,7 +333,7 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_Unbind(t *testing.T) {
 	require.Nil(t, got.APIKey.Group, "group object should be nil after unbind")
 	require.NotNil(t, repo.updated, "Update should have been called")
 	require.Nil(t, repo.updated.GroupID)
-	require.Equal(t, []string{"sk-test"}, cache.keys, "cache should be invalidated")
+	require.Equal(t, []int64{1}, cache.keyIDs, "cache should be invalidated by key identity")
 }
 
 func TestAdminService_AdminUpdateAPIKeyGroupID_BindActiveGroup(t *testing.T) {
@@ -348,7 +348,7 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_BindActiveGroup(t *testing.T) {
 	require.NotNil(t, got.APIKey.GroupID)
 	require.Equal(t, int64(10), *got.APIKey.GroupID)
 	require.Equal(t, int64(10), *apiKeyRepo.updated.GroupID)
-	require.Equal(t, []string{"sk-test"}, cache.keys)
+	require.Equal(t, []int64{1}, cache.keyIDs)
 	// M3: verify correct group ID was passed to repo
 	require.Equal(t, int64(10), groupRepo.lastGetByIDArg)
 	// C1 fix: verify Group object is populated
@@ -369,7 +369,7 @@ func TestAdminService_AdminUpdateAPIKeyGroupID_SameGroup_Idempotent(t *testing.T
 	require.Equal(t, int64(10), *got.APIKey.GroupID)
 	// Update is still called (current impl doesn't short-circuit on same group)
 	require.NotNil(t, apiKeyRepo.updated)
-	require.Equal(t, []string{"sk-test"}, cache.keys)
+	require.Equal(t, []int64{1}, cache.keyIDs)
 }
 
 func TestAdminService_AdminUpdateAPIKeyGroupID_GroupNotFound(t *testing.T) {

@@ -167,6 +167,9 @@ func TestAPIKeyService_UpdateQuotaUsed_UsesAtomicStatePath(t *testing.T) {
 		apiKeyRepo: repo,
 		cache:      cache,
 	}
+	// Exhausting a key evicts it by identity, so the credential repository supplies the
+	// auth cache identifiers of the key's credentials.
+	svc.SetCredentialRepository(&apiKeyCredentialRepoStub{digests: []string{APIKeyCredentialDigest("sk-test-quota")}})
 
 	err := svc.UpdateQuotaUsed(context.Background(), 101, 2)
 	require.NoError(t, err)

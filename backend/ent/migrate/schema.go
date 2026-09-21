@@ -16,7 +16,7 @@ var (
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "key", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "last_used_at", Type: field.TypeTime, Nullable: true},
@@ -91,6 +91,50 @@ var (
 				Name:    "apikey_expires_at",
 				Unique:  false,
 				Columns: []*schema.Column{APIKeysColumns[13]},
+			},
+		},
+	}
+	// APIKeyCredentialsColumns holds the columns for the "api_key_credentials" table.
+	APIKeyCredentialsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "credential_digest", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "display_suffix", Type: field.TypeString, Size: 16, Default: ""},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "current"},
+		{Name: "valid_until", Type: field.TypeTime, Nullable: true},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
+		{Name: "api_key_id", Type: field.TypeInt64},
+	}
+	// APIKeyCredentialsTable holds the schema information for the "api_key_credentials" table.
+	APIKeyCredentialsTable = &schema.Table{
+		Name:       "api_key_credentials",
+		Columns:    APIKeyCredentialsColumns,
+		PrimaryKey: []*schema.Column{APIKeyCredentialsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "api_key_credentials_api_keys_credentials",
+				Columns:    []*schema.Column{APIKeyCredentialsColumns[9]},
+				RefColumns: []*schema.Column{APIKeysColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "apikeycredential_api_key_id",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[9]},
+			},
+			{
+				Name:    "apikeycredential_status",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[6]},
+			},
+			{
+				Name:    "apikeycredential_valid_until",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[7]},
 			},
 		},
 	}
@@ -2209,6 +2253,7 @@ var (
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		APIKeysTable,
+		APIKeyCredentialsTable,
 		AccountsTable,
 		AccountGroupsTable,
 		AnnouncementsTable,
@@ -2260,6 +2305,10 @@ func init() {
 	APIKeysTable.ForeignKeys[1].RefTable = UsersTable
 	APIKeysTable.Annotation = &entsql.Annotation{
 		Table: "api_keys",
+	}
+	APIKeyCredentialsTable.ForeignKeys[0].RefTable = APIKeysTable
+	APIKeyCredentialsTable.Annotation = &entsql.Annotation{
+		Table: "api_key_credentials",
 	}
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.ForeignKeys[1].RefTable = AccountsTable

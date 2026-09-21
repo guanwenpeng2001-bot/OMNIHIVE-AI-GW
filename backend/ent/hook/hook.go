@@ -21,6 +21,18 @@ func (f APIKeyFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, erro
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.APIKeyMutation", m)
 }
 
+// The APIKeyCredentialFunc type is an adapter to allow the use of ordinary
+// function as APIKeyCredential mutator.
+type APIKeyCredentialFunc func(context.Context, *ent.APIKeyCredentialMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f APIKeyCredentialFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.APIKeyCredentialMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.APIKeyCredentialMutation", m)
+}
+
 // The AccountFunc type is an adapter to allow the use of ordinary
 // function as Account mutator.
 type AccountFunc func(context.Context, *ent.AccountMutation) (ent.Value, error)

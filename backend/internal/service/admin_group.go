@@ -1394,7 +1394,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 			// 失效认证缓存（在事务提交后执行）
 			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+				invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 			}
 
 			result.APIKey = apiKey
@@ -1409,7 +1409,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 	// 失效认证缓存
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 
 	result.APIKey = apiKey
@@ -1432,7 +1432,7 @@ func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, k
 		return nil, fmt.Errorf("reset api key rate limit usage: %w", err)
 	}
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 	if s.billingCacheService != nil {
 		_ = s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)

@@ -284,8 +284,14 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	return s.Submit(ctx, receipt, func(ctx context.Context, result *UsageSettlementResult) {
 		// Preserve explicit constructor callers without the production invalidator.
 		if s.authCacheInvalidator == nil && result.Billing.APIKeyQuotaExhausted {
-			if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey.Key != "" {
-				invalidator.InvalidateAuthCacheByKey(ctx, p.APIKey.Key)
+			if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey.ID > 0 {
+				// The auth cache is keyed by credential digest, so evict every credential
+				// of the key through its identity instead of a presented plaintext secret.
+				if byID, ok := p.APIKeyService.(apiKeyAuthCacheInvalidatorByAPIKeyID); ok {
+					byID.InvalidateAuthCacheByAPIKeyID(ctx, p.APIKey.ID)
+				} else {
+					invalidator.InvalidateAuthCacheByKey(ctx, APIKeyCredentialDigest(p.APIKey.Key))
+				}
 			}
 		}
 		finalizePostUsageBilling(ctx, p, deps, result.Billing)

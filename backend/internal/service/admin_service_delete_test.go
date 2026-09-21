@@ -620,7 +620,9 @@ func TestAdminService_DeleteUser_DeletesOwnedAPIKeys(t *testing.T) {
 	require.Equal(t, []int64{7}, repo.deletedIDs)
 	require.Equal(t, []int64{7}, apiKeyRepo.listByUserIDCalls)
 	require.Equal(t, []int64{11, 12}, apiKeyRepo.deletedIDs)
-	require.ElementsMatch(t, []string{"sk-user-1", "sk-user-2"}, invalidator.keys)
+	// Deleting a user evicts the whole user at once: the per-credential entries are
+	// resolved from the digests inside the invalidator, so no plaintext key is needed.
+	require.Empty(t, invalidator.keys)
 	require.Equal(t, []int64{7}, invalidator.userIDs)
 }
 
