@@ -237,6 +237,30 @@ func (f IdentityAdoptionDecisionFunc) Mutate(ctx context.Context, m ent.Mutation
 	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.IdentityAdoptionDecisionMutation", m)
 }
 
+// The ModelAccessGroupFunc type is an adapter to allow the use of ordinary
+// function as ModelAccessGroup mutator.
+type ModelAccessGroupFunc func(context.Context, *ent.ModelAccessGroupMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ModelAccessGroupFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ModelAccessGroupMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ModelAccessGroupMutation", m)
+}
+
+// The ModelAccessRuleFunc type is an adapter to allow the use of ordinary
+// function as ModelAccessRule mutator.
+type ModelAccessRuleFunc func(context.Context, *ent.ModelAccessRuleMutation) (ent.Value, error)
+
+// Mutate calls f(ctx, m).
+func (f ModelAccessRuleFunc) Mutate(ctx context.Context, m ent.Mutation) (ent.Value, error) {
+	if mv, ok := m.(*ent.ModelAccessRuleMutation); ok {
+		return f(ctx, mv)
+	}
+	return nil, fmt.Errorf("unexpected mutation type %T. expect *ent.ModelAccessRuleMutation", m)
+}
+
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary
 // function as PaymentAuditLog mutator.
 type PaymentAuditLogFunc func(context.Context, *ent.PaymentAuditLogMutation) (ent.Value, error)

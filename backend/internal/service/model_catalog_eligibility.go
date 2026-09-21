@@ -285,7 +285,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if original, ok := RequestedPublicModelFromContext(ctx); ok {
 		binding.PublicModel = original
 	}
-	if !visibleModelPolicyAllows(ctx, binding.PublicModel) {
+	if !visibleModelPolicyAllows(ctx, binding.PublicModel) || !modelAccessAccountAllows(ctx, account.ID, binding.PublicModel) {
 		return binding
 	}
 	if resolved, ok := ResolvedUpstreamModelFromContext(ctx); ok {

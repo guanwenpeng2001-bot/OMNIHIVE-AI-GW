@@ -73,6 +73,7 @@ func RegisterUserRoutes(
 		}
 
 		// API Key管理
+		registerModelAccessUserRoutes(authenticated, h)
 		keys := authenticated.Group("/keys")
 		keys.Use(middleware.DefaultWorkspaceScope())
 		{

@@ -1,5 +1,5 @@
 const delegatedResources = new Set([
-  'accounts', 'groups', 'channels', 'proxies', 'api-keys', 'channel-monitors',
+  'model-access-groups', 'accounts', 'groups', 'channels', 'proxies', 'api-keys', 'channel-monitors',
   'channel-monitor-templates', 'channel-monitor-v2', 'scheduled-test-plans',
   'platform-model-presets', 'openai', 'gemini', 'antigravity', 'grok', 'cn-providers',
 ])
@@ -16,7 +16,7 @@ export function workspaceRequestURL(url: string | undefined, pathname: string): 
   if (adminResource && delegatedResources.has(adminResource)) {
     return `/workspaces/${workspaceID}${url.slice('/admin'.length)}`
   }
-  if (/^\/(?:keys|channel-monitor-v2)(?:\/|\?|$)/.test(url) || /^\/groups\/(?:available|rates)(?:\?|$)/.test(url)) {
+  if (/^\/(?:model-access-groups|keys|channel-monitor-v2)(?:\/|\?|$)/.test(url) || /^\/groups\/(?:available|rates)(?:\?|$)/.test(url)) {
     return `/workspaces/${workspaceID}${url}`
   }
   return url

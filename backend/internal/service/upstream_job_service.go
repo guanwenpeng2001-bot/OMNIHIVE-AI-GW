@@ -212,7 +212,14 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 }
 
 func (s *UpstreamJobService) Get(ctx context.Context, id string, userID, keyID int64) (*UpstreamJob, error) {
-	return s.repo.Get(ctx, id, userID, keyID)
+	job, err := s.repo.Get(ctx, id, userID, keyID)
+	if err != nil {
+		return nil, err
+	}
+	if !visibleModelPolicyAllows(ctx, job.Billing.RequestedModel) || !modelAccessAccountAllows(ctx, job.AccountID, job.Billing.RequestedModel) {
+		return nil, ErrUpstreamJobNotFound
+	}
+	return job, nil
 }
 
 // Poll rechecks due time and terminal state under the same lock as settlement.

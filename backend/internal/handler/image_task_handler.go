@@ -101,7 +101,13 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	}
 
 	taskCtx, recorder, cancel := newAsyncImageContext(c, body, h.tasks.ExecutionTimeout())
-	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
+	publicModel := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body).Model
+	if platform == service.PlatformOpenAI && h.openAI != nil && h.openAI.gatewayService != nil {
+		if parsed, parseErr := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body); parseErr == nil {
+			publicModel = parsed.Model
+		}
+	}
+	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID}, publicModel)
 	if err != nil {
 		cancel()
 		imageTaskError(c, err)
@@ -244,7 +250,11 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 			h.failTask(taskID, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
 			return
 		}
-		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
+		var accountID int64
+		if plan := service.GatewayRequestPlanFromContext(taskCtx.Request.Context()); plan != nil {
+			accountID = plan.Snapshot().UpstreamAccountID
+		}
+		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body), accountID); err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
 		return

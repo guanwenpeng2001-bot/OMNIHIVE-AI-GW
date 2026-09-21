@@ -17,6 +17,8 @@
               <p class="truncate font-mono text-sm text-gray-500">{{ key.key.substring(0, 20) }}...{{ key.key.substring(key.key.length - 8) }}</p>
             </div>
           </div>
+          <button type="button" class="btn btn-secondary mt-2" @click="modelAccessKeyID = modelAccessKeyID === key.id ? null : key.id">{{ t('modelAccess.title') }}</button>
+          <ModelAccessRuleEditor v-if="modelAccessKeyID === key.id" :path="`/admin/api-keys/${key.id}`" />
           <div class="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
             <div class="flex items-center gap-1">
               <span>{{ t('admin.users.group') }}:</span>
@@ -106,6 +108,7 @@
 </template>
 
 <script setup lang="ts">
+import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { ref, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -131,6 +134,7 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const scrollContainerRef = ref<HTMLElement | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 
+const modelAccessKeyID = ref<number | null>(null)
 const selectedKeyForGroup = computed(() => {
   if (groupSelectorKeyId.value === null) return null
   return apiKeys.value.find((k) => k.id === groupSelectorKeyId.value) || null
