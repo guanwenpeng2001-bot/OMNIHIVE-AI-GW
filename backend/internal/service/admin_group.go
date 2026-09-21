@@ -294,7 +294,9 @@ func defaultModelsListCandidateIDs(platform string) []string {
 func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// Grok image and video generation routes share the legacy image-generation gate.
 	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
+	// MiniMax has native image/video generation (image-01 / MiniMax-H3), so new
+	// MiniMax groups default to the actual capability as well.
+	return platform == PlatformGrok || platform == PlatformMiniMax
 }
 
 func compositeDefaultModelsListCandidateIDs() []string {

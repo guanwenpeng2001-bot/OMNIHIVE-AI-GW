@@ -162,7 +162,9 @@ func isForcedUsageBillingRequestID(requestID string) bool {
 	return strings.HasPrefix(id, "web_search:") ||
 		strings.HasPrefix(id, "grok-video:") ||
 		strings.HasPrefix(id, "grok_audio:") ||
-		strings.HasPrefix(id, "grok_realtime:")
+		strings.HasPrefix(id, "grok_realtime:") ||
+		strings.HasPrefix(id, "minimax_video:") ||
+		strings.HasPrefix(id, "minimax_audio:")
 }
 
 // StableGrokAudioBillingRequestID is the durable usage_logs / dedup key for one
