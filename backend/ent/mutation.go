@@ -20068,28 +20068,30 @@ func (m *ChannelMonitorRequestTemplateMutation) ResetEdge(name string) error {
 // CompositeModelRouteMutation represents an operation that mutates the CompositeModelRoute nodes in the graph.
 type CompositeModelRouteMutation struct {
 	config
-	op              Op
-	typ             string
-	id              *int64
-	created_at      *time.Time
-	updated_at      *time.Time
-	deleted_at      *time.Time
-	account_type    *string
-	public_model    *string
-	match_type      *string
-	target_platform *string
-	upstream_model  *string
-	endpoint        *string
-	priority        *int
-	addpriority     *int
-	enabled         *bool
-	notes           *string
-	clearedFields   map[string]struct{}
-	group           *int64
-	clearedgroup    bool
-	done            bool
-	oldValue        func(context.Context) (*CompositeModelRoute, error)
-	predicates      []predicate.CompositeModelRoute
+	op                    Op
+	typ                   string
+	id                    *int64
+	created_at            *time.Time
+	updated_at            *time.Time
+	deleted_at            *time.Time
+	account_type          *string
+	public_model          *string
+	match_type            *string
+	target_platform       *string
+	upstream_model        *string
+	endpoint              *string
+	priority              *int
+	addpriority           *int
+	enabled               *bool
+	notes                 *string
+	ordered_targets       *jsontext.Value
+	appendordered_targets jsontext.Value
+	clearedFields         map[string]struct{}
+	group                 *int64
+	clearedgroup          bool
+	done                  bool
+	oldValue              func(context.Context) (*CompositeModelRoute, error)
+	predicates            []predicate.CompositeModelRoute
 }
 
 var _ ent.Mutation = (*CompositeModelRouteMutation)(nil)
@@ -20704,6 +20706,71 @@ func (m *CompositeModelRouteMutation) ResetNotes() {
 	delete(m.clearedFields, compositemodelroute.FieldNotes)
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (m *CompositeModelRouteMutation) SetOrderedTargets(j jsontext.Value) {
+	m.ordered_targets = &j
+	m.appendordered_targets = nil
+}
+
+// OrderedTargets returns the value of the "ordered_targets" field in the mutation.
+func (m *CompositeModelRouteMutation) OrderedTargets() (r jsontext.Value, exists bool) {
+	v := m.ordered_targets
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldOrderedTargets returns the old "ordered_targets" field's value of the CompositeModelRoute entity.
+// If the CompositeModelRoute object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *CompositeModelRouteMutation) OldOrderedTargets(ctx context.Context) (v jsontext.Value, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldOrderedTargets is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldOrderedTargets requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldOrderedTargets: %w", err)
+	}
+	return oldValue.OrderedTargets, nil
+}
+
+// AppendOrderedTargets adds j to the "ordered_targets" field.
+func (m *CompositeModelRouteMutation) AppendOrderedTargets(j jsontext.Value) {
+	m.appendordered_targets = append(m.appendordered_targets, j...)
+}
+
+// AppendedOrderedTargets returns the list of values that were appended to the "ordered_targets" field in this mutation.
+func (m *CompositeModelRouteMutation) AppendedOrderedTargets() (jsontext.Value, bool) {
+	if len(m.appendordered_targets) == 0 {
+		return nil, false
+	}
+	return m.appendordered_targets, true
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (m *CompositeModelRouteMutation) ClearOrderedTargets() {
+	m.ordered_targets = nil
+	m.appendordered_targets = nil
+	m.clearedFields[compositemodelroute.FieldOrderedTargets] = struct{}{}
+}
+
+// OrderedTargetsCleared returns if the "ordered_targets" field was cleared in this mutation.
+func (m *CompositeModelRouteMutation) OrderedTargetsCleared() bool {
+	_, ok := m.clearedFields[compositemodelroute.FieldOrderedTargets]
+	return ok
+}
+
+// ResetOrderedTargets resets all changes to the "ordered_targets" field.
+func (m *CompositeModelRouteMutation) ResetOrderedTargets() {
+	m.ordered_targets = nil
+	m.appendordered_targets = nil
+	delete(m.clearedFields, compositemodelroute.FieldOrderedTargets)
+}
+
 // ClearGroup clears the "group" edge to the Group entity.
 func (m *CompositeModelRouteMutation) ClearGroup() {
 	m.clearedgroup = true
@@ -20765,7 +20832,7 @@ func (m *CompositeModelRouteMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *CompositeModelRouteMutation) Fields() []string {
-	fields := make([]string, 0, 13)
+	fields := make([]string, 0, 14)
 	if m.created_at != nil {
 		fields = append(fields, compositemodelroute.FieldCreatedAt)
 	}
@@ -20805,6 +20872,9 @@ func (m *CompositeModelRouteMutation) Fields() []string {
 	if m.notes != nil {
 		fields = append(fields, compositemodelroute.FieldNotes)
 	}
+	if m.ordered_targets != nil {
+		fields = append(fields, compositemodelroute.FieldOrderedTargets)
+	}
 	return fields
 }
 
@@ -20839,6 +20909,8 @@ func (m *CompositeModelRouteMutation) Field(name string) (ent.Value, bool) {
 		return m.Enabled()
 	case compositemodelroute.FieldNotes:
 		return m.Notes()
+	case compositemodelroute.FieldOrderedTargets:
+		return m.OrderedTargets()
 	}
 	return nil, false
 }
@@ -20874,6 +20946,8 @@ func (m *CompositeModelRouteMutation) OldField(ctx context.Context, name string)
 		return m.OldEnabled(ctx)
 	case compositemodelroute.FieldNotes:
 		return m.OldNotes(ctx)
+	case compositemodelroute.FieldOrderedTargets:
+		return m.OldOrderedTargets(ctx)
 	}
 	return nil, fmt.Errorf("unknown CompositeModelRoute field %s", name)
 }
@@ -20974,6 +21048,13 @@ func (m *CompositeModelRouteMutation) SetField(name string, value ent.Value) err
 		}
 		m.SetNotes(v)
 		return nil
+	case compositemodelroute.FieldOrderedTargets:
+		v, ok := value.(jsontext.Value)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetOrderedTargets(v)
+		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute field %s", name)
 }
@@ -21025,6 +21106,9 @@ func (m *CompositeModelRouteMutation) ClearedFields() []string {
 	if m.FieldCleared(compositemodelroute.FieldNotes) {
 		fields = append(fields, compositemodelroute.FieldNotes)
 	}
+	if m.FieldCleared(compositemodelroute.FieldOrderedTargets) {
+		fields = append(fields, compositemodelroute.FieldOrderedTargets)
+	}
 	return fields
 }
 
@@ -21044,6 +21128,9 @@ func (m *CompositeModelRouteMutation) ClearField(name string) error {
 		return nil
 	case compositemodelroute.FieldNotes:
 		m.ClearNotes()
+		return nil
+	case compositemodelroute.FieldOrderedTargets:
+		m.ClearOrderedTargets()
 		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute nullable field %s", name)
@@ -21091,6 +21178,9 @@ func (m *CompositeModelRouteMutation) ResetField(name string) error {
 		return nil
 	case compositemodelroute.FieldNotes:
 		m.ResetNotes()
+		return nil
+	case compositemodelroute.FieldOrderedTargets:
+		m.ResetOrderedTargets()
 		return nil
 	}
 	return fmt.Errorf("unknown CompositeModelRoute field %s", name)

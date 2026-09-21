@@ -661,7 +661,11 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				zap.Bool("has_bound_session", hasBoundSession),
 				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
 			)
-			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
+			// 只有本主干会在每次尝试内把出站模型改写成被选中目标的模型，因此只有它
+			// 启用有序目标推进（见 service.WithCompositeTargetAdvancement）。
+			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
+				service.WithCompositeTargetAdvancement(c.Request.Context()),
+				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
@@ -703,6 +707,23 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
+			// 有序目标 fallback：后续计费/归属按本次尝试实际使用的目标平台计算。
+			if selection.CompositeTarget != nil && selection.CompositeTarget.TargetPlatform != "" {
+				platform = selection.CompositeTarget.TargetPlatform
+			}
+			// 受控脱敏暴露：只回传白名单字段（provider/region），不含账号身份与凭据。
+			for headerKey, headerValue := range service.CompositeTargetExposureHeaders(selection.CompositeTarget) {
+				c.Header(headerKey, headerValue)
+			}
+			// 日志同样只记录白名单事实，便于运维按 provider/region 定位实际上游
+			// （gateway trace 已由 request_id 记录），绝不记录账号身份或凭据。
+			if attribution, ok := service.CompositeTargetAttributionOf(selection.CompositeTarget); ok {
+				reqLog.Info("composite.target_selected",
+					zap.String("upstream_provider", attribution.Provider),
+					zap.String("upstream_region", attribution.Region),
+					zap.Int("target_position", selection.CompositeTarget.Position),
+				)
+			}
 
 			// [DEBUG-STICKY] 打印账号选择结果
 			reqLog.Info("sticky.account_selected",
@@ -808,7 +829,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 等待路径保持既有 eager 绑定（无门时 helper 直接绑定）；调度器已
 			// 抢槽的直达路径无门时由选号内部绑定，这里只在门下补准入后绑定。
 			if selection.ProfitGateActive() || !selection.Acquired {
-				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(service.WithSelectionStickyTTL(admissionCtx, selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
@@ -866,6 +887,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 注入回调到 ParsedRequest：使用外层 wrapper 以便提前清理 AfterFunc
 			attemptParsedReq.OnUpstreamAccepted = queueRelease
 			// ===== 用户消息串行队列 END =====
+
+			// 有序目标 fallback：中间件只按首个目标改写过一次模型，换目标后必须
+			// 在渠道映射之前把本次尝试的模型改成被选中目标的 upstream 模型。
+			if selection.CompositeTarget != nil {
+				if targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel); targetModel != "" && targetModel != attemptParsedReq.Model {
+					attemptParsedReq.Model = targetModel
+					if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), targetModel)); err != nil {
+						h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+						return
+					}
+					reqModel = targetModel
+				}
+			}
 
 			// 渠道模型映射只作用于本次账号尝试，避免 failover 后污染原始 ParsedRequest。
 			if channelMapping.Mapped {
@@ -1107,7 +1141,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// - 粘性账号因负载/RPM 被跳过、选中了其他账号：不覆盖原绑定，
 			//   下次请求粘性账号恢复后仍可命中
 			if sessionKey != "" && (sessionBoundAccountID == 0 || sessionBoundAccountID == account.ID) {
-				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySession(service.WithSelectionStickyTTL(c.Request.Context(), selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}

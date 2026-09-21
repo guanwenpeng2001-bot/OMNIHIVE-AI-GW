@@ -785,6 +785,16 @@ func NotesContainsFold(v string) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldContainsFold(FieldNotes, v))
 }
 
+// OrderedTargetsIsNil applies the IsNil predicate on the "ordered_targets" field.
+func OrderedTargetsIsNil() predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldIsNull(FieldOrderedTargets))
+}
+
+// OrderedTargetsNotNil applies the NotNil predicate on the "ordered_targets" field.
+func OrderedTargetsNotNil() predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldNotNull(FieldOrderedTargets))
+}
+
 // HasGroup applies the HasEdge predicate on the "group" edge.
 func HasGroup() predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(func(s *sql.Selector) {

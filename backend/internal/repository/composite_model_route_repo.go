@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
@@ -41,7 +43,11 @@ func (r *compositeModelRouteRepository) Create(ctx context.Context, route *servi
 	if route == nil {
 		return service.ErrCompositeRouteNotFound
 	}
-	created, err := clientFromContext(ctx, r.client).CompositeModelRoute.Create().
+	orderedTargets, err := marshalCompositeRouteTargets(route.Targets)
+	if err != nil {
+		return err
+	}
+	create := clientFromContext(ctx, r.client).CompositeModelRoute.Create().
 		SetGroupID(route.GroupID).
 		SetPublicModel(route.PublicModel).
 		SetMatchType(route.MatchType).
@@ -51,8 +57,11 @@ func (r *compositeModelRouteRepository) Create(ctx context.Context, route *servi
 		SetEndpoint(route.Endpoint).
 		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
-		SetNotes(route.Notes).
-		Save(ctx)
+		SetNotes(route.Notes)
+	if len(orderedTargets) > 0 {
+		create = create.SetOrderedTargets(orderedTargets)
+	}
+	created, err := create.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, nil, service.ErrCompositeRouteExists)
 	}
@@ -70,7 +79,11 @@ func (r *compositeModelRouteRepository) Update(ctx context.Context, route *servi
 	if route == nil {
 		return service.ErrCompositeRouteNotFound
 	}
-	updated, err := clientFromContext(ctx, r.client).CompositeModelRoute.UpdateOneID(route.ID).
+	orderedTargets, err := marshalCompositeRouteTargets(route.Targets)
+	if err != nil {
+		return err
+	}
+	update := clientFromContext(ctx, r.client).CompositeModelRoute.UpdateOneID(route.ID).
 		SetPublicModel(route.PublicModel).
 		SetMatchType(route.MatchType).
 		SetTargetPlatform(route.TargetPlatform).
@@ -79,13 +92,31 @@ func (r *compositeModelRouteRepository) Update(ctx context.Context, route *servi
 		SetEndpoint(route.Endpoint).
 		SetPriority(route.Priority).
 		SetEnabled(route.Enabled).
-		SetNotes(route.Notes).
-		Save(ctx)
+		SetNotes(route.Notes)
+	if len(orderedTargets) == 0 {
+		update = update.ClearOrderedTargets()
+	} else {
+		update = update.SetOrderedTargets(orderedTargets)
+	}
+	updated, err := update.Save(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrCompositeRouteNotFound, service.ErrCompositeRouteExists)
 	}
 	*route = *compositeModelRouteEntityToService(updated)
 	return nil
+}
+
+// marshalCompositeRouteTargets stores the ordered fallback list. An empty list
+// clears the column: the route then falls back to the legacy single target.
+func marshalCompositeRouteTargets(targets []service.CompositeRouteTarget) ([]byte, error) {
+	if len(targets) == 0 {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(targets)
+	if err != nil {
+		return nil, fmt.Errorf("marshal composite route targets: %w", err)
+	}
+	return encoded, nil
 }
 
 func (r *compositeModelRouteRepository) Delete(ctx context.Context, id int64) error {
@@ -104,7 +135,7 @@ func compositeModelRouteEntityToService(row *dbent.CompositeModelRoute) *service
 	if row == nil {
 		return nil
 	}
-	return &service.CompositeModelRoute{
+	route := &service.CompositeModelRoute{
 		ID:             row.ID,
 		GroupID:        row.GroupID,
 		PublicModel:    row.PublicModel,
@@ -119,4 +150,11 @@ func compositeModelRouteEntityToService(row *dbent.CompositeModelRoute) *service
 		CreatedAt:      row.CreatedAt,
 		UpdatedAt:      row.UpdatedAt,
 	}
+	if len(row.OrderedTargets) > 0 {
+		var targets []service.CompositeRouteTarget
+		if err := json.Unmarshal(row.OrderedTargets, &targets); err == nil {
+			route.Targets = targets
+		}
+	}
+	return route
 }

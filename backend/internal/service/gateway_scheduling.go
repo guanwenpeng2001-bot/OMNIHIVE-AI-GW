@@ -32,6 +32,7 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -59,6 +60,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 			platform = decision.TargetPlatform
 			requestedModel = decision.UpstreamModel
 			ctx = WithCompositeRouteDecision(ctx, decision)
+			ctx = WithCompositeTargetStickyTTL(ctx)
 		}
 	} else {
 		// 无分组时只使用原生 anthropic 平台
@@ -98,6 +100,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -222,6 +225,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 		if matched {
 			ctx = WithCompositeRouteDecision(ctx, decision)
+			ctx = WithCompositeTargetStickyTTL(ctx)
+			// 多目标有序 fallback：本次尝试使用被选中的目标模型做候选过滤。
+			if len(decision.Targets) > 1 {
+				requestedModel = decision.UpstreamModel
+			}
 		}
 	}
 	preferOAuth := platform == PlatformGemini
@@ -592,7 +600,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 								"result", "slot_acquired",
 							)
 							if s.cache != nil {
-								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTLForRequest(ctx))
 							}
 							return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 						}
@@ -715,10 +723,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
+	// 有序目标权重只调节软负载分母，硬并发仍由 account.Concurrency 在
+	// tryAcquireAccountSlot 中强制执行（见 compositeTargetLoadDenominator）。
+	targetWeight := CompositeTargetDefaultWeight
+	if target, ok := ActiveCompositeTargetFromContext(ctx); ok && target.SchedulingWeight > 0 {
+		targetWeight = target.SchedulingWeight
+	}
 	for _, acc := range candidates {
 		accountLoads = append(accountLoads, AccountWithConcurrency{
 			ID:             acc.ID,
-			MaxConcurrency: acc.EffectiveLoadFactor(),
+			MaxConcurrency: compositeTargetLoadDenominator(acc.EffectiveLoadFactor(), targetWeight),
 		})
 	}
 
@@ -1586,12 +1600,16 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	if err != nil {
 		return nil, err
 	}
-	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+	result := &AccountSelectionResult{
 		Account:     hydrated,
 		Acquired:    acquired,
 		ReleaseFunc: release,
 		WaitPlan:    waitPlan,
-	}), nil
+	}
+	if target, ok := ActiveCompositeTargetFromContext(ctx); ok {
+		result.CompositeTarget = &target
+	}
+	return attachSelectionProfitGate(ctx, result), nil
 }
 
 // filterByMinPriority 过滤出优先级最小的账号集合

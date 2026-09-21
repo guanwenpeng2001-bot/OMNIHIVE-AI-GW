@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -186,6 +187,12 @@ func (_c *CompositeModelRouteCreate) SetNillableNotes(v *string) *CompositeModel
 	if v != nil {
 		_c.SetNotes(*v)
 	}
+	return _c
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_c *CompositeModelRouteCreate) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteCreate {
+	_c.mutation.SetOrderedTargets(v)
 	return _c
 }
 
@@ -419,6 +426,10 @@ func (_c *CompositeModelRouteCreate) createSpec() (*CompositeModelRoute, *sqlgra
 		_spec.SetField(compositemodelroute.FieldNotes, field.TypeString, value)
 		_node.Notes = &value
 	}
+	if value, ok := _c.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+		_node.OrderedTargets = value
+	}
 	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
 			Rel:     sqlgraph.M2O,
@@ -647,6 +658,24 @@ func (u *CompositeModelRouteUpsert) UpdateNotes() *CompositeModelRouteUpsert {
 // ClearNotes clears the value of the "notes" field.
 func (u *CompositeModelRouteUpsert) ClearNotes() *CompositeModelRouteUpsert {
 	u.SetNull(compositemodelroute.FieldNotes)
+	return u
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsert) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldOrderedTargets, v)
+	return u
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateOrderedTargets() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldOrderedTargets)
+	return u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsert) ClearOrderedTargets() *CompositeModelRouteUpsert {
+	u.SetNull(compositemodelroute.FieldOrderedTargets)
 	return u
 }
 
@@ -881,6 +910,27 @@ func (u *CompositeModelRouteUpsertOne) UpdateNotes() *CompositeModelRouteUpsertO
 func (u *CompositeModelRouteUpsertOne) ClearNotes() *CompositeModelRouteUpsertOne {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertOne) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetOrderedTargets(v)
+	})
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateOrderedTargets() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateOrderedTargets()
+	})
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertOne) ClearOrderedTargets() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.ClearOrderedTargets()
 	})
 }
 
@@ -1281,6 +1331,27 @@ func (u *CompositeModelRouteUpsertBulk) UpdateNotes() *CompositeModelRouteUpsert
 func (u *CompositeModelRouteUpsertBulk) ClearNotes() *CompositeModelRouteUpsertBulk {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertBulk) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetOrderedTargets(v)
+	})
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateOrderedTargets() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateOrderedTargets()
+	})
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertBulk) ClearOrderedTargets() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.ClearOrderedTargets()
 	})
 }
 

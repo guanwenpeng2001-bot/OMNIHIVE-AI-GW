@@ -581,6 +581,10 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// CompositeTarget 是本次选号实际使用的有序目标（单目标兼容路由也有值）。
+	// handler 用它把出站请求的 upstream 模型改写到被选中目标的模型，并把目标
+	// 声明的亲和性 TTL 应用到本次请求。
+	CompositeTarget *CompositeRouteTarget
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -965,12 +969,62 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
+type stickySessionTTLKey struct{}
+
+// WithStickySessionTTL overrides the sticky-session TTL for the current request.
+// A non-positive duration keeps the legacy default, so older callers and routes
+// without a configured affinity TTL keep the exact previous behavior.
+func WithStickySessionTTL(ctx context.Context, ttl time.Duration) context.Context {
+	if ctx == nil || ttl <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stickySessionTTLKey{}, ttl)
+}
+
+// WithCompositeTargetStickyTTL applies the active ordered target's configured
+// affinity TTL to the request context. It is a no-op when the request has no
+// ordered composite target or the target keeps the legacy default.
+func WithCompositeTargetStickyTTL(ctx context.Context) context.Context {
+	target, ok := ActiveCompositeTargetFromContext(ctx)
+	if !ok {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, target.AffinityTTLDuration())
+}
+
+// WithSelectionStickyTTL applies the affinity TTL declared by the ordered target
+// that produced this selection, keeping the legacy default when it is unset.
+func WithSelectionStickyTTL(ctx context.Context, result *AccountSelectionResult) context.Context {
+	if result == nil || result.CompositeTarget == nil {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, result.CompositeTarget.AffinityTTLDuration())
+}
+
+// stickySessionTTLForRequestWithDefault returns the affinity TTL declared for the
+// current request, or the caller's existing default when the request declares
+// none. Two trunks keep different legacy defaults (the Anthropic trunk uses
+// stickySessionTTL, the OpenAI trunk its own constant), so the default stays a
+// parameter instead of being unified here.
+func stickySessionTTLForRequestWithDefault(ctx context.Context, fallback time.Duration) time.Duration {
+	if ctx != nil {
+		if ttl, ok := ctx.Value(stickySessionTTLKey{}).(time.Duration); ok && ttl > 0 {
+			return ttl
+		}
+	}
+	return fallback
+}
+
+func stickySessionTTLForRequest(ctx context.Context) time.Duration {
+	return stickySessionTTLForRequestWithDefault(ctx, stickySessionTTL)
+}
+
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTLForRequest(ctx))
 }
 
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky
@@ -994,8 +1048,11 @@ func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Conte
 	if IsV2AffinityKey(sessionHash) {
 		_, _ = s.GetCachedSessionAccountID(ctx, groupID, sessionHash)
 		group := derefGroupID(groupID)
+		// 延迟绑定在准入点由另一条 ctx 执行，请求级亲和性 TTL 必须一并带过去，
+		// 否则有序目标声明的 TTL 只对直接绑定生效。
+		requestTTL := stickySessionTTLForRequest(ctx)
 		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
-			return s.BindStickySession(admitted, &group, sessionHash, accountID)
+			return s.BindStickySession(WithStickySessionTTL(admitted, requestTTL), &group, sessionHash, accountID)
 		})
 		return nil
 	}
