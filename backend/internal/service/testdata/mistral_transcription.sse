@@ -1,0 +1,12 @@
+event: transcription.language
+data: {"type":"transcription.language","language":"en"}
+
+event: transcription.text.delta
+data: {"type":"transcription.text.delta","text":"This week, "}
+
+event: transcription.text.delta
+data: {"type":"transcription.text.delta","text":"I traveled to Chicago."}
+
+event: transcription.done
+data: {"type":"transcription.done","model":"voxtral-mini-2507","text":"This week, I traveled to Chicago.","language":"en","segments":[],"usage":{"prompt_audio_seconds":203,"prompt_tokens":4,"total_tokens":3264,"completion_tokens":635}}
+
