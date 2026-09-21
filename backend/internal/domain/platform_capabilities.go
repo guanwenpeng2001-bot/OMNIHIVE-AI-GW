@@ -305,12 +305,16 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformAntigravity {
 		return antigravityActionDescriptor(descriptor, action, adapter)
+	}
 	if identity.Platform == PlatformBedrock {
 		return bedrockActionDescriptor(descriptor, action, adapter)
+	}
 	if identity.Platform == PlatformOpenCodeGo {
 		return openCodeActionDescriptor(descriptor, action, adapter)
+	}
 	if identity.Platform == PlatformVolcengine {
 		return volcengineActionDescriptor(descriptor, action, adapter)
+	}
 	if identity.Platform == PlatformHunyuan {
 		return hunyuanActionDescriptor(descriptor, action, adapter)
 	}
