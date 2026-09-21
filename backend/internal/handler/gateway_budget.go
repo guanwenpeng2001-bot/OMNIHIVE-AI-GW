@@ -27,18 +27,41 @@ func reserveGatewayRequestBudget(c *gin.Context, key *service.APIKey, model stri
 		abortGatewayRequestBudget(c, service.ErrAPIKeyBudgetUnavailable)
 		return false
 	}
-	estimate := service.RequestBudgetEstimate{
-		Model:           model,
-		InputTokens:     estimateGatewayRequestInputTokens(body),
-		OutputTokens:    declaredGatewayMaxOutputTokens(body),
-		RateMultiplier:  gatewayRequestRateMultiplier(key),
-		SkipBalanceHold: key.Group != nil && key.Group.IsSubscriptionType(),
-	}
+	estimate := gatewayRequestBudgetEstimate(plan, key, model, body)
 	if err := plan.ReserveBudget(c.Request.Context(), estimate); err != nil {
 		abortGatewayRequestBudget(c, err)
 		return false
 	}
 	return true
+}
+
+// gatewayRequestBudgetEstimate 选择本次请求的预留上界。
+//
+// 媒体/音频/realtime 的请求体只带生成参数，没有 token 用量：本地 token 估算器是
+// Anthropic 文本形状的，用它去数图片参数只会得到一个无意义的小数字，等于把
+// 媒体请求伪装成 token 请求。这些协议因此直接丢掉 body 派生的估算，只用文档化的
+// 有界上界，真正的金额仍由结算阶段按实际上游计量决定。
+func gatewayRequestBudgetEstimate(plan *service.GatewayRequestPlan, key *service.APIKey, model string, body []byte) service.RequestBudgetEstimate {
+	estimate := service.RequestBudgetEstimate{
+		Model:           model,
+		RateMultiplier:  gatewayRequestRateMultiplier(key),
+		SkipBalanceHold: key != nil && key.Group != nil && key.Group.IsSubscriptionType(),
+	}
+	if plan != nil && budgetEstimateIgnoresBody(plan.Snapshot().Protocol) {
+		return estimate
+	}
+	estimate.InputTokens = estimateGatewayRequestInputTokens(body)
+	estimate.OutputTokens = declaredGatewayMaxOutputTokens(body)
+	return estimate
+}
+
+// budgetEstimateIgnoresBody 报告该协议是否"请求体不含 token 用量"。
+func budgetEstimateIgnoresBody(protocol string) bool {
+	switch protocol {
+	case "images", "media", "audio", "realtime":
+		return true
+	}
+	return false
 }
 
 // abortGatewayRequestBudget serializes the rejection in the caller's protocol.

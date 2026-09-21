@@ -312,8 +312,9 @@ func applyThinkingModelSuffix(mappedModel string, thinkingEnabled bool) string {
 	if !thinkingEnabled {
 		return mappedModel
 	}
-	if mappedModel == "claude-sonnet-4-5" {
-		return "claude-sonnet-4-5-thinking"
+	if mappedModel == antigravityThinkingModelBase {
+		// 别名与限流域规范化共用同一份定义，避免两处各写一份。
+		return antigravityThinkingModelAlias()
 	}
 	return mappedModel
 }

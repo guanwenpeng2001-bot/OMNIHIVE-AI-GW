@@ -258,10 +258,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 2. 【新增】Wait后二次检查余额/订阅
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
@@ -1050,10 +1048,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
 						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
-							status, code, message, retryAfter := billingErrorDetails(err)
-							if retryAfter > 0 {
-								c.Header("Retry-After", strconv.Itoa(retryAfter))
-							}
+							status, code, message, _ := billingErrorDetails(err)
+							writeAdmissionRejectionHeaders(c, err)
 							h.handleStreamingAwareError(c, status, code, message, streamStarted)
 							return
 						}
@@ -1986,10 +1982,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -2267,6 +2261,10 @@ func extractQuotaResetSeconds(err error) int {
 }
 
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
+	// 网关实例过载/排队超时：这是网关自身容量，不是上游账号容量，返回 503 让客户端重试。
+	if errors.Is(err, service.ErrGatewayOverloaded) || errors.Is(err, service.ErrGatewayAdmissionTimeout) {
+		return http.StatusServiceUnavailable, pkgerrors.Reason(err), pkgerrors.Message(err), 0
+	}
 	if errors.Is(err, service.ErrInsufficientBalance) {
 		return http.StatusTooManyRequests, "insufficient_quota", "Insufficient account balance", 0
 	}
@@ -2279,15 +2277,15 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit5hExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit1dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit7dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	// 用户/分组 RPM 超限统一映射为 HTTP 429；保留与其它 rate_limit 一致的错误码便于客户端分类。
 	// 仅使用真实窗口元数据；没有 Redis 窗口时间时不根据本机时钟伪造重置。

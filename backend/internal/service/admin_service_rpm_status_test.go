@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/stretchr/testify/require"
@@ -48,8 +49,10 @@ func (s *rpmStatusRateRepoStub) GetRPMOverrideByUserAndGroup(_ context.Context, 
 
 type rpmStatusCacheStub struct {
 	UserRPMCache
-	userUsed  int
-	groupUsed map[int64]int
+	userUsed       int
+	groupUsed      map[int64]int
+	windowResetsAt time.Time
+	windowResetErr error
 }
 
 func (s *rpmStatusCacheStub) IncrementUserGroupRPM(context.Context, int64, int64) (int, error) {
@@ -66,6 +69,16 @@ func (s *rpmStatusCacheStub) GetUserGroupRPM(_ context.Context, _, groupID int64
 
 func (s *rpmStatusCacheStub) GetUserRPM(context.Context, int64) (int, error) {
 	return s.userUsed, nil
+}
+
+func (s *rpmStatusCacheStub) WindowResetAt(context.Context) (time.Time, error) {
+	if s.windowResetErr != nil {
+		return time.Time{}, s.windowResetErr
+	}
+	if !s.windowResetsAt.IsZero() {
+		return s.windowResetsAt, nil
+	}
+	return RPMWindowResetAt(time.Now()), nil
 }
 
 func TestAdminService_GetUserRPMStatus_AggregatesUserAndGroupLimits(t *testing.T) {
@@ -101,12 +114,18 @@ func TestAdminService_GetUserRPMStatus_AggregatesUserAndGroupLimits(t *testing.T
 
 	status, err := svc.GetUserRPMStatus(context.Background(), 42)
 	require.NoError(t, err)
+	windowResetsAt := status.WindowResetsAt
+	status.WindowResetsAt = nil
 	require.Equal(t, &UserRPMStatus{
 		UserRPMUsed:  5,
 		UserRPMLimit: 20,
+		Priority:     EffectiveRPMPriority,
 		PerGroup: []UserGroupRPMStatus{
-			{GroupID: groupOneID, GroupName: "group-one", Used: 3, Limit: 10, Source: "group"},
-			{GroupID: groupTwoID, GroupName: "group-two", Used: 4, Limit: 7, Source: "override"},
+			{GroupID: groupOneID, GroupName: "group-one", Used: 3, Limit: 10, Source: AdmissionRateLimitSourceGroup, UserCeilingRPM: 20},
+			{GroupID: groupTwoID, GroupName: "group-two", Used: 4, Limit: 7, Source: AdmissionRateLimitSourceUserGroupOverride, UserCeilingRPM: 20},
 		},
 	}, status)
+	require.NotNil(t, windowResetsAt,
+		"the admin view shows the same server-time window the counters use")
+	require.WithinDuration(t, RPMWindowResetAt(time.Now()), *windowResetsAt, 2*time.Second)
 }

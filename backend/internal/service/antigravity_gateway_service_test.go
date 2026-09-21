@@ -851,9 +851,10 @@ func TestAntigravityGatewayService_ForwardGemini_ClearsStickySessionOnGeminiRate
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
-	require.Len(t, repo.modelRateLimitCalls, 2)
+	// 证据只证明这一个模型被限流：只写该模型自己的额度域，
+	// 不再由单模型证据推断整族 Gemini 不可用（T3-2.7）。
+	require.Len(t, repo.modelRateLimitCalls, 1)
 	require.Equal(t, "gemini-3-flash", repo.modelRateLimitCalls[0].modelKey)
-	require.Equal(t, antigravityGeminiModelRateLimitKey, repo.modelRateLimitCalls[1].modelKey)
 	require.Len(t, cache.deleteCalls, 1)
 	require.Equal(t, int64(77), cache.deleteCalls[0].groupID)
 	require.Equal(t, "gemini:sticky-runtime", cache.deleteCalls[0].sessionHash)

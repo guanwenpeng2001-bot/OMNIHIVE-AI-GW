@@ -1252,6 +1252,70 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 	return rates, nil
 }
 
+// rpmWindowReader 是 API key 缓存的窄扩展口：实现它就能给出真实 RPM 窗口边界。
+// 未实现（如测试替身）时只省略重置时间，不影响限额解析。
+type rpmWindowReader interface {
+	RPMWindowResetAt(ctx context.Context) (time.Time, error)
+}
+
+// EffectiveRPM 解析这把 Key 实际生效的 RPM 限额，用于用户可见展示。
+//
+// 与请求判定共用 ResolveEffectiveRPMLimits：覆盖值存在时替代分组容量，
+// 用户级上限始终作为天花板列出。重置时间来自 RPM 计数器的服务端时间源；
+// 拿不到就留空，不允许用本机时钟编一个看起来合理的值。
+func (s *APIKeyService) EffectiveRPM(ctx context.Context, key *APIKey) *APIKeyEffectiveRPM {
+	if s == nil || key == nil {
+		return nil
+	}
+	groupID := int64(0)
+	groupRPMLimit := 0
+	if key.GroupID != nil {
+		groupID = *key.GroupID
+	}
+	if key.Group != nil && key.Group.ID == groupID {
+		groupRPMLimit = key.Group.RPMLimit
+	} else if groupID > 0 && s.groupRepo != nil {
+		if group, err := s.groupRepo.GetByIDLite(ctx, groupID); err == nil && group != nil {
+			groupRPMLimit = group.RPMLimit
+		}
+	}
+
+	userID := key.UserID
+	userRPMLimit := 0
+	if key.User != nil && key.User.ID == userID {
+		userRPMLimit = key.User.RPMLimit
+	} else if userID > 0 && s.userRepo != nil {
+		if user, err := s.userRepo.GetByID(ctx, userID); err == nil && user != nil {
+			userRPMLimit = user.RPMLimit
+		}
+	}
+
+	var override *int
+	if groupID > 0 {
+		if key.User != nil && key.User.ID == userID && key.User.UserGroupRPMOverride != nil {
+			override = key.User.UserGroupRPMOverride
+		} else if s.userGroupRateRepo != nil {
+			if dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID); err == nil {
+				override = dbOverride
+			}
+		}
+	}
+
+	out := &APIKeyEffectiveRPM{
+		Limits:   ResolveEffectiveRPMLimits(userRPMLimit, userID, groupID, groupRPMLimit, override),
+		Priority: EffectiveRPMPriority,
+	}
+	if reader, ok := s.cache.(rpmWindowReader); ok {
+		if resetAt, err := reader.RPMWindowResetAt(ctx); err == nil && RetryAfterSecondsUntil(resetAt, time.Now()) > 0 {
+			out.WindowResetsAt = &resetAt
+		}
+	}
+	if out.Limits == nil {
+		out.Limits = []EffectiveRPM{}
+	}
+	return out
+}
+
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)
 // Returns nil if valid, error if invalid
 func (s *APIKeyService) CheckAPIKeyQuotaAndExpiry(apiKey *APIKey) error {

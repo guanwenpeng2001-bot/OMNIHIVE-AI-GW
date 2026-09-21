@@ -61,6 +61,11 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	}
 	model := c.Query("model")
 	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "realtime", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, key, model, nil) {
+		return
+	}
 	ctx, release, err := h.upstreamJobs.RegisterQianwenRealtime(c.Request.Context())
 	if err != nil {
 		h.errorResponse(c, 503, "api_error", "Application is draining")

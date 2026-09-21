@@ -81,11 +81,13 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		c.JSON(status, gin.H{"error": gin.H{"type": code, "message": message}})
+		return
+	}
+	// 入口前置 hold：先把周期预算占用下来再调用上游，结算时按实际消耗修正。
+	if !reserveGatewayRequestBudget(c, apiKey, searchModel, nil) {
 		return
 	}
 

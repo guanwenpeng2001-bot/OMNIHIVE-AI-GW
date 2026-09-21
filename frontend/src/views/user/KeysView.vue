@@ -333,6 +333,36 @@
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
 
+            <!-- Effective RPM: which dimension owns each limit, the limit value and
+                 the real reset of the current minute window. Deliberately separate
+                 from the USD windows above (money) and from the period budget below. -->
+            <div
+              v-if="row.effective_rpm && row.effective_rpm.limits.length > 0"
+              class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600"
+            >
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.effectiveRpmPriorityHint')">
+                  {{ t('keys.effectiveRpmTitle') }}
+                </span>
+              </div>
+              <div
+                v-for="limit in row.effective_rpm.limits"
+                :key="`${limit.source}-${limit.scope_id}`"
+                class="flex items-center justify-between gap-2 text-[11px] tabular-nums"
+              >
+                <span class="text-gray-400 dark:text-dark-500">{{ effectiveRpmSourceLabel(limit.source) }}</span>
+                <span class="font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('keys.effectiveRpmValue', { limit: limit.limit }) }}
+                </span>
+              </div>
+              <div
+                v-if="row.effective_rpm.window_resets_at && formatRpmReset(row.effective_rpm.window_resets_at)"
+                class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums"
+              >
+                ⟳ {{ t('keys.effectiveRpmResetsIn', { value: formatRpmReset(row.effective_rpm.window_resets_at) }) }}
+              </div>
+            </div>
+
             <!-- Period budget (USD): a spend limit over one explicit period, kept
                  visually separate from the RPM/TPM rate limits above. -->
             <div v-if="row.budget_period_mode !== 'off' && row.budget_limit > 0" class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600">
@@ -1303,7 +1333,7 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
-	import type { ApiKey, ApiKeyPeriodBudgetRequest, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+	import type { ApiKey, ApiKeyEffectiveRPMLimit, ApiKeyPeriodBudgetRequest, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -2201,6 +2231,26 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
 const closeCcsClientSelect = () => {
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
+}
+
+function effectiveRpmSourceLabel(source: ApiKeyEffectiveRPMLimit['source']): string {
+  switch (source) {
+    case 'user_group_override':
+      return t('keys.effectiveRpmSourceUserGroupOverride')
+    case 'group':
+      return t('keys.effectiveRpmSourceGroup')
+    default:
+      return t('keys.effectiveRpmSourceUser')
+  }
+}
+
+// RPM windows are minutes long, so the shared day/hour formatter would always
+// print "0m". Show the real countdown to the window boundary.
+function formatRpmReset(resetAt: string | null | undefined): string {
+  if (!resetAt) return ''
+  const diff = new Date(resetAt).getTime() - now.value.getTime()
+  if (diff <= 0) return t('keys.resetNow')
+  return `${Math.max(1, Math.ceil(diff / 1000))}s`
 }
 
 function formatResetTime(resetAt: string | null): string {

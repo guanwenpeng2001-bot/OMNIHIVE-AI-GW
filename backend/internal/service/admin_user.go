@@ -647,39 +647,58 @@ func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, userID int64) (
 			logger.LegacyPrintf("service.admin", "failed to get user group rpm: user_id=%d group_id=%d err=%v", userID, groupID, getErr)
 		}
 
-		entry := UserGroupRPMStatus{
-			GroupID: groupID,
-			Used:    used,
-		}
-
+		groupRPMLimit := 0
+		groupName := ""
 		if s.groupRepo != nil {
 			if group, groupErr := s.groupRepo.GetByIDLite(ctx, groupID); groupErr == nil && group != nil {
-				entry.GroupName = group.Name
-				entry.Limit = group.RPMLimit
-				entry.Source = "group"
+				groupName = group.Name
+				groupRPMLimit = group.RPMLimit
 			} else if groupErr != nil {
 				logger.LegacyPrintf("service.admin", "failed to get group rpm status metadata: group_id=%d err=%v", groupID, groupErr)
 			}
 		}
 
+		var override *int
 		if s.userGroupRateRepo != nil {
-			override, overrideErr := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID)
+			dbOverride, overrideErr := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID)
 			if overrideErr != nil {
 				logger.LegacyPrintf("service.admin", "failed to get rpm override: user_id=%d group_id=%d err=%v", userID, groupID, overrideErr)
-			} else if override != nil {
-				entry.Limit = *override
-				entry.Source = "override"
+			} else {
+				override = dbOverride
 			}
+		}
+
+		// 与请求判定共用同一份优先级解析：覆盖替代分组容量，用户级上限始终列出。
+		entry := UserGroupRPMStatus{
+			GroupID:        groupID,
+			GroupName:      groupName,
+			Used:           used,
+			UserCeilingRPM: user.RPMLimit,
+		}
+		for _, effective := range ResolveEffectiveRPMLimits(user.RPMLimit, userID, groupID, groupRPMLimit, override) {
+			if effective.Source == AdmissionRateLimitSourceUser {
+				continue
+			}
+			entry.Limit = effective.Limit
+			entry.Source = effective.Source
 		}
 
 		perGroup = append(perGroup, entry)
 	}
 
-	return &UserRPMStatus{
+	status := &UserRPMStatus{
 		UserRPMUsed:  userRPMUsed,
 		UserRPMLimit: user.RPMLimit,
+		Priority:     EffectiveRPMPriority,
 		PerGroup:     perGroup,
-	}, nil
+	}
+	// 重置时间来自 RPM 计数器的服务端时间源；拿不到就留空，不用本机时钟凑。
+	if resetAt, resetErr := s.userRPMCache.WindowResetAt(ctx); resetErr == nil {
+		status.WindowResetsAt = &resetAt
+	} else {
+		logger.LegacyPrintf("service.admin", "failed to get rpm window reset: user_id=%d err=%v", userID, resetErr)
+	}
+	return status, nil
 }
 
 func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error) {
