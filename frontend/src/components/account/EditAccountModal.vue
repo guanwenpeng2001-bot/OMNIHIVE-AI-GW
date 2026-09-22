@@ -2633,11 +2633,11 @@ const editBaseUrlPlaceholder = computed(() => {
   return 'https://api.anthropic.com'
 })
 
-// 与创建弹窗同口径：能查到官方文档的前缀就按文档给，否则中性占位。
+// 与创建弹窗同口径：能查到官方文档给出前缀的按文档给，否则中性占位（TokenHub 不编造 sk-）。
 const editApiKeyPlaceholder = computed(() => {
   const platform = props.account?.platform
   if (platform === 'qianfan') return 'bce-v3/ALTAK-...'
-  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return platform === 'hunyuan' ? 'sk-...' : '<api-key>'
+  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return '<api-key>'
   if (platform === 'qianwen') return 'sk-ws-... / sk-sp-...'
   if (platform === 'commandcode') return '<api-key>'
   if (platform === 'openai') return 'sk-proj-...'
