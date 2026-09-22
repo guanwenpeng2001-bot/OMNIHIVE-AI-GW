@@ -560,6 +560,7 @@ export default {
     noDataToExport: '没有可导出的数据',
     exportSuccess: '使用数据导出成功',
     exportFailed: '使用数据导出失败',
+    exportHistoryIncomplete: '使用历史不完整，该时间范围无法完整导出。',
     exportExcelSuccess: '使用数据导出成功（Excel格式）',
     exportExcelFailed: '使用数据导出失败',
     imageUnit: '张',

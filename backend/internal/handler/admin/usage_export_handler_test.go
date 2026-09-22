@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -24,6 +26,12 @@ type adminUsageExportRepo struct {
 	batches       int
 	blockAfter    chan struct{}
 	cancelledSeen bool
+
+	// streamError 让替身模拟服务端读取失败（例如 USAGE_HISTORY_INCOMPLETE 守卫）。
+	// failAfterFirstBatch=true 时失败发生在第一批行已经写进响应之后，用于验证
+	// 「流已经开始」时不得把 JSON 错误追回到 CSV 正文里。
+	streamError         error
+	failAfterFirstBatch bool
 }
 
 func (s *adminUsageExportRepo) StreamUsageLogsWithFilters(
@@ -34,6 +42,9 @@ func (s *adminUsageExportRepo) StreamUsageLogsWithFilters(
 	yield func([]service.UsageLog) error,
 ) error {
 	s.filters = filters
+	if s.streamError != nil && !s.failAfterFirstBatch {
+		return s.streamError
+	}
 	if len(s.logs) == 0 {
 		return nil
 	}
@@ -49,7 +60,7 @@ func (s *adminUsageExportRepo) StreamUsageLogsWithFilters(
 			return ctx.Err()
 		}
 	}
-	return nil
+	return s.streamError
 }
 
 func newAdminUsageExportRouter(repo *adminUsageExportRepo) *gin.Engine {
@@ -178,6 +189,56 @@ func TestAdminUsageExportRejectsUnknownFormat(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusBadRequest, rec.Code)
+}
+
+func usageExportHistoryIncompleteError() error {
+	return infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").
+		WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+}
+
+// 读取失败必须回到统一的 JSON 错误信封：不能留着 CSV 下载头，让客户端把 JSON 正文当成文件。
+func TestAdminUsageExportAnswersReadFailuresWithTheJSONEnvelope(t *testing.T) {
+	repo := &adminUsageExportRepo{streamError: usageExportHistoryIncompleteError()}
+	router := newAdminUsageExportRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?format=csv&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "application/json", "失败响应不能声明 CSV 正文")
+	require.Empty(t, rec.Header().Get("Content-Disposition"), "失败响应不是附件下载")
+	require.Empty(t, rec.Header().Get(usageExportHeaderColumns), "列顺序头描述的是没有发出去的文件")
+	require.Empty(t, rec.Header().Get(usageExportHeaderSnapshotEnd))
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Equal(t, float64(http.StatusConflict), envelope["code"])
+	require.Equal(t, "USAGE_HISTORY_INCOMPLETE", envelope["reason"])
+	require.Equal(t, map[string]any{"raw_retained_from": "2026-03-05T00:00:00Z"}, envelope["metadata"])
+}
+
+// 响应体已经开始写时不能再发 JSON 错误：流按中断处理，已发出的部分保持合法 CSV。
+func TestAdminUsageExportAbortsAfterTheStreamStartedInsteadOfAppendingJSON(t *testing.T) {
+	repo := &adminUsageExportRepo{
+		logs:                []service.UsageLog{usageExportAdminLogFixture()},
+		streamError:         usageExportHistoryIncompleteError(),
+		failAfterFirstBatch: true,
+	}
+	router := newAdminUsageExportRouter(repo)
+
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?format=csv&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusOK, rec.Code, "第一批行写出后响应状态已经提交")
+	require.Contains(t, rec.Header().Get("Content-Type"), "text/csv")
+	require.NotContains(t, rec.Body.String(), "USAGE_HISTORY_INCOMPLETE", "JSON 错误不得追回 CSV 正文")
+	require.NotContains(t, rec.Body.String(), `"reason"`)
+
+	records := readAdminExportCSV(t, rec.Body.String())
+	require.Equal(t, dto.UsageExportColumns(dto.UsageExportScopeAdmin), records[0], "中断前发出的部分仍是合法 CSV")
+	require.Len(t, records, 2)
 }
 
 func TestAdminUsageExportCancellationStopsTheStream(t *testing.T) {

@@ -38,6 +38,9 @@ func (h *UsageHandler) Export(c *gin.Context) {
 	userTZ := c.Query("timezone")
 
 	columns := dto.UsageExportColumns(dto.UsageExportScopeSelf)
+	// The download headers must reach the client with the first body byte, so the
+	// read below still runs with them in place and has to drop them again when it
+	// fails before writing anything.
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=\""+dto.UsageExportFilename("usage", usageExportDate(filters.StartTime), usageExportDate(&snapshotEnd), dto.UsageExportFormatCSV)+"\"")
 	c.Header("X-Usage-Export-Columns", strings.Join(columns, ","))
@@ -61,14 +64,21 @@ func (h *UsageHandler) Export(c *gin.Context) {
 	})
 	if err != nil {
 		if !stream.Started() {
+			// No body byte has been written, so the failure can still answer as the
+			// shared JSON envelope: drop the headers that promised a CSV file.
+			response.DropDownloadHeaders(c, "X-Usage-Export-Columns", "X-Usage-Export-Snapshot-End")
 			response.ErrorFrom(c, err)
 			return
 		}
+		// The body is already committed as CSV, so appending the JSON envelope
+		// would corrupt the file. Abort the transfer instead: the client keeps a
+		// truncated CSV and must treat a short file as a failed export.
 		logger.LegacyPrintf("handler.usage", "usage export stream aborted: %v", err)
 		c.Abort()
 		return
 	}
 	if err := stream.Close(); err != nil && !stream.Started() {
+		response.DropDownloadHeaders(c, "X-Usage-Export-Columns", "X-Usage-Export-Snapshot-End")
 		response.ErrorFrom(c, err)
 		return
 	}

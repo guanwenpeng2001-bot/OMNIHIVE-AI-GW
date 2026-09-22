@@ -555,6 +555,7 @@ export default {
     noDataToExport: 'No data to export',
     exportSuccess: 'Usage data exported successfully',
     exportFailed: 'Failed to export usage data',
+    exportHistoryIncomplete: 'Usage history is incomplete, so this range cannot be exported in full.',
     exportExcelSuccess: 'Usage data exported successfully (Excel format)',
     exportExcelFailed: 'Failed to export usage data',
     imageUnit: ' images',

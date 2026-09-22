@@ -13,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	dbentschema "github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/stretchr/testify/require"
 )
 
@@ -32,6 +33,19 @@ func TestUsageLogEntProjectionMatchesSQLInsertColumns(t *testing.T) {
 			"缺失=%v 多出=%v",
 		usageLogColumnsMissingFrom(insertColumns, projection),
 		usageLogColumnsMissingFrom(projection, insertColumns))
+}
+
+// entUsageLogProjectionColumns 返回 Ent schema 为 usage_logs 声明的列名。
+// 自增主键 id 不出现在 Fields() 里，与手写 INSERT 的列清单一致，因此无需额外剔除。
+// 唯一调用者是本文件的 unit 用例，所以它放在 unit 档里，不在 integration 档下假装可用。
+func entUsageLogProjectionColumns() []string {
+	fields := dbentschema.UsageLog{}.Fields()
+	columns := make([]string, 0, len(fields))
+	for _, f := range fields {
+		columns = append(columns, f.Descriptor().Name)
+	}
+	sort.Strings(columns)
+	return columns
 }
 
 // TestUsageLogsRuntimeUsesSQLMigrationsNotEntAutoMigrate 守卫运行期不使用 Ent 自动建表。
