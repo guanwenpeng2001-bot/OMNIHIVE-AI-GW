@@ -57,6 +57,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"usage_dashboard_hourly", "usage_dashboard_daily", "scheduler_outbox",
 		"user_affiliate_ledger", "payment_orders", "usage_cleanup_tasks",
 		"credential_secrets", "api_key_credentials",
+		"api_key_budget_periods", "api_key_budget_reservations", "api_key_budget_adjustments",
 		"user_subscriptions", "user_allowed_groups", "api_keys",
 		"identity_adoption_decisions", "auth_identity_channels", "auth_identities",
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
