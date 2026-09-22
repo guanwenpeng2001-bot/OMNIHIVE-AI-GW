@@ -33,6 +33,31 @@
         </div>
       </dl>
       <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.addressHint') }}</p>
+      <!-- Generation endpoints are a different entry from the Messages protocol: an
+           Anthropic-compatible /v1/messages key sends text and vision input, it does
+           not generate images, videos or audio. -->
+      <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+        <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ t('keys.payAsYouGo.generationTitle') }}</p>
+        <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t('keys.payAsYouGo.generationHint') }}</p>
+        <ul class="mt-2 space-y-1.5">
+          <li
+            v-for="endpoint in generationEndpoints"
+            :key="endpoint.path"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <span class="text-xs font-medium text-amber-800 dark:text-amber-200">{{ t(endpoint.label) }}</span>
+            <code class="min-w-0 break-all text-xs text-amber-900 dark:text-amber-100">{{ endpoint.url }}</code>
+            <button
+              type="button"
+              class="rounded p-1 text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+              :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
+              @click="clipboardCopy(endpoint.url, t('keys.payAsYouGo.copied'))"
+            >
+              <Icon name="clipboard" size="sm" />
+            </button>
+          </li>
+        </ul>
+      </div>
     </section>
     <TablePageLayout>
       <template #filters>
@@ -1312,6 +1337,7 @@ import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
+import { keyVisibleModels } from '@/api/modelAccess'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1341,6 +1367,22 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const gatewayEndpoints = [
   { protocol: 'openai', label: 'keys.payAsYouGo.openai', path: '/v1' },
   { protocol: 'anthropic', label: 'keys.payAsYouGo.anthropic', path: '/v1/messages' }
+].map((endpoint) => ({
+  ...endpoint,
+  url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href
+}))
+
+// Copyable generation entries. Availability still depends on the key's group
+// platform and, for images, the group image-generation switch; the list never
+// claims they are enabled for this key.
+const generationEndpoints = [
+  { label: 'keys.payAsYouGo.imageGeneration', path: '/v1/images/generations' },
+  { label: 'keys.payAsYouGo.imageEdit', path: '/v1/images/edits' },
+  { label: 'keys.payAsYouGo.videoGeneration', path: '/v1/videos/generations' },
+  { label: 'keys.payAsYouGo.speech', path: '/v1/tts' },
+  { label: 'keys.payAsYouGo.transcription', path: '/v1/stt' },
+  { label: 'keys.payAsYouGo.embeddings', path: '/v1/embeddings' },
+  { label: 'keys.payAsYouGo.rerank', path: '/v1/rerank' }
 ].map((endpoint) => ({
   ...endpoint,
   url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href
@@ -1477,6 +1519,10 @@ const issuedGraceUntil = ref<string | null>(null)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
+// Plaintext credentials exist only in this session: the panel can no longer read
+// them back after creation or rotation, so config exports may only use them while
+// they are still held here.
+const sessionSecrets = new Map<number, string>()
 const selectedKey = ref<ApiKey | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
@@ -1855,6 +1901,9 @@ const openRotateModal = (key: ApiKey) => {
 }
 
 const onCredentialIssued = (payload: { secret: string; graceUntil: string | null }) => {
+  if (rotateTarget.value && payload.secret) {
+    sessionSecrets.set(rotateTarget.value.id, payload.secret)
+  }
   issuedSecret.value = payload.secret
   issuedGraceUntil.value = payload.graceUntil
   showSecretDialog.value = true
@@ -2051,6 +2100,7 @@ const handleSubmit = async () => {
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
       if (issue?.secret) {
+        sessionSecrets.set(issue.api_key.id, issue.secret)
         issuedSecret.value = issue.secret
         issuedGraceUntil.value = issue.grace_until ?? null
         showSecretDialog.value = true
@@ -2134,6 +2184,13 @@ const setExpirationDays = (days: number) => {
 const importToCcswitch = (row: ApiKey) => {
   const platform = row.group?.platform || 'anthropic'
 
+  // A masked credential cannot configure a client. Import needs the one-time
+  // secret from this session; never write the list's mask into a deep link.
+  if (!sessionSecrets.get(row.id)) {
+    appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
+    return
+  }
+
   // For antigravity platform, show client selection dialog
   if (platform === 'antigravity') {
     pendingCcsRow.value = row
@@ -2142,11 +2199,20 @@ const importToCcswitch = (row: ApiKey) => {
   }
 
   // For other platforms, execute directly
-  executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
+  void executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
 }
 
-const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
-  const baseUrl = publicSettings.value?.api_base_url || window.location.origin
+const executeCcsImport = async (row: ApiKey, clientType: CcSwitchClientType) => {
+  const secret = sessionSecrets.get(row.id)
+  if (!secret) {
+    appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
+    return
+  }
+  const baseUrl = publicSettings.value?.api_base_url
+  if (!baseUrl) {
+    appStore.showError(t('keys.ccSwitchBaseUrlMissing'))
+    return
+  }
   const platform = row.group?.platform || 'anthropic'
 
   const usageScript = `({
@@ -2165,14 +2231,18 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
       };
     }
   })`
+  // The import model must come from this Key's visible set. When the server
+  // cannot answer, the deep link simply carries no model.
+  const visible = await keyVisibleModels(row.id)
   const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,
     platform,
     clientType,
     providerName,
-    apiKey: row.key,
-    usageScript
+    apiKey: secret,
+    usageScript,
+    visibleModels: visible?.models ?? null
   })
 
   try {
@@ -2192,7 +2262,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
 
 const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   if (pendingCcsRow.value) {
-    executeCcsImport(pendingCcsRow.value, clientType)
+    void executeCcsImport(pendingCcsRow.value, clientType)
   }
   showCcsClientSelect.value = false
   pendingCcsRow.value = null

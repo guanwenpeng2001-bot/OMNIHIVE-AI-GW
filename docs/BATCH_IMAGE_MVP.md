@@ -11,15 +11,33 @@ API users do not see Gemini file names, Vertex job names, GCS paths, signed URLs
 
 ## API Routes
 
+The batch image surface is registered under `/v1/images/batches` with root aliases
+(`/images/batches/...`) that carry the same authentication and method chain.
+
 ```text
-POST   /v1/images/batches
-GET    /v1/images/batches/{id}
-GET    /v1/images/batches/{id}/items
-GET    /v1/images/batches/{id}/items/{custom_id}/content
-GET    /v1/images/batches/{id}/download
-POST   /v1/images/batches/{id}/cancel
-DELETE /v1/images/batches/{id}/outputs
+POST   /v1/images/batches                            submit a batch (Idempotency-Key supported)
+GET    /v1/images/batches                            list your batches
+GET    /v1/images/batches/models                     list batch-eligible models for your key
+GET    /v1/images/batches/{id}                       batch status and counts
+GET    /v1/images/batches/{id}/items                 per-item results
+GET    /v1/images/batches/{id}/items/{custom_id}/content  one item's image
+GET    /v1/images/batches/{id}/download              ZIP of the batch outputs
+POST   /v1/images/batches/{id}/cancel                cancel a non-terminal batch
+DELETE /v1/images/batches/{id}                       delete the batch record (after it is done)
+DELETE /v1/images/batches/{id}/outputs               delete stored outputs only
 ```
+
+### Ownership and permissions
+
+- The batch feature must be enabled globally (`batch_image.enabled`, default `false`).
+- The calling API key's group must be a **Gemini** group with batch image generation allowed (`allow_batch_image_generation`). Other platforms and groups without that switch get `BATCH_IMAGE_GROUP_DISABLED`.
+- Every route is scoped to the owner identity taken from the API key (`user_id` + `api_key_id` + `group_id`). Another user's or another key's batch id is reported as not found, never as a permission error, so ids cannot be probed across tenants.
+- `GET /v1/images/batches/models` enumerates models that have a usable account, a configured unit price and an account mapping in the same group; the group model allowlist is applied on top.
+- `POST /v1/images/batches` accepts `Idempotency-Key`: the same key with the same request hash returns the existing batch, the same key with a different body is rejected as a conflict.
+- Submitting reserves a balance hold for the estimated cost; insufficient balance rejects the submission (`402 BATCH_IMAGE_INSUFFICIENT_BALANCE`) before any upstream work starts.
+- `DELETE /v1/images/batches/{id}` only removes the record once the batch reached a done state (`BATCH_IMAGE_RECORD_DELETE_NOT_READY` otherwise) and returns `204`; `DELETE /v1/images/batches/{id}/outputs` deletes the stored files while keeping the record.
+
+The list endpoint accepts `status`, `task_name`, `downloaded`, `from`, `to`, `limit` and `cursor`; the items endpoint accepts `status`, `limit` and `cursor`. Both return `has_more` for cursor pagination.
 
 Submit request:
 

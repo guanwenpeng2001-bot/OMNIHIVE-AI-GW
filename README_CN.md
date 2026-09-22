@@ -193,8 +193,10 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **智能调度** - 智能账号选择，支持粘性会话
 - **并发控制** - 用户级和账号级并发限制
 - **速率限制** - 可配置的请求和 Token 速率限制
-- **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
+- **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe 与 Airwallex（空中云汇），并支持绑定分组的订阅套餐，用户自助充值/订购，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
+- **复合分组（Composite）** - 管理员路由层，把请求的公开模型解析到具体供应商，支持多供应商分组与可选的有序 fallback 目标（[运维手册](docs/COMPOSITE_GROUPS.md)）
+- **多模态请求** - 按平台注册的媒体动作：图片生成/编辑/变体、视频生成/编辑/扩展、语音（TTS/STT）、向量、重排与实时，均受分组平台、账号证据与分组开关约束。Anthropic Messages 始终是文本/视觉输入协议，不是生成类入口
 - **外部系统集成** - 支持通过 iframe 嵌入外部系统（如工单等），扩展管理后台功能
 
 ## 生态项目
@@ -748,6 +750,32 @@ OAuth / Setup Token 图片请求使用 Responses 主控模型调用 `image_gener
 
 ---
 
+## Grok / xAI 支持
+
+Sub2API 同时支持通过 xAI OAuth 授权的 Grok 订阅账号和标准 xAI API Key 账号，两类账号都会把 OpenAI 兼容的 Responses 流量转发到 xAI。
+
+### 支持范围
+
+- 平台名：`grok`
+- 账号类型：OAuth 订阅账号与 xAI API Key 账号
+- 公开 Responses 入口：`/v1/responses`、`/responses`、`/backend-api/codex/responses`，OAuth 账号走订阅代理，API Key 账号走 `https://api.x.ai/v1/responses`
+- 公开 Claude 兼容入口：`/v1/messages`，转换为 xAI Responses 并以 Anthropic Messages 形状返回，供 Claude CLI 类客户端使用
+- 公开 Chat Completions 入口：`/v1/chat/completions`、`/chat/completions`，按账号类型转发到对应的 xAI 上游
+- Responses 入口接受 Codex CLI 风格的 WebSocket 直连，并桥接到 xAI HTTP/SSE 上游
+- 文本模型：`grok-4.5`、`grok-4.3`、`grok-build-0.1`、`grok-composer-2.5-fast`、`grok-4.20-0309-reasoning`、`grok-4.20-0309-non-reasoning`、`grok-4.20-multi-agent-0309`
+- Grok 分组的媒体入口：`/v1/images/generations`、`/images/generations`、`/v1/images/edits`、`/images/edits`、`/v1/videos/generations`、`/videos/generations`、`/v1/videos/edits`、`/videos/edits`、`/v1/videos/extensions`、`/videos/extensions`、`/v1/videos/{request_id}`、`/videos/{request_id}`。生成、编辑与扩展需要分组开启图片生成权限。图片变体（`/v1/images/variations`）是 OpenAI/Bedrock 动作，不属于 Grok 面
+- 媒体模型：`grok-imagine`、`grok-imagine-image-quality`、`grok-imagine-image`、`grok-imagine-image-2.0`、`grok-imagine-edit`、`grok-imagine-video`、`grok-imagine-video-1.5`
+- Grok 分组的语音与搜索入口：`/v1/tts`、`/v1/stt`、`/v1/custom-voices`（创建/列表/详情/更新/删除及 `/{voice_id}/audio`）、`/v1/realtime`（WebSocket）、`/v1/web_search`、`/v1/x_search`，以及对应的根别名。这些是各自独立的动作权限：能聊天的 Grok Key 不等于自动获得 TTS、转写或搜索能力
+- 明确不支持：浏览器自动化、基于 Cookie 的抓取与 Grok 网页抓取
+
+> `/v1/messages` 只处理文本与视觉输入；图片、视频、语音等生成类请求请使用上表对应的媒体入口，不要寄望 `/v1/messages` 出图。
+
+### 用量与额度展示
+
+xAI 的额度是被动来源：Sub2API 不会凭空生成订阅额度，只在 xAI 实际返回时记录白名单内的速率限制响应头。在首个可用上游响应之前，面板显示额度为未知，同时仍展示本地用量统计。
+
+---
+
 ## Antigravity 使用说明
 
 Sub2API 支持 [Antigravity](https://antigravity.so/) 账户，授权后可通过专用端点访问 Claude 和 Gemini 模型。
@@ -780,25 +808,30 @@ Antigravity 账户支持可选的**混合调度**功能。开启后，通用端�
 sub2api/
 ├── backend/                  # Go 后端服务
 │   ├── cmd/server/           # 应用入口
-│   ├── internal/             # 内部模块
-│   │   ├── config/           # 配置管理
-│   │   ├── model/            # 数据模型
-│   │   ├── service/          # 业务逻辑
-│   │   ├── handler/          # HTTP 处理器
-│   │   └── gateway/          # API 网关核心
-│   └── resources/            # 静态资源
+│   ├── ent/                  # Ent schema 与生成代码
+│   ├── internal/
+│   │   ├── config/           # 配置加载与默认值
+│   │   ├── domain/           # 平台描述符、能力与动作矩阵
+│   │   ├── handler/          # HTTP handler（admin/ 与各网关入口）
+│   │   ├── middleware/       # 请求中间件
+│   │   ├── payment/          # 支付服务商、注册表与负载均衡
+│   │   ├── repository/       # 持久化
+│   │   ├── server/routes/    # 路由注册
+│   │   └── service/          # 业务逻辑（网关、计费、调度）
+│   ├── migrations/           # SQL 迁移
+│   └── resources/            # 内嵌能力目录与定价回退文件
 │
 ├── frontend/                 # Vue 3 前端
 │   └── src/
 │       ├── api/              # API 调用
+│       ├── components/       # 可复用组件
 │       ├── stores/           # 状态管理
-│       ├── views/            # 页面组件
-│       └── components/       # 通用组件
+│       └── views/            # 页面组件
 │
 └── deploy/                   # 部署文件
     ├── docker-compose.yml    # Docker Compose 配置
     ├── .env.example          # Docker Compose 环境变量
-    ├── config.example.yaml   # 二进制部署完整配置文件
+    ├── config.example.yaml   # 二进制部署完整配置示例
     └── install.sh            # 一键安装脚本
 ```
 

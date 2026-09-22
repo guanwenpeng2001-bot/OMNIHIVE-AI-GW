@@ -419,6 +419,31 @@ these methods. The action and platform tables above constrain it.
 | `PUT /compatible-mode/v1/files` | DashScope exact action/resource gate; see individual actions above |
 | `PUT /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 
+## Streaming interruption, terminal frames and the retry boundary
+
+No registered provider stream offers a universal resume. Once a streaming
+response has started, the gateway cannot switch upstream and continue the same
+client stream: the HTTP status is already committed as `200`.
+
+- When a stream breaks after the first committed byte (upstream read error,
+  failover exhaustion, deadline), the gateway appends a protocol-standard terminal
+  frame in place: `event: response.failed` for `/v1/responses` (with a `response`
+  object whose `status` is `failed`), `event: error` for OpenAI chat completions,
+  and the Anthropic-shaped `event: error`/`data: {"type":"error",...}` frame for
+  `/v1/messages`. The client must treat that frame as the end of the stream.
+- Partial output is never replayed as if it were the complete answer. A client
+  that wants the full response has to send a new request; the gateway cannot
+  promise that the upstream did not already bill the interrupted attempt.
+- `Idempotency-Key` on generation routes prevents *local* duplicate dispatch and
+  duplicate billing; it does not resurrect a provider-side stream. A retry with the
+  same key and the same body never starts a second generation: it returns `409`
+  with a stable machine code and an `X-Idempotency-State` header
+  (`interrupted` when the recorded execution stopped mid-stream, or
+  `stream_not_replayable` when a streaming body was already produced). A retry
+  with a different body under the same key is `409 IDEMPOTENCY_KEY_CONFLICT`.
+- The gateway does not buffer unbounded SSE to make interrupted streams replayable,
+  and it does not claim exactly-once upstream side effects.
+
 ## Public model catalog migration
 
 Ordinary `/v1/models` and `/v1/models/:model` use OpenAI model entries by default,

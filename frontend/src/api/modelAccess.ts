@@ -15,6 +15,18 @@ export interface ModelAccessRule {
 }
 export interface ModelAccessImpact { models: string[]; fully_enumerable: boolean }
 
+/**
+ * The public models one of the signed-in user's own Keys can call. Resolved from
+ * the panel session, so no secret is needed. Errors propagate so callers can tell
+ * "this Key has no visible models" apart from "the server could not answer".
+ */
+export async function keyVisibleModels(keyID: number, signal?: AbortSignal): Promise<{ models: string[]; fullyEnumerable: boolean }> {
+  const path = `/keys/${keyID}`
+  const rule = await modelAccess.rule(path, signal)
+  const impact = await modelAccess.preview(path, rule)
+  return { models: impact.models ?? [], fullyEnumerable: impact.fully_enumerable !== false }
+}
+
 export const modelAccess = {
   async groups(admin = false) {
     return (await apiClient.get<ModelAccessGroup[]>(`${admin ? '/admin' : ''}/model-access-groups`)).data

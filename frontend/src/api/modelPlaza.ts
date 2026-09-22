@@ -7,7 +7,11 @@
 import { apiClient } from './client'
 import type { UserPricingInterval, UserSupportedModelPricing } from './channels'
 
-/** 官方参考价（USD per token，与计费目录同源；字段缺失 = 目录未覆盖）。 */
+/**
+ * 官方参考价（USD per token，由服务端从计费目录取得；字段缺失/为 null = 无有来源的参考价）。
+ * 产品已退役该展示：当前后端不再查询参考价，因此实际响应里恒为 null；
+ * 前端只在它确实带有数值时才把它当作折扣基准，绝不自行推算。
+ */
 export interface PlazaOfficialPricing {
   input_price: number | null
   output_price: number | null
@@ -18,6 +22,45 @@ export interface PlazaOfficialPricing {
   cache_read_price: number | null
   /** 官方长上下文阶梯（多档模型才有），不受分组开关影响。 */
   intervals?: UserPricingInterval[]
+}
+
+/** 单个观测事实：guaranteed = 所有观测一致时的保证值；available = 出现的取值集合；unknown = 无依据。 */
+export interface PlazaFact<Value> {
+  guaranteed: Value | null
+  available: Value[]
+  unknown: boolean
+}
+
+/** 上下文/长度类事实：kind 说明这个上限的含义（input/total/unspecified）。 */
+export interface PlazaLimit extends PlazaFact<number> {
+  kind?: string
+  observed_minimum: number | null
+}
+
+/** 模态集合：available 为出现过的模态，guaranteed 为所有观测一致时的交集。 */
+export interface PlazaModalities {
+  guaranteed: string[] | null
+  available: string[]
+  unknown: boolean
+}
+
+/**
+ * 该模型在当前分组下的有效规格：来自与 /v1/models 同一次账号目录读取的观测聚合。
+ * 缺失或互相冲突的字段保持 unknown，不当作 0/false。
+ */
+export interface PlazaModelCapabilities {
+  input_context: PlazaLimit
+  total_context: PlazaLimit
+  unspecified_context: PlazaLimit
+  max_output_tokens: PlazaLimit
+  embedding_dimensions: PlazaFact<number>
+  reasoning: PlazaFact<boolean>
+  supports_vision: PlazaFact<boolean>
+  supports_function_calling: PlazaFact<boolean>
+  supports_prompt_caching: PlazaFact<boolean>
+  supports_pdf: PlazaFact<boolean>
+  input_modalities: PlazaModalities
+  output_modalities: PlazaModalities
 }
 
 /**
@@ -48,8 +91,13 @@ export interface PlazaModel {
   platform: string
   /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
   pricing: UserSupportedModelPricing | null
-  /** @deprecated Ignored even when talking to an older server. */
+  /**
+   * 有来源的参考价；null = 服务端没有可引用的参考价，此时界面不展示任何折扣/划线价。
+   * @see PlazaOfficialPricing
+   */
   official_pricing: PlazaOfficialPricing | null
+  /** 有效规格（上下文/模态/能力）；服务端无任何可核实事实时省略。 */
+  capabilities?: PlazaModelCapabilities
   /** 仅多档模型返回。 */
   long_context_basis?: PlazaLongContextBasis
   /** 仅配置了分时倍率的模型返回。 */

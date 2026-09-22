@@ -13,6 +13,7 @@ Sub2API has a built-in payment system that enables user self-service top-up with
 - [Provider Instance Management](#provider-instance-management)
 - [Webhook Configuration](#webhook-configuration)
 - [Payment Flow](#payment-flow)
+- [Subscription Plans](#subscription-plans)
 - [Migrating from Sub2ApiPay](#migrating-from-sub2apipay)
 
 ---
@@ -25,6 +26,7 @@ Sub2API has a built-in payment system that enables user self-service top-up with
 | **Alipay (Direct)** | Desktop QR code, mobile Alipay redirect | Direct integration with Alipay Open Platform, returning desktop QR codes and mobile WAP/app launch links |
 | **WeChat Pay (Direct)** | Native QR, H5, MP/JSAPI Pay | Direct integration with WeChat Pay APIv3 with environment-aware routing |
 | **Stripe** | Card, Alipay, WeChat Pay, Link, etc. | International payments, multi-currency support |
+| **Airwallex** | Airwallex Payment Intent (hosted payment page) | International payments through an Airwallex account-scoped API key, multi-currency support |
 
 > Alipay/WeChat Pay direct and EasyPay can both exist as backend provider instances, but the frontend always exposes only two visible buttons: `Alipay` and `WeChat Pay`. Admins choose exactly one source for each visible method: direct or EasyPay. Direct channels connect to payment APIs directly with lower fees; EasyPay aggregates through third-party platforms with easier setup.
 
@@ -195,8 +197,9 @@ When adding a provider, the system auto-generates callback URLs from your site d
 | **Alipay (Direct)** | `https://your-domain.com/api/v1/payment/webhook/alipay` |
 | **WeChat Pay (Direct)** | `https://your-domain.com/api/v1/payment/webhook/wxpay` |
 | **Stripe** | `https://your-domain.com/api/v1/payment/webhook/stripe` |
+| **Airwallex** | `https://your-domain.com/api/v1/payment/webhook/airwallex` |
 
-> Replace `your-domain.com` with your actual domain. For EasyPay / Alipay / WeChat Pay, the callback URL is auto-filled when adding the provider — no manual configuration needed.
+> Replace `your-domain.com` with your actual domain. For EasyPay / Alipay / WeChat Pay, the callback URL is auto-filled when adding the provider — no manual configuration needed. Stripe and Airwallex webhook endpoints are created in the provider's own dashboard.
 
 ### Stripe Webhook Setup
 
@@ -205,6 +208,16 @@ When adding a provider, the system auto-generates callback URLs from your site d
 3. Add an endpoint with the callback URL
 4. Subscribe to events: `payment_intent.succeeded`, `payment_intent.payment_failed`
 5. Copy the generated Webhook Secret (`whsec_...`) to your provider configuration
+
+### Airwallex Webhook Setup
+
+1. Log in to the [Airwallex web app](https://www.airwallex.com/)
+2. Create an endpoint pointing at the callback URL above
+3. Subscribe to **Payment Intent → Succeeded** (`payment_intent.succeeded`); subscribing to **Payment Intent → Cancelled** (`payment_intent.cancelled`) is recommended so cancelled payments are closed out promptly
+4. Keep the account default (or latest stable) API version on the endpoint
+5. Copy the Webhook Secret into the provider's `webhookSecret` field
+
+Airwallex provider fields: `clientId`, `apiKey`, `webhookSecret`, `apiBase`, `accountId`, `countryCode`, `currency`. `apiBase` must match the key environment — `https://api-demo.airwallex.com/api/v1` for sandbox keys and `https://api.airwallex.com/api/v1` for production keys; mixing them fails with `credentials_invalid`. Leave `accountId` empty unless you use multiple accounts, an organization-level key, or connected-account payments. The scoped API key needs **Read and Write** under account-level *Payment Acceptance*; do not grant Spend, Payouts, Transfers, Funds Splits or POS Terminal permissions unless you actually need them.
 
 ### Important Notes
 
@@ -262,6 +275,18 @@ User selects amount and payment method
 
 ---
 
+## Subscription Plans
+
+Subscription plans sell time-boxed access to one group instead of a balance top-up. They are part of the built-in payment system:
+
+- **Admin**: `GET/POST /api/v1/admin/payment/plans` and `PUT/DELETE /api/v1/admin/payment/plans/:id` manage plans. A plan requires a name, a group, a price greater than zero, and a validity period (`validity_days` plus `validity_unit`); an optional `original_price` is display-only.
+- **User**: `GET /api/v1/payment/plans` lists the plans a user can buy; checkout creates an order with `order_type: subscription` (`balance` is the top-up type).
+- **Fulfillment**: the paid order grants the bound group for the configured validity period. Requests inside that group are still routed, quota-checked and billed against the concrete provider platform (for a Composite group, against the resolved provider).
+
+Plans bind to a group; when that group is a Composite group the plan grants Composite access only, and per-request resolution still applies.
+
+---
+
 ## Migrating from Sub2ApiPay
 
 If you previously used [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) as an external payment system, you can migrate to the built-in payment system:
@@ -271,10 +296,10 @@ If you previously used [Sub2ApiPay](https://github.com/touwaeriol/sub2apipay) as
 | Aspect | Sub2ApiPay | Built-in Payment |
 |--------|-----------|-----------------|
 | Deployment | Separate service (Next.js + PostgreSQL) | Built into Sub2API, no extra deployment |
-| Payment Methods | EasyPay, Alipay, WeChat, Stripe | Same |
+| Payment Methods | EasyPay, Alipay, WeChat, Stripe | EasyPay, Alipay, WeChat, Stripe, Airwallex |
 | Configuration | Environment variables + separate admin UI | Unified in Sub2API admin dashboard |
 | Top-up Integration | Via Admin API callback | Internal processing, more reliable |
-| Subscription Plans | Supported | Not yet (planned) |
+| Subscription Plans | Supported | Supported (see [Subscription Plans](#subscription-plans)) |
 | Order Management | Separate admin interface | Integrated in Sub2API admin dashboard |
 
 ### Migration Steps

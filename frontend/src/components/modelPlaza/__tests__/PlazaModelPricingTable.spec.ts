@@ -28,13 +28,7 @@ function tokenModel(overrides: Partial<PlazaModel> = {}): PlazaModel {
       per_request_price: null,
       intervals: []
     },
-    official_pricing: {
-      input_price: 3e-6,
-      output_price: 1.5e-5,
-      cache_write_price: 3.75e-6,
-      cache_write_1h_price: 6e-6,
-      cache_read_price: 3e-7
-    },
+    official_pricing: null,
     ...overrides
   }
 }
@@ -83,8 +77,7 @@ describe('PlazaModelPricingTable', () => {
     // 实付 = 3 × 0.5 / 15 × 0.5
     expect(text).toContain('$1.50')
     expect(text).toContain('$7.50')
-    // Reference prices are not displayed.
-    expect(text).not.toContain('$3.00')
+    // 无有来源的参考价 → 不展示任何参考价/折扣。
     expect(text).not.toContain('$15.00')
     expect(text).toContain('0.5x')
   })
@@ -96,33 +89,15 @@ describe('PlazaModelPricingTable', () => {
     expect(text).toContain('$2.40')
     expect(text).toContain('$12.00')
     // 倍率列:原倍率划线 + 专属倍率
-    const struck = wrapper.find('td .line-through')
+    const struck = wrapper.findAll('tbody td').at(-1)!.find('.line-through')
     expect(struck.exists()).toBe(true)
     expect(struck.text()).toBe('1x')
     expect(text).toContain('0.8x')
   })
 
-  it('模型按名称排序，不读取旧参考价', () => {
-    const expensive = tokenModel({
-      name: 'model-expensive',
-      official_pricing: {
-        input_price: 1e-5,
-        output_price: 7.5e-5,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
-    })
-    const cheap = tokenModel({
-      name: 'model-cheap',
-      official_pricing: {
-        input_price: 1e-6,
-        output_price: 5e-6,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
-    })
+  it('模型按名称排序，排序与参考价无关', () => {
+    const expensive = tokenModel({ name: 'model-expensive' })
+    const cheap = tokenModel({ name: 'model-cheap' })
     const noOfficial = tokenModel({ name: 'model-no-official', official_pricing: null })
 
     const wrapper = mountTable([cheap, noOfficial, expensive], 1)
@@ -200,11 +175,46 @@ describe('PlazaModelPricingTable', () => {
     expect(wrapper.findAll('tbody td')).toHaveLength(5)
   })
 
-  it('忽略旧服务端参考价字段', () => {
-    const withReference = mountTable([tokenModel()], 1)
-    const withoutReference = mountTable([tokenModel({ official_pricing: null })], 1)
-    expect(withReference.html()).toBe(withoutReference.html())
-    expect(withReference.findAll('tbody td')).toHaveLength(5)
+  it('无有来源的参考价时不展示参考价或折扣', () => {
+    const wrapper = mountTable([tokenModel({ official_pricing: null })], 1)
+    expect(wrapper.find('tbody td .line-through').exists()).toBe(false)
+    expect(wrapper.text()).toContain('$3.00')
+    expect(wrapper.findAll('tbody td')).toHaveLength(5)
+  })
+
+  it('参考价有来源时按划线参考价 + 实付价展示', () => {
+    const wrapper = mountTable([
+      tokenModel({
+        official_pricing: {
+          input_price: 5e-6,
+          output_price: 1.5e-5,
+          cache_write_price: 3.75e-6,
+          cache_write_1h_price: 6e-6,
+          cache_read_price: 3e-7
+        }
+      })
+    ], 0.5)
+    const struck = wrapper.findAll('tbody td .line-through')
+    expect(struck.map((node) => node.text())).toEqual(expect.arrayContaining(['$5.00', '$15.00', '$3.75', '$0.30']))
+    // 实付价仍按倍率展示（输入 3 × 0.5 = $1.50）。
+    expect(wrapper.text()).toContain('$1.50')
+    expect(wrapper.text()).toContain('$7.50')
+  })
+
+  it('参考价字段存在但缺该单位数值时不展示该单位参考价', () => {
+    const wrapper = mountTable([
+      tokenModel({
+        official_pricing: {
+          input_price: null,
+          output_price: 1.5e-5,
+          cache_write_price: null,
+          cache_write_1h_price: null,
+          cache_read_price: null
+        }
+      })
+    ], 1)
+    const struck = wrapper.findAll('tbody td .line-through')
+    expect(struck.map((node) => node.text())).toEqual(['$15.00'])
   })
 
   it('实付价分别展示自定义 5m 与 1h 缓存写入价', () => {
@@ -577,7 +587,7 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
       }
     })
     const rows = mountTable([model], 1).findAll('tbody td')[1].findAll('.leading-5')
-    expect(rows.map((r) => r.text().split(/\s+/)[0])).toEqual(['≤100K', '≤200K', '≤1M', '>1M'])
+    expect(rows.map((r) => r.find('span').text())).toEqual(['≤100K', '≤200K', '≤1M', '>1M'])
   })
 
   it('官方无 intervals 字段(旧响应)时官方列保持平价,实付无阶梯时缓存列保持两行', () => {
@@ -681,5 +691,61 @@ describe('PlazaModelPricingTable 分时计价', () => {
     const wrapper = mountTable([tokenModel()], 1)
     expect(wrapper.findAll('tbody tr')).toHaveLength(1)
     expect(wrapper.find('[title*="modelPlaza.table.timePricingRowHint"]').exists()).toBe(false)
+  })
+
+  it('展示已核实的有效上下文与能力,不展示未知项', () => {
+    const wrapper = mountTable([
+      tokenModel({
+        capabilities: {
+          input_context: { kind: 'input', guaranteed: 200000, available: [200000], unknown: false, observed_minimum: 200000 },
+          total_context: { kind: 'total', guaranteed: null, available: [], unknown: true, observed_minimum: null },
+          unspecified_context: { kind: 'unspecified', guaranteed: null, available: [], unknown: true, observed_minimum: null },
+          max_output_tokens: { guaranteed: 64000, available: [64000], unknown: false, observed_minimum: 64000 },
+          embedding_dimensions: { guaranteed: null, available: [], unknown: true },
+          reasoning: { guaranteed: true, available: [true], unknown: false },
+          supports_vision: { guaranteed: true, available: [true], unknown: false },
+          supports_function_calling: { guaranteed: null, available: [true, false], unknown: false },
+          supports_prompt_caching: { guaranteed: null, available: [], unknown: true },
+          supports_pdf: { guaranteed: null, available: [], unknown: true },
+          input_modalities: { guaranteed: ['text'], available: ['text', 'image'], unknown: false },
+          output_modalities: { guaranteed: ['text'], available: ['text'], unknown: false }
+        }
+      })
+    ], 1)
+
+    const text = wrapper.text()
+    expect(text).toContain('200K modelPlaza.table.contextShort')
+    expect(text).toContain('modelPlaza.table.capability.vision')
+    expect(text).toContain('modelPlaza.table.capability.reasoning')
+    expect(text).toContain('modelPlaza.table.capability.inputModalityPartial')
+    // 不一致/未知的能力不当作 false 展示，也不展示默认能力
+    expect(text).not.toContain('modelPlaza.table.capability.functionCalling')
+    expect(text).not.toContain('modelPlaza.table.capability.promptCaching')
+    expect(text).not.toContain('modelPlaza.table.capability.pdf')
+  })
+
+  it('无能力数据或仅观测到最小值时保持如实展示', () => {
+    const withoutCapabilities = mountTable([tokenModel()], 1)
+    expect(withoutCapabilities.text()).not.toContain('modelPlaza.table.contextShort')
+
+    const observedOnly = mountTable([
+      tokenModel({
+        capabilities: {
+          input_context: { kind: 'input', guaranteed: null, available: [128000], unknown: true, observed_minimum: 128000 },
+          total_context: { kind: 'total', guaranteed: null, available: [], unknown: true, observed_minimum: null },
+          unspecified_context: { kind: 'unspecified', guaranteed: null, available: [], unknown: true, observed_minimum: null },
+          max_output_tokens: { guaranteed: null, available: [], unknown: true, observed_minimum: null },
+          embedding_dimensions: { guaranteed: null, available: [], unknown: true },
+          reasoning: { guaranteed: null, available: [], unknown: true },
+          supports_vision: { guaranteed: null, available: [], unknown: true },
+          supports_function_calling: { guaranteed: null, available: [], unknown: true },
+          supports_prompt_caching: { guaranteed: null, available: [], unknown: true },
+          supports_pdf: { guaranteed: null, available: [], unknown: true },
+          input_modalities: { guaranteed: null, available: [], unknown: true },
+          output_modalities: { guaranteed: null, available: [], unknown: true }
+        }
+      })
+    ], 1)
+    expect(observedOnly.text()).toContain('≥128K modelPlaza.table.contextShort')
   })
 })

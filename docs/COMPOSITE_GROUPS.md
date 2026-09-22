@@ -55,7 +55,7 @@ Each route belongs to one composite group and contains:
 
 - `public_model`: model identifier the client sends.
 - `match_type`: `exact` or `prefix`.
-- `target_platform`: concrete provider platform.
+- `target_platform`: concrete provider platform of the primary target. It mirrors the first enabled entry of `targets` for rollback compatibility.
 - `upstream_model`: model identifier sent upstream. If omitted, the public
   model is reused.
 - `endpoint`: `any`, `messages`, `count_tokens`, `responses`,
@@ -63,11 +63,49 @@ Each route belongs to one composite group and contains:
 - `priority`: lower values win after match specificity.
 - `enabled`: disabled routes are ignored by runtime resolution but remain
   visible to admins.
+- `targets` (optional): the ordered fallback list described below.
 
-Resolution order is explicit route first, then built-in detection. When more
-than one explicit route matches, exact matches beat prefix matches,
-endpoint-specific routes beat `any`, longer prefixes beat shorter prefixes,
-then lower `priority`, then lower route id.
+### Ordered fallback targets
+
+One route may declare an ordered `targets` list (at most 16). This is the only
+cross-provider fallback mechanism: targets are explicit and admin-declared,
+never inferred. Each target contains:
+
+- `target_platform` (required): a concrete provider platform, never `composite`.
+- `account_type` (optional): hosted account type such as `bedrock` or a Vertex
+  `service_account`; it must be valid for the target platform.
+- `upstream_model` (optional): model sent upstream; omitted means the public model.
+- `region` / `provider` (optional): constraints the selected account must satisfy.
+  An account without the attribute does not satisfy an explicit constraint, so a
+  constrained target fails closed instead of leaking traffic to an unverified account.
+- `latency_preference` (optional): `default` keeps the existing account order,
+  `low_latency` biases selection towards the account with the best recently
+  observed first-token latency.
+- `scheduling_weight` (optional, 0–10000): relative scheduling weight inside the
+  same route; `0` is stored as the default `100`. Weights compare targets of one
+  route only and never override hard concurrency limits.
+- `affinity_ttl_seconds` (optional, 0 or 60–86400): per-target sticky-session TTL.
+- `enabled`: disabled targets are skipped. A route whose targets are all disabled
+  is rejected; at least one must stay enabled.
+
+Runtime behavior:
+
+- All targets of one route share the public model and the request action; only the
+  concrete provider, upstream model, constraints and scheduling preferences differ.
+- Targets are walked in the declared order. A target whose platform has no adapter
+  for the request action is skipped in favour of the next enabled target; when no
+  remaining target can serve that action the request fails explicitly instead of
+  silently using a single target. The request never silently changes to another
+  model or another public semantic.
+- A route without `targets` keeps the legacy single-target behavior built from its
+  own columns, so pre-existing routes are unchanged.
+- Deleting or clearing `targets` (an explicit empty array) restores that legacy
+  single-target behavior.
+
+Resolution order is explicit route first, then unambiguous account-level model
+ownership, then built-in detection. When more than one explicit route matches,
+exact matches beat prefix matches, endpoint-specific routes beat `any`, longer
+prefixes beat shorter prefixes, then lower `priority`, then lower route id.
 
 For JSON-body endpoints, the gateway rewrites the request `model` field to the
 route's `upstream_model` before dispatch. For Gemini native paths such as
@@ -82,24 +120,54 @@ failover path within the Composite group.
 
 ## Built-In Detection
 
-Composite routing detects common public model IDs and provider-prefixed IDs:
+Built-in detection is a **fallback for unambiguous, vendor-specific model
+names**. It is not prefix routing for arbitrary names, and it never overrides an
+explicit route. Two forms are recognised:
 
-- `claude-*` and `anthropic/claude-*` route to Anthropic.
-- `gemini-*` and `google/gemini-*` route to Gemini.
-- `gpt-*`, `o*`, `codex-*`, `text-embedding-*`, `dall-e-*`, and
-  `openai/*` route to OpenAI.
-- `grok-*` and `xai/grok-*` route to Grok.
-- `kimi-*`, `moonshot-*`, and `k3` route to Kimi.
-- `glm-*` routes to Zhipu GLM.
-- `deepseek-*` routes to DeepSeek.
-- `minimax-*`, `abab*`, and `minimax/*` route to MiniMax.
+1. **Provider-prefixed ids** (`<provider>/<model>`), for example `kimi/kimi-k2`.
+   A leading `models/` is stripped first, so `models/gemini-2.5-flash` is treated
+   as the bare vendor-specific name below and `models/minimax-01` still needs an
+   explicit route.
 
-Unknown or ambiguous model names fail closed with a client error instead of
-guessing a provider.
+   | Prefix | Platform |
+   | --- | --- |
+   | `qianwen/`, `dashscope/` | Qianwen |
+   | `anthropic/`, `claude/` | Anthropic |
+   | `openai/`, `chatgpt/` | OpenAI |
+   | `google/`, `google-ai-studio/`, `gemini/` | Gemini |
+   | `xai/`, `x-ai/`, `grok/` | Grok |
+   | `kimi/`, `moonshot/` | Kimi |
+   | `zhipu/`, `glm/`, `bigmodel/` | Zhipu GLM |
+   | `deepseek/` | DeepSeek |
+   | `minimax/` | MiniMax |
 
-Shared vendor model names on hosted platforms require an explicit route or
-unambiguous existing account ownership; a capability specification never chooses
-the provider. WorkBuddy is not a registered platform and remains future scope.
+2. **Bare vendor-specific ids**:
+
+   - `claude-*` and `anthropic.claude-*` route to Anthropic.
+   - `gpt-*`, `chatgpt-*`, `codex-*`, `text-embedding-*`, `text-moderation-*`,
+     `omni-moderation-*`, `dall-e-*`, `gpt-image-*`, `tts-*`, `whisper-*`, and the
+     `o1`–`o5` series route to OpenAI.
+   - `gemini-*` and `learnlm-*` route to Gemini.
+   - `grok` and `grok-*` route to Grok.
+   - `k3`, `k3-256k`, `moonshot-*` route to Kimi.
+   - `abab5*`, `abab6*` and `abab7*` route to MiniMax.
+
+**Shared model names always need an explicit route.** The bare names `qwen*`,
+`deepseek-*`, `glm-*`, `kimi-*` and `minimax-*` are served by more than one
+platform, so detection deliberately fails closed for them instead of guessing a
+provider. Add an explicit `targets`/route entry for those names (or send the
+provider-prefixed id such as `kimi/kimi-k2`).
+
+An unrecognised or ambiguous model name fails closed with a client error instead
+of guessing a provider. There is no automatic prefix routing, no "try every
+provider named by the prefix" behaviour, and no implicit fallback across
+platforms: only the targets an admin declared on a matching route are used.
+
+When detection has no match, the resolver first checks whether exactly one
+provider platform exposes the name through account-level model mappings. An
+ambiguous name (exposed by multiple platforms) fails closed as well. Only when
+neither an explicit route nor an unambiguous account mapping applies is built-in
+detection used.
 
 ## Public model specifications
 
@@ -168,8 +236,11 @@ create synthetic model metadata, pricing, or upstream capability records by
 themselves. Keep channel pricing/model mapping configured for the concrete
 provider platforms that the routes target.
 
-This PR intentionally does not implement:
+The following are intentionally **not** implemented:
 
-- AUTO smart-routing among multiple providers for the same abstract task.
+- Prefix-based automatic provider routing for names that are not vendor-specific
+  (see [Built-In Detection](#built-in-detection)); shared names fail closed.
+- Automatic multi-provider fallback chosen by the gateway on its own: every
+  fallback target must be declared by an admin through `targets`.
 - Direct API-key binding to several existing groups without a composite group.
 - Protocol-agnostic provider decoupling or a LiteLLM-style adapter rewrite.
