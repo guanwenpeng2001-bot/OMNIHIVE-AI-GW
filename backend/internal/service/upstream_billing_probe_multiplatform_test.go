@@ -182,6 +182,16 @@ func TestUpstreamBillingProbeOfficialAPIBaseURLIsUnsupportedWithoutRequest(t *te
 		{PlatformDeepseek, "https://api.deepseek.com/anthropic"},
 		{PlatformOpenCodeGo, "https://opencode.ai/zen/go/v1"},
 		{PlatformOpenCodeGo, "https://opencode.ai/zen/go"},
+		// Hunyuan TokenHub 官方站（创建表单预填的默认 base_url 即第一个）与旧版官方端点。
+		{PlatformHunyuan, hunyuanCompatibilityBaseURL},
+		{PlatformHunyuan, "https://tokenhub.tencentmaas.cn/v1"},
+		{PlatformHunyuan, "https://tokenhub-intl.tencentmaas.com/v1"},
+		{PlatformHunyuan, "https://tokenhub-intl.tencentmaas.cn/v1"},
+		{PlatformHunyuan, hunyuanLegacyBaseURL},
+		// Zhipu 国际站（api.z.ai）在本仓其它路径同样被当作官方主机处理
+		// （GetCodingPlanProvider、requiresSystemChatRole、zhipuQuotaHost）。
+		{PlatformZhipu, "https://api.z.ai/api/paas/v4"},
+		{PlatformZhipu, "https://api.z.ai/api/coding/paas/v4"},
 	}
 	for i, tc := range cases {
 		account := &Account{
@@ -225,6 +235,18 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.deepseek.com/anthropic"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://opencode.ai/zen/go/v1"))
 	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://opencode.ai/zen/go"))
+	// Hunyuan 的四个 TokenHub 官方主机（国内 / 国际 × .com / .cn）都属腾讯官方 API，
+	// 与 model_capability_matcher.go 的 hunyuan 归类、hunyuan_adapter.go 的官方端点清单一致。
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://tokenhub.tencentmaas.com/v1"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://tokenhub.tencentmaas.cn/v1"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://tokenhub-intl.tencentmaas.com/v1"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://tokenhub-intl.tencentmaas.cn/v1"))
+	// 旧版官方主机与腾讯云 API 主机同行仍在名单内。
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI(hunyuanLegacyBaseURL))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://hunyuan.tencentcloudapi.com"))
+	// Zhipu 国际站官方主机。
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.z.ai/api/paas/v4"))
+	require.True(t, upstreamBillingProbeTargetIsOfficialAPI("https://api.z.ai/api/anthropic"))
 	// 相似但不同的注册域不拦：中转完全可能叫 *-x.ai 之外的任何名字。
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://relay.example/v1"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://notx.ai"))
@@ -238,6 +260,11 @@ func TestUpstreamBillingProbeOfficialAPIHostMatchingIsNormalized(t *testing.T) {
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://kimi.example/v1"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://notbigmodel.cn"))
 	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://deepseek.example.com"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://nottencentmaas.com/v1"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://tencentmaas.com.evil.example/v1"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://tokenhub.tencentmaas.com.evil.example/v1"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://notz.ai/v1"))
+	require.False(t, upstreamBillingProbeTargetIsOfficialAPI("https://z.ai.evil.example/v1"))
 }
 
 // OpenAI 默认官方域不支持 sub2api billing，不发送无效请求。

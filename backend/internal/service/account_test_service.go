@@ -399,6 +399,16 @@ func (s *AccountTestService) probeTestAccountConnection(c *accountProbeContext, 
 		return s.probeTestOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
+	// chat-only 平台（qianfan / hunyuan / mistral / volcengine）在数据面走
+	// OpenAI 兼容的 /v1/chat/completions 直转路径：判定与数据面同源，
+	// IsChatOnlyPlatform 与 GetOpenAIProtocolAPIKey / GetOpenAIBaseURL 都已为它们
+	// 开路（见 SupportsOpenAIEndpointCapability、forwardAsChatCompletions）。
+	// 因此测试连接沿用国产供应商同一条 chat completions 探测，而不是落到
+	// "probe unsupported"。
+	if IsChatOnlyPlatform(account.Platform) {
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
+
 	if account.IsCursor() {
 		return s.probeTestCursorAccountConnection(c, account, modelID, mode)
 	}
@@ -466,6 +476,10 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *accountProbeCo
 	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
 }
 
+// testCNProviderChatCompletionsConnection probes the OpenAI-compatible
+// /v1/chat/completions trunk shared by every API-key provider that forwards on
+// it: the CN providers and the chat-only platforms
+// (qianfan / hunyuan / mistral / volcengine).
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountProbeContext, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {

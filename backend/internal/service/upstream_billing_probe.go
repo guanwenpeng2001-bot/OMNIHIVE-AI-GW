@@ -1024,7 +1024,13 @@ func isUpstreamBillingProbeAccount(account *Account) bool {
 // an official provider API just like the rest, so it belongs on this list.
 // CN provider domains (moonshot.cn / kimi.com / bigmodel.cn / deepseek.com)
 // serve the same role: official APIs that can never host /v1/sub2api/billing,
-// so their accounts short-circuit to "unsupported" without a request.
+// so their accounts short-circuit to "unsupported" without a request. The
+// Hunyuan TokenHub sites (tencentmaas.com / tencentmaas.cn, covering the
+// domestic / international .com / .cn hosts that model_capability_matcher.go
+// classifies as hunyuan) and the Zhipu international site (z.ai, the host
+// zhipuQuotaHost and requiresSystemChatRole already treat as official) belong
+// to that same group; the create form pre-fills the Hunyuan default base URL,
+// so missing it sent every Hunyuan account key to an official TokenHub path.
 var upstreamBillingProbeOfficialAPIDomains = []string{
 	"anthropic.com",
 	"googleapis.com",
@@ -1035,6 +1041,7 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"moonshot.cn",
 	"kimi.com",
 	"bigmodel.cn",
+	"z.ai",
 	"deepseek.com",
 	"opencode.ai",
 	"aliyuncs.com",
@@ -1048,6 +1055,8 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"baidubce.com",
 	"tencentcloudapi.com",
 	"tencent.com",
+	"tencentmaas.com",
+	"tencentmaas.cn",
 	"volces.com",
 	"mistral.ai",
 	"moonshot.ai",
