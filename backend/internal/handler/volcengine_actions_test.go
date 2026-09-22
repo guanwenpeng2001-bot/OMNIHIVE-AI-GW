@@ -306,98 +306,99 @@ func TestVolcengineVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 	require.Len(t, bindings.billed, 1)
 }
 
-// TestVolcengineMediaGenerationPathsOutliveThePlatformLockButStillNeedMediaEvidence
-// records the state of the chat-only seam after multimodal-ingress closed the
-// platform and dispatch half of it.
-//
-// The Ark adapters are wire-tested, every dispatch key is registered in
-// routes/gateway.go and internal/domain/volcengine_actions.go promotes the eight
-// media/embedding cells out of volcenginePendingAdapters, so the platform×action
-// gate no longer refuses a Volcengine Ark API-key account. What these cases still
-// observe is the harness boundary: the handler is invoked directly with a stub
-// whose scheduler, billing service and account repository are nil, so admission
-// stops before the upstream contract with a 503 error body and zero upstream
-// calls. The platform×action admission itself is covered by the domain matrix
-// tests and by routes.TestChatOnlyPlatformProtocolGuard and
-// routes.TestGatewayUnsupportedProtocolContracts, which drive the real route
-// chain. The adapter's real upstream shape (URL, method, Authorization header,
-// body) is proven in backend/internal/service/volcengine_actions_test.go.
-func TestVolcengineMediaGenerationPathsOutliveThePlatformLockButStillNeedMediaEvidence(t *testing.T) {
+// TestVolcengineMediaPathsReachTheDocumentedArkEndpoints proves the ingress seam
+// end to end for the promoted cells: once the platform publishes its protocol
+// facts and the catalog evidence admits the account, every media handler forwards
+// to its documented Ark path instead of failing closed before the upstream. The
+// scheduler family evidence stays the conservative Responses family for chat-only
+// plans, and the fixture declares it for every model. The adapter's upstream shape
+// (URL, method, Authorization header, body) is also asserted in
+// backend/internal/service/volcengine_actions_test.go.
+func TestVolcengineMediaPathsReachTheDocumentedArkEndpoints(t *testing.T) {
 	scenarios := []struct {
 		name     string
 		method   string
 		path     string
 		body     string
 		platform string
+		response string
+		wantURL  string
 		invoke   func(*OpenAIGatewayHandler, *gin.Context)
 	}{
 		{
 			name: "image generate", method: http.MethodPost, path: "/v1/images/generations",
 			body:     `{"model":"doubao-seedream-4-0-250828","prompt":"a red panda","size":"2K"}`,
 			platform: service.PlatformVolcengine,
+			response: `{"data":[{"url":"https://cdn.example/out.png"}],"usage":{"image_count":1}}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/images/generations",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineImages(c) },
 		},
 		{
 			name: "image edit", method: http.MethodPost, path: "/v1/images/edits",
 			body:     `{"model":"doubao-seedream-4-0-250828","prompt":"turn the sky green","image":"https://cdn.example/in.png"}`,
 			platform: service.PlatformVolcengine,
+			response: `{"data":[{"url":"https://cdn.example/out.png"}],"usage":{"image_count":1}}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/images/generations",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineImages(c) },
 		},
 		{
 			name: "video create", method: http.MethodPost, path: "/v1/videos/generations",
 			body:     `{"model":"doubao-seedance-2-0-260128","prompt":"sea","resolution":"720p","duration":5,"aspect_ratio":"16:9"}`,
 			platform: service.PlatformVolcengine,
+			response: `{"id":"cgt-xyz"}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineVideoGeneration(c) },
 		},
 		{
 			name: "video edit", method: http.MethodPost, path: "/v1/videos/edits",
 			body:     `{"model":"doubao-seedance-2-0-260128","prompt":"change the weather","video":"https://cdn.example/in.mp4"}`,
 			platform: service.PlatformVolcengine,
+			response: `{"id":"cgt-xyz"}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineVideoEdit(c) },
 		},
 		{
 			name: "video extend", method: http.MethodPost, path: "/v1/videos/extensions",
 			body:     `{"model":"doubao-seedance-2-0-260128","prompt":"keep going","video":"https://cdn.example/in.mp4"}`,
 			platform: service.PlatformVolcengine,
+			response: `{"id":"cgt-xyz"}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineVideoExtend(c) },
 		},
 		{
 			name: "embeddings", method: http.MethodPost, path: "/v1/embeddings",
 			body:     `{"model":"doubao-embedding-vision-250615","input":["hello"]}`,
 			platform: service.PlatformVolcengine,
+			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":1,"total_tokens":1}}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/embeddings",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineEmbeddings(c) },
 		},
 		{
 			name: "composite target video create", method: http.MethodPost, path: "/v1/videos/generations",
 			body:     `{"model":"doubao-seedance-2-0-260128","prompt":"composite video","resolution":"1080p","duration":5,"aspect_ratio":"16:9"}`,
 			platform: service.PlatformComposite,
+			response: `{"id":"cgt-xyz"}`,
+			wantURL:  "https://ark.cn-beijing.volces.com/api/v3/contents/generations/tasks",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.VolcengineVideoGeneration(c) },
 		},
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			h, _, upstream, _ := newVolcengineMediaActionHandler(t)
-			upstream.call = func(*http.Request, int64) (*http.Response, error) {
-				return volcengineMediaJSONResponse(`{"id":"cgt-xyz"}`), nil
+			var sent *http.Request
+			upstream.call = func(request *http.Request, _ int64) (*http.Response, error) {
+				sent = request
+				return volcengineMediaJSONResponse(scenario.response), nil
 			}
 			c, w := volcengineMediaActionContext(scenario.method, scenario.path, scenario.body, scenario.platform)
 			if scenario.platform == service.PlatformComposite {
 				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformVolcengine))
 			}
 			scenario.invoke(h, c)
-			// The platform lock is gone: multimodal-ingress registered every Ark
-			// dispatch key and promoted the eight cells, so the platform×action
-			// gate and the capability gate no longer refuse a Volcengine Ark
-			// API-key account (routes.TestGatewayActionHandlersCoverEveryImplementedCell).
-			// Admission now stops one layer later, at the scheduler's catalog
-			// evidence gate: a chat-only media plan reads the conservative
-			// Responses family, and this fixture's catalog declares none of the
-			// families that resolve for it. That gate belongs to the scheduler
-			// media-endpoint work, not to this ingress wiring; the upstream
-			// contract (URL, method, Authorization, body) is asserted by
-			// backend/internal/service/volcengine_actions_test.go.
-			require.Equal(t, http.StatusServiceUnavailable, w.Code, "body=%s", w.Body.String())
-			require.Zero(t, upstream.callCount(), "account evidence must be resolved before any upstream call")
+			require.Equal(t, http.StatusOK, w.Code, "body=%s", w.Body.String())
+			require.Equal(t, 1, upstream.callCount(), "the documented endpoint is called exactly once")
+			require.NotNil(t, sent)
+			require.Equal(t, scenario.wantURL, sent.URL.String())
 		})
 	}
 }

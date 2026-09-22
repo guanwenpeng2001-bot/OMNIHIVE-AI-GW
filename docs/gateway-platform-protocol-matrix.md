@@ -28,10 +28,10 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | cursor | OAuth/upstream account forms | Cursor conversion | B / rejected / rejected | Cursor-specific count-token estimate and model mapping; no generic provider grant |
 | qianwen | API key, domestic/international and account mode | Compatible chat and bounded native actions | N conditional / rejected / rejected | Native text/image/audio/video/files actions have separate gates below |
 | commandcode | API key | Model-selected native protocol | B / rejected / rejected | Keep model routing and upstream IDs; no static capability-based grant |
-| volcengine | Runtime API key, exact deployment/ep target | Chat only; tools conditional | rejected / rejected / rejected | SSE adapter locally covered; speculative discovery remains unsupported |
-| qianfan | Domestic API key, v2 base | Chat only; tools conditional | rejected / rejected / rejected | Nonstream/SSE adapter; do not substitute international contract |
-| hunyuan | Compatibility API key | Nonstream chat/tools | rejected / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance |
-| mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero |
+| volcengine | Runtime API key, exact deployment/ep target | Chat and native Responses; tools conditional | N / rejected / rejected | SSE adapter locally covered; no Anthropic Messages endpoint exists for CN, so that cell is a hard conflict |
+| qianfan | Domestic API key, v2 base | Chat and native Responses; tools conditional | N / rejected / rejected | Nonstream/SSE adapter; /v2/responses is live while /v2/messages answers 404, so Messages is a hard conflict |
+| hunyuan | Compatibility API key | Nonstream chat/tools; native Responses and Anthropic Messages on the same TokenHub site | N / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance; the Anthropic path authenticates with x-api-key |
+| mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero; no /v1/responses and no /v1/messages exist, so both cells are hard conflicts |
 | bedrock | Regional runtime API key or IAM SigV4 | Claude Invoke or non-Claude Converse; tools conditional | B / rejected / rejected | Messages/Responses/Chat POST admitted; ConverseStream/Claude streams; region/profile/ARN and catalog evidence still required |
 
 The new chat-only ingress guard admits Chat Completions POST plus model/usage
@@ -45,10 +45,10 @@ those errors or expand old protocols to make the table uniform.
 
 | Method | Path / aliases | Effective qualification | Nonstream, stream and tools |
 | --- | --- | --- | --- |
-| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; chat-only platforms rejected | Anthropic envelope; stream/tools adapter-specific |
+| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; Hunyuan binds the native Anthropic path on the published MessagesPOST fact, every other chat-only platform rejects | Anthropic envelope; stream/tools adapter-specific |
 | POST | /v1/messages/count_tokens; /messages/count_tokens | OpenAI bridge, Grok/Cursor estimates, existing Anthropic-compatible path; new restricted platforms reject | Token count, no generation bill; not a generic Messages grant |
 | POST | /v1/chat/completions; /chat/completions | Concrete or resolved Composite target, exact catalog endpoint evidence | Native/bridge; Hunyuan stream explicitly unsupported |
-| POST | /v1/responses; /responses; /backend-api/codex/responses | Descriptor plus actual account mode/adapter; new chat-only platforms reject | Native/bridge with protocol-specific tools and SSE |
+| POST | /v1/responses; /responses; /backend-api/codex/responses | Descriptor plus actual account mode/adapter; a chat-only platform whose row publishes ResponsesPOST binds the shared responses trunk, the rest reject | Native/bridge with protocol-specific tools and SSE |
 | GET | Same Responses paths | WebSocket dispatcher, account WS qualification | OpenAI native, Grok bridge; no universal WS support |
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
 | POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch | Input-token result, no normal generation claim |

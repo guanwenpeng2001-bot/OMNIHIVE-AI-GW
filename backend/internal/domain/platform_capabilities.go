@@ -18,7 +18,11 @@ type PlatformDescriptor struct {
 	ProductPlatform   string `json:"productPlatform,omitempty"`
 	// ResponsesPOST describes an available protocol path; multi-protocol accounts resolve
 	// their actual native protocol in the existing account/model services.
-	ResponsesPOST                EndpointSupport `json:"responsesPost"`
+	ResponsesPOST EndpointSupport `json:"responsesPost"`
+	// MessagesPOST describes an available Anthropic Messages protocol path on the
+	// same trunk (TokenHub publishes POST {base}/v1/messages with x-api-key). It is
+	// the protocol fact a chat-only entry needs before its messages cell can bind.
+	MessagesPOST                 EndpointSupport `json:"messagesPost"`
 	ResponsesWS                  EndpointSupport `json:"responsesWS"`
 	ResponsesCompact             bool            `json:"responsesCompact"`
 	NativeMultiProtocolResponses bool            `json:"nativeMultiProtocolResponses"`
@@ -49,9 +53,12 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformVolcengine, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformQianfan, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	// TokenHub publishes Chat Completions, Responses and Anthropic Messages on the
+	// same site, so Hunyuan is a multi-protocol API-key entry whose base URL stays
+	// the OpenAI-shaped chat trunk the other two protocols share (1823/130078).
+	{ID: PlatformHunyuan, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, MultiProtocol: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
@@ -205,7 +212,14 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			adapter = "openai.chat"
 		}
 	case "messages", "responses", "count_tokens":
-		if !platform.ChatOnly {
+		// A chat-only entry is defined by its OpenAI-shaped chat trunk, so these
+		// text cells stay unbound unless the platform also publishes the native
+		// protocol the action executes on. That published protocol is the evidence
+		// a chat-only entry needs; the classification alone is not a permanent
+		// capability denial (the account and catalog gates read the same matrix).
+		publishedNativeProtocol := (action == "messages" && platform.MessagesPOST != EndpointRejected) ||
+			(action == "responses" && platform.ResponsesPOST != EndpointRejected)
+		if !platform.ChatOnly || publishedNativeProtocol {
 			adapter = "gateway." + action
 			if openAITrunk {
 				adapter = "openai." + action
@@ -331,6 +345,13 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformHunyuan {
 		return hunyuanActionDescriptor(descriptor, action, adapter)
+	}
+	if identity.Platform == PlatformMistral {
+		// Mistral's protocol absences replace only an unbound cell, so the chat
+		// trunk keeps the generic resolution below.
+		if recorded, absent := mistralAbsentProtocolCell(descriptor, action, adapter); absent {
+			return recorded
+		}
 	}
 	if adapter == "" {
 		return descriptor

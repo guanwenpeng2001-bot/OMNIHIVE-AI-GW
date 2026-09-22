@@ -17,18 +17,14 @@ import "strings"
 // A route probe distinguishes a live route (401/400 auth errors) from an absent
 // one (404 ResourceNotFound / 404 page not found).
 //
-// Runtime binding blocker (2026-09-21): the Qianfan product entry is declared
-// chat-only in the platform descriptors. Non-chat endpoints are therefore
-// rejected before dispatch by the chat-only protocol guard
-// (routes/platform_chat_test.go TestChatOnlyPlatformProtocolGuard), by
-// accountCatalogModelEndpoints (service/account_model_catalog.go:373) and by
-// SupportsOpenAIEndpointCapability (service/account.go:1901). The adapters that
-// this actions-qianfan branch implements (embeddings, rerank, images,
-// video lifecycle, tts, voice clone, search) are consequently recorded as
-// unverified cells here rather than silently advertised as implemented: a cell
-// may only claim ActionImplemented once the platform classification decision
-// binds the adapter in PlatformAction. Every affected evidence string names the
-// adapter that already exists and the gate that blocks it.
+// Runtime binding (checked 2026-09-22): the Qianfan product entry stays a
+// chat-only entry because the OpenAI-shaped /v2 base defines it, and the same
+// row publishes ResponsesPOST so POST /v2/responses binds the shared OpenAI
+// responses trunk on that protocol fact. There is no Anthropic Messages endpoint
+// to bind: POST /v2/messages answers 404, so that cell is a hard conflict. Every
+// other cell is classified by its own evidence row, and the chat-only protocol
+// guard, accountCatalogModelEndpoints and SupportsOpenAIEndpointCapability read
+// the same action matrix.
 
 // qianfanActionAdapters binds the ModelBuilder and Baidu speech cells a Qianfan
 // API-key account can execute. The chat trunk and the media/vector/speech entries
@@ -38,6 +34,7 @@ import "strings"
 // local estimation adapter because no /v2 token-count route exists.
 var qianfanActionAdapters = map[string]string{
 	"chat":           "openai.chat",
+	"responses":      "openai.responses",
 	"count_tokens":   "openai.count_tokens",
 	"embeddings":     "qianfan.embeddings",
 	"rerank":         "qianfan.rerank",
@@ -56,6 +53,7 @@ var qianfanActionAdapters = map[string]string{
 // adapter named in its key.
 var qianfanAdapterEvidence = map[string]string{
 	"chat":           "openai.chat trunk through buildQianfanRequest to POST https://qianfan.baidubce.com/v2/chat/completions with Authorization: Bearer bce-v3/ALTAK (official API Key 鉴权 doc and 文本生成 reference, captured 2026-09-21; live probe 401 invalid_iam_token)",
+	"responses":      "openai.responses trunk on the native Qianfan Responses API: POST https://qianfan.baidubce.com/v2/responses with Authorization: Bearer bce-v3/ALTAK, derived by the shared trunk from the version-suffixed /v2 base (official 创建模型响应 doc and live probe 2026-09-21: 401 invalid_iam_token, i.e. a live route; the shared Responses settlement bills the upstream usage fields)",
 	"count_tokens":   "No /v2/count_tokens or /v2/tokenizer route exists (404 live probes 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation and never sends an upstream count request",
 	"embeddings":     "qianfan.embeddings handler to POST https://qianfan.baidubce.com/v2/embeddings with the OpenAI-compatible embedding envelope (official 向量 doc, captured 2026-09-21; live probe 401 invalid_iam_token)",
 	"rerank":         "qianfan.rerank handler to POST https://qianfan.baidubce.com/v2/rerank returning object=reranker_list with results[].relevance_score (official 重排序 doc, captured 2026-09-21; live probe 401 invalid_iam_token)",
@@ -73,7 +71,7 @@ var qianfanAdapterEvidence = map[string]string{
 // surface and without a faithful bridge. These must not be selected as
 // Composite targets for this platform.
 var qianfanHardConflicts = map[string]string{
-	"messages":            "POST /v2/messages returns 404 ResourceNotFound (live probe 2026-09-21); Qianfan publishes no Anthropic Messages endpoint, and the OpenAI-compatible /v2/chat/completions trunk already serves chat",
+	"messages":            "POST /v2/messages returns 404 ResourceNotFound (live probe 2026-09-21); Qianfan publishes no Anthropic Messages endpoint (the official /v2 API reference covers chat/completions, responses, embeddings, rerank, images and video, captured 2026-09-21), and the OpenAI-compatible /v2/chat/completions trunk already serves chat. A verified absence rather than a deferred integration: no native or faithful Messages contract exists to bind",
 	"responses.compact":   "POST /v2/responses/compact returns 404 page not found (live probe 2026-09-21); compact is an OpenAI Responses extension with no Qianfan equivalent",
 	"generate_content":    "Gemini generativelanguage surface; the Qianfan v2 probe set (2026-09-21) publishes no equivalent endpoint",
 	"image.variation":     "POST /v2/images/variations returns 404 page not found (live probe 2026-09-21); the documented iRAG variation feature is an instruction-driven images/edits mode that requires a prompt, so the OpenAI variations shape has no faithful bridge",
@@ -100,7 +98,6 @@ var qianfanUnverifiedEvidence = map[string]string{
 	"audio.tts":       "Adapter qianfan.audio.tts is implemented in this branch and verified against POST https://tsn.baidu.com/text2audio with Authorization: Bearer <API Key> (official 短文本语音合成 doc, 2026-09-21; live probe HTTP 200 IAM error envelope); /v1/audio/speech is rejected for the chat-only platform entry by TestChatOnlyPlatformProtocolGuard, so the cell stays unbound pending the classification decision",
 	"voice":           "Adapter qianfan.voice is implemented in this branch and verified against the Baidu speech host POST /rest/2.0/speech/publiccloudspeech/v1/voice/clone/{create,list} (official 大模型声音复刻 docs, 2026-09-21; live probes 400 status 11014); /v1/custom-voices is not served for a chat-only platform entry, so the cell stays unbound pending the classification decision",
 	"search":          "Adapter qianfan.search is implemented in this branch and verified against POST https://qianfan.baidubce.com/v2/ai_search/web_search with the distinct X-Appbuilder-Authorization credential (official 百度搜索 doc, 2026-09-21; live probes 401 code 216003); /v1/web_search is not served for a chat-only platform entry, so the cell stays unbound pending the classification decision",
-	"responses":       "POST /v2/responses exists (live probe 2026-09-21: 401 invalid_iam_token; official 创建模型响应 doc), but no Qianfan adapter is bound to the OpenAI-compatible responses trunk in this release and the platform is declared chat-only",
 	"image.batch":     "The official 批量预测任务 doc (captured 2026-09-21) lists /v2/chat/completions, /v2/images/generations and /v2/images/edits as batch interfaces, but the shared files/batches resource adapter does not bind Qianfan yet",
 	"audio.stt":       "No Qianfan audio route exists (POST /v2/audio/transcriptions 404 on 2026-09-21); Baidu's speech product serves short ASR on vop.baidu.com/server_api (probe 2026-09-21: 200 err_no 3314 on an empty body) as a separate credential surface, so an STT bridge remains a candidate, not a verified capability",
 	"audio.translate": "No Qianfan audio route exists (POST /v2/audio/translations 404 on 2026-09-21); Baidu speech translation lives on another product surface whose endpoint is not yet verified",

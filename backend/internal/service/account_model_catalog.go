@@ -452,6 +452,16 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 		if metadata.SupportedMethods == nil || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions) {
 			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
 		}
+		// A chat-only entry that publishes a native text protocol on the same
+		// trunk serves its text models through that family too. The family comes
+		// from the platform descriptor's protocol facts and is admitted only when
+		// the action matrix binds the cell, so the dispatch gate and the catalog
+		// read one authority instead of two hand-maintained lists.
+		for _, family := range chatOnlyPublishedTextFamilies(account) {
+			if action := chatOnlyCatalogEndpointAction(family); action != "" && platformActionAdapterBound(account, action) {
+				endpoints = append(endpoints, family)
+			}
+		}
 	}
 	for _, method := range metadata.SupportedMethods {
 		action := chatOnlyCatalogEndpointAction(method)
@@ -461,6 +471,28 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 		endpoints = append(endpoints, method)
 	}
 	return dedupeAndSortModelIDs(endpoints)
+}
+
+// chatOnlyPublishedTextFamilies lists the protocol families a chat-only platform
+// publishes on its OpenAI-shaped trunk beyond Chat Completions. The platform
+// descriptor is the authority: ResponsesPOST and MessagesPOST are the dated
+// protocol facts, and a family whose action cell is not bound never contributes.
+func chatOnlyPublishedTextFamilies(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	descriptor, known := domain.LookupPlatform(account.Platform)
+	if !known {
+		return nil
+	}
+	families := make([]string, 0, 2)
+	if descriptor.ResponsesPOST != domain.EndpointRejected {
+		families = append(families, CompositeRouteEndpointResponses)
+	}
+	if descriptor.MessagesPOST != domain.EndpointRejected {
+		families = append(families, CompositeRouteEndpointMessages)
+	}
+	return families
 }
 
 // chatOnlyCatalogEndpointAction resolves the gateway action an endpoint family

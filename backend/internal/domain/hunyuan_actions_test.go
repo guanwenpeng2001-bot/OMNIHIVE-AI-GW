@@ -15,12 +15,16 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 		"alpha_search", "live", "responses.websocket",
 	}
 	// Promoted by multimodal-ingress: adapter, dispatch key and evidence-driven
-	// chat-only gates landed together, so these cells are implemented now.
+	// chat-only gates landed together, so these cells are implemented now. The
+	// responses cell binds the shared OpenAI responses trunk on the TokenHub
+	// Responses compatibility mode; the messages cell binds the Anthropic path on
+	// the same site (x-api-key).
 	implementedWithAdapter := []string{
 		"image.generate", "image.edit", "video.generate", "video.status",
 		"video.content", "audio.tts", "audio.stt", "voice", "embeddings", "count_tokens",
+		"responses", "messages",
 	}
-	unverifiedWithoutAdapter := []string{"messages", "responses", "image.async", "video.edit", "native"}
+	unverifiedWithoutAdapter := []string{"image.async", "video.edit", "native"}
 
 	matrix := PlatformActionMatrix(ActionIdentity{Platform: PlatformHunyuan})
 	if len(matrix) != len(GatewayActions()) {
@@ -94,6 +98,8 @@ func TestHunyuanActionMatrixIsFullyEvidenced(t *testing.T) {
 func TestHunyuanBoundAdapterKeysMatchTheirHandlers(t *testing.T) {
 	expected := map[string]string{
 		"chat":           "openai.chat",
+		"messages":       "openai.messages",
+		"responses":      "openai.responses",
 		"count_tokens":   "openai.count_tokens",
 		"image.generate": "hunyuan.images",
 		"image.edit":     "hunyuan.image.edit",
@@ -157,5 +163,40 @@ func TestHunyuanHostedIdentitiesDoNotManufactureAdapters(t *testing.T) {
 				t.Fatalf("hunyuan+%s %s lacks evidence", hosted, action)
 			}
 		}
+	}
+}
+
+// The two text protocol cells TokenHub publishes next to Chat Completions must
+// bind the shared trunk with the protocol, path and credential facts that
+// produced the verdict, so neither cell reads as a bare status.
+func TestHunyuanResponsesAndMessagesCellsBindTheSharedTrunk(t *testing.T) {
+	for _, cell := range []struct {
+		action, adapter, pathAnchor, credentialAnchor string
+	}{
+		{"responses", "openai.responses", "{base}/responses", "Authorization: Bearer"},
+		{"messages", "openai.messages", "{base}/v1/messages", "x-api-key"},
+	} {
+		descriptor := PlatformAction(ActionIdentity{Platform: PlatformHunyuan, HostedAccountType: AccountTypeAPIKey}, cell.action)
+		if descriptor.Status != ActionImplemented || descriptor.Adapter != cell.adapter {
+			t.Fatalf("hunyuan %s: got %s/%s, want implemented/%s", cell.action, descriptor.Status, descriptor.Adapter, cell.adapter)
+		}
+		if !strings.Contains(descriptor.Evidence, cell.pathAnchor) || !strings.Contains(descriptor.Evidence, cell.credentialAnchor) {
+			t.Fatalf("hunyuan %s evidence lacks the documented path or credential: %s", cell.action, descriptor.Evidence)
+		}
+		if !strings.Contains(descriptor.Evidence, "1823/") || !strings.Contains(descriptor.Evidence, "2026-09-21") {
+			t.Fatalf("hunyuan %s evidence lacks a dated first-party anchor: %s", cell.action, descriptor.Evidence)
+		}
+		if descriptor.CredentialPolicy == "" || descriptor.ModelPolicy == "" || descriptor.UsagePolicy == "" || descriptor.Lifecycle == "" {
+			t.Fatalf("hunyuan %s lacks policy bindings: %+v", cell.action, descriptor)
+		}
+		if !strings.Contains(descriptor.CredentialPolicy, "x-api-key") {
+			t.Fatalf("hunyuan %s must keep the documented credential split: %+v", cell.action, descriptor)
+		}
+	}
+	// The descriptor protocol facts these cells bind on stay published, so the
+	// dispatch gate and the model catalog read one authority.
+	platform, known := LookupPlatform(PlatformHunyuan)
+	if !known || platform.ResponsesPOST != EndpointNative || platform.MessagesPOST != EndpointNative {
+		t.Fatalf("hunyuan protocol facts moved: %+v", platform)
 	}
 }

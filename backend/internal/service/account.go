@@ -1546,6 +1546,11 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultQianwenAnthropicBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxAnthropicBaseURL
+		case PlatformHunyuan:
+			// TokenHub serves the Anthropic Messages path on the same
+			// version-suffixed site as the OpenAI paths (1823/130078); the trunk
+			// appends the protocol path with the version-aware builder.
+			return hunyuanCompatibilityBaseURL
 		case PlatformCommandCode:
 			return DefaultCommandCodeBaseURL
 		case PlatformOpenCodeGo:
