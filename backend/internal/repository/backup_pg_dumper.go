@@ -14,7 +14,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/shirou/gopsutil/v4/disk"
 )
 
@@ -27,7 +26,7 @@ type PgDumper struct {
 }
 
 // NewPgDumper creates a new PgDumper
-func NewPgDumper(cfg *config.Config, db *sql.DB) service.DBDumper {
+func NewPgDumper(cfg *config.Config, db *sql.DB) *PgDumper {
 	return &PgDumper{
 		cfg:            &cfg.Database,
 		db:             db,

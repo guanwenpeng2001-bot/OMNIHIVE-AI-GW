@@ -7,14 +7,13 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/google/uuid"
 	"github.com/redis/go-redis/v9"
 )
 
 type cursorSessionCache struct{ client *redis.Client }
 
-func NewCursorSessionCache(client *redis.Client) service.CursorSessionCache {
+func NewCursorSessionCache(client *redis.Client) *cursorSessionCache {
 	return &cursorSessionCache{client: client}
 }
 
