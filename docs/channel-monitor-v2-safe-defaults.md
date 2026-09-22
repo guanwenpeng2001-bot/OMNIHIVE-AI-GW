@@ -1,8 +1,18 @@
 # Channel Monitor V2 Safe Defaults & Gentle Backfill
 
-**Date:** 2026-08-08  
-**Status:** Approved for implementation  
+**Date:** 2026-08-08 (status updated 2026-09-22)  
+**Status:** Implemented. Product default is V1 with explicit V2 opt-in; the gentle backfill gates and the bounded error-dedup query are in code.  
 **Branch:** `fix/channel-monitor-v2-ops-ui-blockers` (onto channel-monitor-v2)
+
+Implementation anchors:
+
+| Decision | Code |
+|----------|------|
+| Default mode V1, V2 explicit opt-in | `channel_monitor_mode` seed `v1` in `backend/migrations/195_channel_monitor_mode.sql`; `defaultChannelMonitorMode = ChannelMonitorModeV1` in `backend/internal/service/setting_public.go` |
+| Adaptive gentle backfill (initial/min/max chunk per depth, slow growth, halving on failure) | `backend/internal/service/channel_monitor_v2_aggregator.go` (`channelMonitorV2BackfillChunkInit`, `channelMonitorV2MaxChunkForDepth`) |
+| Bounded error dedup | `backend/internal/repository/channel_monitor_v2_aggregation.go` (`created_at >= $1 - INTERVAL '90 minutes'`) |
+
+The optional `backfill_profile` knob and forced v2→v1 rewriting remain out of scope as stated below.
 
 ## Problem
 

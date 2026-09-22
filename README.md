@@ -190,9 +190,10 @@ Sub2API is an AI API gateway platform designed to distribute and manage API quot
 - **Smart Scheduling** - Intelligent account selection with sticky sessions
 - **Concurrency Control** - Per-user and per-account concurrency limits
 - **Rate Limiting** - Configurable request and token rate limits
-- **Built-in Payment System** - Supports EasyPay, Alipay, WeChat Pay, and Stripe for user self-service top-up, no separate payment service needed ([Configuration Guide](docs/PAYMENT.md))
+- **Built-in Payment System** - Supports EasyPay, Alipay, WeChat Pay, Stripe, and Airwallex, plus subscription plans bound to a group, for user self-service purchase without a separate payment service ([Configuration Guide](docs/PAYMENT.md))
 - **Admin Dashboard** - Web interface for monitoring and management
-- **Composite Groups** - Admin routing layer that resolves requested models to concrete providers for multi-provider groups ([Operator Guide](docs/COMPOSITE_GROUPS.md))
+- **Composite Groups** - Admin routing layer that resolves requested models to concrete providers for multi-provider groups, optionally with ordered fallback targets ([Operator Guide](docs/COMPOSITE_GROUPS.md))
+- **Multimodal Requests** - Registered media actions per platform: image generation/edit/variation, video generation/edit/extension, speech (TTS/STT), embeddings, rerank and realtime, each gated by the group's platform, account evidence and group switches. Anthropic Messages stays a text/vision-input protocol and is not a generation endpoint
 - **External System Integration** - Embed external systems (e.g. ticketing) via iframe to extend the admin dashboard
 
 ## Ecosystem
@@ -757,10 +758,11 @@ Sub2API supports both Grok subscription accounts through xAI OAuth and standard 
 - Public Chat Completions targets: `/v1/chat/completions` and `/chat/completions`, forwarded to the account-type-specific xAI upstream
 - Codex CLI style Responses WebSocket ingress is accepted on the Responses targets and bridged to xAI HTTP/SSE Responses upstream
 - Text models: `grok-4.5`, `grok-4.3`, `grok-build-0.1`, `grok-composer-2.5-fast`, `grok-4.20-0309-reasoning`, `grok-4.20-0309-non-reasoning`, and `grok-4.20-multi-agent-0309`
-- Media targets for Grok groups: `/v1/images/generations`, `/images/generations`, `/v1/images/edits`, `/images/edits`, `/v1/videos/generations`, `/videos/generations`, `/v1/videos/edits`, `/videos/edits`, `/v1/videos/extensions`, `/videos/extensions`, `/v1/videos/{request_id}`, and `/videos/{request_id}`. Generation, editing, and extension requests require the group image-generation permission.
+- Media targets for Grok groups: `/v1/images/generations`, `/images/generations`, `/v1/images/edits`, `/images/edits`, `/v1/videos/generations`, `/videos/generations`, `/v1/videos/edits`, `/videos/edits`, `/v1/videos/extensions`, `/videos/extensions`, `/v1/videos/{request_id}`, and `/videos/{request_id}`. Generation, editing and extension requests require the group image-generation permission. Image variation (`/v1/images/variations`) is an OpenAI/Bedrock action and is not part of the Grok surface.
 - Media models: `grok-imagine`, `grok-imagine-image-quality`, `grok-imagine-image`, `grok-imagine-image-2.0`, `grok-imagine-edit`, `grok-imagine-video`, and `grok-imagine-video-1.5`
 - JSON image-edit and video-generation requests accept image references in `image`, `images`, `reference_images`, and `mask` objects. Use `url` for xAI-compatible payloads; the legacy `image_url` field remains accepted and is normalized to `url` before forwarding.
-- Out of scope for this provider: TTS, transcription, browser automation, cookies, and Grok web scraping
+- Voice and search targets for Grok groups: `/v1/tts`, `/v1/stt`, `/v1/custom-voices` (create/list/get/update/delete and `/{voice_id}/audio`), `/v1/realtime` (websocket), `/v1/web_search`, and `/v1/x_search`, with the matching root aliases. These are separately gated actions: a chat-capable Grok key is not automatically granted TTS, transcription or search.
+- Out of scope for this provider: browser automation, cookie-based scraping and Grok web scraping
 
 ### OAuth Configuration
 
@@ -864,20 +866,25 @@ Antigravity accounts support optional **hybrid scheduling**. When enabled, the g
 sub2api/
 ├── backend/                  # Go backend service
 │   ├── cmd/server/           # Application entry
-│   ├── internal/             # Internal modules
-│   │   ├── config/           # Configuration
-│   │   ├── model/            # Data models
-│   │   ├── service/          # Business logic
-│   │   ├── handler/          # HTTP handlers
-│   │   └── gateway/          # API gateway core
-│   └── resources/            # Static resources
+│   ├── ent/                  # Ent schemas and generated code
+│   ├── internal/
+│   │   ├── config/           # Configuration loading and defaults
+│   │   ├── domain/           # Platform descriptors, capability and action matrix
+│   │   ├── handler/          # HTTP handlers (admin/ and gateway entry points)
+│   │   ├── middleware/       # Request middleware
+│   │   ├── payment/          # Payment providers, registry and load balancing
+│   │   ├── repository/       # Persistence
+│   │   ├── server/routes/    # Route registration
+│   │   └── service/          # Business logic (gateway, billing, scheduling)
+│   ├── migrations/           # SQL migrations
+│   └── resources/            # Embedded capability catalog and pricing fallback
 │
 ├── frontend/                 # Vue 3 frontend
 │   └── src/
-│       ├── api/              # API calls
+│       ├── api/              # API clients
+│       ├── components/       # Reusable components
 │       ├── stores/           # State management
-│       ├── views/            # Page components
-│       └── components/       # Reusable components
+│       └── views/            # Page components
 │
 └── deploy/                   # Deployment files
     ├── docker-compose.yml    # Docker Compose configuration

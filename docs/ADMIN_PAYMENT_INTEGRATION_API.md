@@ -15,7 +15,7 @@
 
 ### 基础地址
 - 生产：`https://<your-domain>`
-- Beta：`http://<your-server-ip>:8084`
+- 本机/测试：`http://<your-server-ip>:8080`（`server.port` 默认 8080，以实际配置为准）
 
 ### 认证
 推荐使用：
@@ -135,7 +135,7 @@ This document describes the minimal Sub2API Admin API surface for external payme
 
 ### Base URL
 - Production: `https://<your-domain>`
-- Beta: `http://<your-server-ip>:8084`
+- Local/test: `http://<your-server-ip>:8080` (the default `server.port` is 8080; use your configured value)
 
 ### Authentication
 Recommended headers:

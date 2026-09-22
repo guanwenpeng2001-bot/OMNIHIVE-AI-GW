@@ -26,6 +26,7 @@ const {
   getAvailableGroups,
   getUserGroupRates,
   showError,
+  showInfo,
   showSuccess,
   copyToClipboard,
   isCurrentStep,
@@ -39,6 +40,7 @@ const {
   getAvailableGroups: vi.fn(),
   getUserGroupRates: vi.fn(),
   showError: vi.fn(),
+  showInfo: vi.fn(),
   showSuccess: vi.fn(),
   copyToClipboard: vi.fn(),
   isCurrentStep: vi.fn(),
@@ -56,6 +58,10 @@ const messages: Record<string, string> = {
   'keys.allStatus': 'All Status',
   'keys.columnSettings': 'Column Settings',
   'keys.createKey': 'Create API Key',
+  'keys.importToCcSwitch': 'Import to CC Switch',
+  'keys.ccSwitchSecretUnavailable': 'secret only shown once; rotate and import right away',
+  'keys.ccSwitchBaseUrlMissing': 'no public API base URL configured',
+  'keys.ccSwitchNotInstalled': 'CC-Switch missing',
   'keys.created': 'Created',
   'keys.expiresAt': 'Expires',
   'keys.group': 'Group',
@@ -99,9 +105,14 @@ vi.mock('@/api', () => ({
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
     showError,
+    showInfo,
     showSuccess,
+    publicSettingsLoaded: true,
+    fetchPublicSettings: vi.fn(),
   }),
 }))
+const visibleModels = vi.hoisted(() => vi.fn())
+vi.mock('@/api/modelAccess', () => ({ keyVisibleModels: visibleModels }))
 
 vi.mock('@/stores/onboarding', () => ({
   useOnboardingStore: () => ({
@@ -435,10 +446,20 @@ describe('user KeysView column settings', () => {
     expect(credentials.text()).toContain(translations.description)
     expect(credentials.text()).toContain(translations.mode)
     expect(credentials.text()).toContain(translations.addressHint)
+    // 文本/视觉协议入口与生成类入口分开列出，都能复制到正确地址。
     expect(credentials.findAll('code').map((address) => address.text())).toEqual([
       `${window.location.origin}/v1`,
-      `${window.location.origin}/v1/messages`
+      `${window.location.origin}/v1/messages`,
+      `${window.location.origin}/v1/images/generations`,
+      `${window.location.origin}/v1/images/edits`,
+      `${window.location.origin}/v1/videos/generations`,
+      `${window.location.origin}/v1/tts`,
+      `${window.location.origin}/v1/stt`,
+      `${window.location.origin}/v1/embeddings`,
+      `${window.location.origin}/v1/rerank`
     ])
+    expect(credentials.text()).toContain(translations.generationTitle)
+    expect(credentials.text()).toContain(translations.generationHint)
     const copyButtons = credentials.findAll('button')
     for (const [index, protocol] of [translations.openai, translations.anthropic].entries()) {
       expect(copyButtons[index].attributes('aria-label')).toBe(
@@ -448,6 +469,11 @@ describe('user KeysView column settings', () => {
     }
     expect(copyToClipboard).toHaveBeenNthCalledWith(1, `${window.location.origin}/v1`, translations.copied)
     expect(copyToClipboard).toHaveBeenNthCalledWith(2, `${window.location.origin}/v1/messages`, translations.copied)
+    expect(copyButtons[2].attributes('aria-label')).toBe(
+      translations.copyAddress.replace('{protocol}', translations.imageGeneration)
+    )
+    await copyButtons[2].trigger('click')
+    expect(copyToClipboard).toHaveBeenNthCalledWith(3, `${window.location.origin}/v1/images/generations`, translations.copied)
     expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
     wrapper.unmount()
   })
@@ -458,10 +484,18 @@ describe('user KeysView column settings', () => {
     const wrapper = await mountView()
     expect(wrapper.findAll('section code').map((address) => address.text())).toEqual([
       'https://gateway.example:8443/v1',
-      'https://gateway.example:8443/v1/messages'
+      'https://gateway.example:8443/v1/messages',
+      'https://gateway.example:8443/v1/images/generations',
+      'https://gateway.example:8443/v1/images/edits',
+      'https://gateway.example:8443/v1/videos/generations',
+      'https://gateway.example:8443/v1/tts',
+      'https://gateway.example:8443/v1/stt',
+      'https://gateway.example:8443/v1/embeddings',
+      'https://gateway.example:8443/v1/rerank'
     ])
     expect(buildGatewayUrl).toHaveBeenCalledWith('/v1')
     expect(buildGatewayUrl).toHaveBeenCalledWith('/v1/messages')
+    expect(buildGatewayUrl).toHaveBeenCalledWith('/v1/images/generations')
     wrapper.unmount()
   })
 
@@ -713,6 +747,66 @@ describe('user KeysView column settings', () => {
     }, undefined)
     expect(wrapper.text()).toContain('sk-created-once')
     expect(wrapper.text()).toContain('keys.secretOnce.warning')
+    wrapper.unmount()
+  })
+
+  it('refuses the CC-Switch import once the one-time secret is no longer held', async () => {
+    const key = { ...createApiKey(), id: 5, key: '****abcd', group: { id: 2, name: 'OpenAI', platform: 'openai' } }
+    listKeys.mockResolvedValueOnce({ items: [key], total: 1, page: 1, page_size: 20, pages: 1 })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = await mountView()
+
+    await getButtonByText(wrapper, 'Import to CC Switch').trigger('click')
+    await flushPromises()
+
+    expect(openSpy).not.toHaveBeenCalled()
+    expect(showInfo).toHaveBeenCalledWith('secret only shown once; rotate and import right away')
+    expect(visibleModels).not.toHaveBeenCalled()
+    openSpy.mockRestore()
+    wrapper.unmount()
+  })
+
+  it('imports a model from the key visible set instead of a hardcoded constant', async () => {
+    getAvailableGroups.mockResolvedValue([{ id: 42, name: 'OpenAI' }])
+    getPublicSettings.mockResolvedValue({ api_base_url: 'https://gw.example/v1' })
+    createKey.mockResolvedValue({
+      api_key: { ...createApiKey(), id: 9 },
+      secret: 'sk-created-once',
+      grace_until: null,
+    })
+    listKeys.mockResolvedValue({
+      items: [{ ...createApiKey(), id: 9, key: '****abcd', group: { id: 42, name: 'OpenAI', platform: 'openai' } }],
+      total: 1,
+      page: 1,
+      page_size: 20,
+      pages: 1,
+    })
+    visibleModels.mockResolvedValue({ models: ['text-embedding-3-large', 'gpt-5.5'], fullyEnumerable: true })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const wrapper = await mountView()
+
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-tour="key-form-name"]').setValue('new key')
+    const groupSelect = wrapper
+      .findAllComponents({ name: 'Select' })
+      .find((select) => (select.element as Element).getAttribute('data-tour') === 'key-form-group')!
+    groupSelect.vm.$emit('update:modelValue', 42)
+    await flushPromises()
+    await wrapper.get('#key-form').trigger('submit')
+    await flushPromises()
+
+    await getButtonByText(wrapper, 'Import to CC Switch').trigger('click')
+    await flushPromises()
+
+    expect(visibleModels).toHaveBeenCalledWith(9)
+    const deeplink = String(openSpy.mock.calls[0][0])
+    expect(deeplink).toContain('ccswitch://v1/import')
+    expect(deeplink).toContain('model=gpt-5.5')
+    expect(deeplink).toContain('apiKey=sk-created-once')
+    // The list only ever carries a mask, and the mask must never become a client credential.
+    expect(deeplink).not.toContain('****abcd')
+    openSpy.mockRestore()
     wrapper.unmount()
   })
 

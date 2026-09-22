@@ -5,23 +5,27 @@
     <button class="btn btn-secondary" :disabled="loading" @click="loadKeys(1)">{{ t('quickstartGuide.loadKeys') }}</button>
     <p v-if="loading" role="status">{{ t('quickstartGuide.loading') }}</p>
     <p v-else-if="error" role="alert">{{ error }}</p>
+    <p v-else-if="missingApiBaseUrl" role="alert">{{ t('quickstartGuide.missingApiBaseUrl') }}</p>
     <p v-else-if="loaded && !keys.length" role="status">{{ t('quickstartGuide.noKeys') }}</p>
     <template v-if="keys.length || hasNext || page > 1">
-      <p class="break-all text-sm">{{ t('quickstartGuide.gatewayUrl') }}{{ root }}</p>
-      <label class="flex items-start gap-2 text-sm">
-        <input v-model="confirmedRoot" type="checkbox" :true-value="root" :false-value="''" />
-        {{ t('quickstartGuide.trustGateway') }}
-      </label>
-      <label class="block">{{ t('quickstartGuide.keyGroup') }}
-        <select v-model="selectedKey" class="input mt-1">
-          <option :value="null">{{ t('quickstartGuide.selectKey') }}</option>
-          <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }} · {{ key.group }}</option>
-        </select>
-      </label>
+      <!-- 未配置公开 API 地址时不展示“信任该网关地址”与生成示例的入口。 -->
+      <template v-if="!missingApiBaseUrl">
+        <p class="break-all text-sm">{{ t('quickstartGuide.gatewayUrl') }}{{ root }}</p>
+        <label class="flex items-start gap-2 text-sm">
+          <input v-model="confirmedRoot" type="checkbox" :true-value="root" :false-value="''" />
+          {{ t('quickstartGuide.trustGateway') }}
+        </label>
+        <label class="block">{{ t('quickstartGuide.keyGroup') }}
+          <select v-model="selectedKey" class="input mt-1">
+            <option :value="null">{{ t('quickstartGuide.selectKey') }}</option>
+            <option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }} · {{ key.group }}</option>
+          </select>
+        </label>
+      </template>
       <div class="flex gap-3">
         <button v-if="page > 1" class="btn btn-secondary" :disabled="loading" @click="loadKeys(page - 1)">{{ t('quickstartGuide.previous') }}</button>
         <button v-if="hasNext" class="btn btn-secondary" :disabled="loading" @click="loadKeys(page + 1)">{{ t('quickstartGuide.next') }}</button>
-        <button class="btn btn-secondary" :disabled="!selectedKey || confirmedRoot !== root || loading" @click="loadModels">{{ t('quickstartGuide.loadModels') }}</button>
+        <button v-if="!missingApiBaseUrl" class="btn btn-secondary" :disabled="!selectedKey || confirmedRoot !== root || loading" @click="loadModels">{{ t('quickstartGuide.loadModels') }}</button>
       </div>
     </template>
     <template v-if="catalogLoaded && !loading && !error">
@@ -57,9 +61,11 @@ import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { keysAPI } from '@/api/keys'
 import { apiClient } from '@/api/client'
-import type { ApiKey, PublicSettings } from '@/types'
+import { keyVisibleModels } from '@/api/modelAccess'
+import type { PublicSettings } from '@/types'
 import CodeBlock from './CodeBlock.vue'
-import { parseModels, protocols, publicRoot, requestExample, type Protocol, type VisibleModel } from './quickstart'
+import { protocols, publicRoot, requestExample, type Protocol, type VisibleModel } from './quickstart'
+import { extractApiErrorStatus } from '@/utils/apiError'
 
 const { t } = useI18n()
 const auth = useAuthStore()
@@ -72,6 +78,7 @@ const filter = ref('')
 const protocol = ref<Protocol | ''>('')
 const root = ref('')
 const confirmedRoot = ref('')
+const missingApiBaseUrl = ref(false)
 const page = ref(1)
 const hasNext = ref(false)
 const loading = ref(false)
@@ -105,6 +112,7 @@ function reset() {
   root.value = ''
   confirmedRoot.value = ''
   loaded.value = false
+  missingApiBaseUrl.value = false
   page.value = 1
   hasNext.value = false
 }
@@ -128,7 +136,15 @@ async function loadKeys(targetPage: number) {
     // Only metadata is retained in reactive state; never retain the list's key values.
     keys.value = result.items.filter(key => key.status === 'active' && key.group_id != null)
       .map(key => ({ id: key.id, name: key.name, group: key.group?.name ?? String(key.group_id) }))
-    root.value = publicRoot(settings.data.api_base_url, new URL(import.meta.env.BASE_URL, window.location.origin).href)
+    // Examples may only use the address this deployment actually publishes. The
+    // console origin is not a guess: the console and the gateway can differ.
+    const configuredBase = settings.data.api_base_url?.trim() ?? ''
+    if (!configuredBase) {
+      missingApiBaseUrl.value = true
+      loaded.value = true
+      return
+    }
+    root.value = publicRoot(configuredBase, '')
     page.value = targetPage
     hasNext.value = targetPage * 100 < result.total
     loaded.value = true
@@ -146,27 +162,18 @@ async function loadModels() {
   loading.value = true
   controller = new AbortController()
   try {
-    // The existing detail wrapper has no cancellation option; use the same client and endpoint.
-    const { data: key } = await apiClient.get<ApiKey>(`/keys/${id}`, { signal: controller.signal })
+    // The panel can no longer read a Key secret after creation, so the visible
+    // model set comes from the authenticated panel session instead of calling the
+    // gateway with a credential the browser does not hold.
+    const visible = await keyVisibleModels(id, controller.signal)
     if (current !== revision) return
-    if (key.status !== 'active' || key.group_id == null) throw new Error('Unavailable key')
-    const response = await fetch(`${root.value}/v1/models`, {
-      headers: { Authorization: `Bearer ${key.key}` }, signal: controller.signal,
-      cache: 'no-store', credentials: 'omit', redirect: 'error', referrerPolicy: 'no-referrer'
-    })
-    if (current !== revision) return
-    if (response.status === 401 || response.status === 403) {
-      error.value = t('quickstartGuide.accessDenied')
-      return
-    }
-    if (!response.ok) throw new Error('Catalogue unavailable')
-    const payload: unknown = await response.json()
-    if (current !== revision) return
-    models.value = parseModels(payload)
+    // The panel answer carries names only. Endpoints stay unknown rather than
+    // being inferred, so the guide keeps letting the user choose a protocol.
+    models.value = visible.models.map(model => ({ id: model, endpoints: null }))
     catalogLoaded.value = true
-  } catch {
-    // Do not expose server response bodies, request objects, or credentials in logs/toasts.
-    if (current === revision) error.value = t('quickstartGuide.catalogFailed')
+  } catch (failure) {
+    if (current !== revision) return
+    error.value = extractApiErrorStatus(failure) === 403 ? t('quickstartGuide.accessDenied') : t('quickstartGuide.catalogFailed')
   } finally {
     if (current === revision) loading.value = false
   }

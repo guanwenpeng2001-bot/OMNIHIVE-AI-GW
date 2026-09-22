@@ -17,6 +17,9 @@ type PlazaModel struct {
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
 	TimePricing *TimePricingSchedule
+	// Capabilities 该分组下这个公开模型的实际观测规格（可能为空 = 无依据）。
+	// 内部字段，只给 handler 做公开白名单投影；不参与可见集合判断，也不对外序列化。
+	Capabilities []UpstreamModelMetadata
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -106,7 +109,7 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		return nil, fmt.Errorf("list active groups: %w", err)
 	}
 
-	ctx, visible, err := visibleModelsForGroups(ctx, visibility, groups)
+	ctx, visible, observations, err := plazaVisibleModelsForGroups(ctx, visibility, groups)
 	if err != nil {
 		return nil, err
 	}
@@ -187,9 +190,10 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 				}
 				idx[key] = len(pg.Models)
 				pg.Models = append(pg.Models, PlazaModel{
-					Name:     m.Name,
-					Platform: m.Platform,
-					Pricing:  m.Pricing,
+					Name:         m.Name,
+					Platform:     m.Platform,
+					Pricing:      m.Pricing,
+					Capabilities: observations[gid][m.Name],
 				})
 			}
 		}
@@ -224,6 +228,35 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		return nil, err
 	}
 	return out, nil
+}
+
+// plazaVisibleModelsForGroups mirrors visibleModelsForGroups but also keeps the
+// per-model account observations from the same resolution pass. The plaza shows
+// exactly the evidence the gateway list uses and never performs a second read.
+func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver, groups []Group) (context.Context, map[int64]map[string]bool, map[int64]map[string][]UpstreamModelMetadata, error) {
+	frozen, err := resolver.freeze(ctx)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	visible := make(map[int64]map[string]bool)
+	observations := make(map[int64]map[string][]UpstreamModelMetadata)
+	if resolver == nil {
+		return frozen, visible, observations, nil
+	}
+	for _, group := range groups {
+		metadata := make(map[string][]UpstreamModelMetadata)
+		view, err := resolver.resolve(frozen, &group.ID, group.Platform, metadata)
+		if err != nil {
+			return ctx, nil, nil, err
+		}
+		members := make(map[string]bool, len(view.Models))
+		for _, model := range view.Models {
+			members[model] = true
+		}
+		visible[group.ID] = members
+		observations[group.ID] = metadata
+	}
+	return frozen, visible, observations, nil
 }
 
 // fillDisplayPricing 把模型的展示定价换成实收口径：

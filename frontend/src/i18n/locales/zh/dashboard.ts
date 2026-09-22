@@ -79,7 +79,17 @@ export default {
       anthropic: 'Anthropic 兼容 · Messages 端点',
       copyAddress: '复制{protocol}地址',
       copied: '接入地址已复制',
-      addressHint: '请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。'
+      addressHint: '请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。',
+      generationTitle: '生成类入口（与 Messages 端点不同）',
+      generationHint:
+        'Anthropic 兼容的 Messages 端点只处理文本与视觉输入，不会生成图片、视频或语音；生成类请求请使用以下入口，实际可用性取决于分组平台与分组开关。',
+      imageGeneration: '图片生成',
+      imageEdit: '图片编辑',
+      videoGeneration: '视频生成',
+      speech: '语音合成（TTS）',
+      transcription: '语音转写（STT）',
+      embeddings: '向量化',
+      rerank: '重排'
     },
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
@@ -169,6 +179,9 @@ export default {
       noGroupTitle: '请先分配分组',
       noGroupDescription:
         '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
+      baseUrlMissing: '本站尚未配置公开 API 地址（api_base_url），无法生成接入配置。请联系管理员配置后重试。',
+      generationEntryHint:
+        '以上配置只针对文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请使用 /v1/images/*、/v1/videos/*、/v1/tts、/v1/stt 等媒体入口，不要通过 Messages 端点发生成请求。',
       openai: {
         description: '将以下配置文件添加到 Codex CLI 配置目录中。',
         authModeTitle: 'Codex 认证模式',
@@ -278,6 +291,10 @@ export default {
     ipRestrictionEnabled: '已配置 IP 限制',
     ccSwitchNotInstalled:
       'CC-Switch 未安装或协议处理程序未注册。请先安装 CC-Switch 或手动复制 API 密钥。',
+    ccSwitchSecretUnavailable:
+      '密钥只在创建或轮换时显示一次，列表里已是掩码，无法再用于导入。请先轮换该密钥，再立即导入 CC-Switch。',
+    ccSwitchBaseUrlMissing:
+      '本站尚未配置公开 API 地址（api_base_url），无法生成可用的导入链接。请联系管理员配置后再试。',
     ccsClientSelect: {
       title: '选择客户端',
       description: '请选择您要导入到 CC-Switch 的客户端类型：',
@@ -803,8 +820,45 @@ export default {
       timePricingRowHintPeak: '；本行价格未含高峰倍率，与高峰时段 {window} 重叠的部分实付再乘 ×{multiplier}',
       timePricingWeekdays: '工作日',
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
-      paidPrice: '实付价格(折后)',
-      rate: '折扣倍率',
+      paidPrice: '售价（标准时段）',
+      rate: '生效倍率',
+      referenceTitle: '参考价（服务端提供，来自计费目录）；无来源时本表不展示参考价或折扣',
+      contextShort: '上下文',
+      referenceNote: '有来源的参考价以划线展示，实付价按当前倍率计算。',
+      contextHint: {
+        input: '输入上下文上限（多个账号证据一致）',
+        total: '总上下文上限（输入 + 输出，多个账号证据一致）',
+        unspecified: '上下文上限（口径未标明输入或总量，仅按已有证据展示）',
+        observedMinimum: '仅观测到最小值，真实上限可能更高'
+      },
+      capability: {
+        vision: '视觉输入',
+        functionCalling: '工具调用',
+        promptCaching: '提示缓存',
+        pdf: 'PDF',
+        reasoning: '推理',
+        embeddingDimensions: '向量 {dimensions} 维',
+        inputModalityPartial: '可能支持{modality}输入',
+        outputModality: '输出 {modality}'
+      },
+      capabilityHint: {
+        vision: '账号证据表明该模型接受图片输入',
+        functionCalling: '账号证据表明该模型支持工具/函数调用',
+        promptCaching: '账号证据表明该模型支持提示缓存',
+        pdf: '账号证据表明该模型接受 PDF 输入',
+        reasoning: '账号证据表明该模型支持推理控制',
+        embeddingDimensions: '向量维度为可核实值（不会按最小值合并）',
+        inputModalityPartial: '部分账号声明或仅个别观测出现该模态，未在所有观测中一致',
+        outputModality: '该模型可能输出非文本模态；是否可用仍取决于实际端点'
+      },
+      modality: {
+        image: '图片',
+        audio: '音频',
+        video: '视频',
+        pdf: 'PDF',
+        embedding: '向量',
+        score: '排序分数'
+      },
       unitPerMillion: 'USD / 1M token',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',

@@ -174,3 +174,19 @@ with the base generation, source hash, raw input and changed exact identities.
 These observations require human review and the normal release process before
 local reload; a matching download hash or a cached approval marker is insufficient.
 The standalone three-source collector likewise produces candidates only.
+
+### Where pricing and capability data actually live
+
+Two different files are involved, and neither of them is created by this tool:
+
+| Purpose | Path | Notes |
+| --- | --- | --- |
+| Shipped fallback pricing (embedded in the binary) | `backend/resources/model-pricing/model_prices_and_context_window.json` | Committed resource; `pricing.fallback_file` defaults to `./resources/model-pricing/model_prices_and_context_window.json` relative to the server's working directory |
+| Runtime pricing cache and its hash file | `<pricing.data_dir>/model_pricing.json` and `<pricing.data_dir>/model_pricing.sha256` | `pricing.data_dir` defaults to `./data`, i.e. `backend/data/model_pricing.json` when the server runs from `backend/`. This directory is created at runtime when the collector/cache needs it; the repository does not ship `backend/data` and it must not be added just to silence a path reference |
+
+`inputs.json` records the reviewed projection that the published catalog was
+built from. Its source id string (`backend/data/model_pricing.json`) is the
+reviewed runtime cache path above, not a path inside the shipped source tree;
+the file need not exist in a developer checkout. Changing that identity string
+changes the reviewed input hash, so it can only move together with a new signed
+release generation — this tool never rewrites it in place.

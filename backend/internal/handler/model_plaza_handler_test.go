@@ -139,6 +139,50 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	require.False(t, hasRate, "无专属倍率时 user_rate_multiplier 应 omitempty")
 }
 
+// 广场只展示同一次可见性解析得到的、可核实的规格：没有依据就不返回
+// capabilities（前端保持未提供），有观测冲突的字段保持 unknown 而不是零值。
+func TestPlazaCapabilitiesOnlyProjectsSourcedFacts(t *testing.T) {
+	vision := true
+	pdfMissing := (*bool)(nil)
+
+	single := plazaCapabilities([]service.UpstreamModelMetadata{{
+		ContextLimitKind:    "input",
+		ContextWindow:       200000,
+		MaxOutputTokens:     64000,
+		SupportsVision:      &vision,
+		SupportsPDF:         pdfMissing,
+		InputModalities:     []string{"text", "image"},
+		OutputModalities:    []string{"text"},
+		EmbeddingDimensions: 0,
+	}})
+	require.NotNil(t, single)
+	require.NotNil(t, single.InputContext.Guaranteed)
+	require.EqualValues(t, 200000, *single.InputContext.Guaranteed)
+	require.NotNil(t, single.SupportsVision.Guaranteed)
+	require.True(t, *single.SupportsVision.Guaranteed)
+	require.True(t, single.SupportsPDF.Unknown, "缺少观测的字段必须保持 unknown")
+	require.Nil(t, single.SupportsPDF.Guaranteed)
+	require.True(t, single.TotalContext.Unknown, "没有 total 观测时该维度保持 unknown")
+	require.Nil(t, single.TotalContext.Guaranteed)
+
+	// 多个账号给出不同上限时，同量纲上限取最小值作为保证值，并同时给出观测最小值；
+	// 不会把冲突当成“未知零”或取最大值冒充能力。
+	conflict := plazaCapabilities([]service.UpstreamModelMetadata{
+		{ContextLimitKind: "input", ContextWindow: 200000},
+		{ContextLimitKind: "input", ContextWindow: 100000},
+	})
+	require.NotNil(t, conflict)
+	require.NotNil(t, conflict.InputContext.Guaranteed)
+	require.EqualValues(t, 100000, *conflict.InputContext.Guaranteed)
+	require.NotNil(t, conflict.InputContext.ObservedMinimum)
+	require.EqualValues(t, 100000, *conflict.InputContext.ObservedMinimum)
+	require.Len(t, conflict.InputContext.Available, 2)
+
+	// 没有任何观测或观测里没有任何事实 → 不返回 capabilities。
+	require.Nil(t, plazaCapabilities(nil))
+	require.Nil(t, plazaCapabilities([]service.UpstreamModelMetadata{{}}))
+}
+
 func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	maxTokens := 272000
 	g := service.PlazaGroup{

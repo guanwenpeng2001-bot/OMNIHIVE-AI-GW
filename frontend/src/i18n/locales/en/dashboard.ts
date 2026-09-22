@@ -79,7 +79,18 @@ export default {
       anthropic: 'Anthropic compatible · Messages endpoint',
       copyAddress: 'Copy {protocol} address',
       copied: 'Endpoint address copied',
-      addressHint: 'Use the address provided in the admin console or integration guide as the source of truth; available protocols and models depend on the API key’s group.'
+      addressHint:
+        'Use the address provided in the admin console or integration guide as the source of truth; available protocols and models depend on the API key’s group.',
+      generationTitle: 'Generation endpoints (different from the Messages endpoint)',
+      generationHint:
+        'The Anthropic-compatible Messages endpoint accepts text and vision input only; it never generates images, videos or speech. Use the entries below for generation requests — actual availability depends on the group platform and its switches.',
+      imageGeneration: 'Image generation',
+      imageEdit: 'Image edit',
+      videoGeneration: 'Video generation',
+      speech: 'Speech synthesis (TTS)',
+      transcription: 'Transcription (STT)',
+      embeddings: 'Embeddings',
+      rerank: 'Rerank'
     },
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
@@ -169,6 +180,9 @@ export default {
       claudeSettingsHint: 'User-level persistent configuration. Do not commit this file containing your API key to a project repository.',
       noGroupTitle: 'Please assign a group first',
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
+      baseUrlMissing: 'This deployment has no public API base URL configured (api_base_url), so no client configuration can be generated. Ask an administrator to configure it, then retry.',
+      generationEntryHint:
+        'The configurations above target text/vision protocols only (Messages, Responses, Chat Completions). Send image, video and speech generation to the media endpoints such as /v1/images/*, /v1/videos/*, /v1/tts and /v1/stt, not to the Messages endpoint.',
       openai: {
         description: 'Add the following configuration files to your Codex CLI config directory.',
         authModeTitle: 'Codex authentication mode',
@@ -273,6 +287,8 @@ export default {
     ipBlacklistHint: 'One IP or CIDR per line. These IPs will be blocked from using this key.',
     ipRestrictionEnabled: 'IP restriction enabled',
     ccSwitchNotInstalled: 'CC-Switch is not installed or the protocol handler is not registered. Please install CC-Switch first or manually copy the API key.',
+    ccSwitchSecretUnavailable: 'A key secret is shown only once, at creation or rotation, and the list only carries a mask, so it cannot be imported. Rotate this key and import it right away.',
+    ccSwitchBaseUrlMissing: 'This deployment has no public API base URL configured (api_base_url), so no usable import link can be built. Ask an administrator to configure it.',
     ccsClientSelect: {
       title: 'Select Client',
       description: 'Please select the client type to import to CC-Switch:',
@@ -777,7 +793,7 @@ export default {
       noModels: 'No models configured for this group',
       noPricing: 'Pricing not configured',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}',
-      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier; official tiers are for reference only'
+      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier'
     },
     table: {
       model: 'Model',
@@ -800,8 +816,45 @@ export default {
         '; prices in this row exclude the peak-hour rate — where this period overlaps the peak hours {window}, the overlapping portion is additionally multiplied by ×{multiplier}',
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
-      paidPrice: 'Your Price (Discounted)',
-      rate: 'Rate',
+      paidPrice: 'Your price (standard hours)',
+      rate: 'Effective rate',
+      referenceTitle: 'Reference price provided by the server from the billing catalog; without one this table shows no reference price or discount',
+      contextShort: 'context',
+      referenceNote: 'A sourced reference price is shown struck through; the paid price uses the current rate.',
+      contextHint: {
+        input: 'Input context limit (all account evidence agrees)',
+        total: 'Total context limit (input + output; all account evidence agrees)',
+        unspecified: 'Context limit whose kind is not stated; shown only from available evidence',
+        observedMinimum: 'Only a minimum was observed; the real limit may be higher'
+      },
+      capability: {
+        vision: 'Vision input',
+        functionCalling: 'Tool calling',
+        promptCaching: 'Prompt caching',
+        pdf: 'PDF',
+        reasoning: 'Reasoning',
+        embeddingDimensions: '{dimensions}-dim embeddings',
+        inputModalityPartial: 'May accept {modality} input',
+        outputModality: 'Outputs {modality}'
+      },
+      capabilityHint: {
+        vision: 'Account evidence shows this model accepts image input',
+        functionCalling: 'Account evidence shows this model supports tool/function calling',
+        promptCaching: 'Account evidence shows this model supports prompt caching',
+        pdf: 'Account evidence shows this model accepts PDF input',
+        reasoning: 'Account evidence shows this model supports reasoning controls',
+        embeddingDimensions: 'The vector dimension is a verifiable value and is never merged into a minimum',
+        inputModalityPartial: 'Only some accounts declare this modality, or it appears in a single observation',
+        outputModality: 'This model may produce a non-text modality; availability still depends on the actual endpoint'
+      },
+      modality: {
+        image: 'image',
+        audio: 'audio',
+        video: 'video',
+        pdf: 'PDF',
+        embedding: 'embeddings',
+        score: 'ranking scores'
+      },
       unitPerMillion: 'USD / 1M tokens',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',

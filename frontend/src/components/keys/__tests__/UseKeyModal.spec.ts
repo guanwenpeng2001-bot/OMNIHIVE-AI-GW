@@ -41,6 +41,29 @@ describe('UseKeyModal', () => {
     saveAsMock.mockClear()
   })
 
+  // T2-3.5：没有配置公开 API 地址时必须明确提示，而不是回退到控制台域名。
+  it('prompts when no public API address is configured and renders no client config', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-example', baseUrl: '', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    expect(wrapper.find('[data-testid="client-config-base-url-missing"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('keys.useKeyModal.baseUrlMissing')
+    expect(wrapper.findAll('pre')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('shows the configured address and the generation-endpoint boundary', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-example', baseUrl: 'https://example.com/v1', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    expect(wrapper.find('[data-testid="client-config-base-url-missing"]').exists()).toBe(false)
+    expect(wrapper.findAll('pre').length).toBeGreaterThan(0)
+    expect(wrapper.get('[data-testid="generation-endpoint-hint"]').text()).toContain('keys.useKeyModal.generationEntryHint')
+    wrapper.unmount()
+  })
+
   it('omits the attribution override from every standard Claude Code setup form', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
