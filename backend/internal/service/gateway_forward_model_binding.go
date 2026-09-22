@@ -74,6 +74,17 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 	case "images", "embeddings", "search", "live", "realtime":
 		return requestCatalogEndpoint(ctx)
 	default:
+		// A chat-only entry is by definition an OpenAI-shaped chat trunk. When the
+		// platform publishes no native text protocol at all (no Responses and no
+		// Messages), its text models can only declare the chat-completions family
+		// (account_model_catalog.go). Measuring such an account against the
+		// conservative Responses default asks it to prove evidence it never
+		// declares, which locks the entry out of every text request. Platforms that
+		// do publish a native text protocol keep the Responses default and its
+		// bridge.
+		if account != nil && IsChatOnlyPlatform(account.Platform) && len(chatOnlyPublishedTextFamilies(account)) == 0 {
+			return CompositeRouteEndpointChatCompletions
+		}
 		return CompositeRouteEndpointResponses
 	}
 }
