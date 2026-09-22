@@ -29,7 +29,8 @@ export default {
         "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
         "localUsage": "Local request/token/cost statistics are not upstream remaining balance. Generic provider-mapping pricing sync is unsupported; Qianwen has a separate Beijing-region CNY native pricing workflow.",
         "pricingUnsupported": "Generic provider-mapping pricing sync unsupported",
-        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic."
+        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic.",
+        "apiKeyOnlyAccountTypeDescription": "This platform has a single account type: an API Key (no OAuth or cloud service account); choose the protocol and site below."
 },
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',
       cursor: {

@@ -1,3 +1,4 @@
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
 /** Cursor Relay 上游协议：与后端 NormalizeCursorAccount 的两个字面量保持一致。 */
@@ -347,6 +348,62 @@ export function cnSupportsNativeResponses(platform: string): boolean {
   return platform === 'qianwen' || platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
 }
 
+// ===== 后加平台（混元 / 火山方舟 / 千帆 / Mistral）的文本协议 =====
+// 协议集合的唯一依据是后端 domain/platform_capabilities.go 的平台描述符：
+// MessagesPOST / ResponsesPOST 为 EndpointNative 即已核证，EndpointRejected 即缺失。
+// 这四个平台此前被前端按 "是不是 chat-only" 一刀切成 chat_completions，用户拿不到混元的
+// 原生 Anthropic Messages / Responses，也拿不到火山方舟与千帆的原生 Responses。
+
+/** 后端已声明原生文本协议、但不在既有国产多协议集合里的平台。 */
+export type DeclaredProtocolPlatform = 'hunyuan' | 'volcengine' | 'qianfan' | 'mistral'
+
+/** 后端描述符声明的原生文本协议。 */
+interface DeclaredTextProtocols {
+  /** MessagesPOST: 同一站点上的原生 Anthropic Messages 路径（TokenHub 用 x-api-key）。 */
+  messages: boolean
+  /** ResponsesPOST: 原生 Responses 路径。 */
+  responses: boolean
+}
+
+/**
+ * 镜像 backend/internal/domain/platform_capabilities.go 的声明：
+ *   hunyuan     ResponsesPOST + MessagesPOST 均为 native（混元是多协议 API-key 条目）
+ *   volcengine  ResponsesPOST native；国内数据面无 Anthropic Messages 端点
+ *   qianfan     ResponsesPOST native；messages 是已核证的缺失（POST /v2/messages 404）
+ *   mistral     上游只有 Chat Completions，不声明任何原生协议，因此不给协议选项
+ */
+export const DECLARED_PLATFORM_TEXT_PROTOCOLS: Record<DeclaredProtocolPlatform, DeclaredTextProtocols> = {
+  hunyuan: { messages: true, responses: true },
+  volcengine: { messages: false, responses: true },
+  qianfan: { messages: false, responses: true },
+  mistral: { messages: false, responses: false }
+}
+
+export function isDeclaredProtocolPlatform(platform: string): platform is DeclaredProtocolPlatform {
+  return Object.prototype.hasOwnProperty.call(DECLARED_PLATFORM_TEXT_PROTOCOLS, platform)
+}
+
+/** 平台已声明的原生协议（不含 adaptive）；chat_completions 是所有条目的既有 trunk。 */
+export function declaredPlatformNativeProtocols(platform: DeclaredProtocolPlatform): CnNativeApiProtocol[] {
+  const declared = DECLARED_PLATFORM_TEXT_PROTOCOLS[platform]
+  const protocols: CnNativeApiProtocol[] = ['chat_completions']
+  if (declared.messages) protocols.push('anthropic')
+  if (declared.responses) protocols.push('responses')
+  return protocols
+}
+
+/** 协议卡选项：只有一种原生协议时没有可自适应的第二协议，因此不给 adaptive。 */
+export function declaredPlatformApiProtocols(platform: DeclaredProtocolPlatform): CnApiProtocol[] {
+  const protocols = declaredPlatformNativeProtocols(platform)
+  return protocols.length > 1 ? ['adaptive', ...protocols] : protocols
+}
+
+/** 平台是否有原生 Responses 端点：既有国产/OpenCode 集合 + 后加平台的后端声明。 */
+export function hasDeclaredNativeResponses(platform: string): boolean {
+  if (cnSupportsNativeResponses(platform)) return true
+  return isDeclaredProtocolPlatform(platform) && DECLARED_PLATFORM_TEXT_PROTOCOLS[platform].responses
+}
+
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
@@ -446,8 +503,35 @@ export interface CnBaseUrlPreset {
   url: string
 }
 
+/** 有官方站点预设的平台：国产供应商 + 混元 TokenHub。 */
+export type CnBaseUrlPresetPlatform = CnProviderPlatform | 'hunyuan'
+
+/**
+ * 混元 TokenHub 站点白名单：逐条镜像 backend/internal/service/hunyuan_adapter.go 的
+ * hunyuanActionBaseURL 白名单（4 个 TokenHub 站点 + 1 个旧版兼容站点），站点归属同时见
+ * backend/internal/service/model_capability_matcher.go 的 hunyuan 分支。前端不自行拼地址：
+ * 白名单以外的地址后端直接报错。混元的 Chat Completions / Anthropic Messages / Responses
+ * 共用同一站点根（协议路径由后端拼接），所以每个站点按协议各给一条预设。
+ */
+const HUNYUAN_TOKENHUB_SITES: Array<{ label: string; url: string }> = [
+  { label: 'TokenHub Main', url: 'https://tokenhub.tencentmaas.com/v1' },
+  { label: 'TokenHub Main CN', url: 'https://tokenhub.tencentmaas.cn/v1' },
+  { label: 'TokenHub Intl', url: 'https://tokenhub-intl.tencentmaas.com/v1' },
+  { label: 'TokenHub Intl CN', url: 'https://tokenhub-intl.tencentmaas.cn/v1' },
+  { label: 'Hunyuan Legacy', url: 'https://api.hunyuan.cloud.tencent.com/v1' }
+]
+
+const HUNYUAN_BASE_URL_PRESETS: CnBaseUrlPreset[] = HUNYUAN_TOKENHUB_SITES.flatMap((site): CnBaseUrlPreset[] =>
+  declaredPlatformNativeProtocols('hunyuan').map(protocol => ({
+    mode: 'payg',
+    protocol,
+    label: site.label,
+    url: site.url
+  }))
+)
+
 /** 各供应商按账号类型 × API 协议分档的快捷端点（点击快速填充，输入框仍可自由填写）。 */
-export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> = {
+export const CN_BASE_URL_PRESETS: Record<CnBaseUrlPresetPlatform, CnBaseUrlPreset[]> = {
   qianwen: [
     { mode: 'coding', protocol: 'anthropic', label: 'Coding Beijing Anthropic', url: 'https://coding.dashscope.aliyuncs.com/apps/anthropic' },
     { mode: 'coding', protocol: 'chat_completions', label: 'Coding Beijing OpenAI', url: 'https://coding.dashscope.aliyuncs.com/v1' },
@@ -474,6 +558,7 @@ export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> 
     { mode: 'payg', protocol: 'anthropic', label: 'DeepSeek Anthropic', url: 'https://api.deepseek.com/anthropic' },
     { mode: 'payg', protocol: 'responses', label: 'DeepSeek Responses', url: 'https://api.deepseek.com' }
   ],
+  hunyuan: HUNYUAN_BASE_URL_PRESETS,
   minimax: [
     { mode: 'payg', protocol: 'chat_completions', label: 'MiniMax CN', url: 'https://api.minimaxi.com/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'MiniMax CN Anthropic', url: 'https://api.minimaxi.com/anthropic' },
@@ -512,11 +597,17 @@ export function defaultCNBaseUrl(
         return 'https://api.minimaxi.com/anthropic'
       case 'opencode_go':
         return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
+      case 'hunyuan':
+        // TokenHub 的 Anthropic Messages 路径与 OpenAI 路径共用同一站点根
+        // （backend/internal/service/openai_gateway_messages_anthropic_native.go 按版本段
+        // 拼 {base}/v1/messages，不会出现 /v1/v1）。
+        return CHAT_PLATFORM_BASE_URLS.hunyuan
       default:
         return ''
     }
   }
-  // responses：Kimi / DeepSeek / MiniMax 的 base 与 chat_completions 相同（端点路径差异由后端处理）。
+  // responses：Kimi / DeepSeek / MiniMax 的 base 与 chat_completions 相同（端点路径差异由后端处理）；
+  // 后加平台的已声明原生协议同样共用同一站点根。
   switch (platform) {
     case 'commandcode':
       return 'https://api.commandcode.ai/provider/v1'
@@ -534,6 +625,12 @@ export function defaultCNBaseUrl(
       return 'https://api.minimaxi.com/v1'
     case 'opencode_go':
       return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
+    // 后加平台：平台只有一条 OpenAI 形态的站点（TokenHub /api/v3 /v2），Chat 与 Responses 同址。
+    case 'hunyuan':
+    case 'volcengine':
+    case 'qianfan':
+    case 'mistral':
+      return CHAT_PLATFORM_BASE_URLS[platform]
     default:
       return ''
   }
@@ -541,13 +638,13 @@ export function defaultCNBaseUrl(
 
 /** 返回自适应模式下需要配置的原生协议及其默认端点。 */
 export function defaultCNAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go' | 'commandcode',
+  platform: CnProviderPlatform | 'opencode_go' | 'commandcode' | DeclaredProtocolPlatform,
   mode: CnAccountMode | OpenCodeAccountMode
 ): Record<CnNativeApiProtocol, string> {
   return {
     chat_completions: defaultCNBaseUrl(platform, mode, 'chat_completions'),
     anthropic: defaultCNBaseUrl(platform, mode, 'anthropic'),
-    responses: cnSupportsNativeResponses(platform) ? defaultCNBaseUrl(platform, mode, 'responses') : ''
+    responses: hasDeclaredNativeResponses(platform) ? defaultCNBaseUrl(platform, mode, 'responses') : ''
   }
 }
 
