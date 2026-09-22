@@ -728,9 +728,16 @@ func TestHasEmbeddedFrontend(t *testing.T) {
 }
 
 // Tests for legacy ServeEmbeddedFrontend function
+func mustServeEmbeddedFrontend(t *testing.T) gin.HandlerFunc {
+	t.Helper()
+	middleware, err := ServeEmbeddedFrontend()
+	require.NoError(t, err)
+	return middleware
+}
+
 func TestServeEmbeddedFrontend(t *testing.T) {
 	t.Run("serves_static_files", func(t *testing.T) {
-		middleware := ServeEmbeddedFrontend()
+		middleware := mustServeEmbeddedFrontend(t)
 
 		router := gin.New()
 		router.Use(middleware)
@@ -745,7 +752,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 	})
 
 	t.Run("serves_index_html_for_root", func(t *testing.T) {
-		middleware := ServeEmbeddedFrontend()
+		middleware := mustServeEmbeddedFrontend(t)
 
 		router := gin.New()
 		router.Use(middleware)
@@ -760,7 +767,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 	})
 
 	t.Run("serves_index_html_for_spa_routes", func(t *testing.T) {
-		middleware := ServeEmbeddedFrontend()
+		middleware := mustServeEmbeddedFrontend(t)
 
 		router := gin.New()
 		router.Use(middleware)
@@ -780,7 +787,7 @@ func TestServeEmbeddedFrontend(t *testing.T) {
 	})
 
 	t.Run("skips_api_routes", func(t *testing.T) {
-		middleware := ServeEmbeddedFrontend()
+		middleware := mustServeEmbeddedFrontend(t)
 
 		apiPaths := []string{
 			"/api/users",

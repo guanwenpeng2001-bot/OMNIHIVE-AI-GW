@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -16,7 +15,7 @@ type channelCache struct {
 }
 
 // NewChannelCache creates the Redis-backed channel cache invalidation bus.
-func NewChannelCache(rdb *redis.Client) service.ChannelCachePubSub {
+func NewChannelCache(rdb *redis.Client) *channelCache {
 	return &channelCache{rdb: rdb}
 }
 

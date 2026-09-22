@@ -1461,6 +1461,12 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 // replaceModelInResponseBody 替换响应体中的model字段
 // 使用 gjson/sjson 精确替换，避免全量 JSON 反序列化
 func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
+	return replaceModelInJSONBody(body, fromModel, toModel)
+}
+
+// replaceModelInJSONBody 用 gjson/sjson 精确替换 model 字段，避免全量 JSON 反序列化。
+// Claude 与 OpenAI 两条主干共用同一实现，防止同一改写语义在两条主干上漂移。
+func replaceModelInJSONBody(body []byte, fromModel, toModel string) []byte {
 	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {

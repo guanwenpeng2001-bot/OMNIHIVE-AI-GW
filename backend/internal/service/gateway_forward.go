@@ -939,10 +939,7 @@ func modelSupportsAnthropicFastMode(model string) bool {
 
 // ResolveChannelMapping 委托渠道服务解析模型映射
 func (s *GatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}
-	}
-	return s.channelService.ResolveChannelMapping(ctx, groupID, model)
+	return resolveChannelMapping(ctx, s.channelService, groupID, model)
 }
 
 // ReplaceModelInBody 替换请求体中的模型名（导出供 handler 使用）
@@ -952,34 +949,20 @@ func (s *GatewayService) ReplaceModelInBody(body []byte, newModel string) []byte
 
 // IsModelRestricted 检查模型是否被渠道限制
 func (s *GatewayService) IsModelRestricted(ctx context.Context, groupID int64, model string) bool {
-	if s.channelService == nil {
-		return false
-	}
-	return s.channelService.IsModelRestricted(ctx, groupID, model)
+	return channelModelRestricted(ctx, s.channelService, groupID, model)
 }
 
 // ResolveChannelMappingAndRestrict 解析渠道映射。
 // 模型限制检查已移至调度阶段（checkChannelPricingRestriction），restricted 始终返回 false。
 func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}, false
-	}
-	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+	return resolveChannelMappingAndRestriction(ctx, s.channelService, groupID, model)
 }
 
 // checkChannelPricingRestriction 根据渠道计费基准检查模型是否受定价列表限制。
-// 供调度阶段预检查（requested / channel_mapped）。
+// 供调度阶段预检查（requested / channel_mapped），与 OpenAI 主干共用同一份实现。
 // upstream 需逐账号检查，此处返回 false。
 func (s *GatewayService) checkChannelPricingRestriction(ctx context.Context, groupID *int64, requestedModel string) bool {
-	if groupID == nil || s.channelService == nil || requestedModel == "" {
-		return false
-	}
-	mapping := s.channelService.ResolveChannelMapping(ctx, *groupID, requestedModel)
-	billingModel := billingModelForRestriction(mapping.BillingModelSource, requestedModel, mapping.MappedModel)
-	if billingModel == "" {
-		return false
-	}
-	return s.channelService.IsModelRestricted(ctx, *groupID, billingModel)
+	return channelPricingRestrictionBlocks(ctx, s.channelService, groupID, requestedModel)
 }
 
 // billingModelForRestriction 根据计费基准确定限制检查使用的模型。

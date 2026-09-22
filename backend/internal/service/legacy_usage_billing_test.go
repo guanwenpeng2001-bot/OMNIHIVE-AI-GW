@@ -60,7 +60,6 @@ func postUsageBilling(ctx context.Context, p *postUsageBillingParams, deps *bill
 			deps.billingCacheService.IncrementUserPlatformQuotaUsage(p.User.ID, p.Platform, cost.ActualCost)
 			// The replay flusher no longer persists Redis snapshots.
 			if err := deps.userPlatformQuotaRepo.IncrementUsageWithReset(billingCtx, p.User.ID, p.Platform, cost.ActualCost, time.Now().UTC()); err != nil {
-				userPlatformQuotaDBIncrLegacyErrorTotal.Add(1)
 				logger.LegacyPrintf("service.gateway", "ALERT: legacy incr user platform quota DB failed user=%d platform=%s cost=%f: %v", p.User.ID, p.Platform, cost.ActualCost, err)
 			}
 

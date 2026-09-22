@@ -104,9 +104,15 @@ func runSetupServer() {
 	// Register setup routes
 	setup.RegisterRoutes(r)
 
-	// Serve embedded frontend if available
+	// Serve embedded frontend if available. The setup wizard is unusable without
+	// a panel, so an unusable asset tree must stop startup with a clear record
+	// instead of panicking or running a wizard nobody can open.
 	if web.HasEmbeddedFrontend() {
-		r.Use(web.ServeEmbeddedFrontend())
+		serveFrontend, err := web.ServeEmbeddedFrontend()
+		if err != nil {
+			log.Fatalf("embedded frontend assets are unusable: %v", err)
+		}
+		r.Use(serveFrontend)
 	}
 
 	// Get server address from config.yaml or environment variables (SERVER_HOST, SERVER_PORT)
