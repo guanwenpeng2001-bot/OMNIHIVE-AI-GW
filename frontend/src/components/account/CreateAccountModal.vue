@@ -184,6 +184,38 @@
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
         </div>
       </div>
+      <!-- Account Type (后加平台)：后端只声明 API Key 一种账号类型，用与 Anthropic / Cursor 一致的卡片结构渲染 -->
+      <div v-if="declaredProtocolPlatform" data-testid="late-platform-account-type">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="late-platform-account-type-apikey"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? cnAccentActiveClass
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? cnAccentIconClass
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.apiKey') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.apiKeyOnlyAccountTypeDescription') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
       <div v-if="showsAccountTypeSummary" data-testid="account-type-summary">
         <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
         <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
@@ -549,8 +581,8 @@
         </div>
       </div>
 
-      <!-- API Protocol Selection (国产多协议平台 / Cursor Relay)：同一份网格与选项计算 -->
-      <div v-if="isMultiProtocolPlatform || isCursorRelay" class="mt-4">
+      <!-- API Protocol Selection (国产多协议平台 / 后加平台 / Cursor Relay)：同一份网格与选项计算 -->
+      <div v-if="isMultiProtocolPlatform || declaredProtocolPlatform || isCursorRelay" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3" :class="isCursorRelay ? 'sm:grid-cols-2' : 'sm:grid-cols-3'" data-testid="account-protocol-choices" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
           <button
@@ -1294,7 +1326,7 @@
             @select="apiKeyBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNPlatform && !isOpenCodeGoPlatform"
+            v-if="showsCnBaseUrlPresets"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="accountMode"
@@ -1318,7 +1350,7 @@
               />
             </div>
           </div>
-          <p v-if="!cnSupportsNativeResponses(form.platform)" class="input-hint">
+          <p v-if="!hasDeclaredNativeResponses(form.platform)" class="input-hint">
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
@@ -3448,19 +3480,24 @@ import {
   applyInterceptWarmup,
   applyOpenCodeGoProtocolRules,
   cloneOpenCodeGoProtocolRules,
-  cnSupportsNativeResponses,
+  declaredPlatformApiProtocols,
+  declaredPlatformNativeProtocols,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
+  hasDeclaredNativeResponses,
   isCNProviderPlatform,
+  isDeclaredProtocolPlatform,
   isMultiProtocolApiKeyPlatform,
   DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   isHeaderOverrideCapable,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
+  type CnBaseUrlPresetPlatform,
   type CnNativeApiProtocol,
   type CnProviderPlatform,
+  type DeclaredProtocolPlatform,
   type HeaderOverrideRow,
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
@@ -3683,12 +3720,22 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
 const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
 const isMultiProtocolPlatform = computed(() => isMultiProtocolApiKeyPlatform(form.platform))
+// 后加平台（混元 / 火山方舟 / 千帆 / Mistral）：协议集合来自后端 domain/platform_capabilities.go
+// 的 MessagesPOST / ResponsesPOST 声明，不再按 "是不是 chat-only" 一刀切成 chat_completions。
+const declaredProtocolPlatform = computed<DeclaredProtocolPlatform | null>(() =>
+  isDeclaredProtocolPlatform(form.platform) ? form.platform : null
+)
 // Cursor Relay 是 upstream 分类，不能因此进入国产多协议能力集合（端点预设、多 URL、account_mode、规则序列化）。
 const isCursorRelay = computed(() => form.platform === 'cursor' && accountCategory.value === 'upstream')
 // 双模式平台（Kimi/智谱/MiniMax/OpenCode）的一级入口就是模式卡本身，不再叠加只读 "API Key" 摘要。
 const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go'].includes(form.platform))
 const showsAccountTypeSummary = computed(() => !isDualModeAccountPlatform.value && form.platform !== 'commandcode' &&
+  declaredProtocolPlatform.value === null &&
   !['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform))
+// 官方站点预设：国产供应商（Kimi / 智谱 / DeepSeek / MiniMax / 千问）+ 混元 TokenHub 白名单。
+// 自适应档由多端点编辑器接管，固定协议档才展示预设。
+const showsCnBaseUrlPresets = computed(() => (isCNPlatform.value || form.platform === 'hunyuan') &&
+  !isOpenCodeGoPlatform.value && apiProtocol.value !== 'adaptive')
 // DeepSeek 只有单项 PayG，保留旧模式锚点；双模式平台的模式卡就是该平台唯一的一级账号入口。
 const cnModeTourAnchor = computed(() => form.platform === 'deepseek' ? 'account-form-mode' : 'account-form-type')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
@@ -3696,23 +3743,33 @@ function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
 }
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
-const cnPresetPlatform = computed<CnProviderPlatform>(() => {
+const cnPresetPlatform = computed<CnBaseUrlPresetPlatform>(() => {
   if (isCNProviderPlatform(form.platform)) {
     return form.platform
   }
+  if (form.platform === 'hunyuan') {
+    return 'hunyuan'
+  }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode'>(() => {
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode' | DeclaredProtocolPlatform>(() => {
   if (form.platform === 'commandcode') return 'commandcode'
   if (form.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
 })
-// 协议网格的唯一选项来源：国产多协议平台与 Cursor Relay 各自取档，标题与说明仍走既有词条。
+// 协议网格的唯一选项来源：国产多协议平台 / 后加平台 / Cursor Relay 各自取档，标题与说明仍走既有词条。
 interface AccountProtocolOption {
   value: CnApiProtocol
   titleKey: string
   descriptionKey: string
   testId?: string
+}
+/** 协议卡的标题 / 说明词条：后加平台与国产多协议平台共用同一套既有词条。 */
+const API_PROTOCOL_TEXT: Record<CnApiProtocol, { titleKey: string; descriptionKey: string }> = {
+  adaptive: { titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
+  chat_completions: { titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
+  anthropic: { titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' },
+  responses: { titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' }
 }
 const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
   if (isCursorRelay.value) {
@@ -3721,13 +3778,18 @@ const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
       { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cursor.relayChatCompletionsDesc', testId: 'cursor-relay-protocol-chat_completions' }
     ]
   }
+  // 后加平台：选项集合逐条来自后端声明（含 mistral 的单一 chat_completions），不自行加档。
+  if (declaredProtocolPlatform.value) {
+    return declaredPlatformApiProtocols(declaredProtocolPlatform.value)
+      .map(value => ({ value, ...API_PROTOCOL_TEXT[value] }))
+  }
   const opts: AccountProtocolOption[] = [
-    { value: 'adaptive', titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
-    { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
-    { value: 'anthropic', titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' }
+    { value: 'adaptive', ...API_PROTOCOL_TEXT.adaptive },
+    { value: 'chat_completions', ...API_PROTOCOL_TEXT.chat_completions },
+    { value: 'anthropic', ...API_PROTOCOL_TEXT.anthropic }
   ]
-  if (cnSupportsNativeResponses(form.platform)) {
-    opts.push({ value: 'responses', titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' })
+  if (hasDeclaredNativeResponses(form.platform)) {
+    opts.push({ value: 'responses', ...API_PROTOCOL_TEXT.responses })
   }
   return opts
 })
@@ -3736,7 +3798,7 @@ const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; l
     { value: 'chat_completions', labelKey: 'chatCompletions' },
     { value: 'anthropic', labelKey: 'anthropic' }
   ]
-  if (cnSupportsNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
+  if (hasDeclaredNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
   return opts
 })
 
@@ -3761,6 +3823,10 @@ function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['valu
   if (isChatOnlyPlatform(platform)) {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
+    // 后加平台没有 Coding Plan，避免上一个平台留下的 coding 模式写进新账号的凭据。
+    accountMode.value = 'payg'
+    // 协议选项由后端声明决定（见 accountProtocolOptions / declaredProtocolPlatform），
+    // 默认保持既有的 chat_completions 直通，用户可在协议卡上切到已声明的原生协议。
     apiProtocol.value = 'chat_completions'
   }
   if (platform === 'commandcode') {
@@ -5406,7 +5472,24 @@ const handleSubmit = async () => {
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
-  if (isMultiProtocolApiKeyPlatform(form.platform)) {
+  // 后加平台：协议集合来自后端声明（platform_capabilities.go 的 MessagesPOST / ResponsesPOST）。
+  // 它们只有一条 OpenAI 形态的站点（TokenHub / Ark /api/v3 / 千帆 /v2），已声明的协议共用同一
+  // 站点根，所以自适应档把同一个 base url 写给每个原生协议，不做多端点编辑。
+  if (declaredProtocolPlatform.value) {
+    const site = (
+      apiKeyBaseUrl.value.trim() || defaultCNBaseUrl(form.platform, 'payg', 'chat_completions')
+    ).trim()
+    credentials.account_mode = 'payg'
+    credentials.api_protocol = apiProtocol.value
+    credentials.base_url = site
+    if (apiProtocol.value === 'adaptive') {
+      const protocolBaseUrls: Record<string, string> = {}
+      for (const protocol of declaredPlatformNativeProtocols(declaredProtocolPlatform.value)) {
+        protocolBaseUrls[protocol] = site
+      }
+      credentials.api_base_urls = protocolBaseUrls
+    }
+  } else if (isMultiProtocolApiKeyPlatform(form.platform)) {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {

@@ -29,7 +29,8 @@ export default {
         "cursorNote": "客户端函数工具经 MCP/deferred 桥接；请使用网关已支持的工具格式，跨请求续传工具结果依赖工具 ID 持久化映射。中转模式能力取决于配置的上游。",
         "localUsage": "本地请求、Token 和成本统计并非上游剩余余额。通用 provider 映射定价同步尚不支持；千问可使用独立的北京区人民币原生定价流程。",
         "pricingUnsupported": "不支持通用 provider 映射定价同步",
-        "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。"
+        "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。",
+        "apiKeyOnlyAccountTypeDescription": "该平台只有 API Key 一种账号类型（无 OAuth / 云厂商服务账号）；协议与站点在下方选择。"
 },
       noGroupWarning: '未选择分组；账号需要加入分组后才能参与该分组的请求调度。',
       cursor: {
