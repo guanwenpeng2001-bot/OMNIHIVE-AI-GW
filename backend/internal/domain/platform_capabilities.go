@@ -357,10 +357,13 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformMistral {
 		// Mistral's protocol absences replace only an unbound cell, so the chat
-		// trunk keeps the generic resolution below.
+		// trunk keeps the generic resolution below. Every remaining cell is then
+		// finalized by the Mistral authority rows: a bound native adapter is
+		// implemented, everything else stays explicitly unverified.
 		if recorded, absent := mistralAbsentProtocolCell(descriptor, action, adapter); absent {
 			return recorded
 		}
+		return mistralActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor
