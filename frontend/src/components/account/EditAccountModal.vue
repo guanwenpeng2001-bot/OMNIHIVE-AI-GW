@@ -111,21 +111,7 @@
             v-model="editBaseUrl" data-account-field="editBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              account.platform === 'qianwen'
-                ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-                : account.platform === 'commandcode'
-                  ? 'https://api.commandcode.ai/provider/v1'
-                  : account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : account.platform === 'grok'
-                      ? 'https://api.x.ai/v1'
-                      : 'https://api.anthropic.com'
-            "
+            :placeholder="editBaseUrlPlaceholder"
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
@@ -314,21 +300,7 @@
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
-            :placeholder="
-              account.platform === 'qianwen'
-                ? 'sk-ws-... / sk-sp-...'
-                : account.platform === 'commandcode'
-                  ? '<api-key>'
-                  : account.platform === 'openai'
-                ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'antigravity'
-                    ? 'sk-...'
-                    : account.platform === 'grok'
-                      ? 'xai-...'
-                      : 'sk-ant-...'
-            "
+            :placeholder="editApiKeyPlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
           <p v-if="account.platform === 'qianwen' && (editApiKey || String(account.credentials?.api_key || '')).trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
@@ -2645,6 +2617,36 @@ const baseUrlHint = computed(() => {
   if (props.account.platform === 'grok') return ''
   if (props.account.platform === 'anthropic') return t('admin.accounts.baseUrlHint')
   return t('admin.accounts.platformBaseUrlHint')
+})
+
+// 占位符必须跟平台走：后加平台只有一条官方兼容站点（唯一来源 CHAT_PLATFORM_BASE_URLS），
+// 不能让它们显示 Anthropic 的地址或 Key 前缀。
+const editBaseUrlPlaceholder = computed(() => {
+  const platform = props.account?.platform
+  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return CHAT_PLATFORM_BASE_URLS[platform]
+  if (platform === 'qianwen') return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+  if (platform === 'commandcode') return 'https://api.commandcode.ai/provider/v1'
+  if (platform === 'openai') return 'https://api.openai.com'
+  if (platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
+  if (platform === 'grok') return 'https://api.x.ai/v1'
+  return 'https://api.anthropic.com'
+})
+
+// 与创建弹窗同口径：能查到官方文档的前缀就按文档给，否则中性占位。
+const editApiKeyPlaceholder = computed(() => {
+  const platform = props.account?.platform
+  if (platform === 'qianfan') return 'bce-v3/ALTAK-...'
+  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return platform === 'hunyuan' ? 'sk-...' : '<api-key>'
+  if (platform === 'qianwen') return 'sk-ws-... / sk-sp-...'
+  if (platform === 'commandcode') return '<api-key>'
+  if (platform === 'openai') return 'sk-proj-...'
+  if (platform === 'gemini') return 'AIza...'
+  if (platform === 'antigravity') return 'sk-...'
+  if (platform === 'grok') return 'xai-...'
+  if (platform === 'kimi' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go') return 'sk-...'
+  if (platform === 'zhipu') return '<api-key>.<secret>'
+  return 'sk-ant-...'
 })
 
 // Model mapping type

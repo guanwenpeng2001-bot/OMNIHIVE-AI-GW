@@ -17,7 +17,7 @@
     <template v-else>
       <select v-if="platform === 'composite' && !entry.original" :value="entry.platform" class="input" aria-label="Pricing provider" @change="emit('update', { ...entry, platform: ($event.target as HTMLSelectElement).value })">
         <option value="" disabled>{{ pricingText('pricingSummary.provider') }}</option>
-        <option v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value" :value="option.value">{{ option.label }}</option>
+        <option v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value" :value="option.value">{{ getPlatformLabel(option.value, t) }}</option>
       </select>
       <p v-else class="text-xs">{{ entry.platform || platform }}</p>
       <PricingEntryCard :entry="entry" :platform="entry.platform || platform" :disable-default-pricing="platform === 'composite'" hide-token-intervals @update="emit('update', { ...entry, ...$event })" @remove="emit('remove')" />
@@ -29,7 +29,7 @@
 import { useI18n } from 'vue-i18n'
 import { computed } from 'vue'
 import PricingEntryCard from '@/components/admin/channel/PricingEntryCard.vue'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { isReadOnlyGroupPricing, type GroupPricingEntry } from './groupsModelPricing'
 const props = defineProps<{ entry: GroupPricingEntry, platform: string }>()
 const emit = defineEmits<{ update: [entry: GroupPricingEntry], remove: [] }>()

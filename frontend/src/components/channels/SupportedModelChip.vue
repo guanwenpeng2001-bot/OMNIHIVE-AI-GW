@@ -23,7 +23,7 @@
         v-if="showPlatform && model.platform"
         class="rounded bg-gray-200/60 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-400"
       >
-        <span :title="model.platform">{{ platformLabel(model.platform) }}</span>
+        <span :title="model.platform">{{ getPlatformLabel(model.platform, t) }}</span>
       </span>
       {{ model.name }}
     </span>
@@ -50,7 +50,7 @@
             v-if="model.platform"
             class="flex-shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] tracking-wide dark:bg-dark-900/60"
           >
-            <span :title="model.platform">{{ platformLabel(model.platform) }}</span>
+            <span :title="model.platform">{{ getPlatformLabel(model.platform, t) }}</span>
           </span>
         </div>
 
@@ -165,7 +165,7 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PricingRow from './PricingRow.vue'

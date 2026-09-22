@@ -807,23 +807,6 @@ export default {
       unsavedChanges: 'Unsaved changes',
       revertChanges: 'Revert',
       userInfo: 'User Info',
-      platforms: {
-        all: 'All Platforms',
-        anthropic: 'Anthropic',
-        openai: 'OpenAI',
-        gemini: 'Gemini',
-        antigravity: 'Antigravity',
-        grok: 'Grok',
-        kimi: 'Kimi',
-        zhipu: 'Zhipu GLM',
-        deepseek: 'DeepSeek',
-        minimax: 'MiniMax',
-        cursor: 'Cursor',
-        opencode_go: 'OpenCode',
-        qianwen: '千问AI',
-        commandcode: 'Command Code',
-        composite: 'Composite',
-      },
       deleteConfirm:
         "Are you sure you want to delete '{name}'? All associated API keys will no longer belong to any group.",
       deleteConfirmSubscription:

@@ -532,9 +532,9 @@ const HUNYUAN_BASE_URL_PRESETS: CnBaseUrlPreset[] = HUNYUAN_TOKENHUB_SITES.flatM
 
 /** 各供应商按账号类型 × API 协议分档的快捷端点（点击快速填充，输入框仍可自由填写）。 */
 export const CN_BASE_URL_PRESETS: Record<CnBaseUrlPresetPlatform, CnBaseUrlPreset[]> = {
+  // 千问只有 payg 一档：模式卡对 qianwen 隐藏（后端没有 qianwen 的 coding 额度端点，
+  // account.go 也不按 account_mode 选 qianwen 的 base url），所以不保留 coding 预设。
   qianwen: [
-    { mode: 'coding', protocol: 'anthropic', label: 'Coding Beijing Anthropic', url: 'https://coding.dashscope.aliyuncs.com/apps/anthropic' },
-    { mode: 'coding', protocol: 'chat_completions', label: 'Coding Beijing OpenAI', url: 'https://coding.dashscope.aliyuncs.com/v1' },
     { mode: 'payg', protocol: 'chat_completions', label: 'DashScope Chat', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { mode: 'payg', protocol: 'responses', label: 'DashScope Responses', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'DashScope Messages', url: 'https://dashscope.aliyuncs.com/apps/anthropic' }
@@ -586,7 +586,7 @@ export function defaultCNBaseUrl(
       case 'commandcode':
         return 'https://api.commandcode.ai/provider/v1'
       case 'qianwen':
-        return mode === 'coding' ? 'https://coding.dashscope.aliyuncs.com/apps/anthropic' : 'https://dashscope.aliyuncs.com/apps/anthropic'
+        return 'https://dashscope.aliyuncs.com/apps/anthropic'
       case 'kimi':
         return mode === 'coding' ? 'https://api.kimi.com/coding' : 'https://api.moonshot.cn/anthropic'
       case 'zhipu':
@@ -612,7 +612,7 @@ export function defaultCNBaseUrl(
     case 'commandcode':
       return 'https://api.commandcode.ai/provider/v1'
     case 'qianwen':
-      return mode === 'coding' ? 'https://coding.dashscope.aliyuncs.com/v1' : 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     case 'kimi':
       return mode === 'coding' ? 'https://api.kimi.com/coding/v1' : 'https://api.moonshot.cn/v1'
     case 'zhipu':

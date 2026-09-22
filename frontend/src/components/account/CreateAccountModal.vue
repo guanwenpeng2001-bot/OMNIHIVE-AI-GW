@@ -3574,6 +3574,8 @@ const apiKeyHint = computed(() => {
 })
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
+// 后加平台（qianfan/hunyuan/mistral/volcengine）只有一条官方兼容站点，
+// 站点根取自唯一来源 CHAT_PLATFORM_BASE_URLS，不再回落到 Anthropic 的占位符。
 const apiKeyBaseUrlPlaceholder = computed(() => {
   if (isMultiProtocolPlatform.value) {
     const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
@@ -3586,6 +3588,11 @@ const apiKeyBaseUrlPlaceholder = computed(() => {
       return 'https://generativelanguage.googleapis.com'
     case 'grok':
       return 'https://api.x.ai/v1'
+    case 'qianfan':
+    case 'hunyuan':
+    case 'mistral':
+    case 'volcengine':
+      return CHAT_PLATFORM_BASE_URLS[form.platform]
     default:
       return 'https://api.anthropic.com'
   }
@@ -3612,6 +3619,16 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
+    // 后加平台：能查到官方文档的 Key 前缀就按文档给（千帆 bce-v3/ALTAK-、
+    // TokenHub sk-），查不到固定前缀的（Mistral 不透明串、方舟 UUID）用中性占位，
+    // 一律不套用 Anthropic 的 sk-ant-。
+    case 'qianfan':
+      return 'bce-v3/ALTAK-...'
+    case 'hunyuan':
+      return 'sk-...'
+    case 'mistral':
+    case 'volcengine':
+      return '<api-key>'
     default:
       return 'sk-ant-...'
   }

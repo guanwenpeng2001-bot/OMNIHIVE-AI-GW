@@ -11,6 +11,7 @@
  */
 
 import { useI18n } from 'vue-i18n'
+import { getPlatformLabel } from '@/constants/platforms'
 import type { CheckMode, MonitorStatus, Provider } from '@/api/admin/channelMonitor'
 import {
   PROVIDER_OPENAI,
@@ -68,10 +69,12 @@ export function useChannelMonitorFormat() {
   }
 
   function providerLabel(p: Provider | string): string {
+    // 探活能力子集沿用 monitorCommon 的措辞；子集外的平台（如可配置的 qianfan/
+    // hunyuan/mistral/volcengine 行）回落到共享平台名表，避免显示机器 id。
     if (PROVIDERS.includes(p as Provider)) {
       return t(`monitorCommon.providers.${p}`)
     }
-    return p || '-'
+    return p ? getPlatformLabel(p, t) : '-'
   }
 
   function checkModeLabel(m: CheckMode | string): string {

@@ -47,7 +47,7 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'deepseek', label: 'DeepSeek' },
   { value: 'minimax', label: 'MiniMax' },
   { value: 'opencode_go', label: 'OpenCode' },
-  { value: 'qianwen', label: '千问AI' },
+  { value: 'qianwen', label: 'Qianwen AI' },
   { value: 'commandcode', label: 'Command Code' },
   { value: 'qianfan', label: 'Qianfan' },
   { value: 'hunyuan', label: 'Hunyuan' },
@@ -97,9 +97,25 @@ export function platformSupportsModelCatalog(platform: string): boolean {
   return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform.toLowerCase())
 }
 
-/** Shared display labels; callers with an active locale pass their translator. */
+/** Platform ids a display-name lookup must cover: hosting aliases (bedrock,
+ *  vertex), concrete products and the composite route target. */
+const PLATFORM_LABEL_OPTIONS: readonly PlatformOption[] = [
+  ...QUOTA_PLATFORM_OPTIONS,
+  { value: 'composite', label: 'Composite' }
+]
+
+/**
+ * Authoritative platform display names.
+ *
+ * Every surface — admin or user, filter, table or badge — resolves a platform
+ * name through this function. The names themselves live in the single i18n
+ * table `admin.accounts.platforms.*`; the catalog label is only the English
+ * fallback for callers that have no translator (badges inside pure utilities).
+ * A catalog label must therefore stay locale-neutral: localized names come from
+ * the i18n table, never from the static label.
+ */
 export function getPlatformLabel(platform: string, translate?: (key: string) => string): string {
-  const option = GROUP_PLATFORM_OPTIONS.find(option => option.value === platform)
+  const option = PLATFORM_LABEL_OPTIONS.find(option => option.value === platform)
   if (!option) return platform || 'API'
   if (translate) {
     const key = `admin.accounts.platforms.${platform}`
@@ -107,6 +123,25 @@ export function getPlatformLabel(platform: string, translate?: (key: string) => 
     if (label !== key) return label
   }
   return option.label
+}
+
+/** Protocol families the platform selector groups by. Bedrock serves the
+ *  Anthropic Messages protocol and Vertex/Antigravity the Google one; every
+ *  other product entry is reached through the OpenAI-compatible trunk, except
+ *  Cursor, which speaks its own relay protocol — that is why the catch-all
+ *  family is labelled "OpenAI compatible / Other" instead of claiming every
+ *  member is OpenAI. */
+export const PLATFORM_FAMILY_MEMBERS = {
+  anthropic: ['anthropic', 'bedrock'],
+  google: ['gemini', 'antigravity', 'vertex']
+} as const
+
+export type PlatformFamily = keyof typeof PLATFORM_FAMILY_MEMBERS | 'openaiCompatible'
+
+export function platformFamily(platform: string): PlatformFamily {
+  const declared = (Object.keys(PLATFORM_FAMILY_MEMBERS) as Array<keyof typeof PLATFORM_FAMILY_MEMBERS>)
+    .find(family => (PLATFORM_FAMILY_MEMBERS[family] as readonly string[]).includes(platform))
+  return declared ?? 'openaiCompatible'
 }
 
 /** Explicit defaults for providers with a verified chat-only runtime contract. */

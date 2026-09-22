@@ -3363,6 +3363,7 @@ import type {
   SubscriptionType,
 } from "@/types";
 import {
+  getPlatformLabel,
   platformSupportsOAuth,
   PRODUCT_GROUP_PLATFORM_OPTIONS,
   PRODUCT_PLATFORM_OPTIONS,
@@ -3562,7 +3563,7 @@ const canCopyAccountsFromGroup = (targetPlatform: GroupPlatform, sourcePlatform:
 
 const copyAccountsGroupLabel = (g: AdminGroup) => {
   const count = g.account_count || 0;
-  const platform = t("admin.groups.platforms." + g.platform);
+  const platform = getPlatformLabel(g.platform, t);
   return `${g.name} - ${platform} (${t("admin.groups.accountsCount", { count })})`;
 };
 

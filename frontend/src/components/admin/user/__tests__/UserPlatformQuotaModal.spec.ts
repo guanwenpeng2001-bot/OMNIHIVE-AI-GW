@@ -161,7 +161,7 @@ describe('UserPlatformQuotaModal', () => {
     expect(html).toContain('grok')
     expect(html).toContain('cursor')
     expect(w.findAll('tbody tr')).toHaveLength(QUOTA_PLATFORM_OPTIONS.length)
-    for (const [slug, brand] of [['opencode_go', 'OpenCode'], ['qianwen', '千问AI'], ['commandcode', 'Command Code']]) {
+    for (const [slug, brand] of [['opencode_go', 'OpenCode'], ['qianwen', 'Qianwen AI'], ['commandcode', 'Command Code']]) {
       expect(w.get(`td[title="${slug}"]`).text()).toBe(brand)
     }
   })
