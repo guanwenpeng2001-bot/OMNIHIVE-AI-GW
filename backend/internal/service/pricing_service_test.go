@@ -1090,6 +1090,122 @@ func TestParsePricingData_WarnsLopsidedLongContextLadder(t *testing.T) {
 	require.False(t, logSink.ContainsMessage("explicit-input-only"))
 }
 
+// newCachePriceSentinelPricingService 建一个只带数据目录的定价服务，用于连续加载两份
+// 目录快照，验证"基础缓存价被丢掉"的新旧对比哨兵。
+func newCachePriceSentinelPricingService(t *testing.T) *PricingService {
+	t.Helper()
+	svc := &PricingService{cfg: &config.Config{}}
+	svc.cfg.Pricing.DataDir = t.TempDir()
+	return svc
+}
+
+// loadPricingCatalogSnapshot 把一份目录快照写进数据目录并按正常加载路径载入，
+// 让新旧对比哨兵在真实调用点（loadPricingData）上生效。
+func loadPricingCatalogSnapshot(t *testing.T, svc *PricingService, body string) {
+	t.Helper()
+	require.NoError(t, os.WriteFile(svc.getPricingFilePath(), []byte(body), 0644))
+	require.NoError(t, svc.loadPricingData(svc.getPricingFilePath()))
+}
+
+// 基础缓存价在新旧快照对比中丢失必须有哨兵：条目本来就没有 cache 侧 above 档时
+// orphanCacheTierFields 直接返回空（它开头就要求正文里有 "_above_"），这条路径此前完全
+// 静默；而计费在这两个基础价缺失时没有下一档可取，该缓存分项按 $0 计。
+func TestLoadPricingData_WarnsDroppedCacheBasePrice(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	svc := newCachePriceSentinelPricingService(t)
+	loadPricingCatalogSnapshot(t, svc, `{
+		"cache-price-dropped-model": {"litellm_provider": "vertex_ai-language-models", "mode": "chat",
+			"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05,
+			"cache_creation_input_token_cost": 1.25e-06,
+			"cache_read_input_token_cost": 1.25e-07}
+	}`)
+	require.InDelta(t, 1.25e-6, svc.pricingData["cache-price-dropped-model"].CacheCreationInputTokenCost, 1e-15)
+
+	loadPricingCatalogSnapshot(t, svc, `{
+		"cache-price-dropped-model": {"litellm_provider": "vertex_ai-language-models", "mode": "chat",
+			"input_cost_per_token": 1.25e-06, "output_cost_per_token": 1e-05}
+	}`)
+
+	require.Zero(t, svc.pricingData["cache-price-dropped-model"].CacheCreationInputTokenCost)
+	require.Zero(t, svc.pricingData["cache-price-dropped-model"].CacheReadInputTokenCost)
+	require.True(t, logSink.ContainsMessageAtLevel("base cache price dropped for 2 item(s)", "warn"))
+	require.True(t, logSink.ContainsMessage("cache-price-dropped-model(cache_creation_input_token_cost)"))
+	require.True(t, logSink.ContainsMessage("cache-price-dropped-model(cache_read_input_token_cost)"))
+	require.True(t, logSink.ContainsMessage("bills at $0 until the catalog or pricing.override_file supplies the base"))
+	require.False(t, logSink.ContainsMessage("carry cache above-tier prices"),
+		"条目没有 above 档，parse 期哨兵覆盖不到，这正是本条哨兵要补的静默路径")
+}
+
+// 两份快照的基础缓存价都在且相同：不许告警（防误报）；新出现的条目同理。
+func TestLoadPricingData_KeepsCacheBasePriceSilent(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	svc := newCachePriceSentinelPricingService(t)
+	loadPricingCatalogSnapshot(t, svc, `{
+		"cache-price-stable-model": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_creation_input_token_cost": 6.25e-06,
+			"cache_read_input_token_cost": 5e-07}
+	}`)
+	loadPricingCatalogSnapshot(t, svc, `{
+		"cache-price-stable-model": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_creation_input_token_cost": 6.25e-06,
+			"cache_read_input_token_cost": 5e-07},
+		"cache-price-new-model": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 2e-06, "output_cost_per_token": 1e-05,
+			"cache_creation_input_token_cost": 2.5e-06,
+			"cache_read_input_token_cost": 2e-07}
+	}`)
+
+	require.InDelta(t, 5e-7, svc.pricingData["cache-price-stable-model"].CacheReadInputTokenCost, 1e-15)
+	require.InDelta(t, 2e-7, svc.pricingData["cache-price-new-model"].CacheReadInputTokenCost, 1e-15)
+	require.False(t, logSink.ContainsMessage("base cache price dropped"))
+	require.False(t, logSink.ContainsMessage("cache-price-stable-model"))
+	require.False(t, logSink.ContainsMessage("cache-price-new-model"))
+}
+
+// 变体价丢失不在哨兵范围内：服务档 _priority（_flex 不参与本服务取值）与 1h 缓存写入变体
+// 缺自身价时计费取标准基础价（computeTokenBreakdown / computeCacheCreationCost），
+// 不会按 $0 计、只会改价；纳入对比会在上游正常整理目录时误报，因此本哨兵只比基础价。
+func TestLoadPricingData_VariantCachePriceDropStaysSilent(t *testing.T) {
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+
+	svc := newCachePriceSentinelPricingService(t)
+	loadPricingCatalogSnapshot(t, svc, `{
+		"priority-cache-price-dropped-model": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_read_input_token_cost": 5e-07,
+			"cache_read_input_token_cost_priority": 2e-06},
+		"hourly-cache-price-dropped-model": {"litellm_provider": "anthropic", "mode": "chat",
+			"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+			"cache_creation_input_token_cost": 3.75e-06,
+			"cache_creation_input_token_cost_above_1hr": 6e-06}
+	}`)
+	loadPricingCatalogSnapshot(t, svc, `{
+		"priority-cache-price-dropped-model": {"litellm_provider": "openai", "mode": "chat",
+			"input_cost_per_token": 5e-06, "output_cost_per_token": 3e-05,
+			"cache_read_input_token_cost": 5e-07},
+		"hourly-cache-price-dropped-model": {"litellm_provider": "anthropic", "mode": "chat",
+			"input_cost_per_token": 3e-06, "output_cost_per_token": 1.5e-05,
+			"cache_creation_input_token_cost": 3.75e-06}
+	}`)
+
+	require.Zero(t, svc.pricingData["priority-cache-price-dropped-model"].CacheReadInputTokenCostPriority)
+	require.InDelta(t, 5e-7, svc.pricingData["priority-cache-price-dropped-model"].CacheReadInputTokenCost, 1e-15,
+		"标准基础价仍在，priority 变体回落它而不是按 $0 计")
+	require.Zero(t, svc.pricingData["hourly-cache-price-dropped-model"].CacheCreationInputTokenCostAbove1hr)
+	require.InDelta(t, 3.75e-6, svc.pricingData["hourly-cache-price-dropped-model"].CacheCreationInputTokenCost, 1e-15,
+		"5m 基础价仍在，1h 变体回落它而不是按 $0 计")
+	require.False(t, logSink.ContainsMessage("base cache price dropped"))
+	require.False(t, logSink.ContainsMessage("priority-cache-price-dropped-model"))
+	require.False(t, logSink.ContainsMessage("hourly-cache-price-dropped-model"))
+}
+
 // 出厂回退快照必须满足数据契约：没有孤儿 cache above 字段、没有单侧阶梯，且 Gemini pro 系的
 // 缓存写入基础价等于标准输入价（含 priority 变体）。快照是随目录同步刷新的文本，这里防止刷新时静默回退。
 func TestDefaultCatalogSnapshot_CacheTierContract(t *testing.T) {

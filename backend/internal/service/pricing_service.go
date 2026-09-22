@@ -506,6 +506,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
+	warnDroppedCacheBasePrices(s.pricingData, data)
 	s.pricingData = data
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
@@ -575,6 +576,7 @@ func (s *PricingService) downloadPricingData() error {
 	// 更新内存数据
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
+	warnDroppedCacheBasePrices(s.pricingData, data)
 	s.pricingData = data
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
@@ -1010,6 +1012,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
+	warnDroppedCacheBasePrices(s.pricingData, pricingData)
 	s.pricingData = pricingData
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
@@ -1083,6 +1086,55 @@ func warnDroppedLongContextLadders(old, next map[string]*LiteLLMModelPricing) {
 		dropped = append(dropped[:20], "...")
 	}
 	logger.LegacyPrintf("service.pricing", "[Pricing] Long-context ladder dropped for %d model(s) after reload: %s (verify catalog/override data if unintended)", total, strings.Join(dropped, ", "))
+}
+
+// warnDroppedCacheBasePrices 对比新旧目录数据：上一份里基础缓存价为正、新数据里该基础价
+// 缺失或为 0 的条目打 WARN。cache 基础价已完全数据驱动（无代码兜底：mergeFallbackPricingData
+// 对已存在条目整条跳过，override 也只是数据层），数据源一次误提交就会让该缓存分项静默按 $0
+// 计——与长上下文阶梯丢失同一形态，这里是唯一的哨兵。
+//
+// 只对比基础价。计费对变体有回落：服务档变体（_priority，_flex 不参与本服务的取值）与 1h
+// 缓存写入变体缺自身价时取标准基础价（见 computeTokenBreakdown/computeCacheCreationCost），
+// 因此变体单独丢失不会归零、只会改价，纳入对比只会在上游正常整理目录时误报。
+// 调用方需持有 s.mu 写锁。
+func warnDroppedCacheBasePrices(old, next map[string]*LiteLLMModelPricing) {
+	if len(old) == 0 {
+		return
+	}
+	// 计费在这两个字段缺失时没有下一档可取：该缓存分项直接按 $0 计。
+	basePriceFields := []struct {
+		name  string
+		price func(*LiteLLMModelPricing) float64
+	}{
+		{"cache_creation_input_token_cost", func(pricing *LiteLLMModelPricing) float64 { return pricing.CacheCreationInputTokenCost }},
+		{"cache_read_input_token_cost", func(pricing *LiteLLMModelPricing) float64 { return pricing.CacheReadInputTokenCost }},
+	}
+	var dropped []string
+	for name, prev := range old {
+		if prev == nil {
+			continue
+		}
+		// 条目整体消失属于另一类问题（下架/改名），计费会走 fallback 或 fail-closed 而非静默 $0，
+		// 与长上下文阶梯哨兵一致只看仍在的条目。
+		cur, ok := next[name]
+		if !ok || cur == nil {
+			continue
+		}
+		for _, field := range basePriceFields {
+			if field.price(prev) > 0 && field.price(cur) <= 0 {
+				dropped = append(dropped, name+"("+field.name+")")
+			}
+		}
+	}
+	if len(dropped) == 0 {
+		return
+	}
+	sort.Strings(dropped)
+	total := len(dropped)
+	if total > 20 {
+		dropped = append(dropped[:20], "...")
+	}
+	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: base cache price dropped for %d item(s) after reload: %s (that cache item bills at $0 until the catalog or pricing.override_file supplies the base)", total, strings.Join(dropped, ", "))
 }
 
 // useFallbackPricing 使用回退价格文件
