@@ -218,10 +218,9 @@ func mistralActionMultipartBody(t *testing.T) ([]byte, string) {
 // reaches the endpoint the official specification publishes with the account API
 // key as a Bearer token.
 //
-// The two audio generation cells are exercised separately below: their forwarder
-// is wired and correct, but the shared scheduler family gate refuses the account
-// before it is selected (a pre-existing chat-only gap, see
-// TestMistralAudioPathsAreRefusedByTheSharedChatOnlyFamilyGate).
+// The two audio generation cells are exercised separately below: account
+// selection admits them on the chat trunk Mistral publishes, so their cases carry
+// the endpoint they reach and the usage guard each one owns.
 func TestMistralActionPathsReachTheDocumentedEndpoints(t *testing.T) {
 	scenarios := []struct {
 		name        string
@@ -277,25 +276,46 @@ func TestMistralActionPathsReachTheDocumentedEndpoints(t *testing.T) {
 	}
 }
 
-// TestMistralAudioPathsAreRefusedByTheSharedChatOnlyFamilyGate pins the residual
-// blocker with its mechanism. The action matrix now binds mistral.audio.stt and
-// mistral.audio.tts, the handler is wired and the forwarders reach the documented
-// endpoints, but account selection still refuses every Mistral account for an
-// audio plan: openAICompatiblePlanCatalogEndpoint judges a chat-only platform's
-// non-embeddings plans on the conservative Responses family, and Mistral
-// publishes no Responses protocol, so its catalog can never declare that family
-// (the same pre-existing gap chat_only_platform_protocol_binding_test.go records
-// for the Mistral text trunk). The request fails closed before the upstream.
-func TestMistralAudioPathsAreRefusedByTheSharedChatOnlyFamilyGate(t *testing.T) {
+// TestMistralAudioPathsReachTheirEndpointsAndFailClosedOnUnknownUsage pins both
+// halves of the audio generation seam after the chat-trunk reconciliation.
+// Account selection no longer intercepts a Mistral audio plan: the shared plan
+// gate judges a chat-only platform that publishes no native text protocol on the
+// chat-completions family, which the Mistral catalog declares, so the handler
+// selects the account and the request reaches the endpoint the official
+// specification enumerates. What each path does with an upstream envelope that
+// carries no parseable usage then differs, and both behaviours are real:
+// transcriptions settle on the Voxtral usage contract (usage.prompt_audio_seconds),
+// so an unparseable envelope fails closed with 502 instead of booking a trusted
+// zero, while speech bills the request's input characters and relays the upstream
+// envelope with its own status.
+func TestMistralAudioPathsReachTheirEndpointsAndFailClosedOnUnknownUsage(t *testing.T) {
 	transcriptionBody, transcriptionContentType := mistralActionMultipartBody(t)
+	speechBody := []byte(`{"model":"mistral-tts-latest","input":"hello"}`)
 	scenarios := []struct {
 		name        string
 		path        string
 		body        []byte
 		contentType string
+		wantURL     string
+		wantStatus  int
+		wantBody    string
 	}{
-		{name: "audio transcriptions", path: "/v1/audio/transcriptions", body: transcriptionBody, contentType: transcriptionContentType},
-		{name: "audio speech", path: "/v1/audio/speech", body: []byte(`{"model":"mistral-tts-latest","input":"hello"}`), contentType: "application/json"},
+		{
+			name: "audio transcriptions", path: "/v1/audio/transcriptions", body: transcriptionBody, contentType: transcriptionContentType,
+			wantURL: "https://api.mistral.ai/v1/audio/transcriptions",
+			// usage.prompt_audio_seconds is missing from the stub envelope, so the
+			// transcription has no billable duration and the adapter refuses it.
+			wantStatus: http.StatusBadGateway,
+			wantBody:   `{"error":{"message":"Mistral usage is unknown","type":"upstream_error"}}`,
+		},
+		{
+			name: "audio speech", path: "/v1/audio/speech", body: speechBody, contentType: "application/json",
+			wantURL: "https://api.mistral.ai/v1/audio/speech",
+			// Speech bills the input characters of the request, so the same empty
+			// upstream envelope is relayed unchanged.
+			wantStatus: http.StatusOK,
+			wantBody:   `{}`,
+		},
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
@@ -306,10 +326,28 @@ func TestMistralAudioPathsAreRefusedByTheSharedChatOnlyFamilyGate(t *testing.T) 
 
 			recorder := h.serve(t, http.MethodPost, scenario.path, scenario.body, scenario.contentType)
 
-			require.Equal(t, http.StatusServiceUnavailable, recorder.Code, recorder.Body.String())
-			require.Empty(t, h.upstream.snapshot(), "no account is selected, so the upstream is never called")
+			require.Equal(t, scenario.wantStatus, recorder.Code, recorder.Body.String())
+			require.JSONEq(t, scenario.wantBody, recorder.Body.String())
+			requests := h.upstream.snapshot()
+			require.Len(t, requests, 1, "the selected account reaches the documented endpoint exactly once")
+			require.Equal(t, scenario.wantURL, requests[0].URL.String())
 		})
 	}
+
+	// Counter-case: the very same path answers 200 and relays the transcription as
+	// soon as the upstream envelope carries the Voxtral usage fields, so the 502
+	// above is produced by the usage contract and by nothing else on this path.
+	usageEnvelope := `{"model":"voxtral-mini-latest","text":"hello","usage":{"prompt_audio_seconds":12.5,"prompt_tokens":3,"completion_tokens":2}}`
+	h := newMistralActionHarness(t, func(*http.Request) *http.Response {
+		return mistralActionJSONResponse(http.StatusOK, usageEnvelope)
+	})
+	defer h.cleanup()
+	recorder := h.serve(t, http.MethodPost, "/v1/audio/transcriptions", transcriptionBody, transcriptionContentType)
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.JSONEq(t, usageEnvelope, recorder.Body.String())
+	requests := h.upstream.snapshot()
+	require.Len(t, requests, 1)
+	require.Equal(t, "https://api.mistral.ai/v1/audio/transcriptions", requests[0].URL.String())
 }
 
 // TestMistralActionPathsRejectMissingModel covers the admission the handler owns

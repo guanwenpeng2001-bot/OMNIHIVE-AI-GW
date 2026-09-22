@@ -4,7 +4,7 @@
 // service/hunyuan_adapter.go 的 TokenHub 站点白名单：协议集合与站点清单都从后端来，
 // 前端不得自拼地址，也不得给出后端没有声明的协议（mistral 上游只有 chat）。
 import { execFileSync } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readdirSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
@@ -215,21 +215,62 @@ function presetUrls(platform: CnBaseUrlPresetPlatform, mode: 'payg' | 'coding', 
 }
 
 /**
- * 混元 TokenHub 站点白名单：从后端源码读取（backend/internal/service/hunyuan_adapter.go 的
- * hunyuanActionBaseURL）：4 个 TokenHub 站点 + 1 个旧版兼容站点。前端预设必须与它逐条一致。
+ * 混元数据面端点白名单：从后端源码（backend/internal/service/hunyuan_adapter.go 的
+ * hunyuanActionBaseURL）里那条 case 子句逐项解析。合并进套餐模式后白名单分两类，前端必须分别对齐：
+ *   - 按量站点（TokenHub 四站 + 旧版兼容站）：前端 payg 预设与它逐条一致；
+ *   - 套餐端点（Coding Plan / Token Plan 专用根）：前端 coding 预设只能落在这批地址里。
+ * 子句的列表项要么是字符串字面量，要么是常量名；常量名里带 Coding / TokenPlan 的判为套餐端点
+ * （DefaultHunyuanCodingBaseURL / DefaultHunyuanCodingAnthropicBaseURL / hunyuanTokenPlanBaseURL），
+ * 其余项判为按量站点。分类靠名字：名字不符规则时按量集合会与前端预设不等，下面两条用例即红。
+ * 解析形状对不上（子句找不到、常量取不到、子句没解析出地址）时这里直接失败，绝不静默返回空集合。
  */
-function hunyuanBackendWhitelist(): string[] {
-  const source = readFileSync(resolve(process.cwd(), '../backend/internal/service/hunyuan_adapter.go'), 'utf8')
+function hunyuanBackendEndpointWhitelist(): { paygSites: string[]; planEndpoints: string[] } {
+  const serviceDirectory = resolve(process.cwd(), '../backend/internal/service')
+  // 白名单里的常量分居两个文件（hunyuanTokenPlanBaseURL 在 hunyuan_adapter.go，
+  // DefaultHunyuanCodingBaseURL / DefaultHunyuanCodingAnthropicBaseURL 在 domain_constants.go），
+  // 所以按整个 internal/service 包解析常量声明，而不是只读一个文件：常量换文件时才不会假红。
+  const packageSources = readdirSync(serviceDirectory)
+    .filter(name => name.endsWith('.go'))
+    .sort()
+    .map(name => ({ name, text: readFileSync(resolve(serviceDirectory, name), 'utf8') }))
   const constant = (name: string): string => {
-    const value = source.match(new RegExp(`const ${name} = "([^"]+)"`))?.[1]
-    expect(value, `${name} missing from hunyuan_adapter.go`).toBeTruthy()
-    return value!
+    const declarations = packageSources.flatMap(source =>
+      [...source.text.matchAll(new RegExp(`\\b${name}\\s*=\\s*"([^"]+)"`, 'g'))].map(match => ({
+        file: source.name,
+        value: match[1]!
+      }))
+    )
+    expect(declarations, `${name} missing from internal/service`).not.toHaveLength(0)
+    expect(
+      [...new Set(declarations.map(declaration => declaration.value))],
+      `${name} declared with conflicting values in internal/service`
+    ).toHaveLength(1)
+    return declarations[0]!.value
   }
-  const allowedCase = source.match(/case hunyuanCompatibilityBaseURL,([\s\S]*?)hunyuanLegacyBaseURL:/)?.[1]
-  expect(allowedCase, 'hunyuan base URL whitelist case missing').toBeTruthy()
-  const quoted = [...allowedCase!.matchAll(/"([^"]+)"/g)].map(match => match[1])
-  return [constant('hunyuanCompatibilityBaseURL'), ...quoted, constant('hunyuanLegacyBaseURL')]
+  const adapter = packageSources.find(source => source.name === 'hunyuan_adapter.go')
+  expect(adapter, 'hunyuan_adapter.go missing from internal/service').toBeDefined()
+  // 终止符是子句末尾的冒号换行：地址里的 "://" 不含换行，不会提前截断。
+  const clause = adapter!.text.match(/case hunyuanCompatibilityBaseURL,([\s\S]*?):\s*\n/)?.[1]
+  expect(clause, 'hunyuan base URL whitelist case missing').toBeTruthy()
+  const tail = [...clause!.matchAll(/"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*)/g)].map(match =>
+    match[1] !== undefined
+      ? { url: match[1], plan: false }
+      : { url: constant(match[2]!), plan: /Coding|TokenPlan/.test(match[2]!) }
+  )
+  expect(tail, 'hunyuan base URL whitelist case carried no endpoint').not.toHaveLength(0)
+  const entries = [{ url: constant('hunyuanCompatibilityBaseURL'), plan: false }, ...tail]
+  return {
+    paygSites: entries.filter(entry => !entry.plan).map(entry => entry.url),
+    planEndpoints: entries.filter(entry => entry.plan).map(entry => entry.url)
+  }
 }
+
+/**
+ * 后端白名单认可、前端却没有预设的套餐端点：TokenHub Token Plan 专用根（后端 hunyuanTokenPlanBaseURL）。
+ * 这是本轮合并后发现的真实不一致（不是用例过期），已按规格上报，见下面用例的说明；
+ * 前端补上该预设（或后端收窄白名单）后，这个常量应为空，相等断言会随之收紧为逐条相等。
+ */
+const HUNYUAN_PLAN_ENDPOINTS_WITHOUT_FRONTEND_PRESET = ['https://api.lkeap.cloud.tencent.com/plan/v3']
 
 describe('late platform protocol cards', () => {
   beforeEach(() => {
@@ -344,36 +385,64 @@ describe('late platform protocol declarations', () => {
 
 describe('late platform base URL presets', () => {
   it('offers exactly the TokenHub sites the backend whitelists, on every declared protocol', () => {
-    const whitelist = hunyuanBackendWhitelist()
-    expect(whitelist).toHaveLength(5)
-    expect(new Set(whitelist).size).toBe(5)
+    const { paygSites, planEndpoints } = hunyuanBackendEndpointWhitelist()
+    expect(paygSites, 'pay-as-you-go sites parsed from the backend whitelist').toHaveLength(5)
+    expect(new Set(paygSites).size).toBe(5)
+    expect(planEndpoints, 'plan endpoints parsed from the backend whitelist').toHaveLength(3)
 
-    // 按量付费档：白名单里的 5 个站点逐条对应到每个已声明协议。
+    // 按量付费档：白名单里的 5 个站点逐条对应到每个已声明协议。把后端白名单里任一站点改一个字符、
+    // 或把前端 payg 预设改一个字符，下面两条断言即红。
     const paygPresets = CN_BASE_URL_PRESETS.hunyuan.filter(preset => preset.mode === 'payg')
     for (const protocol of ['chat_completions', 'anthropic', 'responses']) {
       const presetUrls = paygPresets
         .filter(preset => preset.protocol === protocol)
         .map(preset => preset.url)
-      expect([...new Set(presetUrls)].sort(), `${protocol} presets`).toEqual([...whitelist].sort())
-      expect(presetUrls, `${protocol} preset count`).toHaveLength(whitelist.length)
+      expect([...new Set(presetUrls)].sort(), `${protocol} presets`).toEqual([...paygSites].sort())
+      expect(presetUrls, `${protocol} preset count`).toHaveLength(paygSites.length)
     }
   })
 
+  it('keeps every frontend plan preset on a plan endpoint the backend admits', () => {
+    const { paygSites, planEndpoints } = hunyuanBackendEndpointWhitelist()
+    const codingPresetUrls = [
+      ...new Set(
+        CN_BASE_URL_PRESETS.hunyuan.filter(preset => preset.mode === 'coding').map(preset => preset.url)
+      )
+    ]
+
+    // 套餐档的地址逐字取自厂商一手文档，且必须在后端认可的套餐端点里：前端任一预设地址改一个字符
+    // （或换成非官方站点）都会让下面第一条断言变红；后端把某个地址从白名单里删掉同样如此。
+    expect(codingPresetUrls.filter(url => !planEndpoints.includes(url)), 'presets outside the backend plan endpoints').toEqual([])
+    expect(planEndpoints.filter(url => paygSites.includes(url)), 'plan endpoints must not double as payg sites').toEqual([])
+
+    // 后端认可的套餐端点有三个，前端只预设了两个：缺 TokenHub Token Plan 专用根 plan/v3。
+    // 两边的原文：后端 case 子句里是 hunyuanTokenPlanBaseURL = "https://api.lkeap.cloud.tencent.com/plan/v3"；
+    // 前端 LATE_PLATFORM_CODING_BASE_URLS.hunyuan 只有 coding/v3（chat_completions 与 responses 同址）
+    // 与 coding/anthropic 两条。
+    // 该缺口已上报（见报告“真缺陷”一节），这里显式钉住缺口而不是把集合悄悄缩小成前端的样子：
+    // 前端补上预设、或后端增删套餐端点，这条断言必须变红，提醒把两边收敛成逐条相等。
+    expect([...codingPresetUrls, ...HUNYUAN_PLAN_ENDPOINTS_WITHOUT_FRONTEND_PRESET].sort()).toEqual([...planEndpoints].sort())
+    expect([...codingPresetUrls].sort()).toEqual([
+      'https://api.lkeap.cloud.tencent.com/coding/anthropic',
+      'https://api.lkeap.cloud.tencent.com/coding/v3'
+    ])
+  })
+
   it('renders the whitelisted sites as preset buttons and fills the base URL on selection', async () => {
-    const whitelist = hunyuanBackendWhitelist()
+    const { paygSites } = hunyuanBackendEndpointWhitelist()
     const wrapper = mountModal()
     await selectPlatform(wrapper, 'hunyuan')
     await selectProtocol(wrapper, 'anthropic')
 
     const presets = wrapper.findAll('[data-testid="cn-base-url-preset"]')
-    expect(presets).toHaveLength(whitelist.length)
+    expect(presets).toHaveLength(paygSites.length)
     // 默认 base url 就是白名单主站，因此只有对应那条预设处于按下态。
     expect(presets.map(preset => preset.attributes('aria-pressed'))).toEqual(
-      whitelist.map(url => String(url === CHAT_PLATFORM_BASE_URLS.hunyuan))
+      paygSites.map(url => String(url === CHAT_PLATFORM_BASE_URLS.hunyuan))
     )
 
     const intlSite = 'https://tokenhub-intl.tencentmaas.cn/v1'
-    expect(whitelist).toContain(intlSite)
+    expect(paygSites).toContain(intlSite)
     const intlPreset = presets.find(preset => preset.text().includes('tokenhub-intl.tencentmaas.cn/v1'))
     expect(intlPreset).toBeDefined()
     await intlPreset!.trigger('click')
