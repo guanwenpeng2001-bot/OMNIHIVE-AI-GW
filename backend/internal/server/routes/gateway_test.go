@@ -314,12 +314,14 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 //
 // This router carries no gateway, billing or job dependencies and no auth
 // subject, so the ingress answers with its own envelope (the missing-dependency
-// or missing-subject refusal) instead of the platform gate. Reaching the OpenAI
-// video ingress at all is what this case proves; the adapter itself is exercised
-// end to end by TestOpenAIVideoIngressSubmitsAndReadsOwnerBoundJob and the rest
-// of the handler wiring suite. Platforms that still have no video cell keep the
-// local rejection, which TestGatewayUnsupportedProtocolContracts proves cell by
-// cell.
+// or missing-subject refusal) instead of the platform gate. What this case
+// verifies is that hand-off: every route below reaches the OpenAI video ingress
+// and comes back in the gateway error envelope, with no local 400 and no
+// action_not_implemented. It never drives a successful video job — only the
+// entry route and its error envelope are asserted here; the adapter path itself
+// is covered by the OpenAI video handler wiring suite. Platforms that still have
+// no video cell keep the local rejection, which
+// TestGatewayUnsupportedProtocolContracts proves cell by cell.
 func TestGatewayRoutesOpenAIVideosReachTheOpenAIVideoIngress(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 

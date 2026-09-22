@@ -5,7 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
-import { normalizeApiError } from '@/utils/apiError'
+import { normalizeApiError, decodeErrorEnvelopeBody } from '@/utils/apiError'
 import { getLocale } from '@/i18n'
 import {
   ADMIN_UI_REQUEST_HEADER,
@@ -158,6 +158,11 @@ apiClient.interceptors.response.use(
     if (error.response) {
       const { status } = error.response
       const url = String(error.config?.url || '')
+
+      // 二进制响应的错误正文（responseType: 'blob'）里还是 JSON 信封：必须在规范化之前
+      // 读回来，否则 409 的 reason/metadata 在这里就丢了，页面只能报一句通用失败。
+      const decodedEnvelope = await decodeErrorEnvelopeBody(error.response.data)
+      if (decodedEnvelope !== undefined) error.response.data = decodedEnvelope as ApiResponse<unknown>
 
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
       const apiError = normalizeApiError(error)

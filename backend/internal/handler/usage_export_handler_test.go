@@ -3,6 +3,7 @@ package handler
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -23,6 +25,9 @@ type userUsageExportRepo struct {
 	logs    []service.UsageLog
 	filters usagestats.UsageLogFilters
 	calls   int
+
+	// streamError 让替身模拟服务端读取失败（例如 USAGE_HISTORY_INCOMPLETE 守卫）。
+	streamError error
 }
 
 func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
@@ -34,6 +39,9 @@ func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
 ) error {
 	s.calls++
 	s.filters = filters
+	if s.streamError != nil {
+		return s.streamError
+	}
 	if len(s.logs) == 0 {
 		return nil
 	}
@@ -105,6 +113,29 @@ func TestUserUsageExportStreamsOwnerColumnsOnly(t *testing.T) {
 	require.Equal(t, "0.25000000", records[1][14])
 	require.NotContains(t, rec.Body.String(), "owner@example.com")
 	require.NotContains(t, rec.Body.String(), "account_billed_cost")
+}
+
+// 读取失败必须回到统一的 JSON 错误信封：不能留着 CSV 下载头，让客户端把 JSON 正文当成文件（409 里的精确原因靠它传达）。
+func TestUserUsageExportAnswersReadFailuresWithTheJSONEnvelope(t *testing.T) {
+	repo := &userUsageExportRepo{streamError: infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").
+		WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})}
+	router := newUserUsageExportRouter(repo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/export?format=csv&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "application/json", "失败响应不能声明 CSV 正文")
+	require.Empty(t, rec.Header().Get("Content-Disposition"), "失败响应不是附件下载")
+	require.Empty(t, rec.Header().Get("X-Usage-Export-Columns"), "列顺序头描述的是没有发出去的文件")
+	require.Empty(t, rec.Header().Get("X-Usage-Export-Snapshot-End"))
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Equal(t, float64(http.StatusConflict), envelope["code"])
+	require.Equal(t, "USAGE_HISTORY_INCOMPLETE", envelope["reason"])
+	require.Equal(t, map[string]any{"raw_retained_from": "2026-03-05T00:00:00Z"}, envelope["metadata"])
 }
 
 func TestUserUsageExportRejectsUnknownFormat(t *testing.T) {

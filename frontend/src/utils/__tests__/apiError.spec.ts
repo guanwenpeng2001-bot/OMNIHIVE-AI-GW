@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { normalizeApiError, extractApiErrorCode, extractApiErrorMessage, extractApiErrorMetadata, extractApiErrorStatus, extractI18nErrorMessage } from '../apiError'
+import { normalizeApiError, extractApiErrorCode, extractApiErrorMessage, extractApiErrorMetadata, extractApiErrorStatus, extractI18nErrorMessage, decodeErrorEnvelopeBody, ERROR_ENVELOPE_DECODE_LIMIT_BYTES } from '../apiError'
 
 describe('management error normalization', () => {
   it.each([
@@ -39,5 +39,46 @@ describe('management error normalization', () => {
   it('translates by machine reason and metadata', () => {
     const error = { response: { status: 403, data: { code: 403, reason: 'GROUP_NOT_ALLOWED', message: 'Denied', metadata: { group: 'Private' } } } }
     expect(extractI18nErrorMessage(error, (key, params) => key === 'keys.GROUP_NOT_ALLOWED' ? `Denied: ${params?.group}` : key, 'keys', 'Fallback')).toBe('Denied: Private')
+  })
+})
+
+// 导出走 responseType: 'blob'，409 信封在正文里还是 JSON；不解码就只剩一句通用失败。
+describe('binary error bodies', () => {
+  const conflict = {
+    code: 409,
+    reason: 'USAGE_HISTORY_INCOMPLETE',
+    message: 'Usage history is incomplete: raw history or a verified archive is unavailable',
+    metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+  }
+
+  it('keeps the 409 envelope that arrives as a plain object (control)', () => {
+    expect(normalizeApiError({ message: 'Request failed with status code 409', response: { status: 409, data: conflict } }))
+      .toMatchObject({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } })
+  })
+
+  it('keeps the same envelope when the body is a blob', async () => {
+    const blob = new Blob([JSON.stringify(conflict)], { type: 'application/json' })
+    expect(await decodeErrorEnvelopeBody(blob)).toEqual(conflict)
+
+    // 对照：不先解码时 reason 与 metadata 就是丢的这一格。
+    const undecoded = normalizeApiError({ response: { status: 409, data: new Blob([JSON.stringify(conflict)]) } })
+    expect(undecoded.reason).toBeUndefined()
+    expect(undecoded.metadata).toEqual({})
+    expect(normalizeApiError({ response: { status: 409, data: await decodeErrorEnvelopeBody(blob) } }))
+      .toMatchObject({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } })
+  })
+
+  it('reads an ArrayBuffer body and leaves everything else alone', async () => {
+    expect(await decodeErrorEnvelopeBody(new TextEncoder().encode(JSON.stringify(conflict)).buffer)).toEqual(conflict)
+    expect(await decodeErrorEnvelopeBody('<html>error</html>')).toBeUndefined()
+    expect(await decodeErrorEnvelopeBody(null)).toBeUndefined()
+    expect(await decodeErrorEnvelopeBody({ ok: true })).toBeUndefined()
+  })
+
+  it('never reads a body over the envelope limit and never throws', async () => {
+    expect(await decodeErrorEnvelopeBody(new Blob(['x'.repeat(ERROR_ENVELOPE_DECODE_LIMIT_BYTES + 1)]))).toBeUndefined()
+    expect(await decodeErrorEnvelopeBody(new Blob(['']))).toBeUndefined()
+    expect(await decodeErrorEnvelopeBody(new Blob(['<html>error</html>']))).toBeUndefined()
+    expect(await decodeErrorEnvelopeBody({ size: 12 })).toBeUndefined()
   })
 })

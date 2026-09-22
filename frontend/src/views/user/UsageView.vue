@@ -216,7 +216,7 @@ const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
 
-import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
+import { historyGapFromError, usageExportFailureMessage, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { billingEvidenceFields } from '@/utils/usageBillingExplanation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -632,7 +632,7 @@ const exportToCSV = async () => {
   } catch (error) {
     if (!c.signal.aborted) {
       console.error('CSV Export failed:', error)
-      appStore.showError(t('usage.exportFailed'))
+      appStore.showError(usageExportFailureMessage(error, t) ?? t('usage.exportFailed'))
     }
   } finally {
     if (exportAbortController === c) { exportAbortController = null; exporting.value = false }

@@ -650,4 +650,51 @@ describe('API Client', () => {
       ).rejects.toBeDefined()
     })
   })
+
+  // --- 二进制错误正文（导出用 responseType: 'blob'）---
+
+  describe('二进制错误正文', () => {
+    const conflict = {
+      code: 409,
+      reason: 'USAGE_HISTORY_INCOMPLETE',
+      message: 'Usage history is incomplete',
+      metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+    }
+
+    it('对象正文的 409 信封保留 reason 与 metadata（对照）', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw { config, message: 'Request failed with status code 409', response: { status: 409, data: conflict } }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({
+        status: 409,
+        reason: 'USAGE_HISTORY_INCOMPLETE',
+        metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+      })
+    })
+
+    it('同一个 409 信封作为 Blob 时也保留 reason 与 metadata', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw {
+          config,
+          message: 'Request failed with status code 409',
+          response: { status: 409, data: new Blob([JSON.stringify(conflict)], { type: 'application/json' }) },
+        }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({
+        status: 409,
+        reason: 'USAGE_HISTORY_INCOMPLETE',
+        metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+      })
+    })
+
+    it('解不开的二进制错误正文不让错误处理本身失败', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw { config, message: 'Bad gateway', response: { status: 502, data: new Blob(['<html>bad gateway</html>']) } }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({ status: 502 })
+    })
+  })
 })
