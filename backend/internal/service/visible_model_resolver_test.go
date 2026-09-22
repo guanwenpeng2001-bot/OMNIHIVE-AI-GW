@@ -118,7 +118,8 @@ func TestVisibleModelsWildcardBindingAndRevisionFence(t *testing.T) {
 
 func TestVisibleModelsDoNotPublishCandidatesOrUnsupportedActions(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformMistral, "native")
-	account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"images"}
+	snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot.EligibleModels[0].Endpoints = []string{"images"}
 	gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}}}
 	view, err := gateway.VisibleModels(context.Background(), nil, PlatformMistral)
 	require.NoError(t, err)

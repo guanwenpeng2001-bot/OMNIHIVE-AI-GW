@@ -31,7 +31,8 @@ type openAIWSIngressReader struct {
 func openAIWSIngressClientReader(ginContext *gin.Context, connection *coderws.Conn) *openAIWSIngressReader {
 	const readerKey = "openai_ws_ingress_reader"
 	if existing, ok := ginContext.Get(readerKey); ok {
-		return existing.(*openAIWSIngressReader)
+		reader, _ := existing.(*openAIWSIngressReader)
+		return reader
 	}
 	readerContext, cancelReader := context.WithCancelCause(context.Background())
 	reader := &openAIWSIngressReader{ctx: readerContext, frames: make(chan openAIWSClientReadResult, 1), stopped: make(chan struct{})}

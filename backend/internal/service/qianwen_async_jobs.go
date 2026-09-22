@@ -320,7 +320,7 @@ func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("ASR result unavailable")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ASR result HTTP %d", resp.StatusCode)
 	}
@@ -348,7 +348,8 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	quantity := 1.0
-	if upstreamJob.Family == "3d" {
+	switch upstreamJob.Family {
+	case "3d":
 		if len(result.Array()) != 1 {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
@@ -368,7 +369,7 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 		if !qianwenHTTPURL(result.Get("0.pbr_model_url")) && !qianwenHTTPURL(result.Get("0.base_model_url")) {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
-	} else if upstreamJob.Family == "image" {
+	case "image":
 		imageCount := usage.Get("image_count")
 		if imageCount.Type != gjson.Number || imageCount.Float() != float64(imageCount.Int()) || imageCount.Int() < 1 || imageCount.Int() > 4 || len(result.Array()) != int(imageCount.Int()) {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
@@ -379,7 +380,7 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 			}
 		}
 		quantity = float64(imageCount.Int())
-	} else {
+	default:
 		if len(result.Array()) != 1 {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}

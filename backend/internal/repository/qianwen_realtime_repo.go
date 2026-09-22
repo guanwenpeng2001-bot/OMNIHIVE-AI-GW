@@ -12,7 +12,7 @@ func (r *upstreamJobRepository) CreateRealtimeSession(ctx context.Context, j *se
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	// A fixed, namespaced advisory lock only covers admission, never network IO.
 	if _, err = tx.ExecContext(ctx, `SELECT pg_advisory_xact_lock(717936482019)`); err != nil {
 		return nil, err

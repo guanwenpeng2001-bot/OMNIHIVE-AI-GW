@@ -362,7 +362,7 @@ func (s *OpenAIGatewayService) handleResponsesStreamingFromNativeAnthropic(
 	streamInterval := s.anthropicNativeStreamInterval()
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
 	defer stopCancellation()
 

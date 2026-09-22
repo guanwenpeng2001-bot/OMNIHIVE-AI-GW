@@ -256,7 +256,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 		flusher.Flush()
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if cw.Disconnected() || c.Request.Context().Err() != nil {
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
@@ -1173,7 +1173,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 		return convertUsage(agUsage)
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if cw.Disconnected() || c.Request.Context().Err() != nil {
 			return &antigravityStreamResult{usage: finishUsage(), firstTokenMs: firstTokenMs, clientDisconnect: true}, nil

@@ -31,7 +31,7 @@ func TestRequestPlanMediaUsesActualCapabilityAndPreservesTextBridge(t *testing.T
 	} {
 		t.Run(scenario.platform+"/"+scenario.protocol, func(t *testing.T) {
 			account := catalogEvidenceAccount(1, scenario.platform, "fixture")
-			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
 			snapshot.EligibleModels[0].Endpoints = []string{scenario.endpoint}
 			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Protocol: scenario.protocol, Model: "fixture"}))
 			require.True(t, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, "fixture", OpenAIEndpointCapabilityChatCompletions))

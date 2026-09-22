@@ -53,11 +53,12 @@ func TestModelsDevRegistryRejectsRedirectWithoutCaching(t *testing.T) {
 		_, _ = io.WriteString(response, `{"openai":{"models":{"runtime-redirect-probe":{"limit":{"context":999001,"output":777}}}}}`)
 	}))
 	defer target.Close()
-	localTransport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
+	localTransport := baseTransport.Clone()
 	localTransport.Proxy = nil
 	defer localTransport.CloseIdleConnections()
 	transport := &modelsDevRedirectTransport{targetURL: target.URL + "/registry", localTransport: localTransport}
-	upstream := NewHTTPUpstream(nil).(*httpUpstreamService)
+	upstream, _ := NewHTTPUpstream(nil).(*httpUpstreamService)
 	entry, err := upstream.getOrCreateClient("", 99301, 1)
 	require.NoError(t, err)
 	// Substitute only network responses; the real repository HTTPUpstream,

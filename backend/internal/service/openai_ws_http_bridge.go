@@ -729,7 +729,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		markOpenAIWSClientVisibleFailure(c, "response.failed", clientMessage)
 		return nil
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
 	defer stopCancellation()
 	for !clientDisconnected && ctx.Err() == nil && scanner.Scan() {

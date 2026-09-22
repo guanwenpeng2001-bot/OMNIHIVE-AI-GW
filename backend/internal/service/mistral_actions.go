@@ -165,12 +165,12 @@ func (s *OpenAIGatewayService) relayMistralEventStream(
 		}
 		var builder strings.Builder
 		if eventType != "" {
-			builder.WriteString("event: " + eventType + "\n")
+			_, _ = builder.WriteString("event: " + eventType + "\n")
 		}
 		for _, line := range strings.Split(payload, "\n") {
-			builder.WriteString("data: " + line + "\n")
+			_, _ = builder.WriteString("data: " + line + "\n")
 		}
-		builder.WriteString("\n")
+		_, _ = builder.WriteString("\n")
 		if _, writeErr := c.Writer.WriteString(builder.String()); writeErr != nil {
 			clientDisconnected = true
 			logger.L().Debug("mistral event stream: client disconnected, continuing to drain upstream for billing")

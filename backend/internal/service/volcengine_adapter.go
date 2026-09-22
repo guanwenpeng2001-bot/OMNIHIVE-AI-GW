@@ -92,6 +92,8 @@ func (service *OpenAIGatewayService) prepareVolcengineChatRequest(account *Accou
 // volcengineModelDiscoveryUnsupported uses the existing catalog failure state,
 // so integration can retain historical evidence and offer explicit declarations.
 // The frozen contract does not confirm a runtime /models or management listing.
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func volcengineModelDiscoveryUnsupported() error {
 	return newUpstreamModelSyncUnsupportedError("Volcengine automatic model discovery is not supported: runtime model listing and management credentials/contracts are unconfirmed; use an account-scoped availability declaration", nil)
 }

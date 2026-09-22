@@ -250,7 +250,7 @@ func readCatalogGeneration(ctx context.Context, executor sqlExecutor, scope stri
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if !rows.Next() {
 		if err := rows.Err(); err != nil {
 			return 0, err
@@ -284,7 +284,7 @@ func (r *schedulerOutboxRepository) WatchModelCatalog(ctx context.Context, inval
 		return
 	}
 	listener := pq.NewListener(r.dsn, 100*time.Millisecond, 10*time.Second, nil)
-	defer listener.Close()
+	defer func() { _ = listener.Close() }()
 
 	listening := make(chan error, 1)
 	go func() { listening <- listener.Listen("model_catalog_changed") }()

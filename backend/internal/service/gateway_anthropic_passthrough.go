@@ -494,7 +494,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	inPartialEvent := false
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if clientDisconnected || ctx.Err() != nil {
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled

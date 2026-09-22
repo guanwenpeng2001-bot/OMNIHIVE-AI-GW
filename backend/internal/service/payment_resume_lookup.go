@@ -56,7 +56,7 @@ func (service *PaymentService) GetPublicOrderByResumeToken(ctx context.Context, 
 	if err != nil {
 		return nil, fmt.Errorf("begin resume consumption: %w", err)
 	}
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	digest := sha256.Sum256([]byte(claims.Nonce))
 	fingerprint := hex.EncodeToString(digest[:])
 	err = transaction.IdempotencyRecord.Create().

@@ -176,15 +176,15 @@ func convertGeminiActionResponse(action, format string, body []byte) ([]byte, st
 					return decoded, "audio/pcm", nil
 				}
 				var wave bytes.Buffer
-				wave.WriteString("RIFF")
+				_, _ = wave.WriteString("RIFF")
 				_ = binary.Write(&wave, binary.LittleEndian, uint32(36+len(decoded)))
-				wave.WriteString("WAVEfmt ")
+				_, _ = wave.WriteString("WAVEfmt ")
 				for _, value := range []any{uint32(16), uint16(1), uint16(1), uint32(24000), uint32(48000), uint16(2), uint16(16)} {
 					_ = binary.Write(&wave, binary.LittleEndian, value)
 				}
-				wave.WriteString("data")
+				_, _ = wave.WriteString("data")
 				_ = binary.Write(&wave, binary.LittleEndian, uint32(len(decoded)))
-				wave.Write(decoded)
+				_, _ = wave.Write(decoded)
 				return wave.Bytes(), "audio/wav", nil
 			}
 			if action != "audio.tts" && strings.HasPrefix(mediaType, "image/") {

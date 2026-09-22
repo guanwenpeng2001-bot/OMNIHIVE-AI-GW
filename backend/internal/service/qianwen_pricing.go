@@ -145,7 +145,7 @@ func fetchQianwenPricing(ctx context.Context, account *Account, opts QianwenPric
 			return nil, fmt.Errorf("DashScope pricing page %d request failed", page)
 		}
 		body, readErr := io.ReadAll(io.LimitReader(resp.Body, 16*1024*1024+1))
-		resp.Body.Close()
+		_ = resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
 			return nil, fmt.Errorf("DashScope pricing page %d HTTP %d", page, resp.StatusCode)
 		}

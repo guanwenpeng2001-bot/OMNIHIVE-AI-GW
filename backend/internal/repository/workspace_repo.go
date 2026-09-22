@@ -24,7 +24,7 @@ func (r *workspaceRepository) List(ctx context.Context, userID int64, globalAdmi
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	workspaces := []service.Workspace{}
 	for rows.Next() {
 		var workspace service.Workspace
@@ -58,7 +58,7 @@ func (r *workspaceRepository) Members(ctx context.Context, workspaceID int64) ([
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	members := []service.WorkspaceMember{}
 	for rows.Next() {
 		var member service.WorkspaceMember

@@ -74,7 +74,7 @@ func TestGetUserUsageStatsReportsEmptyWindowWithoutInventingData(t *testing.T) {
 
 	result, err := impl.GetUserUsageStats(context.Background(), 7, "today")
 	require.NoError(t, err)
-	payload := result.(map[string]any)
+	payload, _ := result.(map[string]any)
 	require.Equal(t, true, payload["available"], "an empty window is still a measured result")
 	require.Equal(t, int64(0), payload["total_requests"])
 	require.Equal(t, 0.0, payload["total_account_cost"])

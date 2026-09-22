@@ -686,6 +686,8 @@ func hunyuanTaskE2EDuration(createdAt string, discoveredAt time.Time) time.Durat
 // hunyuanResponseTokenTotal reads the documented usage counters. TokenHub mixes
 // three spellings: tokenhub_usage.total_tokens (image/video), usage.total_token
 // (speech) and the OpenAI-style usage.total_tokens (embeddings).
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func hunyuanResponseTokenTotal(body []byte) int {
 	if len(body) == 0 || !gjson.ValidBytes(body) {
 		return 0
@@ -1145,20 +1147,20 @@ func hunyuanVideoContentProxyURL(c *gin.Context, taskID string) string {
 // upstream scopes. It never proves model absence or permanent revocation: the
 // result only decides retry and failover behaviour.
 func hunyuanBusinessCodeScope(businessCode int) (scope string, known bool) {
-	switch {
-	case businessCode == 1103:
+	switch businessCode {
+	case 1103:
 		return "account_permission", true
-	case businessCode == 1100 || businessCode == 1101 || businessCode == 1102:
+	case 1100, 1101, 1102:
 		return "account_quota", true
-	case businessCode == 1000 || businessCode == 1001 || businessCode == 1002 || businessCode == 1003 || businessCode == 1004:
+	case 1000, 1001, 1002, 1003, 1004:
 		return "account_authentication", true
-	case businessCode == 1300 || businessCode == 1301 || businessCode == 1304:
+	case 1300, 1301, 1304:
 		return "content_policy", true
-	case businessCode == 1302 || businessCode == 1303:
+	case 1302, 1303:
 		return "rate_limit", true
-	case businessCode == 5000 || businessCode == 5001 || businessCode == 5002:
+	case 5000, 5001, 5002:
 		return "upstream_unavailable", true
-	case businessCode == 1200 || businessCode == 1201 || businessCode == 1202 || businessCode == 1203:
+	case 1200, 1201, 1202, 1203:
 		return "request", true
 	default:
 		return "request", false

@@ -26,7 +26,12 @@ func TestRunPreflightDoesNotReplayAcceptedPOST(t *testing.T) {
 				attempt := attempts.Add(1)
 				hosts <- request.Host
 				writer.Header().Set("Content-Type", "application/connect+proto")
-				write := func(payload message) { _, _ = writer.Write(encodeFrame(payload)); writer.(http.Flusher).Flush() }
+				write := func(payload message) {
+					_, _ = writer.Write(encodeFrame(payload))
+					if flusher, ok := writer.(http.Flusher); ok {
+						flusher.Flush()
+					}
+				}
 				textFrame := func(kind uint64, text string) message {
 					var delta, interaction, envelope message
 					delta.text(1, text)
@@ -50,7 +55,9 @@ func TestRunPreflightDoesNotReplayAcceptedPOST(t *testing.T) {
 						payload := encodeFrame([]byte(`{"error":{"code":"internal","message":"synthetic"}}`))
 						payload[0] = 2
 						_, _ = writer.Write(payload)
-						writer.(http.Flusher).Flush()
+						if flusher, ok := writer.(http.Flusher); ok {
+							flusher.Flush()
+						}
 					} else {
 						write(textFrame(interactionText, "ERROR_DEPRECATED Update Required"))
 					}
@@ -112,7 +119,9 @@ func TestRunUsageAuthorityAndFallback(t *testing.T) {
 					envelope.bytes(serverInteraction, interaction)
 					_, _ = writer.Write(encodeFrame(envelope))
 				}
-				writer.(http.Flusher).Flush()
+				if flusher, ok := writer.(http.Flusher); ok {
+					flusher.Flush()
+				}
 			}))
 			server.EnableHTTP2 = true
 			server.StartTLS()

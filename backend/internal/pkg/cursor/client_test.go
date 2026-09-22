@@ -41,7 +41,8 @@ func TestRunHTTP2DuplexKVAndUsage(t *testing.T) {
 		operation.bytes(kvSet, setter)
 		serverMessage.bytes(serverKV, operation)
 		_, _ = writer.Write(encodeFrame(serverMessage))
-		writer.(http.Flusher).Flush()
+		flusher, _ := writer.(http.Flusher)
+		flusher.Flush()
 		if _, err := readFrame(request.Body); err != nil {
 			serverErrors <- err
 			return
@@ -52,7 +53,8 @@ func TestRunHTTP2DuplexKVAndUsage(t *testing.T) {
 		getOperation.bytes(kvGet, getter)
 		getMessage.bytes(serverKV, getOperation)
 		_, _ = writer.Write(encodeFrame(getMessage))
-		writer.(http.Flusher).Flush()
+		flusher, _ = writer.(http.Flusher)
+		flusher.Flush()
 		reply, err := readFrame(request.Body)
 		if err != nil || !bytes.Contains(reply.payload, []byte("history blob")) {
 			serverErrors <- io.ErrUnexpectedEOF
@@ -62,7 +64,9 @@ func TestRunHTTP2DuplexKVAndUsage(t *testing.T) {
 		for _, fixture := range []string{"0a090a070a0568656c6c6f", "0a0722050a03776879", "0a067204080c1005"} {
 			payload, _ := hex.DecodeString(fixture)
 			_, _ = writer.Write(encodeFrame(payload))
-			writer.(http.Flusher).Flush()
+			if flusher, ok := writer.(http.Flusher); ok {
+				flusher.Flush()
+			}
 		}
 		serverErrors <- nil
 	}))
@@ -90,7 +94,9 @@ func TestRunCancellationClosesDuplexBody(t *testing.T) {
 	server := httptest.NewUnstartedServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = readFrame(request.Body)
 		writer.WriteHeader(200)
-		writer.(http.Flusher).Flush()
+		if flusher, ok := writer.(http.Flusher); ok {
+			flusher.Flush()
+		}
 		close(accepted)
 		<-request.Context().Done()
 		close(closed)

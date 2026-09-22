@@ -19,7 +19,8 @@ func TestChannelPricingFactsStorageRoundTrip(t *testing.T) {
 		stored, err := marshalChannelPricingExtensions(&original)
 		require.NoError(t, err)
 		var restored service.ChannelModelPricing
-		require.NoError(t, unmarshalChannelPricingExtensions([]byte(stored.(string)), &restored))
+		storedJSON, _ := stored.(string)
+		require.NoError(t, unmarshalChannelPricingExtensions([]byte(storedJSON), &restored))
 		require.Equal(t, original.PriceVariants, restored.PriceVariants)
 		require.Equal(t, original.ThinkingPricing, restored.ThinkingPricing)
 		require.Equal(t, original.ExplicitCachePricing, restored.ExplicitCachePricing)

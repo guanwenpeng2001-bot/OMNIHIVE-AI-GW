@@ -50,7 +50,9 @@ func TestStreamingCancellationPreservesObservedReceipt(test *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 				response.Header().Set("Content-Type", "text/event-stream")
 				_, _ = fmt.Fprint(response, "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":7}}}\n\n")
-				response.(http.Flusher).Flush()
+				if flusher, ok := response.(http.Flusher); ok {
+					flusher.Flush()
+				}
 				<-request.Context().Done()
 				close(upstreamCanceled)
 			}))
@@ -62,7 +64,7 @@ func TestStreamingCancellationPreservesObservedReceipt(test *testing.T) {
 			require.NoError(test, err)
 			response, err := generationHTTP(request, 1, http.DefaultClient.Do)
 			require.NoError(test, err)
-			defer response.Body.Close()
+			defer func() { _ = response.Body.Close() }()
 			client, _ := gin.CreateTestContext(httptest.NewRecorder())
 			client.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil).WithContext(parent)
 			writerCancel := cancel

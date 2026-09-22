@@ -147,9 +147,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			clientIP := ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL())
 			allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, apiKey.CompiledIPWhitelist, apiKey.CompiledIPBlacklist)
 			if !allowed {
-				if clientIP == "" {
-					clientIP = "unknown"
-				}
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
 				MarkIngressRejected(c, IngressRejectIPRestricted)
 				AbortWithError(c, 403, "ACCESS_DENIED", "Access denied")
@@ -320,25 +317,6 @@ func hasAPIKeyCredentialInput(c *gin.Context) bool {
 func abortWithAPIKeyQuotaError(c *gin.Context) {
 	const message = "API key quota exhausted"
 	AbortWithError(c, http.StatusTooManyRequests, "API_KEY_QUOTA_EXHAUSTED", message)
-}
-
-func isOpenAICompatibleAPIKeyRequest(c *gin.Context) bool {
-	if c == nil || c.Request == nil || c.Request.URL == nil {
-		return false
-	}
-
-	path := strings.TrimRight(c.Request.URL.Path, "/")
-	for _, root := range []string{
-		"/v1/responses",
-		"/openai/v1/responses",
-		"/responses",
-		"/backend-api/codex/responses",
-	} {
-		if path == root || strings.HasPrefix(path, root+"/") {
-			return true
-		}
-	}
-	return false
 }
 
 func isAsyncImageTaskRead(method, path string) bool {

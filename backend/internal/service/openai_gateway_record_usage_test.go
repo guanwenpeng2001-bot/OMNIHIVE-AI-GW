@@ -369,7 +369,7 @@ func TestOpenAIGatewayServiceRecordUsage_MissingPricingRetainsReviewReceipt(t *t
 	})
 
 	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
-	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	receipt := receiptFixture(t, svc).receipt
 	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
 	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
 	require.Zero(t, billingRepo.calls)
@@ -830,7 +830,7 @@ func TestOpenAIGatewayServiceRecordUsage_NoDebitWhenUsageLogCreateReturnsError(t
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
+	require.Equal(t, UsageSettlementPending, receiptFixture(t, svc).receipt.State)
 	require.Equal(t, 1, usageRepo.calls)
 	require.Zero(t, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
@@ -863,7 +863,7 @@ func TestOpenAIGatewayServiceRecordUsage_UsageLogWriteErrorRetainsPendingReceipt
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
+	require.Equal(t, UsageSettlementPending, receiptFixture(t, svc).receipt.State)
 	require.Equal(t, 1, usageRepo.calls)
 	require.Zero(t, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
@@ -1106,7 +1106,7 @@ func TestOpenAIGatewayServiceRecordUsage_BillingErrorRetainsFrozenPendingReceipt
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
+	require.Equal(t, UsageSettlementPending, receiptFixture(t, svc).receipt.State)
 	require.Equal(t, 1, billingRepo.calls)
 	require.Equal(t, 1, usageRepo.calls)
 	require.NotNil(t, usageRepo.lastLog)
@@ -1115,7 +1115,7 @@ func TestOpenAIGatewayServiceRecordUsage_BillingErrorRetainsFrozenPendingReceipt
 	require.Greater(t, usageRepo.lastLog.InputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.OutputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.TotalCost, 0.0)
-	require.Greater(t, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.Command.BalanceCost, 0.0)
+	require.Greater(t, receiptFixture(t, svc).receipt.Command.BalanceCost, 0.0)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_IncludesQuotaChargeInReceipt(t *testing.T) {
@@ -1146,7 +1146,7 @@ func TestOpenAIGatewayServiceRecordUsage_IncludesQuotaChargeInReceipt(t *testing
 	require.Zero(t, quotaSvc.quotaCalls)
 	require.Equal(t, 0, quotaSvc.rateLimitCalls)
 	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, 1.1)
-	require.InDelta(t, expected.ActualCost, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.Command.APIKeyQuotaCost, 1e-12)
+	require.InDelta(t, expected.ActualCost, receiptFixture(t, svc).receipt.Command.APIKeyQuotaCost, 1e-12)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ClampsActualInputTokensToZero(t *testing.T) {
@@ -1989,7 +1989,7 @@ func TestOpenAIGatewayServiceRecordUsage_UnpricedTokenModelRetainsReviewReceipt(
 	})
 
 	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
-	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	receipt := receiptFixture(t, svc).receipt
 	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
 	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
 	require.Zero(t, usageRepo.calls)
@@ -2077,7 +2077,7 @@ func TestOpenAIGatewayServiceRecordUsage_ImageOnlyUsageStillPersists(t *testing.
 	})
 
 	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
-	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	receipt := receiptFixture(t, svc).receipt
 	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
 	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
 	require.NotNil(t, (&receipt.Usage))

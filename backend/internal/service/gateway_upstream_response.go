@@ -1012,7 +1012,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		return []string{block}, string(newData), usagePatch, nil
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if clientDisconnected || ctx.Err() != nil {
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled

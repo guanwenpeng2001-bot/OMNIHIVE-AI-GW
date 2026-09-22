@@ -1168,7 +1168,7 @@ func (h *AuthHandler) PrepareOAuthBindAccessTokenCookie(c *gin.Context) {
 	}
 	ticket, err := pending.IssueIdentityTicket(c.Request.Context(), "oauth-bind-start", browser+":"+oauthRequestBinding(c), map[string]any{
 		"user_id": strconv.FormatInt(claims.UserID, 10), "token_version": strconv.FormatInt(claims.TokenVersion, 10),
-		"expires_at": claims.ExpiresAt.Time.Format(time.RFC3339Nano),
+		"expires_at": claims.ExpiresAt.Format(time.RFC3339Nano),
 	}, 5*time.Minute)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -1181,7 +1181,7 @@ func (h *AuthHandler) PrepareOAuthBindAccessTokenCookie(c *gin.Context) {
 
 func (h *AuthHandler) resolveOAuthBindTargetUserID(c *gin.Context) (*int64, error) {
 	if cached, ok := c.Get("oauth_bind_target_user_id"); ok {
-		userID := cached.(int64)
+		userID, _ := cached.(int64)
 		return &userID, nil
 	}
 	browser, err := readCookieDecoded(c, oauthBindAccessTokenCookieName)

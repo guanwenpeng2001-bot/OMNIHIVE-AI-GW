@@ -1415,6 +1415,7 @@ func (h *AccountHandler) refreshSingleAccount(ctx context.Context, account *serv
 	}
 	if account.IsCursor() {
 		if h.cursorSessions == nil {
+			//nolint:staticcheck // ST1005: the message is returned to the admin API caller as-is, so its capitalised wording is part of the client-visible contract.
 			return nil, "", errors.New("Cursor session service unavailable")
 		}
 		if _, err := h.cursorSessions.GetSessionToken(ctx, account, account.GetCredential("access_token")); err != nil {

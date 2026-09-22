@@ -50,7 +50,7 @@ func TestGatewayActionEvidenceRecheckedAtSelectionAndSend(t *testing.T) {
 	require.True(t, requestAccountCatalogSupports(ctx, &account, "private-model", "chat_completions"))
 	repo := &forwardCatalogRepo{current: &account}
 	require.NoError(t, validateAccountForwardModel(ctx, repo, &account, "private-model", "chat_completions"))
-	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
 	snapshot.EligibleModels[0].Endpoints = []string{"embeddings"}
 	require.False(t, openAI.supportsOpenAIAccountModel(ctx, &account, "private-model", OpenAIEndpointCapabilityChatCompletions))
 	require.False(t, requestAccountCatalogSupports(ctx, &account, "private-model", "chat_completions"))
@@ -121,7 +121,8 @@ func TestGatewayActionCredentialsDoNotNeedDevelopmentUnlock(t *testing.T) {
 			action, endpoint = "messages", "messages"
 		}
 		account.Credentials["api_key"] = "fixture-credential"
-		account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).CapabilityStatus = "incomplete"
+		snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+		snapshot.CapabilityStatus = "incomplete"
 		ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Action: action}))
 		require.True(t, AccountSupportsResolvedModel(ctx, &account, "fixture", AccountModelBindingOptions{Endpoint: endpoint, FinalModel: "fixture"}), platform)
 	}

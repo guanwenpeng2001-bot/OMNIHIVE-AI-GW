@@ -180,7 +180,9 @@ func TestWebSocketInterruptedTextReceipts(test *testing.T) {
 						response.Header().Set("Content-Type", "text/event-stream")
 						fmt.Fprint(response, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_partial\",\"model\":\"gpt-5.1\",\"usage\":{\"input_tokens\":7,\"output_tokens\":2}}}\n\n")
 						fmt.Fprint(response, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n")
-						response.(http.Flusher).Flush()
+						if flusher, ok := response.(http.Flusher); ok {
+							flusher.Flush()
+						}
 						if ending == "write_failure" {
 							select {
 							case <-releaseNextEvent:
@@ -188,7 +190,9 @@ func TestWebSocketInterruptedTextReceipts(test *testing.T) {
 								return
 							}
 							fmt.Fprint(response, "data: {\"type\":\"response.output_text.delta\",\"delta\":\"next\"}\n\n")
-							response.(http.Flusher).Flush()
+							if flusher, ok := response.(http.Flusher); ok {
+								flusher.Flush()
+							}
 						}
 						<-request.Context().Done()
 						close(upstreamCanceled)
@@ -198,7 +202,7 @@ func TestWebSocketInterruptedTextReceipts(test *testing.T) {
 					if err != nil {
 						return
 					}
-					defer connection.CloseNow()
+					defer func() { _ = connection.CloseNow() }()
 					readContext, cancel := context.WithTimeout(request.Context(), 3*time.Second)
 					defer cancel()
 					_, _, err = connection.Read(readContext)
@@ -207,22 +211,22 @@ func TestWebSocketInterruptedTextReceipts(test *testing.T) {
 					}
 					// A completed first turn must never become part of the second receipt.
 					if ending == "disconnect" {
-						connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.completed","response":{"id":"resp_complete","model":"gpt-5.1","usage":{"input_tokens":11,"output_tokens":3}}}`))
+						_ = connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.completed","response":{"id":"resp_complete","model":"gpt-5.1","usage":{"input_tokens":11,"output_tokens":3}}}`))
 						_, _, err = connection.Read(readContext)
 						if err != nil {
 							return
 						}
 					}
-					connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.created","response":{"id":"resp_partial","model":"gpt-5.1","usage":{"input_tokens":7,"output_tokens":2}}}`))
+					_ = connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.created","response":{"id":"resp_partial","model":"gpt-5.1","usage":{"input_tokens":7,"output_tokens":2}}}`))
 					if ending == "write_failure" {
 						select {
 						case <-releaseNextEvent:
 						case <-readContext.Done():
 							return
 						}
-						connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.output_text.delta","delta":"next"}`))
+						_ = connection.Write(readContext, coderws.MessageText, []byte(`{"type":"response.output_text.delta","delta":"next"}`))
 					}
-					connection.Read(readContext)
+					_, _, _ = connection.Read(readContext)
 					close(upstreamCanceled)
 				}))
 				defer upstream.Close()
@@ -302,7 +306,9 @@ func TestWebSocketSilentDisconnectCancelsBeforeFirstEvent(test *testing.T) {
 			upstream := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
 				if mode == service.OpenAIWSIngressModeHTTPBridge {
 					response.Header().Set("Content-Type", "text/event-stream")
-					response.(http.Flusher).Flush()
+					if flusher, ok := response.(http.Flusher); ok {
+						flusher.Flush()
+					}
 					close(accepted)
 					<-request.Context().Done()
 					close(canceled)
@@ -312,13 +318,13 @@ func TestWebSocketSilentDisconnectCancelsBeforeFirstEvent(test *testing.T) {
 				if err != nil {
 					return
 				}
-				defer connection.CloseNow()
+				defer func() { _ = connection.CloseNow() }()
 				_, _, err = connection.Read(request.Context())
 				if err != nil {
 					return
 				}
 				close(accepted)
-				connection.Read(request.Context())
+				_, _, _ = connection.Read(request.Context())
 				close(canceled)
 			}))
 			defer upstream.Close()

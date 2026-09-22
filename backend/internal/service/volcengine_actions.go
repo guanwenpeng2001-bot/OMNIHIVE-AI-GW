@@ -109,6 +109,7 @@ func volcengineAPIRoot(account *Account) string {
 	return strings.TrimRight(parsed.String(), "/")
 }
 
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func buildVolcengineActionURL(account *Account, path string) string {
 	return volcengineAPIRoot(account) + "/" + strings.TrimLeft(path, "/")
 }

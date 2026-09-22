@@ -120,6 +120,6 @@ func (w *gatewayProtocolWriter) finish() {
 	}
 	w.Header().Del("Content-Length")
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	w.ResponseWriter.WriteHeader(status)
+	w.WriteHeader(status)
 	_, _ = w.ResponseWriter.Write(encoded)
 }

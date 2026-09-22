@@ -16,10 +16,10 @@ func TestHostedIdentityStatisticsPreserveAmountsAndRowCount(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	transaction, err := database.Begin()
 	require.NoError(t, err)
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	_, err = transaction.Exec(`
 		CREATE TEMP TABLE groups (id bigint, platform text);
 		CREATE TEMP TABLE accounts (id bigint, platform text);
@@ -35,7 +35,7 @@ func TestHostedIdentityStatisticsPreserveAmountsAndRowCount(t *testing.T) {
 	readAmounts := func() {
 		rows, queryErr := transaction.Query(query)
 		require.NoError(t, queryErr)
-		defer rows.Close()
+		defer func() { _ = rows.Close() }()
 		for _, expected := range []struct {
 			platform string
 			count    int

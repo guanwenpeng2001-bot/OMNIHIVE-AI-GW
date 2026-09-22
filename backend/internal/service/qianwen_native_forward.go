@@ -265,11 +265,11 @@ func (s *OpenAIGatewayService) ForwardQianwenNative(ctx context.Context, c *gin.
 		if frame.Len()+len(line) > qianwenNativeMaxFrame {
 			return result, fmt.Errorf("DashScope SSE frame exceeds size limit")
 		}
-		frame.WriteString(line)
-		frame.WriteByte('\n')
+		_, _ = frame.WriteString(line)
+		_ = frame.WriteByte('\n')
 		if strings.HasPrefix(line, "data:") {
-			data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
-			data.WriteByte('\n')
+			_, _ = data.WriteString(strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+			_ = data.WriteByte('\n')
 		}
 	}
 }
