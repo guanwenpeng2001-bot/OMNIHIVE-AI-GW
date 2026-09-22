@@ -304,41 +304,76 @@ func TestMistralForwardersRejectForeignAccounts(t *testing.T) {
 	require.Empty(t, upstream.requests, "a foreign account must never reach the upstream")
 }
 
-// The scheduler judges every non-embeddings plan of a chat-only platform on the
-// conservative Responses family (openAICompatiblePlanCatalogEndpoint), so a
-// platform that publishes no Responses protocol can never satisfy that gate.
-// Mistral's catalog therefore declares chat_completions and embeddings only, and
-// its audio plans stay unselectable even though the action matrix now binds their
-// adapters. This is the same pre-existing gap
-// chat_only_platform_protocol_binding_test.go already records for the Mistral
-// text trunk; it is pinned here with its exact mechanism so the residual risk of
-// this wiring is explicit rather than implied.
-func TestMistralAudioPlansStayGatedByTheSharedResponsesFamily(t *testing.T) {
+// The shared plan gate judges a chat-only platform's plans on the endpoint family
+// that platform actually publishes: openAICompatiblePlanCatalogEndpoint resolves
+// a chat-only entry that publishes no native text protocol to Chat Completions,
+// and to the conservative Responses family for every entry that does publish one.
+// Mistral publishes no native text protocol, so its chat and audio plans are
+// judged on the chat trunk: the family its catalog declares, which an account is
+// therefore selectable on. Before the reconciliation this function returned
+// Responses for every non-embeddings plan, which left the freshly bound Mistral
+// audio adapters unreachable at account selection; the same mechanism is recorded
+// for the Mistral text trunk in chat_only_platform_protocol_binding_test.go.
+func TestMistralChatAndAudioPlansSelectOnThePublishedChatTrunk(t *testing.T) {
 	gateway := &OpenAIGatewayService{}
-	for _, protocol := range []string{"chat", "audio", "media"} {
+
+	// Chat and audio ride the OpenAI-shaped trunk Mistral publishes, so both plans
+	// resolve to the chat-completions family and a model declaring that family is
+	// selectable. Pinning the family and the selection together is what keeps this
+	// case from passing on an admission that came from somewhere else.
+	for _, scenario := range []struct {
+		protocol string
+		route    string
+	}{
+		{protocol: "chat", route: "/v1/chat/completions"},
+		{protocol: "audio", route: "/v1/audio/transcriptions"},
+	} {
 		account := requestPlanGateAccount(PlatformMistral, "voxtral-mini-latest",
 			CompositeRouteEndpointChatCompletions, string(OpenAIEndpointCapabilityEmbeddings))
-		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: protocol, Route: "/v1/audio/speech", Model: "voxtral-mini-latest"})
-		require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(ctx, &account), protocol)
-		require.False(t, gateway.supportsOpenAIAccountModel(ctx, &account, "voxtral-mini-latest", ""), protocol)
+		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: scenario.protocol, Route: scenario.route, Model: "voxtral-mini-latest"})
+		require.Equal(t, CompositeRouteEndpointChatCompletions, openAICompatiblePlanCatalogEndpoint(ctx, &account), scenario.protocol)
+		require.True(t, gateway.supportsOpenAIAccountModel(ctx, &account, "voxtral-mini-latest", ""),
+			"a mistral model declaring %s must be selectable for a planned %s request", CompositeRouteEndpointChatCompletions, scenario.protocol)
 	}
 
-	// The embeddings plan asks for the family the Mistral catalog now declares, so
-	// it passes the same gate: that is why embeddings is reachable end to end.
+	// A media plan stays unselectable, and the reason is not the chat trunk: the
+	// media branch keeps the conservative Responses family for chat-only entries
+	// (their catalog declares no per-family media evidence), and Mistral can never
+	// declare Responses evidence because it publishes neither the protocol nor an
+	// image endpoint at all - the official specification enumerates
+	// /v1/chat/completions, /v1/embeddings, /v1/audio/transcriptions,
+	// /v1/audio/speech and /v1/audio/voices, and no /v1/images* path
+	// (mistralai/platform-docs-public openapi.yaml, retrieved 2026-09-21). The
+	// refusal therefore matches the platform's verified surface instead of being a
+	// gap this wiring left behind: the media cell is not implemented either, so no
+	// working adapter is being gated out.
+	mediaAccount := requestPlanGateAccount(PlatformMistral, "voxtral-mini-latest",
+		CompositeRouteEndpointChatCompletions, string(OpenAIEndpointCapabilityEmbeddings))
+	mediaCtx := requestPlanGateContext(GatewayRequestSpec{Protocol: "media", Route: "/v1/images/generations", Model: "voxtral-mini-latest"})
+	require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(mediaCtx, &mediaAccount),
+		"the media branch keeps the conservative Responses family for chat-only entries")
+	require.False(t, gateway.supportsOpenAIAccountModel(mediaCtx, &mediaAccount, "voxtral-mini-latest", ""))
+	require.NotEqual(t, domain.ActionImplemented,
+		domain.PlatformAction(domain.ActionIdentity{Platform: PlatformMistral}, "image.generate").Status,
+		"mistral publishes no image endpoint, so no working media cell is gated out above")
+
+	// The embeddings plan asks for the family the Mistral catalog declares, so it
+	// passes the same gate: that is why embeddings is reachable end to end.
 	embeddingsAccount := requestPlanGateAccount(PlatformMistral, "mistral-embed", string(OpenAIEndpointCapabilityEmbeddings))
 	embeddingsCtx := requestPlanGateContext(GatewayRequestSpec{Protocol: "embeddings", Route: "/v1/embeddings", Model: "mistral-embed"})
 	require.Equal(t, string(OpenAIEndpointCapabilityEmbeddings), openAICompatiblePlanCatalogEndpoint(embeddingsCtx, &embeddingsAccount))
 	require.True(t, gateway.supportsOpenAIAccountModel(embeddingsCtx, &embeddingsAccount, "mistral-embed", OpenAIEndpointCapabilityEmbeddings))
 
-	// The sibling chat-only platforms that serve audio declare the Responses
-	// protocol, so their catalog can satisfy the conservative family and their
-	// audio plans select an account. That protocol fact is what Mistral provably
-	// lacks, so closing this gap is a shared-gate decision, not a Mistral adapter
-	// change. (Volcengine serves no audio cell, so it is not a comparison here.)
+	// The sibling chat-only platforms that serve audio do publish a native text
+	// protocol, so they keep the conservative Responses family and a model
+	// declaring it stays selectable. Their half of the rule is unchanged by this
+	// reconciliation, which moved only the entries that publish no such protocol.
+	// (Volcengine serves no audio cell, so it is not a comparison here.)
 	for _, platform := range []string{PlatformHunyuan, PlatformQianfan} {
-		sibling := requestPlanGateAccount(platform, "voxtral-mini-latest",
+		sibling := requestPlanGateAccount(platform, "text-model",
 			CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses)
-		siblingCtx := requestPlanGateContext(GatewayRequestSpec{Protocol: "audio", Route: "/v1/audio/speech", Model: "voxtral-mini-latest"})
-		require.True(t, gateway.supportsOpenAIAccountModel(siblingCtx, &sibling, "voxtral-mini-latest", ""), platform)
+		siblingCtx := requestPlanGateContext(GatewayRequestSpec{Protocol: "audio", Route: "/v1/audio/speech", Model: "text-model"})
+		require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(siblingCtx, &sibling), platform)
+		require.True(t, gateway.supportsOpenAIAccountModel(siblingCtx, &sibling, "text-model", ""), platform)
 	}
 }
