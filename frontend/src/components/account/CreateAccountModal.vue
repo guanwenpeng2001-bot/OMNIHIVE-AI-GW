@@ -3619,13 +3619,12 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
-    // 后加平台：能查到官方文档的 Key 前缀就按文档给（千帆 bce-v3/ALTAK-、
-    // TokenHub sk-），查不到固定前缀的（Mistral 不透明串、方舟 UUID）用中性占位，
-    // 一律不套用 Anthropic 的 sk-ant-。
+    // 后加平台：能查到官方文档给出 Key 前缀的按文档给（千帆 bce-v3/ALTAK-），
+    // 查不到固定前缀的（腾讯云 TokenHub 仅说明脱敏显示、Mistral 不透明串、方舟 UUID）用中性占位，
+    // 一律不套用 Anthropic 的 sk-ant-，也不自行编造 sk- 前缀。
     case 'qianfan':
       return 'bce-v3/ALTAK-...'
     case 'hunyuan':
-      return 'sk-...'
     case 'mistral':
     case 'volcengine':
       return '<api-key>'

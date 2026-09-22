@@ -55,6 +55,35 @@ const BADGE_LIGHT: Record<Platform, string> = {
   composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
 }
 
+// ── Solid badge (opaque light tint + dark text; account list platform/type chips) ──
+// 账号列表的实心徽章。19 家色系与下面各表保持同一族，唯一例外是 bedrock：
+// 权威表里 bedrock 与 anthropic 同为 orange，两支上游在列表里必须能分开，
+// 故 bedrock 在此换用 yellow（调色板中最后一个未被占用的色系）。
+// grok/cursor 共用 zinc、commandcode/composite 共用 cyan 是既有刻意共用。
+const SOLID_BADGE: Record<Platform, string> = {
+  anthropic: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  openai: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
+  antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
+  gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  grok: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  cursor: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  kimi: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
+  zhipu: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
+  deepseek: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
+  minimax: 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400',
+  qianwen: 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400',
+  commandcode: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+  volcengine: 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-400',
+  bedrock: 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400',
+  mistral: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400',
+  hunyuan: 'bg-fuchsia-100 text-fuchsia-700 dark:bg-fuchsia-900/30 dark:text-fuchsia-400',
+  qianfan: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400',
+  opencode_go: 'bg-lime-100 text-lime-700 dark:bg-lime-900/30 dark:text-lime-400',
+  composite: 'bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-400',
+}
+// 中性兜底：未知平台不占用任何一家的色系（曾与 gemini 同蓝）。
+const SOLID_BADGE_DEFAULT = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300'
+
 // ── Border ──────────────────────────────────────────────────────────
 const BORDER: Record<Platform, string> = {
   anthropic: 'border-orange-500/20 dark:border-orange-500/20',
@@ -331,6 +360,10 @@ export function platformBadgeClass(p: string): string {
 
 export function platformBadgeLightClass(p: string): string {
   return isPlatform(p) ? BADGE_LIGHT[p] : BADGE_DEFAULT
+}
+
+export function platformSolidBadgeClass(p: string): string {
+  return isPlatform(p) ? SOLID_BADGE[p] : SOLID_BADGE_DEFAULT
 }
 
 export function platformBorderClass(p: string): string {

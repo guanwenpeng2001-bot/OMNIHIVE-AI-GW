@@ -418,14 +418,21 @@ describe('late platform credential payloads', () => {
   })
 
   // 建号表单的占位符曾对后加平台回落成 Anthropic 的 sk-ant-... / https://api.anthropic.com/。
-  // 现在按平台给：官方文档有前缀的按文档（千帆 bce-v3/ALTAK-、TokenHub sk-），
-  // 没有固定前缀的用中性占位。
+  // 现在按平台给：官方文档给出固定前缀的按文档（千帆 bce-v3/ALTAK-），
+  // 无一手依据的用中性占位——腾讯 TokenHub 文档只说明 Key 脱敏显示，不给 sk- 前缀。
   const API_KEY_PLACEHOLDER: Record<string, string> = {
     qianfan: 'bce-v3/ALTAK-...',
-    hunyuan: 'sk-...',
+    hunyuan: '<api-key>',
     mistral: '<api-key>',
     volcengine: '<api-key>'
   }
+
+  it('does not invent a credential prefix for TokenHub Hunyuan', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'hunyuan')
+    expect(wrapper.get('[data-account-field="apiKeyValue"]').attributes('placeholder')).not.toMatch(/^sk-/)
+    wrapper.unmount()
+  })
 
   it.each(['qianfan', 'hunyuan', 'mistral', 'volcengine'])('%s keeps its own credential placeholders', async (platform) => {
     const wrapper = mountModal()
