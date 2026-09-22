@@ -353,6 +353,7 @@ type captureQuerySQL struct {
 }
 
 func (c captureQuerySQL) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
+	//nolint:gosec // G701: test-only capture shim; forwarding the caller's SQL verbatim is its purpose, not an attack surface.
 	return c.db.ExecContext(ctx, query, args...)
 }
 
@@ -363,6 +364,7 @@ func (c captureQuerySQL) QueryContext(ctx context.Context, query string, args ..
 	if c.args != nil {
 		*c.args = append([]any(nil), args...)
 	}
+	//nolint:gosec // G701: test-only capture shim; forwarding the caller's SQL verbatim is its purpose, not an attack surface.
 	return c.db.QueryContext(ctx, query, args...)
 }
 

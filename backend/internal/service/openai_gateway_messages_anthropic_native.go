@@ -404,7 +404,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	inPartialEvent := false
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if clientDisconnected || ctx.Err() != nil {
 			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, true, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), context.Canceled

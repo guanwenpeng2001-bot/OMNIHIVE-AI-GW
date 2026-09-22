@@ -85,7 +85,8 @@ func TestCursorRunUsageBoundaries(t *testing.T) {
 					ending, _ := hex.DecodeString(scenario.ending)
 					_, _ = writer.Write(encodeFrame(ending))
 				}
-				writer.(http.Flusher).Flush()
+				flusher, _ := writer.(http.Flusher)
+				flusher.Flush()
 			}))
 			server.EnableHTTP2 = true
 			server.StartTLS()

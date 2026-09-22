@@ -38,8 +38,8 @@ func TestRuntimeCooldownSharedAcrossInstancesAndScopedSuccess(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
 	t.Cleanup(func() { _ = client.Close() })
-	first := NewTempUnschedCache(client).(service.RuntimeCooldownCache)
-	second := NewTempUnschedCache(client).(service.RuntimeCooldownCache)
+	first, _ := NewTempUnschedCache(client).(service.RuntimeCooldownCache)
+	second, _ := NewTempUnschedCache(client).(service.RuntimeCooldownCache)
 	account := &service.Account{ID: 8, Credentials: map[string]any{"api_key": "secret"}}
 	key := service.AccountRuntimeCooldownKey(10, account, "actual-model")
 	other := service.AccountRuntimeCooldownKey(11, account, "actual-model")

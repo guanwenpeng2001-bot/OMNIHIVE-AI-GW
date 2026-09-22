@@ -487,6 +487,7 @@ func grokSSOImportCredentials(built map[string]any, reqCredentials map[string]an
 	return service.SanitizeStoredCredentials(service.PlatformGrok, credentials)
 }
 
+//nolint:unused // referenced only from //go:build unit code, so the default lint pass cannot see its callers.
 func grokSSOImportExpiry(requestExpiresAt *int64, requestAutoPause *bool, tokenInfo *service.GrokTokenInfo) (*int64, *bool) {
 	if tokenInfo == nil || strings.TrimSpace(tokenInfo.RefreshToken) != "" || tokenInfo.ExpiresAt <= 0 {
 		return requestExpiresAt, requestAutoPause
@@ -498,32 +499,6 @@ func grokSSOImportExpiry(requestExpiresAt *int64, requestAutoPause *bool, tokenI
 	}
 	autoPause := true
 	return &expiresAt, &autoPause
-}
-
-func cloneGrokSSOMap(source map[string]any) map[string]any {
-	if source == nil {
-		return nil
-	}
-	clone := make(map[string]any, len(source))
-	for key, value := range source {
-		clone[key] = cloneGrokSSOValue(value)
-	}
-	return clone
-}
-
-func cloneGrokSSOValue(value any) any {
-	switch v := value.(type) {
-	case map[string]any:
-		return cloneGrokSSOMap(v)
-	case []any:
-		clone := make([]any, len(v))
-		for i, item := range v {
-			clone[i] = cloneGrokSSOValue(item)
-		}
-		return clone
-	default:
-		return value
-	}
 }
 
 func normalizeSSOImportTokens(tokens []string, single string) []string {

@@ -23,7 +23,7 @@ func TestWorkspaceMigrationAndRepositoryIsolation(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	ctx := context.Background()
 	require.NoError(t, applyMigrationsFS(ctx, database, migrations.FS))
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
@@ -84,10 +84,10 @@ func TestWorkspaceLegacyBackfillBatchesAreIdempotent(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	transaction, err := database.Begin()
 	require.NoError(t, err)
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	_, err = transaction.Exec(`CREATE SCHEMA workspace_backfill_contract;
         SET LOCAL search_path TO workspace_backfill_contract;
         CREATE TABLE users(id BIGINT PRIMARY KEY);
@@ -142,10 +142,10 @@ func TestWorkspaceMemberRateReadsAndClearsShareTheSameScope(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	transaction, err := database.Begin()
 	require.NoError(t, err)
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	_, err = transaction.Exec(`CREATE SCHEMA workspace_member_rates_contract;
         SET LOCAL search_path TO workspace_member_rates_contract;
         CREATE TABLE users(id BIGINT PRIMARY KEY,username TEXT,email TEXT,notes TEXT,status TEXT,deleted_at TIMESTAMPTZ);

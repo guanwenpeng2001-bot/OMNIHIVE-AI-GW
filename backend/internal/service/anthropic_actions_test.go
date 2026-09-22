@@ -80,7 +80,7 @@ func TestAnthropicMessageBatchHTTPRoundTrip(t *testing.T) {
 	require.NoError(t, err)
 	response, err := server.Client().Do(request)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NoError(t, err)
 	state, err := ParseAnthropicMessageBatchState(body, "")

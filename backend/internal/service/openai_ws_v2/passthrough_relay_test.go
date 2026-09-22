@@ -26,12 +26,6 @@ type passthroughTestFrameConn struct {
 	once   sync.Once
 }
 
-type delayedReadFrameConn struct {
-	base       FrameConn
-	firstDelay time.Duration
-	once       sync.Once
-}
-
 type readStartSpyFrameConn struct {
 	base      FrameConn
 	started   chan struct{}
@@ -123,40 +117,6 @@ func (c *passthroughTestFrameConn) Writes() []passthroughTestFrame {
 	out := make([]passthroughTestFrame, len(c.writes))
 	copy(out, c.writes)
 	return out
-}
-
-func (c *delayedReadFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
-	if c == nil || c.base == nil {
-		return coderws.MessageText, nil, io.EOF
-	}
-	c.once.Do(func() {
-		if c.firstDelay > 0 {
-			timer := time.NewTimer(c.firstDelay)
-			defer timer.Stop()
-			select {
-			case <-ctx.Done():
-			case <-timer.C:
-			}
-		}
-	})
-	if err := ctx.Err(); err != nil {
-		return coderws.MessageText, nil, err
-	}
-	return c.base.ReadFrame(ctx)
-}
-
-func (c *delayedReadFrameConn) WriteFrame(ctx context.Context, msgType coderws.MessageType, payload []byte) error {
-	if c == nil || c.base == nil {
-		return io.EOF
-	}
-	return c.base.WriteFrame(ctx, msgType, payload)
-}
-
-func (c *delayedReadFrameConn) Close() error {
-	if c == nil || c.base == nil {
-		return nil
-	}
-	return c.base.Close()
 }
 
 func (c *readStartSpyFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {

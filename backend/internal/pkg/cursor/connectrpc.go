@@ -40,7 +40,7 @@ func readFrame(reader io.Reader) (frame, error) {
 		if err != nil {
 			return frame{}, fmt.Errorf("cursor: invalid compressed frame")
 		}
-		defer reader.Close()
+		defer func() { _ = reader.Close() }()
 		payload, err = io.ReadAll(io.LimitReader(reader, maxFrameSize+1))
 		if err != nil || len(payload) > maxFrameSize {
 			return frame{}, fmt.Errorf("cursor: invalid expanded frame")

@@ -15,10 +15,10 @@ func TestHostedIdentityMigrationActivationAndRollback(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	transaction, err := database.Begin()
 	require.NoError(t, err)
-	defer transaction.Rollback()
+	defer func() { _ = transaction.Rollback() }()
 	_, err = transaction.Exec(`CREATE SCHEMA hosted_identity_test; SET LOCAL search_path TO hosted_identity_test;
 		CREATE TABLE accounts (id bigint PRIMARY KEY, platform text, type text, extra jsonb);
 		CREATE TABLE groups (id bigint PRIMARY KEY, platform text);

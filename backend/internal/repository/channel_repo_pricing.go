@@ -278,17 +278,6 @@ func marshalChannelTimePricing(config *service.ChannelTimePricing) (any, error) 
 	return string(data), nil
 }
 
-func unmarshalChannelTimePricing(data []byte) (*service.ChannelTimePricing, error) {
-	if len(data) == 0 {
-		return nil, nil
-	}
-	var config service.ChannelTimePricing
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, fmt.Errorf("unmarshal time pricing: %w", err)
-	}
-	return &config, nil
-}
-
 func createIntervalExec(ctx context.Context, exec dbExec, iv *service.PricingInterval) error {
 	return exec.QueryRowContext(ctx,
 		`INSERT INTO channel_pricing_intervals

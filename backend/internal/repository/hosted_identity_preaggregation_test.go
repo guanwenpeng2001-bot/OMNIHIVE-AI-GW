@@ -48,7 +48,7 @@ func TestHostedOverviewCountsStayEqualAfterHourlyRecomputation(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	require.NoError(t, ApplyMigrations(context.Background(), database))
 	// Temporary tables must remain on the same isolated connection used by repo queries.
 	database.SetMaxOpenConns(1)

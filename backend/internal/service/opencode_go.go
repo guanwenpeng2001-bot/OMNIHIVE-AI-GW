@@ -69,18 +69,6 @@ func defaultOpenCodeProtocolRules(mode string) []OpenCodeGoProtocolRule {
 	return DefaultOpenCodeGoProtocolRules()
 }
 
-func isNativeOpenCodeGoProtocol(protocol string) bool {
-	switch protocol {
-	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
-		return true
-	default:
-		return false
-	}
-}
-
-func openCodeGoPatternMatches(pattern, model string) bool {
-	return modelProtocolPatternMatches(pattern, normalizeOpenCodeGoModelID(model))
-}
 func matchOpenCodeGoProtocolRules(model string, rules []OpenCodeGoProtocolRule) string {
 	return matchModelProtocolRules(normalizeOpenCodeGoModelID(model), rules)
 }
@@ -109,10 +97,6 @@ func (a *Account) openCodeGoProtocolRules() ([]OpenCodeGoProtocolRule, bool) {
 
 func parseOpenCodeGoProtocolRules(raw any) ([]OpenCodeGoProtocolRule, error) {
 	return parseModelProtocolRules(raw)
-}
-func openCodeGoProtocolRuleItems(raw any) ([]any, error) { return modelProtocolRuleItems(raw) }
-func normalizeOpenCodeGoProtocolPattern(pattern string) (string, error) {
-	return normalizeModelProtocolPattern(pattern)
 }
 
 // NormalizeOpenCodeGoProtocolRulesCredentials 校验并原地规范化 credentials.protocol_rules。

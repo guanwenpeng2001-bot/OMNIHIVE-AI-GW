@@ -68,7 +68,7 @@ func (client *Client) AvailableModels(ctx context.Context, credentials Credentia
 	if err != nil {
 		return nil, fmt.Errorf("cursor: picker transport failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return nil, &HTTPError{Status: response.StatusCode}
 	}

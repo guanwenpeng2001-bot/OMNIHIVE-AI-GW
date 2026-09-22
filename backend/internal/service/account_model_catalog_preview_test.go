@@ -81,6 +81,10 @@ func TestAccountModelCatalogPreviewHeaderValidation(test *testing.T) {
 	transport.resp = catalogFixtureResponse(`{"data":[]}`)
 	_, err = service.PreviewAccountModelCatalog(context.Background(), account)
 	require.NoError(test, err)
+	// The upstream wire casing is deliberately non-canonical here: ApplyHeaderOverrides
+	// writes unknown header names lower-cased (resolveWireCasing) to bypass Go's
+	// canonicalisation, so indexing the raw map is the only way to assert the casing.
+	//nolint:staticcheck // SA1008: intentional non-canonical key, see comment above.
 	require.Equal(test, []string{"route"}, transport.lastReq.Header["x-route"])
 	after, err := json.Marshal(account.Credentials)
 	require.NoError(test, err)

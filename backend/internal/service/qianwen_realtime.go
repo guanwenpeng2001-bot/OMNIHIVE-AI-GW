@@ -51,7 +51,8 @@ func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account 
 	if credential == "" {
 		return nil, errors.New("Qianwen API key is required")
 	}
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
+	transport := baseTransport.Clone()
 	defer transport.CloseIdleConnections()
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxy, parseErr := url.Parse(account.Proxy.URL())
@@ -262,18 +263,18 @@ func relayQianwenRealtime(parent context.Context, client *ws.Conn, upstream *Qia
 				continue
 			}
 			if f.kind != ws.MessageText {
-				protocolError(errors.New("only JSON text frames supported"))
+				_ = protocolError(errors.New("only JSON text frames supported"))
 				stopGeneration()
 				continue
 			}
 			canonical, err := CanonicalUpstreamJobBody(f.data)
 			if err != nil {
-				protocolError(err)
+				_ = protocolError(err)
 				stopGeneration()
 				continue
 			}
 			if err = state.client(canonical, time.Now()); err != nil {
-				protocolError(err)
+				_ = protocolError(err)
 				stopGeneration()
 				continue
 			}

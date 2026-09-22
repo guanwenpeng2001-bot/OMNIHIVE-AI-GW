@@ -1,6 +1,11 @@
 package service
 
-import "context"
+import (
+	"context"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
 
 // This repository fixture models the receipt boundary for pricing tests. Real
 // SQL atomicity and rollback are covered by repository settlement tests.
@@ -11,6 +16,15 @@ type recordUsageReceiptFixture struct {
 	users         UserRepository
 	subscriptions UserSubscriptionRepository
 	billing       func() UsageBillingRepository
+}
+
+// receiptFixture returns the receipt fixture backing svc, failing the test when
+// the settlement service was wired with a different repository implementation.
+func receiptFixture(t *testing.T, svc *OpenAIGatewayService) *recordUsageReceiptFixture {
+	t.Helper()
+	fixture, ok := svc.usageSettlement.repo.(*recordUsageReceiptFixture)
+	require.True(t, ok, "usage settlement repo must be the receipt fixture")
+	return fixture
 }
 
 func (r *recordUsageReceiptFixture) Persist(_ context.Context, receipt *UsageSettlementReceipt) (*UsageSettlementReceipt, error) {

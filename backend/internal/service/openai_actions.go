@@ -270,7 +270,8 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	query := parsed.Query()
 	query.Set("model", model)
 	parsed.RawQuery = query.Encode()
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
+	transport := baseTransport.Clone()
 	defer transport.CloseIdleConnections()
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxy, parseErr := url.Parse(account.Proxy.URL())
@@ -369,7 +370,7 @@ func openAIResourceID(id string) bool {
 		return false
 	}
 	for _, character := range id {
-		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '_' && character != '-' {
 			return false
 		}
 	}

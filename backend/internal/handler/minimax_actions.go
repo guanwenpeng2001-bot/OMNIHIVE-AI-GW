@@ -417,14 +417,15 @@ func (h *OpenAIGatewayHandler) handleMiniMaxMedia(c *gin.Context, endpoint servi
 				}
 			}
 		}
-		if endpoint == service.MiniMaxMediaEndpointVideoStatus || endpoint == service.MiniMaxMediaEndpointVideoContent {
+		switch endpoint {
+		case service.MiniMaxMediaEndpointVideoStatus, service.MiniMaxMediaEndpointVideoContent:
 			// Status poll OR content download can observe succeeded+content.url.
 			// Both paths share one claim key so the customer is charged once.
 			videoTaskID := strings.TrimSpace(taskID)
 			if billResult := h.prepareMiniMaxVideoCompletionBilling(requestCtx, reqLog, apiKey, subject, videoTaskID, result); billResult != nil {
 				h.recordMiniMaxMediaUsage(c, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, videoTaskID)
 			}
-		} else if endpoint == service.MiniMaxMediaEndpointImagesGenerations || endpoint == service.MiniMaxMediaEndpointImagesEdits {
+		case service.MiniMaxMediaEndpointImagesGenerations, service.MiniMaxMediaEndpointImagesEdits:
 			if result.ImageCount > 0 && strings.TrimSpace(requestModel) != "" {
 				h.recordMiniMaxMediaUsage(c, reqLog, apiKey, subject, subscription, account, result, requestModel, body, taskID)
 			}

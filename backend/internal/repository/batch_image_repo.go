@@ -259,7 +259,7 @@ func (r *batchImageRepository) RecordBatchImageJobSubmitFailure(ctx context.Cont
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := recordBatchImageSubmitFailure(ctx, tx, batchID, code, message, markFailed, expectedVersion); err != nil {
 		return err
 	}

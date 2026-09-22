@@ -37,23 +37,9 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	h.publicGoogleModels(c)
 }
 
-// mergeGeminiModelLists keeps native metadata when both sources advertise a model.
-func mergeGeminiModelLists(native, extra []gemini.Model) []gemini.Model {
-	result := append([]gemini.Model{}, native...)
-	seen := make(map[string]bool, len(native))
-	for _, model := range native {
-		seen[model.Name] = true
-	}
-	for _, model := range extra {
-		if !seen[model.Name] {
-			result = append(result, model)
-			seen[model.Name] = true
-		}
-	}
-	return result
-}
-
 // appendUpstreamGeminiModels preserves unknown model metadata and envelope fields.
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func appendUpstreamGeminiModels(body []byte, extra []gemini.Model) ([]byte, bool) {
 	var envelope map[string]json.RawMessage
 	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
@@ -725,27 +711,7 @@ func googleError(c *gin.Context, status int, message string) {
 	})
 }
 
-func writeUpstreamResponse(c *gin.Context, res *service.UpstreamHTTPResult) {
-	if res == nil {
-		googleError(c, http.StatusBadGateway, "Empty upstream response")
-		return
-	}
-	for k, vv := range res.Headers {
-		// Avoid overriding content-length and hop-by-hop headers.
-		if strings.EqualFold(k, "Content-Length") || strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Connection") {
-			continue
-		}
-		for _, v := range vv {
-			c.Writer.Header().Add(k, v)
-		}
-	}
-	contentType := res.Headers.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/json"
-	}
-	c.Data(res.StatusCode, contentType, res.Body)
-}
-
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func shouldFallbackGeminiModels(res *service.UpstreamHTTPResult) bool {
 	if res == nil {
 		return true
@@ -765,6 +731,7 @@ func shouldFallbackGeminiModels(res *service.UpstreamHTTPResult) bool {
 	return false
 }
 
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func shouldFallbackGeminiModel(modelName string, res *service.UpstreamHTTPResult) bool {
 	if shouldFallbackGeminiModels(res) {
 		return true
@@ -833,22 +800,4 @@ func derefGroupID(groupID *int64) int64 {
 		return 0
 	}
 	return *groupID
-}
-
-func (h *GatewayHandler) geminiCatalogModelIDs(c *gin.Context, groupID *int64, forcePlatform string) ([]string, error) {
-	if h.gatewayService == nil {
-		return nil, nil
-	}
-	if forcePlatform == service.PlatformAntigravity {
-		return h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformAntigravity)
-	}
-	native, err := h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformGemini)
-	if err != nil || native == nil {
-		return native, err
-	}
-	optional, err := h.gatewayService.CatalogModelIDs(c.Request.Context(), groupID, service.PlatformAntigravity, true)
-	if err == nil {
-		native = append(native, optional...)
-	}
-	return native, nil
 }

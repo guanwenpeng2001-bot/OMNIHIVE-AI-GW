@@ -798,7 +798,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
 	defer stopCancellation()
 	// 无超时/无 keepalive 的常见路径走同步扫描，减少 goroutine 与 channel 开销。

@@ -24,6 +24,9 @@ func TestPaymentConfigMigrationPreservesBadRecordsAndIsIdempotent(test *testing.
 		SetExpiresAt(time.Now().Add(time.Hour)).SetClientIP("127.0.0.1").SetSrcHost("localhost").Save(ctx)
 	require.NoError(test, err)
 	plaintext := `{"secret":"original-secret","appId":"merchant"}`
+	// This fixture must be written with the historical encoder on purpose: the test
+	// migrates pre-existing legacy ciphertext, so the deprecated API is the point.
+	//nolint:staticcheck // SA1019: deliberate use of the retained historical encoder for a migration fixture.
 	legacy, err := payment.Encrypt(plaintext, key)
 	require.NoError(test, err)
 	legacyInstance, err := client.PaymentProviderInstance.Create().SetName("legacy").SetProviderKey(payment.TypeAlipay).SetConfig(legacy).Save(ctx)

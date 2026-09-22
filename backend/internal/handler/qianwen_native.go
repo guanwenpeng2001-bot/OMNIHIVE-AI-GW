@@ -78,7 +78,7 @@ func qianwenNativeAuditBody(body []byte) []byte {
 	var messages []any
 	gjson.GetBytes(body, "input.messages").ForEach(func(_, message gjson.Result) bool {
 		content := message.Get("content")
-		var value any = content.Value()
+		value := content.Value()
 		if content.IsArray() {
 			parts := []any{}
 			content.ForEach(func(_, part gjson.Result) bool {

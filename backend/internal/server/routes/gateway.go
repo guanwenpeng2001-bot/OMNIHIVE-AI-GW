@@ -397,7 +397,6 @@ func RegisterGatewayRoutes(
 func dispatchCodexModelsGateway(c *gin.Context, openAIHandler, generatedHandler gin.HandlerFunc) {
 	service.CodexModelsGateway(openAIHandler, generatedHandler)(c)
 }
-func getGroupPlatform(c *gin.Context) string { return service.GatewayTargetPlatform(c) }
 func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
 	return service.CompositeTargetPlatformMiddleware(resolver)
 }
@@ -405,9 +404,6 @@ func compositeGeminiTargetPlatformMiddleware(resolver *service.CompositeRouteRes
 	return service.CompositeGeminiTargetPlatformMiddleware(resolver)
 }
 func grokCustomVoiceEndpoint(c *gin.Context) string { return service.GrokCustomVoiceEndpoint(c) }
-func compositeGeminiModelFromParams(c *gin.Context) string {
-	return service.CompositeGeminiModelFromParams(c)
-}
 func compositeRouteEndpointForPath(path string) string {
 	return service.CompositeRouteEndpointForPath(path)
 }

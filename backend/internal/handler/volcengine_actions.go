@@ -443,18 +443,19 @@ func (h *OpenAIGatewayHandler) handleVolcengineMedia(c *gin.Context, endpoint se
 				}
 			}
 		}
-		if endpoint == service.VolcengineMediaEndpointVideoStatus || endpoint == service.VolcengineMediaEndpointVideoContent {
+		switch endpoint {
+		case service.VolcengineMediaEndpointVideoStatus, service.VolcengineMediaEndpointVideoContent:
 			// Status poll OR content download can observe succeeded+content.video_url.
 			// Both paths share one claim key so the customer is charged once.
 			videoTaskID := strings.TrimSpace(taskID)
 			if billResult := h.prepareVolcengineVideoCompletionBilling(requestCtx, reqLog, apiKey, subject, videoTaskID, result); billResult != nil {
 				h.recordVolcengineUsage(c, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, videoTaskID)
 			}
-		} else if endpoint == service.VolcengineMediaEndpointImagesGenerations || endpoint == service.VolcengineMediaEndpointImagesEdits {
+		case service.VolcengineMediaEndpointImagesGenerations, service.VolcengineMediaEndpointImagesEdits:
 			if result.ImageCount > 0 && strings.TrimSpace(requestModel) != "" {
 				h.recordVolcengineUsage(c, reqLog, apiKey, subject, subscription, account, result, requestModel, body, taskID)
 			}
-		} else if endpoint == service.VolcengineMediaEndpointEmbeddings {
+		case service.VolcengineMediaEndpointEmbeddings:
 			if result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 {
 				h.recordVolcengineUsage(c, reqLog, apiKey, subject, subscription, account, result, requestModel, body, taskID)
 			}

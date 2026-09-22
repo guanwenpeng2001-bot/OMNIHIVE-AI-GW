@@ -34,13 +34,13 @@ import (
 
 const (
 	// kimiSearchClientCeiling 是客户端总时限上限：上游 timeout_seconds 最大 60s，加传输余量。
-	kimiSearchClientCeiling  = 75 * time.Second
-	kimiSearchUpstreamSlack  = 5 * time.Second
-	kimiSearchMaxBodyBytes   = 1 << 20
-	kimiSearchTrackIDHeader  = "X-Msh-Track-Id"
-	kimiSearchChatIDHeader   = "X-Msh-Chat-Id"
-	kimiSearchBasicPath      = "/tools/search"
-	kimiSearchProPath        = "/tools/search_pro"
+	kimiSearchClientCeiling = 75 * time.Second
+	kimiSearchUpstreamSlack = 5 * time.Second
+	kimiSearchMaxBodyBytes  = 1 << 20
+	kimiSearchTrackIDHeader = "X-Msh-Track-Id"
+	kimiSearchChatIDHeader  = "X-Msh-Chat-Id"
+	kimiSearchBasicPath     = "/tools/search"
+	kimiSearchProPath       = "/tools/search_pro"
 )
 
 // KimiWebSearchRequest 是 Kimi 联网搜索的网关侧归一请求。

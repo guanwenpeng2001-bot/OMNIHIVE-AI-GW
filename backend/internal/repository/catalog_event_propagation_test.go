@@ -27,7 +27,7 @@ func TestModelCatalogEventPostgres(t *testing.T) {
 	}
 	database, err := sql.Open("postgres", dsn)
 	require.NoError(t, err)
-	defer database.Close()
+	defer func() { _ = database.Close() }()
 	ctx := context.Background()
 	var name string
 	require.NoError(t, database.QueryRow("SELECT current_database()").Scan(&name))
@@ -57,7 +57,7 @@ func TestModelCatalogEventPostgres(t *testing.T) {
 	t.Run("rollback_and_committed_notification", func(t *testing.T) {
 		account := create(t)
 		listener := pq.NewListener(dsn, 10*time.Millisecond, time.Second, nil)
-		defer listener.Close()
+		defer func() { _ = listener.Close() }()
 		require.NoError(t, listener.Listen("model_catalog_changed"))
 		before := generation("catalog")
 		transaction, err := database.BeginTx(ctx, nil)

@@ -152,7 +152,7 @@ func TestOpenAIWSClientReaderSurvivesAccountAttemptCancellation(test *testing.T)
 		if err != nil {
 			return
 		}
-		defer connection.CloseNow()
+		defer func() { _ = connection.CloseNow() }()
 		client, _ := gin.CreateTestContext(httptest.NewRecorder())
 		client.Request = request
 		reader := openAIWSIngressClientReader(client, connection)
@@ -186,7 +186,7 @@ func TestOpenAIWSClientReaderSurvivesAccountAttemptCancellation(test *testing.T)
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(test, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	select {
 	case <-firstAttemptEnded:
 	case <-ctx.Done():
@@ -214,7 +214,7 @@ func TestReviewCanceledAccountDoesNotConsumeRealQueuedFrames(test *testing.T) {
 			serverErrors <- acceptErr
 			return
 		}
-		defer connection.CloseNow()
+		defer func() { _ = connection.CloseNow() }()
 		clientContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 		clientContext.Request = request
 		reader := openAIWSIngressClientReader(clientContext, connection)
@@ -259,7 +259,7 @@ func TestReviewCanceledAccountDoesNotConsumeRealQueuedFrames(test *testing.T) {
 	defer server.Close()
 	client, _, dialErr := coderws.Dial(fixtureContext, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(test, dialErr)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	consumed := 0
 	for sample := 0; sample < samples; sample++ {
 		require.NoError(test, client.Write(fixtureContext, coderws.MessageText, []byte(`{"type":"session.update","session":{"model":"gpt-5.1"}}`)))
@@ -365,7 +365,7 @@ func TestOpenAIWSClientReaderPendingFrameSurvivesIngressModeHandoff(test *testin
 							results <- outcome{err: acceptErr}
 							return
 						}
-						defer connection.CloseNow()
+						defer func() { _ = connection.CloseNow() }()
 						clientContext, _ := gin.CreateTestContext(httptest.NewRecorder())
 						clientContext.Request = request
 						reader := openAIWSIngressClientReader(clientContext, connection)
@@ -403,7 +403,7 @@ func TestOpenAIWSClientReaderPendingFrameSurvivesIngressModeHandoff(test *testin
 					defer stopFixture()
 					client, _, dialErr := coderws.Dial(fixtureContext, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 					require.NoError(test, dialErr)
-					defer client.CloseNow()
+					defer func() { _ = client.CloseNow() }()
 					require.NoError(test, client.Write(fixtureContext, coderws.MessageText, followup))
 					_, firstResponse, firstErr := client.Read(fixtureContext)
 					require.NoError(test, firstErr)

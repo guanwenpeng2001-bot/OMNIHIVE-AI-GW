@@ -22,7 +22,8 @@ func TestSharedPoolCapacityExpiryAndActiveStream(t *testing.T) {
 	release := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		_, _ = writer.Write([]byte("start"))
-		writer.(http.Flusher).Flush()
+		flusher, _ := writer.(http.Flusher)
+		flusher.Flush()
 		<-release
 		_, _ = writer.Write([]byte("finish"))
 	}))
@@ -32,7 +33,7 @@ func TestSharedPoolCapacityExpiryAndActiveStream(t *testing.T) {
 	require.NoError(t, err)
 	response, err := client.Get(server.URL)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	prefix := make([]byte, 5)
 	_, err = io.ReadFull(response.Body, prefix)
 	require.NoError(t, err)
@@ -94,7 +95,8 @@ func TestSharedPoolConnectionLimitQueuesAndCancels(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		calls.Add(1)
 		writer.WriteHeader(http.StatusOK)
-		writer.(http.Flusher).Flush()
+		flusher, _ := writer.(http.Flusher)
+		flusher.Flush()
 		<-release
 	}))
 	defer server.Close()
@@ -104,7 +106,7 @@ func TestSharedPoolConnectionLimitQueuesAndCancels(t *testing.T) {
 	defer client.CloseIdleConnections()
 	response, err := client.Get(server.URL)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 	request, err := http.NewRequestWithContext(ctx, http.MethodGet, server.URL, nil)

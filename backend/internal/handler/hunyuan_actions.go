@@ -516,12 +516,12 @@ func (h *OpenAIGatewayHandler) handleHunyuanAction(c *gin.Context, endpoint serv
 				}
 			}
 		}
-		switch {
-		case endpoint == service.HunyuanEndpointVideoTask || endpoint == service.HunyuanEndpointVideoContent:
+		switch endpoint {
+		case service.HunyuanEndpointVideoTask, service.HunyuanEndpointVideoContent:
 			if billResult := h.prepareHunyuanVideoCompletionBilling(requestCtx, reqLog, apiKey, subject, taskID, result); billResult != nil {
 				h.recordHunyuanActionUsage(c, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, taskID)
 			}
-		case endpoint == service.HunyuanEndpointTranscribeTask:
+		case service.HunyuanEndpointTranscribeTask:
 			if billResult := h.prepareHunyuanTranscribeCompletionBilling(requestCtx, reqLog, apiKey, subject, taskID, result); billResult != nil {
 				h.recordHunyuanActionUsage(c, reqLog, apiKey, subject, subscription, account, billResult, billResult.Model, body, taskID)
 			}

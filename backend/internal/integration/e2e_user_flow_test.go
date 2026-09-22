@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"testing"
 	"time"
 )
@@ -289,13 +288,4 @@ func loginTestUser(t *testing.T) string {
 	}
 
 	return ""
-}
-
-// redactAPIKey API Key 脱敏，只显示前 8 位
-func redactAPIKey(key string) string {
-	key = strings.TrimSpace(key)
-	if len(key) <= 8 {
-		return "***"
-	}
-	return key[:8] + "..."
 }

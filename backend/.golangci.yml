@@ -130,6 +130,13 @@ linters:
       - path: '_test\.go$'
         linters: [ gosec ]
         text: 'G70[34]'
+      # ST1005 要求错误串首字母小写，但这 10 个文件里的错误串是直接回给 API
+      # 调用方的用户可见文案（网关 action 适配、鉴权/令牌刷新、批处理准入校验）。
+      # 改首字母等于改对外可见的错误文案，属于对外契约变化，不为过 lint 而改；
+      # 因此按文件精确豁免，不整体关闭 ST1005，其它文件仍逐条强制。
+      - path: '(gemini_actions|gateway_resource_jobs|cursor_refresh_persistence|anthropic_actions|volcengine_actions|cursor_auth_service|token_refresh_service|qianwen_realtime|qianwen_native|qianwen_images)\.go$'
+        linters: [ staticcheck ]
+        text: 'ST1005'
 
 formatters:
   enable:

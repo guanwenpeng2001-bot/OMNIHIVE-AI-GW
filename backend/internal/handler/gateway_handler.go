@@ -1209,15 +1209,6 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", body)
 }
 
-func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *service.Group, platformOverride string) []string {
-	models, _ := h.codexModelIDsForGroupChecked(ctx, group, platformOverride)
-	return models
-}
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
-	models, _ := h.compositeAvailableModelsChecked(ctx, groupID)
-	return models
-}
-
 func (h *GatewayHandler) codexModelIDsForGroupChecked(ctx context.Context, group *service.Group, platformOverride string) ([]string, error) {
 	if h == nil || h.gatewayService == nil || group == nil {
 		return nil, nil
