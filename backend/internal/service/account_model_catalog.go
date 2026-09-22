@@ -398,6 +398,15 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 		if !account.IsGrok() {
 			endpoints = append(endpoints, CompositeRouteEndpointImages)
 		}
+	case "video_generation":
+		// The OpenAI native video lifecycle executes on the media surface the
+		// catalogue already publishes for image tasks, and service/openai_actions.go
+		// resolves the video actions to that same family before the send boundary.
+		// The CN platforms reach video through their own native ingress and keep
+		// no catalogue family here, so they stay unprojected.
+		if account.Platform == PlatformOpenAI {
+			endpoints = append(endpoints, CompositeRouteEndpointImages)
+		}
 	case "alpha_search", "embeddings", "live", "grok_media_generation":
 		endpoints = append(endpoints, task)
 	}

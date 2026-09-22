@@ -156,6 +156,17 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			descriptor.Status = ActionHardConflict
 			descriptor.Evidence = "Official OpenAI API specification (openai/openai-openapi@master, checked 2026-09-21) publishes no standalone search endpoint; web search exists only as a Responses API tool, already served by the responses action"
 			return descriptor
+		case "realtime":
+			// The adapter was published while no production handler existed: the
+			// ingress dispatch table (server/routes/gateway.go GatewayActionHandlers)
+			// registers no openai.realtime key, so GET /v1/realtime fails with 400
+			// action_not_implemented. The Codex Live ingress on
+			// /backend-api/codex/realtime/calls is a different endpoint, and
+			// service/openai_actions.go OpenOpenAIRealtime has no ingress in front of
+			// it. Reported by the independent final audit (2026-09-22) and re-checked
+			// against the registered routes and the handler-binding test.
+			descriptor.Evidence = "No production handler: routes/gateway.go registers no openai.realtime dispatch key, so /v1/realtime answers 400 action_not_implemented; the Live call ingress is the separate Codex route POST /backend-api/codex/realtime/calls and does not serve this cell (handler table and route table re-checked 2026-09-22); OpenOpenAIRealtime has no ingress"
+			return descriptor
 		}
 	}
 	if identity.HostedAccountType != "" {
@@ -164,7 +175,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
+			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
 				// Open-API data-plane actions are verified for first-party API keys
 				// only; Codex OAuth credentials do not grant these endpoints.
 				if identity.HostedAccountType != AccountTypeAPIKey {
@@ -273,7 +284,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "realtime":
+			case "video.generate", "video.edit", "video.extend", "video.status", "video.content":
 				adapter = "openai." + action
 			}
 		}
@@ -342,8 +353,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformOpenAI {
 		switch action {
-		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
-			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio/realtime references checked 2026-09-21"
+		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
+			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio references checked 2026-09-21"
 			descriptor.CredentialPolicy = "OpenAI API key account only (open-API data plane); Codex OAuth credentials are not valid for this action"
 		}
 		if action == "video.status" || action == "video.content" {

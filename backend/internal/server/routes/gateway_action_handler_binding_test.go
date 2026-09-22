@@ -30,7 +30,6 @@ func TestGatewayActionHandlersCoverEveryImplementedCell(t *testing.T) {
 	// unregistered adapter still fails this test.
 	preExisting := map[string]string{
 		"openai.live":                "the Live call ingress is registered as an explicit route handler (h.OpenAIGateway.Live) and never through the adapter table",
-		"openai.realtime":            "the OpenAI realtime session is served by the Live ingress; no separate realtime adapter handler is registered",
 		"openai.alpha_search":        "alpha/search is registered as an explicit route handler (h.OpenAIGateway.AlphaSearch)",
 		"openai.responses.websocket": "the Responses WebSocket ingress is registered as an explicit route handler (h.OpenAIGateway.ResponsesWebSocket), not through the adapter table",
 		"grok.audio.stt":             "the Grok voice family is dispatched by GatewayVoiceHandler, which resolves the endpoint itself instead of the adapter table",
