@@ -1,16 +1,4 @@
 version: 1
-exceptions:
-  - package: xlsx
-    advisory: "GHSA-4r6h-8v6p-xvw6"
-    severity: high
-    reason: "Admin export only; switched to dynamic import to reduce exposure (CVE-2023-30533)"
-    mitigation: "Load only on export; restrict export permissions and data scope"
-    expires_on: "2026-10-06"
-    owner: "security@your-domain"
-  - package: xlsx
-    advisory: "GHSA-5pgg-2g8v-p4x9"
-    severity: high
-    reason: "Admin export only; switched to dynamic import to reduce exposure (CVE-2024-22363)"
-    mitigation: "Load only on export; restrict export permissions and data scope"
-    expires_on: "2026-10-06"
-    owner: "security@your-domain"
+# xlsx(SheetJS)0.18.x 的两条 high advisory 例外已随依赖替换移除：
+# usage-display-export 改用维护中的写库 write-excel-file，锁文件里已无 xlsx。
+exceptions: []

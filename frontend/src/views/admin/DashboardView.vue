@@ -131,7 +131,7 @@
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatCost(stats.today_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.today_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -167,7 +167,7 @@
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatCost(stats.total_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
@@ -361,6 +361,7 @@
 
 <script setup lang="ts">
 import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
+import { isKnownAmount } from '@/utils/money'
 import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
 const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
@@ -616,6 +617,11 @@ const toFiniteNumber = (value: unknown): number => {
 const formatNumber = (value: number | null | undefined): string => {
   return toFiniteNumber(value).toLocaleString()
 }
+
+// 账号成本缺失时明确显示不可用：降级概览(overview fallback)不返回该字段，
+// 直接走 formatCost 会把未知值渲染成 0.0000，等于低估账号成本。
+const formatAccountCost = (value: number | null | undefined): string =>
+  isKnownAmount(value) ? formatCost(value) : t('common.notAvailable')
 
 const formatCost = (value: number | null | undefined): string => {
   const safeValue = toFiniteNumber(value)

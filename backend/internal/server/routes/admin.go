@@ -713,6 +713,7 @@ func registerUsageRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	usage := admin.Group("/usage")
 	{
 		usage.GET("", h.Admin.Usage.List)
+		usage.GET("/export", h.Admin.Usage.Export)
 		usage.GET("/stats", h.Admin.Usage.Stats)
 		usage.GET("/settlements", h.Admin.Usage.SettlementStatus)
 		usage.GET("/search-users", h.Admin.Usage.SearchUsers)

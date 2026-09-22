@@ -118,7 +118,33 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 	}
 	conditions := workspaceUsageConditions(ctx)
 	args := make([]any, 0, 9)
+	conditions, args = appendUsageLogListConditions(conditions, args, filters)
 
+	whereClause := buildWhere(conditions)
+	var (
+		logs []service.UsageLog
+		page *pagination.PaginationResult
+		err  error
+	)
+	if shouldUseFastUsageLogTotal(filters) {
+		logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, args, params)
+	} else {
+		logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, args, params)
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if err := r.hydrateUsageLogAssociations(ctx, logs); err != nil {
+		return nil, nil, err
+	}
+	return logs, page, nil
+}
+
+// appendUsageLogListConditions applies the admin usage-list filter set to a
+// WHERE clause. The table, the totals and the export stream share this helper so
+// every surface filters the same rows.
+func appendUsageLogListConditions(conditions []string, args []any, filters UsageLogFilters) ([]string, []any) {
 	if filters.UserID > 0 {
 		conditions = append(conditions, fmt.Sprintf("user_id = $%d", len(args)+1))
 		args = append(args, filters.UserID)
@@ -158,26 +184,7 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 		conditions = append(conditions, fmt.Sprintf("created_at < $%d", len(args)+1))
 		args = append(args, *filters.EndTime)
 	}
-
-	whereClause := buildWhere(conditions)
-	var (
-		logs []service.UsageLog
-		page *pagination.PaginationResult
-		err  error
-	)
-	if shouldUseFastUsageLogTotal(filters) {
-		logs, page, err = r.listUsageLogsWithFastPagination(ctx, whereClause, args, params)
-	} else {
-		logs, page, err = r.listUsageLogsWithPagination(ctx, whereClause, args, params)
-	}
-	if err != nil {
-		return nil, nil, err
-	}
-
-	if err := r.hydrateUsageLogAssociations(ctx, logs); err != nil {
-		return nil, nil, err
-	}
-	return logs, page, nil
+	return conditions, args
 }
 
 func upstreamModelMismatchCondition(column string, mismatch bool) string {

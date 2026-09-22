@@ -231,22 +231,47 @@ export async function getUserApiKeys(id: number): Promise<PaginatedResponse<ApiK
 
 /**
  * Get user's usage statistics
+ *
+ * 后端已改为真实聚合（按 period 解析时间窗后读 usage_logs），返回窗口、可用性标记
+ * 与请求/Token/费用/平均耗时等真实值。当前面板没有任何视图调用该函数（保留为未使用），
+ * 保留它是因为该管理端接口仍对外暴露，类型需要与真实响应一致。
+ *
  * @param id - User ID
- * @param period - Time period
+ * @param period - Time period (today/week/month)
  * @returns User usage statistics
  */
 export async function getUserUsageStats(
   id: number,
   period: string = 'month'
 ): Promise<{
+  period: string
+  start_time: string
+  end_time: string
+  available: boolean
   total_requests: number
-  total_cost: number
   total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  total_cost: number
+  total_actual_cost: number
+  total_account_cost: number
+  avg_duration_ms: number
 }> {
   const { data } = await apiClient.get<{
+    period: string
+    start_time: string
+    end_time: string
+    available: boolean
     total_requests: number
-    total_cost: number
     total_tokens: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    total_cost: number
+    total_actual_cost: number
+    total_account_cost: number
+    avg_duration_ms: number
   }>(`/admin/users/${id}/usage`, {
     params: { period }
   })

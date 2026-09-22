@@ -90,7 +90,7 @@
           </button>
         </div>
 
-        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel" @exportCsv="exportToCsv">
           <template #after-reset>
             <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
               <button
@@ -216,11 +216,12 @@ import { extractApiErrorCode } from '@/utils/apiError'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
-import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
+import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { formatLedgerAmount, accountBilledAmount } from '@/utils/money'
+import { ADMIN_USAGE_EXPORT_ENDPOINT, downloadUsageCsv, fetchUsageExportRows, usageExportFileName } from '@/utils/usageExport'
+import writeXlsxFile from 'write-excel-file/browser'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -283,6 +284,7 @@ const breakdownFilters = computed(() => {
   if (filters.value.request_type != null) breakdownQuery.request_type = filters.value.request_type
   if (filters.value.native_compaction_v2 != null) breakdownQuery.native_compaction_v2 = filters.value.native_compaction_v2
   if (filters.value.billing_type != null) breakdownQuery.billing_type = filters.value.billing_type
+  if (filters.value.billing_mode) breakdownQuery.billing_mode = filters.value.billing_mode
   return breakdownQuery
 })
 
@@ -492,6 +494,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
       billing_type: filters.value.billing_type,
+      billing_mode: filters.value.billing_mode,
 	  upstream_model_mismatch: filters.value.upstream_model_mismatch,
     }
 
@@ -543,6 +546,7 @@ const loadChartData = async () => {
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
       billing_type: filters.value.billing_type,
+      billing_mode: filters.value.billing_mode,
 	  upstream_model_mismatch: filters.value.upstream_model_mismatch,
       include_stats: false,
       include_trend: true,
@@ -617,64 +621,96 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
   return t('usage.unknown')
 }
 
+// 导出表头即界面语言的列名；服务端负责列顺序，这里只提供标签。
+const usageExportHeaders = (): string[] => [
+  t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
+  t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
+  t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
+  t('usage.type'),
+  t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
+  t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
+  t('admin.usage.inputCost') + ' (USD)', t('admin.usage.outputCost') + ' (USD)',
+  t('admin.usage.cacheReadCost') + ' (USD)', t('admin.usage.cacheCreationCost') + ' (USD)',
+  t('usage.rate'), t('usage.accountMultiplier'), t('usage.original') + ' (USD)', t('usage.userBilled') + ' (USD)', t('usage.accountBilled') + ' (USD)',
+  t('usage.firstToken'), t('usage.duration'),
+  t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress'),
+  ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`))
+]
+
+const usageExportRows = (logs: AdminUsageLog[], exportTimeZone: string): unknown[][] =>
+  logs.map((log) => [
+    formatDateTimeWithZone(log.created_at, exportTimeZone), log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
+    log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
+    log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
+    log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
+    formatLedgerAmount(log.input_cost), formatLedgerAmount(log.output_cost),
+    formatLedgerAmount(log.cache_read_cost), formatLedgerAmount(log.cache_creation_cost),
+    log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
+    formatLedgerAmount(log.total_cost), formatLedgerAmount(log.actual_cost),
+    formatLedgerAmount(accountBilledAmount(log)), log.first_token_ms ?? '', log.duration_ms,
+    log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || '',
+    ...billingExplanationValues(log, t)
+  ])
+
+const exportRangeName = () => ({
+  start: filters.value.start_date || startDate.value,
+  end: filters.value.end_date || endDate.value,
+})
+
+// Excel 导出：一次请求取回全部行（服务端游标读取），再用维护中的写库生成 xlsx。
 const exportToExcel = async () => {
-  if (exporting.value) return; exporting.value = true; exportProgress.show = true
+  if (exporting.value) return
+  exporting.value = true
+  exportProgress.show = true
+  exportProgress.progress = 0
+  exportProgress.current = 0
+  exportProgress.total = 0
   const c = new AbortController(); exportAbortController = c
   const exportTimeZone = reportTimeZone
-  const exportParams = buildUsageListParams(1, 100, true)
   try {
-    let p = 1; let total = pagination.total; let exportedCount = 0
-    const XLSX = await import('xlsx')
-    const headers = [
-      t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
-      t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
-      t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
-      t('usage.type'),
-      t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
-      t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
-      t('admin.usage.inputCost') + ' (USD)', t('admin.usage.outputCost') + ' (USD)',
-      t('admin.usage.cacheReadCost') + ' (USD)', t('admin.usage.cacheCreationCost') + ' (USD)',
-      t('usage.rate'), t('usage.accountMultiplier'), t('usage.original') + ' (USD)', t('usage.userBilled') + ' (USD)', t('usage.accountBilled') + ' (USD)',
-      t('usage.firstToken'), t('usage.duration'),
-      t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress'),
-      ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`))
-    ]
-    const ws = XLSX.utils.aoa_to_sheet([headers])
-    while (true) {
-      const res = await adminUsageAPI.list(
-        { ...exportParams, page: p },
-        { signal: c.signal }
-      )
-      if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
-      const rows = (res.items || []).map((log: AdminUsageLog) => [
-        formatDateTimeWithZone(log.created_at, exportTimeZone), log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
-        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
-        log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
-        log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
-        formatLedgerAmount(log.input_cost), formatLedgerAmount(log.output_cost),
-        formatLedgerAmount(log.cache_read_cost), formatLedgerAmount(log.cache_creation_cost),
-        log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
-        formatLedgerAmount(log.total_cost), formatLedgerAmount(log.actual_cost),
-        formatLedgerAmount(accountBilledAmount(log)), log.first_token_ms ?? '', log.duration_ms,
-        log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || '',
-        ...billingExplanationValues(log, t)
-      ])
-      if (rows.length) {
-        XLSX.utils.sheet_add_aoa(ws, rows, { origin: -1 })
-      }
-      exportedCount += rows.length
-      exportProgress.current = exportedCount
-      exportProgress.progress = total > 0 ? Math.min(100, Math.round(exportedCount / total * 100)) : 0
-      if (exportedCount >= total || res.items.length < 100) break; p++
-    }
-    if(!c.signal.aborted) {
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Usage')
-      saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `usage_${filters.value.start_date}_to_${filters.value.end_date}.xlsx`)
-      appStore.showSuccess(t('usage.exportSuccess'))
-    }
-  } catch (error) { console.error('Failed to export:', error); appStore.showError('Export Failed') }
-  finally { if(exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false } }
+    const logs = await fetchUsageExportRows<AdminUsageLog>({
+      endpoint: ADMIN_USAGE_EXPORT_ENDPOINT,
+      params: buildUsageListParams(1, 100, true),
+      signal: c.signal,
+    })
+    if (c.signal.aborted) return
+    exportProgress.total = logs.length
+    exportProgress.current = logs.length
+    const rows = [usageExportHeaders(), ...usageExportRows(logs, exportTimeZone)]
+    const range = exportRangeName()
+    await writeXlsxFile(rows as (string | number)[][], { sheet: 'Usage' }).toFile(usageExportFileName(range.start, range.end, 'xlsx'))
+    appStore.showSuccess(t('usage.exportExcelSuccess'))
+  } catch (error) {
+    if (!c.signal.aborted) { console.error('Failed to export:', error); appStore.showError(t('usage.exportExcelFailed')) }
+  } finally {
+    if (exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false }
+  }
+}
+
+// CSV 导出：服务端流式产出，浏览器只发一次请求；表头替换为界面语言。
+const exportToCsv = async () => {
+  if (exporting.value) return
+  exporting.value = true
+  exportProgress.show = true
+  exportProgress.progress = 0
+  exportProgress.current = 0
+  exportProgress.total = 0
+  const c = new AbortController(); exportAbortController = c
+  try {
+    const range = exportRangeName()
+    await downloadUsageCsv({
+      endpoint: ADMIN_USAGE_EXPORT_ENDPOINT,
+      params: buildUsageListParams(1, 100, true),
+      labels: usageExportHeaders(),
+      fileName: usageExportFileName(range.start, range.end, 'csv'),
+      signal: c.signal,
+    })
+    if (!c.signal.aborted) appStore.showSuccess(t('usage.exportSuccess'))
+  } catch (error) {
+    if (!c.signal.aborted) { console.error('Failed to export CSV:', error); appStore.showError(t('usage.exportFailed')) }
+  } finally {
+    if (exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false }
+  }
 }
 
 // Column visibility
