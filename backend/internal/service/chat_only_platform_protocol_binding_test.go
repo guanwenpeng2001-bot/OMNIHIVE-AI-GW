@@ -102,14 +102,102 @@ func TestChatOnlyPublishedTextProtocolsReachTheSchedulerModelGate(t *testing.T) 
 	}
 
 	// Mistral publishes no native text protocol beyond Chat Completions, so its
-	// catalog declares only that family. Its planned text requests are still judged
-	// on the conservative Responses family, which this catalog cannot declare, so
-	// the entry stays unselectable for text today. That pre-existing gap (the chat
-	// trunk never becomes the evidence family for a chat-only platform without a
-	// Responses protocol) is reported with this task instead of being changed here,
-	// because the fix alters the shared Responses-bridge rule for a platform whose
-	// protocol cells this task must not extend.
+	// catalog declares only that family and its entry is judged on the chat trunk
+	// it actually serves (see
+	// TestChatOnlyPlatformWithoutPublishedTextProtocolStaysSelectable). The
+	// declaration itself stays untouched: what a chat-only catalog may claim and
+	// which family the plan gate judges are separate rules.
 	mistral := &Account{ID: 1, Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
 	require.Equal(t, []string{CompositeRouteEndpointChatCompletions},
 		accountCatalogModelEndpoints(mistral, "text-model", UpstreamModelMetadata{}))
+}
+
+// A chat-only platform that publishes no native text protocol beyond the
+// OpenAI-shaped chat trunk declares only that family for its text models, so a
+// planned text request must be judged on the chat trunk. Measuring it against
+// the conservative Responses default asks for evidence the platform never
+// publishes and leaves the entry permanently unselectable.
+func TestChatOnlyPlatformWithoutPublishedTextProtocolStaysSelectable(t *testing.T) {
+	mistral := &Account{ID: 1, Platform: PlatformMistral, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+	require.Empty(t, chatOnlyPublishedTextFamilies(mistral),
+		"mistral publishes no Responses and no Messages protocol")
+	declared := accountCatalogModelEndpoints(mistral, "text-model", UpstreamModelMetadata{})
+	require.Equal(t, []string{CompositeRouteEndpointChatCompletions}, declared)
+
+	account := requestPlanGateAccount(PlatformMistral, "text-model", declared...)
+	ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "text-model"})
+	require.Empty(t, requestPlanGateReason(ctx, &account, PlatformMistral, "text-model", OpenAIEndpointCapabilityChatCompletions),
+		"the pre-profit gate must not veto the mistral entry")
+	require.True(t, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, "text-model", OpenAIEndpointCapabilityChatCompletions),
+		"the scheduler model gate must admit the mistral entry")
+	require.Equal(t, CompositeRouteEndpointChatCompletions, openAICompatiblePlanCatalogEndpoint(ctx, &account),
+		"a chat-only entry without a native text protocol is judged on its chat trunk")
+
+	// The chat trunk default must not open mistral's verified protocol absences:
+	// its Responses and Messages cells stay hard conflicts, so the action gate
+	// still refuses those planned requests instead of routing them to the trunk.
+	for _, spec := range []GatewayRequestSpec{
+		{Action: "responses", Protocol: "responses", Route: "/v1/responses", Model: "text-model"},
+		{Action: "messages", Protocol: "anthropic", Route: "/v1/messages", Model: "text-model"},
+	} {
+		absentCtx := requestPlanGateContext(spec)
+		require.Equal(t, "model_not_supported",
+			requestPlanGateReason(absentCtx, &account, PlatformMistral, "text-model", OpenAIEndpointCapabilityChatCompletions),
+			"mistral publishes no %s path, so the planned %s request stays refused", spec.Protocol, spec.Protocol)
+	}
+}
+
+// Explicitly empty endpoint evidence is a denial, not missing evidence: the
+// chat-trunk default must never turn "this model declares no endpoint" into an
+// admission for any chat-only platform.
+func TestChatOnlyExplicitEmptyEndpointEvidenceStaysDenied(t *testing.T) {
+	for _, platform := range []string{PlatformMistral, PlatformHunyuan, PlatformVolcengine, PlatformQianfan} {
+		account := &Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+		require.Empty(t, accountCatalogModelEndpoints(account, "text-model", UpstreamModelMetadata{SupportedMethods: []string{}}),
+			"%s must keep an explicit empty declaration empty", platform)
+
+		evidence := requestPlanGateAccount(platform, "text-model")
+		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "text-model"})
+		require.Equal(t, "model_not_supported",
+			requestPlanGateReason(ctx, &evidence, platform, "text-model", OpenAIEndpointCapabilityChatCompletions),
+			"%s must stay refused when the model explicitly declares no endpoint", platform)
+	}
+}
+
+// The chat-trunk default is scoped to chat-only entries. Gemini publishes no
+// Responses protocol either, but it is not a chat-only OpenAI-compatible entry,
+// so it keeps the conservative Responses default; Antigravity bridges Responses
+// and stays on the Responses family through its published protocol.
+func TestChatTrunkDefaultStaysScopedToChatOnlyEntries(t *testing.T) {
+	ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: "chat_completions", Route: "/v1/chat/completions", Model: "text-model"})
+	gemini := &Account{ID: 1, Platform: PlatformGemini, Type: AccountTypeAPIKey}
+	require.False(t, IsChatOnlyPlatform(PlatformGemini))
+	require.Empty(t, chatOnlyPublishedTextFamilies(gemini))
+	require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(ctx, gemini),
+		"a non chat-only platform keeps the conservative Responses default")
+	antigravity := &Account{ID: 1, Platform: PlatformAntigravity, Type: AccountTypeAPIKey}
+	require.False(t, IsChatOnlyPlatform(PlatformAntigravity))
+	require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(ctx, antigravity),
+		"antigravity bridges Responses and stays on the Responses family")
+}
+
+// The chat-trunk default is scoped to chat-only platforms that publish no
+// native text protocol. Hunyuan, Volcengine and Qianfan publish a Responses
+// protocol, so their planned Responses requests keep reading Responses evidence:
+// a model whose only text evidence is the Responses family stays selectable,
+// which a blanket chat-trunk default would break.
+func TestPublishedResponsesChatOnlyPlatformsKeepTheirTextFamily(t *testing.T) {
+	for _, platform := range []string{PlatformHunyuan, PlatformVolcengine, PlatformQianfan} {
+		account := &Account{ID: 1, Platform: platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+		require.Contains(t, chatOnlyPublishedTextFamilies(account), CompositeRouteEndpointResponses, platform)
+
+		evidence := requestPlanGateAccount(platform, "text-model", CompositeRouteEndpointResponses)
+		ctx := requestPlanGateContext(GatewayRequestSpec{Protocol: "responses", Route: "/v1/responses", Model: "text-model"})
+		require.Equal(t, CompositeRouteEndpointResponses, openAICompatiblePlanCatalogEndpoint(ctx, &evidence),
+			"%s publishes the Responses protocol and keeps the Responses family", platform)
+		require.Empty(t, requestPlanGateReason(ctx, &evidence, platform, "text-model", OpenAIEndpointCapabilityChatCompletions),
+			"%s must stay selectable when its text evidence is the Responses family", platform)
+		require.True(t, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &evidence, "text-model", OpenAIEndpointCapabilityChatCompletions),
+			"%s must stay selectable in the scheduler model gate", platform)
+	}
 }
