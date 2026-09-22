@@ -133,8 +133,11 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCodeGo() || account.IsCommandCode() {
-		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
+	if account.IsOpenCodeGo() || account.IsCommandCode() || account.Platform == PlatformHunyuan {
+		// OpenCode Go / Command Code 的 Chat Completions base 带 /v1，TokenHub 的
+		// OpenAI 兼容 base 同样以版本段结尾（如 tokenhub.tencentmaas.com/v1）：
+		// 用版本感知拼接避免 /v1/v1/messages，TokenHub 文档路径为 {host}/v1/messages
+		// （1823/130079）。
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}
 	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil

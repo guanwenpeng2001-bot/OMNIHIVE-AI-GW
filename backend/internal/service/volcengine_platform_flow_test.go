@@ -27,10 +27,10 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.True(test, account.IsOpenAICompatible())
 	require.Equal(test, account.Platform, NormalizeOpenAICompatiblePlatform(account.Platform))
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions))
-	require.False(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
-	// The embeddings cell is bound by multimodal-ingress, so the capability gate
-	// now admits the documented {root}/embeddings contract; Responses stays
-	// denied because the platform row still records ResponsesPOST as rejected.
+	// The platform row publishes ResponsesPOST, so the capability gate admits the
+	// native Ark Responses API at {root}/responses next to the embeddings cell
+	// multimodal-ingress bound. There is no Anthropic Messages cell to admit.
+	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
 	declared := catalogEvidenceAccount(42, PlatformVolcengine, "native")
 	declared.Credentials["model_mapping"] = map[string]any{"alias": "ep-target"}
@@ -81,4 +81,28 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 			require.True(test, gjson.GetBytes(transport.lastBody, "tools").IsArray())
 		})
 	}
+}
+
+// The native Ark Responses API cell forwards on the shared trunk to the path the
+// first-party documentation fixes: POST {root}/responses with the account's Ark
+// API key as a Bearer credential (docs/82379/1298459).
+func TestVolcengineResponsesForwardUsesTheDocumentedArkPath(test *testing.T) {
+	body := []byte(`{"model":"ep-fixture-target","input":"hello"}`)
+	transport := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","status":"completed","output":[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":7,"output_tokens":3}}`)),
+	}}
+	gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+	recorder := httptest.NewRecorder()
+	requestContext, _ := gin.CreateTestContext(recorder)
+	requestContext.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	SetOpenAIClientTransport(requestContext, OpenAIClientTransportHTTP)
+
+	result, err := gateway.Forward(context.Background(), requestContext, volcengineTestAccount(), body)
+	require.NoError(test, err)
+	require.NotNil(test, result)
+	require.Equal(test, volcengineRuntimeBaseURL+"/responses", transport.lastReq.URL.String())
+	require.Equal(test, "Bearer inference-test-key", transport.lastReq.Header.Get("Authorization"))
+	require.Equal(test, "ep-fixture-target", gjson.GetBytes(transport.lastBody, "model").String())
 }

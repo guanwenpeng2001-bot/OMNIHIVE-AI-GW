@@ -145,3 +145,59 @@ func TestHunyuanTokenHubStreamUsage(t *testing.T) {
 		})
 	}
 }
+
+// The TokenHub text protocol cells forward on the shared trunk to the paths the
+// first-party documentation fixes: POST {base}/responses with Bearer on the
+// Responses compatibility mode, and POST {host}/v1/messages with x-api-key on the
+// Anthropic path (1823/133813, 1823/130078, 1823/130079).
+func TestHunyuanResponsesAndMessagesForwardsUseTheDocumentedTokenHubPaths(test *testing.T) {
+	test.Run("responses", func(test *testing.T) {
+		body := []byte(`{"model":"hy3","input":"hello"}`)
+		transport := &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","status":"completed","output":[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":7,"output_tokens":3}}`)),
+		}}
+		gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+		recorder := httptest.NewRecorder()
+		requestContext, _ := gin.CreateTestContext(recorder)
+		requestContext.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+		SetOpenAIClientTransport(requestContext, OpenAIClientTransportHTTP)
+		account := &Account{ID: 101, Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
+		result, err := gateway.Forward(context.Background(), requestContext, account, body)
+		require.NoError(test, err)
+		require.NotNil(test, result)
+		require.Equal(test, hunyuanCompatibilityBaseURL+"/responses", transport.lastReq.URL.String())
+		require.Equal(test, "Bearer fixture-key", transport.lastReq.Header.Get("Authorization"))
+	})
+	test.Run("protocol selection", func(test *testing.T) {
+		// Publishing the TokenHub protocols must not move the default path of an
+		// existing Hunyuan account: without an explicit api_protocol credential the
+		// OpenAI-shaped chat trunk stays the effective protocol, and an adaptive
+		// account resolves the Anthropic base to the same TokenHub site.
+		plain := &Account{Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
+		require.Equal(test, APIProtocolChatCompletions, plain.GetAPIProtocol())
+		adaptive := &Account{Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key", "api_protocol": APIProtocolAdaptive}}
+		require.Equal(test, APIProtocolAdaptive, adaptive.GetAPIProtocol())
+		require.Equal(test, hunyuanCompatibilityBaseURL, adaptive.GetAnthropicProtocolBaseURL())
+	})
+	test.Run("messages", func(test *testing.T) {
+		body := []byte(`{"model":"hy3","max_tokens":64,"messages":[{"role":"user","content":"hello"}]}`)
+		transport := &httpUpstreamRecorder{resp: &http.Response{
+			StatusCode: http.StatusOK,
+			Header:     http.Header{"Content-Type": []string{"application/json"}},
+			Body:       io.NopCloser(strings.NewReader(`{"id":"msg_1","type":"message","role":"assistant","model":"hy3","content":[{"type":"text","text":"hello"}],"usage":{"input_tokens":7,"output_tokens":3}}`)),
+		}}
+		gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+		recorder := httptest.NewRecorder()
+		requestContext, _ := gin.CreateTestContext(recorder)
+		requestContext.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+		account := &Account{ID: 101, Platform: PlatformHunyuan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key", "api_protocol": APIProtocolAnthropic}}
+		result, err := gateway.ForwardAsAnthropic(context.Background(), requestContext, account, body, "", "")
+		require.NoError(test, err)
+		require.NotNil(test, result)
+		require.Equal(test, hunyuanCompatibilityBaseURL+"/messages", transport.lastReq.URL.String())
+		require.Equal(test, "fixture-key", transport.lastReq.Header.Get("x-api-key"))
+		require.Empty(test, transport.lastReq.Header.Get("Authorization"))
+	})
+}
