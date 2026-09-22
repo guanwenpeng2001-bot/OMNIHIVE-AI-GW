@@ -25,6 +25,14 @@ import "strings"
 //   - 1823/133515 text and multimodal embeddings, 1823/132358 in-request web
 //     search, 1823/130849 batch inference over /v1/batches (chat JSONL only),
 //     1823/133813 Responses compatibility mode (HTTP/SSE only).
+//   - TokenHub plan data planes, captured 2026-09-23: Coding Plan publishes
+//     https://api.lkeap.cloud.tencent.com/coding/v3 (OpenAI-compatible) and
+//     https://api.lkeap.cloud.tencent.com/coding/anthropic (Anthropic-compatible),
+//     Token Plan 个人版 publishes https://api.lkeap.cloud.tencent.com/plan/v3, and
+//     Tencent documents that plan keys (sk-sp- / sk-tp-) are not interchangeable
+//     with pay-as-you-go keys (cloud.tencent.com/document/product/1823/130060 and
+//     /130092). A plan account therefore resolves a different default base URL; it
+//     changes no cell status in this matrix.
 //
 // Runtime binding (checked 2026-09-22): the Hunyuan platform row keeps
 // ChatOnly=true because the OpenAI-shaped TokenHub base defines the entry, and
@@ -95,8 +103,8 @@ var hunyuanActionAdapters = map[string]string{
 // for every Hunyuan cell whose adapter exists in this branch.
 var hunyuanActionEvidence = map[string]string{
 	"count_tokens":   "The TokenHub 调用指南 index publishes no token-count endpoint (1823/130077, captured 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation instead of forwarding a request TokenHub would 404",
-	"chat":           "openai.chat trunk to POST {base}/v1/chat/completions with Authorization: Bearer; TokenHub 1823/130079 lists Hy3 on Chat Completions and 1823/130078 fixes the four hosts, the Bearer/x-api-key split and GET /v1/models (captured 2026-09-21). service/openai_gateway_chat_completions_raw.go keeps an unobserved stream unbilled instead of reporting zero usage",
-	"messages":       "openai.messages trunk on the TokenHub Anthropic path: POST {base}/v1/messages authenticated with x-api-key, where {base} is the same version-suffixed TokenHub site as the chat trunk (the version-aware target builder resolves {host}/v1/messages, never a doubled /v1). 1823/130079 lists Hy3 on Chat Completions, Responses and Anthropic and 1823/130078 fixes the four hosts plus the Bearer/x-api-key split (captured 2026-09-21). An account with api_protocol=anthropic forwards with zero conversion through Account.GetAnthropicProtocolBaseURL; every other protocol setting keeps the shared Anthropic→text conversion, so no second messages forwarder with separate token accounting exists",
+	"chat":           "openai.chat trunk to POST {base}/v1/chat/completions with Authorization: Bearer; TokenHub 1823/130079 lists Hy3 on Chat Completions and 1823/130078 fixes the four hosts, the Bearer/x-api-key split and GET /v1/models (captured 2026-09-21). service/openai_gateway_chat_completions_raw.go keeps an unobserved stream unbilled instead of reporting zero usage. Coding Plan accounts use the plan data plane instead: Tencent publishes https://api.lkeap.cloud.tencent.com/coding/v3 as the Coding Plan OpenAI-compatible base and https://api.lkeap.cloud.tencent.com/plan/v3 for Token Plan 个人版, with plan keys documented as not interchangeable with pay-as-you-go keys (1823/130092 and 1823/130060, captured 2026-09-23); Account.GetOpenAIBaseURL and service/hunyuan_adapter.go resolve that base from credentials.account_mode when base_url is empty, while an explicit base_url still wins",
+	"messages":       "openai.messages trunk on the TokenHub Anthropic path: POST {base}/v1/messages authenticated with x-api-key, where {base} is the same version-suffixed TokenHub site as the chat trunk (the version-aware target builder resolves {host}/v1/messages, never a doubled /v1). 1823/130079 lists Hy3 on Chat Completions, Responses and Anthropic and 1823/130078 fixes the four hosts plus the Bearer/x-api-key split (captured 2026-09-21). An account with api_protocol=anthropic forwards with zero conversion through Account.GetAnthropicProtocolBaseURL; every other protocol setting keeps the shared Anthropic→text conversion, so no second messages forwarder with separate token accounting exists. Coding Plan accounts resolve the plan-specific Anthropic-compatible root https://api.lkeap.cloud.tencent.com/coding/anthropic instead (1823/130092, captured 2026-09-23), so the mode changes the base URL only and not this cell's status",
 	"responses":      "openai.responses trunk on the TokenHub Responses compatibility mode: POST {base}/responses over HTTP/SSE, derived by the shared trunk from the same version-suffixed TokenHub base (1823/133813 documents the compatibility mode and 1823/130079 lists Responses in the per-model protocol table, captured 2026-09-21). This path authenticates with Authorization: Bearer and its usage fields are billed by the shared Responses settlement",
 	"embeddings":     "hunyuan.embeddings handler to POST {base}/v1/embeddings (OpenAI-compatible text vectorization) and POST {base}/v1/embeddings/multimodal for the fused text/image/video vector (1823/133515, captured 2026-09-21); usage.prompt_tokens/total_tokens billing",
 	"image.generate": "hunyuan.images handler to POST {base}/v1/wand/hunyuan-image/v3-generation (Hy-Image-3.0, synchronous, data[].url with a 12-hour temporary COS URL, size/images/seed/footnote/revise parameters) plus POST {base}/v1/wand/hunyuan-image/world2-panorama for the Hy-World-2.1 360 panorama, which answers data[].super_resolution_image_url and cover_image_url (1823/135745, 1823/136578 and the 1823/135744 family list, captured 2026-09-21); per-image billing from the counted outputs",
@@ -160,7 +168,7 @@ func hunyuanActionDescriptor(descriptor ActionDescriptor, action, adapter string
 		} else {
 			descriptor.Evidence = "Existing gateway adapter: " + bound
 		}
-		descriptor.CredentialPolicy = "hunyuan API-key account credential owner (Authorization: Bearer on the OpenAI paths, x-api-key on the Anthropic path); base URL is one of the official TokenHub sites"
+		descriptor.CredentialPolicy = "hunyuan API-key account credential owner (Authorization: Bearer on the OpenAI paths, x-api-key on the Anthropic path); base URL is one of the official TokenHub sites (or a documented Coding Plan / Token Plan site when account_mode=coding)"
 		descriptor.ModelPolicy = "resolved account model evidence and TokenHub task limits"
 		descriptor.UsagePolicy = "TokenHub response usage with frozen request pricing"
 		descriptor.Lifecycle = "request plan"

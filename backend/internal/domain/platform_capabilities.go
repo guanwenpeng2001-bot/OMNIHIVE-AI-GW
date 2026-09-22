@@ -53,6 +53,15 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	// The late-platform rows keep the protocol facts they were adjudicated with: the
+	// plan (Coding Plan / Token Plan) data planes published by Ark, Qianfan and
+	// TokenHub change an account's default base URL by account_mode, not the
+	// protocol surface these descriptors declare. Official captures 2026-09-23:
+	// ark.cn-beijing.volces.com/api/coding/v3 (Ark Coding Plan, OpenAI-compatible;
+	// the Anthropic-compatible root is .../api/coding),
+	// qianfan.baidubce.com/v2/tokenplan/personal (Qianfan Token Plan 个人版),
+	// api.lkeap.cloud.tencent.com/coding/v3 and .../coding/anthropic (TokenHub
+	// Coding Plan). Evidence rows live in the three *_actions.go files.
 	{ID: PlatformVolcengine, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianfan, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	// TokenHub publishes Chat Completions, Responses and Anthropic Messages on the
