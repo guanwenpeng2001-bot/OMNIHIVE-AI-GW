@@ -49,6 +49,20 @@ func openAIActionPath(action string) (string, bool) {
 	}
 }
 
+// openAIActionCatalogEndpoint maps one native action onto the catalogue endpoint
+// family its model evidence is recorded under. The video lifecycle shares the
+// media (images) family the catalogue publishes for video tasks, so the send
+// boundary must ask for that family instead of the action name; actions whose
+// family the catalogue never publishes keep their own token and stay refused.
+func openAIActionCatalogEndpoint(action string) string {
+	switch action {
+	case "video.generate", "video.edit", "video.extend":
+		return CompositeRouteEndpointImages
+	default:
+		return action
+	}
+}
+
 func openAIActionCredential(account *Account) (string, error) {
 	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
 		return "", ErrOpenAIActionCredential
@@ -209,7 +223,7 @@ func (s *OpenAIGatewayService) ForwardOpenAIAction(ctx context.Context, account 
 		return nil, err
 	}
 	if model != "" {
-		if err = validateAccountForwardModel(ctx, s.accountRepo, account, model, action); err != nil {
+		if err = validateAccountForwardModel(ctx, s.accountRepo, account, model, openAIActionCatalogEndpoint(action)); err != nil {
 			return nil, err
 		}
 	}
