@@ -11,6 +11,11 @@ import (
 
 const volcengineRuntimeBaseURL = "https://ark.cn-beijing.volces.com/api/v3"
 
+// volcengineCodingChatBasePath 是 Ark Coding Plan 的 OpenAI 兼容数据面路径
+// （DefaultVolcengineCodingBaseURL 的路径部分）。套餐专用的 Anthropic 兼容根 /api/coding
+// 不是 chat base，因此不在接受范围内。
+const volcengineCodingChatBasePath = "/api/coding/v3"
+
 // volcengineChatRequest is the private seam for the shared CC pipeline. The
 // caller still owns model eligibility, pricing, HTTP sending, SSE and settlement.
 // It must supply the already resolved account target, not a catalog canonical ID.
@@ -51,18 +56,25 @@ func (service *OpenAIGatewayService) prepareVolcengineChatRequest(account *Accou
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if baseURL == "" {
 		baseURL = volcengineRuntimeBaseURL
+		// 套餐（Coding Plan）账号走 Ark 的套餐专用数据面：官方明确按量 Base URL 不会
+		// 消耗套餐额度反而产生额外费用（火山方舟 Coding Plan 个人版快速开始，2026-09-23 抓取）。
+		// 凭据里的显式 base_url 已在上一步优先返回。
+		if account.GetAccountMode() == AccountModeCoding {
+			baseURL = DefaultVolcengineCodingBaseURL
+		}
 	}
 	parsedURL, err := url.Parse(baseURL)
 	if err != nil || parsedURL.User != nil || parsedURL.RawQuery != "" || parsedURL.Fragment != "" {
 		return nil, fmt.Errorf("volcengine runtime base URL must not contain credentials, query or fragment")
 	}
-	// Accept the documented base or an explicit full chat endpoint. In
-	// particular, do not append /v1 to a host or send a runtime key to /models
-	// or a management Action URL. Custom relays use the same runtime path.
+	// Accept the documented pay-as-you-go and Coding Plan bases, or an explicit
+	// full chat endpoint. In particular, do not append /v1 to a host or send a
+	// runtime key to /models or a management Action URL. Custom relays use the
+	// same runtime path.
 	switch strings.TrimRight(parsedURL.Path, "/") {
-	case "/api/v3", "/api/v3/chat/completions":
+	case "/api/v3", "/api/v3/chat/completions", volcengineCodingChatBasePath, volcengineCodingChatBasePath + "/chat/completions":
 	default:
-		return nil, fmt.Errorf("volcengine runtime base URL must use /api/v3 or /api/v3/chat/completions")
+		return nil, fmt.Errorf("volcengine runtime base URL must use /api/v3 or /api/coding/v3")
 	}
 	validatedURL, err := service.validateUpstreamBaseURL(baseURL)
 	if err != nil {

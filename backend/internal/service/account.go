@@ -1391,6 +1391,10 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
+	// 后期平台（hunyuan / volcengine / qianfan）同样按模式取默认值：套餐（Coding Plan /
+	// Token Plan）的 Base URL 与按量付费不同，且厂商要求专属 API Key（腾讯云 1823/130092、
+	// 火山方舟 Coding Plan 个人版快速开始、千帆 Token Plan 个人版文档，2026-09-23 抓取）。
+	// 未设模式时保持原有按量付费默认值；上面已优先返回凭据里的显式 base_url，用户填了就用他的。
 	switch a.Platform {
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
@@ -1409,12 +1413,21 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
 	case PlatformQianfan:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultQianfanCodingBaseURL
+		}
 		return qianfanDefaultBaseURL
 	case PlatformHunyuan:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultHunyuanCodingBaseURL
+		}
 		return hunyuanCompatibilityBaseURL
 	case PlatformMistral:
 		return mistralDefaultBaseURL
 	case PlatformVolcengine:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultVolcengineCodingBaseURL
+		}
 		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
@@ -1549,7 +1562,12 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 		case PlatformHunyuan:
 			// TokenHub serves the Anthropic Messages path on the same
 			// version-suffixed site as the OpenAI paths (1823/130078); the trunk
-			// appends the protocol path with the version-aware builder.
+			// appends the protocol path with the version-aware builder. Coding Plan
+			// accounts use Tencent's plan-specific Anthropic path instead (1823/130092,
+			// captured 2026-09-23).
+			if a.GetAccountMode() == AccountModeCoding {
+				return DefaultHunyuanCodingAnthropicBaseURL
+			}
 			return hunyuanCompatibilityBaseURL
 		case PlatformCommandCode:
 			return DefaultCommandCodeBaseURL
@@ -1621,6 +1639,11 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	case PlatformQianfan:
 		return qianfanDefaultBaseURL
 	case PlatformHunyuan:
+		// 套餐（Coding Plan）账号的 Anthropic 兼容路径与按量付费的 TokenHub 站点不同；
+		// 上游路径由 nativeAnthropicTargetURL 版本感知拼接为 {base}/v1/messages。
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultHunyuanCodingAnthropicBaseURL
+		}
 		return hunyuanCompatibilityBaseURL
 	case PlatformMistral:
 		return mistralDefaultBaseURL

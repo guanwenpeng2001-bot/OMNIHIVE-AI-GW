@@ -1031,6 +1031,13 @@ func isUpstreamBillingProbeAccount(account *Account) bool {
 // zhipuQuotaHost and requiresSystemChatRole already treat as official) belong
 // to that same group; the create form pre-fills the Hunyuan default base URL,
 // so missing it sent every Hunyuan account key to an official TokenHub path.
+// The plan data planes of the late platforms resolve under the same registrable
+// domains and therefore need no separate row: Hunyuan Coding Plan / Token Plan
+// on api.lkeap.cloud.tencent.com (tencent.com), Ark Coding Plan on
+// ark.cn-beijing.volces.com (volces.com) and Qianfan Token Plan on
+// qianfan.baidubce.com (baidubce.com) — see the official captures of
+// 2026-09-23 recorded in domain/hunyuan_actions.go, domain/volcengine_actions.go
+// and domain/qianfan_actions.go.
 var upstreamBillingProbeOfficialAPIDomains = []string{
 	"anthropic.com",
 	"googleapis.com",

@@ -93,6 +93,15 @@ const (
 	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
+	// 后期平台的套餐（Coding Plan / Token Plan）数据面与按量付费不同，厂商为套餐发布了
+	// 专属 Base URL 且要求专属 API Key（腾讯云 TokenHub Coding Plan 文档 1823/130092、
+	// 火山方舟 Coding Plan 个人版快速开始、千帆 Token Plan 个人版文档，均 2026-09-23 抓取）。
+	// 未设 account_mode 时按按量付费处理；显式 base_url 始终优先于这里的默认值。
+	DefaultHunyuanCodingBaseURL    = "https://api.lkeap.cloud.tencent.com/coding/v3"
+	DefaultVolcengineCodingBaseURL = "https://ark.cn-beijing.volces.com/api/coding/v3"
+	// 千帆 Token Plan 分个人版 / 企业版两条子路径，默认取个人版；企业版由用户显式填
+	// https://qianfan.baidubce.com/v2/tokenplan/team 覆盖，不额外增加选择器。
+	DefaultQianfanCodingBaseURL = "https://qianfan.baidubce.com/v2/tokenplan/personal"
 )
 
 // 国产供应商 Anthropic 协议端点的默认 base_url（上游路径为 {base}/v1/messages）。
@@ -106,6 +115,14 @@ const (
 	// OpenCode Go Anthropic 基址不含 /v1：nativeAnthropicTargetURL 会再拼 /v1/messages。
 	DefaultOpenCodeGoAnthropicBaseURL  = "https://opencode.ai/zen/go"
 	DefaultOpenCodeZenAnthropicBaseURL = "https://opencode.ai/zen"
+	// 后期平台套餐的 Anthropic 兼容路径（同样由 nativeAnthropicTargetURL 拼 /v1/messages）。
+	// 只给混元：火山方舟与千帆的 messages 格子在能力矩阵里是 hard_conflict，账号选不到
+	// anthropic 协议（GetAPIProtocol 对非多协议平台固定 chat_completions，
+	// GetAnthropicProtocolBaseURL 直接返回空串），写了也走不到。它们的 /v1/messages
+	// 走既有 Claude→chat 兼容桥，落到 GetOpenAIBaseURL()，同样按模式选套餐端点。
+	// 矩阵格子改成 implemented 时再补：火山方舟 https://ark.cn-beijing.volces.com/api/coding、
+	// 千帆 https://qianfan.baidubce.com/anthropic/tokenplan/personal。
+	DefaultHunyuanCodingAnthropicBaseURL = "https://api.lkeap.cloud.tencent.com/coding/anthropic"
 )
 
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax/qianwen）。
