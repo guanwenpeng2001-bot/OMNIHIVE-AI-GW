@@ -114,12 +114,17 @@ func TestUpstreamRuntimeCooldownCapacityExpiryAndIdentity(t *testing.T) {
 	key := AccountRuntimeCooldownKey(7, account, "actual-model")
 	until := time.Now().Add(time.Minute)
 	service.setRuntimeCooldown(ctx, key, until)
-	require.Equal(t, until, service.runtimeCooldown(ctx, key))
+	cooldownUntil, recorded := service.runtimeCooldown(ctx, key)
+	require.Equal(t, until, cooldownUntil)
+	require.True(t, recorded)
 	other := *account
 	other.Credentials = map[string]any{"api_key": "replacement"}
-	require.True(t, service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(7, &other, "actual-model")).IsZero())
-	require.True(t, service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(8, account, "actual-model")).IsZero())
-	require.True(t, service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(7, account, "other-model")).IsZero())
+	_, otherRecorded := service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(7, &other, "actual-model"))
+	require.False(t, otherRecorded)
+	_, groupRecorded := service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(8, account, "actual-model"))
+	require.False(t, groupRecorded)
+	_, modelRecorded := service.runtimeCooldown(ctx, AccountRuntimeCooldownKey(7, account, "other-model"))
+	require.False(t, modelRecorded)
 	for index := 0; index < runtimeCooldownFallbackLimit; index++ {
 		service.setRuntimeCooldown(ctx, fmt.Sprint(index), until.Add(time.Minute))
 	}
@@ -138,7 +143,9 @@ func TestUpstreamRuntimeCooldownCapacityExpiryAndIdentity(t *testing.T) {
 	runtimeCooldownFallback.entries[key] = time.Now().Add(-time.Second)
 	runtimeCooldownFallback.Unlock()
 	require.Equal(t, 1, count, "write sweeps all expired entries")
-	require.False(t, time.Now().Before(service.runtimeCooldown(ctx, key)))
+	expiredUntil, expiredRecorded := service.runtimeCooldown(ctx, key)
+	require.False(t, expiredRecorded, "read removes expired entry")
+	require.True(t, expiredUntil.IsZero())
 	runtimeCooldownFallback.Lock()
 	count = len(runtimeCooldownFallback.entries)
 	runtimeCooldownFallback.Unlock()
