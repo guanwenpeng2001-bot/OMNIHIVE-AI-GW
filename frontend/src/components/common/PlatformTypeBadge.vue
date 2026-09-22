@@ -66,10 +66,9 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { canonicalPlatform } from '@/constants/platforms'
+import { canonicalPlatform, getPlatformLabel } from '@/constants/platforms'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
-import { platformLabel as sharedPlatformLabel } from '@/utils/platformColors'
 import { normalizePlanType, openAIPlanTypeLabel } from '@/utils/planType'
 import GrokFreeIcon from './GrokFreeIcon.vue'
 import PlatformIcon from './PlatformIcon.vue'
@@ -88,7 +87,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => sharedPlatformLabel(canonicalPlatform(props.platform)))
+const platformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')

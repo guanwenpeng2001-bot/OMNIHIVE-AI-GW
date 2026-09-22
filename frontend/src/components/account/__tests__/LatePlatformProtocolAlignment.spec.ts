@@ -416,4 +416,30 @@ describe('late platform credential payloads', () => {
 
     wrapper.unmount()
   })
+
+  // 建号表单的占位符曾对后加平台回落成 Anthropic 的 sk-ant-... / https://api.anthropic.com/。
+  // 现在按平台给：官方文档有前缀的按文档（千帆 bce-v3/ALTAK-、TokenHub sk-），
+  // 没有固定前缀的用中性占位。
+  const API_KEY_PLACEHOLDER: Record<string, string> = {
+    qianfan: 'bce-v3/ALTAK-...',
+    hunyuan: 'sk-...',
+    mistral: '<api-key>',
+    volcengine: '<api-key>'
+  }
+
+  it.each(['qianfan', 'hunyuan', 'mistral', 'volcengine'])('%s keeps its own credential placeholders', async (platform) => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, platform)
+
+    const apiKeyField = wrapper.get('[data-account-field="apiKeyValue"]')
+    const baseUrlField = wrapper.get('[data-account-field="apiKeyBaseUrl"]')
+
+    expect(apiKeyField.attributes('placeholder')).not.toBe('sk-ant-...')
+    expect(apiKeyField.attributes('placeholder')).toBe(API_KEY_PLACEHOLDER[platform])
+    expect(baseUrlField.attributes('placeholder')).not.toContain('anthropic.com')
+    expect(baseUrlField.attributes('placeholder')).toBe(CHAT_PLATFORM_BASE_URLS[platform])
+    expect((baseUrlField.element as HTMLInputElement).value).toBe(CHAT_PLATFORM_BASE_URLS[platform])
+
+    wrapper.unmount()
+  })
 })

@@ -1,4 +1,4 @@
-import { GROUP_PLATFORM_OPTIONS, getPlatformLabel, type GroupPlatform } from '@/constants/platforms'
+import { GROUP_PLATFORM_OPTIONS, type GroupPlatform } from '@/constants/platforms'
 /**
  * Centralized platform color definitions.
  *
@@ -25,9 +25,9 @@ const BADGE: Record<Platform, string> = {
   volcengine: 'bg-sky-500/10 text-sky-700 border-sky-500/30 dark:text-sky-300',
   bedrock: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
   mistral: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-300',
-  hunyuan: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-300',
-  qianfan: 'bg-blue-500/10 text-blue-700 border-blue-500/30 dark:text-blue-300',
-  opencode_go: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-300',
+  hunyuan: 'bg-fuchsia-500/10 text-fuchsia-700 border-fuchsia-500/30 dark:text-fuchsia-300',
+  qianfan: 'bg-red-500/10 text-red-700 border-red-500/30 dark:text-red-300',
+  opencode_go: 'bg-lime-500/10 text-lime-700 border-lime-500/30 dark:text-lime-300',
   composite: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
 }
 const BADGE_DEFAULT = 'bg-slate-500/10 text-slate-600 border-slate-500/30 dark:text-slate-400'
@@ -49,9 +49,9 @@ const BADGE_LIGHT: Record<Platform, string> = {
   volcengine: 'bg-sky-500/10 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
   bedrock: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
   mistral: 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
-  hunyuan: 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
-  qianfan: 'bg-blue-500/10 text-blue-700 dark:bg-blue-500/10 dark:text-blue-300',
-  opencode_go: 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
+  hunyuan: 'bg-fuchsia-500/10 text-fuchsia-700 dark:bg-fuchsia-500/10 dark:text-fuchsia-300',
+  qianfan: 'bg-red-500/10 text-red-700 dark:bg-red-500/10 dark:text-red-300',
+  opencode_go: 'bg-lime-500/10 text-lime-700 dark:bg-lime-500/10 dark:text-lime-300',
   composite: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
 }
 
@@ -72,9 +72,9 @@ const BORDER: Record<Platform, string> = {
   volcengine: 'border-sky-500/20 dark:border-sky-500/20',
   bedrock: 'border-orange-500/20 dark:border-orange-500/20',
   mistral: 'border-amber-500/20 dark:border-amber-500/20',
-  hunyuan: 'border-blue-500/20 dark:border-blue-500/20',
-  qianfan: 'border-blue-500/20 dark:border-blue-500/20',
-  opencode_go: 'border-amber-500/20 dark:border-amber-500/20',
+  hunyuan: 'border-fuchsia-500/20 dark:border-fuchsia-500/20',
+  qianfan: 'border-red-500/20 dark:border-red-500/20',
+  opencode_go: 'border-lime-500/20 dark:border-lime-500/20',
   composite: 'border-cyan-500/20 dark:border-cyan-500/20',
 }
 const BORDER_DEFAULT = 'border-gray-200 dark:border-dark-700'
@@ -96,9 +96,9 @@ const BORDER_STRONG: Record<Platform, string> = {
   volcengine: 'border-sky-500/35 dark:border-sky-500/30',
   bedrock: 'border-orange-500/35 dark:border-orange-500/30',
   mistral: 'border-amber-500/35 dark:border-amber-500/30',
-  hunyuan: 'border-blue-500/35 dark:border-blue-500/30',
-  qianfan: 'border-blue-500/35 dark:border-blue-500/30',
-  opencode_go: 'border-amber-500/35 dark:border-amber-500/30',
+  hunyuan: 'border-fuchsia-500/35 dark:border-fuchsia-500/30',
+  qianfan: 'border-red-500/35 dark:border-red-500/30',
+  opencode_go: 'border-lime-500/35 dark:border-lime-500/30',
   composite: 'border-cyan-500/35 dark:border-cyan-500/30',
 }
 const BORDER_STRONG_DEFAULT = 'border-gray-300 dark:border-dark-600'
@@ -121,9 +121,9 @@ const ACCENT: Record<Platform, string> = {
   volcengine: '#0ea5e9', // sky-500
   bedrock: '#f97316', // orange-500
   mistral: '#f59e0b', // amber-500
-  hunyuan: '#3b82f6', // blue-500
-  qianfan: '#3b82f6', // blue-500
-  opencode_go: '#f59e0b', // amber-500
+  hunyuan: '#d946ef', // fuchsia-500
+  qianfan: '#dc2626', // red-600
+  opencode_go: '#84cc16', // lime-500
   composite: '#06b6d4', // cyan-500
 }
 const ACCENT_DEFAULT = '#14b8a6' // primary-500 (teal)
@@ -145,9 +145,9 @@ const ACCENT_BAR: Record<Platform, string> = {
   volcengine: 'bg-gradient-to-r from-sky-400 to-sky-500',
   bedrock: 'bg-gradient-to-r from-orange-400 to-orange-500',
   mistral: 'bg-gradient-to-r from-amber-400 to-amber-500',
-  hunyuan: 'bg-gradient-to-r from-blue-400 to-blue-500',
-  qianfan: 'bg-gradient-to-r from-blue-400 to-blue-500',
-  opencode_go: 'bg-gradient-to-r from-amber-400 to-amber-500',
+  hunyuan: 'bg-gradient-to-r from-fuchsia-400 to-fuchsia-500',
+  qianfan: 'bg-gradient-to-r from-red-400 to-red-500',
+  opencode_go: 'bg-gradient-to-r from-lime-400 to-lime-500',
   composite: 'bg-gradient-to-r from-slate-500 to-cyan-500',
 }
 const ACCENT_BAR_DEFAULT = 'bg-gradient-to-r from-primary-400 to-primary-500'
@@ -169,9 +169,9 @@ const TEXT: Record<Platform, string> = {
   volcengine: 'text-sky-700 dark:text-sky-300',
   bedrock: 'text-orange-700 dark:text-orange-300',
   mistral: 'text-amber-700 dark:text-amber-300',
-  hunyuan: 'text-blue-700 dark:text-blue-300',
-  qianfan: 'text-blue-700 dark:text-blue-300',
-  opencode_go: 'text-amber-700 dark:text-amber-300',
+  hunyuan: 'text-fuchsia-700 dark:text-fuchsia-300',
+  qianfan: 'text-red-700 dark:text-red-300',
+  opencode_go: 'text-lime-700 dark:text-lime-300',
   composite: 'text-cyan-700 dark:text-cyan-300',
 }
 const TEXT_DEFAULT = 'text-primary-600 dark:text-primary-400'
@@ -193,9 +193,9 @@ const ICON: Record<Platform, string> = {
   volcengine: 'text-sky-500 dark:text-sky-300',
   bedrock: 'text-orange-500 dark:text-orange-300',
   mistral: 'text-amber-500 dark:text-amber-300',
-  hunyuan: 'text-blue-500 dark:text-blue-300',
-  qianfan: 'text-blue-500 dark:text-blue-300',
-  opencode_go: 'text-amber-500 dark:text-amber-300',
+  hunyuan: 'text-fuchsia-500 dark:text-fuchsia-300',
+  qianfan: 'text-red-500 dark:text-red-300',
+  opencode_go: 'text-lime-500 dark:text-lime-300',
   composite: 'text-cyan-600 dark:text-cyan-300',
 }
 const ICON_DEFAULT = 'text-primary-500 dark:text-primary-400'
@@ -217,9 +217,9 @@ const BUTTON: Record<Platform, string> = {
   volcengine: 'bg-sky-500 text-white hover:bg-sky-600 active:bg-sky-700 dark:bg-sky-500/80 dark:hover:bg-sky-500',
   bedrock: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
   mistral: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 dark:bg-amber-500/80 dark:hover:bg-amber-500',
-  hunyuan: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
-  qianfan: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
-  opencode_go: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 dark:bg-amber-500/80 dark:hover:bg-amber-500',
+  hunyuan: 'bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:bg-fuchsia-700 dark:bg-fuchsia-500/80 dark:hover:bg-fuchsia-500',
+  qianfan: 'bg-red-500 text-white hover:bg-red-600 active:bg-red-700 dark:bg-red-500/80 dark:hover:bg-red-500',
+  opencode_go: 'bg-lime-500 text-white hover:bg-lime-600 active:bg-lime-700 dark:bg-lime-500/80 dark:hover:bg-lime-500',
   composite: 'bg-cyan-700 text-white hover:bg-cyan-800 active:bg-cyan-900 dark:bg-cyan-600 dark:hover:bg-cyan-500',
 }
 const BUTTON_DEFAULT = 'bg-primary-500 text-white hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500'
@@ -241,9 +241,9 @@ const DISCOUNT: Record<Platform, string> = {
   volcengine: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
   bedrock: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
   mistral: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
-  hunyuan: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  qianfan: 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300',
-  opencode_go: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
+  hunyuan: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
+  qianfan: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
+  opencode_go: 'bg-lime-100 text-lime-800 dark:bg-lime-900/40 dark:text-lime-300',
   composite: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
 }
 const DISCOUNT_DEFAULT = 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300'
@@ -265,9 +265,9 @@ const GRADIENT: Record<Platform, string> = {
   volcengine: 'from-sky-500 to-sky-600',
   bedrock: 'from-orange-500 to-orange-600',
   mistral: 'from-amber-500 to-amber-600',
-  hunyuan: 'from-blue-500 to-blue-600',
-  qianfan: 'from-blue-500 to-blue-600',
-  opencode_go: 'from-amber-500 to-amber-600',
+  hunyuan: 'from-fuchsia-500 to-fuchsia-600',
+  qianfan: 'from-red-500 to-red-600',
+  opencode_go: 'from-lime-500 to-lime-600',
   composite: 'from-slate-600 to-cyan-600',
 }
 const GRADIENT_DEFAULT = 'from-primary-500 to-primary-600'
@@ -289,9 +289,9 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   volcengine: 'text-sky-100',
   bedrock: 'text-orange-100',
   mistral: 'text-amber-100',
-  hunyuan: 'text-blue-100',
-  qianfan: 'text-blue-100',
-  opencode_go: 'text-amber-100',
+  hunyuan: 'text-fuchsia-100',
+  qianfan: 'text-red-100',
+  opencode_go: 'text-lime-100',
   composite: 'text-cyan-100',
 }
 const GRADIENT_TEXT_DEFAULT = 'text-primary-100'
@@ -312,9 +312,9 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   volcengine: 'text-sky-200',
   bedrock: 'text-orange-200',
   mistral: 'text-amber-200',
-  hunyuan: 'text-blue-200',
-  qianfan: 'text-blue-200',
-  opencode_go: 'text-amber-200',
+  hunyuan: 'text-fuchsia-200',
+  qianfan: 'text-red-200',
+  opencode_go: 'text-lime-200',
   composite: 'text-cyan-200',
 }
 const GRADIENT_SUBTEXT_DEFAULT = 'text-primary-200'
@@ -377,24 +377,20 @@ export function platformGradientSubtextClass(p: string): string {
   return isPlatform(p) ? GRADIENT_SUBTEXT[p] : GRADIENT_SUBTEXT_DEFAULT
 }
 
-export function platformLabel(p: string): string {
-  return getPlatformLabel(p)
-}
-
 // Selected account-mode cards preserve their existing colors and neutral fallback.
 const SELECTION: Partial<Record<Platform, string>> = {
   kimi: 'border-pink-500 bg-pink-50 dark:bg-pink-900/20',
   zhipu: 'border-indigo-500 bg-indigo-50 dark:bg-indigo-900/20',
   deepseek: 'border-teal-500 bg-teal-50 dark:bg-teal-900/20',
   minimax: 'border-rose-500 bg-rose-50 dark:bg-rose-900/20',
-  opencode_go: 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
+  opencode_go: 'border-lime-500 bg-lime-50 dark:bg-lime-900/20'
 }
 const SELECTION_ICON: Partial<Record<Platform, string>> = {
   kimi: 'bg-pink-500 text-white',
   zhipu: 'bg-indigo-500 text-white',
   deepseek: 'bg-teal-500 text-white',
   minimax: 'bg-rose-500 text-white',
-  opencode_go: 'bg-amber-500 text-white'
+  opencode_go: 'bg-lime-500 text-white'
 }
 
 export function platformSelectionClass(platform: string): string {

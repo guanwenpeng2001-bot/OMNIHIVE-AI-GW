@@ -1552,15 +1552,15 @@ it('refuses an old confirmation after the model payload changes while its review
 })
 
 
-it('selects the Beijing Coding Anthropic endpoint without rewriting later hand-entered URLs', async () => {
+it('selects the DashScope Messages endpoint without rewriting later hand-entered URLs', async () => {
   const wrapper = mountModal()
   await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
-  const state = wrapper.vm as unknown as { accountMode: 'payg' | 'coding'; apiProtocol: string; apiKeyBaseUrl: string; onCnPresetSelect: (preset: { mode: 'coding'; protocol: 'anthropic'; url: string }) => void }
-  const endpoint = 'https://coding.dashscope.aliyuncs.com/apps/anthropic'
-  state.onCnPresetSelect({ mode: 'coding', protocol: 'anthropic', url: endpoint })
+  const state = wrapper.vm as unknown as { accountMode: 'payg' | 'coding'; apiProtocol: string; apiKeyBaseUrl: string; onCnPresetSelect: (preset: { mode: 'payg'; protocol: 'anthropic'; url: string }) => void }
+  const endpoint = 'https://dashscope.aliyuncs.com/apps/anthropic'
+  state.onCnPresetSelect({ mode: 'payg', protocol: 'anthropic', url: endpoint })
   await flushPromises()
   expect(state.apiKeyBaseUrl).toBe(endpoint)
-  expect(state.accountMode).toBe('coding')
+  expect(state.accountMode).toBe('payg')
   expect(state.apiProtocol).toBe('anthropic')
   state.apiKeyBaseUrl = 'https://hand-entered.example/custom/v1'
   state.accountMode = 'payg'

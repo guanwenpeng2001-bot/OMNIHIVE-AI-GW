@@ -5,6 +5,7 @@ import { useAuthStore } from "@/stores/auth";
 import { adminAPI } from "@/api/admin";
 import type { AdminGroup, GroupPlatform } from "@/types";
 import type { PRODUCT_GROUP_PLATFORM_OPTIONS } from "@/constants/platforms";
+import { getPlatformLabel } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
 import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 
@@ -220,14 +221,17 @@ export function useGroupsList(
   ]);
 
   const platformOptions = computed(() =>
-    platformCatalog.filter(
-      (option) => !authStore.isSimpleMode || option.value !== "composite",
-    ),
+    platformCatalog
+      .filter((option) => !authStore.isSimpleMode || option.value !== "composite")
+      .map((option) => ({ ...option, label: getPlatformLabel(option.value, t) })),
   );
 
   const platformFilterOptions = computed(() => [
     { value: "", label: t("admin.groups.allPlatforms") },
-    ...platformCatalog,
+    ...platformCatalog.map((option) => ({
+      ...option,
+      label: getPlatformLabel(option.value, t),
+    })),
   ]);
 
   const groups = ref<AdminGroup[]>([]);

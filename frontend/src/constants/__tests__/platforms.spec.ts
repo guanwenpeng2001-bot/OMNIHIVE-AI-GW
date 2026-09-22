@@ -2,7 +2,7 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
-import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth, platformSupportsModelCatalog } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformFamily, platformSupportsOAuth, platformSupportsModelCatalog } from '@/constants/platforms'
 
 import * as platformColors from '@/utils/platformColors'
 import englishAccounts from '@/i18n/locales/en/admin/accounts'
@@ -76,7 +76,7 @@ describe('platform option catalogs', () => {
 
 describe('platform presentation tokens', () => {
   it.each([
-    ['qianfan', 'blue', '#3b82f6'], ['hunyuan', 'blue', '#3b82f6'],
+    ['qianfan', 'red', '#dc2626'], ['hunyuan', 'fuchsia', '#d946ef'],
     ['mistral', 'amber', '#f59e0b'], ['bedrock', 'orange', '#f97316'],
     ['volcengine', 'sky', '#0ea5e9'],
   ])('uses the project %s color family without changing selection fallback', (platform, color, accent) => {
@@ -94,6 +94,73 @@ describe('platform presentation tokens', () => {
     expect(platformColors.platformAccentColor(platform)).toBe(accent)
     expect(platformColors.platformSelectionClass(platform)).toBe(platformColors.platformSelectionClass('unknown'))
     expect(platformColors.platformSelectionIconClass(platform)).toBe(platformColors.platformSelectionIconClass('unknown'))
+  })
+
+  it('keeps the previously colliding platforms in distinct color families', () => {
+    // hunyuan/qianfan 曾与 gemini 同为 blue，mistral 与 opencode_go 逐字节相同；
+    // 这里同时断言色系名与整组 token 都不同，避免只差一档的“伪区分”。
+    const colliding = ['gemini', 'qianfan', 'hunyuan', 'mistral', 'opencode_go']
+    const tokenSet = (platform: string) => [
+      platformColors.platformBadgeClass, platformColors.platformBadgeLightClass,
+      platformColors.platformBorderClass, platformColors.platformBorderStrongClass,
+      platformColors.platformAccentColor, platformColors.platformAccentBarClass,
+      platformColors.platformTextClass, platformColors.platformIconClass,
+      platformColors.platformButtonClass, platformColors.platformDiscountClass,
+      platformColors.platformGradientClass, platformColors.platformGradientTextClass,
+      platformColors.platformGradientSubtextClass,
+    ].map(token => token(platform))
+    const colorFamily = (platform: string) => platformColors.platformBadgeClass(platform).match(/text-([a-z]+)-/)?.[1]
+
+    expect(new Set(colliding.map(colorFamily)).size).toBe(colliding.length)
+    for (const left of colliding) {
+      for (const right of colliding) {
+        if (left === right) continue
+        expect(tokenSet(left), `${left} vs ${right}`).not.toEqual(tokenSet(right))
+      }
+    }
+    // opencode_go 的账号模式选中卡跟随平台色（曾为 amber，与 mistral 同色）。
+    expect(platformColors.platformSelectionClass('opencode_go')).toBe('border-lime-500 bg-lime-50 dark:bg-lime-900/20')
+    expect(platformColors.platformSelectionIconClass('opencode_go')).toBe('bg-lime-500 text-white')
+  })
+
+  it('resolves a localized name for every platform id in both locales', () => {
+    const platformIds = [...CONCRETE_PLATFORM_OPTIONS.map(option => option.value), 'vertex', 'composite']
+    for (const [locale, labels] of Object.entries({ en: englishAccounts.accounts.platforms, zh: chineseAccounts.accounts.platforms })) {
+      for (const platform of platformIds) {
+        const localized = (labels as Record<string, string>)[platform]
+        expect(localized, `${locale} locale has no name for ${platform}`).toBeTruthy()
+        const translate = (key: string) => (labels as Record<string, string>)[key.replace('admin.accounts.platforms.', '')] ?? key
+        const label = getPlatformLabel(platform, translate)
+        expect(label, `${locale} renders the raw i18n key for ${platform}`).not.toMatch(/^admin\.accounts\.platforms\./)
+        expect(label).toBe(localized)
+      }
+    }
+  })
+
+  it('keeps platform names locale-neutral outside the i18n table', () => {
+    // 英文界面出现中文就是这条断言要拦的：静态兜底与 en 词条都不得含中文。
+    for (const option of CONCRETE_PLATFORM_OPTIONS) {
+      expect(option.label, `${option.value} fallback label is not locale-neutral`).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+    for (const [platform, label] of Object.entries(englishAccounts.accounts.platforms)) {
+      expect(label, `${platform} leaks Chinese into the English locale`).not.toMatch(/[\u4e00-\u9fff]/)
+    }
+    expect(getPlatformLabel('qianwen')).toBe('Qianwen AI')
+  })
+
+  it('assigns every platform entry to exactly one declared selector family', () => {
+    const platformIds = [...CONCRETE_PLATFORM_OPTIONS.map(option => option.value), 'vertex']
+    const grouped: Record<string, string[]> = { anthropic: [], google: [], openaiCompatible: [] }
+    for (const platform of platformIds) grouped[platformFamily(platform)].push(platform)
+
+    expect(grouped.anthropic.sort()).toEqual(['anthropic', 'bedrock'])
+    expect(grouped.google.sort()).toEqual(['antigravity', 'gemini', 'vertex'])
+    expect(grouped.openaiCompatible).toContain('cursor')
+    expect(grouped.anthropic.length + grouped.google.length + grouped.openaiCompatible.length).toBe(platformIds.length)
+    for (const family of Object.keys(grouped)) {
+      expect(englishAccounts.accounts.platformFamilies[family as keyof typeof englishAccounts.accounts.platformFamilies], `en family label missing for ${family}`).toBeTruthy()
+      expect(chineseAccounts.accounts.platformFamilies[family as keyof typeof chineseAccounts.accounts.platformFamilies], `zh family label missing for ${family}`).toBeTruthy()
+    }
   })
 
   it('keeps matching locale keys and scoped supplier display names', () => {

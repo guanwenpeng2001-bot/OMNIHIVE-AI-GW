@@ -119,6 +119,23 @@ describe('AccountUsageCell', () => {
   })
 
 
+  it.each(['qianfan', 'hunyuan', 'mistral', 'volcengine'] as const)('explains local-only usage for chat-only platform %s', async (platform) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform, type: 'apikey' }) },
+      global: { stubs: cnUsageCellStubs }
+    })
+    await flushPromises()
+    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toBe('admin.accounts.usageWindow.noUpstreamUsageApi')
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)
+    expect(getUsage).not.toHaveBeenCalled()
+    await wrapper.setProps({ todayStats: { requests: 0, tokens: 0, cost: 0, user_cost: 0 } })
+    expect(wrapper.text()).toContain('0 req')
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
   it.each(['commandcode', 'qianwen'] as const)('explains local-only usage for %s with and without traffic', async (platform) => {
     const wrapper = mount(AccountUsageCell, {
       props: { account: makeAccount({ platform, type: 'apikey' }) }

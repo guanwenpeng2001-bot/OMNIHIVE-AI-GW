@@ -161,7 +161,7 @@
             ]"
           >
             <PlatformIcon :platform="value" size="xs" />
-            {{ t("admin.groups.platforms." + value) }}
+            {{ getPlatformLabel(value, t) }}
           </span>
         </template>
 
@@ -477,6 +477,7 @@ import Pagination from "@/components/common/Pagination.vue";
 import EmptyState from "@/components/common/EmptyState.vue";
 import Select from "@/components/common/Select.vue";
 import PlatformIcon from "@/components/common/PlatformIcon.vue";
+import { getPlatformLabel } from "@/constants/platforms";
 import Icon from "@/components/icons/Icon.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import type { useGroupsList } from "./useGroupsList";
