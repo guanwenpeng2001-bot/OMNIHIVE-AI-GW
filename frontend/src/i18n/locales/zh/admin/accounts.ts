@@ -409,6 +409,12 @@ export default {
           paygDesc: '消耗账户余额，按 Token 计费。余额不足自动冷却，充值后恢复。',
           coding: 'Coding Plan',
           codingDesc: '订阅制编程套餐，按 5 小时 / 每周滚动用量窗口限流；请使用对应套餐的 Key。',
+          codingIsolatedDesc: '订阅制编程套餐，按 5 小时 / 每周滚动用量窗口限流。套餐与按量付费的 Base URL 与 Key 互不通用，请勿混用（用错地址会绕过套餐额度并产生额外费用）。',
+          paygOnlyNote: '该平台当前只有按量付费，官方没有套餐端点。',
+        },
+        baseUrlPresets: {
+          qianfanTokenPlanEnterprise: '千帆 TokenPlan 企业版',
+          qianfanTokenPlanEnterpriseAnthropic: '千帆 TokenPlan 企业版 Anthropic',
         },
         apiProtocol: {
           title: 'API 协议',

@@ -14,7 +14,12 @@ import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import {
   CN_BASE_URL_PRESETS,
   declaredPlatformApiProtocols,
+  defaultCNBaseUrl,
   hasDeclaredNativeResponses,
+  isCNProviderPlatform,
+  showsAccountModeCard,
+  showsCodingPlanMode,
+  type CnBaseUrlPresetPlatform,
   type DeclaredProtocolPlatform
 } from '../credentialsBuilder'
 
@@ -159,6 +164,56 @@ async function submitApiKey(wrapper: ReturnType<typeof mountModal>, name: string
   }
 }
 
+/** 账号类型卡的标题词条：国产多协议供应商与后加四家共用同一条 accountMode.title。 */
+const MODE_TITLE_KEYS: Record<string, string> = {
+  payg: 'admin.accounts.cnProviders.accountMode.payg',
+  coding: 'admin.accounts.cnProviders.accountMode.coding'
+}
+
+function accountModeGroup(wrapper: ReturnType<typeof mountModal>) {
+  return wrapper.findAll('[role="radiogroup"]').find(
+    candidate => candidate.attributes('aria-label') === 'admin.accounts.cnProviders.accountMode.title'
+  )
+}
+
+/** 按渲染顺序列出账号类型卡取值；未知卡片直接失败（避免少卡/多卡时静默通过）。 */
+function accountModeCardValues(wrapper: ReturnType<typeof mountModal>): string[] {
+  const group = accountModeGroup(wrapper)
+  expect(group, 'account mode card missing').toBeDefined()
+  return group!.findAll('button[role="radio"]').map(card => {
+    const text = card.text()
+    const match = Object.entries(MODE_TITLE_KEYS).find(([, titleKey]) => text.startsWith(titleKey))
+    expect(match, `unexpected account mode card: ${text}`).toBeDefined()
+    return match![0]
+  })
+}
+
+async function selectAccountMode(wrapper: ReturnType<typeof mountModal>, mode: 'payg' | 'coding') {
+  const group = accountModeGroup(wrapper)
+  expect(group, 'account mode card missing').toBeDefined()
+  const card = group!.findAll('button[role="radio"]').find(
+    candidate => candidate.text().startsWith(MODE_TITLE_KEYS[mode]!)
+  )
+  expect(card, `${mode} account mode card missing`).toBeDefined()
+  await card!.trigger('click')
+}
+
+function baseUrlValue(wrapper: ReturnType<typeof mountModal>): string {
+  return (wrapper.get('[data-account-field="apiKeyBaseUrl"]').element as HTMLInputElement).value
+}
+
+/** 预设按钮文案形如 "Ark (ark.cn-beijing.volces.com/api/v3)"。 */
+function baseUrlPresetTexts(wrapper: ReturnType<typeof mountModal>): string[] {
+  return wrapper.findAll('[data-testid="cn-base-url-preset"]').map(preset => preset.text())
+}
+
+/** 指定平台 × 账号类型 × 协议下的预设地址（预设表是唯一事实源）。 */
+function presetUrls(platform: CnBaseUrlPresetPlatform, mode: 'payg' | 'coding', protocol: string): string[] {
+  return CN_BASE_URL_PRESETS[platform]
+    .filter(preset => preset.mode === mode && preset.protocol === protocol)
+    .map(preset => preset.url)
+}
+
 /**
  * 混元 TokenHub 站点白名单：从后端源码读取（backend/internal/service/hunyuan_adapter.go 的
  * hunyuanActionBaseURL）：4 个 TokenHub 站点 + 1 个旧版兼容站点。前端预设必须与它逐条一致。
@@ -293,16 +348,15 @@ describe('late platform base URL presets', () => {
     expect(whitelist).toHaveLength(5)
     expect(new Set(whitelist).size).toBe(5)
 
+    // 按量付费档：白名单里的 5 个站点逐条对应到每个已声明协议。
+    const paygPresets = CN_BASE_URL_PRESETS.hunyuan.filter(preset => preset.mode === 'payg')
     for (const protocol of ['chat_completions', 'anthropic', 'responses']) {
-      const presetUrls = CN_BASE_URL_PRESETS.hunyuan
+      const presetUrls = paygPresets
         .filter(preset => preset.protocol === protocol)
         .map(preset => preset.url)
       expect([...new Set(presetUrls)].sort(), `${protocol} presets`).toEqual([...whitelist].sort())
       expect(presetUrls, `${protocol} preset count`).toHaveLength(whitelist.length)
     }
-    // 火山方舟与千帆在后端只有单一站点常量，没有可核证的备选站点，因此不给预设。
-    expect(CN_BASE_URL_PRESETS).not.toHaveProperty('volcengine')
-    expect(CN_BASE_URL_PRESETS).not.toHaveProperty('qianfan')
   })
 
   it('renders the whitelisted sites as preset buttons and fills the base URL on selection', async () => {
@@ -446,6 +500,276 @@ describe('late platform credential payloads', () => {
     expect(baseUrlField.attributes('placeholder')).not.toContain('anthropic.com')
     expect(baseUrlField.attributes('placeholder')).toBe(CHAT_PLATFORM_BASE_URLS[platform])
     expect((baseUrlField.element as HTMLInputElement).value).toBe(CHAT_PLATFORM_BASE_URLS[platform])
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * 账号类型卡（按量付费 / Coding Plan）：后加四家与国产多协议供应商对齐。
+ * 可见性由 credentialsBuilder 的 showsAccountModeCard / showsCodingPlanMode 单一决定：
+ * 千问无卡（后端没有套餐额度端点），DeepSeek 与 Mistral 只有按量付费一项。
+ */
+describe('late platform account mode card', () => {
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 79, platform: 'hunyuan', type: 'apikey' })
+  })
+
+  it.each(['hunyuan', 'volcengine', 'qianfan'])('gives %s both the pay-as-you-go and the Coding Plan cards', async (platform) => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, platform)
+
+    expect(accountModeCardValues(wrapper)).toEqual(['payg', 'coding'])
+    const group = accountModeGroup(wrapper)!
+    expect(group.findAll('button[role="radio"]').map(card => card.attributes('aria-checked'))).toEqual(['true', 'false'])
+    // 套餐与按量付费的 Base URL / Key 互不通用，卡上必须写清
+    expect(group.text()).toContain('admin.accounts.cnProviders.accountMode.codingIsolatedDesc')
+    expect(group.text()).not.toContain('admin.accounts.cnProviders.accountMode.codingDesc')
+    expect(wrapper.find('[data-testid="account-mode-payg-only-note"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('leaves mistral with the single pay-as-you-go card and says why', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'mistral')
+
+    expect(accountModeCardValues(wrapper)).toEqual(['payg'])
+    expect(accountModeGroup(wrapper)!.text()).toContain('admin.accounts.cnProviders.accountMode.paygDesc')
+    expect(wrapper.get('[data-testid="account-mode-payg-only-note"]').text()).toBe(
+      'admin.accounts.cnProviders.accountMode.paygOnlyNote'
+    )
+
+    wrapper.unmount()
+  })
+
+  it.each(['kimi', 'zhipu'])('keeps the %s cards on the existing wording', async (platform) => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, platform)
+
+    expect(accountModeCardValues(wrapper)).toEqual(['payg', 'coding'])
+    expect(accountModeGroup(wrapper)!.text()).toContain('admin.accounts.cnProviders.accountMode.codingDesc')
+    expect(accountModeGroup(wrapper)!.text()).not.toContain('admin.accounts.cnProviders.accountMode.codingIsolatedDesc')
+    expect(wrapper.find('[data-testid="account-mode-payg-only-note"]').exists()).toBe(false)
+
+    wrapper.unmount()
+  })
+
+  it('keeps deepseek pay-as-you-go only and qianwen without any account mode card', async () => {
+    const wrapper = mountModal()
+
+    await selectPlatform(wrapper, 'deepseek')
+    expect(accountModeCardValues(wrapper)).toEqual(['payg'])
+
+    await selectPlatform(wrapper, 'qianwen')
+    expect(accountModeGroup(wrapper)).toBeUndefined()
+
+    wrapper.unmount()
+  })
+
+  it('covers the four later platforms without widening the CN provider predicate', () => {
+    // 回归：模式卡的覆盖范围走独立谓词，后加平台仍不属于国产供应商集合，
+    // 因此余额/额度单元格、协议选项与序列化路径不受影响。
+    const laterPlatforms = ['hunyuan', 'volcengine', 'qianfan', 'mistral']
+    expect(laterPlatforms.map(showsAccountModeCard)).toEqual([true, true, true, true])
+    expect(laterPlatforms.map(isCNProviderPlatform)).toEqual([false, false, false, false])
+
+    expect(showsAccountModeCard('qianwen')).toBe(false)
+    expect(showsCodingPlanMode('deepseek')).toBe(false)
+    expect(showsCodingPlanMode('mistral')).toBe(false)
+    expect(showsCodingPlanMode('kimi')).toBe(true)
+  })
+})
+
+/**
+ * 模式必须真的进凭据：后端按 credentials.account_mode 选平台默认 base URL，
+ * 界面选中的档位没写进 credentials 就只是一个假选项（用错地址会绕过套餐额度）。
+ */
+describe('late platform account mode credentials', () => {
+  const PAYG_BASE_URLS: Record<string, string> = {
+    hunyuan: 'https://tokenhub.tencentmaas.com/v1',
+    volcengine: 'https://ark.cn-beijing.volces.com/api/v3',
+    qianfan: 'https://qianfan.baidubce.com/v2',
+    mistral: 'https://api.mistral.ai/v1'
+  }
+  const CODING_BASE_URLS: Record<string, string> = {
+    hunyuan: 'https://api.lkeap.cloud.tencent.com/coding/v3',
+    volcengine: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    qianfan: 'https://qianfan.baidubce.com/v2/tokenplan/personal'
+  }
+
+  beforeEach(() => {
+    createAccountMock.mockReset().mockResolvedValue({ id: 80, platform: 'hunyuan', type: 'apikey' })
+  })
+
+  it.each(['hunyuan', 'volcengine', 'qianfan'])('submits %s with account_mode payg and the pay-as-you-go site', async (platform) => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, platform)
+    await submitApiKey(wrapper, `${platform} payg`)
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      account_mode: 'payg',
+      base_url: PAYG_BASE_URLS[platform]
+    })
+
+    wrapper.unmount()
+  })
+
+  it.each(['hunyuan', 'volcengine', 'qianfan'])('submits the selected coding %s mode and the plan site', async (platform) => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, platform)
+    await selectAccountMode(wrapper, 'coding')
+
+    // 切档先把输入框换到套餐站点，避免把按量地址交给套餐 Key。
+    expect(baseUrlValue(wrapper)).toBe(CODING_BASE_URLS[platform])
+
+    await submitApiKey(wrapper, `${platform} coding`)
+
+    // 断言原文：credentials.account_mode 等于所选值，base_url 等于厂商公布的套餐站点。
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      account_mode: 'coding',
+      base_url: CODING_BASE_URLS[platform]
+    })
+
+    wrapper.unmount()
+  })
+
+  it('submits mistral pay-as-you-go, the only mode its API offers', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'mistral')
+    await submitApiKey(wrapper, 'mistral payg')
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      account_mode: 'payg',
+      base_url: PAYG_BASE_URLS.mistral
+    })
+    expect(accountModeCardValues(wrapper)).toEqual(['payg'])
+
+    wrapper.unmount()
+  })
+
+  it('replaces a selected pay-as-you-go TokenHub site when hunyuan switches to a plan', async () => {
+    // 用户点过 TokenHub Intl（按量站点）再切 coding：官方站点被换成套餐站点。
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'hunyuan')
+    await wrapper.get('[data-account-field="apiKeyBaseUrl"]').setValue('https://tokenhub-intl.tencentmaas.cn/v1')
+    await selectAccountMode(wrapper, 'coding')
+
+    expect(baseUrlValue(wrapper)).toBe(CODING_BASE_URLS.hunyuan)
+
+    wrapper.unmount()
+  })
+
+  it('keeps a user-typed relay address across a mode switch', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'volcengine')
+    await wrapper.get('[data-account-field="apiKeyBaseUrl"]').setValue('https://relay.example/v1')
+    await selectAccountMode(wrapper, 'coding')
+
+    expect(baseUrlValue(wrapper)).toBe('https://relay.example/v1')
+
+    wrapper.unmount()
+  })
+})
+
+/**
+ * 三家套餐站点的逐字断言：错一个字符就会打到按量端点、白花套餐钱
+ * （火山方舟官方："请勿使用 https://ark.cn-beijing.volces.com/api/v3 ：该 Base URL 不会消耗
+ * 您的 Coding Plan 额度，而是会产生额外费用"）。改这一组字符串里的任何一个字符，本组用例即红。
+ */
+describe('late platform plan base URL presets', () => {
+  it('pins the three vendor plan endpoints character for character', () => {
+    expect(presetUrls('hunyuan', 'coding', 'chat_completions')).toEqual([
+      'https://api.lkeap.cloud.tencent.com/coding/v3'
+    ])
+    expect(presetUrls('hunyuan', 'coding', 'anthropic')).toEqual([
+      'https://api.lkeap.cloud.tencent.com/coding/anthropic'
+    ])
+    expect(presetUrls('volcengine', 'coding', 'chat_completions')).toEqual([
+      'https://ark.cn-beijing.volces.com/api/coding/v3'
+    ])
+    expect(presetUrls('volcengine', 'coding', 'anthropic')).toEqual([
+      'https://ark.cn-beijing.volces.com/api/coding'
+    ])
+    expect(presetUrls('qianfan', 'coding', 'chat_completions')).toEqual([
+      'https://qianfan.baidubce.com/v2/tokenplan/personal',
+      'https://qianfan.baidubce.com/v2/tokenplan/team'
+    ])
+    expect(presetUrls('qianfan', 'coding', 'anthropic')).toEqual([
+      'https://qianfan.baidubce.com/anthropic/tokenplan/personal',
+      'https://qianfan.baidubce.com/anthropic/tokenplan/team'
+    ])
+  })
+
+  it('never mixes plan endpoints into the pay-as-you-go bucket', () => {
+    for (const platform of ['hunyuan', 'volcengine', 'qianfan'] as const) {
+      const paygUrls = CN_BASE_URL_PRESETS[platform].filter(preset => preset.mode === 'payg').map(preset => preset.url)
+      const codingUrls = CN_BASE_URL_PRESETS[platform].filter(preset => preset.mode === 'coding').map(preset => preset.url)
+      expect(codingUrls.length).toBeGreaterThan(0)
+      for (const url of codingUrls) expect(paygUrls).not.toContain(url)
+      for (const url of paygUrls) expect(codingUrls).not.toContain(url)
+    }
+  })
+
+  it('keeps mistral on the single pay-as-you-go site with no plan endpoint', () => {
+    expect(CN_BASE_URL_PRESETS.mistral).toEqual([
+      { mode: 'payg', protocol: 'chat_completions', label: 'Mistral', url: 'https://api.mistral.ai/v1' }
+    ])
+    expect(presetUrls('mistral', 'coding', 'chat_completions')).toEqual([])
+    expect(showsCodingPlanMode('mistral')).toBe(false)
+  })
+
+  it('derives the default base URL from the mode, not from the pay-as-you-go site', () => {
+    expect(defaultCNBaseUrl('hunyuan', 'coding', 'chat_completions')).toBe('https://api.lkeap.cloud.tencent.com/coding/v3')
+    expect(defaultCNBaseUrl('hunyuan', 'coding', 'anthropic')).toBe('https://api.lkeap.cloud.tencent.com/coding/anthropic')
+    expect(defaultCNBaseUrl('volcengine', 'coding', 'chat_completions')).toBe('https://ark.cn-beijing.volces.com/api/coding/v3')
+    // OpenAI 协议族共用厂商公布的套餐根，responses 不会回落到按量站点。
+    expect(defaultCNBaseUrl('volcengine', 'coding', 'responses')).toBe('https://ark.cn-beijing.volces.com/api/coding/v3')
+    expect(defaultCNBaseUrl('volcengine', 'coding', 'anthropic')).toBe('https://ark.cn-beijing.volces.com/api/coding')
+    expect(defaultCNBaseUrl('qianfan', 'coding', 'chat_completions')).toBe('https://qianfan.baidubce.com/v2/tokenplan/personal')
+    expect(defaultCNBaseUrl('qianfan', 'coding', 'responses')).toBe('https://qianfan.baidubce.com/v2/tokenplan/personal')
+    // 按量付费档逐条不变。
+    expect(defaultCNBaseUrl('volcengine', 'payg', 'chat_completions')).toBe('https://ark.cn-beijing.volces.com/api/v3')
+    expect(defaultCNBaseUrl('qianfan', 'payg', 'responses')).toBe('https://qianfan.baidubce.com/v2')
+    expect(defaultCNBaseUrl('volcengine', 'payg', 'anthropic')).toBe('')
+    expect(defaultCNBaseUrl('qianfan', 'payg', 'anthropic')).toBe('')
+  })
+
+  it('swaps the preset list with the selected mode and fills the plan site', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'volcengine')
+
+    expect(baseUrlPresetTexts(wrapper)).toEqual(['Ark (ark.cn-beijing.volces.com/api/v3)'])
+
+    await selectAccountMode(wrapper, 'coding')
+    expect(baseUrlPresetTexts(wrapper)).toEqual(['Ark Coding Plan (ark.cn-beijing.volces.com/api/coding/v3)'])
+    expect(baseUrlValue(wrapper)).toBe('https://ark.cn-beijing.volces.com/api/coding/v3')
+
+    await selectAccountMode(wrapper, 'payg')
+    expect(baseUrlPresetTexts(wrapper)).toEqual(['Ark (ark.cn-beijing.volces.com/api/v3)'])
+    expect(baseUrlValue(wrapper)).toBe('https://ark.cn-beijing.volces.com/api/v3')
+
+    wrapper.unmount()
+  })
+
+  it('offers the qianfan team plan site as a preset and keeps personal as the default', async () => {
+    const wrapper = mountModal()
+    await selectPlatform(wrapper, 'qianfan')
+    await selectAccountMode(wrapper, 'coding')
+
+    const presets = wrapper.findAll('[data-testid="cn-base-url-preset"]')
+    expect(presets.map(preset => preset.attributes('aria-pressed'))).toEqual(['true', 'false'])
+    expect(presets[1]!.text()).toContain('admin.accounts.cnProviders.baseUrlPresets.qianfanTokenPlanEnterprise')
+    expect(presets[1]!.text()).toContain('qianfan.baidubce.com/v2/tokenplan/team')
+
+    await presets[1]!.trigger('click')
+    expect(baseUrlValue(wrapper)).toBe('https://qianfan.baidubce.com/v2/tokenplan/team')
+
+    await submitApiKey(wrapper, 'qianfan team')
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials).toMatchObject({
+      account_mode: 'coding',
+      base_url: 'https://qianfan.baidubce.com/v2/tokenplan/team'
+    })
 
     wrapper.unmount()
   })

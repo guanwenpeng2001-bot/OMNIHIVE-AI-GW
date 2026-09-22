@@ -203,6 +203,12 @@ export default {
           paygDesc: 'Consumes account balance, billed per token. Auto-cools down on low balance and recovers after top-up.',
           coding: 'Coding Plan',
           codingDesc: 'Subscription coding package, rate-limited by 5-hour / weekly rolling usage windows; use the key from the matching plan.',
+          codingIsolatedDesc: 'Subscription coding package, rate-limited by 5-hour / weekly rolling usage windows. The plan and pay-as-you-go base URLs and keys are not interchangeable: mixing them bypasses the plan quota and incurs extra charges.',
+          paygOnlyNote: 'This platform currently offers pay-as-you-go only; it publishes no subscription endpoint.',
+        },
+        baseUrlPresets: {
+          qianfanTokenPlanEnterprise: 'Qianfan TokenPlan Enterprise',
+          qianfanTokenPlanEnterpriseAnthropic: 'Qianfan TokenPlan Enterprise Anthropic',
         },
         apiProtocol: {
           title: 'API Protocol',
