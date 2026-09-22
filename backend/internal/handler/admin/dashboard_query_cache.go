@@ -30,6 +30,7 @@ type dashboardTrendCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
@@ -45,6 +46,7 @@ type dashboardModelGroupCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
@@ -89,6 +91,7 @@ func (h *DashboardHandler) getUsageTrendCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.TrendDataPoint, bool, error) {
 	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
@@ -108,13 +111,14 @@ func (h *DashboardHandler) getUsageTrendCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardTrendCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetUsageTrendWithUsageFilters(ctx, startTime, endTime, granularity, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			Model: model, RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
 	if err != nil {
@@ -133,6 +137,7 @@ func (h *DashboardHandler) getModelStatsCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.ModelStat, bool, error) {
 	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
@@ -151,13 +156,14 @@ func (h *DashboardHandler) getModelStatsCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardModelStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetModelStatsWithUsageFiltersBySource(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		}, modelSource)
 	})
 	if err != nil {
@@ -175,6 +181,7 @@ func (h *DashboardHandler) getGroupStatsCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.GroupStat, bool, error) {
 	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
@@ -192,13 +199,14 @@ func (h *DashboardHandler) getGroupStatsCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardGroupStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetGroupStatsWithUsageFilters(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
 	if err != nil {

@@ -114,8 +114,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_cache_creation_tokens": stats.TotalCacheCreationTokens,
 		"total_cache_read_tokens":     stats.TotalCacheReadTokens,
 		"total_tokens":                stats.TotalTokens,
-		"total_cost":                  stats.TotalCost,       // 标准计费
-		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_cost":                  stats.TotalCost,        // 标准计费
+		"total_actual_cost":           stats.TotalActualCost,  // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost, // 累计账号成本
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -124,8 +125,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_cache_creation_tokens": stats.TodayCacheCreationTokens,
 		"today_cache_read_tokens":     stats.TodayCacheReadTokens,
 		"today_tokens":                stats.TodayTokens,
-		"today_cost":                  stats.TodayCost,       // 今日标准计费
-		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_cost":                  stats.TodayCost,        // 今日标准计费
+		"today_actual_cost":           stats.TodayActualCost,  // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost, // 今日账号成本
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,
@@ -233,6 +235,10 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -294,7 +300,7 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		return
 	}
 
-	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
 		writeDashboardError(c, err, "Failed to get usage trend")
 		return
@@ -321,6 +327,10 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -386,7 +396,7 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		return
 	}
 
-	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
 		writeDashboardError(c, err, "Failed to get model statistics")
 		return
@@ -400,6 +410,18 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 	})
 }
 
+// parseBillingModeQuery reads the shared billing_mode filter. An unknown mode is
+// rejected instead of silently returning an empty result set, so the table, the
+// totals and the charts cannot disagree about what was asked.
+func parseBillingModeQuery(c *gin.Context) (string, bool) {
+	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	if billingMode != "" && !service.BillingMode(billingMode).IsValidUsageFilter() {
+		response.BadRequest(c, "Invalid billing_mode")
+		return "", false
+	}
+	return billingMode, true
+}
+
 // GetGroupStats handles getting group usage statistics
 // GET /api/v1/admin/dashboard/groups
 // Query params: start_date, end_date (YYYY-MM-DD), user_id, api_key_id, account_id, group_id, request_type, stream, billing_type
@@ -410,6 +432,10 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -468,7 +494,7 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 		return
 	}
 
-	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
 		writeDashboardError(c, err, "Failed to get group statistics")
 		return

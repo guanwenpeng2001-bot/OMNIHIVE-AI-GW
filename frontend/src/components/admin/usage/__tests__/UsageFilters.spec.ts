@@ -41,6 +41,8 @@ const messages: Record<string, string> = {
   'common.reset': 'Reset',
   'admin.usage.cleanup.button': 'Cleanup',
   'usage.exportExcel': 'Export',
+  'usage.exportCsv': 'Export CSV',
+  'usage.allApiKeys': 'All API Keys',
 }
 
 // Mock vue-i18n
@@ -303,5 +305,104 @@ describe('UsageFilters — native compaction filter', () => {
 
     expect(filters.native_compaction_v2).toBe(true)
     expect(wrapper.emitted('change')).toBeTruthy()
+  })
+})
+
+describe('UsageFilters — owner scope', () => {
+  beforeEach(() => {
+    mockSearchUsers.mockReset()
+    mockSearchApiKeys.mockReset().mockResolvedValue([])
+    mockGroupsList.mockClear()
+  })
+
+  const SelectStub = {
+    name: 'Select',
+    props: ['modelValue', 'options'],
+    emits: ['update:modelValue', 'change'],
+    template: '<div />',
+  }
+
+  const ownerProps = () => ({
+    modelValue: defaultFilters(),
+    exporting: false,
+    startDate: '2026-05-01',
+    endDate: '2026-05-28',
+    showActions: false,
+    inline: true,
+    scope: 'self' as const,
+    apiKeyOptions: [{ value: null, label: 'All API Keys' }, { value: 7, label: 'primary' }],
+    groupOptions: [{ value: null, label: 'All Groups' }, { value: 3, label: 'pro' }],
+    modelOptions: [],
+  })
+
+  it('never renders the administrator-only filters', async () => {
+    const wrapper = mount(UsageFilters, {
+      props: ownerProps(),
+      global: { stubs: { Select: SelectStub, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('User')
+    expect(wrapper.text()).not.toContain('Account')
+    expect(wrapper.text()).not.toContain('Upstream model audit')
+    expect(wrapper.find('input').exists()).toBe(false)
+    // 用户自己的用量页不应触发管理端检索。
+    expect(mockSearchUsers).not.toHaveBeenCalled()
+    expect(mockGroupsList).not.toHaveBeenCalled()
+  })
+
+  it('uses the owner key and group options and keeps the privilege columns hidden', async () => {
+    const filters = defaultFilters()
+    const wrapper = mount(UsageFilters, {
+      props: { ...ownerProps(), modelValue: filters },
+      global: { stubs: { Select: SelectStub, Teleport: true } },
+    })
+    await flushPromises()
+
+    const selects = wrapper.findAllComponents(SelectStub)
+    const apiKeySelect = selects.find((select: any) =>
+      (select.props('options') as Array<{ label: string }>).some((option) => option.label === 'All API Keys')
+    )
+    expect(apiKeySelect).toBeDefined()
+    const groupSelect = selects.find((select: any) =>
+      (select.props('options') as Array<{ label: string }>).some((option) => option.label === 'pro')
+    )
+    expect(groupSelect).toBeDefined()
+
+    apiKeySelect!.vm.$emit('update:modelValue', 7)
+    apiKeySelect!.vm.$emit('change')
+    await wrapper.vm.$nextTick()
+    expect(filters.api_key_id).toBe(7)
+    expect(wrapper.emitted('change')).toBeTruthy()
+  })
+
+  it('hides the billing-type filter when the host disables subscriptions', async () => {
+    const wrapper = mount(UsageFilters, {
+      props: { ...ownerProps(), showBillingType: false },
+      global: { stubs: { Select: SelectStub, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).not.toContain('Billing Type')
+    expect(wrapper.text()).toContain('Billing Mode')
+  })
+
+  it('renders the administrator filters in the admin scope', async () => {
+    const wrapper = mount(UsageFilters, {
+      props: {
+        modelValue: defaultFilters(),
+        exporting: false,
+        startDate: '2026-05-01',
+        endDate: '2026-05-28',
+        showActions: false,
+        modelOptions: [],
+      },
+      global: { stubs: { Select: SelectStub, Teleport: true } },
+    })
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('User')
+    expect(wrapper.text()).toContain('Account')
+    expect(wrapper.text()).toContain('Upstream model audit')
   })
 })

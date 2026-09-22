@@ -6,7 +6,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, aoaToSheet, sheetAddAoa, saveAs, xlsxWrite } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, fetchUsageExportRows, downloadUsageCsv, xlsxToFile, writeXlsxFile } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -15,17 +15,16 @@ const { list, exportList, getStats, getSnapshotV2, getById, getModelStats, listE
 
   return {
     list: vi.fn(),
-		exportList: vi.fn(),
     getStats: vi.fn(),
     getSnapshotV2: vi.fn(),
     getById: vi.fn(),
     getModelStats: vi.fn(),
     listErrorLogs: vi.fn(),
     routeQuery: {} as Record<string, string>,
-		aoaToSheet: vi.fn(() => ({})),
-		sheetAddAoa: vi.fn(),
-		saveAs: vi.fn(),
-		xlsxWrite: vi.fn(() => new Uint8Array([1, 2, 3])),
+    fetchUsageExportRows: vi.fn(),
+    downloadUsageCsv: vi.fn(),
+    xlsxToFile: vi.fn(),
+    writeXlsxFile: vi.fn(() => ({ toFile: xlsxToFile, toBlob: vi.fn() })),
   }
 })
 
@@ -67,23 +66,17 @@ vi.mock('@/api/admin', () => ({
   },
 }))
 
-vi.mock('@/api/admin/usage', () => ({
-  adminUsageAPI: {
-		list: exportList,
-  },
+// 导出统一走服务端：一次请求取回行/CSV，不再按页循环拉取。
+vi.mock('@/utils/usageExport', () => ({
+  ADMIN_USAGE_EXPORT_ENDPOINT: '/admin/usage/export',
+  USER_USAGE_EXPORT_ENDPOINT: '/usage/export',
+  fetchUsageExportRows,
+  downloadUsageCsv,
+  usageExportFileName: (start: string, end: string, extension: string) =>
+    `usage_${start}_to_${end}.${extension}`,
 }))
 
-vi.mock('file-saver', () => ({ saveAs }))
-
-vi.mock('xlsx', () => ({
-	utils: {
-		aoa_to_sheet: aoaToSheet,
-		sheet_add_aoa: sheetAddAoa,
-		book_new: vi.fn(() => ({})),
-		book_append_sheet: vi.fn(),
-	},
-	write: xlsxWrite,
-}))
+vi.mock('write-excel-file/browser', () => ({ default: writeXlsxFile }))
 
 vi.mock('@/api/admin/ops', () => ({
   listErrorLogs,
@@ -834,34 +827,29 @@ describe('admin UsageView model audit export', () => {
 	beforeEach(() => {
 		vi.useFakeTimers()
 		list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
-		exportList.mockReset().mockResolvedValue({
-			items: [{
-				id: 1,
-				created_at: '2026-08-04T00:00:00Z',
-				model: 'gpt-5.6-sol',
-				upstream_model: 'gpt-5.5',
-				upstream_response_model: 'gpt-5.4',
-				upstream_model_mismatch: true,
-				request_type: 'sync',
-				input_tokens: 1,
-				output_tokens: 1,
-				cache_read_tokens: 0,
-				cache_creation_tokens: 0,
-				duration_ms: 10,
-			}],
-			total: 1,
-			pages: 1,
-		})
+		fetchUsageExportRows.mockReset().mockResolvedValue([{
+			id: 1,
+			created_at: '2026-08-04T00:00:00Z',
+			model: 'gpt-5.6-sol',
+			upstream_model: 'gpt-5.5',
+			upstream_response_model: 'gpt-5.4',
+			upstream_model_mismatch: true,
+			request_type: 'sync',
+			input_tokens: 1,
+			output_tokens: 1,
+			cache_read_tokens: 0,
+			cache_creation_tokens: 0,
+			duration_ms: 10,
+		}])
+		downloadUsageCsv.mockReset().mockResolvedValue(undefined)
 		getStats.mockReset().mockResolvedValue({
 			total_requests: 0, total_input_tokens: 0, total_output_tokens: 0,
 			total_cache_tokens: 0, total_tokens: 0, total_cost: 0, total_actual_cost: 0, average_duration_ms: 0,
 		})
 		getSnapshotV2.mockReset().mockResolvedValue({ trend: [], models: [], groups: [] })
 		getModelStats.mockReset().mockResolvedValue({ models: [] })
-		aoaToSheet.mockClear()
-		sheetAddAoa.mockClear()
-		saveAs.mockClear()
-		xlsxWrite.mockClear()
+		writeXlsxFile.mockClear()
+		xlsxToFile.mockClear()
 	})
 
 	afterEach(() => {
@@ -877,21 +865,21 @@ describe('admin UsageView model audit export', () => {
 		await (wrapper.vm as any).exportToExcel()
 		await flushPromises()
 
-		expect(exportList).toHaveBeenCalledWith(
-			expect.objectContaining({ native_compaction_v2: true }),
-			expect.anything()
-		)
+		expect(fetchUsageExportRows).toHaveBeenCalledTimes(1)
+		expect(fetchUsageExportRows).toHaveBeenCalledWith(expect.objectContaining({
+			endpoint: '/admin/usage/export',
+			params: expect.objectContaining({ native_compaction_v2: true }),
+		}))
 
-		const headers = aoaToSheet.mock.calls[0][0][0]
-		expect(headers.slice(4, 8)).toEqual([
+		const sheet = writeXlsxFile.mock.calls[0][0] as string[][]
+		expect(sheet[0].slice(4, 8)).toEqual([
 			'Requested model',
 			'Sent upstream model',
 			'Upstream response model',
 			'Upstream model mismatch',
 		])
-		const row = sheetAddAoa.mock.calls[0][1][0]
-		expect(row.slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
-		expect(saveAs).toHaveBeenCalledTimes(1)
+		expect(sheet[1].slice(4, 8)).toEqual(['gpt-5.6-sol', 'gpt-5.5', 'gpt-5.4', 'Yes'])
+		expect(xlsxToFile).toHaveBeenCalledTimes(1)
 	})
 })
 
@@ -900,16 +888,15 @@ describe('ledger export formatting', () => {
   it.each([0, 1e-8, -1e-8, null])('exports exact %s and leaves counts and model IDs intact', async amount => {
     vi.useFakeTimers()
     list.mockResolvedValue({ items: [], total: 0, pages: 0 })
-    exportList.mockResolvedValue({ items: [{ model: 'model-original-ID', input_tokens: 23,
+    fetchUsageExportRows.mockResolvedValue([{ model: 'model-original-ID', input_tokens: 23,
       actual_cost: amount, total_cost: amount, account_rate_multiplier: 1,
-      created_at: '2026-11-01T05:30:00Z' }], total: 1, pages: 1 })
-    aoaToSheet.mockClear()
-    sheetAddAoa.mockClear()
+      created_at: '2026-11-01T05:30:00Z' }])
+    writeXlsxFile.mockClear()
     const wrapper = mountRouteFilteredUsageView()
     vi.advanceTimersByTime(120)
     await flushPromises()
     await (wrapper.vm as any).exportToExcel()
-    const row = sheetAddAoa.mock.calls[0][1][0]
+    const row = (writeXlsxFile.mock.calls[0][0] as unknown[][])[1]
     expect(row[0]).toBe(formatDateTimeWithZone('2026-11-01T05:30:00Z'))
     expect(row[4]).toBe('model-original-ID')
     expect(row[14]).toBe(23)
@@ -919,9 +906,28 @@ describe('ledger export formatting', () => {
   })
 })
 
+ it('filters the table, the totals and every chart by the same billing mode', async () => {
+    list.mockResolvedValue({ items: [], total: 0 })
+    getStats.mockResolvedValue({ total_requests: 0, total_tokens: 0, total_cost: 0 })
+    getSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getModelStats.mockResolvedValue({ models: [] })
+    const wrapper = mountRouteFilteredUsageView()
+    await flushPromises()
+
+    ;(wrapper.vm as any).filters.billing_mode = 'image'
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'image' }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'image' }))
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'image' }))
+    expect(getModelStats).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'image' }))
+    wrapper.unmount()
+  })
+
  it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('admin report passes explicit %s to all reads and export', async timeZone => {
     list.mockResolvedValue({ items: [], total: 0 })
-    exportList.mockResolvedValue({ items: [{ created_at: '2026-11-01T09:30:00Z', model: 'model' }], total: 1 })
+    fetchUsageExportRows.mockResolvedValue([{ created_at: '2026-11-01T09:30:00Z', model: 'model' }])
     const wrapper = mountRouteFilteredUsageView(timeZone)
     await flushPromises()
     await (wrapper.vm as any).loadChartData()
@@ -932,8 +938,11 @@ describe('ledger export formatting', () => {
     expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
     expect(getModelStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
     await (wrapper.vm as any).exportToExcel()
-    expect(exportList).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
-    expect(sheetAddAoa.mock.calls.at(-1)![1][0][0]).toBe(formatDateTimeWithZone('2026-11-01T09:30:00Z', timeZone))
+    expect(fetchUsageExportRows).toHaveBeenLastCalledWith(expect.objectContaining({
+      params: expect.objectContaining({ timezone: timeZone }),
+    }))
+    const lastSheet = writeXlsxFile.mock.calls.at(-1)![0] as unknown[][]
+    expect(lastSheet[1][0]).toBe(formatDateTimeWithZone('2026-11-01T09:30:00Z', timeZone))
     expect(wrapper.findComponent({ name: 'UsageTable' }).props('timeZone')).toBe(timeZone)
     wrapper.unmount()
   })

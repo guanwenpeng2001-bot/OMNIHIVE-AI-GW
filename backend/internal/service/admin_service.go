@@ -713,6 +713,7 @@ type adminServiceImpl struct {
 	cursorSessions       CursorSessionCache
 	cfg                  *config.Config
 	userRepo             UserRepository
+	usageLogRepo         UsageLogRepository
 	groupRepo            GroupRepository
 	groupDuplicateRepo   GroupDuplicateRepository
 	emptyGroupDeleteRepo EmptyGroupDeleteRepository
@@ -759,6 +760,7 @@ type userGroupRateBatchReader interface {
 func NewAdminService(
 	cfg *config.Config,
 	userRepo UserRepository,
+	usageLogRepo UsageLogRepository,
 	groupRepo AdminGroupRepository,
 	accountRepo AdminAccountRepository,
 	proxyRepo ProxyRepository,
@@ -788,6 +790,7 @@ func NewAdminService(
 		cursorSessions:       cursorSessions,
 		cfg:                  cfg,
 		userRepo:             userRepo,
+		usageLogRepo:         usageLogRepo,
 		groupRepo:            groupRepo,
 		groupDuplicateRepo:   groupRepo,
 		emptyGroupDeleteRepo: groupRepo,

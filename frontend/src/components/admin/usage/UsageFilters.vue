@@ -1,11 +1,11 @@
 <template>
-  <div :class="flat ? 'p-4 sm:p-6' : 'card p-6'">
+  <div :class="rootClass">
     <!-- Toolbar: left filters (multi-line) + right actions -->
-    <div class="flex flex-wrap items-end justify-between gap-4">
+    <div :class="inline ? 'contents' : 'flex flex-wrap items-end justify-between gap-4'">
       <!-- Left: filters (allowed to wrap to multiple rows) -->
       <div class="flex flex-1 flex-wrap items-end gap-4">
-        <!-- User Search -->
-        <div ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
+        <!-- User Search (admin scope only) -->
+        <div v-if="showUserFilter" ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('admin.usage.userFilter') }}</label>
           <input
             v-model="userKeyword"
@@ -41,8 +41,14 @@
           </div>
         </div>
 
+        <!-- API Key filter: the owner scope selects one of their own keys -->
+        <div v-if="!showUserFilter" class="w-full sm:w-auto sm:min-w-[240px]">
+          <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
+          <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="emitChange" />
+        </div>
+
         <!-- API Key Search -->
-        <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
+        <div v-if="showUserFilter" ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
           <input
             v-model="apiKeyKeyword"
@@ -84,8 +90,8 @@
           <Select v-model="filters.model" :options="modelOptions" searchable @change="emitChange" />
         </div>
 
-        <!-- Account Filter -->
-        <div ref="accountSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[220px]">
+        <!-- Account Filter (admin scope only) -->
+        <div v-if="showUserFilter" ref="accountSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.account') }}</label>
           <input
             v-model="accountKeyword"
@@ -134,7 +140,7 @@
         </div>
 
         <!-- Billing Type Filter (usage only) -->
-        <div v-if="mode !== 'errors'" class="w-full sm:w-auto sm:min-w-[200px]">
+        <div v-if="mode !== 'errors' && showBillingType" class="w-full sm:w-auto sm:min-w-[200px]">
           <label class="input-label">{{ t('admin.usage.billingType') }}</label>
           <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="emitChange" />
         </div>
@@ -145,7 +151,7 @@
           <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="emitChange" />
         </div>
 
-        <div v-if="mode === 'usage'" class="w-full sm:w-auto sm:min-w-[220px]">
+        <div v-if="mode === 'usage' && showUserFilter" class="w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.upstreamModelAudit') }}</label>
           <Select v-model="filters.upstream_model_mismatch" :options="upstreamModelMismatchOptions" @change="emitChange" />
         </div>
@@ -186,8 +192,11 @@
         </button>
         <slot name="after-reset" />
         <template v-if="mode === 'usage'">
-          <button type="button" @click="$emit('cleanup')" class="btn btn-danger">
+          <button v-if="showUserFilter" type="button" @click="$emit('cleanup')" class="btn btn-danger">
             {{ t('admin.usage.cleanup.button') }}
+          </button>
+          <button type="button" @click="$emit('exportCsv')" :disabled="exporting" class="btn btn-secondary">
+            {{ t('usage.exportCsv') }}
           </button>
           <button type="button" @click="$emit('export')" :disabled="exporting" class="btn btn-primary">
             {{ t('usage.exportExcel') }}
@@ -222,12 +231,35 @@ interface Props {
   mode?: 'usage' | 'errors' | 'ranking'
   /** 嵌入统一卡片内使用：去掉自身卡片外观 */
   flat?: boolean
+  /** 嵌入宿主工具栏：只渲染筛选字段，宿主提供卡片、动作区与列设置 */
+  inline?: boolean
+  /**
+   * 筛选范围：admin 保留用户/账号检索与管理端审计筛选；
+   * self 是登录用户自己的用量页，Key 与分组改用宿主提供的选项，管理端字段一律不渲染。
+   */
+  scope?: 'admin' | 'self'
+  /** self 范围的 Key 选项（含"全部"项） */
+  apiKeyOptions?: SelectOption[]
+  /** self 范围的分组选项（含"全部"项） */
+  groupOptions?: SelectOption[]
+  /** 订阅计费类型筛选开关（宿主按站点开关决定） */
+  showBillingType?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
   showActions: true,
   mode: 'usage',
-  flat: false
+  flat: false,
+  inline: false,
+  scope: 'admin',
+  showBillingType: true
+})
+
+// 管理端字段（用户检索、账号检索、上游模型审计、清理）只在 admin 范围渲染。
+const showUserFilter = computed(() => props.scope !== 'self')
+const rootClass = computed(() => {
+  if (props.inline) return 'flex flex-1 flex-wrap items-end justify-between gap-4'
+  return props.flat ? 'p-4 sm:p-6' : 'card p-6'
 })
 const emit = defineEmits([
   'update:modelValue',
@@ -235,6 +267,7 @@ const emit = defineEmits([
   'refresh',
   'reset',
   'export',
+  'exportCsv',
   'cleanup'
 ])
 
@@ -269,7 +302,11 @@ const modelOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allModels') },
   ...(props.modelOptions ?? []).map((m) => ({ value: m, label: m })),
 ])
-const groupOptions = ref<SelectOption[]>([{ value: null, label: t('admin.usage.allGroups') }])
+const loadedGroupOptions = ref<SelectOption[]>([{ value: null, label: t('admin.usage.allGroups') }])
+const groupOptions = computed<SelectOption[]>(() =>
+  props.scope === 'self' ? (props.groupOptions ?? [{ value: null, label: t('admin.usage.allGroups') }]) : loadedGroupOptions.value
+)
+const apiKeyOptions = computed<SelectOption[]>(() => props.apiKeyOptions ?? [{ value: null, label: t('usage.apiKeyFilter') }])
 
 const requestTypeOptions = ref<SelectOption[]>([
   { value: null, label: t('admin.usage.allTypes') },
@@ -524,9 +561,11 @@ watch(
 
 onMounted(async () => {
   document.addEventListener('click', onDocumentClick)
+  // 用户自己的用量页由宿主提供分组选项，不需要也不应拉取管理端分组列表。
+  if (!showUserFilter.value) return
   try {
     const gs = await adminAPI.groups.list(1, 1000)
-    groupOptions.value.push(...gs.items.map((g: any) => ({ value: g.id, label: g.name })))
+    loadedGroupOptions.value.push(...gs.items.map((g: any) => ({ value: g.id, label: g.name })))
   } catch {
     // Ignore filter option loading errors (page still usable)
   }

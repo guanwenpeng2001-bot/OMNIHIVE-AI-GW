@@ -1,4 +1,3 @@
-import { formatDateTimeWithZone } from '@/utils/format'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
@@ -6,7 +5,6 @@ import { flushPromises, mount } from '@vue/test-utils'
 import UsageView from '../UsageView.vue'
 import Select, { type SelectOption } from '@/components/common/Select.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
-import UsageTable from '@/components/admin/usage/UsageTable.vue'
 
 const {
   query,
@@ -20,6 +18,8 @@ const {
   showWarning,
   showSuccess,
   showInfo,
+  downloadUsageCsv,
+  fetchUsageExportRows,
 } = vi.hoisted(() => ({
   query: vi.fn(),
   getStats: vi.fn(),
@@ -32,6 +32,8 @@ const {
   showWarning: vi.fn(),
   showSuccess: vi.fn(),
   showInfo: vi.fn(),
+  downloadUsageCsv: vi.fn(),
+  fetchUsageExportRows: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -76,6 +78,16 @@ const messages: Record<string, string> = {
   'common.refresh': 'Refresh',
   'common.reset': 'Reset',
 }
+
+// 导出统一走服务端 CSV 流：浏览器只发一次请求，不再按页循环拉取。
+vi.mock('@/utils/usageExport', () => ({
+  ADMIN_USAGE_EXPORT_ENDPOINT: '/admin/usage/export',
+  USER_USAGE_EXPORT_ENDPOINT: '/usage/export',
+  downloadUsageCsv,
+  fetchUsageExportRows,
+  usageExportFileName: (start: string, end: string, extension: string) =>
+    `usage_${start}_to_${end}.${extension}`,
+}))
 
 vi.mock('@/api', () => ({
   usageAPI: {
@@ -410,7 +422,11 @@ describe('user UsageView', () => {
     const wrapper = mountUsageView()
     await flushPromises()
 
-    expect((wrapper.vm as any).compactionOptions).toEqual([
+    // 筛选选项由共享筛选壳渲染（用户页与管理页同一份选项）。
+    const compactionSelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All Requests')
+    )!
+    expect(compactionSelect.props('options')).toEqual([
       { value: null, label: 'All Requests' },
       { value: true, label: 'Compaction Only' },
     ])
@@ -450,77 +466,37 @@ describe('user UsageView', () => {
     expect(getDashboardSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: null }))
   })
 
-  it('exports csv with current filters and without admin-only fields', async () => {
+  it('exports the current filters through one server-side CSV request without admin-only columns', async () => {
+    downloadUsageCsv.mockReset().mockResolvedValue(undefined)
     const wrapper = mountUsageView()
     await flushPromises()
     ;(wrapper.vm as any).filters.native_compaction_v2 = true
 
-    let exportedBlob: Blob | null = null
-    let csvContent = ''
-    const OriginalBlob = globalThis.Blob
-    vi.stubGlobal('Blob', vi.fn((parts: BlobPart[], options?: BlobPropertyBag) => {
-      csvContent = parts.map((part) => String(part)).join('')
-      return new OriginalBlob(parts, options)
-    }))
-    const originalCreateObjectURL = window.URL.createObjectURL
-    const originalRevokeObjectURL = window.URL.revokeObjectURL
-    window.URL.createObjectURL = vi.fn((blob: Blob | MediaSource) => {
-      exportedBlob = blob as Blob
-      return 'blob:usage-export'
-    }) as typeof window.URL.createObjectURL
-    window.URL.revokeObjectURL = vi.fn(() => {}) as typeof window.URL.revokeObjectURL
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
-
     await (wrapper.vm as any).exportToCSV()
 
-    expect(exportedBlob).not.toBeNull()
-    expect(query).toHaveBeenCalledWith(expect.objectContaining({
+    expect(downloadUsageCsv).toHaveBeenCalledTimes(1)
+    const request = downloadUsageCsv.mock.calls[0][0]
+    expect(request.endpoint).toBe('/usage/export')
+    expect(request.params).toMatchObject({
       page_size: 100,
       sort_by: 'created_at',
       sort_order: 'desc',
       native_compaction_v2: true,
-    }))
-    expect(clickSpy).toHaveBeenCalled()
+    })
+    expect(request.fileName).toBe(`usage_${(wrapper.vm as any).startDate}_to_${(wrapper.vm as any).endDate}.csv`)
+    // 用户端表头不含管理端字段，权限字段差异在导出标签上保持。
+    expect(request.labels).toHaveLength(32)
+    expect(request.labels).toContain('API Key')
+    expect(request.labels).toContain('Model')
+    expect(request.labels.join(',')).not.toContain('account_billed_cost')
+    expect(request.labels.join(',')).not.toContain('upstream_request_id')
     expect(showSuccess).toHaveBeenCalled()
-    expect(csvContent.startsWith('\uFEFF')).toBe(true)
-    expect(csvContent.slice(1)).toBe([
-      'Time,API Key Name,Model,Reasoning Effort,Inbound Endpoint,IP Address,Type,Billing Mode,Input Tokens,Output Tokens,Cache Read Tokens,Cache Creation Tokens,Rate Multiplier,Billed Cost (USD),Original Cost (USD),First Token (ms),Duration (ms),' +
-        ['pricingState', 'settlementState', 'completionState', 'source', 'version', 'conditions', 'quantity', 'unit', 'unitPrice', 'charged', 'requestId', 'jobId', 'sessionId', 'turnId', 'snapshot'].map(field => `usage.evidence.${field}`).join(','),
-      `"${formatDateTimeWithZone('2026-03-08T00:00:00Z')}",demo-key,gpt-5.4,"\'-",,203.0.113.10,Sync,Token,4057,101,278272,4,1,0.09288300,0.09288300,12,345,` +
-        [...Array<string>(10).fill('usage.evidence.unknown'), 'req-user-export', ...Array<string>(4).fill('usage.evidence.unknown')].join(','),
-    ].join('\n'))
-    expect(csvContent).toContain('IP Address')
-    expect(csvContent).toContain('203.0.113.10')
-    expect(csvContent).toContain('Billed Cost')
-    expect(csvContent).toContain('Original Cost')
-    expect(csvContent).not.toContain('Upstream Endpoint')
-    expect(csvContent).not.toContain('account_cost')
-    expect(csvContent).not.toContain('account_rate_multiplier')
-
-    // Exercise the real CSV path with micro amounts, zero and unknown values.
-    for (const amount of [0, 1e-8, -1e-8, null]) {
-      query.mockResolvedValueOnce({ items: [{ model: 'model-original-ID', created_at: '2026-11-01T05:30:00Z',
-        input_tokens: 23, actual_cost: amount, total_cost: amount }], total: 1, pages: 1 })
-      await (wrapper.vm as any).exportToCSV()
-      const row = csvContent.split('\n')[1].split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/)
-      expect(row[0]).toBe(`"${formatDateTimeWithZone('2026-11-01T05:30:00Z')}"`)
-      expect(row[2]).toBe('model-original-ID')
-      expect(row[8]).toBe('23')
-      // CSV formula-injection escaping is retained for negative/unknown strings.
-      const expected = amount == null ? '-' : amount.toFixed(8)
-      expect(row[13].replaceAll('"', '').replace(/^'/, '')).toBe(expected)
-      expect(row[14].replaceAll('"', '').replace(/^'/, '')).toBe(expected)
-    }
-
-    window.URL.createObjectURL = originalCreateObjectURL
-    window.URL.revokeObjectURL = originalRevokeObjectURL
-    vi.unstubAllGlobals()
-    clickSpy.mockRestore()
+    expect(showError).not.toHaveBeenCalled()
   })
 
-  it('keeps the initial filters, sort, and filename while exporting multiple pages', async () => {
-    const pageResponse = { items: [usageLog], total: 101, pages: 2 }
-    query.mockResolvedValue(pageResponse)
+  it('keeps the filters captured when the export starts and never loops per page', async () => {
+    downloadUsageCsv.mockReset().mockResolvedValue(undefined)
+    query.mockResolvedValue({ items: [usageLog], total: 101, pages: 2 })
     const wrapper = mountUsageView()
     await flushPromises()
 
@@ -528,109 +504,49 @@ describe('user UsageView', () => {
     datePicker.vm.$emit('change', { startDate: '2026-03-01', endDate: '2026-03-08', preset: null })
     await flushPromises()
 
-    let resolveFirstPage!: (value: typeof pageResponse) => void
-    const firstPage = new Promise<typeof pageResponse>((resolve) => { resolveFirstPage = resolve })
+    const keySelect = wrapper.findAllComponents(Select).find((select) =>
+      select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
+    )!
+    keySelect.vm.$emit('update:modelValue', 1)
+    keySelect.vm.$emit('change', 1)
+    await flushPromises()
+
     query.mockClear()
-    query.mockImplementation((params, options) =>
-      !options && params.page === 1 ? firstPage : Promise.resolve(pageResponse)
-    )
-    const originalCreateObjectURL = window.URL.createObjectURL
-    const originalRevokeObjectURL = window.URL.revokeObjectURL
-    window.URL.createObjectURL = vi.fn(() => 'blob:usage-export')
-    window.URL.revokeObjectURL = vi.fn()
-    let filename = ''
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function () {
-      filename = this.download
+    await wrapper.findAll('button').find((button) => button.text() === 'Export CSV')!.trigger('click')
+
+    // 一次导出 = 一次请求：服务端游标负责分页，浏览器不再按页拉取。
+    expect(query).not.toHaveBeenCalled()
+    expect(downloadUsageCsv).toHaveBeenCalledTimes(1)
+    const request = downloadUsageCsv.mock.calls[0][0]
+    expect(request.params).toMatchObject({
+      page_size: 100,
+      start_date: '2026-03-01',
+      end_date: '2026-03-08',
+      api_key_id: 1,
+      sort_by: 'created_at',
+      sort_order: 'desc',
     })
-
-    try {
-      await wrapper.findAll('button').find((button) => button.text() === 'Export CSV')!.trigger('click')
-      const initialParams = { ...query.mock.calls[0][0] }
-      expect(initialParams).toMatchObject({
-        page: 1, page_size: 100, start_date: '2026-03-01', end_date: '2026-03-08',
-        sort_by: 'created_at', sort_order: 'desc',
-      })
-
-      const keySelect = wrapper.findAllComponents(Select).find((select) =>
-        select.props('options').some((option: SelectOption) => option.label === 'All API Keys')
-      )!
-      keySelect.vm.$emit('update:modelValue', 1)
-      keySelect.vm.$emit('change', 1)
-      datePicker.vm.$emit('change', { startDate: '2026-04-01', endDate: '2026-04-08', preset: null })
-      wrapper.findComponent(UsageTable).vm.$emit('sort', 'actual_cost', 'asc')
-      await flushPromises()
-      expect(query).toHaveBeenCalledWith(expect.objectContaining({
-        api_key_id: 1, start_date: '2026-04-01', end_date: '2026-04-08',
-        sort_by: 'actual_cost', sort_order: 'asc',
-      }), expect.anything())
-
-      resolveFirstPage(pageResponse)
-      await flushPromises()
-
-      const exportCalls = query.mock.calls.filter((call) => call.length === 1)
-      expect.soft(exportCalls).toEqual([[initialParams], [{ ...initialParams, page: 2 }]])
-      expect.soft(filename).toBe('usage_2026-03-01_to_2026-03-08.csv')
-      expect(showSuccess).toHaveBeenCalledWith('Export success')
-      expect(showError).not.toHaveBeenCalled()
-    } finally {
-      window.URL.createObjectURL = originalCreateObjectURL
-      window.URL.revokeObjectURL = originalRevokeObjectURL
-      clickSpy.mockRestore()
-      wrapper.unmount()
-    }
+    expect(request.fileName).toBe('usage_2026-03-01_to_2026-03-08.csv')
+    expect(showSuccess).toHaveBeenCalledWith('Export success')
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
-  it('exports historical image rows with image billing mode derived from image_count', async () => {
-    query.mockResolvedValue({
-      items: [
-        {
-          ...usageLog,
-          request_id: 'req-user-export-legacy-image',
-          actual_cost: 0.2,
-          total_cost: 0.2,
-          input_cost: 0,
-          output_cost: 0,
-          cache_creation_cost: 0,
-          cache_read_cost: 0,
-          input_tokens: 0,
-          output_tokens: 0,
-          cache_creation_tokens: 0,
-          cache_read_tokens: 0,
-          image_count: 1,
-          model: 'gpt-image-2',
-          billing_mode: null,
-          ip_address: null,
-        },
-      ],
-      total: 1,
-      pages: 1,
-    })
+  it('sends the billing-mode filter to the server export instead of rewriting rows in the browser', async () => {
+    // 图片计费模式的历史行推断由服务端导出契约负责（backend dto 用例覆盖）。
+    downloadUsageCsv.mockReset().mockResolvedValue(undefined)
+    query.mockResolvedValue({ items: [{ ...usageLog, image_count: 1, billing_mode: null }], total: 1, pages: 1 })
 
     const wrapper = mountUsageView()
     await flushPromises()
-
-    let csvContent = ''
-    const OriginalBlob = globalThis.Blob
-    vi.stubGlobal('Blob', vi.fn((parts: BlobPart[], options?: BlobPropertyBag) => {
-      csvContent = parts.map((part) => String(part)).join('')
-      return new OriginalBlob(parts, options)
-    }))
-    const originalCreateObjectURL = window.URL.createObjectURL
-    const originalRevokeObjectURL = window.URL.revokeObjectURL
-    window.URL.createObjectURL = vi.fn(() => 'blob:usage-export') as typeof window.URL.createObjectURL
-    window.URL.revokeObjectURL = vi.fn(() => {}) as typeof window.URL.revokeObjectURL
-    const clickSpy = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    ;(wrapper.vm as any).filters.billing_mode = 'image'
 
     await (wrapper.vm as any).exportToCSV()
 
-    expect(csvContent).toContain('Billing Mode')
-    expect(csvContent).toContain('Image')
-    expect(csvContent).not.toContain(',Token,0,0,0,0,')
-
-    window.URL.createObjectURL = originalCreateObjectURL
-    window.URL.revokeObjectURL = originalRevokeObjectURL
-    vi.unstubAllGlobals()
-    clickSpy.mockRestore()
+    expect(downloadUsageCsv).toHaveBeenCalledTimes(1)
+    expect(downloadUsageCsv.mock.calls[0][0].params).toMatchObject({ billing_mode: 'image' })
+    expect(query).not.toHaveBeenCalledWith(expect.objectContaining({ page: 2 }), expect.anything())
+    wrapper.unmount()
   })
 })
 
@@ -653,6 +569,25 @@ describe('UsageView subscription feature flag', () => {
     expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
     expect(getDashboardModels).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
     expect(wrapper.findAll('[time-zone]').map(node => node.attributes('time-zone'))).toContain(timeZone)
+    wrapper.unmount()
+  })
+
+  it('filters the table, the totals and every chart by the same billing mode', async () => {
+    query.mockResolvedValue({ items: [usageLog], total: 1, pages: 1 })
+    getStats.mockResolvedValue({ total_requests: 0, total_tokens: 0, total_cost: 0 })
+    getDashboardSnapshotV2.mockResolvedValue({ trend: [], models: [], groups: [] })
+    getDashboardModels.mockResolvedValue({ models: [] })
+    const wrapper = mountUsageView()
+    await flushPromises()
+
+    ;(wrapper.vm as any).filters.billing_mode = 'video'
+    ;(wrapper.vm as any).applyFilters()
+    await flushPromises()
+
+    expect(query).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'video' }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'video' }))
+    expect(getDashboardSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'video' }))
+    expect(getDashboardModels).toHaveBeenLastCalledWith(expect.objectContaining({ billing_mode: 'video' }))
     wrapper.unmount()
   })
 
