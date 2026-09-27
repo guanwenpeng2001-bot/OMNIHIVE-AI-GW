@@ -43,11 +43,10 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 
 // openAICompatiblePlanCatalogEndpoint reports the catalog endpoint family a
 // planned OpenAI-compatible request is judged on. Media families read the
-// endpoint their protocol actually executes on; every other protocol keeps the
-// Responses evidence, whose bridge accepts native Chat Completions evidence for
-// bridged accounts but never an unrelated endpoint. The scheduler's model gate
-// and the earlier pre-profit gate both read this single rule, so the earlier
-// veto can never refuse an account the scheduler gate would admit.
+// endpoint their protocol actually executes on; chat-only audio and rerank
+// actions likewise require their own family. Text keeps its existing bridge
+// rule. Scheduling, pre-profit eligibility and affinity revocation all read
+// this same rule.
 func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) string {
 	plan := GatewayRequestPlanFromContext(ctx)
 	if plan == nil {
@@ -61,16 +60,27 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 		if account != nil && account.IsGrok() {
 			return requestCatalogEndpoint(ctx)
 		}
-		// A chat-only platform declares no per-family media evidence: the catalog
-		// returns the conservative chat-completions family for any non-text task,
-		// so demanding the image family here would veto every account it serves.
-		// The platform action gate already decided that the media action is
-		// executable (multimodal-ingress); the catalog endpoint evidence stays the
-		// conservative Responses evidence this gate used before the family split.
-		if account != nil && IsChatOnlyPlatform(account.Platform) {
-			return CompositeRouteEndpointResponses
-		}
+		// Non-text tasks with explicit media evidence declare the media family,
+		// including chat-only platforms. Images and videos both execute here.
 		return CompositeRouteEndpointImages
+	case "audio", "rerank":
+		if account != nil && IsChatOnlyPlatform(account.Platform) {
+			if plan.Snapshot().Protocol == "rerank" {
+				return "rerank"
+			}
+			// Use the same endpoint-to-action mapping as catalog declarations.
+			// gatewayRequiredAction also resolves native routes when Action is absent.
+			action := gatewayRequiredAction(ctx)
+			for _, endpoint := range []string{"speech", "transcriptions"} {
+				if chatOnlyCatalogEndpointAction(endpoint) == action {
+					return endpoint
+				}
+			}
+			// An unresolved audio direction cannot borrow text evidence.
+			return "audio"
+		}
+		// Other platforms retain their existing audio/bridge catalog contract.
+		return CompositeRouteEndpointResponses
 	case "images", "embeddings", "search", "live", "realtime":
 		return requestCatalogEndpoint(ctx)
 	default:
