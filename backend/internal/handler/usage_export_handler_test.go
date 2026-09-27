@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -27,11 +28,13 @@ type userUsageExportRepo struct {
 	calls   int
 
 	// streamError 让替身模拟服务端读取失败（例如 USAGE_HISTORY_INCOMPLETE 守卫）。
-	streamError error
+	streamError         error
+	failAfterFirstBatch bool
+	blockAfter          chan struct{}
 }
 
 func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
-	_ context.Context,
+	ctx context.Context,
 	filters usagestats.UsageLogFilters,
 	_ *usagestats.UsageExportCursor,
 	_ int,
@@ -39,25 +42,40 @@ func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
 ) error {
 	s.calls++
 	s.filters = filters
-	if s.streamError != nil {
+	if s.streamError != nil && !s.failAfterFirstBatch {
 		return s.streamError
 	}
 	if len(s.logs) == 0 {
 		return nil
 	}
-	return yield(s.logs)
+	if err := yield(s.logs); err != nil {
+		return err
+	}
+	if s.blockAfter != nil {
+		select {
+		case <-s.blockAfter:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.streamError
 }
 
-func newUserUsageExportRouter(repo *userUsageExportRepo, userID int64) *gin.Engine {
+func newUserUsageExportRouter(repo *userUsageExportRepo, userID int64, extraMiddleware ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	usageService := service.NewUsageService(repo, nil, nil, nil)
 	handler := NewUsageHandler(usageService, nil, nil, nil)
 	router := gin.New()
+	router.Use(middleware.Recovery(), middleware.RequestLogger(),
+		middleware.SessionBindingContext(&config.Config{}), middleware.Logger(), middleware.CORS(config.CORSConfig{}),
+		middleware.SecurityHeaders(config.CSPConfig{}, nil), middleware.ServerTiming(true))
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID})
 		c.Next()
 	})
+	router.Use(extraMiddleware...)
 	router.GET("/usage/export", handler.Export)
+	router.GET("/api/v1/usage/export", handler.Export)
 	return router
 }
 
@@ -156,6 +174,9 @@ func TestUserUsageExportRequiresAuthentication(t *testing.T) {
 	usageService := service.NewUsageService(repo, nil, nil, nil)
 	handler := NewUsageHandler(usageService, nil, nil, nil)
 	router := gin.New()
+	router.Use(middleware.Recovery(), middleware.RequestLogger(),
+		middleware.SessionBindingContext(&config.Config{}), middleware.Logger(), middleware.CORS(config.CORSConfig{}),
+		middleware.SecurityHeaders(config.CSPConfig{}, nil), middleware.ServerTiming(true))
 	router.GET("/usage/export", handler.Export)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/export", nil)

@@ -222,25 +222,19 @@ func (h *UsageHandler) exportUsageRowsCSV(c *gin.Context, filters usagestats.Usa
 		}
 		return nil
 	})
+	if err == nil {
+		err = stream.Close()
+	}
 	if err != nil {
-		if !stream.Started() {
-			// No body byte has been written, so the failure can still answer as the
-			// shared JSON envelope: drop the headers that promised a CSV file.
+		if !stream.Started() && !c.Writer.Written() {
 			response.DropDownloadHeaders(c, usageExportHeaderColumns, usageExportHeaderSnapshotEnd)
 			response.ErrorFrom(c, err)
 			return
 		}
-		// The body is already committed as CSV, so appending the JSON envelope
-		// would corrupt the file. Abort the transfer instead: the client keeps a
-		// truncated CSV and must treat a short file as a failed export.
-		logger.LegacyPrintf("handler.admin.usage", "usage export stream aborted: %v", err)
-		c.Abort()
-		return
-	}
-	if err := stream.Close(); err != nil && !stream.Started() {
-		response.DropDownloadHeaders(c, usageExportHeaderColumns, usageExportHeaderSnapshotEnd)
-		response.ErrorFrom(c, err)
-		return
+		// A committed CSV cannot carry a JSON error. Let net/http terminate the
+		// transport so clients cannot accept a syntactically valid partial file.
+		logger.FromContext(c.Request.Context()).Sugar().Errorf("usage export aborted: scope=admin error_type=%T", err)
+		panic(http.ErrAbortHandler)
 	}
 	if flusher != nil {
 		flusher.Flush()

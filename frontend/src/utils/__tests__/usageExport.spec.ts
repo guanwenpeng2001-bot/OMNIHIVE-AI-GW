@@ -127,6 +127,40 @@ describe('usage export client', () => {
     vi.unstubAllGlobals()
   })
 
+  it('does not save a partial CSV after transport failure', async () => {
+    const failure = new Error('Network Error')
+    get.mockRejectedValue(failure)
+    await expect(downloadUsageCsv({ endpoint: '/usage/export', labels: [], fileName: 'usage.csv' })).rejects.toBe(failure)
+    expect(saveAs).not.toHaveBeenCalled()
+    expect(get).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not save when reading the completed response blob fails', async () => {
+    get.mockResolvedValue({ data: { text: vi.fn().mockRejectedValue(new Error('read failed')) }, headers: {} })
+    await expect(downloadUsageCsv({ endpoint: '/usage/export', labels: [], fileName: 'usage.csv' })).rejects.toThrow('read failed')
+    expect(saveAs).not.toHaveBeenCalled()
+  })
+
+  it.each([400, 401, 403, 409])('keeps business errors out of automatic retry (%s)', async (status) => {
+    const failure = { status, reason: 'EXPORT_REJECTED' }
+    get.mockRejectedValue(failure)
+    await expect(downloadUsageCsv({ endpoint: '/usage/export', labels: [], fileName: 'usage.csv' })).rejects.toBe(failure)
+    expect(get).toHaveBeenCalledTimes(1)
+    expect(saveAs).not.toHaveBeenCalled()
+  })
+
+  it('starts a manual retry from zero with the same requested filters', async () => {
+    const request = { endpoint: '/usage/export', params: { end_date: '2026-09-22' }, labels: [], fileName: 'usage.csv' }
+    get.mockRejectedValueOnce(new Error('Network Error'))
+      .mockResolvedValueOnce({ data: csvBlob('time\ncomplete\n'), headers: {} })
+    await expect(downloadUsageCsv(request)).rejects.toThrow('Network Error')
+    await downloadUsageCsv(request)
+    expect(get).toHaveBeenCalledTimes(2)
+    expect(get.mock.calls[1]).toEqual(get.mock.calls[0])
+    expect(get.mock.calls[1][1]).not.toHaveProperty('headers.Range')
+    expect(saveAs).toHaveBeenCalledTimes(1)
+  })
+
   it('keeps the range in the export file name', () => {
     expect(usageExportFileName('2026-09-01', '2026-09-22', 'csv')).toBe('usage_2026-09-01_to_2026-09-22.csv')
     expect(usageExportFileName('', '', 'xlsx')).toBe('usage_export.xlsx')
