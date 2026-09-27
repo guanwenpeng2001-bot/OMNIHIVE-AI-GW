@@ -22,7 +22,7 @@ func TestCursorActionMatrixIsFullyTriStated(t *testing.T) {
 		"audio.tts", "audio.stt", "audio.translate", "voice", "realtime",
 		"search", "alpha_search", "live", "responses.websocket",
 	}
-	pending := []string{"native"}
+	pending := []string{"native", "video.cancel"}
 
 	identity := ActionIdentity{Platform: PlatformCursor}
 	cells := map[string]ActionDescriptor{}

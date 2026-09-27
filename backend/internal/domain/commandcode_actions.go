@@ -42,6 +42,7 @@ var (
 		},
 	}
 	commandCodeHardConflicts = map[string]string{
+		"video.cancel":        "the Provider API reference (2026-09-21) documents only chat/completions, responses, messages and models; no video job API exists to cancel",
 		"responses.compact":   "the Provider API reference (2026-09-21) documents four endpoints only; no Responses compact subpath exists",
 		"generate_content":    "Gemini generativelanguage surface; the Provider API exposes no Google-native endpoint (2026-09-21)",
 		"embeddings":          "no embeddings endpoint appears in the documented endpoint table; the catalog is a chat/responses proxy (2026-09-21)",

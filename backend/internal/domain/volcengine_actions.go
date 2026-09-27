@@ -115,6 +115,7 @@ var volcengineHardConflicts = map[string]string{
 // hard conflicts: a missing credential or a wiring decision owned by another
 // component is never proof that the supplier lacks the action.
 var volcengineUnverifiedReasons = map[string]string{
+	"video.cancel":    "No Volcengine cancellation adapter or task-cancel dispatch binding is implemented; the existing Ark task status/content contract (docs/82379/1521309, " + volcengineEvidenceCaptured + ") does not by itself establish cancellation support in this gateway (rechecked 2026-09-28)",
 	"rerank":          "The Ark data plane publishes no rerank endpoint (docs/82379/1298459, " + volcengineEvidenceCaptured + "); Volcengine rerank is the VikingDB knowledge service (/api/knowledge/service/rerank, docs/82379/1399545) with its own service token, a different product credential than this Ark API-key account",
 	"audio.tts":       "Doubao speech synthesis is served by the speech product on openspeech.bytedance.com with X-Api-Key + X-Api-Resource-Id (V3 HTTP/SSE unidirectional, docs/6561/1598757, " + volcengineEvidenceCaptured + "); no Ark data-plane speech endpoint exists, and that speech credential is not part of an Ark API-key account",
 	"audio.stt":       "Doubao speech recognition is served by the speech product on openspeech.bytedance.com (大模型流式语音识别, docs/6561/1354869, " + volcengineEvidenceCaptured + ") with the speech credential; the Ark data plane publishes no transcription endpoint",

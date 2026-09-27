@@ -98,7 +98,12 @@ func TestAdminUsageExportStreamsCSVWithFrozenSnapshotRange(t *testing.T) {
 	repo := &adminUsageExportRepo{logs: []service.UsageLog{usageExportAdminLogFixture()}}
 	router := newAdminUsageExportRouter(repo)
 
-	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	// Keep the requested end in the future so the effective snapshot is the
+	// request time, not an expired fixed calendar bound. Capture both sides
+	// of the request to assert freezing without a drifting time tolerance.
+	requestStarted := time.Now()
+	endDate := requestStarted.UTC().AddDate(0, 0, 1).Format("2006-01-02")
+	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?start_date=2026-09-01&end_date="+endDate+"&timezone=UTC", nil)
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
@@ -110,7 +115,8 @@ func TestAdminUsageExportStreamsCSVWithFrozenSnapshotRange(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repo.filters.EndTime)
 	require.True(t, repo.filters.EndTime.Equal(snapshotEnd), "the stream filters on the frozen snapshot bound")
-	require.WithinDuration(t, time.Now(), snapshotEnd, time.Minute, "the snapshot is frozen at request time")
+	require.False(t, snapshotEnd.Before(requestStarted), "snapshot cannot precede the request")
+	require.False(t, snapshotEnd.After(time.Now()), "snapshot is frozen no later than response completion")
 	require.Equal(t, strings.Join(dto.UsageExportColumns(dto.UsageExportScopeAdmin), ","), rec.Header().Get(usageExportHeaderColumns))
 
 	records := readAdminExportCSV(t, rec.Body.String())

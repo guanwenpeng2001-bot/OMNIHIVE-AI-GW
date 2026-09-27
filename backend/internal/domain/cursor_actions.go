@@ -184,7 +184,8 @@ var cursorHardConflicts = map[string]string{
 // absent. They stay unverified with evidence instead of being silently
 // written as unsupported.
 var cursorPendingCells = map[string]string{
-	"native": "The native cell is the gateway's platform-native HTTP path family (/api/v1, /api-ws/v1, /compatible-mode/v1, see GatewayActionForRoute). Cursor's first-party HTTP surfaces are the Connect families this gateway already serves plus the public api.cursor.com families described by " + cursorPublicAPIAnchor + " " + cursorConnectEvidence + " The gateway registers no Cursor-native ingress path family, and route registration belongs to multimodal-ingress, so this cell stays unverified rather than claimed (reviewed 2026-09-21).",
+	"video.cancel": "No verified video cancellation adapter exists in the Cursor Connect Run gateway; the existing 2026-09-21 endpoint inventory describes agent-run cancellation, which is not a video-generation job cancellation contract (rechecked 2026-09-28)",
+	"native":       "The native cell is the gateway's platform-native HTTP path family (/api/v1, /api-ws/v1, /compatible-mode/v1, see GatewayActionForRoute). Cursor's first-party HTTP surfaces are the Connect families this gateway already serves plus the public api.cursor.com families described by " + cursorPublicAPIAnchor + " " + cursorConnectEvidence + " The gateway registers no Cursor-native ingress path family, and route registration belongs to multimodal-ingress, so this cell stays unverified rather than claimed (reviewed 2026-09-21).",
 }
 
 // CursorAction resolves one Cursor cell to its tri-state.

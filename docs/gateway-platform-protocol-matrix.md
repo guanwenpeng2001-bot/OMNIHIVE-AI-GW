@@ -480,3 +480,46 @@ segments. Gin matches the raw encoded path and then decodes parameter values;
 this engine-wide rule also applies to non-model path parameters. Static route
 segments must use their documented canonical spelling (write `/models`, not
 `/mo%64els`). Resource handlers retain their existing ID validation.
+
+### Resource and native action entries (2026-09-28)
+
+| Method/path | Qualification |
+| --- | --- |
+| `DELETE /files/:file_id` | Standard owned resource; DeleteFile; shared gateway authentication and body limit |
+| `DELETE /messages/batches/:message_batch_id` | Standard owned resource; DeleteMessageBatch; shared gateway authentication and body limit |
+| `DELETE /v1/files/:file_id` | Standard owned resource; DeleteFile; shared gateway authentication and body limit |
+| `DELETE /v1/messages/batches/:message_batch_id` | Standard owned resource; DeleteMessageBatch; shared gateway authentication and body limit |
+| `GET /batches/:batch_id` | Standard owned resource; GetBatch; shared gateway authentication and body limit |
+| `GET /batches` | Standard owned resource; ListBatches; shared gateway authentication and body limit |
+| `GET /files/:file_id/content` | Standard owned resource; DownloadFileContent; shared gateway authentication and body limit |
+| `GET /files/:file_id` | Standard owned resource; GetFile; shared gateway authentication and body limit |
+| `GET /files` | Standard owned resource; ListFiles; shared gateway authentication and body limit |
+| `GET /messages/batches/:message_batch_id/results` | Standard owned resource; MessageBatchResults; shared gateway authentication and body limit |
+| `GET /messages/batches/:message_batch_id` | Standard owned resource; GetMessageBatch; shared gateway authentication and body limit |
+| `GET /messages/batches` | Standard owned resource; ListMessageBatches; shared gateway authentication and body limit |
+| `GET /v1/batches/:batch_id` | Standard owned resource; GetBatch; shared gateway authentication and body limit |
+| `GET /v1/batches` | Standard owned resource; ListBatches; shared gateway authentication and body limit |
+| `GET /v1/files/:file_id/content` | Standard owned resource; DownloadFileContent; shared gateway authentication and body limit |
+| `GET /v1/files/:file_id` | Standard owned resource; GetFile; shared gateway authentication and body limit |
+| `GET /v1/files` | Standard owned resource; ListFiles; shared gateway authentication and body limit |
+| `GET /v1/messages/batches/:message_batch_id/results` | Standard owned resource; MessageBatchResults; shared gateway authentication and body limit |
+| `GET /v1/messages/batches/:message_batch_id` | Standard owned resource; GetMessageBatch; shared gateway authentication and body limit |
+| `GET /v1/messages/batches` | Standard owned resource; ListMessageBatches; shared gateway authentication and body limit |
+| `POST /batches/:batch_id/cancel` | Standard owned resource; CancelBatch; shared gateway authentication and body limit |
+| `POST /batches` | Standard owned resource; CreateBatch; shared gateway authentication and body limit |
+| `POST /files` | Standard owned resource; UploadFile; shared gateway authentication and body limit |
+| `POST /messages/batches/:message_batch_id/cancel` | Standard owned resource; CancelMessageBatch; shared gateway authentication and body limit |
+| `POST /messages/batches` | Standard owned resource; CreateMessageBatch; shared gateway authentication and body limit |
+| `POST /moderations` | Standard owned resource; Moderations; shared gateway authentication and body limit |
+| `POST /tools/search_pro` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/batches/:batch_id/cancel` | Standard owned resource; CancelBatch; shared gateway authentication and body limit |
+| `POST /v1/batches` | Standard owned resource; CreateBatch; shared gateway authentication and body limit |
+| `POST /v1/files` | Standard owned resource; UploadFile; shared gateway authentication and body limit |
+| `POST /v1/messages/batches/:message_batch_id/cancel` | Standard owned resource; CancelMessageBatch; shared gateway authentication and body limit |
+| `POST /v1/messages/batches` | Standard owned resource; CreateMessageBatch; shared gateway authentication and body limit |
+| `POST /v1/moderations` | Standard owned resource; Moderations; shared gateway authentication and body limit |
+| `POST /v1/tools/search_pro` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |
+| `POST /videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |

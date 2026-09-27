@@ -203,6 +203,9 @@ func GatewayActionForRoute(method, path string) string {
 	case strings.Contains(path, "/images/generations"):
 		return "image.generate"
 	case strings.Contains(path, "/videos"):
+		if method == http.MethodPost && strings.HasSuffix(path, "/cancel") {
+			return "video.cancel"
+		}
 		if method == http.MethodGet {
 			if strings.HasSuffix(path, "/content") {
 				return "video.content"
@@ -245,6 +248,8 @@ func GatewayActionForRoute(method, path string) string {
 		return "audio.stt"
 	case strings.Contains(path, "/custom-voices"):
 		return "voice"
+	case strings.HasSuffix(path, "/tools/search"), strings.HasSuffix(path, "/tools/search_pro"):
+		return "search"
 	case strings.HasSuffix(path, "/web_search"), strings.HasSuffix(path, "/x_search"):
 		return "search"
 	case strings.HasSuffix(path, "/alpha/search"):

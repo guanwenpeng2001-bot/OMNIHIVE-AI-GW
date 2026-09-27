@@ -35,6 +35,7 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 		"image.batch", "search", "alpha_search", "live", "responses.websocket",
 	}
 	unverified := []string{
+		"video.cancel",
 		"rerank", "audio.tts", "audio.stt",
 		"audio.translate", "voice", "realtime", "native",
 	}

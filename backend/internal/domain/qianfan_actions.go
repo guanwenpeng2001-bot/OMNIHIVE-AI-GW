@@ -43,6 +43,7 @@ var qianfanActionAdapters = map[string]string{
 	"video.generate": "qianfan.video.generate",
 	"video.status":   "qianfan.video.status",
 	"video.content":  "qianfan.video.content",
+	"video.cancel":   "qianfan.video.cancel",
 	"audio.tts":      "qianfan.audio.tts",
 	"voice":          "qianfan.voice",
 	"search":         "qianfan.search",
@@ -52,6 +53,7 @@ var qianfanActionAdapters = map[string]string{
 // first-party protocol evidence. It is applied when a cell is bound to the
 // adapter named in its key.
 var qianfanAdapterEvidence = map[string]string{
+	"video.cancel":   "qianfan.video.cancel handler performs owner-bound DELETE https://qianfan.baidubce.com/video/generations?task_id= (official 取消视频生成任务 cloud.baidu.com/doc/qianfan-api/s/Cmhbm0afu, captured 2026-09-21: data-method=DELETE; debugDesc=根据task_id取消视频生成任务; response status Terminated)",
 	"chat":           "openai.chat trunk through buildQianfanRequest to POST https://qianfan.baidubce.com/v2/chat/completions with Authorization: Bearer bce-v3/ALTAK (official API Key 鉴权 doc and 文本生成 reference, captured 2026-09-21; live probe 401 invalid_iam_token). Token Plan accounts use the plan data plane instead: the official OpenAI-compatible base is https://qianfan.baidubce.com/v2/tokenplan/personal (企业版 https://qianfan.baidubce.com/v2/tokenplan/team) with a dedicated API key isolated from pay-as-you-go keys (千帆《Token Plan 个人版》cloud.baidu.com/doc/qianfan/s/Dmrabu8b6、《Token Plan 企业版》/ymq8wwch2, captured 2026-09-23); buildQianfanRequest resolves the personal base from credentials.account_mode when base_url is empty and accepts the tokenplan path as a version root, while an explicit base_url still wins",
 	"responses":      "openai.responses trunk on the native Qianfan Responses API: POST https://qianfan.baidubce.com/v2/responses with Authorization: Bearer bce-v3/ALTAK, derived by the shared trunk from the version-suffixed /v2 base (official 创建模型响应 doc and live probe 2026-09-21: 401 invalid_iam_token, i.e. a live route; the shared Responses settlement bills the upstream usage fields)",
 	"count_tokens":   "No /v2/count_tokens or /v2/tokenizer route exists (404 live probes 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation and never sends an upstream count request",
@@ -156,7 +158,7 @@ func qianfanActionDescriptor(descriptor ActionDescriptor, action, adapter string
 	case "video.generate":
 		descriptor.UsagePolicy = "deferred per-second video price, claimed once when a poll first observes a succeeded task"
 		descriptor.Lifecycle = "request plan and upstream task binding"
-	case "video.status", "video.content":
+	case "video.status", "video.content", "video.cancel":
 		descriptor.Lifecycle = "upstream task durable read under owner key and workspace"
 	}
 	return descriptor

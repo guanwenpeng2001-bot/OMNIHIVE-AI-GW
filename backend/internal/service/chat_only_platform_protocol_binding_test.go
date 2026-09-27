@@ -36,7 +36,7 @@ func TestChatOnlyPlatformTextCellsReachOnlyBoundAdapters(t *testing.T) {
 		"volcengine.video.edit", "volcengine.video.extend", "volcengine.video.status",
 		"volcengine.video.content",
 		"qianfan.embeddings", "qianfan.rerank", "qianfan.images", "qianfan.image.edit",
-		"qianfan.video.generate", "qianfan.video.status", "qianfan.video.content",
+		"qianfan.video.generate", "qianfan.video.status", "qianfan.video.content", "qianfan.video.cancel",
 		"qianfan.audio.tts", "qianfan.voice", "qianfan.search",
 		"mistral.embeddings", "mistral.audio.stt", "mistral.audio.tts", "mistral.voice",
 		"grok.video.generate", "gateway.messages",
