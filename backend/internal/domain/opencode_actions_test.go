@@ -20,7 +20,7 @@ func TestOpenCodeActionMatrixIsFullyVerified(t *testing.T) {
 	hardConflict := []string{
 		"responses.compact", "embeddings", "rerank",
 		"image.generate", "image.edit", "image.variation", "image.async", "image.batch",
-		"video.generate", "video.edit", "video.extend", "video.status", "video.content",
+		"video.generate", "video.edit", "video.extend", "video.status", "video.content", "video.cancel",
 		"audio.tts", "audio.stt", "audio.translate", "voice",
 		"realtime", "search", "alpha_search", "live", "responses.websocket",
 	}

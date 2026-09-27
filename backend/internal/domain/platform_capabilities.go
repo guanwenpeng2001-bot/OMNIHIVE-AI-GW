@@ -133,7 +133,7 @@ type ActionDescriptor struct {
 }
 
 func GatewayActions() []string {
-	return []string{"chat", "messages", "responses", "responses.compact", "count_tokens", "generate_content", "embeddings", "rerank", "image.generate", "image.edit", "image.variation", "image.async", "image.batch", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "audio.translate", "voice", "realtime", "search", "alpha_search", "live", "responses.websocket", "native"}
+	return []string{"chat", "messages", "responses", "responses.compact", "count_tokens", "generate_content", "embeddings", "rerank", "image.generate", "image.edit", "image.variation", "image.async", "image.batch", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "video.cancel", "audio.tts", "audio.stt", "audio.translate", "voice", "realtime", "search", "alpha_search", "live", "responses.websocket", "native"}
 }
 
 // PlatformAction resolves only adapters already present in the gateway. Missing
@@ -333,6 +333,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformQianwen {
 		return qianwenActionDescriptor(descriptor, action, adapter)
+	}
+	if identity.Platform == PlatformKimi && action == "search" {
+		return kimiSearchActionDescriptor(descriptor)
 	}
 	if identity.Platform == PlatformQianfan {
 		return qianfanActionDescriptor(descriptor, action, adapter)

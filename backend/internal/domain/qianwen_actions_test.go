@@ -40,6 +40,13 @@ func TestQianwenActionMatrixIsFullyVerified(t *testing.T) {
 	seen := map[string]ActionDescriptor{}
 	for _, cell := range matrix {
 		seen[cell.Action] = cell
+		if cell.Action == "video.cancel" {
+			// The newly added cancellation action has no verified Qianwen adapter.
+			if cell.Status != ActionUnverified || cell.Adapter != "" || !strings.Contains(cell.Evidence, "2026-09-22") {
+				t.Fatalf("qianwen cancellation must remain explicitly unverified: %+v", cell)
+			}
+			continue
+		}
 		if cell.Status == ActionUnverified {
 			t.Fatalf("qianwen cell %s left unverified after evidence pass: %s", cell.Action, cell.Evidence)
 		}

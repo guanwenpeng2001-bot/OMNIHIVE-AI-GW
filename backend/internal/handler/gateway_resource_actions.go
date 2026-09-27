@@ -180,7 +180,7 @@ func (h *GatewayResourceHandler) auditResourceBatchLines(c *gin.Context, key *se
 		if len(audit) == 0 {
 			continue
 		}
-		if decision := h.openAI.checkSecurityAudit(c, requestLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit); decision != nil && !decision.AllowNextStage {
+		if decision := h.openAI.checkSecurityAuditStage(c, requestLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit, "batch_item"); decision != nil && !decision.AllowNextStage {
 			h.openAI.openAISecurityAuditError(c, decision)
 			return false
 		}
@@ -617,6 +617,25 @@ func (h *GatewayResourceHandler) CreateMessageBatch(c *gin.Context) {
 	if err != nil {
 		h.anthropicError(c, http.StatusUnprocessableEntity, "invalid_request_error", err.Error())
 		return
+	}
+	// Each item is an independent prompt. A batch must not reuse the first
+	// item's HTTP audit completion cache for the remaining requests.
+	var auditBatch struct {
+		Requests []struct {
+			Params json.RawMessage `json:"params"`
+		} `json:"requests"`
+	}
+	if err := json.Unmarshal(body, &auditBatch); err != nil {
+		h.anthropicError(c, http.StatusBadRequest, "invalid_request_error", "Invalid batch JSON")
+		return
+	}
+	for _, item := range auditBatch.Requests {
+		decision := h.openAI.checkSecurityAuditStage(c, requestLogger(c, "handler.gateway_resource_actions"), key, subject,
+			service.ContentModerationProtocolAnthropicMessages, admission.Model, item.Params, "batch_item")
+		if decision != nil && !decision.AllowNextStage {
+			h.openAI.openAISecurityAuditError(c, decision)
+			return
+		}
 	}
 	canonical, err := service.CanonicalUpstreamJobBody(body)
 	if err != nil {

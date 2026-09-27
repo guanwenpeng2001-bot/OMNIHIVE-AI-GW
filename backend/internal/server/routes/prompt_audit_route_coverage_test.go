@@ -28,6 +28,10 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	}
 
 	audited := map[string][]string{
+		"/files":                    {"gateway_resource_actions.go"},
+		"/messages/batches":         {"gateway_resource_actions.go"},
+		"/tools/search":             {"kimi_actions.go"},
+		"/tools/search_pro":         {"kimi_actions.go"},
 		"/messages":                 {"gateway_handler.go", "openai_gateway_handler.go"},
 		"/responses":                {"gateway_handler_responses.go", "openai_gateway_handler.go"},
 		"/responses/*subpath":       {"gateway_handler_responses.go", "openai_gateway_handler.go"},
@@ -54,12 +58,17 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/x_search":                 {"gateway_web_search.go"},
 	}
 	excluded := map[string]string{
-		"/messages/count_tokens":     "tokenization only; it does not execute a model request",
-		"/images/batches/:id/cancel": "control-plane cancellation with no user prompt",
-		"/stt":                       "speech transcription is not a text-generation prompt",
-		"/audio/transcriptions":      "speech recognition is not a text-generation prompt",
-		"/audio/translations":        "speech translation is not a text-generation prompt",
-		"/custom-voices":             "voice profile management has no model prompt",
+		"/batches":                  "submission references an owned file whose JSONL prompts were audited on upload; body contains resource metadata only",
+		"/batches/:batch_id/cancel": "control-plane cancellation with no user prompt",
+		"/messages/batches/:message_batch_id/cancel": "control-plane cancellation with no user prompt",
+		"/videos/:request_id/cancel":                 "control-plane cancellation with no user prompt",
+		"/moderations":                               "classification of submitted input; it does not execute a generation request",
+		"/messages/count_tokens":                     "tokenization only; it does not execute a model request",
+		"/images/batches/:id/cancel":                 "control-plane cancellation with no user prompt",
+		"/stt":                                       "speech transcription is not a text-generation prompt",
+		"/audio/transcriptions":                      "speech recognition is not a text-generation prompt",
+		"/audio/translations":                        "speech translation is not a text-generation prompt",
+		"/custom-voices":                             "voice profile management has no model prompt",
 	}
 
 	unclassified := make([]string, 0)

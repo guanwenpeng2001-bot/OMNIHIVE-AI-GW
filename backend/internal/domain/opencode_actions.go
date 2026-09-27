@@ -41,6 +41,7 @@ var openCodeActionEvidence = map[string]string{
 // selection for this platform; a group that needs them must route to a platform
 // whose matrix implements them.
 var openCodeHardConflicts = map[string]string{
+	"video.cancel":        "No video job exists to cancel in the hosted Zen/Go endpoint tables; neither plan publishes a video generation API (opencode.ai/docs/zen and opencode.ai/docs/go, " + openCodeActionEvidenceDate + ")",
 	"responses.compact":   "OpenCode publishes no compact subpath: /zen/v1/responses/compact returns the site 404 (" + openCodeActionEvidenceDate + "); compact is an OpenAI-proprietary Responses extension",
 	"embeddings":          "No embeddings route on either plan: /zen/v1/embeddings and /zen/go/v1/embeddings both return the site 404, and neither endpoint table lists an embedding model (" + openCodeActionEvidenceDate + ")",
 	"rerank":              "No rerank route on either plan: /zen/v1/rerank and /zen/go/v1/rerank both return the site 404, and no rerank model appears in either catalog (" + openCodeActionEvidenceDate + ")",

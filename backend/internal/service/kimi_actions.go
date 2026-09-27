@@ -46,14 +46,14 @@ const (
 // KimiWebSearchRequest 是 Kimi 联网搜索的网关侧归一请求。
 // TrackID 透传 X-Msh-Track-Id：重试沿用同一值，上游按同一请求关联排障（幂等提交锚点）。
 type KimiWebSearchRequest struct {
-	TextQuery      string
-	Limit          int
-	TimeoutSeconds int
-	IncludeContent bool
-	Pro            bool
-	Sites          []string
-	TimeWindow     string
-	TrackID        string
+	TextQuery      string   `json:"text_query"`
+	Limit          int      `json:"limit"`
+	TimeoutSeconds int      `json:"timeout_seconds"`
+	IncludeContent bool     `json:"include_content"`
+	Pro            bool     `json:"-"`
+	Sites          []string `json:"sites"`
+	TimeWindow     string   `json:"time_window"`
+	TrackID        string   `json:"-"`
 }
 
 // KimiWebSearchResult 携带归一结果、上游原文与计费判据。
@@ -140,8 +140,11 @@ func (s *KimiActionService) SearchWeb(ctx context.Context, account *Account, req
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
+	resp, err := generationDo(s.httpUpstream, req, proxyURL, account.ID, maxInt(account.Concurrency, 1))
 	if err != nil {
+		if IsAttemptAdmissionError(err) {
+			return nil, err
+		}
 		if ctxErr := callCtx.Err(); ctxErr != nil {
 			return nil, ctxErr
 		}
