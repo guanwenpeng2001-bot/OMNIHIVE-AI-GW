@@ -84,9 +84,16 @@ func mistralActionCatalogEvidence(account service.Account) service.Account {
 	models := []string{"mistral-embed", "mistral-large-latest", "voxtral-mini-latest", "mistral-tts-latest"}
 	snapshot := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: models}
 	for _, model := range models {
+		endpoints := []string{"responses", "chat_completions", "embeddings"}
+		switch model {
+		case "voxtral-mini-latest":
+			endpoints = []string{"transcriptions"}
+		case "mistral-tts-latest":
+			endpoints = []string{"speech"}
+		}
 		snapshot.EligibleModels = append(snapshot.EligibleModels, service.AccountCatalogModel{
 			ID:                 model,
-			Endpoints:          []string{"responses", "chat_completions", "embeddings"},
+			Endpoints:          endpoints,
 			EvidenceKind:       "fixture",
 			EvidenceObservedAt: "2026-09-21T00:00:00Z",
 		})
@@ -277,12 +284,10 @@ func TestMistralActionPathsReachTheDocumentedEndpoints(t *testing.T) {
 }
 
 // TestMistralAudioPathsReachTheirEndpointsAndFailClosedOnUnknownUsage pins both
-// halves of the audio generation seam after the chat-trunk reconciliation.
-// Account selection no longer intercepts a Mistral audio plan: the shared plan
-// gate judges a chat-only platform that publishes no native text protocol on the
-// chat-completions family, which the Mistral catalog declares, so the handler
-// selects the account and the request reaches the endpoint the official
-// specification enumerates. What each path does with an upstream envelope that
+// halves of the audio generation seam with real audio-family evidence.
+// The plan gate requires transcriptions or speech, as declared by the fixture,
+// so the request reaches the documented endpoint without borrowing text evidence.
+// What each path does with an upstream envelope that
 // carries no parseable usage then differs, and both behaviours are real:
 // transcriptions settle on the Voxtral usage contract (usage.prompt_audio_seconds),
 // so an unparseable envelope fails closed with 502 instead of booking a trusted

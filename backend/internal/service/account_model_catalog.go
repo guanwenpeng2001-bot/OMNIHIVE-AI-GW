@@ -458,6 +458,8 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 		taskEndpoint, taskAction = CompositeRouteEndpointImages, "video.generate"
 	case "rerank", "reranking":
 		taskEndpoint, taskAction = "rerank", "rerank"
+	case "voice_clone":
+		taskEndpoint, taskAction = "voice", "voice"
 	case "audio.tts", "audio_tts", "audio_speech", "speech", "speech_generation", "text_to_speech", "tts":
 		taskEndpoint, taskAction = "speech", "audio.tts"
 	case "audio.stt", "audio_stt", "audio_transcription", "transcription", "transcriptions", "speech_to_text", "automatic_speech_recognition", "asr":
@@ -535,6 +537,8 @@ func chatOnlyCatalogEndpointAction(endpoint string) string {
 		return "alpha_search"
 	case "rerank":
 		return "rerank"
+	case "voice":
+		return "voice"
 	case "speech":
 		return "audio.tts"
 	case "transcriptions":

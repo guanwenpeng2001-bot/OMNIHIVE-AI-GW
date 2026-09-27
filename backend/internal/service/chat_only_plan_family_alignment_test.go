@@ -47,6 +47,7 @@ func TestChatOnlyTaskDeclarationsRespectActionBindings(t *testing.T) {
 			{"video_generation", "images", "video.generate"},
 			{"rerank", "rerank", "rerank"},
 			{"reranking", "rerank", "rerank"},
+			{"voice_clone", "voice", "voice"},
 			{"audio.tts", "speech", "audio.tts"},
 			{"audio_speech", "speech", "audio.tts"},
 			{"text_to_speech", "speech", "audio.tts"},
@@ -96,6 +97,7 @@ func TestChatOnlyApprovedPresetProjection(t *testing.T) {
 func TestChatOnlyAudioAndRerankPlansUseActionFamily(t *testing.T) {
 	for _, scenario := range []struct{ platform, task, method, protocol, action, route string }{
 		{PlatformQianfan, "rerank", "rerank", "rerank", "rerank", "/v1/rerank"},
+		{PlatformHunyuan, "voice_clone", "voice", "audio", "voice", "/v1/custom-voices"},
 		{PlatformQianfan, "speech", "speech", "audio", "audio.tts", "/v1/audio/speech"},
 		{PlatformHunyuan, "transcription", "transcriptions", "audio", "audio.stt", "/v1/audio/transcriptions"},
 		{PlatformMistral, "audio_speech", "speech", "audio", "audio.tts", "/v1/audio/speech"},
@@ -123,6 +125,7 @@ func TestChatOnlyAudioAndRerankPlansUseActionFamily(t *testing.T) {
 func TestChatOnlyAffinityUsesSchedulingFamily(t *testing.T) {
 	for _, scenario := range []struct{ platform, protocol, endpoint, route string }{
 		{PlatformHunyuan, "media", "images", "/v1/images/generations"},
+		{PlatformHunyuan, "audio", "voice", "/v1/custom-voices"},
 		{PlatformVolcengine, "media", "images", "/v1/videos"},
 		{PlatformQianfan, "rerank", "rerank", "/v1/rerank"},
 		{PlatformMistral, "audio", "speech", "/v1/audio/speech"},

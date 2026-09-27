@@ -71,7 +71,7 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 			// Use the same endpoint-to-action mapping as catalog declarations.
 			// gatewayRequiredAction also resolves native routes when Action is absent.
 			action := gatewayRequiredAction(ctx)
-			for _, endpoint := range []string{"speech", "transcriptions"} {
+			for _, endpoint := range []string{"speech", "transcriptions", "voice"} {
 				if chatOnlyCatalogEndpointAction(endpoint) == action {
 					return endpoint
 				}
