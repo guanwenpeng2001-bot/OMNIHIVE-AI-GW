@@ -10,9 +10,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
+	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -26,6 +28,7 @@ type adminUsageExportRepo struct {
 	batches       int
 	blockAfter    chan struct{}
 	cancelledSeen bool
+	firstBatch    chan struct{}
 
 	// streamError 让替身模拟服务端读取失败（例如 USAGE_HISTORY_INCOMPLETE 守卫）。
 	// failAfterFirstBatch=true 时失败发生在第一批行已经写进响应之后，用于验证
@@ -52,6 +55,9 @@ func (s *adminUsageExportRepo) StreamUsageLogsWithFilters(
 	if err := yield(s.logs); err != nil {
 		return err
 	}
+	if s.firstBatch != nil {
+		close(s.firstBatch)
+	}
 	if s.blockAfter != nil {
 		select {
 		case <-s.blockAfter:
@@ -63,12 +69,17 @@ func (s *adminUsageExportRepo) StreamUsageLogsWithFilters(
 	return s.streamError
 }
 
-func newAdminUsageExportRouter(repo *adminUsageExportRepo) *gin.Engine {
+func newAdminUsageExportRouter(repo *adminUsageExportRepo, extraMiddleware ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	usageService := service.NewUsageService(repo, nil, nil, nil)
 	handler := NewUsageHandler(usageService, nil, nil, nil)
 	router := gin.New()
+	router.Use(middleware.Recovery(), middleware.RequestLogger(),
+		middleware.SessionBindingContext(&config.Config{}), middleware.Logger(), middleware.CORS(config.CORSConfig{}),
+		middleware.SecurityHeaders(config.CSPConfig{}, nil), middleware.ServerTiming(true))
+	router.Use(extraMiddleware...)
 	router.GET("/admin/usage/export", handler.Export)
+	router.GET("/api/v1/admin/usage/export", handler.Export)
 	return router
 }
 
@@ -235,7 +246,7 @@ func TestAdminUsageExportAbortsAfterTheStreamStartedInsteadOfAppendingJSON(t *te
 
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?format=csv&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
 	rec := httptest.NewRecorder()
-	router.ServeHTTP(rec, req)
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() { router.ServeHTTP(rec, req) })
 
 	require.Equal(t, http.StatusOK, rec.Code, "第一批行写出后响应状态已经提交")
 	require.Contains(t, rec.Header().Get("Content-Type"), "text/csv")
@@ -251,6 +262,7 @@ func TestAdminUsageExportCancellationStopsTheStream(t *testing.T) {
 	repo := &adminUsageExportRepo{
 		logs:       []service.UsageLog{usageExportAdminLogFixture()},
 		blockAfter: make(chan struct{}),
+		firstBatch: make(chan struct{}),
 	}
 	router := newAdminUsageExportRouter(repo)
 
@@ -258,10 +270,10 @@ func TestAdminUsageExportCancellationStopsTheStream(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/admin/usage/export?start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil).WithContext(ctx)
 	rec := httptest.NewRecorder()
 	go func() {
-		time.Sleep(50 * time.Millisecond)
+		<-repo.firstBatch
 		cancel()
 	}()
-	router.ServeHTTP(rec, req)
+	require.PanicsWithValue(t, http.ErrAbortHandler, func() { router.ServeHTTP(rec, req) })
 
 	require.True(t, repo.cancelledSeen, "a cancelled export releases the read")
 	require.Contains(t, rec.Body.String(), dto.UsageExportColumns(dto.UsageExportScopeAdmin)[0])

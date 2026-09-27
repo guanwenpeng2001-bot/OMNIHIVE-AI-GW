@@ -5,8 +5,12 @@ package middleware
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -134,4 +138,47 @@ func TestRecovery(t *testing.T) {
 			require.Equal(t, tt.wantBody, got)
 		})
 	}
+}
+
+func TestRecovery_RepanicsErrAbortHandlerWithoutEnvelope(t *testing.T) {
+	var output bytes.Buffer
+	originalWriter := gin.DefaultErrorWriter
+	gin.DefaultErrorWriter = &output
+	t.Cleanup(func() { gin.DefaultErrorWriter = originalWriter })
+	for _, committed := range []bool{false, true} {
+		router := gin.New()
+		router.Use(Recovery())
+		router.GET("/abort", func(context *gin.Context) {
+			if committed {
+				context.String(http.StatusOK, "partial")
+			}
+			panic(http.ErrAbortHandler)
+		})
+		recorder := httptest.NewRecorder()
+		require.PanicsWithValue(t, http.ErrAbortHandler, func() {
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/abort", nil))
+		})
+		require.NotContains(t, recorder.Body.String(), "INTERNAL_ERROR")
+	}
+	require.Empty(t, output.String())
+}
+
+func TestRecovery_OtherPanicsKeepExistingEnvelope(t *testing.T) {
+	for _, recovered := range []any{fmt.Errorf("wrapped: %w", http.ErrAbortHandler), []string{"non-comparable panic"}} {
+		router := gin.New()
+		router.Use(Recovery())
+		router.GET("/panic", func(context *gin.Context) { panic(recovered) })
+		recorder := httptest.NewRecorder()
+		require.NotPanics(t, func() { router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic", nil)) })
+		require.Equal(t, http.StatusInternalServerError, recorder.Code)
+		require.Contains(t, recorder.Body.String(), "INTERNAL_ERROR")
+	}
+	router := gin.New()
+	router.Use(Recovery())
+	router.GET("/broken", func(context *gin.Context) {
+		panic(&net.OpError{Op: "write", Err: &os.SyscallError{Syscall: "write", Err: errors.New("broken pipe")}})
+	})
+	recorder := httptest.NewRecorder()
+	require.NotPanics(t, func() { router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/broken", nil)) })
+	require.Empty(t, recorder.Body.String())
 }

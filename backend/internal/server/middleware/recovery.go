@@ -26,6 +26,9 @@ func Recovery() gin.HandlerFunc {
 	// while masking only Authorization. Never send cookies, API keys, or query
 	// credentials to that writer; retain a redacted panic and stack instead.
 	return gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, recovered any) {
+		if recovered == http.ErrAbortHandler {
+			panic(recovered)
+		}
 		panicLogger.Printf("panic recovered: %s\n%s",
 			logredact.RedactText(fmt.Sprint(recovered), "api_key", "token", "secret"), debug.Stack())
 		recoveredErr, _ := recovered.(error)
