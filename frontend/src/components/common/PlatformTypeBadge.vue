@@ -4,7 +4,7 @@
     <div class="inline-flex items-center overflow-hidden rounded-md">
       <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
         <PlatformIcon :platform="platform" :account-type="type" size="xs" />
-        <span>{{ platformLabel }}</span>
+        <span data-testid="platform-label">{{ platformLabel }}</span>
       </span>
       <span :class="['inline-flex items-center gap-1 px-1.5 py-1', platformClass]">
         <!-- OAuth icon -->
@@ -80,6 +80,7 @@ const { t } = useI18n()
 interface Props {
   platform: AccountPlatform
   type: AccountType
+  showAwsSuffix?: boolean
   authMode?: string
   planType?: string
   privacyMode?: string
@@ -88,7 +89,12 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
+const basePlatformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
+const isBedrock = computed(() => props.platform === 'bedrock' ||
+  (canonicalPlatform(props.platform) === 'anthropic' && props.type === 'bedrock'))
+const platformLabel = computed(() => props.showAwsSuffix && isBedrock.value
+  ? `${basePlatformLabel.value} (AWS)`
+  : basePlatformLabel.value)
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
