@@ -670,6 +670,7 @@ export default {
       addMethod: 'Add Method',
       setupTokenLongLived: 'Setup Token (Long-lived)',
       baseUrl: 'Base URL',
+      baseUrlRequired: 'Base URL is required.',
       baseUrlHint: 'Leave default for official Anthropic API',
       platformBaseUrlHint: 'Leave blank to use the default API URL for the selected platform and account mode.',
       apiKeyRequired: 'API Key *',

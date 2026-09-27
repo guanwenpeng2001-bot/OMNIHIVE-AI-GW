@@ -15,7 +15,7 @@ const BADGE: Record<Platform, string> = {
   antigravity: 'bg-purple-500/10 text-purple-600 border-purple-500/30 dark:text-purple-400',
   gemini: 'bg-blue-500/10 text-blue-600 border-blue-500/30 dark:text-blue-400',
   grok: 'bg-zinc-800/10 text-zinc-800 border-zinc-800/30 dark:bg-zinc-500/10 dark:text-zinc-200 dark:border-zinc-500/30',
-  cursor: 'bg-zinc-800/10 text-zinc-800 border-zinc-800/30 dark:bg-zinc-500/10 dark:text-zinc-200 dark:border-zinc-500/30',
+  cursor: 'bg-stone-800/10 text-stone-800 border-stone-800/30 dark:bg-stone-500/10 dark:text-stone-200 dark:border-stone-500/30',
   kimi: 'bg-pink-500/10 text-pink-600 border-pink-500/30 dark:text-pink-400',
   zhipu: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-400',
   deepseek: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-400',
@@ -23,7 +23,7 @@ const BADGE: Record<Platform, string> = {
   qianwen: 'bg-violet-500/10 text-violet-700 border-violet-500/30 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 border-cyan-500/30 dark:text-cyan-300',
   volcengine: 'bg-sky-500/10 text-sky-700 border-sky-500/30 dark:text-sky-300',
-  bedrock: 'bg-orange-500/10 text-orange-700 border-orange-500/30 dark:text-orange-300',
+  bedrock: 'bg-yellow-500/10 text-yellow-700 border-yellow-500/30 dark:text-yellow-300',
   mistral: 'bg-amber-500/10 text-amber-700 border-amber-500/30 dark:text-amber-300',
   hunyuan: 'bg-fuchsia-500/10 text-fuchsia-700 border-fuchsia-500/30 dark:text-fuchsia-300',
   qianfan: 'bg-red-500/10 text-red-700 border-red-500/30 dark:text-red-300',
@@ -39,7 +39,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   antigravity: 'bg-purple-500/10 text-purple-600 dark:bg-purple-500/10 dark:text-purple-300',
   gemini: 'bg-blue-500/10 text-blue-600 dark:bg-blue-500/10 dark:text-blue-300',
   grok: 'bg-zinc-800/10 text-zinc-800 dark:bg-zinc-500/10 dark:text-zinc-200',
-  cursor: 'bg-zinc-800/10 text-zinc-800 dark:bg-zinc-500/10 dark:text-zinc-200',
+  cursor: 'bg-stone-800/10 text-stone-800 dark:bg-stone-500/10 dark:text-stone-200',
   kimi: 'bg-pink-500/10 text-pink-600 dark:bg-pink-500/10 dark:text-pink-300',
   zhipu: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-500/10 dark:text-indigo-300',
   deepseek: 'bg-teal-500/10 text-teal-600 dark:bg-teal-500/10 dark:text-teal-300',
@@ -47,7 +47,7 @@ const BADGE_LIGHT: Record<Platform, string> = {
   qianwen: 'bg-violet-500/10 text-violet-700 dark:bg-violet-500/10 dark:text-violet-300',
   commandcode: 'bg-cyan-500/10 text-cyan-700 dark:bg-cyan-500/10 dark:text-cyan-300',
   volcengine: 'bg-sky-500/10 text-sky-700 dark:bg-sky-500/10 dark:text-sky-300',
-  bedrock: 'bg-orange-500/10 text-orange-700 dark:bg-orange-500/10 dark:text-orange-300',
+  bedrock: 'bg-yellow-500/10 text-yellow-700 dark:bg-yellow-500/10 dark:text-yellow-300',
   mistral: 'bg-amber-500/10 text-amber-700 dark:bg-amber-500/10 dark:text-amber-300',
   hunyuan: 'bg-fuchsia-500/10 text-fuchsia-700 dark:bg-fuchsia-500/10 dark:text-fuchsia-300',
   qianfan: 'bg-red-500/10 text-red-700 dark:bg-red-500/10 dark:text-red-300',
@@ -56,17 +56,14 @@ const BADGE_LIGHT: Record<Platform, string> = {
 }
 
 // ── Solid badge (opaque light tint + dark text; account list platform/type chips) ──
-// 账号列表的实心徽章。19 家色系与下面各表保持同一族，唯一例外是 bedrock：
-// 权威表里 bedrock 与 anthropic 同为 orange，两支上游在列表里必须能分开，
-// 故 bedrock 在此换用 yellow（调色板中最后一个未被占用的色系）。
-// grok/cursor 共用 zinc、commandcode/composite 共用 cyan 是既有刻意共用。
+// 19 家实心徽章与各表保持同一色族；Composite 是合流组标识，共用 CommandCode 的 cyan。
 const SOLID_BADGE: Record<Platform, string> = {
   anthropic: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
   openai: 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400',
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400',
   gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
   grok: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
-  cursor: 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300',
+  cursor: 'bg-stone-100 text-stone-700 dark:bg-stone-800 dark:text-stone-300',
   kimi: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400',
   zhipu: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400',
   deepseek: 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400',
@@ -91,7 +88,7 @@ const BORDER: Record<Platform, string> = {
   antigravity: 'border-purple-500/20 dark:border-purple-500/20',
   gemini: 'border-blue-500/20 dark:border-blue-500/20',
   grok: 'border-zinc-800/20 dark:border-zinc-500/20',
-  cursor: 'border-zinc-800/20 dark:border-zinc-500/20',
+  cursor: 'border-stone-800/20 dark:border-stone-500/20',
   kimi: 'border-pink-500/20 dark:border-pink-500/20',
   zhipu: 'border-indigo-500/20 dark:border-indigo-500/20',
   deepseek: 'border-teal-500/20 dark:border-teal-500/20',
@@ -99,7 +96,7 @@ const BORDER: Record<Platform, string> = {
   qianwen: 'border-violet-500/20 dark:border-violet-500/20',
   commandcode: 'border-cyan-500/20 dark:border-cyan-500/20',
   volcengine: 'border-sky-500/20 dark:border-sky-500/20',
-  bedrock: 'border-orange-500/20 dark:border-orange-500/20',
+  bedrock: 'border-yellow-500/20 dark:border-yellow-500/20',
   mistral: 'border-amber-500/20 dark:border-amber-500/20',
   hunyuan: 'border-fuchsia-500/20 dark:border-fuchsia-500/20',
   qianfan: 'border-red-500/20 dark:border-red-500/20',
@@ -115,7 +112,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   antigravity: 'border-purple-500/35 dark:border-purple-500/30',
   gemini: 'border-blue-500/35 dark:border-blue-500/30',
   grok: 'border-zinc-800/35 dark:border-zinc-500/35',
-  cursor: 'border-zinc-800/35 dark:border-zinc-500/35',
+  cursor: 'border-stone-800/35 dark:border-stone-500/35',
   kimi: 'border-pink-500/35 dark:border-pink-500/30',
   zhipu: 'border-indigo-500/35 dark:border-indigo-500/30',
   deepseek: 'border-teal-500/35 dark:border-teal-500/30',
@@ -123,7 +120,7 @@ const BORDER_STRONG: Record<Platform, string> = {
   qianwen: 'border-violet-500/35 dark:border-violet-500/30',
   commandcode: 'border-cyan-500/35 dark:border-cyan-500/30',
   volcengine: 'border-sky-500/35 dark:border-sky-500/30',
-  bedrock: 'border-orange-500/35 dark:border-orange-500/30',
+  bedrock: 'border-yellow-500/35 dark:border-yellow-500/30',
   mistral: 'border-amber-500/35 dark:border-amber-500/30',
   hunyuan: 'border-fuchsia-500/35 dark:border-fuchsia-500/30',
   qianfan: 'border-red-500/35 dark:border-red-500/30',
@@ -140,7 +137,7 @@ const ACCENT: Record<Platform, string> = {
   antigravity: '#a855f7', // purple-500
   gemini: '#3b82f6', // blue-500
   grok: '#71717a', // zinc-500
-  cursor: '#71717a', // zinc-500
+  cursor: '#78716c', // stone-500
   kimi: '#ec4899', // pink-500
   zhipu: '#6366f1', // indigo-500
   deepseek: '#14b8a6', // teal-500
@@ -148,7 +145,7 @@ const ACCENT: Record<Platform, string> = {
   qianwen: '#8b5cf6', // violet-500
   commandcode: '#06b6d4', // cyan-500
   volcengine: '#0ea5e9', // sky-500
-  bedrock: '#f97316', // orange-500
+  bedrock: '#eab308', // yellow-500
   mistral: '#f59e0b', // amber-500
   hunyuan: '#d946ef', // fuchsia-500
   qianfan: '#dc2626', // red-600
@@ -164,7 +161,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   antigravity: 'bg-gradient-to-r from-purple-400 to-purple-500',
   gemini: 'bg-gradient-to-r from-blue-400 to-blue-500',
   grok: 'bg-gradient-to-r from-zinc-700 to-zinc-900',
-  cursor: 'bg-gradient-to-r from-zinc-700 to-zinc-900',
+  cursor: 'bg-gradient-to-r from-stone-700 to-stone-900',
   kimi: 'bg-gradient-to-r from-pink-400 to-pink-500',
   zhipu: 'bg-gradient-to-r from-indigo-400 to-indigo-500',
   deepseek: 'bg-gradient-to-r from-teal-400 to-teal-500',
@@ -172,7 +169,7 @@ const ACCENT_BAR: Record<Platform, string> = {
   qianwen: 'bg-gradient-to-r from-violet-400 to-violet-500',
   commandcode: 'bg-gradient-to-r from-cyan-400 to-cyan-500',
   volcengine: 'bg-gradient-to-r from-sky-400 to-sky-500',
-  bedrock: 'bg-gradient-to-r from-orange-400 to-orange-500',
+  bedrock: 'bg-gradient-to-r from-yellow-400 to-yellow-500',
   mistral: 'bg-gradient-to-r from-amber-400 to-amber-500',
   hunyuan: 'bg-gradient-to-r from-fuchsia-400 to-fuchsia-500',
   qianfan: 'bg-gradient-to-r from-red-400 to-red-500',
@@ -188,7 +185,7 @@ const TEXT: Record<Platform, string> = {
   antigravity: 'text-purple-600 dark:text-purple-400',
   gemini: 'text-blue-600 dark:text-blue-400',
   grok: 'text-zinc-800 dark:text-zinc-200',
-  cursor: 'text-zinc-800 dark:text-zinc-200',
+  cursor: 'text-stone-800 dark:text-stone-200',
   kimi: 'text-pink-600 dark:text-pink-400',
   zhipu: 'text-indigo-600 dark:text-indigo-400',
   deepseek: 'text-teal-600 dark:text-teal-400',
@@ -196,7 +193,7 @@ const TEXT: Record<Platform, string> = {
   qianwen: 'text-violet-700 dark:text-violet-300',
   commandcode: 'text-cyan-700 dark:text-cyan-300',
   volcengine: 'text-sky-700 dark:text-sky-300',
-  bedrock: 'text-orange-700 dark:text-orange-300',
+  bedrock: 'text-yellow-700 dark:text-yellow-300',
   mistral: 'text-amber-700 dark:text-amber-300',
   hunyuan: 'text-fuchsia-700 dark:text-fuchsia-300',
   qianfan: 'text-red-700 dark:text-red-300',
@@ -212,7 +209,7 @@ const ICON: Record<Platform, string> = {
   antigravity: 'text-purple-500 dark:text-purple-400',
   gemini: 'text-blue-500 dark:text-blue-400',
   grok: 'text-zinc-800 dark:text-zinc-200',
-  cursor: 'text-zinc-800 dark:text-zinc-200',
+  cursor: 'text-stone-800 dark:text-stone-200',
   kimi: 'text-pink-500 dark:text-pink-400',
   zhipu: 'text-indigo-500 dark:text-indigo-400',
   deepseek: 'text-teal-500 dark:text-teal-400',
@@ -220,7 +217,7 @@ const ICON: Record<Platform, string> = {
   qianwen: 'text-violet-500 dark:text-violet-300',
   commandcode: 'text-cyan-500 dark:text-cyan-300',
   volcengine: 'text-sky-500 dark:text-sky-300',
-  bedrock: 'text-orange-500 dark:text-orange-300',
+  bedrock: 'text-yellow-500 dark:text-yellow-300',
   mistral: 'text-amber-500 dark:text-amber-300',
   hunyuan: 'text-fuchsia-500 dark:text-fuchsia-300',
   qianfan: 'text-red-500 dark:text-red-300',
@@ -236,7 +233,7 @@ const BUTTON: Record<Platform, string> = {
   antigravity: 'bg-purple-500 text-white hover:bg-purple-600 active:bg-purple-700 dark:bg-purple-500/80 dark:hover:bg-purple-500',
   gemini: 'bg-blue-500 text-white hover:bg-blue-600 active:bg-blue-700 dark:bg-blue-500/80 dark:hover:bg-blue-500',
   grok: 'bg-zinc-800 text-white hover:bg-zinc-900 active:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600',
-  cursor: 'bg-zinc-800 text-white hover:bg-zinc-900 active:bg-black dark:bg-zinc-700 dark:hover:bg-zinc-600',
+  cursor: 'bg-stone-800 text-white hover:bg-stone-900 active:bg-black dark:bg-stone-700 dark:hover:bg-stone-600',
   kimi: 'bg-pink-500 text-white hover:bg-pink-600 active:bg-pink-700 dark:bg-pink-500/80 dark:hover:bg-pink-500',
   zhipu: 'bg-indigo-500 text-white hover:bg-indigo-600 active:bg-indigo-700 dark:bg-indigo-500/80 dark:hover:bg-indigo-500',
   deepseek: 'bg-teal-500 text-white hover:bg-teal-600 active:bg-teal-700 dark:bg-teal-500/80 dark:hover:bg-teal-500',
@@ -244,7 +241,7 @@ const BUTTON: Record<Platform, string> = {
   qianwen: 'bg-violet-500 text-white hover:bg-violet-600 active:bg-violet-700 dark:bg-violet-500/80 dark:hover:bg-violet-500',
   commandcode: 'bg-cyan-500 text-white hover:bg-cyan-600 active:bg-cyan-700 dark:bg-cyan-500/80 dark:hover:bg-cyan-500',
   volcengine: 'bg-sky-500 text-white hover:bg-sky-600 active:bg-sky-700 dark:bg-sky-500/80 dark:hover:bg-sky-500',
-  bedrock: 'bg-orange-500 text-white hover:bg-orange-600 active:bg-orange-700 dark:bg-orange-500/80 dark:hover:bg-orange-500',
+  bedrock: 'bg-yellow-500 text-white hover:bg-yellow-600 active:bg-yellow-700 dark:bg-yellow-500/80 dark:hover:bg-yellow-500',
   mistral: 'bg-amber-500 text-white hover:bg-amber-600 active:bg-amber-700 dark:bg-amber-500/80 dark:hover:bg-amber-500',
   hunyuan: 'bg-fuchsia-500 text-white hover:bg-fuchsia-600 active:bg-fuchsia-700 dark:bg-fuchsia-500/80 dark:hover:bg-fuchsia-500',
   qianfan: 'bg-red-500 text-white hover:bg-red-600 active:bg-red-700 dark:bg-red-500/80 dark:hover:bg-red-500',
@@ -260,7 +257,7 @@ const DISCOUNT: Record<Platform, string> = {
   antigravity: 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-300',
   gemini: 'bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300',
   grok: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
-  cursor: 'bg-zinc-100 text-zinc-800 dark:bg-zinc-800 dark:text-zinc-200',
+  cursor: 'bg-stone-100 text-stone-800 dark:bg-stone-800 dark:text-stone-200',
   kimi: 'bg-pink-100 text-pink-700 dark:bg-pink-900/40 dark:text-pink-300',
   zhipu: 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/40 dark:text-indigo-300',
   deepseek: 'bg-teal-100 text-teal-700 dark:bg-teal-900/40 dark:text-teal-300',
@@ -268,7 +265,7 @@ const DISCOUNT: Record<Platform, string> = {
   qianwen: 'bg-violet-100 text-violet-800 dark:bg-violet-900/40 dark:text-violet-300',
   commandcode: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-900/40 dark:text-cyan-300',
   volcengine: 'bg-sky-100 text-sky-800 dark:bg-sky-900/40 dark:text-sky-300',
-  bedrock: 'bg-orange-100 text-orange-800 dark:bg-orange-900/40 dark:text-orange-300',
+  bedrock: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/40 dark:text-yellow-300',
   mistral: 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300',
   hunyuan: 'bg-fuchsia-100 text-fuchsia-800 dark:bg-fuchsia-900/40 dark:text-fuchsia-300',
   qianfan: 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-300',
@@ -284,7 +281,7 @@ const GRADIENT: Record<Platform, string> = {
   antigravity: 'from-purple-500 to-purple-600',
   gemini: 'from-blue-500 to-blue-600',
   grok: 'from-zinc-700 to-zinc-900',
-  cursor: 'from-zinc-700 to-zinc-900',
+  cursor: 'from-stone-700 to-stone-900',
   kimi: 'from-pink-500 to-pink-600',
   zhipu: 'from-indigo-500 to-indigo-600',
   deepseek: 'from-teal-500 to-teal-600',
@@ -292,7 +289,7 @@ const GRADIENT: Record<Platform, string> = {
   qianwen: 'from-violet-500 to-violet-600',
   commandcode: 'from-cyan-500 to-cyan-600',
   volcengine: 'from-sky-500 to-sky-600',
-  bedrock: 'from-orange-500 to-orange-600',
+  bedrock: 'from-yellow-500 to-yellow-600',
   mistral: 'from-amber-500 to-amber-600',
   hunyuan: 'from-fuchsia-500 to-fuchsia-600',
   qianfan: 'from-red-500 to-red-600',
@@ -308,7 +305,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   antigravity: 'text-purple-100',
   gemini: 'text-blue-100',
   grok: 'text-zinc-100',
-  cursor: 'text-zinc-100',
+  cursor: 'text-stone-100',
   kimi: 'text-pink-100',
   zhipu: 'text-indigo-100',
   deepseek: 'text-teal-100',
@@ -316,7 +313,7 @@ const GRADIENT_TEXT: Record<Platform, string> = {
   qianwen: 'text-violet-100',
   commandcode: 'text-cyan-100',
   volcengine: 'text-sky-100',
-  bedrock: 'text-orange-100',
+  bedrock: 'text-yellow-100',
   mistral: 'text-amber-100',
   hunyuan: 'text-fuchsia-100',
   qianfan: 'text-red-100',
@@ -331,7 +328,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   antigravity: 'text-purple-200',
   gemini: 'text-blue-200',
   grok: 'text-zinc-300',
-  cursor: 'text-zinc-300',
+  cursor: 'text-stone-300',
   kimi: 'text-pink-200',
   zhipu: 'text-indigo-200',
   deepseek: 'text-teal-200',
@@ -339,7 +336,7 @@ const GRADIENT_SUBTEXT: Record<Platform, string> = {
   qianwen: 'text-violet-200',
   commandcode: 'text-cyan-200',
   volcengine: 'text-sky-200',
-  bedrock: 'text-orange-200',
+  bedrock: 'text-yellow-200',
   mistral: 'text-amber-200',
   hunyuan: 'text-fuchsia-200',
   qianfan: 'text-red-200',

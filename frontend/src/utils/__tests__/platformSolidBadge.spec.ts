@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { GROUP_PLATFORM_OPTIONS } from '@/constants/platforms'
+import * as platformColors from '@/utils/platformColors'
 import { platformSolidBadgeClass } from '@/utils/platformColors'
 
 /**
@@ -12,7 +13,6 @@ import { platformSolidBadgeClass } from '@/utils/platformColors'
 
 // 允许的刻意共用：色系相同是有意为之，逐对登记并写明理由，新出现任何别的共用都会红。
 const INTENTIONALLY_SHARED_COLOR_PAIRS: ReadonlyArray<readonly [string, string, string]> = [
-  ['grok', 'cursor', '同为上游终端接入，权威表 BADGE/ACCENT 里都是 zinc，列表里跟随既有口径'],
   ['commandcode', 'composite', 'composite 是组过滤用的合流标识，权威表里与 commandcode 同取 cyan'],
 ]
 
@@ -58,7 +58,7 @@ describe('solid platform badge palette', () => {
     }
   })
 
-  it('gives every platform a distinct color family except the two documented shared pairs', () => {
+  it('gives every platform a distinct color family except the documented shared pair', () => {
     const unregisteredCollisions: string[] = []
     for (const [index, left] of platformIds.entries()) {
       for (const right of platformIds.slice(index + 1)) {
@@ -111,5 +111,18 @@ describe('solid platform badge palette', () => {
     expect(platformSolidBadgeClass('bedrock')).not.toBe(platformSolidBadgeClass('anthropic'))
     expect(colorFamily('bedrock')).not.toBe('orange')
     expect(colorFamily('anthropic')).toBe('orange')
+  })
+})
+
+// Every public palette is checked, including literal hex accents.
+describe('all platform palettes', () => {
+  const palettes = Object.entries(platformColors).filter(([name]) => !name.startsWith('platformSelection'))
+  it.each(palettes)('%s distinguishes platforms except the documented composite group marker', (_name, palette) => {
+    for (const [index, left] of platformIds.entries()) {
+      for (const right of platformIds.slice(index + 1)) {
+        if (isIntentionallyShared(left, right)) continue
+        expect(palette(left), `${left}/${right}`).not.toBe(palette(right))
+      }
+    }
   })
 })

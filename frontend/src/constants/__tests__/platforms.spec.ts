@@ -77,7 +77,7 @@ describe('platform option catalogs', () => {
 describe('platform presentation tokens', () => {
   it.each([
     ['qianfan', 'red', '#dc2626'], ['hunyuan', 'fuchsia', '#d946ef'],
-    ['mistral', 'amber', '#f59e0b'], ['bedrock', 'orange', '#f97316'],
+    ['mistral', 'amber', '#f59e0b'], ['bedrock', 'yellow', '#eab308'],
     ['volcengine', 'sky', '#0ea5e9'],
   ])('uses the project %s color family without changing selection fallback', (platform, color, accent) => {
     for (const token of [
