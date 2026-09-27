@@ -119,13 +119,21 @@ describe('AccountUsageCell', () => {
   })
 
 
-  it.each(['qianfan', 'hunyuan', 'mistral', 'volcengine'] as const)('explains local-only usage for chat-only platform %s', async (platform) => {
+  it.each(['qianfan', 'hunyuan', 'mistral', 'volcengine'] as const)('renders local statistics or an explicit placeholder for %s', async (platform) => {
     const wrapper = mount(AccountUsageCell, {
       props: { account: makeAccount({ platform, type: 'apikey' }) },
       global: { stubs: cnUsageCellStubs }
     })
     await flushPromises()
     expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toBe('admin.accounts.usageWindow.noUpstreamUsageApi')
+    expect(wrapper.findAll('div').some(element => element.text() === '-')).toBe(true)
+    await wrapper.setProps({ todayStats: { requests: 12, tokens: 1200, cost: 2.5, user_cost: 3 } })
+    expect(wrapper.text()).toContain('12 req')
+    expect(wrapper.text()).toContain('1.2K tokens')
+    expect(wrapper.text()).toContain('A $2.50')
+    expect(wrapper.text()).toContain('U $3.00')
+    expect(wrapper.findAll('div').some(element => element.text() === '-')).toBe(false)
+
     expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
     expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
     expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)

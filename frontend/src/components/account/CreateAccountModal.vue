@@ -5351,7 +5351,7 @@ const handleSubmit = async () => {
     // Relay 只允许 Adaptive / Chat Completions：非空非法值必须让用户改选，不静默回落也不抛未捕获异常。
     const relayProtocol = isCursorRelay.value ? resolveCursorRelayProtocol(apiProtocol.value) : null
     if (isCursorRelay.value) {
-      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError('Base URL is required.'); return }
+      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError(t('admin.accounts.baseUrlRequired')); return }
       if (!relayProtocol) { appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: apiProtocol.value })); return }
     }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }

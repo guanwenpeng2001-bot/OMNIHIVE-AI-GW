@@ -758,6 +758,7 @@ export default {
       addMethod: '添加方式',
       setupTokenLongLived: 'Setup Token（长期有效）',
       baseUrl: 'Base URL',
+      baseUrlRequired: '请填写 Base URL。',
       baseUrlHint: '留空使用官方 Anthropic API',
       platformBaseUrlHint: '留空使用所选平台及账号模式的默认 API 地址。',
       apiKeyRequired: 'API Key *',
