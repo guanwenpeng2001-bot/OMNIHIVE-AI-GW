@@ -64,6 +64,7 @@ type GatewayRequestPlan struct {
 	rateLimitScopes  map[int64]struct{}
 	budgetHold       *KeyBudgetReservation
 	budgetAdmitted   bool
+	tpmAttempts      map[int]*tpmPlanAttempt
 	catalogRepo      AccountRepository
 	affinityState    *AffinityBindingState
 	bindingAccountID int64
@@ -154,6 +155,7 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	if hold != nil && !settled {
 		p.releaseBudgetHold(hold)
 	}
+	p.finalizeTPMAttempts()
 }
 
 // releaseBudgetHold refunds an unconsumed request hold with a detached context:

@@ -34,6 +34,7 @@ func (APIKey) Mixin() []ent.Mixin {
 
 func (APIKey) Fields() []ent.Field {
 	return []ent.Field{
+		field.Int64("tpm_limit").Default(0).NonNegative().Comment("Token budget per admission minute; zero is unlimited"),
 		field.Int64("user_id"),
 		field.String("key").
 			MaxLen(128).

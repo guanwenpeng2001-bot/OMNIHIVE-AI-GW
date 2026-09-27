@@ -151,6 +151,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	account.Extra = service.StripAccountModelCatalogExtra(account.Extra)
 	builder := client.Account.Create().
 		SetName(account.Name).
+		SetTpmLimit(account.TPMLimit).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
@@ -614,6 +615,7 @@ func (r *accountRepository) updateLockedAccount(
 	}
 	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
+		SetTpmLimit(account.TPMLimit).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
@@ -3700,6 +3702,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	return &service.Account{
 		ID:                      m.ID,
 		WorkspaceID:             m.WorkspaceID,
+		TPMLimit:                m.TpmLimit,
 		Name:                    m.Name,
 		Notes:                   m.Notes,
 		Platform:                m.Platform,

@@ -57,6 +57,27 @@ func (_u *AccountUpdate) ClearDeletedAt() *AccountUpdate {
 	return _u
 }
 
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *AccountUpdate) SetTpmLimit(v int64) *AccountUpdate {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *AccountUpdate) SetNillableTpmLimit(v *int64) *AccountUpdate {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *AccountUpdate) AddTpmLimit(v int64) *AccountUpdate {
+	_u.mutation.AddTpmLimit(v)
+	return _u
+}
+
 // SetName sets the "name" field.
 func (_u *AccountUpdate) SetName(v string) *AccountUpdate {
 	_u.mutation.SetName(v)
@@ -757,6 +778,11 @@ func (_u *AccountUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *AccountUpdate) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := account.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Account.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Name(); ok {
 		if err := account.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Account.name": %w`, err)}
@@ -810,6 +836,12 @@ func (_u *AccountUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(account.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(account.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(account.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(account.FieldName, field.TypeString, value)
@@ -1194,6 +1226,27 @@ func (_u *AccountUpdateOne) SetNillableDeletedAt(v *time.Time) *AccountUpdateOne
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *AccountUpdateOne) ClearDeletedAt() *AccountUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *AccountUpdateOne) SetTpmLimit(v int64) *AccountUpdateOne {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *AccountUpdateOne) SetNillableTpmLimit(v *int64) *AccountUpdateOne {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *AccountUpdateOne) AddTpmLimit(v int64) *AccountUpdateOne {
+	_u.mutation.AddTpmLimit(v)
 	return _u
 }
 
@@ -1910,6 +1963,11 @@ func (_u *AccountUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *AccountUpdateOne) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := account.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Account.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Name(); ok {
 		if err := account.NameValidator(v); err != nil {
 			return &ValidationError{Name: "name", err: fmt.Errorf(`ent: validator failed for field "Account.name": %w`, err)}
@@ -1980,6 +2038,12 @@ func (_u *AccountUpdateOne) sqlSave(ctx context.Context) (_node *Account, err er
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(account.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(account.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(account.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(account.FieldName, field.TypeString, value)

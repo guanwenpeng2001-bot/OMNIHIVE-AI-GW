@@ -23,6 +23,8 @@ const (
 	FieldWorkspaceID = "workspace_id"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
 	FieldDeletedAt = "deleted_at"
+	// FieldTpmLimit holds the string denoting the tpm_limit field in the database.
+	FieldTpmLimit = "tpm_limit"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldKey holds the string denoting the key field in the database.
@@ -110,6 +112,7 @@ var Columns = []string{
 	FieldUpdatedAt,
 	FieldWorkspaceID,
 	FieldDeletedAt,
+	FieldTpmLimit,
 	FieldUserID,
 	FieldKey,
 	FieldName,
@@ -158,6 +161,10 @@ var (
 	UpdateDefaultUpdatedAt func() time.Time
 	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
 	DefaultWorkspaceID int64
+	// DefaultTpmLimit holds the default value on creation for the "tpm_limit" field.
+	DefaultTpmLimit int64
+	// TpmLimitValidator is a validator for the "tpm_limit" field. It is called by the builders before save.
+	TpmLimitValidator func(int64) error
 	// KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	KeyValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -210,6 +217,11 @@ func ByWorkspaceID(opts ...sql.OrderTermOption) OrderOption {
 // ByDeletedAt orders the results by the deleted_at field.
 func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
+}
+
+// ByTpmLimit orders the results by the tpm_limit field.
+func ByTpmLimit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTpmLimit, opts...).ToFunc()
 }
 
 // ByUserID orders the results by the user_id field.

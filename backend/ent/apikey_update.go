@@ -59,6 +59,27 @@ func (_u *APIKeyUpdate) ClearDeletedAt() *APIKeyUpdate {
 	return _u
 }
 
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *APIKeyUpdate) SetTpmLimit(v int64) *APIKeyUpdate {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *APIKeyUpdate) SetNillableTpmLimit(v *int64) *APIKeyUpdate {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *APIKeyUpdate) AddTpmLimit(v int64) *APIKeyUpdate {
+	_u.mutation.AddTpmLimit(v)
+	return _u
+}
+
 // SetUserID sets the "user_id" field.
 func (_u *APIKeyUpdate) SetUserID(v int64) *APIKeyUpdate {
 	_u.mutation.SetUserID(v)
@@ -588,6 +609,11 @@ func (_u *APIKeyUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyUpdate) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := apikey.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "APIKey.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Key(); ok {
 		if err := apikey.KeyValidator(v); err != nil {
 			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "APIKey.key": %w`, err)}
@@ -629,6 +655,12 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(apikey.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(apikey.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
@@ -933,6 +965,27 @@ func (_u *APIKeyUpdateOne) SetNillableDeletedAt(v *time.Time) *APIKeyUpdateOne {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *APIKeyUpdateOne) ClearDeletedAt() *APIKeyUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *APIKeyUpdateOne) SetTpmLimit(v int64) *APIKeyUpdateOne {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *APIKeyUpdateOne) SetNillableTpmLimit(v *int64) *APIKeyUpdateOne {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *APIKeyUpdateOne) AddTpmLimit(v int64) *APIKeyUpdateOne {
+	_u.mutation.AddTpmLimit(v)
 	return _u
 }
 
@@ -1478,6 +1531,11 @@ func (_u *APIKeyUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *APIKeyUpdateOne) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := apikey.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "APIKey.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.Key(); ok {
 		if err := apikey.KeyValidator(v); err != nil {
 			return &ValidationError{Name: "key", err: fmt.Errorf(`ent: validator failed for field "APIKey.key": %w`, err)}
@@ -1536,6 +1594,12 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(apikey.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(apikey.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(apikey.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)

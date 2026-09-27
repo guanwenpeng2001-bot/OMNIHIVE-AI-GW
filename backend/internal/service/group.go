@@ -38,6 +38,7 @@ func (g *Group) AllowsAccount(account *Account) bool {
 }
 
 type Group struct {
+	TPMLimit       int64
 	ID             int64
 	Name           string
 	Description    string
