@@ -141,7 +141,16 @@ func hunyuanActionFixtureAccount(account service.Account) service.Account {
 	models := []string{"hy3", "hy-image-v3", "hy-world2-panorama", "hy-video-v1.5", "hy-asr-3.0-preview", "minimax-speech-2.8-hd", "minimax-voice-clone", "kinfra-text-embedding-0.6b"}
 	catalog := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: models, EligibleModels: []service.AccountCatalogModel{}}
 	for _, model := range models {
-		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: []string{"responses", "chat_completions", "messages", "images"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"})
+		endpoints := []string{"responses", "chat_completions", "messages", "images"}
+		switch model {
+		case "hy-asr-3.0-preview":
+			endpoints = []string{"transcriptions"}
+		case "minimax-speech-2.8-hd":
+			endpoints = []string{"speech"}
+		case "minimax-voice-clone":
+			endpoints = []string{"voice"}
+		}
+		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: endpoints, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"})
 	}
 	extra[service.UpstreamModelCatalogExtraKey] = catalog
 	account.Extra = extra
@@ -250,9 +259,9 @@ func hunyuanActionContext(method, path, body, platform string) (*gin.Context, *h
 // ingress seam end to end for the promoted cells: once the platform publishes its
 // protocol facts and the catalog evidence admits the account, every native
 // handler forwards to its documented TokenHub path instead of failing closed
-// before the upstream. The scheduler family evidence stays the conservative
-// Responses family for chat-only plans, and the fixture declares it for every
-// model. Positive upstream-shape coverage for these exact endpoints lives in
+// before the upstream. Audio models declare their actual action family;
+// text evidence cannot authorize an audio request. Positive upstream-shape
+// coverage for these exact endpoints lives in
 // backend/internal/service/hunyuan_actions_test.go
 // (TestHunyuanForwardImageGeneration, TestHunyuanForwardVideoGeneration,
 // TestHunyuanForwardSpeechSynthesis, TestHunyuanForwardVoiceClone,

@@ -295,9 +295,16 @@ func qianfanFlowCatalogEvidence(account service.Account) service.Account {
 	models := []string{"ernie-image", "ernie-irag-edit", "embedding-v1", "bce-reranker-base", "musesteamer-air-i2v", "qianfan-tts"}
 	snapshot := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: models}
 	for _, model := range models {
+		endpoints := []string{"responses", "chat_completions", "images", "embeddings"}
+		switch model {
+		case "bce-reranker-base":
+			endpoints = []string{"rerank"}
+		case "qianfan-tts":
+			endpoints = []string{"speech"}
+		}
 		snapshot.EligibleModels = append(snapshot.EligibleModels, service.AccountCatalogModel{
 			ID:                 model,
-			Endpoints:          []string{"responses", "chat_completions", "images", "embeddings"},
+			Endpoints:          endpoints,
 			EvidenceKind:       "fixture",
 			EvidenceObservedAt: "2026-09-21T00:00:00Z",
 		})
@@ -369,14 +376,15 @@ func newQianfanFlowHarness(t *testing.T, responder func(req *http.Request) *http
 	})
 	// Test paths deliberately avoid the GatewayActionForRoute markers: the
 	// domain action matrix for qianfan lands with multimodal-ingress wiring.
+	// Speech and rerank use their real ingress paths to exercise action-family resolution.
 	router.POST("/qianfan-adapter/img-gen", handler.QianfanImages)
 	router.POST("/qianfan-adapter/img-edit", handler.QianfanImageEdit)
 	router.POST("/qianfan-adapter/emb", handler.QianfanEmbeddings)
-	router.POST("/qianfan-adapter/rerank", handler.QianfanRerank)
+	router.POST("/v1/rerank", handler.QianfanRerank)
 	router.POST("/qianfan-adapter/vid-gen", handler.QianfanVideoGeneration)
 	router.GET("/qianfan-adapter/vid/:request_id", handler.QianfanVideoStatus)
 	router.DELETE("/qianfan-adapter/vid/:request_id", handler.QianfanVideoCancel)
-	router.POST("/qianfan-adapter/speak", handler.QianfanAudioSpeech)
+	router.POST("/v1/audio/speech", handler.QianfanAudioSpeech)
 	router.POST("/qianfan-adapter/voice/clone", handler.QianfanVoiceCloneCreate)
 
 	return &qianfanFlowHarness{
@@ -484,7 +492,7 @@ func TestQianfanRerankFlow(t *testing.T) {
 	}, true)
 	defer h.cleanup()
 
-	recorder := h.serve(t, http.MethodPost, "/qianfan-adapter/rerank",
+	recorder := h.serve(t, http.MethodPost, "/v1/rerank",
 		`{"model":"bce-reranker-base","query":"上海天气","documents":["上海气候","北京美食"]}`, nil)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
@@ -585,7 +593,7 @@ func TestQianfanAudioSpeechFlow(t *testing.T) {
 	}, true)
 	defer h.cleanup()
 
-	recorder := h.serve(t, http.MethodPost, "/qianfan-adapter/speak",
+	recorder := h.serve(t, http.MethodPost, "/v1/audio/speech",
 		`{"model":"qianfan-tts","input":"今天天气不错","voice":"5003"}`, nil)
 
 	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())

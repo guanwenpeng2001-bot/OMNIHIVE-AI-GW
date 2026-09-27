@@ -575,7 +575,7 @@ func requestAffinityPermanentlyInvalid(ctx context.Context, repo AccountReposito
 	}
 	endpoint := gatewaySelectionCatalogEndpoint(ctx, account)
 	if account.IsOpenAICompatible() {
-		endpoint = CompositeRouteEndpointResponses
+		endpoint = openAICompatiblePlanCatalogEndpoint(ctx, account)
 	}
 	return !AccountSupportsResolvedModel(ctx, account, plan.Snapshot().Model, AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: parent})
 }
