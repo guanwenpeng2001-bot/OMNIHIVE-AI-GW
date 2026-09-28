@@ -152,6 +152,16 @@ func bedrockHandlerFixtureForGroup(test *testing.T, group *service.Group, accoun
 		ID: accountID, Name: "bedrock-fixture", Platform: service.PlatformBedrock, Type: service.AccountTypeBedrock,
 		Status: service.StatusActive, Schedulable: true, Concurrency: 1, Credentials: credentials,
 	}
+	catalog := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1}
+	models := []string{"amazon.nova-canvas-v1:0"}
+	for _, target := range account.GetModelMapping() {
+		models = append(models, target)
+	}
+	for _, model := range models {
+		catalog.DiscoveredModels = append(catalog.DiscoveredModels, model)
+		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: []string{"embeddings", "images", "rerank", "messages"}, EvidenceKind: "fixture"})
+	}
+	account.Extra = map[string]any{service.UpstreamModelCatalogExtraKey: catalog}
 	gatewayHandler, cleanup := newTestGatewayHandler(test, group, []*service.Account{account})
 	test.Cleanup(cleanup)
 
@@ -163,7 +173,7 @@ func bedrockHandlerFixtureForGroup(test *testing.T, group *service.Group, accoun
 	gatewayHandler.openAIGatewayService = service.ProvideOpenAIGatewayService(
 		nil, nil, nil, nil, nil, nil, newZhipuHandlerCacheStub(), cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{unlimitedTPMRepository: unlimitedTPMRepository{rejection: bedrockFixtureTPMRejection(group)}}, nil, nil))
 	gatewayHandler.apiKeyService = &service.APIKeyService{}
 	gatewayHandler.billingCacheService = billingCache
 
@@ -404,4 +414,11 @@ func bedrockHandlerPNG(test *testing.T, width, height int) string {
 	}
 	require.NoError(test, png.Encode(buffer, source))
 	return base64.StdEncoding.EncodeToString(buffer.Bytes())
+}
+
+func bedrockFixtureTPMRejection(group *service.Group) error {
+	if group.TPMLimit > 0 {
+		return &service.TPMLimitExceeded{Scope: service.TPMScopeGroup}
+	}
+	return nil
 }

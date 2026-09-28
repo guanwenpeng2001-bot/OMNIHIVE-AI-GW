@@ -160,6 +160,9 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 	}
 
 	batch, err := p.client.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
+	if IsTPMAdmissionError(err) {
+		return nil, &geminiBatchNotCreatedError{err}
+	}
 	if err != nil {
 		return nil, mapGeminiClientError(err)
 	}

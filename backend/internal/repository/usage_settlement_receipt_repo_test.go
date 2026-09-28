@@ -66,6 +66,36 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		}
 	}
 
+	t.Run("Audit TPM identity conflict survives service recovery", func(t *testing.T) {
+		original := fixture(t, 0.1)
+		_, err := db.Exec(`UPDATE api_keys SET tpm_limit=1000 WHERE id=$1`, original.Key.APIKeyID)
+		require.NoError(t, err)
+		var workspaceID int64
+		require.NoError(t, db.QueryRow(`SELECT workspace_id FROM api_keys WHERE id=$1`, original.Key.APIKeyID).Scan(&workspaceID))
+		tokens := repo.(service.TPMReservationRepository)
+		identities := []service.TPMReservationIdentity{{WorkspaceID: workspaceID, APIKeyID: original.Key.APIKeyID, ExecutionID: "audit-first", AttemptIndex: 1}, {WorkspaceID: workspaceID, APIKeyID: original.Key.APIKeyID, ExecutionID: "audit-second", AttemptIndex: 1}}
+		for _, identity := range identities {
+			_, err := tokens.ReserveTPMAttempt(ctx, service.TPMReservationCommand{TPMReservationIdentity: identity, AccountID: original.Command.AccountID, Fingerprint: identity.ExecutionID, Estimate: service.TPMEstimate{InputBound: 25, Candidates: 1, Verified: true}})
+			require.NoError(t, err)
+		}
+		original.TPMReservation = &identities[0]
+		original.Usage.InputTokens = 10
+		original.Command.InputTokens = 10
+		_, err = repo.Persist(ctx, original)
+		require.NoError(t, err)
+		incoming := *original
+		incoming.TPMReservation = &identities[1]
+		_, conflict := repo.Persist(ctx, &incoming)
+		require.ErrorIs(t, conflict, service.ErrTPMReservationConflict)
+		err = service.NewUsageSettlementService(repo, nil, nil).Submit(ctx, &incoming, nil)
+		var used, reserved int64
+		require.NoError(t, db.QueryRow(`SELECT sum(used_tokens),sum(reserved_tokens) FROM gateway_tpm_windows WHERE scope_kind='api_key' AND scope_id=$1`, original.Key.APIKeyID).Scan(&used, &reserved))
+		var balance float64
+		require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, original.Key.UserID).Scan(&balance))
+		t.Logf("repository=%v service=%v used=%d reserved=%d balance=%.2f", conflict, err, used, reserved, balance)
+		require.ErrorIs(t, err, service.ErrTPMReservationConflict)
+	})
+
 	t.Run("TPM receipt replay and dollar holds share one lock order", func(t *testing.T) {
 		base := fixture(t, 0.1)
 		_, err := db.Exec(`UPDATE api_keys SET tpm_limit=10000,budget_period_mode='duration',budget_period_seconds=3600,budget_limit=3 WHERE id=$1`, base.Key.APIKeyID)

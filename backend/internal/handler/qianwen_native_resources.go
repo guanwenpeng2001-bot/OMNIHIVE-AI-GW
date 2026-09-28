@@ -97,6 +97,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeSyncResource(c *gin.Context, o
 	if accountRelease != nil {
 		defer accountRelease()
 	}
+	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "resources", h.maxAccountSwitches)()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := h.gatewayService.ForwardQianwenNative(c.Request.Context(), c, account, operation, body, false)
 	if err != nil {

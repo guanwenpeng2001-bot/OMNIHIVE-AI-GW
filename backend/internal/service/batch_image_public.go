@@ -371,6 +371,9 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 			return nil, releaseErr
 		}
 		s.hidePreUpstreamSubmitFailure(persistCtx, owner, job)
+		if IsTPMAdmissionError(err) {
+			return nil, err
+		}
 		return nil, ErrBatchImageProviderSubmitFailed
 	}
 	if err != nil || providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
