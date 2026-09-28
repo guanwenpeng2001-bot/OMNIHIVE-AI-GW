@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -204,11 +205,20 @@ func catalogPerformanceRequest(router *gin.Engine, path, role string) *httptest.
 
 func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 	router, accounts := newCatalogPerformanceRouter(tester)
+	// Full response digests captured before display-probe audit elision. These
+	// protect all fields, model counts, prices and user multipliers, cold and warm.
+	baselineDigests := map[string]string{
+		"/v1/models":          "1976b5508d2ea65c4453b461eec40b2c63343b4b20bc47b2b74f8810d49025ed",
+		"/api/v1/model-plaza": "ee8e87b8cd694ab651125a5a569c844002cd853fa39af93b98928213a22a5678",
+	}
 	for _, path := range []string{"/v1/models", "/api/v1/model-plaza"} {
 		cold := catalogPerformanceRequest(router, path, "user")
 		require.Equal(tester, http.StatusOK, cold.Code, cold.Body.String())
 		warm := catalogPerformanceRequest(router, path, "user")
 		require.JSONEq(tester, cold.Body.String(), warm.Body.String())
+		tester.Logf("path=%s cold_sha256=%x warm_sha256=%x", path, sha256.Sum256(cold.Body.Bytes()), sha256.Sum256(warm.Body.Bytes()))
+		require.Equal(tester, baselineDigests[path], fmt.Sprintf("%x", sha256.Sum256(cold.Body.Bytes())))
+		require.Equal(tester, baselineDigests[path], fmt.Sprintf("%x", sha256.Sum256(warm.Body.Bytes())))
 		var payload struct {
 			Data json.RawMessage `json:"data"`
 		}
@@ -226,6 +236,7 @@ func TestCatalogPerformanceHandlersPreservePayload(tester *testing.T) {
 				require.NotNil(tester, group.Models[0].Pricing)
 			}
 			require.NotNil(tester, plaza.Groups[0].UserRateMultiplier)
+			require.Equal(tester, 0.8, *plaza.Groups[0].UserRateMultiplier)
 		}
 	}
 	require.Equal(tester, int64(2), accounts.reads.Load())

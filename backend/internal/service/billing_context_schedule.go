@@ -104,6 +104,7 @@ func (s *BillingService) ResolveContextPricingSchedule(ctx context.Context, reso
 	}
 
 	req := TokenCostRequest{
+		displayProbe:   true,
 		Ctx:            ctx,
 		Model:          in.Model,
 		Group:          in.Group,
