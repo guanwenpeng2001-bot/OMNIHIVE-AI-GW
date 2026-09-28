@@ -70,6 +70,7 @@ type Account struct {
 
 	// Request-local credential owner evidence, never persisted or serialized.
 	modelCatalogCredentialAccount *Account
+	modelCatalogReadEvidence      *catalogReadEvidence
 
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string

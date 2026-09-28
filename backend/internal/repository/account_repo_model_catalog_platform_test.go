@@ -75,6 +75,18 @@ UPDATE accounts SET workspace_id = 2 WHERE id = 12;
 `)
 	require.NoError(t, err)
 	repo := &accountRepository{sql: db}
+	batched, err := repo.ListModelCatalogAccountsForGroups(ctx, []int64{42, 25})
+	require.NoError(t, err)
+	require.Len(t, batched, 7)
+	require.Equal(t, []int64{25, 42}, batched[0].GroupIDs)
+	require.Equal(t, []int64{25, 42}, batched[2].GroupIDs)
+	_, err = db.ExecContext(ctx, `INSERT INTO accounts (id,platform,type,status,schedulable) VALUES (13,'openai','oauth','error',false); UPDATE accounts SET parent_account_id=13 WHERE id=1`)
+	require.NoError(t, err)
+	withOwner, err := repo.ListModelCatalogAccountsForGroups(ctx, []int64{25})
+	require.NoError(t, err)
+	require.Len(t, withOwner, 3)
+	require.Equal(t, int64(13), withOwner[2].ID)
+	require.Empty(t, withOwner[2].GroupIDs)
 	composite, antigravity, typed := int64(42), int64(25), int64(43)
 	for _, tc := range []struct {
 		name           string
@@ -105,4 +117,23 @@ UPDATE accounts SET workspace_id = 2 WHERE id = 12;
 			require.Equal(t, tc.want, ids)
 		})
 	}
+}
+
+func TestModelCatalogBatchReadsSharedAccountOnce(tester *testing.T) {
+	database, expectations, err := sqlmock.New()
+	require.NoError(tester, err)
+	tester.Cleanup(func() { _ = database.Close() })
+	repository := &accountRepository{sql: database}
+	expectations.ExpectQuery(regexp.QuoteMeta("membership.group_id=ANY($5::bigint[])")).
+		WithArgs(int64(0), "{}", nil, true, "{7,9}").
+		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "credentials", "extra", "group_ids"}).
+			AddRow(11, "openai", "apikey", "active", true, nil, nil, false, nil, `{}`, `{}`, "{7,9}"))
+	accounts, err := repository.ListModelCatalogAccountsForGroups(context.Background(), []int64{7, 9})
+	require.NoError(tester, err)
+	require.Len(tester, accounts, 1)
+	require.Equal(tester, []int64{7, 9}, accounts[0].GroupIDs)
+	empty, err := repository.ListModelCatalogAccountsForGroups(context.Background(), nil)
+	require.NoError(tester, err)
+	require.Empty(tester, empty)
+	require.NoError(tester, expectations.ExpectationsWereMet())
 }

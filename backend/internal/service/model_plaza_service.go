@@ -94,6 +94,22 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
+	return s.listGroups(ctx, nil)
+}
+
+// ListVisibleGroups applies the freshly read user's group visibility before
+// loading accounts or computing prices. nil allowedGroups denotes anonymous.
+func (service *ModelPlazaService) ListVisibleGroups(ctx context.Context, allowedGroups map[int64]struct{}, restrictPublicGroups bool) ([]PlazaGroup, error) {
+	return service.listGroups(ctx, func(group Group) bool {
+		if group.IsExclusive || (restrictPublicGroups && len(allowedGroups) > 0) {
+			_, allowed := allowedGroups[group.ID]
+			return allowed
+		}
+		return true
+	})
+}
+
+func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool) ([]PlazaGroup, error) {
 	var visibility *VisibleModelResolver
 	if s.resolver != nil && s.resolver.channelService != nil {
 		visibility = s.resolver.channelService.visibleModels
@@ -110,6 +126,16 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+
+	if permitted != nil {
+		filtered := make([]Group, 0, len(groups))
+		for _, group := range groups {
+			if permitted(group) {
+				filtered = append(filtered, group)
+			}
+		}
+		groups = filtered
 	}
 
 	ctx, visible, observations, err := plazaVisibleModelsForGroups(ctx, visibility, groups)
@@ -247,6 +273,10 @@ func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelReso
 	observations := make(map[int64]map[string][]UpstreamModelMetadata)
 	if resolver == nil {
 		return frozen, visible, observations, nil
+	}
+	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
+	if err != nil {
+		return ctx, nil, nil, err
 	}
 	for _, group := range groups {
 		metadata := make(map[string][]UpstreamModelMetadata)
