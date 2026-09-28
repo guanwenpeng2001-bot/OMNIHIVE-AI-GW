@@ -117,13 +117,12 @@ func TestToModelPlazaGroupDTO_UserRateAndFieldWhitelist(t *testing.T) {
 	}
 	require.InDelta(t, 0.5, decoded["user_rate_multiplier"].(float64), 1e-9)
 
-	// 模型条目:pricing + official_pricing 并存;official 缺失字段输出 null 而非省略
+	// 模型条目保留渠道定价，已退役的参考价字段不再输出。
 	models := decoded["models"].([]any)
 	require.Len(t, models, 1)
 	model := models[0].(map[string]any)
 	require.Contains(t, model, "pricing")
-	require.Contains(t, model, "official_pricing")
-	require.Nil(t, model["official_pricing"])
+	require.NotContains(t, model, "official_pricing")
 	_, hasBasis := model["long_context_basis"]
 	require.False(t, hasBasis, "单档模型不输出 long_context_basis")
 	_, hasTimePricing := model["time_pricing"]
@@ -217,8 +216,7 @@ func TestToModelPlazaGroupDTO_LongContextTiersAndBasis(t *testing.T) {
 	require.Len(t, paidTiers, 2)
 	require.Equal(t, ">272K", paidTiers[1].(map[string]any)["tier_label"])
 
-	require.Contains(t, model, "official_pricing")
-	require.Nil(t, model["official_pricing"])
+	require.NotContains(t, model, "official_pricing")
 }
 
 func testPtr(v float64) *float64 { return &v }

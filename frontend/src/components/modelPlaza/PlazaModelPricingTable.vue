@@ -112,19 +112,11 @@
                   class="whitespace-nowrap text-xs leading-5"
                 >
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500" :title="tierHint(m)">{{ tierLabel(iv) }}</span>
-                  <span
-                    v-if="referencePerMillion(m, 'input')"
-                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                    :title="t('modelPlaza.table.referenceTitle')"
-                  >{{ referencePerMillion(m, 'input') }}</span>{{ paidPerMillion(iv.input_price, period) }}
+                  {{ paidPerMillion(iv.input_price, period) }}
                 </div>
               </template>
               <template v-else>
-                <span
-                  v-if="referencePerMillion(m, 'input')"
-                  class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                  :title="t('modelPlaza.table.referenceTitle')"
-                >{{ referencePerMillion(m, 'input') }}</span>{{ paidPerMillion(m.pricing?.input_price, period) }}
+                {{ paidPerMillion(m.pricing?.input_price, period) }}
               </template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle font-mono font-semibold text-gray-900 dark:text-gray-50">
@@ -135,19 +127,11 @@
                   class="whitespace-nowrap text-xs leading-5"
                   :title="tierHint(m)"
                 >
-                  <span
-                    v-if="referencePerMillion(m, 'output')"
-                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                    :title="t('modelPlaza.table.referenceTitle')"
-                  >{{ referencePerMillion(m, 'output') }}</span>{{ paidPerMillion(iv.output_price, period) }}
+                  {{ paidPerMillion(iv.output_price, period) }}
                 </div>
               </template>
               <template v-else>
-                <span
-                  v-if="referencePerMillion(m, 'output')"
-                  class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                  :title="t('modelPlaza.table.referenceTitle')"
-                >{{ referencePerMillion(m, 'output') }}</span>{{ paidPerMillion(m.pricing?.output_price, period) }}
+                {{ paidPerMillion(m.pricing?.output_price, period) }}
               </template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle">
@@ -160,21 +144,13 @@
                 >
                   <template v-if="iv.cache_write_price != null || iv.cache_write_1h_price != null || iv.cache_read_price != null">
                     <span class="font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheWriteShort') }}</span>
-                    <span
-                      v-if="referencePerMillion(m, 'cache_write')"
-                      class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                      :title="t('modelPlaza.table.referenceTitle')"
-                    >{{ referencePerMillion(m, 'cache_write') }}</span>{{ paidPerMillion(iv.cache_write_price, period) }}
+                    {{ paidPerMillion(iv.cache_write_price, period) }}
                     <template v-if="iv.cache_write_1h_price != null"
                       ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(iv.cache_write_1h_price, period)
                       }}<span class="font-sans font-normal text-gray-400 dark:text-dark-500">)</span></template
                     >
                     <span class="ml-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheReadShort') }}</span>
-                    <span
-                      v-if="referencePerMillion(m, 'cache_read')"
-                      class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                      :title="t('modelPlaza.table.referenceTitle')"
-                    >{{ referencePerMillion(m, 'cache_read') }}</span>{{ paidPerMillion(iv.cache_read_price, period) }}
+                    {{ paidPerMillion(iv.cache_read_price, period) }}
                   </template>
                   <span v-else class="text-gray-400 dark:text-dark-500">-</span>
                 </div>
@@ -185,11 +161,7 @@
               >
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheWrite') }}</span>
-                  <span
-                    v-if="referencePerMillion(m, 'cache_write')"
-                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                    :title="t('modelPlaza.table.referenceTitle')"
-                  >{{ referencePerMillion(m, 'cache_write') }}</span>{{ paidPerMillion(m.pricing?.cache_write_price, period)
+                  {{ paidPerMillion(m.pricing?.cache_write_price, period)
                   }}<template v-if="m.pricing?.cache_write_1h_price != null"
                     ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(m.pricing.cache_write_1h_price, period)
                     }}<span class="font-sans font-normal text-gray-400 dark:text-dark-500">)</span></template
@@ -197,11 +169,7 @@
                 </div>
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheRead') }}</span>
-                  <span
-                    v-if="referencePerMillion(m, 'cache_read')"
-                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
-                    :title="t('modelPlaza.table.referenceTitle')"
-                  >{{ referencePerMillion(m, 'cache_read') }}</span>{{ paidPerMillion(m.pricing?.cache_read_price, period) }}
+                  {{ paidPerMillion(m.pricing?.cache_read_price, period) }}
                 </div>
               </div>
               <span v-else class="text-gray-400 dark:text-dark-500">-</span>
@@ -387,24 +355,6 @@ function perUnitSuffix(m: PlazaModel): string {
 
 function hasCachePricing(m: PlazaModel): boolean {
   return m.pricing?.cache_write_price != null || m.pricing?.cache_write_1h_price != null || m.pricing?.cache_read_price != null
-}
-
-/**
- * 有来源的参考价单价（$/1M token）。服务端没有提供参考价，或该单位没有值时
- * 返回空串：此时界面不会展示任何划线价/折扣。
- */
-function referencePerMillion(m: PlazaModel, unit: 'input' | 'output' | 'cache_write' | 'cache_read'): string {
-  const reference = m.official_pricing
-  if (!reference) return ''
-  const value = unit === 'input'
-    ? reference.input_price
-    : unit === 'output'
-      ? reference.output_price
-      : unit === 'cache_write'
-        ? reference.cache_write_price
-        : reference.cache_read_price
-  if (value == null) return ''
-  return formatScaled(value, PER_MILLION, MIN_DECIMALS)
 }
 
 /** token 数值压缩成 128K / 1M 形式；无依据返回空串。 */

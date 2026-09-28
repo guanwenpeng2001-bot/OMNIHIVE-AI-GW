@@ -823,7 +823,6 @@ export default {
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
       paidPrice: '售价（标准时段）',
       rate: '生效倍率',
-      referenceTitle: '参考价（服务端提供，来自计费目录）；无来源时本表不展示参考价或折扣',
       contextShort: '上下文',
       referenceNote: '有来源的参考价以划线展示，实付价按当前倍率计算。',
       contextHint: {
