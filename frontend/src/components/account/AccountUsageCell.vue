@@ -589,7 +589,7 @@
         :account="account"
         @updated="handleOllamaCloudUsageUpdated"
       />
-      <CNProviderQuotaCell v-if="account.platform === 'commandcode'" :account="account" />
+      <CNProviderQuotaCell v-if="account.platform === 'commandcode' && !account.ollama_cloud_usage?.eligible" :account="account" />
       <p
         v-if="hasNoUpstreamUsageApi"
         data-testid="local-usage-explanation"
@@ -762,7 +762,8 @@ const showUsageWindows = computed(() => {
     props.account.platform === 'minimax' ||
     props.account.platform === 'opencode_go'
   ) {
-    return true
+    // Eligible Ollama accounts share the local statistics and configured quota row.
+    return !props.account.ollama_cloud_usage?.eligible
   }
   return props.account.type === 'oauth' || props.account.type === 'setup-token'
 })

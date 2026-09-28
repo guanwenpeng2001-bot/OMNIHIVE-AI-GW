@@ -401,7 +401,7 @@ export default {
       },
       cnProviders: {
         commandCodeAlpha: '上游 alpha 接口，可能随时变化。',
-        commandCodeLocal: '以下为本地累计统计；上游用量窗口暂不可用。',
+        commandCodeLocal: '以下为今日本站请求、Token 与成本统计；上游用量窗口暂不可用。',
         commandCodeUnsupported: '上游 alpha 用量暂不支持或暂不可用。',
         monthlyCredits: '月度剩余额度',
         purchasedCredits: '购买剩余额度',

@@ -195,7 +195,7 @@ export default {
       },
       cnProviders: {
         commandCodeAlpha: 'Upstream alpha API; may change at any time.',
-        commandCodeLocal: 'Local cumulative usage below; upstream windows are unavailable.',
+        commandCodeLocal: 'Today’s local request, token and cost statistics are shown below; upstream usage windows are temporarily unavailable.',
         commandCodeUnsupported: 'Upstream alpha usage unsupported or temporarily unavailable.',
         monthlyCredits: 'Monthly credits remaining',
         purchasedCredits: 'Purchased credits remaining',
