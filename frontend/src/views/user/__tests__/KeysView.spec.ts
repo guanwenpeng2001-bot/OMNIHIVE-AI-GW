@@ -372,6 +372,65 @@ describe('user KeysView column settings', () => {
     isCurrentStep.mockReturnValue(false)
   })
 
+  it('refreshes the complete available list and preselects the only group on every create', async () => {
+    getAvailableGroups.mockResolvedValue([{ id: 42, name: 'Only group' }])
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    expect(getAvailableGroups).toHaveBeenCalledTimes(2)
+    const select = wrapper.findAllComponents({ name: 'Select' }).find(item => item.attributes('data-tour') === 'key-form-group')!
+    expect(select.props('modelValue')).toBe(42)
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('keeps all available groups and requires a choice when several are available', async () => {
+    getAvailableGroups.mockResolvedValue(Array.from({ length: 125 }, (_, index) => ({ id: index + 1, name: `Group ${index + 1}` })))
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    const select = wrapper.findAllComponents({ name: 'Select' }).find(item => item.attributes('data-tour') === 'key-form-group')!
+    expect(select.props('options')).toHaveLength(125)
+    expect(select.props('modelValue')).toBeNull()
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeDefined()
+    select.vm.$emit('update:modelValue', 125)
+    await nextTick()
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
+  it('blocks creation with an actionable explanation when no groups are available', async () => {
+    const wrapper = await mountView()
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    await flushPromises()
+    expect(wrapper.text()).toContain('keys.noAvailableGroups')
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('#key-form').trigger('submit')
+    expect(createKey).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('blocks stale group choices while refreshing and offers retry after a load failure', async () => {
+    getAvailableGroups.mockResolvedValueOnce([{ id: 42, name: 'Previous group' }])
+    const wrapper = await mountView()
+    let rejectLoad!: (error: Error) => void
+    getAvailableGroups.mockImplementationOnce(() => new Promise((_, reject) => { rejectLoad = reject }))
+    await getButtonByText(wrapper, 'Create API Key').trigger('click')
+    expect(wrapper.text()).toContain('keys.groupsLoading')
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeDefined()
+    rejectLoad(new Error('network failed'))
+    await flushPromises()
+    expect(wrapper.text()).toContain('keys.groupsLoadFailed')
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeDefined()
+    getAvailableGroups.mockResolvedValue([{ id: 7, name: 'New group' }])
+    await getButtonByText(wrapper, 'keys.retryGroups').trigger('click')
+    await flushPromises()
+    const select = wrapper.findAllComponents({ name: 'Select' }).find(item => item.attributes('data-tour') === 'key-form-group')!
+    expect(select.props('modelValue')).toBe(7)
+    expect(wrapper.get('button[form="key-form"]').attributes('disabled')).toBeUndefined()
+    wrapper.unmount()
+  })
+
   it('aborts all auxiliary requests and ignores late failures after a same-user session change', async () => {
     authState.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
     const rejectRequests: Array<(error: unknown) => void> = []

@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrAPIKeyGroupRequired  = infraerrors.BadRequest("API_KEY_GROUP_REQUIRED", "You must select a group before creating an API key / 创建密钥必须选择分组")
 	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
 	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
 	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
@@ -278,6 +279,9 @@ func validateAPIKeyLimit(v float64) error {
 }
 
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
+	if req.GroupID == nil || *req.GroupID <= 0 {
+		return ErrAPIKeyGroupRequired
+	}
 	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if err := validateAPIKeyLimit(v); err != nil {
 			return err
