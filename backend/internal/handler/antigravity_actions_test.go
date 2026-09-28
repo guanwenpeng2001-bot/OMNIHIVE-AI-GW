@@ -30,11 +30,10 @@ import (
 // parser would have rejected it with a 400 model error first.
 
 func newAntigravityImagesHandler() *GatewayHandler {
-	openAIGatewayService := service.NewOpenAIGatewayService(
+	openAIGatewayService := service.ProvideOpenAIGatewayService(
 		nil, nil, nil, nil, nil, nil, nil, // repos, cache
 		&config.Config{},
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	return &GatewayHandler{openAIGatewayService: openAIGatewayService}
 }
 

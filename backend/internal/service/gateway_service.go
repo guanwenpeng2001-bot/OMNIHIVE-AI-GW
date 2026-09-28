@@ -690,6 +690,7 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	TPM                      *TPMLimitExceeded
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
@@ -706,6 +707,13 @@ type UpstreamFailoverError struct {
 	NextAccountAction        NextAccountAction
 	ClientStatusCode         int
 	ClientMessage            string
+}
+
+func (e *UpstreamFailoverError) Unwrap() error {
+	if e == nil || e.TPM == nil {
+		return nil
+	}
+	return e.TPM
 }
 
 func (e *UpstreamFailoverError) Error() string {
@@ -730,7 +738,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
+	return e.TPM == nil && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
 }
 
 // sseStreamErrorEventError 表示上游 SSE 流体内出现 event:error 帧。

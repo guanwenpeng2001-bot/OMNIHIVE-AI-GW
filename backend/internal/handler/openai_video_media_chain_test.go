@@ -53,12 +53,16 @@ func newOpenAIVideoMediaChainHandler(t *testing.T, server *httptest.Server) (*Op
 	concurrency := service.NewConcurrencyService(&grokMediaSlotsCache{accounts: map[string]int64{}, users: map[string]int64{}})
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
-	gateway := service.NewOpenAIGatewayService(
+	gateway := service.ProvideOpenAIGatewayService(
 		openAIImagesFailoverAccountRepo{accounts: []service.Account{openAIVideoMediaChainAccount(server.URL)}},
 		nil, nil, nil, nil, nil, nil, cfg, nil, concurrency,
 		service.NewBillingService(cfg, nil), nil, nil,
-		gatewayResourceWiringUpstream{client: server.Client()},
-		nil, nil, nil, nil, nil, nil, nil, nil)
+		gatewayResourceWiringUpstream{client: server.Client(), beforeSend: func(request *http.Request) {
+			if request.Method == http.MethodPost && request.URL.Path == "/v1/videos" {
+				requireGatewaySubmissionPlan(t, request, "sora-2")
+			}
+		}},
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 	openAI.upstreamJobs = service.NewUpstreamJobService(repo, service.GatewayResourcePollJob(gateway), service.GatewayResourceJobCharge)
 	return openAI, repo

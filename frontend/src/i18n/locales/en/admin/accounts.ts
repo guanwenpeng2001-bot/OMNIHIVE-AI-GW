@@ -1,6 +1,10 @@
 export default {
 
     accounts: {
+      tpmUnlimited: 'Unlimited',
+      tpmLimit: 'Tokens per admission minute',
+      tpmLimitHint: 'Includes input, output and cache tokens; 0 means unlimited. Fixed UTC admission minutes, not a sliding throughput limit. Verified upstream bounds are required; requests without them are rejected.',
+      tpmLimitInvalid: 'Enter a non-negative safe integer.',
       catalogSourceLabel: 'Model catalog', metadataSourceLabel: 'Capability metadata', catalogSource: { live: 'Upstream', configured: 'Configured mapping', preset: 'Platform preset' }, nativeProbeUnsupported: 'Native probe unsupported for this model; this does not indicate invalid credentials.', incompleteProbeStream: 'The probe stream ended without a completion result.',
       createAdvancedScope: "These overrides apply to standard account creation and manual OAuth/token entry. Codex session, Agent Identity and PAT import use dedicated import APIs; configure overrides by editing the imported account.",
       qianwenPricing: {

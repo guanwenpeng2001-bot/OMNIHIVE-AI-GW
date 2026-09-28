@@ -51,6 +51,7 @@ func (Account) Mixin() []ent.Mixin {
 // Fields 定义账户实体的所有字段。
 func (Account) Fields() []ent.Field {
 	return []ent.Field{
+		field.Int64("tpm_limit").Default(0).NonNegative().Comment("Token budget per admission minute; zero is unlimited"),
 		// name: 账户显示名称，用于在界面中标识账户
 		field.String("name").
 			MaxLen(100).

@@ -93,6 +93,15 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	if input == nil {
 		return s.persistenceError(UsageSettlementKey{}, fmt.Errorf("usage settlement receipt is nil"))
 	}
+	// Legacy producers cannot distinguish absent usage from explicit zero.
+	// Preserve the hold in that ambiguous case; never turn cancellation into a
+	// zero-token proof merely because the monetary receipt contains zero fields.
+	observedTokens := input.Usage.InputTokens > 0 || input.Usage.OutputTokens > 0 || input.Usage.CacheCreationTokens > 0 || input.Usage.CacheReadTokens > 0
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && input.TPMReservation == nil && observedTokens {
+		copy := *input
+		copy.TPMReservation = plan.TPMReceiptIdentity(input.Command.AccountID)
+		input = &copy
+	}
 	prepared, err := PrepareUsageSettlementReceipt(input)
 	if err != nil {
 		return s.persistenceError(input.Key, err)
@@ -230,6 +239,13 @@ func IsUsageSettlementRecovery(ctx context.Context) bool {
 }
 
 func (s *UsageSettlementService) Recover(ctx context.Context) error {
+	if repository, ok := s.repo.(interface {
+		RetireExpiredTPMReservations(context.Context, int) (int, error)
+	}); ok {
+		if _, err := repository.RetireExpiredTPMReservations(ctx, 100); err != nil {
+			slog.Warn("retire token reservations", "error", err)
+		}
+	}
 	ctx = context.WithValue(ctx, usageSettlementRecoveryContextKey{}, true)
 	// Abandoned request holds (process death, lost client) are refunded before
 	// recovery so a crashed request cannot strand budget or balance.

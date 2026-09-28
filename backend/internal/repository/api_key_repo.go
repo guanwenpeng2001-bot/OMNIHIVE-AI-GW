@@ -58,6 +58,7 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	builder := tx.Client().APIKey.Create().
 		SetUserID(key.UserID).
 		SetName(key.Name).
+		SetTpmLimit(key.TPMLimit).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
 		SetNillableLastUsedAt(key.LastUsedAt).
@@ -188,6 +189,7 @@ func (r *apiKeyRepository) authProjectionQuery() *dbent.APIKeyQuery {
 		Select(
 			apikey.FieldID,
 			apikey.FieldWorkspaceID,
+			apikey.FieldTpmLimit,
 			apikey.FieldUserID,
 			apikey.FieldGroupID,
 			apikey.FieldName,
@@ -228,6 +230,7 @@ func (r *apiKeyRepository) authProjectionQuery() *dbent.APIKeyQuery {
 		WithGroup(func(q *dbent.GroupQuery) {
 			q.Select(
 				group.FieldID,
+				group.FieldTpmLimit,
 				group.FieldName,
 				group.FieldPlatform,
 				group.FieldAccountType,
@@ -448,6 +451,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if fields.TPMLimit {
+		builder.SetTpmLimit(key.TPMLimit)
+	}
 	if fields.Name {
 		builder.SetName(key.Name)
 	}
@@ -1136,6 +1142,7 @@ func apiKeyEntityToService(m *dbent.APIKey) *service.APIKey {
 		return nil
 	}
 	out := &service.APIKey{
+		TPMLimit:      m.TpmLimit,
 		ID:            m.ID,
 		WorkspaceID:   m.WorkspaceID,
 		UserID:        m.UserID,
@@ -1229,6 +1236,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		}
 	}
 	return &service.Group{
+		TPMLimit:                        g.TpmLimit,
 		ID:                              g.ID,
 		Name:                            g.Name,
 		Description:                     derefString(g.Description),

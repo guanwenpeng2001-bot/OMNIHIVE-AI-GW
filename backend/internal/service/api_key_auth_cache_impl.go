@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 28 // Period budget policy must be part of the cached auth projection.
+const apiKeyAuthSnapshotVersion = 29 // Period budget policy must be part of the cached auth projection.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -340,6 +340,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		return nil
 	}
 	snapshot := &APIKeyAuthSnapshot{
+		TPMLimit:             apiKey.TPMLimit,
 		Version:              apiKeyAuthSnapshotVersion,
 		APIKeyID:             apiKey.ID,
 		UserID:               apiKey.UserID,
@@ -386,6 +387,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 	}
 	if apiKey.Group != nil {
 		snapshot.Group = &APIKeyAuthGroupSnapshot{
+			TPMLimit:                        apiKey.Group.TPMLimit,
 			ID:                              apiKey.Group.ID,
 			Name:                            apiKey.Group.Name,
 			Platform:                        apiKey.Group.Platform,
@@ -487,6 +489,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		RateLimit1d:          snapshot.RateLimit1d,
 		RateLimit7d:          snapshot.RateLimit7d,
 		BudgetPolicy:         budgetPolicyFromSnapshot(snapshot.BudgetPolicy),
+		TPMLimit:             snapshot.TPMLimit,
 		User: &User{
 			ID:                         snapshot.User.ID,
 			Status:                     snapshot.User.Status,
@@ -508,6 +511,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 	}
 	if snapshot.Group != nil {
 		apiKey.Group = &Group{
+			TPMLimit:                        snapshot.Group.TPMLimit,
 			ID:                              snapshot.Group.ID,
 			Name:                            snapshot.Group.Name,
 			Platform:                        snapshot.Group.Platform,

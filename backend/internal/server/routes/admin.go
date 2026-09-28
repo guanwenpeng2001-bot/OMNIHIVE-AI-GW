@@ -186,6 +186,7 @@ func registerAdminAPIKeyRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		// 周期预算写入口（含 budget_enforced 开关与带审计的调账）：
 		// 与其它管理端写操作共用同一路由组上的 adminAuth + auditLog 中间件。
 		apiKeys.PUT("/:id/budget", h.Admin.APIKey.AdminUpdateAPIKeyBudget)
+		apiKeys.PUT("/:id/tpm", h.Admin.APIKey.UpdateTPMLimit)
 	}
 }
 

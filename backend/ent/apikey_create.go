@@ -82,6 +82,20 @@ func (_c *APIKeyCreate) SetNillableDeletedAt(v *time.Time) *APIKeyCreate {
 	return _c
 }
 
+// SetTpmLimit sets the "tpm_limit" field.
+func (_c *APIKeyCreate) SetTpmLimit(v int64) *APIKeyCreate {
+	_c.mutation.SetTpmLimit(v)
+	return _c
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableTpmLimit(v *int64) *APIKeyCreate {
+	if v != nil {
+		_c.SetTpmLimit(*v)
+	}
+	return _c
+}
+
 // SetUserID sets the "user_id" field.
 func (_c *APIKeyCreate) SetUserID(v int64) *APIKeyCreate {
 	_c.mutation.SetUserID(v)
@@ -425,6 +439,10 @@ func (_c *APIKeyCreate) defaults() error {
 		v := apikey.DefaultWorkspaceID
 		_c.mutation.SetWorkspaceID(v)
 	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		v := apikey.DefaultTpmLimit
+		_c.mutation.SetTpmLimit(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := apikey.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -474,6 +492,14 @@ func (_c *APIKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.WorkspaceID(); !ok {
 		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "APIKey.workspace_id"`)}
+	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		return &ValidationError{Name: "tpm_limit", err: errors.New(`ent: missing required field "APIKey.tpm_limit"`)}
+	}
+	if v, ok := _c.mutation.TpmLimit(); ok {
+		if err := apikey.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "APIKey.tpm_limit": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "APIKey.user_id"`)}
@@ -568,6 +594,10 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(apikey.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.TpmLimit(); ok {
+		_spec.SetField(apikey.FieldTpmLimit, field.TypeInt64, value)
+		_node.TpmLimit = value
 	}
 	if value, ok := _c.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
@@ -786,6 +816,24 @@ func (u *APIKeyUpsert) UpdateDeletedAt() *APIKeyUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *APIKeyUpsert) ClearDeletedAt() *APIKeyUpsert {
 	u.SetNull(apikey.FieldDeletedAt)
+	return u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *APIKeyUpsert) SetTpmLimit(v int64) *APIKeyUpsert {
+	u.Set(apikey.FieldTpmLimit, v)
+	return u
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *APIKeyUpsert) UpdateTpmLimit() *APIKeyUpsert {
+	u.SetExcluded(apikey.FieldTpmLimit)
+	return u
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *APIKeyUpsert) AddTpmLimit(v int64) *APIKeyUpsert {
+	u.Add(apikey.FieldTpmLimit, v)
 	return u
 }
 
@@ -1211,6 +1259,27 @@ func (u *APIKeyUpsertOne) UpdateDeletedAt() *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) ClearDeletedAt() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *APIKeyUpsertOne) SetTpmLimit(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *APIKeyUpsertOne) AddTpmLimit(v int64) *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *APIKeyUpsertOne) UpdateTpmLimit() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateTpmLimit()
 	})
 }
 
@@ -1859,6 +1928,27 @@ func (u *APIKeyUpsertBulk) UpdateDeletedAt() *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) ClearDeletedAt() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *APIKeyUpsertBulk) SetTpmLimit(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *APIKeyUpsertBulk) AddTpmLimit(v int64) *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *APIKeyUpsertBulk) UpdateTpmLimit() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.UpdateTpmLimit()
 	})
 }
 

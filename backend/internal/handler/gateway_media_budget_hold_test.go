@@ -19,6 +19,7 @@ import (
 
 // mediaHoldReceiptStub 既实现结算回执仓储，也实现请求预留口——与生产 SQL 仓储同构。
 type mediaHoldReceiptStub struct {
+	unlimitedTPMRepository
 	reservations []service.KeyBudgetReservationCommand
 }
 

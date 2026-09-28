@@ -71,14 +71,13 @@ func qianwenCatalogAccount(id int64, model string, endpoints ...string) service.
 func newQianwenStandardTestHandler(t *testing.T, upstream service.HTTPUpstream, accounts []service.Account) *OpenAIGatewayHandler {
 	t.Helper()
 	cfg := &config.Config{RunMode: config.RunModeSimple, Gateway: config.GatewayConfig{MaxBodySize: 1 << 20, TextMaxBodySize: 1 << 20}}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		&qianwenStandardAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil,
 		cfg,
 		nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCache.Stop)
 	h := NewOpenAIGatewayHandler(

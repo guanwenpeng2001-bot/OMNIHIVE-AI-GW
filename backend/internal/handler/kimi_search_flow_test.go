@@ -31,8 +31,8 @@ func TestKimiSearchDispatchSchedulesAndForwards(t *testing.T) {
 				require.Equal(t, "Bearer kimi-fixture", request.Header.Get("Authorization"))
 				return qianfanFlowJSON(http.StatusOK, `{"search_results":[]}`)
 			}}
-			gateway := service.NewOpenAIGatewayService(repository, nil, nil, nil, nil, nil, newQianfanHandlerCacheStub(), cfg, nil, nil,
-				service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+			gateway := service.ProvideOpenAIGatewayService(repository, nil, nil, nil, nil, nil, newQianfanHandlerCacheStub(), cfg, nil, nil,
+				service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 			concurrencyCache := &concurrencyCacheMock{
 				acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
 				acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },

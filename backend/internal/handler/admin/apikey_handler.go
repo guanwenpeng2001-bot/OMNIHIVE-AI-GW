@@ -17,6 +17,27 @@ type AdminAPIKeyHandler struct {
 	adminService service.AdminService
 }
 
+func (h *AdminAPIKeyHandler) UpdateTPMLimit(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || keyID <= 0 {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	var request struct {
+		TPMLimit service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
+	}
+	if err := c.ShouldBindJSON(&request); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	key, err := h.adminService.AdminSetAPIKeyTPMLimit(c.Request.Context(), keyID, request.TPMLimit.Pointer())
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.APIKeyFromService(key))
+}
+
 // NewAdminAPIKeyHandler creates a new admin API key handler
 func NewAdminAPIKeyHandler(adminService service.AdminService) *AdminAPIKeyHandler {
 	return &AdminAPIKeyHandler{

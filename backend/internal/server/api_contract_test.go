@@ -261,6 +261,7 @@ func TestAPIContracts(t *testing.T) {
 						"window_1d_start": null,
 						"window_7d_start": null,
 						"expires_at": null,
+						"tpm_limit": 0,
 						"budget_period_mode": "off",
 						"budget_limit": 0,
 						"budget_used": 0,
@@ -384,7 +385,8 @@ func TestAPIContracts(t *testing.T) {
 							"window_1d_start": null,
 							"window_7d_start": null,
 							"expires_at": null,
-							"budget_period_mode": "off",
+							"tpm_limit": 0,
+						"budget_period_mode": "off",
 							"budget_limit": 0,
 							"budget_used": 0,
 							"budget_reserved": 0,
@@ -488,6 +490,7 @@ func TestAPIContracts(t *testing.T) {
 						"max_reasoning_effort_over_limit": "",
 						"reasoning_effort_mappings": null,
 						"rpm_limit": 0,
+						"tpm_limit": 0,
 						"created_at": "2025-01-02T03:04:05Z",
 						"updated_at": "2025-01-02T03:04:05Z"
 					}

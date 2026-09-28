@@ -183,6 +183,7 @@ export interface AdminGroup extends Group {
 }
 
 export interface CreateGroupRequest {
+  tpm_limit?: number
   account_type?: '' | 'bedrock' | 'service_account'
   name: string
   description?: string | null
@@ -249,6 +250,7 @@ export interface CreateGroupRequest {
 }
 
 export interface UpdateGroupRequest {
+  tpm_limit?: number
   account_type?: '' | 'bedrock' | 'service_account'
   name?: string
   description?: string | null
@@ -574,6 +576,7 @@ export interface AccountExtra extends CodexUsageSnapshot, OpenAICompactState, Op
 export type AccountStatus = 'active' | 'inactive' | 'error'
 
 export interface AccountListItem {
+  tpm_limit?: number
   id: number
   name: string
   notes?: string | null
@@ -893,6 +896,7 @@ export interface OpenAIResponsesState {
 }
 
 export interface CreateAccountRequest {
+  tpm_limit?: number
   name: string
   notes?: string | null
   platform: AccountPlatform
@@ -912,6 +916,7 @@ export interface CreateAccountRequest {
 }
 
 export interface UpdateAccountRequest {
+  tpm_limit?: number
   name?: string
   notes?: string | null
   type?: AccountType
@@ -1041,6 +1046,7 @@ export interface AdminDataImportResult {
 }
 
 export interface CodexSessionImportRequest {
+  tpm_limit?: number
   content?: string
   contents?: string[]
   name?: string
@@ -1061,6 +1067,7 @@ export interface CodexSessionImportRequest {
 }
 
 export interface OpenAICodexPATCreateRequest {
+  tpm_limit?: number
   access_token: string
   name?: string
   notes?: string | null

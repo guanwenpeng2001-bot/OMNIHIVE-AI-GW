@@ -56,6 +56,7 @@ export interface GrokTokenInfo {
 }
 
 export interface GrokSSOToOAuthRequest {
+  tpm_limit?: number
   sso_tokens: string[]
   name?: string
   notes?: string | null

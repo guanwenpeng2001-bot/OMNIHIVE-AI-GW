@@ -443,6 +443,9 @@ func (h *GatewayResourceHandler) CreateBatch(c *gin.Context) {
 		h.openAIError(c, http.StatusUnprocessableEntity, "unsupported_model", err.Error())
 		return
 	}
+	// The submission's child job plan inherits TPM storage and frozen scope from
+	// this ingress plan, including keys without a monetary period budget.
+	defer beginGatewayRequestPlan(c, h.openAI.gatewayService, key, model, "resources", h.openAI.maxAccountSwitches)()
 	release, ok := h.checkResourceAdmission(c, key, subject)
 	if !ok {
 		return

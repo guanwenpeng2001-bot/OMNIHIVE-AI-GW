@@ -129,6 +129,7 @@ func generationWS(ctx context.Context, accountID int64, value any, send func(ctx
 	if gjson.GetBytes(payload, "type").String() != "response.create" || gjson.GetBytes(payload, "generate").Type == gjson.False {
 		return send(ctx)
 	}
+	ctx = withTPMWire(ctx, payload, "/responses")
 	finish, err := BeginGenerationAttempt(ctx, accountID)
 	if err != nil {
 		return err
@@ -239,6 +240,14 @@ func (b *AttemptBudget) Snapshot() []AttemptRecord {
 // BeginGenerationAttempt is called after local validation and immediately before
 // the actual send. Denials never enter the upstream telemetry denominator.
 func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, error), error) {
+	if err := CheckAttemptBudget(ctx); err != nil {
+		return nil, err
+	}
+	plan := GatewayRequestPlanFromContext(ctx)
+	tpmSequence, tpmErr := plan.beginTPMSend(ctx, accountID)
+	if tpmErr != nil {
+		return nil, tpmErr
+	}
 	b := AttemptBudgetFromContext(ctx)
 	var record *AttemptRecord
 	if b != nil {
@@ -271,6 +280,7 @@ func BeginGenerationAttempt(ctx context.Context, accountID int64) (func(int, err
 	var once sync.Once
 	return func(status int, err error) {
 		once.Do(func() {
+			plan.finishTPMSend(tpmSequence, err)
 			if b != nil {
 				outcome := "unknown"
 				if err == nil && status >= 400 {
@@ -305,7 +315,7 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 		return send(request)
 	}
 	// A 307/308 redirect can silently replay the POST below our send boundary.
-	request = request.WithContext(WithHTTPUpstreamRedirectsDisabled(request.Context()))
+	request = request.WithContext(WithHTTPUpstreamRedirectsDisabled(tpmHTTPRequestContext(request)))
 	finish, err := BeginGenerationAttempt(request.Context(), accountID)
 	if err != nil {
 		return nil, err
@@ -319,6 +329,13 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 	status := 0
 	if response != nil {
 		status = response.StatusCode
+		if status >= 400 && response.Body != nil {
+			if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+				if identity := plan.TPMReceiptIdentity(accountID); identity != nil {
+					response.Body = &tpmFailureBody{ReadCloser: response.Body, plan: plan, identity: *identity}
+				}
+			}
+		}
 	}
 	finish(status, sendErr)
 	if sendErr != nil || response == nil || response.Body == nil {
@@ -345,7 +362,7 @@ func AttemptExecutionContext(ctx context.Context) (context.Context, context.Canc
 }
 
 func IsAttemptAdmissionError(err error) bool {
-	return errors.Is(err, ErrAttemptBudgetExhausted) || errors.Is(err, ErrResponseCommitted) || errors.Is(err, ErrAttemptOutcomeUnknown)
+	return IsTPMAdmissionError(err) || errors.Is(err, ErrAttemptBudgetExhausted) || errors.Is(err, ErrResponseCommitted) || errors.Is(err, ErrAttemptOutcomeUnknown)
 }
 
 func generationDo(upstream HTTPUpstream, req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {

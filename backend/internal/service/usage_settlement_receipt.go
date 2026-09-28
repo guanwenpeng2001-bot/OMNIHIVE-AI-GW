@@ -32,6 +32,7 @@ type UsageSettlementKey struct {
 // serialized (they may contain credentials). Pricing lives here because the
 // legacy usage_logs table does not persist PricingState or PricingSnapshot.
 type UsageSettlementReceipt struct {
+	TPMReservation  *TPMReservationIdentity
 	ID              int64
 	Key             UsageSettlementKey
 	Command         UsageBillingCommand
@@ -117,6 +118,13 @@ func PrepareUsageSettlementReceipt(input *UsageSettlementReceipt) (*UsageSettlem
 		return nil, errors.New("usage settlement receipt is nil")
 	}
 	receipt := *input
+	if receipt.TPMReservation != nil {
+		identity := *receipt.TPMReservation
+		if identity.WorkspaceID <= 0 || identity.APIKeyID != receipt.Key.APIKeyID || identity.ExecutionID == "" || identity.AttemptIndex <= 0 {
+			return nil, ErrTPMReservationConflict
+		}
+		receipt.TPMReservation = &identity
+	}
 	receipt.Key.RequestID = strings.TrimSpace(receipt.Key.RequestID)
 	command := &receipt.Command
 	// Reject negative sub-quantum values before rounding could hide them as zero.

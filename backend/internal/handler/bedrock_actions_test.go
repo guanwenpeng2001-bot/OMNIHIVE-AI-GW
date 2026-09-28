@@ -160,11 +160,10 @@ func bedrockHandlerFixtureForGroup(test *testing.T, group *service.Group, accoun
 	cfg.Gateway.MaxAccountSwitches = 1
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	test.Cleanup(billingCache.Stop)
-	gatewayHandler.openAIGatewayService = service.NewOpenAIGatewayService(
+	gatewayHandler.openAIGatewayService = service.ProvideOpenAIGatewayService(
 		nil, nil, nil, nil, nil, nil, newZhipuHandlerCacheStub(), cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
-	)
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	gatewayHandler.apiKeyService = &service.APIKeyService{}
 	gatewayHandler.billingCacheService = billingCache
 

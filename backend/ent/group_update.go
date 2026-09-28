@@ -63,6 +63,27 @@ func (_u *GroupUpdate) ClearDeletedAt() *GroupUpdate {
 	return _u
 }
 
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *GroupUpdate) SetTpmLimit(v int64) *GroupUpdate {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableTpmLimit(v *int64) *GroupUpdate {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *GroupUpdate) AddTpmLimit(v int64) *GroupUpdate {
+	_u.mutation.AddTpmLimit(v)
+	return _u
+}
+
 // SetAccountType sets the "account_type" field.
 func (_u *GroupUpdate) SetAccountType(v string) *GroupUpdate {
 	_u.mutation.SetAccountType(v)
@@ -1497,6 +1518,11 @@ func (_u *GroupUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *GroupUpdate) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := group.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Group.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.AccountType(); ok {
 		if err := group.AccountTypeValidator(v); err != nil {
 			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "Group.account_type": %w`, err)}
@@ -1590,6 +1616,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(group.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(group.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(group.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.AccountType(); ok {
 		_spec.SetField(group.FieldAccountType, field.TypeString, value)
@@ -2276,6 +2308,27 @@ func (_u *GroupUpdateOne) SetNillableDeletedAt(v *time.Time) *GroupUpdateOne {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *GroupUpdateOne) ClearDeletedAt() *GroupUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (_u *GroupUpdateOne) SetTpmLimit(v int64) *GroupUpdateOne {
+	_u.mutation.ResetTpmLimit()
+	_u.mutation.SetTpmLimit(v)
+	return _u
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableTpmLimit(v *int64) *GroupUpdateOne {
+	if v != nil {
+		_u.SetTpmLimit(*v)
+	}
+	return _u
+}
+
+// AddTpmLimit adds value to the "tpm_limit" field.
+func (_u *GroupUpdateOne) AddTpmLimit(v int64) *GroupUpdateOne {
+	_u.mutation.AddTpmLimit(v)
 	return _u
 }
 
@@ -3726,6 +3779,11 @@ func (_u *GroupUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *GroupUpdateOne) check() error {
+	if v, ok := _u.mutation.TpmLimit(); ok {
+		if err := group.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Group.tpm_limit": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.AccountType(); ok {
 		if err := group.AccountTypeValidator(v); err != nil {
 			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "Group.account_type": %w`, err)}
@@ -3836,6 +3894,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(group.FieldDeletedAt, field.TypeTime)
+	}
+	if value, ok := _u.mutation.TpmLimit(); ok {
+		_spec.SetField(group.FieldTpmLimit, field.TypeInt64, value)
+	}
+	if value, ok := _u.mutation.AddedTpmLimit(); ok {
+		_spec.AddField(group.FieldTpmLimit, field.TypeInt64, value)
 	}
 	if value, ok := _u.mutation.AccountType(); ok {
 		_spec.SetField(group.FieldAccountType, field.TypeString, value)

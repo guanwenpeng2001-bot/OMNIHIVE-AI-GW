@@ -132,11 +132,11 @@ func TestHeartbeatFailoverThroughHandlers(test *testing.T) {
 				client.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 903, UserID: 904, GroupID: &groupID, Group: group, User: &service.User{ID: 904, Status: service.StatusActive}})
 				client.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 904, Concurrency: 1})
 				if route == "native" {
-					gateway := service.NewOpenAIGatewayService(repository, usageRepository, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+					gateway := service.ProvideOpenAIGatewayService(repository, usageRepository, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 					handler := &OpenAIGatewayHandler{gatewayService: gateway, billingCacheService: billingCache, concurrencyHelper: concurrency, maxAccountSwitches: 1, cfg: cfg, apiKeyService: &service.APIKeyService{}}
 					handler.Messages(client)
 				} else {
-					gateway := service.NewGatewayService(repository, &heartbeatGroupRepository{group: group}, usageRepository, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), service.NewRateLimitService(repository, nil, cfg, nil, nil), billingCache, nil, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+					gateway := service.ProvideGatewayService(repository, &heartbeatGroupRepository{group: group}, usageRepository, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), service.NewRateLimitService(repository, nil, cfg, nil, nil), billingCache, nil, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 					handler := &GatewayHandler{gatewayService: gateway, billingCacheService: billingCache, concurrencyHelper: concurrency, maxAccountSwitches: 1}
 					handler.Messages(client)
 				}

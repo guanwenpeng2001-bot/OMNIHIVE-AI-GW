@@ -140,11 +140,10 @@ func newGatewayModelsHandlerForTest(repo service.AccountRepository, groupRepos .
 		groupRepo = groupRepos[0]
 	}
 	return &GatewayHandler{
-		gatewayService: service.NewGatewayService(
+		gatewayService: service.ProvideGatewayService(
 			repo,
 			groupRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-		),
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil)),
 	}
 }
 

@@ -319,6 +319,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
+		TPMLimit:              source.TPMLimit,
 		Concurrency:           source.Concurrency,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
@@ -427,6 +428,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if input.TPMLimit < 0 {
+		return nil, fmt.Errorf("tpm_limit must be non-negative")
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -443,6 +447,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Credentials: input.Credentials,
 		Extra:       accountExtra,
 		ProxyID:     input.ProxyID,
+		TPMLimit:    input.TPMLimit,
 		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:    input.Priority,
 		Status:      StatusActive,
@@ -826,6 +831,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
+	if input.TPMLimit != nil {
+		if *input.TPMLimit < 0 {
+			return nil, fmt.Errorf("tpm_limit must be non-negative")
+		}
+		account.TPMLimit = *input.TPMLimit
+	}
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
 	}
@@ -1218,7 +1229,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	// Prepare bulk updates for columns and JSONB fields.
+	if input.TPMLimit != nil && *input.TPMLimit < 0 {
+		return nil, fmt.Errorf("tpm_limit must be non-negative")
+	}
 	repoUpdates := AccountBulkUpdate{
+		TPMLimit:                   input.TPMLimit,
 		Credentials:                input.Credentials,
 		Extra:                      input.Extra,
 		ProbeEnabled:               input.ProbeEnabled,

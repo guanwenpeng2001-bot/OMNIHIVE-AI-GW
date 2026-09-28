@@ -114,6 +114,7 @@ func TestGatewayRequestPlanRetainsRootAttemptBudget(t *testing.T) {
 	ctx, cancel := WithAttemptBudget(context.Background(), 1, time.Minute)
 	defer cancel()
 	ctx, plan := captureGatewayRequestPlan(ctx, GatewayRequestSpec{}, nil, nil, nil)
+	installUnlimitedTPMFixture(plan)
 	finish, err := BeginGenerationAttempt(ctx, 7)
 	require.NoError(t, err)
 	finish(503, nil)

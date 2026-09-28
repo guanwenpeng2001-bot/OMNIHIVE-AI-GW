@@ -54,6 +54,7 @@ type AdminUser struct {
 }
 
 type APIKey struct {
+	TPMLimit    int64      `json:"tpm_limit"`
 	ID          int64      `json:"id"`
 	UserID      int64      `json:"user_id"`
 	Key         string     `json:"key"`
@@ -118,6 +119,7 @@ type APIKeyCredentialIssue struct {
 }
 
 type Group struct {
+	TPMLimit       int64   `json:"tpm_limit"`
 	AccountType    string  `json:"account_type,omitempty"`
 	ID             int64   `json:"id"`
 	Name           string  `json:"name"`
@@ -233,6 +235,7 @@ type AdminGroup struct {
 }
 
 type Account struct {
+	TPMLimit int64   `json:"tpm_limit"`
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`
 	Notes    *string `json:"notes"`
@@ -358,6 +361,7 @@ type Account struct {
 // repeated account_groups and groups object graphs. Fetch /admin/accounts/:id
 // for the complete Account DTO when editing or inspecting an account.
 type AccountListItem struct {
+	TPMLimit int64   `json:"tpm_limit"`
 	ID       int64   `json:"id"`
 	Name     string  `json:"name"`
 	Notes    *string `json:"notes"`

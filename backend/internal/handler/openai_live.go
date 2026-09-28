@@ -123,6 +123,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	identity := liveCallIdentity(c, apiKey, subject.UserID, subscription)
 	created, err := h.gatewayService.CreateLiveCall(c.Request.Context(), request, identity, subject.Concurrency)
 	if err != nil {
+		if writeGatewayTPMError(c, err) {
+			return
+		}
 		h.writeLiveCreateError(c, err)
 		return
 	}

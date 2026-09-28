@@ -117,6 +117,22 @@ describe('BulkEditAccountModal', () => {
     } as any)
   })
 
+  it('keeps TPM omitted unless selected and submits explicit zero when selected', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0])).not.toContain('tpm_limit')
+    wrapper.unmount()
+    const next = mountModal()
+    await next.get('#bulk-edit-tpm-enabled').setValue(true)
+    await next.get('[data-testid="tpm-limit-field"] input').setValue('0')
+    await next.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))).toContain('"tpm_limit":0')
+    next.unmount()
+  })
+
   it('批量修改倍率时提示自动同步账号需要先关闭同步', async () => {
     const wrapper = mountModal()
 
