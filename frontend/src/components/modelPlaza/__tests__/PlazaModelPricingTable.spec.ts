@@ -28,7 +28,6 @@ function tokenModel(overrides: Partial<PlazaModel> = {}): PlazaModel {
       per_request_price: null,
       intervals: []
     },
-    official_pricing: null,
     ...overrides
   }
 }
@@ -77,7 +76,7 @@ describe('PlazaModelPricingTable', () => {
     // 实付 = 3 × 0.5 / 15 × 0.5
     expect(text).toContain('$1.50')
     expect(text).toContain('$7.50')
-    // 无有来源的参考价 → 不展示任何参考价/折扣。
+    // 只展示应用倍率后的实付价格。
     expect(text).not.toContain('$15.00')
     expect(text).toContain('0.5x')
   })
@@ -92,20 +91,21 @@ describe('PlazaModelPricingTable', () => {
     const struck = wrapper.findAll('tbody td').at(-1)!.find('.line-through')
     expect(struck.exists()).toBe(true)
     expect(struck.text()).toBe('1x')
+    expect(wrapper.findAll('tbody .line-through')).toHaveLength(1)
     expect(text).toContain('0.8x')
   })
 
-  it('模型按名称排序，排序与参考价无关', () => {
+  it('token 模型按名称降序排序', () => {
     const expensive = tokenModel({ name: 'model-expensive' })
     const cheap = tokenModel({ name: 'model-cheap' })
-    const noOfficial = tokenModel({ name: 'model-no-official', official_pricing: null })
+    const namedModel = tokenModel({ name: 'model-named' })
 
-    const wrapper = mountTable([cheap, noOfficial, expensive], 1)
+    const wrapper = mountTable([cheap, namedModel, expensive], 1)
     const names = wrapper.findAll('tbody tr').map((tr) => tr.find('td').text())
-    expect(names).toEqual(['model-no-official', 'model-expensive', 'model-cheap'])
+    expect(names).toEqual(['model-named', 'model-expensive', 'model-cheap'])
   })
 
-  it('官方输出价相同时按模型名降序(新版本号在前)', () => {
+  it('模型名含版本号时按名称降序排列', () => {
     const older = tokenModel({ name: 'gpt-5.5' })
     const newer = tokenModel({ name: 'gpt-5.6-sol' })
 
@@ -114,8 +114,8 @@ describe('PlazaModelPricingTable', () => {
     expect(names).toEqual(['gpt-5.6-sol', 'gpt-5.5'])
   })
 
-  it('按图片/按次计费的模型沉到末尾,不与 token 模型按官方价混排', () => {
-    // 官方输出价 $10,介于下面两个 token 模型之间,但因计费模式不同应排最后
+  it('按图片计费的模型排在 token 模型之后', () => {
+    // 图片计费模型按计费模式排在 token 模型之后。
     const image = tokenModel({
       name: 'gpt-image-2',
       pricing: {
@@ -128,34 +128,13 @@ describe('PlazaModelPricingTable', () => {
         image_output_price: null,
         per_request_price: 0.002,
         intervals: []
-      },
-      official_pricing: {
-        input_price: 5e-6,
-        output_price: 1e-5,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: 1.25e-6
       }
     })
     const pricier = tokenModel({
-      name: 'gpt-5.6-terra',
-      official_pricing: {
-        input_price: 2.5e-6,
-        output_price: 1.5e-5,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
+      name: 'gpt-5.6-terra'
     })
     const cheaper = tokenModel({
-      name: 'gpt-5.6-luna',
-      official_pricing: {
-        input_price: 1e-6,
-        output_price: 6e-6,
-        cache_write_price: null,
-        cache_write_1h_price: null,
-        cache_read_price: null
-      }
+      name: 'gpt-5.6-luna'
     })
 
     const wrapper = mountTable([pricier, image, cheaper], 1)
@@ -166,68 +145,55 @@ describe('PlazaModelPricingTable', () => {
     expect(names[2]).toContain('gpt-image-2')
   })
 
-  it('两级表头:实付区与官方区各拆输入/输出/缓存列', () => {
+  it('两级表头:实付区拆输入/输出/缓存列', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const text = wrapper.text()
     expect(text).toContain('modelPlaza.table.paidPrice')
     expect(text).not.toContain('modelPlaza.table.officialPrice')
-    // token 行:模型 + 实付 3 列 + 官方 3 列 + 倍率
+    // token 行:模型 + 实付 3 列 + 倍率
     expect(wrapper.findAll('tbody td')).toHaveLength(5)
   })
 
-  it('无有来源的参考价时不展示参考价或折扣', () => {
-    const wrapper = mountTable([tokenModel({ official_pricing: null })], 1)
+  it('renders paid prices when the retired official_pricing key is absent', () => {
+    const model = tokenModel()
+    expect(model).not.toHaveProperty('official_pricing')
+    const wrapper = mountTable([model], 0.5)
     expect(wrapper.find('tbody td .line-through').exists()).toBe(false)
-    expect(wrapper.text()).toContain('$3.00')
+    for (const price of ['$1.50', '$7.50', '$1.875', '$0.15']) {
+      expect(wrapper.text()).toContain(price)
+    }
     expect(wrapper.findAll('tbody td')).toHaveLength(5)
   })
 
-  it('参考价有来源时按划线参考价 + 实付价展示', () => {
-    const wrapper = mountTable([
-      tokenModel({
-        official_pricing: {
-          input_price: 5e-6,
-          output_price: 1.5e-5,
-          cache_write_price: 3.75e-6,
-          cache_write_1h_price: 6e-6,
-          cache_read_price: 3e-7
-        }
-      })
-    ], 0.5)
-    const struck = wrapper.findAll('tbody td .line-through')
-    expect(struck.map((node) => node.text())).toEqual(expect.arrayContaining(['$5.00', '$15.00', '$3.75', '$0.30']))
-    // 实付价仍按倍率展示（输入 3 × 0.5 = $1.50）。
-    expect(wrapper.text()).toContain('$1.50')
-    expect(wrapper.text()).toContain('$7.50')
-  })
-
-  it('参考价字段存在但缺该单位数值时不展示该单位参考价', () => {
-    const wrapper = mountTable([
-      tokenModel({
-        official_pricing: {
-          input_price: null,
-          output_price: 1.5e-5,
-          cache_write_price: null,
-          cache_write_1h_price: null,
-          cache_read_price: null
-        }
-      })
-    ], 1)
-    const struck = wrapper.findAll('tbody td .line-through')
-    expect(struck.map((node) => node.text())).toEqual(['$15.00'])
+  it.each([null, {
+    input_price: 99e-6,
+    output_price: 98e-6,
+    cache_write_price: 97e-6,
+    cache_write_1h_price: 96e-6,
+    cache_read_price: 95e-6
+  }])('ignores legacy official_pricing values without rendering a reference-price discount (%j)', (legacyPricing) => {
+    // Extra JSON from an old server is deliberately outside the current DTO type.
+    const legacyModel: PlazaModel = JSON.parse(JSON.stringify({
+      ...tokenModel(),
+      official_pricing: legacyPricing
+    }))
+    const wrapper = mountTable([legacyModel], 0.5)
+    const current = mountTable([tokenModel()], 0.5)
+    expect(wrapper.html()).toBe(current.html())
+    expect(wrapper.find('tbody td .line-through').exists()).toBe(false)
   })
 
   it('实付价分别展示自定义 5m 与 1h 缓存写入价', () => {
     const model = tokenModel()
     model.pricing!.cache_write_1h_price = 7e-6
 
-    const wrapper = mountTable([model], 1)
-    expect(wrapper.text()).toContain('$3.75')
-    expect(wrapper.text()).toContain('$7.00')
+    const wrapper = mountTable([model], 0.5)
+    expect(wrapper.text()).toContain('$1.875')
+    expect(wrapper.text()).toContain('$3.50')
     expect(wrapper.text()).toContain('(1h')
   })
 
-  it('per_request 模型按单次价 × 倍率展示,官方价列显示 -', () => {
+  it('per_request 模型按单次价 × 倍率展示', () => {
     const model = tokenModel({
       name: 'search-tool',
       pricing: {
@@ -240,8 +206,7 @@ describe('PlazaModelPricingTable', () => {
         image_output_price: null,
         per_request_price: 0.04,
         intervals: []
-      },
-      official_pricing: null
+      }
     })
     const wrapper = mountTable([model], 0.5)
     const text = wrapper.text()
@@ -325,8 +290,7 @@ describe('PlazaModelPricingTable', () => {
           cache_read_multiplier: 2,
           per_request_price: null
         }]
-      },
-      official_pricing: null
+      }
     })
 
     const text = mountTable([model], 1).text()
@@ -369,8 +333,7 @@ describe('PlazaModelPricingTable', () => {
             per_request_price: 0.02
           }
         ]
-      },
-      official_pricing: null
+      }
     })
     const wrapper = mountTable([model], 0.1, null, {
       imageRateIndependent: true,
@@ -398,8 +361,7 @@ describe('PlazaModelPricingTable', () => {
         image_output_price: null,
         per_request_price: 0.2,
         intervals: []
-      },
-      official_pricing: null
+      }
     })
     const wrapper = mountTable([model], 0.1, null, { imageRateIndependent: false })
     const text = wrapper.text()
@@ -443,8 +405,7 @@ describe('PlazaModelPricingTable', () => {
             per_request_price: 0.02
           }
         ]
-      },
-      official_pricing: null
+      }
     })
     const wrapper = mountTable([model], 0.1)
     const text = wrapper.text()
@@ -522,13 +483,6 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
         per_request_price: null,
         intervals: ladderIntervals()
       },
-      official_pricing: {
-        input_price: 5e-6,
-        output_price: 3e-5,
-        cache_write_price: 6.25e-6,
-        cache_read_price: 5e-7,
-        intervals: ladderIntervals()
-      },
       long_context_basis: 'whole_request',
       ...overrides
     })
@@ -555,7 +509,44 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
     expect(cells[2].findAll('.leading-5')).toHaveLength(2)
   })
 
-  it('旧参考阶梯不会新增价格列', () => {
+  it('keeps paid tiers and time prices unchanged with missing or legacy reference pricing', () => {
+    const model = ladderModel({
+      time_pricing: {
+        timezone: 'Asia/Shanghai',
+        periods: [{ start_time: '00:30', end_time: '08:30', multiplier: 0.5 }]
+      }
+    })
+    expect(model).not.toHaveProperty('official_pricing')
+    const wrapper = mountTable([model], 0.8)
+    const rows = wrapper.findAll('tbody tr')
+    expect(rows).toHaveLength(2)
+    const standardCells = rows[0].findAll('td')
+    const periodCells = rows[1].findAll('td')
+    expect(standardCells[1].text()).toContain('$4.00')
+    expect(standardCells[1].text()).toContain('$8.00')
+    expect(periodCells[1].text()).toContain('$2.00')
+    expect(periodCells[1].text()).toContain('$4.00')
+    expect(periodCells[2].text()).toContain('$12.00')
+    expect(periodCells[2].text()).toContain('$18.00')
+    expect(periodCells[3].text()).toContain('$2.50')
+    expect(periodCells[3].text()).toContain('$5.00')
+    expect(periodCells[3].text()).toContain('$0.20')
+    expect(periodCells[3].text()).toContain('$0.40')
+    const legacyModel: PlazaModel = JSON.parse(JSON.stringify({
+      ...model,
+      official_pricing: {
+        input_price: 99e-6,
+        output_price: 98e-6,
+        cache_write_price: 97e-6,
+        cache_read_price: 96e-6,
+        intervals: ladderIntervals()
+      }
+    }))
+    expect(mountTable([legacyModel], 0.8).html()).toBe(wrapper.html())
+    expect(wrapper.find('tbody .line-through').exists()).toBe(false)
+  })
+
+  it('渠道阶梯内联展示,不新增价格列', () => {
     const wrapper = mountTable([ladderModel()], 0.5)
     expect(wrapper.findAll('tbody td')).toHaveLength(5)
     expect(wrapper.text()).not.toContain('modelPlaza.table.officialPrice')
@@ -590,7 +581,7 @@ describe('PlazaModelPricingTable 长上下文阶梯', () => {
     expect(rows.map((r) => r.find('span').text())).toEqual(['≤100K', '≤200K', '≤1M', '>1M'])
   })
 
-  it('官方无 intervals 字段(旧响应)时官方列保持平价,实付无阶梯时缓存列保持两行', () => {
+  it('实付无阶梯时缓存列保持两行', () => {
     const wrapper = mountTable([tokenModel()], 1)
     const cells = wrapper.findAll('tbody td')
     expect(cells[3].text()).toContain('modelPlaza.table.cacheWrite')
@@ -644,7 +635,7 @@ describe('PlazaModelPricingTable 分时计价', () => {
     expect(peakCells[1].text()).toContain('$2.88')
     expect(peakCells[4].text()).toContain('0.96x')
 
-    // 官方列不受时段影响
+    // 时段行保持相同的五列布局
     expect(nightCells).toHaveLength(5)
   })
 

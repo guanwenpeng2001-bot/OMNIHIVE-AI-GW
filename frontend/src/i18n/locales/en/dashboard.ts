@@ -819,7 +819,6 @@ export default {
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
       paidPrice: 'Your price (standard hours)',
       rate: 'Effective rate',
-      referenceTitle: 'Reference price provided by the server from the billing catalog; without one this table shows no reference price or discount',
       contextShort: 'context',
       referenceNote: 'A sourced reference price is shown struck through; the paid price uses the current rate.',
       contextHint: {
