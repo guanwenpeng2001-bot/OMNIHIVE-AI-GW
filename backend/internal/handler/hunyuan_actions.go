@@ -563,7 +563,7 @@ func shouldRecordHunyuanActionUsage(endpoint service.HunyuanActionEndpoint, resu
 	case service.HunyuanEndpointTextEmbeddings, service.HunyuanEndpointMultimodalEmbeddings:
 		return result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0
 	case service.HunyuanEndpointSpeechSync, service.HunyuanEndpointTranscribeSync:
-		return result.AudioUsage != nil
+		return result.AudioUsage != nil || result.AudioUsageUnresolved
 	case service.HunyuanEndpointVoiceClone:
 		// Only the optional demo audio carries gateway units; the clone fee is
 		// charged upstream on the first synthesis that uses the voice_id.
@@ -621,9 +621,9 @@ func (h *OpenAIGatewayHandler) prepareHunyuanVideoCompletionBilling(
 	return merged
 }
 
-// prepareHunyuanTranscribeCompletionBilling claims one-shot billing for the
-// first observed status=completed speech recognition task. The completed status
-// body carries the recognised duration, so only the model needs the snapshot.
+// prepareHunyuanTranscribeCompletionBilling restores the owner-scoped model
+// snapshot. Unknown completed usage retains this poll as review evidence; only
+// an observed duration claims the stable task charge.
 func (h *OpenAIGatewayHandler) prepareHunyuanTranscribeCompletionBilling(
 	ctx context.Context,
 	reqLog *zap.Logger,
@@ -635,12 +635,23 @@ func (h *OpenAIGatewayHandler) prepareHunyuanTranscribeCompletionBilling(
 	if h == nil || h.gatewayService == nil || apiKey == nil || statusResult == nil {
 		return nil
 	}
-	if statusResult.AudioUsage == nil {
+	if statusResult.AudioUsage == nil && !statusResult.AudioUsageUnresolved {
 		return nil
 	}
 	taskID = strings.TrimSpace(hunyuanFirstNonEmpty(taskID, statusResult.ResponseID))
 	if taskID == "" {
 		return nil
+	}
+	pending, loadErr := h.gatewayService.LoadHunyuanTaskPendingBilling(ctx, taskID, subject.UserID, apiKey.ID)
+	if loadErr != nil || pending == nil {
+		reqLog.Error("hunyuan_action.transcribe_pending_billing_unavailable", zap.String("task_id", taskID))
+		return nil
+	}
+	merged := service.MergeHunyuanTaskPendingBilling(statusResult, pending, taskID)
+	merged.ResponseID = taskID
+	if merged.AudioUsageUnresolved {
+		// Preserve this poll's evidence ID and the submit snapshot; no final claim.
+		return merged
 	}
 	claimed, err := h.gatewayService.ClaimHunyuanTaskBilling(ctx, taskID, subject.UserID, apiKey.ID)
 	if err != nil {
@@ -651,13 +662,8 @@ func (h *OpenAIGatewayHandler) prepareHunyuanTranscribeCompletionBilling(
 		reqLog.Debug("hunyuan_action.transcribe_billing_already_claimed", zap.String("task_id", taskID))
 		return nil
 	}
-	merged := *statusResult
-	if pending, loadErr := h.gatewayService.LoadHunyuanTaskPendingBilling(ctx, taskID, subject.UserID, apiKey.ID); loadErr == nil && pending != nil {
-		merged = *service.MergeHunyuanTaskPendingBilling(statusResult, pending, taskID)
-	}
-	merged.ResponseID = hunyuanFirstNonEmpty(merged.ResponseID, taskID)
-	merged.RequestID = service.HunyuanTranscribeTaskBillingRequestID(merged.ResponseID)
-	return &merged
+	merged.RequestID = service.HunyuanTranscribeTaskBillingRequestID(taskID)
+	return merged
 }
 
 // recordHunyuanActionUsage writes one usage record and releases the task billing
@@ -674,6 +680,16 @@ func (h *OpenAIGatewayHandler) recordHunyuanActionUsage(
 	body []byte,
 	taskID string,
 ) {
+	if result != nil && result.AudioUsageUnresolved {
+		h.submitOpenAIUsageRecordTask(c.Request.Context(), result, func(ctx context.Context) {
+			if err := h.gatewayService.RecordHunyuanSTTUnresolved(ctx, result, apiKey, account, taskID); err != nil {
+				reqLog.Error("hunyuan_action.stt_unresolved_persistence_failed",
+					zap.String("task_id", taskID), zap.String("request_id", result.RequestID),
+					zap.Int64("account_id", account.ID), zap.String("model", result.Model))
+			}
+		})
+		return
+	}
 	userAgent := c.GetHeader("User-Agent")
 	clientIP := ip.GetClientIP(c)
 	sessionID := service.ExtractClientSessionID(c)
@@ -701,6 +717,7 @@ func (h *OpenAIGatewayHandler) recordHunyuanActionUsage(
 	if result != nil && result.AudioUsage != nil {
 		if strings.HasPrefix(strings.TrimSpace(result.RequestID), "hunyuan-transcribe:") {
 			// Speech recognition task polling already pinned its durable id.
+			billableTaskID = strings.TrimSpace(hunyuanFirstNonEmpty(taskID, result.ResponseID))
 		} else {
 			result.RequestID = service.StableHunyuanAudioBillingRequestID(result.RequestID)
 		}

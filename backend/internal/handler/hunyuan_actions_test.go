@@ -209,7 +209,7 @@ func (r hunyuanActionAccountRepo) accountsForPlatform(platform string) []service
 	return out
 }
 
-func newHunyuanActionHandler(t *testing.T) (*OpenAIGatewayHandler, *hunyuanActionCache, *hunyuanActionUpstream, []service.Account) {
+func newHunyuanActionHandler(t *testing.T, receipts ...service.UsageSettlementReceiptRepository) (*OpenAIGatewayHandler, *hunyuanActionCache, *hunyuanActionUpstream, []service.Account) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	accounts := make([]service.Account, 2)
@@ -233,7 +233,11 @@ func newHunyuanActionHandler(t *testing.T) (*OpenAIGatewayHandler, *hunyuanActio
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
 	repo := hunyuanActionAccountRepo{accounts: accounts}
-	gateway := service.ProvideOpenAIGatewayService(repo, nil, nil, nil, nil, nil, bindings, cfg, nil, concurrency, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
+	var receiptRepository service.UsageSettlementReceiptRepository = &unlimitedTPMReceiptStub{}
+	if len(receipts) > 0 {
+		receiptRepository = receipts[0]
+	}
+	gateway := service.ProvideOpenAIGatewayService(repo, nil, nil, nil, nil, nil, bindings, cfg, nil, concurrency, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receiptRepository, nil, nil))
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
 	handler := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
