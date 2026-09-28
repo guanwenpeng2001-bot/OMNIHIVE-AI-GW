@@ -21,6 +21,7 @@ func TestBatchCreateSharesJobBudgetWhileUploadsAndPollsDoNotGenerate(t *testing.
 			defer server.Close()
 			ctx, finish := CaptureGatewayJobPlan(context.Background(), GatewayRequestSpec{ExecutionID: "batch", UpstreamAccountID: 7})
 			defer finish()
+			installUnlimitedTPMFixture(GatewayRequestPlanFromContext(ctx))
 			createPath := "/v1beta/models/image:batchGenerateContent"
 			if provider == "vertex" {
 				createPath = "/v1/projects/project/locations/region/batchPredictionJobs"
@@ -55,6 +56,7 @@ func TestBatchCreateDoesNotFollowReplayRedirect(t *testing.T) {
 	defer server.Close()
 	ctx, finish := CaptureGatewayJobPlan(context.Background(), GatewayRequestSpec{ExecutionID: "redirected-batch"})
 	defer finish()
+	installUnlimitedTPMFixture(GatewayRequestPlanFromContext(ctx))
 	request, err := http.NewRequestWithContext(ctx, http.MethodPost, server.URL+"/batchPredictionJobs", nil)
 	require.NoError(t, err)
 	var result map[string]any

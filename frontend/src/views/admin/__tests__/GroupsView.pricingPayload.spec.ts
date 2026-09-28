@@ -164,6 +164,16 @@ describe('GroupsView pricing HTTP payload', () => {
   })
   afterEach(() => { apiClient.defaults.adapter = previousAdapter; vi.restoreAllMocks(); document.body.innerHTML = '' })
 
+  it('saves a shared TPM limit through the rendered edit form', async () => {
+    const wrapper = await openEditor()
+    await wrapper.get('#edit-group-form [data-testid="tpm-limit-field"] input').setValue('37')
+    await save(wrapper)
+    expect(payloads).toHaveLength(1)
+    expect(payloads[0].tpm_limit).toBe(37)
+    expect(payloads[0].rpm_limit).toBe(sourceGroup.rpm_limit ?? 0)
+    wrapper.unmount()
+  })
+
   it('preserves providers, case, zero prices, precision, nested conditions, intervals and multipliers when renaming', async () => {
     const wrapper = await openEditor()
     await wrapper.get('#edit-group-form input[type="text"]').setValue('Renamed')

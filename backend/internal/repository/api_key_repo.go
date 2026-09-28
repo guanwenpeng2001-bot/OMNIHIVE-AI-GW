@@ -451,6 +451,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 	builder := client.APIKey.Update().
 		Where(apikey.IDEQ(key.ID), apikey.DeletedAtIsNil()).
 		SetUpdatedAt(now)
+	if fields.TPMLimit {
+		builder.SetTpmLimit(key.TPMLimit)
+	}
 	if fields.Name {
 		builder.SetName(key.Name)
 	}

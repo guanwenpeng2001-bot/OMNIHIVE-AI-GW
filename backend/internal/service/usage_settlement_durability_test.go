@@ -12,6 +12,7 @@ import (
 
 // Simulate the two commit boundaries independently, including lost ACKs.
 type durableReceiptStore struct {
+	unlimitedTPMRepository
 	UsageSettlementReceiptRepository
 	mu                               sync.Mutex
 	row                              *UsageSettlementReceipt

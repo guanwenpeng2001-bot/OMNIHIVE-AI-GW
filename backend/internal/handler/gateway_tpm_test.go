@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,28 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
+
+func TestGatewayTPM_AccountExhaustionUsesBoundedReselection(t *testing.T) {
+	state := NewFailoverState(2, false)
+	denial := &service.UpstreamFailoverError{StatusCode: 429, TPM: &service.TPMLimitExceeded{Scope: service.TPMScopeAccount}}
+	for accountID := int64(1); accountID <= 3; accountID++ {
+		action := state.HandleFailoverError(context.Background(), nil, accountID, service.PlatformOpenAI, 0, denial)
+		if accountID < 3 {
+			require.Equal(t, FailoverContinue, action)
+		} else {
+			require.Equal(t, FailoverExhausted, action)
+		}
+	}
+	require.Equal(t, 2, state.SwitchCount)
+}
+
+func TestGatewayTPM_GroupExhaustionCannotFailoverAway(t *testing.T) {
+	response := httptest.NewRecorder()
+	request, _ := gin.CreateTestContext(response)
+	request.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+	require.True(t, writeGatewayTPMRequestError(request, &service.TPMLimitExceeded{Scope: service.TPMScopeGroup, ResetAt: time.Now().Add(time.Minute)}))
+	require.Equal(t, 429, response.Code)
+}
 
 func TestGatewayTPM_StorageFailureIs503(t *testing.T) {
 	response := httptest.NewRecorder()

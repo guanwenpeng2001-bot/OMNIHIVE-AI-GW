@@ -240,6 +240,7 @@
                   ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
                 </span>
               </div>
+              <div class="mt-2 text-xs text-gray-500" data-testid="key-tpm-readonly">{{ t('admin.accounts.tpmLimit') }}: {{ row.tpm_limit || t('admin.accounts.tpmUnlimited') }}</div>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
                 <div class="flex items-center gap-1.5">

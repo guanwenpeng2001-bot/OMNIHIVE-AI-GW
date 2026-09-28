@@ -169,6 +169,11 @@ func (u *GrokRealtimeUpstream) Close() error {
 }
 
 func (s *OpenAIGatewayService) OpenGrokRealtime(ctx context.Context, account *Account, token, model string) (*GrokRealtimeUpstream, error) {
+	if account != nil {
+		if err := checkUnboundedTPMSession(ctx, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	if s == nil || account == nil || account.Platform != PlatformGrok {
 		return nil, fmt.Errorf("grok realtime account is required")
 	}

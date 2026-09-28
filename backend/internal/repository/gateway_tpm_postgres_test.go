@@ -7,6 +7,7 @@ import (
 	"database/sql"
 	"fmt"
 	"os"
+	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -15,6 +16,114 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/stretchr/testify/require"
 )
+
+func TestTPMLimits_AllConfiguredScopesApply(t *testing.T) {
+	for _, scope := range []service.TPMScope{service.TPMScopeAPIKey, service.TPMScopeGroup, service.TPMScopeAccount} {
+		t.Run(string(scope), func(t *testing.T) {
+			fixture := newTPMPostgresFixture(t)
+			table, id := "api_keys", fixture.command.APIKeyID
+			if scope == service.TPMScopeGroup {
+				table, id = "groups", fixture.command.BillingGroupID
+			}
+			if scope == service.TPMScopeAccount {
+				table, id = "accounts", fixture.command.AccountID
+			}
+			_, err := fixture.database.Exec(`UPDATE `+table+` SET tpm_limit=1 WHERE id=$1`, id)
+			require.NoError(t, err)
+			_, err = fixture.repository.ReserveTPMAttempt(context.Background(), fixture.command)
+			var exceeded *service.TPMLimitExceeded
+			require.ErrorAs(t, err, &exceeded)
+			require.Equal(t, scope, exceeded.Scope)
+		})
+	}
+}
+
+func TestTPMReservationPostgres_PolicyLockAndWorkspaceIsolation(t *testing.T) {
+	fixture := newTPMPostgresFixture(t)
+	transaction, err := fixture.database.Begin()
+	require.NoError(t, err)
+	_, err = transaction.Exec(`UPDATE api_keys SET tpm_limit=1 WHERE id=$1`, fixture.command.APIKeyID)
+	require.NoError(t, err)
+	result := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		_, err := fixture.repository.ReserveTPMAttempt(context.Background(), fixture.command)
+		result <- err
+	}()
+	select {
+	case <-result:
+		t.Fatal("reservation bypassed an in-progress policy write")
+	case <-time.After(30 * time.Millisecond):
+	}
+	require.NoError(t, transaction.Commit())
+	var exceeded *service.TPMLimitExceeded
+	require.ErrorAs(t, <-result, &exceeded)
+	t.Logf("policy lock wait including SQL round trips: %s", time.Since(started))
+	command := fixture.command
+	command.WorkspaceID++
+	_, err = fixture.repository.ReserveTPMAttempt(context.Background(), command)
+	require.Error(t, err, "another workspace cannot use the key's policy")
+}
+
+func TestTPMReservationPostgres_ExpiredUnknownAndGroupChangeKeepHistory(t *testing.T) {
+	fixture := newTPMPostgresFixture(t)
+	_, err := fixture.repository.ReserveTPMAttempt(context.Background(), fixture.command)
+	require.NoError(t, err)
+	_, err = fixture.database.Exec(`UPDATE gateway_tpm_reservations SET expires_at=clock_timestamp()-interval '1 second' WHERE api_key_id=$1`, fixture.command.APIKeyID)
+	require.NoError(t, err)
+	_, err = fixture.repository.RetireExpiredTPMReservations(context.Background(), 100)
+	require.NoError(t, err)
+	fixture.assertCounters(t, 0, 25)
+	// Entity-based counters survive credential/name changes and current binding changes.
+	_, err = fixture.database.Exec(`UPDATE api_keys SET name='rotated-key',group_id=NULL WHERE id=$1`, fixture.command.APIKeyID)
+	require.NoError(t, err)
+	require.NoError(t, fixture.repository.SettleTPMAttempt(context.Background(), fixture.command.TPMReservationIdentity, 17))
+	fixture.assertCounters(t, 17, 0)
+}
+
+func TestTPMReservationPostgres_AdmissionLatency(t *testing.T) {
+	fixture := newTPMPostgresFixture(t)
+	var statisticsAvailable bool
+	require.NoError(t, fixture.database.QueryRow(`SELECT EXISTS(SELECT 1 FROM pg_extension WHERE extname='pg_stat_statements')`).Scan(&statisticsAvailable))
+	statementCount := func() int64 {
+		var count int64
+		if statisticsAvailable {
+			require.NoError(t, fixture.database.QueryRow(`SELECT COALESCE(sum(calls),0)::bigint FROM pg_stat_statements WHERE dbid=(SELECT oid FROM pg_database WHERE datname=current_database()) AND query NOT LIKE '%pg_stat_statements%'`).Scan(&count))
+		}
+		return count
+	}
+	for _, enabled := range []bool{false, true} {
+		limit := 0
+		if enabled {
+			limit = 1000000
+		}
+		for _, policy := range []struct {
+			table string
+			id    int64
+		}{{"api_keys", fixture.command.APIKeyID}, {"groups", fixture.command.BillingGroupID}, {"accounts", fixture.command.AccountID}} {
+			_, err := fixture.database.Exec(`UPDATE `+policy.table+` SET tpm_limit=$2 WHERE id=$1`, policy.id, limit)
+			require.NoError(t, err)
+		}
+		var samples []time.Duration
+		beforeStatements := statementCount()
+		for index := range 30 {
+			command := fixture.command
+			command.ExecutionID = fmt.Sprintf("%s-perf-%t-%d", command.ExecutionID, enabled, index)
+			started := time.Now()
+			reservation, err := fixture.repository.ReserveTPMAttempt(context.Background(), command)
+			samples = append(samples, time.Since(started))
+			require.NoError(t, err)
+			if !enabled {
+				require.Nil(t, reservation)
+			}
+		}
+		sort.Slice(samples, func(left, right int) bool { return samples[left] < samples[right] })
+		t.Logf("enabled=%t samples=%d p50=%s p95=%s", enabled, len(samples), samples[len(samples)/2], samples[28])
+		if statisticsAvailable {
+			t.Logf("enabled=%t measured SQL calls per admission including BEGIN/COMMIT: %.2f", enabled, float64(statementCount()-beforeStatements)/float64(len(samples)))
+		}
+	}
+}
 
 type tpmPostgresFixture struct {
 	database   *sql.DB
@@ -206,8 +315,8 @@ func TestTPMReservationPostgres_ActualAboveEstimateRecordsOverrun(t *testing.T) 
 	fixture := newTPMPostgresFixture(t)
 	_, err := fixture.repository.ReserveTPMAttempt(context.Background(), fixture.command)
 	require.NoError(t, err)
-	require.NoError(t, fixture.repository.SettleTPMAttempt(context.Background(), fixture.command.TPMReservationIdentity, 125))
-	fixture.assertCounters(t, 125, 0)
+	require.NoError(t, fixture.repository.SettleTPMAttempt(context.Background(), fixture.command.TPMReservationIdentity, 30))
+	fixture.assertCounters(t, 30, 0)
 	fixture.command.AttemptIndex++
 	_, err = fixture.repository.ReserveTPMAttempt(context.Background(), fixture.command)
 	var exceeded *service.TPMLimitExceeded
@@ -224,7 +333,7 @@ func TestTPMReservationPostgres_MinuteBoundaryAndLateUsage(t *testing.T) {
 	// Move this fixture's frozen window into history instead of sleeping across
 	// a real minute. Settlement must still address precisely that old window.
 	oldWindow := reservation.WindowStart.Add(-2 * time.Minute)
-	_, err = fixture.database.Exec(`UPDATE gateway_tpm_windows SET window_start=$5,window_end=$5+interval '60 seconds'
+	_, err = fixture.database.Exec(`UPDATE gateway_tpm_windows SET window_start=$5,window_end=$5::timestamptz+interval '60 seconds'
 WHERE workspace_id=$1 AND ((scope_kind='api_key' AND scope_id=$2) OR (scope_kind='group' AND scope_id=$3) OR (scope_kind='account' AND scope_id=$4))`, fixture.command.WorkspaceID, fixture.command.APIKeyID, fixture.command.BillingGroupID, fixture.command.AccountID, oldWindow)
 	require.NoError(t, err)
 	_, err = fixture.database.Exec(`UPDATE gateway_tpm_reservations SET window_start=$2 WHERE api_key_id=$1`, fixture.command.APIKeyID, oldWindow)

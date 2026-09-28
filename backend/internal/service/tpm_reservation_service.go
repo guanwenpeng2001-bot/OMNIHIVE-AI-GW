@@ -17,6 +17,8 @@ type OptionalTPMLimit struct {
 	Present bool
 }
 
+func (limit OptionalTPMLimit) IsZero() bool { return !limit.Present }
+
 func (limit *OptionalTPMLimit) UnmarshalJSON(raw []byte) error {
 	raw = bytes.TrimSpace(raw)
 	if len(raw) == 0 || raw[0] < '0' || raw[0] > '9' {
@@ -35,6 +37,27 @@ func (limit OptionalTPMLimit) Pointer() *int64 {
 		return nil
 	}
 	return &limit.Value
+}
+
+func (limit OptionalTPMLimit) MarshalJSON() ([]byte, error) {
+	return []byte(strconv.FormatInt(limit.Value, 10)), nil
+}
+
+func (s *adminServiceImpl) AdminSetAPIKeyTPMLimit(ctx context.Context, keyID int64, limit *int64) (*APIKey, error) {
+	if limit != nil && *limit < 0 {
+		return nil, errors.New("tpm_limit must be non-negative")
+	}
+	key, err := s.apiKeyRepo.GetByID(ctx, keyID)
+	if err != nil {
+		return nil, err
+	}
+	if limit == nil {return key,nil}
+	key.TPMLimit = *limit
+	if err := s.apiKeyRepo.Update(ctx, key, APIKeyUpdateFields{TPMLimit: true}); err != nil {
+		return nil, err
+	}
+	invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, keyID)
+	return s.apiKeyRepo.GetByID(ctx, keyID)
 }
 
 // TPM is a budget assigned to the database admission minute, not a sliding
@@ -197,7 +220,12 @@ func (p *GatewayRequestPlan) ReserveTPMAttempt(ctx context.Context, attemptIndex
 		if previous := p.tpmAttempts[attemptIndex]; previous == nil {
 			p.tpmAttempts[attemptIndex] = &tpmPlanAttempt{reservation: reservation, accountID: accountID}
 		}
+		finished := p.state.Finalized || p.state.Canceled
 		p.mu.Unlock()
+		if finished {
+			p.finalizeTPMAttempts()
+			return nil, context.Canceled
+		}
 	}
 	return reservation, nil
 }

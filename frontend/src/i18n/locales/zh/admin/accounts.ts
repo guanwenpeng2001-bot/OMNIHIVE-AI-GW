@@ -1,6 +1,10 @@
 export default {
 
     accounts: {
+      tpmUnlimited: '不限额',
+      tpmLimit: '每分钟 token 上限',
+      tpmLimitHint: '按请求准入分钟归属，含输入、输出和缓存 token；0 表示不限额。采用 UTC 固定分钟，非滑动吞吐上限；请求必须有经验证的上游数量界限，无法确定时拒绝。',
+      tpmLimitInvalid: '请输入非负安全整数。',
       catalogSourceLabel: '模型目录', metadataSourceLabel: '能力元数据', catalogSource: { live: '上游目录', configured: '已配置映射', preset: '平台预置' }, nativeProbeUnsupported: '该模型不支持原生探测；这不表示凭据失效。', incompleteProbeStream: '探测流已结束，但未收到完成结果。',
       createAdvancedScope: "这些覆盖项适用于普通创建及手工 OAuth/Token 录入。Codex 会话、Agent Identity、PAT 导入使用独立导入接口，请在导入后的账号编辑中设置覆盖项。",
       qianwenPricing: {

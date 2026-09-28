@@ -156,7 +156,7 @@ func TestLiveCreatesRequestPlanAndBudgetBeforeBilling(t *testing.T) {
 	for _, path := range []string{"/v1/live", "/backend-api/codex/realtime/calls"} {
 		cfg := &config.Config{}
 		cfg.Gateway.Live.BillingPolicy = "free"
-		gateway := service.NewOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+		gateway := service.ProvideOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 		handler := &OpenAIGatewayHandler{gatewayService: gateway, cfg: cfg, maxAccountSwitches: 2}
 		recorder := httptest.NewRecorder()
 		ctx, _ := gin.CreateTestContext(recorder)

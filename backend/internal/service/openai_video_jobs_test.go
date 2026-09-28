@@ -212,6 +212,7 @@ func TestOpenAIVideoSendBoundaryFailsClosedWithoutEndpointEvidence(t *testing.T)
 	upstream := &httpUpstreamRecorder{resp: openAIVideoJobBody(`{"id":"video_abc","object":"video","status":"queued","model":"sora-2","progress":0,"seconds":"8","size":"1280x720"}`)}
 	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream, accountRepo: openAIVideoAccountRepository{account: account}}
 	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "sora-2", Action: "video.generate"}))
+	installUnlimitedTPMFixture(GatewayRequestPlanFromContext(ctx))
 	_, err := service.SubmitOpenAIVideo(ctx, account, "video.generate", "application/json", []byte(`{"model":"sora-2","prompt":"waves","size":"1280x720","seconds":"8"}`), "sora-2", 0)
 	require.ErrorIs(t, err, ErrAccountModelUnsupported)
 	require.Empty(t, upstream.requests, "rejected bindings never reach the upstream")
@@ -238,6 +239,7 @@ func TestOpenAIVideoSendBoundaryResolvesMediaCatalogEvidence(t *testing.T) {
 			upstream := &httpUpstreamRecorder{resp: openAIVideoJobBody(`{"id":"video_abc","object":"video","status":"queued","model":"sora-2","progress":0,"seconds":"8","size":"1280x720"}`)}
 			service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream, accountRepo: openAIVideoAccountRepository{account: account}}
 			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "sora-2", Action: "video.generate"}))
+			installUnlimitedTPMFixture(GatewayRequestPlanFromContext(ctx))
 			update, err := service.SubmitOpenAIVideo(ctx, account, test.action, "application/json", []byte(test.body), "sora-2", test.billableSeconds)
 			require.NoError(t, err)
 			require.Equal(t, "video_abc", update.TaskID)

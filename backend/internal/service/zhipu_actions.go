@@ -938,6 +938,11 @@ func (u *ZhipuRealtimeUpstream) Close() error {
 // The session model is chosen by the client's session.update event, so the
 // dial carries no model query (docs.bigmodel.cn AsyncAPI realtime).
 func (s *OpenAIGatewayService) OpenZhipuRealtime(ctx context.Context, account *Account, token string) (*ZhipuRealtimeUpstream, error) {
+	if account != nil {
+		if err := checkUnboundedTPMSession(ctx, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	if s == nil || account == nil || account.Platform != PlatformZhipu {
 		return nil, fmt.Errorf("zhipu realtime account is required")
 	}

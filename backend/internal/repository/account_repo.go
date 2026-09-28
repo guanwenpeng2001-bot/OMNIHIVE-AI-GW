@@ -3157,6 +3157,11 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 			idx++
 		}
 	}
+	if updates.TPMLimit != nil {
+		setClauses = append(setClauses, "tpm_limit = $"+itoa(idx))
+		args = append(args, *updates.TPMLimit)
+		idx++
+	}
 	if updates.Concurrency != nil {
 		setClauses = append(setClauses, "concurrency = $"+itoa(idx))
 		args = append(args, *updates.Concurrency)

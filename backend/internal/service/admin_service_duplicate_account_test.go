@@ -90,6 +90,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	sessionWindowEnd := time.Now().Add(2 * time.Hour)
 
 	source := &Account{
+		TPMLimit:              123,
 		Name:                  "primary",
 		Notes:                 &notes,
 		Platform:              PlatformAnthropic,
@@ -153,6 +154,7 @@ func TestDuplicateAccountCopiesConfigurationAndResetsRuntimeState(t *testing.T) 
 	require.Equal(t, "primary (Copy)", duplicate.Name)
 	require.Equal(t, source.Platform, duplicate.Platform)
 	require.Equal(t, source.Type, duplicate.Type)
+	require.Equal(t, source.TPMLimit, duplicate.TPMLimit)
 	require.Equal(t, source.Concurrency, duplicate.Concurrency)
 	require.Equal(t, source.Priority, duplicate.Priority)
 	require.Equal(t, source.AutoPauseOnExpired, duplicate.AutoPauseOnExpired)

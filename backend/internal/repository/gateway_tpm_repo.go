@@ -3,6 +3,7 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -82,7 +83,19 @@ ORDER BY CASE scope_kind WHEN 'api_key' THEN 0 WHEN 'group' THEN 1 ELSE 2 END,sc
 	return reservations, rows.Err()
 }
 
+var errTPMMinuteChanged = errors.New("token admission minute changed while waiting for a lock")
+
 func (r *usageSettlementReceiptRepository) ReserveTPMAttempt(ctx context.Context, command service.TPMReservationCommand) (*service.TPMReservation, error) {
+	for retry := 0; retry < 3; retry++ {
+		reservation, err := r.reserveTPMTransaction(ctx, command)
+		if !errors.Is(err, errTPMMinuteChanged) {
+			return reservation, err
+		}
+	}
+	return nil, service.ErrTPMStateUnavailable
+}
+
+func (r *usageSettlementReceiptRepository) reserveTPMTransaction(ctx context.Context, command service.TPMReservationCommand) (*service.TPMReservation, error) {
 	if command.AccountID <= 0 || command.Fingerprint == "" {
 		return nil, service.ErrTPMReservationConflict
 	}
@@ -146,13 +159,13 @@ VALUES ($1,$2,$3,$4,$5) ON CONFLICT DO NOTHING`, command.WorkspaceID, policy.kin
 		if err != nil {
 			return nil, err
 		}
-		var used, reserved int64
-		if err := tx.QueryRowContext(ctx, `SELECT used_tokens,reserved_tokens FROM gateway_tpm_windows
-WHERE workspace_id=$1 AND scope_kind=$2 AND scope_id=$3 AND window_start=$4 FOR UPDATE`, command.WorkspaceID, policy.kind, policy.id, window).Scan(&used, &reserved); err != nil {
+		var used, reserved, overrun int64
+		if err := tx.QueryRowContext(ctx, `SELECT used_tokens,reserved_tokens,overrun_tokens FROM gateway_tpm_windows
+WHERE workspace_id=$1 AND scope_kind=$2 AND scope_id=$3 AND window_start=$4 FOR UPDATE`, command.WorkspaceID, policy.kind, policy.id, window).Scan(&used, &reserved, &overrun); err != nil {
 			return nil, err
 		}
 		// Subtraction avoids overflowing used + reserved + estimate.
-		if used > policy.limit || reserved > policy.limit-used || estimate > policy.limit-used-reserved {
+		if overrun > 0 || used > policy.limit || reserved > policy.limit-used || estimate > policy.limit-used-reserved {
 			return nil, &service.TPMLimitExceeded{Scope: policy.kind, ResetAt: window.Add(time.Minute)}
 		}
 		_, err = tx.ExecContext(ctx, `UPDATE gateway_tpm_windows SET reserved_tokens=reserved_tokens+$5
@@ -166,6 +179,15 @@ VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'reserved',$10)`, command.WorkspaceID, comman
 		if err != nil {
 			return nil, err
 		}
+	}
+	// Lock contention may cross a minute. Roll back the uncommitted attempt and
+	// re-evaluate in the new DB minute using the same idempotency identity.
+	var readyAt time.Time
+	if err := tx.QueryRowContext(ctx, `SELECT clock_timestamp()`).Scan(&readyAt); err != nil {
+		return nil, err
+	}
+	if !readyAt.UTC().Truncate(time.Minute).Equal(window) {
+		return nil, errTPMMinuteChanged
 	}
 	if err := tx.Commit(); err != nil {
 		return nil, err
@@ -197,27 +219,34 @@ func updateTPMAttempt(ctx context.Context, tx *sql.Tx, identity service.TPMReser
 			}
 		} else {
 			if reservation.state == "settled" {
-				if state == "settled" && reservation.actual.Int64 != actual {
+				if state == "settled" && actual < reservation.actual.Int64 {
 					return service.ErrTPMReservationConflict
 				}
-				continue
+				if state != "settled" || actual == reservation.actual.Int64 {
+					continue
+				}
 			}
 			if state == "released" && (reservation.state == "unknown" || reservation.state == "released") {
 				continue
 			}
 			var held int64
-			if reservation.state != "released" {
+			if reservation.state != "released" && reservation.state != "settled" {
 				held = reservation.estimate
 			}
 			used := int64(0)
 			if state == "settled" {
 				used = actual
 			}
+			overrun := max(int64(0), used-reservation.estimate)
+			if reservation.state == "settled" {
+				used -= reservation.actual.Int64
+				overrun -= max(int64(0), reservation.actual.Int64-reservation.estimate)
+			}
 			// PostgreSQL bigint arithmetic and constraints fail the transaction on
 			// overflow or a corrupt negative counter; no real usage is truncated.
 			_, err = tx.ExecContext(ctx, `UPDATE gateway_tpm_windows SET reserved_tokens=reserved_tokens-$5,
 used_tokens=used_tokens+$6,overrun_tokens=overrun_tokens+$7
-WHERE workspace_id=$1 AND scope_kind=$2 AND scope_id=$3 AND window_start=$4`, identity.WorkspaceID, reservation.kind, reservation.scopeID, reservation.window, held, used, max(int64(0), used-reservation.estimate))
+WHERE workspace_id=$1 AND scope_kind=$2 AND scope_id=$3 AND window_start=$4`, identity.WorkspaceID, reservation.kind, reservation.scopeID, reservation.window, held, used, overrun)
 			if err != nil {
 				return err
 			}
@@ -233,6 +262,42 @@ WHERE workspace_id=$1 AND api_key_id=$2 AND execution_id=$3 AND attempt_index=$4
 		}
 	}
 	return nil
+}
+
+// RetireExpiredTPMReservations uses the existing receipt recovery tick. Expiry
+// never refunds unknown consumption and never deletes idempotency evidence.
+func (r *usageSettlementReceiptRepository) RetireExpiredTPMReservations(ctx context.Context, limit int) (int, error) {
+	if limit <= 0 || limit > 1000 {
+		limit = 100
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT workspace_id,api_key_id,execution_id,attempt_index FROM gateway_tpm_reservations WHERE state='reserved' AND expires_at<CURRENT_TIMESTAMP ORDER BY expires_at LIMIT $1`, limit)
+	if err != nil {
+		return 0, err
+	}
+	var identities []service.TPMReservationIdentity
+	seen := make(map[service.TPMReservationIdentity]bool)
+	for rows.Next() {
+		var identity service.TPMReservationIdentity
+		if err := rows.Scan(&identity.WorkspaceID, &identity.APIKeyID, &identity.ExecutionID, &identity.AttemptIndex); err != nil {
+			rows.Close()
+			return 0, err
+		}
+		if !seen[identity] {
+			identities = append(identities, identity)
+			seen[identity] = true
+		}
+	}
+	err = rows.Err()
+	rows.Close()
+	if err != nil {
+		return 0, err
+	}
+	for index, identity := range identities {
+		if err := r.MarkTPMAttemptUnknown(ctx, identity); err != nil {
+			return index, err
+		}
+	}
+	return len(identities), nil
 }
 
 func (r *usageSettlementReceiptRepository) updateTPM(ctx context.Context, identity service.TPMReservationIdentity, state string, actual int64) error {

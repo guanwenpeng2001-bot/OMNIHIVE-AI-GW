@@ -349,6 +349,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
 				submitUsage()
 			}
+			if writeGatewayTPMRequestError(c, err) {
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				if c.Writer.Size() != writerSizeBeforeForward {

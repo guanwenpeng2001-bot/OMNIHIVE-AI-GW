@@ -131,11 +131,10 @@ func (s *qianfanHandlerCacheStub) GetReasoningContent(_ context.Context, _ strin
 
 func newQianfanVideoBillingTestService(t *testing.T) *service.OpenAIGatewayService {
 	t.Helper()
-	return service.NewOpenAIGatewayService(
+	return service.ProvideOpenAIGatewayService(
 		nil, nil, nil, nil, nil, nil,
 		newQianfanHandlerCacheStub(),
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 }
 
 func TestPrepareQianfanVideoCompletionBilling(t *testing.T) {
@@ -346,11 +345,10 @@ func newQianfanFlowHarness(t *testing.T, responder func(req *http.Request) *http
 	cfg.Gateway.MaxAccountSwitches = 1
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	cache := newQianfanHandlerCacheStub()
-	gateway := service.NewOpenAIGatewayService(
+	gateway := service.ProvideOpenAIGatewayService(
 		repo, nil, nil, nil, nil, nil, cache, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
-	)
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	concurrencyCache := &concurrencyCacheMock{
 		acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },

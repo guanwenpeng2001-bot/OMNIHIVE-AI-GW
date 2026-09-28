@@ -129,11 +129,10 @@ func (s *zhipuHandlerCacheStub) GetReasoningContent(_ context.Context, _ string)
 
 func newZhipuVideoBillingTestService(t *testing.T) *service.OpenAIGatewayService {
 	t.Helper()
-	return service.NewOpenAIGatewayService(
+	return service.ProvideOpenAIGatewayService(
 		nil, nil, nil, nil, nil, nil,
 		newZhipuHandlerCacheStub(),
-		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 }
 
 func TestPrepareZhipuVideoCompletionBilling(t *testing.T) {

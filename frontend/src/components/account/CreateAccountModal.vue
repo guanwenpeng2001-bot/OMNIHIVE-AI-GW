@@ -2530,6 +2530,7 @@
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
+          <TpmLimitField v-model="form.tpm_limit" />
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input data-testid="account-concurrency" v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
@@ -3412,6 +3413,7 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import { focusAccountCredentialField } from './accountCredentialFields'
 import { navigateAccountChoices } from './accountChoiceNavigation'
 import { apiClient } from '@/api/client'
@@ -4378,6 +4380,7 @@ const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const form = reactive({
+  tpm_limit: 0,
   name: '',
   notes: '',
   platform: 'anthropic' as AccountPlatform,
@@ -5034,6 +5037,7 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
+  form.tpm_limit = 0
   form.concurrency = 10
   form.load_factor = null
   form.priority = 1
@@ -5759,6 +5763,7 @@ const createAccountAndFinish = async (
     credentials,
     extra: finalExtra,
     proxy_id: form.proxy_id,
+    tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
@@ -5826,7 +5831,8 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -5900,7 +5906,8 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       proxy_id: form.proxy_id,
       group_ids: form.group_ids,
       credentials,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -5995,7 +6002,8 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6099,7 +6107,8 @@ const handleOpenAIExchange = async (authCode: string) => {
         credentials,
         extra: withUpstreamRequestIdHeader(extra),
         proxy_id: form.proxy_id,
-        concurrency: form.concurrency,
+        tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
         load_factor: form.load_factor ?? undefined,
         priority: form.priority,
         rate_multiplier: form.rate_multiplier,
@@ -6205,7 +6214,8 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -6256,7 +6266,8 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -6352,7 +6363,8 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             credentials,
             extra: withUpstreamRequestIdHeader(extra),
             proxy_id: form.proxy_id,
-            concurrency: form.concurrency,
+            tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
             load_factor: form.load_factor ?? undefined,
             priority: form.priority,
             rate_multiplier: form.rate_multiplier,
@@ -6456,7 +6468,8 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader({}),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6843,7 +6856,8 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,

@@ -164,11 +164,10 @@ func newMistralActionHarness(t *testing.T, responder func(*http.Request) *http.R
 	// The gateway cache stub the sibling action tests already provide; only the
 	// sticky-session binding it implements is exercised here.
 	gatewayCache := newHunyuanActionCache()
-	gateway := service.NewOpenAIGatewayService(
+	gateway := service.ProvideOpenAIGatewayService(
 		repo, nil, nil, nil, nil, nil, gatewayCache, cfg, nil, concurrency,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
-	)
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := NewOpenAIGatewayHandler(gateway, concurrency, billingCache, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 
 	apiKey := &service.APIKey{

@@ -266,6 +266,11 @@ func ParseOpenAIActionUsage(body []byte) (json.RawMessage, bool) {
 // The caller relays events using its request context and settles the shared
 // receipt from response.done usage. Cancelling ctx closes the upstream socket.
 func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *Account, model string) (*ws.Conn, error) {
+	if account != nil {
+		if err := checkUnboundedTPMSession(ctx, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	credential, err := openAIActionCredential(account)
 	if err != nil {
 		return nil, err
