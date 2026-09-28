@@ -544,7 +544,7 @@ func TestAntigravityCompatPreservesChatTokenLimit(t *testing.T) {
 	}
 }
 
-func TestPreserveChatCompletionTokenLimitIgnoresAbsentAndNonPositiveValues(t *testing.T) {
+func TestPreserveAntigravityChatCompletionTokenLimitIgnoresAbsentAndNonPositiveValues(t *testing.T) {
 	tests := []struct {
 		name    string
 		request apicompat.ChatCompletionsRequest
@@ -557,7 +557,7 @@ func TestPreserveChatCompletionTokenLimitIgnoresAbsentAndNonPositiveValues(t *te
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			claudeRequest := &apicompat.AnthropicRequest{MaxTokens: 99}
-			preserveChatCompletionTokenLimit(&tt.request, claudeRequest)
+			preserveAntigravityChatCompletionTokenLimit(&tt.request, claudeRequest)
 			require.Equal(t, 99, claudeRequest.MaxTokens)
 		})
 	}
