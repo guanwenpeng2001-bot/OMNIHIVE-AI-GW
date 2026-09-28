@@ -810,11 +810,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return resultWithUsage(), ctx.Err()
 			}
 			processSSELine(documentScanner.Text(), true)
-			if clientDisconnected {
+			if clientDisconnected || ctx.Err() != nil {
+				clientDisconnected = true
 				return resultWithUsage(), context.Canceled
 			}
 			if streamEarlyErr != nil {
 				return resultWithUsage(), streamEarlyErr
+			}
+			// Finish only after the terminal frame's blank line. A Codex bare
+			// error may still be followed by an authoritative terminal and usage.
+			if sawTerminalEvent && !eventInProgress && (!codexFailureTerminal || !sawBareError) {
+				return finalizeStream()
 			}
 		}
 		if ctx.Err() != nil {
@@ -903,8 +909,17 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			processSSELine(ev.line, len(events) == 0)
 			markEventProcessed(ev)
+			if clientDisconnected || ctx.Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), context.Canceled
+			}
 			if streamEarlyErr != nil {
 				return resultWithUsage(), streamEarlyErr
+			}
+			// Usage is already parsed; the deferred body close releases the
+			// scanner even when upstream keeps the connection open after completion.
+			if sawTerminalEvent && !eventInProgress && (!codexFailureTerminal || !sawBareError) {
+				return finalizeStream()
 			}
 
 		case <-intervalCh:

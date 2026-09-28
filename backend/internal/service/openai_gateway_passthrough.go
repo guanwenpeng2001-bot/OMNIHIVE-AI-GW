@@ -2043,6 +2043,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				}
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
+			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
+				(eventType == "response.completed" || eventType == "response.done") {
+				// Match the standard stream path: a successful terminal supersedes
+				// a pending bare error and supplies the authoritative usage.
+				sawBareError = false
+				sawFailedEvent = false
+				responseFailedPending = false
+				suppressCurrentEvent = false
+				bareErrorPayload = nil
+				bareErrorAccountSideEffectsPending = false
+				failedMessage = ""
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
@@ -2216,6 +2228,11 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		if line == "" && responseFailedPending {
 			responseFailedPending = false
 			failureDelivered = true
+		}
+		// A complete terminal frame ends the stream without waiting for EOF.
+		// Codex bare errors still need their later authoritative terminal/usage.
+		if (sawDone || sawTerminalEvent) && line == "" && (!codexFailureTerminal || !sawBareError) {
+			break
 		}
 	}
 	if clientDisconnected || ctx.Err() != nil {
