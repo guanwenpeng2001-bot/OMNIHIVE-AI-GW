@@ -13,12 +13,19 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import {
   CN_BASE_URL_PRESETS,
+  OPENCODE_GO_BASE_URL,
+  OPENCODE_GO_ANTHROPIC_BASE_URL,
+  OPENCODE_ZEN_BASE_URL,
+  OPENCODE_ZEN_ANTHROPIC_BASE_URL,
   declaredPlatformApiProtocols,
   defaultCNBaseUrl,
   hasDeclaredNativeResponses,
   isCNProviderPlatform,
   showsAccountModeCard,
   showsCodingPlanMode,
+  type CnApiProtocol,
+  type CnAccountMode,
+  type OpenCodeAccountMode,
   type CnBaseUrlPresetPlatform,
   type DeclaredProtocolPlatform
 } from '../credentialsBuilder'
@@ -214,21 +221,11 @@ function presetUrls(platform: CnBaseUrlPresetPlatform, mode: 'payg' | 'coding', 
     .map(preset => preset.url)
 }
 
-/**
- * 混元数据面端点白名单：从后端源码（backend/internal/service/hunyuan_adapter.go 的
- * hunyuanActionBaseURL）里那条 case 子句逐项解析。合并进套餐模式后白名单分两类，前端必须分别对齐：
- *   - 按量站点（TokenHub 四站 + 旧版兼容站）：前端 payg 预设与它逐条一致；
- *   - 套餐端点（Coding Plan / Token Plan 专用根）：前端 coding 预设只能落在这批地址里。
- * 子句的列表项要么是字符串字面量，要么是常量名；常量名里带 Coding / TokenPlan 的判为套餐端点
- * （DefaultHunyuanCodingBaseURL / DefaultHunyuanCodingAnthropicBaseURL / hunyuanTokenPlanBaseURL），
- * 其余项判为按量站点。分类靠名字：名字不符规则时按量集合会与前端预设不等，下面两条用例即红。
- * 解析形状对不上（子句找不到、常量取不到、子句没解析出地址）时这里直接失败，绝不静默返回空集合。
+/** Payg-only legacy whitelist coverage. Plan inventory is covered by the runtime
+ * export below; this source check remains solely for the five TokenHub payg sites.
  */
-function hunyuanBackendEndpointWhitelist(): { paygSites: string[]; planEndpoints: string[] } {
+function hunyuanBackendEndpointWhitelist(): { paygSites: string[] } {
   const serviceDirectory = resolve(process.cwd(), '../backend/internal/service')
-  // 白名单里的常量分居两个文件（hunyuanTokenPlanBaseURL 在 hunyuan_adapter.go，
-  // DefaultHunyuanCodingBaseURL / DefaultHunyuanCodingAnthropicBaseURL 在 domain_constants.go），
-  // 所以按整个 internal/service 包解析常量声明，而不是只读一个文件：常量换文件时才不会假红。
   const packageSources = readdirSync(serviceDirectory)
     .filter(name => name.endsWith('.go'))
     .sort()
@@ -252,25 +249,12 @@ function hunyuanBackendEndpointWhitelist(): { paygSites: string[]; planEndpoints
   // 终止符是子句末尾的冒号换行：地址里的 "://" 不含换行，不会提前截断。
   const clause = adapter!.text.match(/case hunyuanCompatibilityBaseURL,([\s\S]*?):\s*\n/)?.[1]
   expect(clause, 'hunyuan base URL whitelist case missing').toBeTruthy()
-  const tail = [...clause!.matchAll(/"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*)/g)].map(match =>
-    match[1] !== undefined
-      ? { url: match[1], plan: false }
-      : { url: constant(match[2]!), plan: /Coding|TokenPlan/.test(match[2]!) }
-  )
+  const tail = [...clause!.matchAll(/"([^"]+)"|([A-Za-z_][A-Za-z0-9_]*)/g)]
+    .filter(match => !/Coding|TokenPlan/.test(match[2] ?? ''))
+    .map(match => match[1] ?? constant(match[2]!))
   expect(tail, 'hunyuan base URL whitelist case carried no endpoint').not.toHaveLength(0)
-  const entries = [{ url: constant('hunyuanCompatibilityBaseURL'), plan: false }, ...tail]
-  return {
-    paygSites: entries.filter(entry => !entry.plan).map(entry => entry.url),
-    planEndpoints: entries.filter(entry => entry.plan).map(entry => entry.url)
-  }
+  return { paygSites: [constant('hunyuanCompatibilityBaseURL'), ...tail] }
 }
-
-/**
- * 后端白名单认可、前端却没有预设的套餐端点：TokenHub Token Plan 专用根（后端 hunyuanTokenPlanBaseURL）。
- * 这是本轮合并后发现的真实不一致（不是用例过期），已按规格上报，见下面用例的说明；
- * 前端补上该预设（或后端收窄白名单）后，这个常量应为空，相等断言会随之收紧为逐条相等。
- */
-const HUNYUAN_PLAN_ENDPOINTS_WITHOUT_FRONTEND_PRESET = ['https://api.lkeap.cloud.tencent.com/plan/v3']
 
 describe('late platform protocol cards', () => {
   beforeEach(() => {
@@ -385,10 +369,9 @@ describe('late platform protocol declarations', () => {
 
 describe('late platform base URL presets', () => {
   it('offers exactly the TokenHub sites the backend whitelists, on every declared protocol', () => {
-    const { paygSites, planEndpoints } = hunyuanBackendEndpointWhitelist()
+    const { paygSites } = hunyuanBackendEndpointWhitelist()
     expect(paygSites, 'pay-as-you-go sites parsed from the backend whitelist').toHaveLength(5)
     expect(new Set(paygSites).size).toBe(5)
-    expect(planEndpoints, 'plan endpoints parsed from the backend whitelist').toHaveLength(3)
 
     // 按量付费档：白名单里的 5 个站点逐条对应到每个已声明协议。把后端白名单里任一站点改一个字符、
     // 或把前端 payg 预设改一个字符，下面两条断言即红。
@@ -400,32 +383,6 @@ describe('late platform base URL presets', () => {
       expect([...new Set(presetUrls)].sort(), `${protocol} presets`).toEqual([...paygSites].sort())
       expect(presetUrls, `${protocol} preset count`).toHaveLength(paygSites.length)
     }
-  })
-
-  it('keeps every frontend plan preset on a plan endpoint the backend admits', () => {
-    const { paygSites, planEndpoints } = hunyuanBackendEndpointWhitelist()
-    const codingPresetUrls = [
-      ...new Set(
-        CN_BASE_URL_PRESETS.hunyuan.filter(preset => preset.mode === 'coding').map(preset => preset.url)
-      )
-    ]
-
-    // 套餐档的地址逐字取自厂商一手文档，且必须在后端认可的套餐端点里：前端任一预设地址改一个字符
-    // （或换成非官方站点）都会让下面第一条断言变红；后端把某个地址从白名单里删掉同样如此。
-    expect(codingPresetUrls.filter(url => !planEndpoints.includes(url)), 'presets outside the backend plan endpoints').toEqual([])
-    expect(planEndpoints.filter(url => paygSites.includes(url)), 'plan endpoints must not double as payg sites').toEqual([])
-
-    // 后端认可的套餐端点有三个，前端只预设了两个：缺 TokenHub Token Plan 专用根 plan/v3。
-    // 两边的原文：后端 case 子句里是 hunyuanTokenPlanBaseURL = "https://api.lkeap.cloud.tencent.com/plan/v3"；
-    // 前端 LATE_PLATFORM_CODING_BASE_URLS.hunyuan 只有 coding/v3（chat_completions 与 responses 同址）
-    // 与 coding/anthropic 两条。
-    // 该缺口已上报（见报告“真缺陷”一节），这里显式钉住缺口而不是把集合悄悄缩小成前端的样子：
-    // 前端补上预设、或后端增删套餐端点，这条断言必须变红，提醒把两边收敛成逐条相等。
-    expect([...codingPresetUrls, ...HUNYUAN_PLAN_ENDPOINTS_WITHOUT_FRONTEND_PRESET].sort()).toEqual([...planEndpoints].sort())
-    expect([...codingPresetUrls].sort()).toEqual([
-      'https://api.lkeap.cloud.tencent.com/coding/anthropic',
-      'https://api.lkeap.cloud.tencent.com/coding/v3'
-    ])
   })
 
   it('renders the whitelisted sites as preset buttons and fills the base URL on selection', async () => {
@@ -841,5 +798,168 @@ describe('late platform plan base URL presets', () => {
     })
 
     wrapper.unmount()
+  })
+})
+
+interface PlanURLContractEntry {
+  platform: string
+  account_mode: string
+  protocol: string
+  site_variant: string
+  role: 'default' | 'accepted' | 'parked' | 'backend-only'
+  default_url: string
+  canonical_url: string
+  canonical_source: string
+  resolved_url: string
+  native_action: string
+  validator_accepted: boolean
+  validator_error: string
+  target_url: string
+}
+
+function planURLKey(entry: Pick<PlanURLContractEntry, 'platform' | 'account_mode' | 'protocol' | 'site_variant'>): string {
+  return `${entry.platform}/${entry.account_mode}/${entry.protocol}/${entry.site_variant}`
+}
+
+function parsePlanURLContract(output: string): PlanURLContractEntry[] {
+  const markers = output.split(/\r?\n/).filter(line => line.startsWith('PLAN_BASE_URL_CONTRACT='))
+  if (markers.length !== 1) throw new Error(`expected one PLAN_BASE_URL_CONTRACT marker, got ${markers.length}`)
+  const parsed: unknown = JSON.parse(markers[0]!.slice('PLAN_BASE_URL_CONTRACT='.length))
+  if (!Array.isArray(parsed) || parsed.length === 0) throw new Error('empty or invalid plan URL contract')
+  const seen = new Set<string>()
+  for (const entry of parsed) {
+    for (const field of ['platform', 'account_mode', 'protocol', 'site_variant', 'role', 'default_url', 'canonical_url', 'canonical_source', 'resolved_url', 'native_action', 'validator_error', 'target_url']) {
+      if (!entry || typeof entry[field] !== 'string') throw new Error(`invalid plan URL field: ${field}`)
+    }
+    if (!['default', 'accepted', 'parked', 'backend-only'].includes(entry.role) || typeof entry.validator_accepted !== 'boolean') {
+      throw new Error('invalid plan URL classification')
+    }
+    const key = planURLKey(entry)
+    if (seen.has(key)) throw new Error(`duplicate plan URL key: ${key}`)
+    seen.add(key)
+  }
+  return parsed as PlanURLContractEntry[]
+}
+
+function assertPlanURLKeys(entries: PlanURLContractEntry[], expectedKeys: string[]): void {
+  const keys = entries.map(planURLKey)
+  expect(new Set(keys).size, 'duplicate plan URL keys').toBe(keys.length)
+  expect(keys.sort(), 'complete plan URL key set').toEqual([...expectedKeys].sort())
+}
+
+describe('cross-language plan URL runtime contract', () => {
+  let backend: PlanURLContractEntry[]
+  const frontend = new Map<string, { url: string; defaultUrl: string; role: string }>()
+  const uiProtocols = new Map<string, string[]>()
+  const backendOnlyKey = 'hunyuan/coding/chat_completions/token-plan'
+
+  beforeAll(async () => {
+    // One service-package compilation/export, reused by every assertion. Missing
+    // Go, nonzero exit, timeout, invalid JSON and missing/repeated markers fail.
+    backend = parsePlanURLContract(execFileSync('go', ['test', '-p', '2', '-count=1', '-run', '^TestExportPlanBaseURLContract$', '-v', './internal/service'], {
+      cwd: resolve(process.cwd(), '../backend'), encoding: 'utf8', timeout: 300_000,
+      maxBuffer: 4 * 1024 * 1024
+    }))
+    const add = (platform: string, mode: CnAccountMode | OpenCodeAccountMode, protocol: CnApiProtocol, site: string, url: string, role: string) => {
+      const key = planURLKey({ platform, account_mode: mode, protocol, site_variant: site })
+      expect(frontend.has(key), `duplicate frontend preset ${key}`).toBe(false)
+      frontend.set(key, { url, defaultUrl: defaultCNBaseUrl(platform, mode, protocol), role })
+    }
+    // Capture the actual rendered UI protocol choices, not a second test list.
+    for (const platform of [...Object.keys(CN_BASE_URL_PRESETS), 'opencode_go', 'commandcode']) {
+      const wrapper = mountModal()
+      await selectPlatform(wrapper, platform)
+      if (showsCodingPlanMode(platform)) await selectAccountMode(wrapper, 'coding')
+      const protocols = protocolCardValues(wrapper)
+      uiProtocols.set(platform, protocols)
+      wrapper.unmount()
+      const modes: (CnAccountMode | OpenCodeAccountMode)[] = platform === 'opencode_go'
+        ? ['go', 'zen'] : [showsCodingPlanMode(platform) ? 'coding' : 'payg']
+      for (const mode of modes) {
+        for (const protocol of protocols as CnApiProtocol[]) {
+          add(platform, mode, protocol, 'default', defaultCNBaseUrl(platform, mode, protocol), 'default')
+        }
+      }
+    }
+    // Every coding inventory row participates, including unavailable protocols.
+    for (const [platform, presets] of Object.entries(CN_BASE_URL_PRESETS)) {
+      for (const preset of presets.filter(candidate => candidate.mode === 'coding')) {
+        const site = platform === 'qianfan'
+          ? (preset.label.includes('Enterprise') ? 'team' : 'personal')
+          : preset.label.includes('Intl') ? 'international' : 'primary'
+        const role = uiProtocols.get(platform)!.includes(preset.protocol) ? 'accepted' : 'parked'
+        add(platform, preset.mode, preset.protocol, site, preset.url, role)
+      }
+    }
+  }, 330_000)
+
+  it('matches every active plan preset and default against the Go runtime contract', () => {
+    assertPlanURLKeys(backend, [...frontend.keys(), backendOnlyKey])
+    for (const entry of backend.filter(candidate => candidate.role === 'default' || candidate.role === 'accepted')) {
+      const key = planURLKey(entry)
+      const actual = frontend.get(key)!
+      expect(actual.role, key).toBe(entry.role)
+      expect(actual.url, `${key} frontend URL versus Go canonical`).toBe(entry.canonical_url)
+      expect(actual.defaultUrl, `${key} frontend default versus Go resolver`).toBe(entry.default_url)
+      expect(entry.resolved_url, `${key} explicit account override`).toBe(actual.url)
+      expect(entry.validator_accepted, `${key}: ${entry.validator_error}`).toBe(true)
+      expect(entry.native_action, key).toBe('implemented')
+      expect(entry.canonical_source, key).not.toBe('')
+    }
+    for (const [mode, chat, anthropic] of [
+      ['go', OPENCODE_GO_BASE_URL, OPENCODE_GO_ANTHROPIC_BASE_URL],
+      ['zen', OPENCODE_ZEN_BASE_URL, OPENCODE_ZEN_ANTHROPIC_BASE_URL]
+    ]) {
+      expect(frontend.get(`opencode_go/${mode}/chat_completions/default`)!.url).toBe(chat)
+      expect(frontend.get(`opencode_go/${mode}/anthropic/default`)!.url).toBe(anthropic)
+    }
+    // Coincident payg/coding roots are intentional, not mode-isolation failures.
+    for (const platform of ['zhipu', 'minimax']) {
+      expect(defaultCNBaseUrl(platform, 'coding', 'anthropic')).toBe(defaultCNBaseUrl(platform, 'payg', 'anthropic'))
+    }
+    for (const platform of ['commandcode', 'mistral', 'deepseek', 'qianwen']) {
+      expect(showsCodingPlanMode(platform), platform).toBe(false)
+      expect(backend.filter(entry => entry.platform === platform).every(entry => entry.account_mode === 'payg')).toBe(true)
+    }
+  })
+
+  it('accounts for parked and backend-only plan endpoints without enabling them', () => {
+    const parked = backend.filter(entry => entry.role === 'parked')
+    expect(parked.map(planURLKey).sort()).toEqual([
+      'qianfan/coding/anthropic/personal', 'qianfan/coding/anthropic/team', 'volcengine/coding/anthropic/primary'
+    ])
+    for (const entry of parked) {
+      const key = planURLKey(entry)
+      expect(frontend.get(key), key).toMatchObject({ role: 'parked', url: entry.canonical_url })
+      expect(uiProtocols.get(entry.platform), key).not.toContain(entry.protocol)
+      expect(entry.native_action, key).toBe('hard_conflict')
+      expect(entry.validator_accepted, key).toBe(false)
+      expect(entry.validator_error, key).not.toBe('')
+      expect(entry.default_url, key).toBe('')
+      expect(entry.resolved_url, key).toBe('')
+    }
+    const compatibility = backend.filter(entry => entry.role === 'backend-only')
+    expect(compatibility.map(planURLKey)).toEqual([backendOnlyKey])
+    const entry = compatibility[0]!
+    expect(entry.canonical_url).toBe('https://api.lkeap.cloud.tencent.com/plan/v3')
+    expect(entry.canonical_source).toContain('compatibility')
+    expect(entry.validator_accepted).toBe(true)
+    expect(CN_BASE_URL_PRESETS.hunyuan.map(preset => preset.url)).not.toContain(entry.canonical_url)
+    const team = backend.find(candidate => planURLKey(candidate) === 'qianfan/coding/chat_completions/team')!
+    expect(team, 'qianfan/coding/chat_completions/team missing from runtime contract').toBeDefined()
+    expect(team.target_url).toBe(`${team.canonical_url}/models`)
+    expect(team.canonical_source).toContain('qianfanTokenPlanTeamPath')
+  })
+
+  it('rejects missing, duplicate or unknown contract entries', () => {
+    const expected = [...frontend.keys(), backendOnlyKey]
+    expect(() => assertPlanURLKeys(backend.filter(entry => planURLKey(entry) !== backendOnlyKey), expected)).toThrow()
+    expect(() => assertPlanURLKeys(backend.filter(entry => planURLKey(entry) !== 'qianfan/coding/chat_completions/team'), expected)).toThrow()
+    expect(() => assertPlanURLKeys([...backend, backend[0]!], expected)).toThrow()
+    expect(() => assertPlanURLKeys([...backend, { ...backend[0]!, site_variant: 'unknown' }], expected)).toThrow()
+    const marker = `PLAN_BASE_URL_CONTRACT=${JSON.stringify(backend)}`
+    for (const output of ['', `${marker}\n${marker}`, 'PLAN_BASE_URL_CONTRACT={', 'PLAN_BASE_URL_CONTRACT={}', 'PLAN_BASE_URL_CONTRACT=[]', 'PLAN_BASE_URL_CONTRACT=[{}]', `PLAN_BASE_URL_CONTRACT=${JSON.stringify([...backend, backend[0]])}`]) {
+      expect(() => parsePlanURLContract(output)).toThrow()
+    }
   })
 })
