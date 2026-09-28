@@ -147,14 +147,43 @@ func (account *Account) GetUpstreamModelCatalog() *AccountModelCatalogSnapshot {
 	if account == nil {
 		return nil
 	}
-	var snapshot AccountModelCatalogSnapshot
-	if !decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &snapshot) || !snapshot.Complete {
+	raw, exists := account.Extra[UpstreamModelCatalogExtraKey]
+	if !exists || raw == nil {
 		return nil
 	}
-	if snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade {
-		populateLegacyModelCatalogEndpoints(account, &snapshot)
+	ptr, sig, identifiable := extraValueIdentity(raw)
+	var snapshot *AccountModelCatalogSnapshot
+	if identifiable && account.catalogMemoReady && account.catalogMemoPtr == ptr && account.catalogMemoKeysSig == sig {
+		snapshot = account.catalogMemoValue
+	} else {
+		var decoded AccountModelCatalogSnapshot
+		valid := decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &decoded) && decoded.Complete
+		if identifiable {
+			account.catalogMemoReady = true
+			account.catalogMemoPtr = ptr
+			account.catalogMemoKeysSig = sig
+			if valid {
+				account.catalogMemoValue = &decoded
+			} else {
+				account.catalogMemoValue = nil
+			}
+		}
+		if !valid {
+			return nil
+		}
+		snapshot = &decoded
 	}
-	return &snapshot
+	if snapshot == nil {
+		return nil
+	}
+	// 返回浅副本：populate、可用性追加、白名单过滤都会改写 EligibleModels，
+	// 不能污染 memo 中的解码快照。JSON 解码的切片 cap==len，后续 append 会
+	// 重新分配，不会写穿 memo 的底层数组。
+	cp := *snapshot
+	if cp.SourceKind == modelEvidenceLegacyMappingUpgrade {
+		populateLegacyModelCatalogEndpoints(account, &cp)
+	}
+	return &cp
 }
 
 func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnapshot {

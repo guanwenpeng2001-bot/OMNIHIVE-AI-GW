@@ -87,6 +87,18 @@ type Account struct {
 	headerOverrideCacheRawPtr         uintptr
 	headerOverrideCacheRawLen         int
 	headerOverrideCacheRawSig         uint64
+
+	// 上游模型目录/元数据快照热路径缓存（非持久化字段，签名验证防脏读）。
+	// 仅缓存 map[string]any 形态（仓库从 JSONB 解码的读路径）；
+	// 写路径（refresh 发布）为整体赋值，会替换 map 使签名失效。
+	catalogMemoReady    bool
+	catalogMemoPtr      uintptr
+	catalogMemoKeysSig  uint64
+	catalogMemoValue    *AccountModelCatalogSnapshot // 解码后、populate 前的快照；nil=无有效目录
+	metadataMemoReady   bool
+	metadataMemoPtr     uintptr
+	metadataMemoKeysSig uint64
+	metadataMemoValue   *UpstreamModelMetadataSnapshot // nil=无快照
 }
 
 type OpenAIEndpointCapability string
@@ -709,6 +721,30 @@ func mapPtr(m map[string]any) uintptr {
 		return 0
 	}
 	return reflect.ValueOf(m).Pointer()
+}
+
+// extraValueIdentity 返回 Extra 值的廉价身份签名：map[string]any 形态用指针 +
+// 顶层键 FNV（仓库从 JSONB 解码的读路径）；其他形态 ok=false，调用方回退直接解码。
+// 写路径（refresh 发布）对 Extra[key] 是整体赋值，会替换 map 使指针/签名失效。
+func extraValueIdentity(raw any) (ptr uintptr, keysSig uint64, ok bool) {
+	m, isMap := raw.(map[string]any)
+	if !isMap {
+		return 0, 0, false
+	}
+	if len(m) == 0 {
+		return mapPtr(m), 0, true
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := fnv.New64a()
+	for _, k := range keys {
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte{0})
+	}
+	return mapPtr(m), h.Sum64(), true
 }
 
 func modelMappingSignature(rawMapping map[string]any) uint64 {
