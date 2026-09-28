@@ -297,6 +297,8 @@ type OpenAIForwardResult struct {
 	SearchCount int
 	// AudioUsage carries Voice billing units when present.
 	AudioUsage *AudioUsage
+	// AudioUsageUnresolved marks successful Hunyuan STT without observed duration.
+	AudioUsageUnresolved bool
 	// QianwenVoiceCloneUSDPerClone is the per-clone unit price resolved with the
 	// account's operator FX provenance before a voice enrollment create call.
 	QianwenVoiceCloneUSDPerClone *float64
