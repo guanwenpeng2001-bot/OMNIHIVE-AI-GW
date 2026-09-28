@@ -857,10 +857,43 @@ func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.Contains(t, w.Body.String(), "not assigned to any group")
+	require.Contains(t, w.Body.String(), "console's API Keys page")
+	require.Contains(t, w.Body.String(), "控制台「API 密钥」页")
 	require.True(t, rejected)
 	require.Equal(t, IngressRejectGroupUnassigned, rejectReason)
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned, businessLimitedReason)
+}
+
+func TestRequireGroupAssignmentProtocolHints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, writer := range map[string]GatewayErrorWriter{
+		"anthropic": AnthropicErrorWriter,
+		"google":    GoogleErrorWriter,
+		"openai":    OpenAIErrorWriter,
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := service.NewSettingService(fakeSettingRepo{values: map[string]string{
+				service.SettingKeyAllowUngroupedKeyScheduling: "false",
+			}}, &config.Config{})
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(ContextKeyAPIKey), &service.APIKey{ID: 100})
+			})
+			router.Use(RequireGroupAssignment(settings, writer))
+			router.GET("/t", func(c *gin.Context) { t.Error("ungrouped request reached handler") })
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/t", nil))
+			require.Equal(t, http.StatusForbidden, w.Code)
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, APIKeyGroupUnassignedMessage, body.Error.Message)
+		})
+	}
 }
 
 func TestAPIKeyAuthIPRestrictionUsesTrustedPathWhenSwitchDisabled(t *testing.T) {

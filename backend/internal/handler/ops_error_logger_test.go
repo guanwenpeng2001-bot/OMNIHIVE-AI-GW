@@ -1026,7 +1026,7 @@ func TestClassifyOpsAuthClientErrorsExcludedFromSLA(t *testing.T) {
 		{
 			name:    "anthropic unassigned API key group",
 			errType: "permission_error",
-			message: "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.",
+			message: middleware2.APIKeyGroupUnassignedMessage,
 			code:    "",
 			status:  http.StatusForbidden,
 		},
@@ -1497,7 +1497,7 @@ func TestClassifyOpsUpstreamAuthTextStillCountsForSLA(t *testing.T) {
 		},
 		{
 			name:    "provider unassigned group shaped error",
-			message: "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.",
+			message: middleware2.APIKeyGroupUnassignedMessage,
 			code:    "403",
 			status:  http.StatusForbidden,
 		},

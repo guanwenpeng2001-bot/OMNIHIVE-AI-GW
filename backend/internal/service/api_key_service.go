@@ -1217,7 +1217,7 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 }
 
 // GetUserGroupVisibility 返回 user_allowed_groups 授权及有效订阅的分组 ID 集合，
-// 以及该用户是否开启了公开分组限制。开启时公开分组的可见性也要落在该集合内。
+// 以及是否应用公开分组限制：仅限制有授权集合的非管理员用户。
 //
 // 与 GetAvailableGroups 的区别：这里保留普通授权分组的「橱窗」语义，不检查
 // 分组是否活跃；有效订阅也授予对应分组的可见性。返回值恒非 nil。
@@ -1237,7 +1237,7 @@ func (s *APIKeyService) GetUserGroupVisibility(ctx context.Context, userID int64
 	for _, sub := range subscriptions {
 		allowed[sub.GroupID] = struct{}{}
 	}
-	return allowed, user.RestrictPublicGroups, nil
+	return allowed, user.RestrictPublicGroups && !user.IsAdmin() && len(allowed) > 0, nil
 }
 
 // GetUserGroupRates 获取用户的专属分组倍率配置
