@@ -242,6 +242,15 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		}
 
 		if nonTx {
+			if name == usageLogsSessionIDIndexMigration {
+				if err := applyUsageSessionIndexMigration(ctx, lockConn); err != nil {
+					return fmt.Errorf("apply migration %s: %w", name, err)
+				}
+				if _, err := lockConn.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
+					return fmt.Errorf("record migration %s (non-tx): %w", name, err)
+				}
+				continue
+			}
 			if err := prepareNonTransactionalMigration(ctx, lockConn, name); err != nil {
 				return fmt.Errorf("prepare migration %s: %w", name, err)
 			}
@@ -321,8 +330,6 @@ func prepareNonTransactionalMigration(ctx context.Context, db migrationConnectio
 		return nil
 	case usageLogsUpstreamRequestIDIndexMigration:
 		return dropInvalidIndexIfPresent(ctx, db, usageLogsUpstreamRequestIDIndex)
-	case usageLogsSessionIDIndexMigration:
-		return dropInvalidIndexIfPresent(ctx, db, usageLogsSessionIDIndex)
 	default:
 		return nil
 	}

@@ -60,7 +60,8 @@ type APIKeyCredentialRotation struct {
 // presented secret through apiKeyRepository, which owns the api_keys projection.
 type APIKeyCredentialRepository interface {
 	// ListDigestsByAPIKeyID returns the digests that identify a key's auth cache
-	// entries, so a key can be evicted without knowing any plaintext secret.
+	// entries, including revoked credentials: invalidation runs after the mutation
+	// commits and must still evict entries cached before revocation.
 	ListDigestsByAPIKeyID(ctx context.Context, apiKeyID int64) ([]string, error)
 	// Rotate atomically demotes or revokes the previous credential, revokes any older
 	// graceful credential, inserts the new current credential and records audit.

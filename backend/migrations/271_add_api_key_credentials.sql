@@ -25,7 +25,7 @@ CREATE INDEX IF NOT EXISTS api_key_credentials_status ON api_key_credentials(sta
 INSERT INTO api_key_credentials (workspace_id, api_key_id, credential_digest, display_suffix, status, created_at, updated_at)
 SELECT a.workspace_id, a.id, encode(sha256(a.key::bytea), 'hex'), right(a.key, 4), 'current', NOW(), NOW()
 FROM api_keys a
-WHERE a.deleted_at IS NULL AND a.key <> '' AND a.key NOT LIKE '\_\_deleted\_\_%'
+WHERE a.deleted_at IS NULL AND a.key <> ''
 ON CONFLICT (credential_digest) DO NOTHING;
 
 -- Verify before clearing: no live non-empty plaintext key may lack a matching digest.
@@ -33,7 +33,7 @@ DO $api_key_credential_verify$
 BEGIN
     IF EXISTS (
         SELECT 1 FROM api_keys a
-        WHERE a.deleted_at IS NULL AND a.key <> '' AND a.key NOT LIKE '\_\_deleted\_\_%'
+        WHERE a.deleted_at IS NULL AND a.key <> ''
           AND NOT EXISTS (
               SELECT 1 FROM api_key_credentials c
               WHERE c.api_key_id = a.id AND c.credential_digest = encode(sha256(a.key::bytea), 'hex')
@@ -51,7 +51,9 @@ ALTER TABLE api_keys ALTER COLUMN key DROP NOT NULL;
 ALTER TABLE api_keys DROP CONSTRAINT IF EXISTS api_keys_key_key;
 DROP INDEX IF EXISTS api_keys_key_key;
 
--- Batch-clear the remaining plaintext so the migration holds no long row lock.
+-- Batch the statements, not the transaction: row locks last until this migration
+-- commits. Only deleted_at identifies tombstones; custom secrets may use any
+-- allowed prefix, including __deleted__.
 DO $api_key_credential_clear$
 DECLARE
     cleared INTEGER;
