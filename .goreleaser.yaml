@@ -41,6 +41,9 @@ archives:
       - LICENSE*
       - README*
       - deploy/*
+      - src: backend/resources/model-pricing/*.json
+        dst: resources/model-pricing
+        strip_parent: true
 
 checksum:
   name_template: 'checksums.txt'

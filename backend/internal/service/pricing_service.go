@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
 	"go.uber.org/zap"
 )
 
@@ -884,6 +885,7 @@ func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessag
 }
 
 // loadPricingOverrideEntries 读取 override 文件的原始条目。未配置返回 nil；
+// 默认路径缺文件时使用内嵌副本，自定义路径不叠加默认修补。
 // 读取或解析失败打日志并跳过，不影响目录加载。
 func (s *PricingService) loadPricingOverrideEntries() map[string]json.RawMessage {
 	if s == nil || s.cfg == nil {
@@ -894,6 +896,9 @@ func (s *PricingService) loadPricingOverrideEntries() map[string]json.RawMessage
 		return nil
 	}
 	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) && filepath.Clean(path) == filepath.FromSlash("resources/model-pricing/cache-base-overrides.json") {
+		body, err = modelpricing.CacheBaseOverridesJSON(), nil
+	}
 	if err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Warning: override merge skipped: %v", err)
 		return nil
