@@ -92,3 +92,59 @@ BEGIN
     END LOOP;
 END;
 $$;
+
+-- Preserve finite, explicitly saved pre-catalog configuration on upgrade.
+-- This is NOT native discovery or an administrator/probe attestation. The
+-- service projects the saved account protocol and still checks its adapter,
+-- identity/rules revisions, credential owner, allowlists and current status.
+-- Existing new-format evidence (including an empty/revoked snapshot) wins.
+WITH legacy_accounts AS (
+    SELECT accounts.id, accounts.credentials, COALESCE(accounts.extra, '{}'::jsonb) AS extra,
+           accounts.parent_account_id,
+           COALESCE((credential_owner.extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) AS credential_identity_revision
+    FROM accounts
+    LEFT JOIN accounts credential_owner ON credential_owner.id = accounts.parent_account_id
+    WHERE accounts.deleted_at IS NULL
+      AND (accounts.extra IS NULL OR jsonb_typeof(accounts.extra) = 'object')
+      AND NOT COALESCE(accounts.extra, '{}'::jsonb) ?| ARRAY[
+          'upstream_model_catalog', 'upstream_model_catalog_state',
+          'model_availability', 'model_probe_budget'
+      ]
+      AND (accounts.parent_account_id IS NULL OR
+           (credential_owner.deleted_at IS NULL AND credential_owner.platform = 'openai'
+            AND credential_owner.type = 'oauth' AND credential_owner.parent_account_id IS NULL))
+), legacy_models AS (
+    SELECT legacy_accounts.id, mapping.value #>> '{}' AS model
+    FROM legacy_accounts
+    CROSS JOIN LATERAL jsonb_each(CASE
+        WHEN jsonb_typeof(legacy_accounts.credentials->'model_mapping') = 'object'
+        THEN legacy_accounts.credentials->'model_mapping' ELSE '{}'::jsonb END) mapping
+    WHERE jsonb_typeof(mapping.value) = 'string'
+), finite_models AS (
+    SELECT id, jsonb_agg(jsonb_build_object(
+        'id', model, 'endpoints', '[]'::jsonb,
+        'evidence_kind', 'legacy-mapping-upgrade',
+        'evidence_observed_at', transaction_timestamp()
+    ) ORDER BY model) AS members
+    FROM (SELECT DISTINCT id, model FROM legacy_models) distinct_models
+    WHERE model <> '' AND model = btrim(model) AND model !~ '[*?[:cntrl:]]'
+    GROUP BY id
+)
+UPDATE accounts SET extra = legacy_accounts.extra || jsonb_build_object(
+    'upstream_model_catalog', jsonb_build_object(
+        'legacy_account_id', accounts.id,
+        'revision', 1, 'identity_revision', 0, 'rules_revision', 0,
+        'credential_account_id', COALESCE(legacy_accounts.parent_account_id, 0),
+        'credential_identity_revision', legacy_accounts.credential_identity_revision,
+        'source_kind', 'legacy-mapping-upgrade', 'discovery_scope', 'legacy-mapping-upgrade',
+        'observed_at', transaction_timestamp(),
+        -- Complete describes this finite import, never a successful discovery.
+        'complete', true, 'discovered_models', '[]'::jsonb,
+        'eligible_models', finite_models.members, 'excluded_models', '[]'::jsonb
+    ),
+    'upstream_model_catalog_state', jsonb_build_object(
+        'identity_revision', 0, 'rules_revision', 0, 'result', 'legacy_seeded'
+    )
+)
+FROM legacy_accounts JOIN finite_models ON finite_models.id = legacy_accounts.id
+WHERE accounts.id = legacy_accounts.id;
