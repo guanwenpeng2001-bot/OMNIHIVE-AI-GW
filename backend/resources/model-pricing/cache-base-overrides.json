@@ -1,0 +1,20 @@
+{
+  "gemini-2.5-pro": {
+    "cache_creation_input_token_cost": 1.25e-06
+  },
+  "gemini-3-pro-preview": {
+    "cache_creation_input_token_cost": 2e-06
+  },
+  "gpt-5.4-pro": {
+    "cache_read_input_token_cost": 3e-06
+  },
+  "gpt-5.4-pro-2026-03-05": {
+    "cache_read_input_token_cost": 3e-06
+  },
+  "gpt-5.5-pro": {
+    "cache_read_input_token_cost": 3e-06
+  },
+  "gpt-5.5-pro-2026-04-23": {
+    "cache_read_input_token_cost": 3e-06
+  }
+}
