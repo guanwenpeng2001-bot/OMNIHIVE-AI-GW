@@ -17,15 +17,15 @@ import (
 
 func TestBatchImageRealHTTPWithIngressParent(t *testing.T) {
 	var uploads, creates atomic.Int32
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		if strings.HasPrefix(r.URL.Path, "/upload/") {
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		if strings.HasPrefix(request.URL.Path, "/upload/") {
 			uploads.Add(1)
-			_, _ = w.Write([]byte(`{"file":{"name":"files/audit"}}`))
+			_, _ = writer.Write([]byte(`{"file":{"name":"files/audit"}}`))
 			return
 		}
 		creates.Add(1)
-		_, _ = w.Write([]byte(`{"name":"batches/audit","state":"JOB_STATE_PENDING"}`))
+		_, _ = writer.Write([]byte(`{"name":"batches/audit","state":"JOB_STATE_PENDING"}`))
 	}))
 	defer server.Close()
 	svc, repo, _, _, _ := newTestBatchImagePublicService(true)

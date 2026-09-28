@@ -25,39 +25,43 @@ func TestAuditQianwenTPMOnlyRejectsBeforeSend(t *testing.T) {
 			upstream := &httpUpstreamRecorderStub{body: payload}
 			account := qianwenCatalogAccount(1, model, endpoint)
 			account.TPMLimit = 1
-			h := newQianwenStandardTestHandler(t, upstream, []service.Account{account})
+			handler := newQianwenStandardTestHandler(t, upstream, []service.Account{account})
 			denied := &unlimitedTPMReceiptStub{unlimitedTPMRepository: unlimitedTPMRepository{rejection: &service.TPMLimitExceeded{Scope: service.TPMScopeAPIKey}}}
-			h.gatewayService = service.ProvideOpenAIGatewayService(&qianwenStandardAccountRepo{accounts: []service.Account{account}}, nil, nil, nil, nil, nil, nil, h.cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(denied, nil, nil))
-			c, w := qianwenStandardContext(t, http.MethodPost, "/v1/"+action, []byte(request), nil)
-			key, _ := middleware.GetAPIKeyFromContext(c)
+			handler.gatewayService = service.ProvideOpenAIGatewayService(&qianwenStandardAccountRepo{accounts: []service.Account{account}}, nil, nil, nil, nil, nil, nil, handler.cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(denied, nil, nil))
+			requestContext, recorder := qianwenStandardContext(t, http.MethodPost, "/v1/"+action, []byte(request), nil)
+			key, _ := middleware.GetAPIKeyFromContext(requestContext)
 			key.TPMLimit = 1
 			key.Group.TPMLimit = 1
 			if action == "embeddings" {
-				h.QianwenEmbeddings(c)
+				handler.QianwenEmbeddings(requestContext)
 			} else {
-				h.QianwenRerank(c)
+				handler.QianwenRerank(requestContext)
 			}
-			t.Logf("status=%d upstream=%s plan_nil=%t key_has_period_budget=%t", w.Code, upstream.lastURL, service.GatewayRequestPlanFromContext(c.Request.Context()) == nil, key.HasPeriodBudget())
+			t.Logf("status=%d upstream=%s plan_nil=%t key_has_period_budget=%t", recorder.Code, upstream.lastURL, service.GatewayRequestPlanFromContext(requestContext.Request.Context()) == nil, key.HasPeriodBudget())
 			require.Empty(t, upstream.lastURL, "TPM policy must be checked before upstream")
-			require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
+			require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
 		})
 	}
 }
 
 func TestAuditBedrockTPMOnlyRejectsBeforeSend(t *testing.T) {
 	group := &service.Group{ID: 7401, Hydrated: true, Platform: service.PlatformBedrock, Status: service.StatusActive, TPMLimit: 1}
-	h, router, upstream := bedrockHandlerFixtureForGroup(t, group, 7402, map[string]any{"aws_access_key_id": "AKIAFIXTUREEXAMPLE", "aws_secret_access_key": "fixture-secret", "aws_region": "us-east-1", "model_mapping": map[string]any{"titan-embed": "amazon.titan-embed-text-v2:0"}}, false, func(*http.Request) *http.Response {
+	handler, router, upstream := bedrockHandlerFixtureForGroup(t, group, 7402, map[string]any{"aws_access_key_id": "AKIAFIXTUREEXAMPLE", "aws_secret_access_key": "fixture-secret", "aws_region": "us-east-1", "model_mapping": map[string]any{"titan-embed": "amazon.titan-embed-text-v2:0"}}, false, func(*http.Request) *http.Response {
 		return bedrockHandlerJSON(200, `{"embedding":[0.5,0.25],"inputTextTokenCount":3}`)
 	}, nil)
-	router.Use(func(c *gin.Context) { key, _ := middleware.GetAPIKeyFromContext(c); key.TPMLimit = 1; c.Next() })
-	router.POST("/v1/embeddings", h.BedrockEmbeddings)
-	w := bedrockHandlerServe(t, router, http.MethodPost, "/v1/embeddings", `{"model":"titan-embed","input":"alpha"}`, "application/json")
+	router.Use(func(requestContext *gin.Context) {
+		key, _ := middleware.GetAPIKeyFromContext(requestContext)
+		key.TPMLimit = 1
+		requestContext.Next()
+	})
+	router.POST("/v1/embeddings", handler.BedrockEmbeddings)
+	recorder := bedrockHandlerServe(t, router, http.MethodPost, "/v1/embeddings", `{"model":"titan-embed","input":"alpha"}`, "application/json")
 	requests, _ := upstream.snapshot()
 	for _, request := range requests {
-		t.Logf("status=%d upstream=%s plan_nil=%t", w.Code, request.URL.Path, service.GatewayRequestPlanFromContext(request.Context()) == nil)
+		t.Logf("status=%d upstream=%s plan_nil=%t", recorder.Code, request.URL.Path, service.GatewayRequestPlanFromContext(request.Context()) == nil)
 	}
 	require.Empty(t, requests, "TPM policy must be checked before upstream")
-	require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
+	require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
 }
 
 func TestQianwenNativeAndImageTPMAdmission(t *testing.T) {
