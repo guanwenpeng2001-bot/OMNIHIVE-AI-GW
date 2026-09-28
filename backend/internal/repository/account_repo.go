@@ -2370,11 +2370,19 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 
 // queryModelCatalogAccounts projects only membership evidence and name-resolution
 // configuration in SQL; authentication secrets never enter catalog readers.
-func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
+func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped bool, groupIDs ...[]int64) ([]service.Account, error) {
 	// Composite catalogs have no platform restriction. pq.Array encodes nil as
 	// SQL NULL, so normalize it to an empty array before applying the predicate.
 	if platforms == nil {
 		platforms = []string{}
+	}
+	groupProjection, groupPredicate, parentSelection := "", "", ""
+	arguments := []any{id, pq.Array(platforms), groupID, includeGrouped}
+	if len(groupIDs) > 0 {
+		groupProjection = ", ARRAY(SELECT membership.group_id FROM account_groups membership WHERE membership.account_id=a.id AND membership.group_id=ANY($5::bigint[]) ORDER BY membership.group_id)"
+		groupPredicate = " AND EXISTS (SELECT 1 FROM account_groups membership WHERE membership.account_id=a.id AND membership.group_id=ANY($5::bigint[]))"
+		parentSelection = " OR a.id IN (SELECT child.parent_account_id FROM accounts child JOIN account_groups membership ON membership.account_id=child.id WHERE child.deleted_at IS NULL AND membership.group_id=ANY($5::bigint[]))"
+		arguments = append(arguments, pq.Array(groupIDs[0]))
 	}
 	rows, err := r.sql.QueryContext(ctx, `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
  a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until,
@@ -2382,8 +2390,8 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
- 'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
- FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND
+ 'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)`+groupProjection+`
+ FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND (
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
  AND (cardinality($2::text[]) = 0 OR a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
@@ -2393,7 +2401,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  AND ($3::bigint IS NULL OR EXISTS (SELECT 1 FROM groups requested_group WHERE requested_group.id = $3 AND (COALESCE(NULLIF(requested_group.account_type,''), CASE requested_group.platform WHEN 'bedrock' THEN 'bedrock' WHEN 'vertex' THEN 'service_account' ELSE '' END) IN ('',a.type)))) AND
  (($3::bigint IS NOT NULL AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id AND ag.group_id = $3))
  OR ($3::bigint IS NULL AND ($4 OR NOT EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id = a.id))))))
- ORDER BY a.id`, id, pq.Array(platforms), groupID, includeGrouped)
+ `+groupPredicate+parentSelection+`) ORDER BY a.id`, arguments...)
 	if err != nil {
 		return nil, err
 	}
@@ -2402,7 +2410,11 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
 	for rows.Next() {
 		var a service.Account
 		var credentials, extra []byte
-		if err := rows.Scan(&a.ID, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ParentAccountID, &a.ExpiresAt, &a.AutoPauseOnExpired, &a.TempUnschedulableUntil, &credentials, &extra); err != nil {
+		destinations := []any{&a.ID, &a.Platform, &a.Type, &a.Status, &a.Schedulable, &a.ParentAccountID, &a.ExpiresAt, &a.AutoPauseOnExpired, &a.TempUnschedulableUntil, &credentials, &extra}
+		if len(groupIDs) > 0 {
+			destinations = append(destinations, pq.Array(&a.GroupIDs))
+		}
+		if err := rows.Scan(destinations...); err != nil {
 			return nil, err
 		}
 		if err := json.Unmarshal(credentials, &a.Credentials); err != nil {
@@ -2418,6 +2430,16 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
 
 func (r *accountRepository) ListModelCatalogAccounts(ctx context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
 	return r.queryModelCatalogAccounts(ctx, 0, groupID, platforms, includeGrouped)
+}
+
+// ListModelCatalogAccountsForGroups reads each authorized account once, even
+// when it belongs to several requested groups. Parent evidence is loaded by the
+// same query and never contains authentication secrets.
+func (repository *accountRepository) ListModelCatalogAccountsForGroups(ctx context.Context, groupIDs []int64) ([]service.Account, error) {
+	if len(groupIDs) == 0 {
+		return []service.Account{}, nil
+	}
+	return repository.queryModelCatalogAccounts(ctx, 0, nil, nil, true, groupIDs)
 }
 
 func (r *accountRepository) GetModelCatalogAccount(ctx context.Context, id int64) (*service.Account, error) {

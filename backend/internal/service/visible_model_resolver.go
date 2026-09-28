@@ -92,6 +92,12 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 		return ctx, err
 	}
 	if replace {
+		// Authenticated policies cannot be refreshed as keyID=0: that would
+		// discard KeyGroup/KeyExclude restrictions during a revision race.
+		// Let the caller retry the complete authentication/read transaction.
+		if _, attached := ctx.Value(visibleModelPolicyKey{}).([]string); attached {
+			return ctx, ErrVisibleModelRevisionChanged
+		}
 		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
 			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
 			if readErr != nil {
@@ -174,10 +180,13 @@ func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, plat
 	}
 	for attempt := 1; ; attempt++ {
 		view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, mixedOnly...)
-		if err != nil {
+		if err != nil && !errors.Is(err, ErrVisibleModelRevisionChanged) {
 			return VisibleModelSet{}, err
 		}
-		validateErr := r.validate(ctx)
+		validateErr := err
+		if validateErr == nil {
+			validateErr = r.validate(ctx)
+		}
 		if validateErr == nil {
 			break
 		}
@@ -227,9 +236,19 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 	if platform == "" || platform == PlatformComposite {
 		platforms = nil
 	}
-	accounts, err := reader.ListModelCatalogAccounts(ctx, groupID, platforms, s.cfg != nil && s.cfg.RunMode == "simple")
-	if err != nil {
-		return []string{}, err
+	var accounts []Account
+	var err error
+	batch, batched := ctx.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot)
+	if batched && groupID != nil {
+		accounts = append([]Account(nil), batch.accounts[*groupID]...)
+	} else {
+		includeGrouped := s.cfg != nil && s.cfg.RunMode == "simple"
+		accounts, err = s.catalogReadAccounts(ctx, fmt.Sprintf("group:%v:platforms:%v:simple:%t", catalogGroupID(groupID), platforms, includeGrouped), func() ([]Account, error) {
+			return reader.ListModelCatalogAccounts(ctx, groupID, platforms, includeGrouped)
+		})
+		if err != nil {
+			return []string{}, err
+		}
 	}
 	candidates := make(map[string]struct{})
 	privateTargets := make(map[string]bool)
@@ -239,12 +258,7 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 		if len(mixedOnly) > 0 && mixedOnly[0] && account.Platform == PlatformAntigravity && !account.IsMixedSchedulingEnabled() {
 			continue
 		}
-		parent, err := loadCatalogCredentialAccount(ctx, s.accountRepo, account)
-		if err != nil {
-			continue
-		}
-		account.modelCatalogCredentialAccount = parent
-		catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(parent)
+		catalog := account.EffectiveUpstreamModelCatalogForCredentialAccount(account.modelCatalogCredentialAccount)
 		if catalog == nil {
 			continue
 		}
@@ -263,7 +277,9 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 		}
 	}
 	var group *Group
-	if groupID != nil && s.groupRepo != nil {
+	if batched && groupID != nil {
+		group = batch.groups[*groupID]
+	} else if groupID != nil && s.groupRepo != nil {
 		group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
 		if err != nil {
 			return []string{}, err
@@ -397,25 +413,27 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 					view.Bindings[model] = append(view.Bindings[model], binding)
 					supported = true
 					view.ExecutableEndpoints[model] = append(view.ExecutableEndpoints[model], endpoint)
-					if metadata == nil {
-						continue
-					}
-					// Unknown facts on an exit for this listing endpoint remain unknown;
-					// the handler intersects only an explicit safe field whitelist.
-					projection := UpstreamModelMetadata{}
-					if snapshot := specifications[account.ID]; snapshot != nil {
-						candidate := snapshot.Models[binding.UpstreamModel]
-						if candidate.ProviderProfile != "" && candidate.ProviderProfile == profiles[account.ID] {
-							projection = candidate
-						}
-					}
-					projection = visibleModelMetadata(ModelRegistrySnapshotFromContext(ctx), profiles[account.ID], binding.UpstreamModel, projection)
-					metadata[model] = append(metadata[model], projection)
+
 				}
 			}
 		}
 		if supported {
 			view.ExecutableEndpoints[model] = dedupeAndSortModelIDs(view.ExecutableEndpoints[model])
+			if metadata != nil {
+				bindings := view.Bindings[model]
+				projections := make([]UpstreamModelMetadata, len(bindings))
+				for index, binding := range bindings {
+					projection := UpstreamModelMetadata{}
+					if snapshot := specifications[binding.AccountID]; snapshot != nil {
+						candidate := snapshot.Models[binding.UpstreamModel]
+						if candidate.ProviderProfile != "" && candidate.ProviderProfile == profiles[binding.AccountID] {
+							projection = candidate
+						}
+					}
+					projections[index] = visibleModelMetadata(ModelRegistrySnapshotFromContext(ctx), profiles[binding.AccountID], binding.UpstreamModel, projection)
+				}
+				metadata[model] = projections
+			}
 			result = append(result, model)
 		}
 	}
@@ -444,6 +462,10 @@ func visibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver,
 	if resolver == nil {
 		return frozen, visible, nil
 	}
+	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
+	if err != nil {
+		return ctx, nil, err
+	}
 	for _, group := range groups {
 		view, err := resolver.Resolve(frozen, &group.ID, group.Platform)
 		if err != nil {
@@ -466,4 +488,11 @@ func panelModelVisible(ctx context.Context, group *Group, model string, visible 
 		return members[model]
 	}
 	return true // legacy test adapters without a catalog repository
+}
+
+func catalogGroupID(groupID *int64) string {
+	if groupID == nil {
+		return "ungrouped"
+	}
+	return fmt.Sprint(*groupID)
 }

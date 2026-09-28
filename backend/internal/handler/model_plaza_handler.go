@@ -115,12 +115,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		return
 	}
 
-	groups, err := h.plazaService.ListGroups(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
+	var err error
 	// allowedGroups == nil 表示匿名；登录用户恒为非 nil（可能为空集合）。
 	var allowedGroups map[int64]struct{}
 	var restrictPublicGroups bool
@@ -140,7 +135,11 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		}
 	}
 
-	visible := filterPlazaVisibleGroups(groups, allowedGroups, restrictPublicGroups)
+	visible, err := h.plazaService.ListVisibleGroups(c.Request.Context(), allowedGroups, restrictPublicGroups)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	for i := range visible {

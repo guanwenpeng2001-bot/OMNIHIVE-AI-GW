@@ -191,6 +191,9 @@ func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnap
 }
 
 func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount *Account) *AccountModelCatalogSnapshot {
+	if account != nil && account.modelCatalogReadEvidence != nil && account.modelCatalogCredentialAccount == credentialAccount {
+		return account.modelCatalogReadEvidence.catalog
+	}
 	if account == nil || account.ModelCatalogState().Result == "credentials_invalid" {
 		return nil
 	}
@@ -230,6 +233,9 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 }
 
 func (account *Account) ModelCatalogState() AccountModelCatalogState {
+	if account != nil && account.modelCatalogReadEvidence != nil {
+		return account.modelCatalogReadEvidence.state
+	}
 	var state AccountModelCatalogState
 	if account != nil {
 		decodeCatalogExtra(account.Extra, UpstreamModelCatalogStateExtraKey, &state)
@@ -251,6 +257,9 @@ func AccountCatalogIdentityCredentialFields() []string {
 }
 
 func configuredModelMapping(account *Account) map[string]string {
+	if account.modelCatalogReadEvidence != nil {
+		return account.modelCatalogReadEvidence.mapping
+	}
 	encoded, _ := json.Marshal(account.Credentials["model_mapping"])
 	var mapping map[string]string
 	_ = json.Unmarshal(encoded, &mapping)
@@ -396,13 +405,23 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if options.CredentialAccount != nil {
 		binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
 	}
-	for _, member := range snapshot.EligibleModels {
+	members := snapshot.EligibleModels
+	if account.modelCatalogReadEvidence != nil {
+		members = account.modelCatalogReadEvidence.members[binding.UpstreamModel]
+	}
+	for memberIndex, member := range members {
 		legacyEvidence := hasLegacyModelCatalogEvidence(snapshot, member)
 		memberModel := member.ID
 		if legacyEvidence {
 			memberModel = legacyModelCatalogWireModel(account, memberModel)
 		}
-		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
+		discovered := false
+		if account.modelCatalogReadEvidence != nil {
+			discovered = account.modelCatalogReadEvidence.discovered[member.ID]
+		} else {
+			discovered = slices.Contains(snapshot.DiscoveredModels, member.ID)
+		}
+		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
 			continue
 		}
 		endpoint := options.Endpoint
@@ -433,7 +452,12 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		if endpoint == CompositeRouteEndpointCountTokens {
 			endpoint = CompositeRouteEndpointMessages
 		}
-		implemented := accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+		var implemented []string
+		if account.modelCatalogReadEvidence != nil {
+			implemented = account.modelCatalogReadEvidence.implemented[binding.UpstreamModel][memberIndex]
+		} else {
+			implemented = accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+		}
 		executable := false
 		for _, action := range implemented {
 			if catalogEndpointsContain(member.Endpoints, action) && (endpoint == "" || endpoint == CompositeRouteEndpointAny || catalogEndpointsContain([]string{action}, endpoint)) {
