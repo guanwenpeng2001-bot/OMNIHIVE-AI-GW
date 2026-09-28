@@ -2371,6 +2371,11 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 // queryModelCatalogAccounts projects only membership evidence and name-resolution
 // configuration in SQL; authentication secrets never enter catalog readers.
 func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped bool) ([]service.Account, error) {
+	// Composite catalogs have no platform restriction. pq.Array encodes nil as
+	// SQL NULL, so normalize it to an empty array before applying the predicate.
+	if platforms == nil {
+		platforms = []string{}
+	}
 	rows, err := r.sql.QueryContext(ctx, `SELECT a.id, a.platform, a.type, a.status, a.schedulable,
  a.parent_account_id, a.expires_at, a.auto_pause_on_expired, a.temp_unschedulable_until,
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
@@ -2380,7 +2385,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
  FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
- AND (a.platform = ANY($2::text[])
+ AND (cardinality($2::text[]) = 0 OR a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
  OR (a.platform = 'anthropic' AND a.type = 'bedrock' AND 'bedrock' = ANY($2::text[]))
  OR (a.platform = 'vertex' AND a.type = 'service_account' AND 'gemini' = ANY($2::text[]))
