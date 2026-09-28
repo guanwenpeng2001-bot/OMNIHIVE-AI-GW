@@ -51,7 +51,7 @@ func TestGatewayTPM_AllTokenEntrypointsReserveBeforeUpstream(t *testing.T) {
 			response, err := generationHTTP(request, 4, send)
 			require.NoError(t, err)
 			require.Equal(t, 1, sends)
-			response.Body.Close()
+			_ = response.Body.Close()
 		})
 	}
 }

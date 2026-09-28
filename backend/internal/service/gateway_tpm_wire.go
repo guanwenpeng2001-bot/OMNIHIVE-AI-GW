@@ -227,7 +227,7 @@ func estimateTPMFromRecord(body []byte, path string, record CapabilityRecord) TP
 		}
 		return TPMEstimate{InputBound: input * batch, Candidates: 1, Verified: true}
 	}
-	if !(strings.Contains(path, "messages") || strings.Contains(path, "completions") || strings.Contains(path, "responses") || strings.Contains(path, "generateContent") || strings.Contains(path, "GenerateContent")) {
+	if !strings.Contains(path, "messages") && !strings.Contains(path, "completions") && !strings.Contains(path, "responses") && !strings.Contains(path, "generateContent") && !strings.Contains(path, "GenerateContent") {
 		return TPMEstimate{}
 	}
 	if strings.Contains(strings.ToLower(path), "batch") {
@@ -382,7 +382,7 @@ func tpmHTTPRequestContext(request *http.Request) context.Context {
 	if err != nil {
 		return request.Context()
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	payload, err := io.ReadAll(io.LimitReader(body, 16<<20))
 	if err != nil {
 		return request.Context()
