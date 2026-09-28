@@ -64,7 +64,10 @@ func populateLegacyModelCatalogEndpoints(account *Account, snapshot *AccountMode
 }
 
 func hasLegacyModelCatalogEvidence(snapshot *AccountModelCatalogSnapshot, member AccountCatalogModel) bool {
-	return snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && member.EvidenceKind == modelEvidenceLegacyMappingUpgrade
+	// Imported configuration has no discovered IDs. Accept its own evidence only
+	// from the seed snapshot; a later discovery must still revoke old members.
+	return snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade &&
+		member.EvidenceKind == modelEvidenceLegacyMappingUpgrade && member.EvidenceObservedAt == snapshot.ObservedAt
 }
 
 // Compare the imported target using the forwarding path's existing model-name

@@ -129,6 +129,52 @@ func TestLegacyModelCatalogSeedReplacementAndCopy(t *testing.T) {
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "a later empty discovery revokes the legacy member")
 }
 
+func TestLegacyModelCatalogBindingRequiresSchedulableAccount(t *testing.T) {
+	for _, scenario := range []struct{ platform, endpoint string }{
+		{PlatformOpenAI, CompositeRouteEndpointResponses},
+		{PlatformAntigravity, "generate_content"},
+	} {
+		t.Run(scenario.platform, func(t *testing.T) {
+			account := legacyCatalogSeedAccount(scenario.platform)
+			account.Type = AccountTypeOAuth
+			account.Credentials["model_mapping"] = map[string]any{"actual-model": "actual-model"}
+			options := AccountModelBindingOptions{Endpoint: scenario.endpoint}
+			for _, composite := range []bool{false, true} {
+				ctx := context.Background()
+				if composite {
+					ctx = WithCompositeRouteDecision(ctx, CompositeRouteDecision{
+						Matched: true, Source: CompositeRouteSourceExplicit, GroupID: 4,
+						PublicModel: "actual-model", UpstreamModel: "actual-model",
+						TargetPlatform: scenario.platform, Endpoint: scenario.endpoint,
+					})
+				}
+				// A zero-value Schedulable caused the production-dump reproduction
+				// to exit before checking any catalog member. Keep that account
+				// gate distinct from the valid seed's lack of native discovery.
+				account.Schedulable = false
+				require.NotNil(t, account.EffectiveUpstreamModelCatalog())
+				require.False(t, ResolveAccountModelBinding(ctx, &account, "actual-model", options).Supported)
+				account.Schedulable = true
+				binding := ResolveAccountModelBinding(ctx, &account, "actual-model", options)
+				require.True(t, binding.Supported)
+				require.Equal(t, modelEvidenceLegacyMappingUpgrade, binding.EvidenceKind)
+				require.Empty(t, account.GetUpstreamModelCatalog().DiscoveredModels)
+			}
+		})
+	}
+}
+
+func TestLegacyModelCatalogEvidenceBelongsToSeedSnapshot(t *testing.T) {
+	snapshot := &AccountModelCatalogSnapshot{SourceKind: modelEvidenceLegacyMappingUpgrade, ObservedAt: "2026-09-20T00:00:00Z"}
+	member := AccountCatalogModel{EvidenceKind: modelEvidenceLegacyMappingUpgrade, EvidenceObservedAt: snapshot.ObservedAt}
+	require.True(t, hasLegacyModelCatalogEvidence(snapshot, member))
+	member.EvidenceObservedAt = "2026-09-19T00:00:00Z"
+	require.False(t, hasLegacyModelCatalogEvidence(snapshot, member), "a stale seed member cannot borrow the snapshot's evidence")
+	member.EvidenceObservedAt = snapshot.ObservedAt
+	snapshot.SourceKind = "native_account_catalog"
+	require.False(t, hasLegacyModelCatalogEvidence(snapshot, member), "replacement discovery revokes legacy evidence")
+}
+
 func TestLegacyModelCatalogSeedUsesSavedOpenAIProtocol(t *testing.T) {
 	account := legacyCatalogSeedAccount(PlatformOpenAI)
 	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Protocol: "responses", Model: "public-model"}))
