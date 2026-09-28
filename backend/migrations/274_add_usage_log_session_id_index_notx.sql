@@ -7,8 +7,9 @@
 -- 且比 (session_id, created_at DESC) 复合索引小约 5 倍。带时间窗的会话查询仍走既有
 -- created_at 索引，因此不额外付出复合索引的写放大。无会话标识的历史行不进索引。
 --
--- CONCURRENTLY 让这张只追加的热表在构建期间保持可写；失败残留的 invalid 索引由
--- runner 的非事务索引重试逻辑先清理（见 migrations_runner.go 的 prepareNonTransactionalMigration）。
+-- 普通表由 runner 并发构建；分区表由 migrations_usage_session_index.go 创建 ONLY 父索引、
+-- 逐叶并发构建并 ATTACH，验证整棵索引树有效后才记录迁移成功。失败可重入，已完成的叶索引
+-- 会复用，invalid 叶索引用 REINDEX CONCURRENTLY 修复，父索引仅执行元数据操作。
 CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_session_id
     ON usage_logs (session_id)
     WHERE session_id IS NOT NULL;
