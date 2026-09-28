@@ -303,6 +303,9 @@ func (h *OpenAIGatewayHandler) handleOpenAIVideoSubmit(c *gin.Context, action st
 		upstreamBody = rewritten
 	}
 
+	// Preserve the existing selection and tariff checks, then give the child
+	// submission its TPM repository and scope before it can contact upstream.
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
 	template := &service.UpstreamJob{
 		Platform:  service.PlatformOpenAI,
 		Family:    "video",

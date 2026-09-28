@@ -161,14 +161,34 @@ func (r *gatewayResourceWiringRepo) snapshot(publicID string) *service.UpstreamJ
 
 // gatewayResourceWiringUpstream performs real HTTP against the loopback fixture
 // so the resource actions exercise the provider adapter end to end.
-type gatewayResourceWiringUpstream struct{ client *http.Client }
+type gatewayResourceWiringUpstream struct {
+	client     *http.Client
+	beforeSend func(*http.Request)
+}
 
 func (u gatewayResourceWiringUpstream) Do(request *http.Request, _ string, _ int64, _ int) (*http.Response, error) {
+	if u.beforeSend != nil {
+		u.beforeSend(request)
+	}
 	return u.client.Do(request)
 }
 
 func (u gatewayResourceWiringUpstream) DoWithTLS(request *http.Request, proxyURL string, accountID int64, concurrency int, _ *tlsfingerprint.Profile) (*http.Response, error) {
 	return u.Do(request, proxyURL, accountID, concurrency)
+}
+
+func requireGatewaySubmissionPlan(t *testing.T, request *http.Request, model string) {
+	t.Helper()
+	plan := service.GatewayRequestPlanFromContext(request.Context())
+	require.NotNil(t, plan, "the real ingress must supply the submission plan")
+	spec := plan.Snapshot()
+	require.Equal(t, "job", spec.ExecutionKind)
+	require.NotEmpty(t, spec.ExecutionID)
+	require.EqualValues(t, 20, spec.APIKeyID)
+	require.EqualValues(t, 31, spec.BillingGroupID)
+	require.EqualValues(t, 7, spec.UpstreamAccountID)
+	require.Equal(t, model, spec.Model)
+	require.False(t, plan.State().Finalized)
 }
 
 // gatewayResourceWiringFixture serves the documented OpenAI resource wire shapes
@@ -269,7 +289,11 @@ func newGatewayResourceWiringHandler(t *testing.T, server *httptest.Server) (*Ga
 		openAIImagesFailoverAccountRepo{accounts: []service.Account{gatewayResourceWiringAccount(server.URL)}},
 		nil, nil, nil, nil, nil, nil, cfg, nil, concurrency,
 		service.NewBillingService(cfg, nil), nil, nil,
-		gatewayResourceWiringUpstream{client: server.Client()},
+		gatewayResourceWiringUpstream{client: server.Client(), beforeSend: func(request *http.Request) {
+			if request.Method == http.MethodPost && request.URL.Path == "/v1/batches" {
+				requireGatewaySubmissionPlan(t, request, gatewayResourceWiringModel)
+			}
+		}},
 		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	openAI := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
 	jobs := service.NewUpstreamJobService(repo, service.GatewayResourcePollJob(gateway), service.GatewayResourceJobCharge)
