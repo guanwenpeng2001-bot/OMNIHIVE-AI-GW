@@ -255,7 +255,7 @@ describe('GroupsView pricing HTTP payload', () => {
   it('blocks an empty model list instead of silently deleting its price card', async () => {
     const wrapper = await openEditor([simpleCard])
     const model = wrapper.get('[data-testid="group-pricing-card"] input[type="text"]')
-    await model.trigger('keydown', { key: 'Delete' })
+    await model.trigger('keydown', { key: 'Backspace' })
     await save(wrapper)
     expect(payloads).toHaveLength(0)
     expect(showError).toHaveBeenCalled()
