@@ -46,12 +46,13 @@ type AccountModelCatalogBaseline struct {
 }
 
 type AccountModelCatalogState struct {
-	IdentityRevision int64  `json:"identity_revision"`
-	RulesRevision    int64  `json:"rules_revision"`
-	AttemptedAt      string `json:"attempted_at,omitempty"`
-	LastSuccessAt    string `json:"last_success_at,omitempty"`
-	Result           string `json:"result,omitempty"`
-	Error            string `json:"error,omitempty"`
+	LegacyPolicyRevision int64  `json:"legacy_policy_revision"`
+	IdentityRevision     int64  `json:"identity_revision"`
+	RulesRevision        int64  `json:"rules_revision"`
+	AttemptedAt          string `json:"attempted_at,omitempty"`
+	LastSuccessAt        string `json:"last_success_at,omitempty"`
+	Result               string `json:"result,omitempty"`
+	Error                string `json:"error,omitempty"`
 }
 
 type AccountCatalogModel struct {
@@ -68,6 +69,8 @@ type ExcludedCatalogModel struct {
 }
 
 type AccountModelCatalogSnapshot struct {
+	LegacyMappingFingerprint   string                           `json:"legacy_mapping_fingerprint,omitempty"`
+	LegacyPolicyRevision       *int64                           `json:"legacy_policy_revision,omitempty"`
 	LegacyAccountID            int64                            `json:"legacy_account_id,omitempty"`
 	SchemaVersion              int                              `json:"schema_version,omitempty"`
 	EnrichmentVersion          string                           `json:"enrichment_version,omitempty"`
@@ -195,7 +198,8 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 		return nil
 	}
 	snapshot := account.GetUpstreamModelCatalog()
-	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision &&
+		!(snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)) {
 		snapshot = nil
 	}
 	if snapshot != nil && (account.IsShadow() || snapshot.CredentialAccountID != 0) {
