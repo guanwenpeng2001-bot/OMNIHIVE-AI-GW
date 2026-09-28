@@ -308,19 +308,6 @@ type OpenAIWSPerformanceMetricsSnapshot struct {
 	Transport OpenAIWSTransportMetricsSnapshot `json:"transport"`
 }
 
-func (s *OpenAIGatewayService) SnapshotOpenAIWSPerformanceMetrics() OpenAIWSPerformanceMetricsSnapshot {
-	pool := s.getOpenAIWSConnPool()
-	snapshot := OpenAIWSPerformanceMetricsSnapshot{
-		Retry: s.SnapshotOpenAIWSRetryMetrics(),
-	}
-	if pool == nil {
-		return snapshot
-	}
-	snapshot.Pool = pool.SnapshotMetrics()
-	snapshot.Transport = pool.SnapshotTransportMetrics()
-	return snapshot
-}
-
 func (s *OpenAIGatewayService) getOpenAIWSStateStore() OpenAIWSStateStore {
 	if s == nil {
 		return nil

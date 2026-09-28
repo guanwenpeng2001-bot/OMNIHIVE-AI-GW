@@ -157,10 +157,6 @@ func (r VolcengineMediaRequestInfo) HasInputImage() bool {
 	return len(r.InputImageURLs) > 0 || len(r.Uploads) > 0
 }
 
-func (r VolcengineMediaRequestInfo) HasInputVideo() bool {
-	return len(r.InputVideoURLs) > 0
-}
-
 // ModerationBody renders the prompt/reference media for the shared security audit.
 func (r VolcengineMediaRequestInfo) ModerationBody() []byte {
 	payload := map[string]any{}
