@@ -40,11 +40,11 @@ import (
 // ResponsesToChatCompletionsRequest but avoids materializing the intermediate
 // ResponsesRequest and the extra marshal/unmarshal cycle.
 func AnthropicToChatCompletionsRequest(req *AnthropicRequest) (*ChatCompletionsRequest, error) {
-	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
-		return nil, err
-	}
 	if req == nil {
 		return nil, fmt.Errorf("anthropic request is nil")
+	}
+	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
+		return nil, err
 	}
 
 	messages, err := anthropicToChatMessages(req.System, req.Messages)

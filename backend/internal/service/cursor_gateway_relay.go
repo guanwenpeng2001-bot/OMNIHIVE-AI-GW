@@ -121,16 +121,25 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 	if json.Unmarshal(body, &metadata) != nil {
 		return nil, fmt.Errorf("cursor: malformed relay request")
 	}
-	converted, err := cursorConvertRelayRequest(body, inbound, upstream)
+	// Resolve once before conversion so capability checks and transport agree.
+	mapped := account.GetMappedModel(metadata.Model)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	payload["model"], _ = json.Marshal(mapped)
+	mappedBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	var payload map[string]json.RawMessage
+	converted, err := cursorConvertRelayRequest(mappedBody, inbound, upstream)
+	if err != nil {
+		return nil, err
+	}
+	payload = nil
 	if err = json.Unmarshal(converted, &payload); err != nil {
 		return nil, err
 	}
-	mapped := account.GetMappedModel(metadata.Model)
-	payload["model"], _ = json.Marshal(mapped)
 	// Compatibility request converters default to streaming; preserve caller intent.
 	payload["stream"], _ = json.Marshal(metadata.Stream)
 	if metadata.Stream && upstream == APIProtocolChatCompletions {

@@ -201,6 +201,22 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	return result, handleErr
 }
 
+// preserveChatCompletionTokenLimit restores explicit integers after the Responses
+// bridge's default/floor handling. Target-specific limits remain the upstream's
+// responsibility, including rejection of non-positive values.
+func preserveChatCompletionTokenLimit(request *apicompat.ChatCompletionsRequest, anthropicRequest *apicompat.AnthropicRequest) {
+	if request == nil || anthropicRequest == nil {
+		return
+	}
+	limit := request.MaxTokens
+	if request.MaxCompletionTokens != nil {
+		limit = request.MaxCompletionTokens
+	}
+	if limit != nil {
+		anthropicRequest.MaxTokens = *limit
+	}
+}
+
 // extractCCReasoningEffortFromBody reads reasoning effort from a Chat Completions
 // request body. It checks both nested (reasoning.effort) and flat (reasoning_effort)
 // formats used by OpenAI-compatible clients.
