@@ -2337,7 +2337,7 @@ func setDefaults() {
 	viper.SetDefault("pricing.hash_url", "")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
-	viper.SetDefault("pricing.override_file", "")
+	viper.SetDefault("pricing.override_file", "./resources/model-pricing/cache-base-overrides.json")
 	viper.SetDefault("pricing.update_interval_hours", 24)
 	viper.SetDefault("pricing.hash_check_interval_minutes", 10)
 

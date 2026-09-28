@@ -6,21 +6,26 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
-// This prepares the existing override pipeline for the proven subset of the
-// restoration. It is not a production patch or evidence that all twelve prices
-// have been recovered: the provider-prefixed entries still need exact sources.
+// The six exact fields approved for restoration use the shipped patch through
+// the existing pipeline; the remaining six audit entries are deliberately deferred.
 func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 	sourcePath := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
 	sourceBody, err := os.ReadFile(sourcePath)
 	require.NoError(t, err)
 	var sourceEntries map[string]map[string]json.RawMessage
 	require.NoError(t, json.Unmarshal(sourceBody, &sourceEntries))
+	patchBody, err := os.ReadFile(filepath.Join(filepath.Dir(sourcePath), "cache-base-overrides.json"))
+	require.NoError(t, err)
+	var approvedPatch map[string]map[string]float64
+	require.NoError(t, json.Unmarshal(patchBody, &approvedPatch))
+	require.Len(t, approvedPatch, 6)
 
 	for _, reviewed := range []struct {
 		modelID string
@@ -29,8 +34,6 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 	}{
 		{"gemini-2.5-pro", "cache_creation_input_token_cost", 1.25e-6},
 		{"gemini-3-pro-preview", "cache_creation_input_token_cost", 2e-6},
-		{"gemini-3.1-pro-preview", "cache_creation_input_token_cost", 2e-6},
-		{"gemini-3.1-pro-preview-customtools", "cache_creation_input_token_cost", 2e-6},
 		{"gpt-5.4-pro", "cache_read_input_token_cost", 3e-6},
 		{"gpt-5.4-pro-2026-03-05", "cache_read_input_token_cost", 3e-6},
 		{"gpt-5.5-pro", "cache_read_input_token_cost", 3e-6},
@@ -45,10 +48,7 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			var approvedBase float64
 			require.NoError(t, json.Unmarshal(entry[field], &approvedBase))
 			require.Equal(t, reviewed.oldBase, approvedBase, "restore only the exact reviewed source field")
-			patchBody, err := json.Marshal(map[string]map[string]json.RawMessage{
-				modelID: {field: entry[field]},
-			})
-			require.NoError(t, err)
+			require.Equal(t, map[string]float64{field: approvedBase}, approvedPatch[modelID])
 			delete(entry, field)
 			// Preserve the observed upstream tier discrepancy; restoring a base
 			// does not authorize replacing the tier with the bundled source value.
@@ -100,6 +100,29 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			coldService := &PricingService{cfg: svc.cfg}
 			require.NoError(t, coldService.loadPricingData(svc.getPricingFilePath()))
 			require.Equal(t, before, *coldService.pricingData[modelID])
+			billing := NewBillingService(&config.Config{}, coldService)
+			pricing, err := billing.GetModelPricing(modelID)
+			require.NoError(t, err)
+			for _, totalInput := range []int{1000, pricing.LongContextInputThreshold, pricing.LongContextInputThreshold + 1} {
+				tokens := UsageTokens{InputTokens: totalInput - 100, OutputTokens: 10}
+				if field == "cache_creation_input_token_cost" {
+					tokens.CacheCreationTokens = 100
+				} else {
+					tokens.CacheReadTokens = 100
+				}
+				cost, err := billing.CalculateCost(modelID, tokens, 1)
+				require.NoError(t, err)
+				multiplier := 1.0
+				if totalInput > pricing.LongContextInputThreshold {
+					multiplier = pricing.LongContextInputMultiplier
+				}
+				require.Equal(t, totalInput > pricing.LongContextInputThreshold, cost.LongContextBillingApplied)
+				if field == "cache_creation_input_token_cost" {
+					require.InDelta(t, 100*approvedBase*multiplier, cost.CacheCreationCost, 1e-12)
+				} else {
+					require.InDelta(t, 100*approvedBase*multiplier, cost.CacheReadCost, 1e-12)
+				}
+			}
 
 			// A missing repair file must be detectable by effective-value checks.
 			require.NoError(t, os.Remove(svc.cfg.Pricing.OverrideFile))
@@ -111,4 +134,130 @@ func TestCacheBasePatch_ProvenSourceFieldsUseExistingPipeline(t *testing.T) {
 			}
 		})
 	}
+}
+func cacheBasePatchFixture(t *testing.T) (*PricingService, []byte, map[string]map[string]float64) {
+	t.Helper()
+	var manifest struct {
+		RuntimeEntries map[string]map[string]json.RawMessage `json:"runtime_entries"`
+	}
+	body, err := os.ReadFile(filepath.Join("testdata", "cache_base_patch_manifest.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(body, &manifest))
+	patchPath := filepath.Join("..", "..", "resources", "model-pricing", "cache-base-overrides.json")
+	patchBody, err := os.ReadFile(patchPath)
+	require.NoError(t, err)
+	var patch map[string]map[string]float64
+	require.NoError(t, json.Unmarshal(patchBody, &patch))
+	catalogBody, err := json.Marshal(manifest.RuntimeEntries)
+	require.NoError(t, err)
+	directory := t.TempDir()
+	svc := NewPricingService(&config.Config{Pricing: config.PricingConfig{
+		DataDir: directory, UpdateIntervalHours: 24,
+		FallbackFile: filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"),
+		OverrideFile: patchPath,
+	}}, nil)
+	require.NoError(t, os.WriteFile(svc.getPricingFilePath(), catalogBody, 0600))
+	return svc, catalogBody, patch
+}
+
+func TestCacheBasePatch_InitializeAndReloadKeepDeferredEntriesUnknown(t *testing.T) {
+	svc, catalogBody, patch := cacheBasePatchFixture(t)
+	require.NoError(t, svc.Initialize())
+	defer svc.Stop()
+	// The current upstream no longer contains gemini-3-pro-preview; the fallback
+	// restores the complete entry before the field patch is applied.
+	for modelID, fields := range patch {
+		for field, expected := range fields {
+			if field == "cache_creation_input_token_cost" {
+				require.Equal(t, expected, svc.pricingData[modelID].CacheCreationInputTokenCost)
+			} else {
+				require.Equal(t, expected, svc.pricingData[modelID].CacheReadInputTokenCost)
+			}
+		}
+	}
+	logSink, restore := captureStructuredLog(t)
+	defer restore()
+	require.NoError(t, svc.loadPricingData(svc.getPricingFilePath()))
+	require.False(t, logSink.ContainsMessage("base cache price dropped"))
+	for _, modelID := range []string{
+		"gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools",
+		"vertex_ai/gemini-3-pro-preview", "vertex_ai/gemini-3.1-pro-preview",
+		"vertex_ai/gemini-3.1-pro-preview-customtools", "openrouter/google/gemini-3-pro-preview",
+	} {
+		require.NotContains(t, patch, modelID, "deferred IDs must not be guessed or aliased")
+		require.Zero(t, svc.pricingData[modelID].CacheCreationInputTokenCost)
+		require.True(t, logSink.ContainsMessage(modelID+"(cache_creation_input_token_cost_above_200k_tokens)"))
+	}
+	// The dropped-price sentinel remains active for an unrelated synthetic model.
+	var catalog map[string]map[string]any
+	require.NoError(t, json.Unmarshal(catalogBody, &catalog))
+	catalog["unrelated-cache-sentinel"] = map[string]any{"input_cost_per_token": 1e-6, "cache_read_input_token_cost": 1e-7}
+	before, err := json.Marshal(catalog)
+	require.NoError(t, err)
+	loadPricingCatalogSnapshot(t, svc, string(before))
+	delete(catalog["unrelated-cache-sentinel"], "cache_read_input_token_cost")
+	after, err := json.Marshal(catalog)
+	require.NoError(t, err)
+	svc.cfg.Pricing.RemoteURL = "https://example.com/pricing.json"
+	svc.remoteClient = stubPricingRemoteClient{body: string(after)}
+	require.NoError(t, svc.downloadPricingData())
+	require.True(t, logSink.ContainsMessage("unrelated-cache-sentinel(cache_read_input_token_cost)"))
+	for modelID, fields := range patch {
+		for field, expected := range fields {
+			require.False(t, logSink.ContainsMessage(modelID+"("+field+")"), "approved fields must not trigger dropped warnings")
+			quote := svc.pricingData[modelID].sourceQuotes[field]
+			require.NotNil(t, quote.Value)
+			require.Equal(t, expected, *quote.Value)
+		}
+	}
+}
+
+func TestCacheBasePatch_ExplicitOperatorFileKeepsItsOwnFieldsAndConflicts(t *testing.T) {
+	svc, _, patch := cacheBasePatchFixture(t)
+	svc.cfg.Pricing.OverrideFile = filepath.Join(t.TempDir(), "operator.json")
+	require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{"gpt-5.4-pro":{"cache_read_input_token_cost":9e-6,"output_cost_per_token":7e-5}}`), 0600))
+	require.NoError(t, svc.loadPricingData(svc.getPricingFilePath()))
+	require.Equal(t, 9e-6, svc.pricingData["gpt-5.4-pro"].CacheReadInputTokenCost)
+	require.Equal(t, 7e-5, svc.pricingData["gpt-5.4-pro"].OutputCostPerToken)
+	require.NotEqual(t, patch["gpt-5.4-pro"]["cache_read_input_token_cost"], svc.pricingData["gpt-5.4-pro"].CacheReadInputTokenCost,
+		"conflicting operator values require explicit migration review, not silent replacement")
+	require.Zero(t, svc.pricingData["gemini-2.5-pro"].CacheCreationInputTokenCost,
+		"a custom override replaces the shipped default; do not claim uniform repair")
+}
+
+func TestCacheBasePatch_ResourceAndManifestMatchApprovedScope(t *testing.T) {
+	sourcePath := filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json")
+	sourceBody, err := os.ReadFile(sourcePath)
+	require.NoError(t, err)
+	var manifest struct {
+		SourceSHA256 string `json:"source_sha256"`
+		Entries      []struct {
+			ModelID  string   `json:"exact_model_id"`
+			Field    string   `json:"field"`
+			Action   string   `json:"action"`
+			OldValue *float64 `json:"old_value"`
+		} `json:"entries"`
+	}
+	body, err := os.ReadFile(filepath.Join("testdata", "cache_base_patch_manifest.json"))
+	require.NoError(t, err)
+	require.NoError(t, json.Unmarshal(body, &manifest))
+	normalized := strings.ReplaceAll(string(sourceBody), "\r\n", "\n")
+	sourceHash := sha256.Sum256([]byte(normalized))
+	require.Equal(t, manifest.SourceSHA256, hex.EncodeToString(sourceHash[:]))
+	_, _, patch := cacheBasePatchFixture(t)
+	require.Len(t, manifest.Entries, 12)
+	seen := map[string]bool{}
+	approved := 0
+	for _, entry := range manifest.Entries {
+		require.False(t, seen[entry.ModelID])
+		seen[entry.ModelID] = true
+		if entry.Action == "patch" {
+			require.NotNil(t, entry.OldValue)
+			require.Equal(t, map[string]float64{entry.Field: *entry.OldValue}, patch[entry.ModelID])
+			approved++
+		} else {
+			require.NotContains(t, patch, entry.ModelID)
+		}
+	}
+	require.Equal(t, 6, approved)
 }
