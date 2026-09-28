@@ -4,6 +4,7 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -46,8 +47,16 @@ func TestFilterPlazaVisibleGroups_AuthedSeesGrantedExclusive(t *testing.T) {
 func TestFilterPlazaVisibleGroups_AuthedEmptySetSeesNoExclusive(t *testing.T) {
 	// 登录但无任何专属授权(空集合,非 nil):与匿名同样只见非专属,
 	// 但语义区分要保持——空集合不能被当作 nil 匿名分支。
-	visible := filterPlazaVisibleGroups(plazaGroups(), map[int64]struct{}{}, false)
-	require.Len(t, visible, 2)
+	for _, restricted := range []bool{false, true} {
+		t.Run(fmt.Sprintf("restricted=%t", restricted), func(t *testing.T) {
+			visible := filterPlazaVisibleGroups(plazaGroups(), map[int64]struct{}{}, restricted)
+			var ids []int64
+			for _, group := range visible {
+				ids = append(ids, group.ID)
+			}
+			require.Equal(t, []int64{1, 3}, ids)
+		})
+	}
 }
 
 func TestFilterPlazaVisibleGroups_RestrictedUserSeesOnlyGrantedPublic(t *testing.T) {

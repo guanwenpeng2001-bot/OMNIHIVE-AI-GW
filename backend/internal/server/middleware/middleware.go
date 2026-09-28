@@ -82,6 +82,9 @@ func AbortWithError(c *gin.Context, statusCode int, code, message string) {
 // GatewayErrorWriter 定义网关错误响应格式（不同协议使用不同格式）
 type GatewayErrorWriter func(c *gin.Context, status int, message string)
 
+// APIKeyGroupUnassignedMessage is shared by all gateway protocol error writers.
+const APIKeyGroupUnassignedMessage = "API Key is not assigned to any group and cannot be used. Select a group for this key on the console's API Keys page, then retry. API 密钥未绑定分组，请前往控制台「API 密钥」页为该密钥选择分组后重试。"
+
 // AnthropicErrorWriter 按 Anthropic API 规范输出错误；error.type 随状态码映射
 // （404 -> not_found_error，403 -> permission_error，其余 api_error）。
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
@@ -127,7 +130,7 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
 		MarkIngressRejected(c, IngressRejectGroupUnassigned)
-		writeError(c, http.StatusForbidden, "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.")
+		writeError(c, http.StatusForbidden, APIKeyGroupUnassignedMessage)
 		c.Abort()
 	}
 }
