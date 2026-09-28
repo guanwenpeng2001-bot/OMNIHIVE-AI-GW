@@ -61,6 +61,13 @@
           </div>
         </div>
 
+        <div>
+          <label for="site-icp" class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
+            {{ t("admin.settings.site.siteICP") }}
+          </label>
+          <input id="site-icp" v-model="form.site_icp" type="text" class="input" placeholder="蒙ICP备2026xxxx号" />
+        </div>
+
         <!-- API Base URL -->
         <div>
           <label

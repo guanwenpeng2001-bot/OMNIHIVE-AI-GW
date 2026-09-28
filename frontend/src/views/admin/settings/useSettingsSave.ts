@@ -304,6 +304,7 @@ export function useSettingsSave(editor: SettingsEditor) {
           form.force_email_on_third_party_signup,
         default_user_rpm_limit: form.default_user_rpm_limit,
         site_name: form.site_name,
+        site_icp: form.site_icp,
         site_logo: form.site_logo,
         site_subtitle: form.site_subtitle,
         api_base_url: form.api_base_url,

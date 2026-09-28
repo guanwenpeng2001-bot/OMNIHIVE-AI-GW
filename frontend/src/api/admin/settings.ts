@@ -482,6 +482,7 @@ export interface SystemSettings {
   site_name: string;
   site_logo: string;
   site_subtitle: string;
+  site_icp?: string;
   api_base_url: string;
   contact_info: string;
   doc_url: string;
@@ -827,6 +828,7 @@ export interface UpdateSettingsRequest {
   site_name?: string;
   site_logo?: string;
   site_subtitle?: string;
+  site_icp?: string;
   api_base_url?: string;
   contact_info?: string;
   doc_url?: string;

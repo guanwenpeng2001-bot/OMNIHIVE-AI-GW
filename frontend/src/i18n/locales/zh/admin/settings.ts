@@ -606,6 +606,7 @@ export default {
         testNoResults: '无搜索结果',
       },
       site: {
+        siteICP: 'ICP备案号（选填）',
         title: '站点设置',
         description: '自定义站点品牌',
         backendMode: 'Backend 模式',
