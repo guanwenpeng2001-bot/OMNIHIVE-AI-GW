@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -66,6 +67,11 @@ func TestLegacyEvidenceTokenRotationAndMonotonicRevocation(test *testing.T) {
 				require.Equal(test, account.ModelCatalogState().RulesRevision+1, incoming.ModelCatalogState().RulesRevision)
 				require.Zero(test, incoming.ModelCatalogState().LegacyPolicyRevision)
 				require.True(test, ResolveAccountModelBinding(context.Background(), &incoming, "public-model", AccountModelBindingOptions{Endpoint: "generate_content"}).Supported)
+				repository := &forwardCatalogRepo{current: &incoming}
+				ids, err := (&GatewayService{accountRepo: repository}).CatalogModelIDs(context.Background(), nil, PlatformAntigravity)
+				require.NoError(test, err)
+				require.Equal(test, []string{"public-model"}, ids)
+				require.NoError(test, validateAccountForwardModel(context.Background(), repository, &incoming, "actual-model", "generate_content"))
 				account = incoming
 			}
 			changed := clone(account)
@@ -78,6 +84,47 @@ func TestLegacyEvidenceTokenRotationAndMonotonicRevocation(test *testing.T) {
 			AdvanceAccountModelCatalogRevisions(&changed, &restored)
 			require.EqualValues(test, 2, restored.ModelCatalogState().LegacyPolicyRevision)
 			require.Nil(test, restored.EffectiveUpstreamModelCatalog(), "returning to old configuration must not resurrect evidence")
+		})
+	}
+}
+
+func TestLegacyFingerprintEvidenceRetainsAccountAndMemberGuards(test *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		change func(*Account, *AccountModelCatalogSnapshot)
+	}{
+		{"wrong account", func(account *Account, snapshot *AccountModelCatalogSnapshot) { account.ID++ }},
+		{"wrong scope", func(account *Account, snapshot *AccountModelCatalogSnapshot) { snapshot.DiscoveryScope = "account" }},
+		{"wrong source", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			snapshot.SourceKind = "native_account_catalog"
+			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
+		}},
+		{"member timestamp", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			snapshot.EligibleModels[0].EvidenceObservedAt = "different-time"
+		}},
+		{"invalid credentials", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{Result: "credentials_invalid"}
+		}},
+		{"owner required", func(account *Account, snapshot *AccountModelCatalogSnapshot) { snapshot.CredentialAccountID = 99 }},
+		{"disabled", func(account *Account, snapshot *AccountModelCatalogSnapshot) { account.Schedulable = false }},
+		{"expired", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			expired := time.Now().Add(-time.Hour)
+			account.ExpiresAt = &expired
+		}},
+		{"allowlist", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true}
+		}},
+		{"untracked mapping write", func(account *Account, snapshot *AccountModelCatalogSnapshot) {
+			account.Credentials["model_mapping"] = map[string]string{"public-model": "other"}
+		}},
+	} {
+		test.Run(scenario.name, func(test *testing.T) {
+			account := legacyCatalogSeedAccount(PlatformAnthropic)
+			require.True(test, UpgradeLegacyModelCatalogEvidence(&account))
+			snapshot := account.GetUpstreamModelCatalog()
+			scenario.change(&account, snapshot)
+			account.Extra[UpstreamModelCatalogExtraKey] = snapshot
+			require.False(test, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
 		})
 	}
 }

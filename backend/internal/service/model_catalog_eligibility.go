@@ -46,6 +46,8 @@ type AccountModelCatalogBaseline struct {
 }
 
 type AccountModelCatalogState struct {
+	// Unlike identity/rules, this excludes pure access-token renewal. Mapping
+	// changes and explicit revocations advance it even if content later returns.
 	LegacyPolicyRevision int64  `json:"legacy_policy_revision"`
 	IdentityRevision     int64  `json:"identity_revision"`
 	RulesRevision        int64  `json:"rules_revision"`
@@ -69,7 +71,8 @@ type ExcludedCatalogModel struct {
 }
 
 type AccountModelCatalogSnapshot struct {
-	LegacyMappingFingerprint   string                           `json:"legacy_mapping_fingerprint,omitempty"`
+	LegacyMappingFingerprint string `json:"legacy_mapping_fingerprint,omitempty"`
+	// A missing policy binding must not be mistaken for a trusted zero revision.
 	LegacyPolicyRevision       *int64                           `json:"legacy_policy_revision,omitempty"`
 	LegacyAccountID            int64                            `json:"legacy_account_id,omitempty"`
 	SchemaVersion              int                              `json:"schema_version,omitempty"`
@@ -198,9 +201,11 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 		return nil
 	}
 	snapshot := account.GetUpstreamModelCatalog()
-	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision &&
-		!(snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)) {
-		snapshot = nil
+	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
+		legacyRotationEvidence := snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)
+		if !legacyRotationEvidence {
+			snapshot = nil
+		}
 	}
 	if snapshot != nil && (account.IsShadow() || snapshot.CredentialAccountID != 0) {
 		if credentialAccount == nil || credentialAccount.ID != snapshot.CredentialAccountID || !credentialAccount.IsOpenAIOAuth() || credentialAccount.IsShadow() || credentialAccount.ModelCatalogState().IdentityRevision != snapshot.CredentialIdentityRevision {

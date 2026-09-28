@@ -4391,6 +4391,12 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 	}
 	rules := "(" + strings.Join(ruleChanges, " OR ") + ")"
 	ruleChanges[0] = legacyIdentity
+	// The fingerprint treats an absent mapping and JSON null identically.
+	for index, field := range service.AccountCatalogRuleCredentialFields() {
+		if field == "model_mapping" {
+			ruleChanges[index+1] = "COALESCE(credentials->'model_mapping','null'::jsonb) IS DISTINCT FROM COALESCE(" + incoming + "->'model_mapping','null'::jsonb)"
+		}
+	}
 	legacyPolicy := "(" + strings.Join(ruleChanges, " OR ") + ")"
 	return "jsonb_build_object('upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('identity_revision', COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, 'rules_revision', COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, 'legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
 }

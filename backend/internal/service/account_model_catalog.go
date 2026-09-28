@@ -212,7 +212,17 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	rulesChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
 	for _, key := range AccountCatalogRuleCredentialFields() {
 		rulesChanged = rulesChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
-		legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+		if key == "model_mapping" {
+			previousFingerprint, previousValid := LegacyModelMappingFingerprint(current.Credentials)
+			nextFingerprint, nextValid := LegacyModelMappingFingerprint(incoming.Credentials)
+			if previousValid && nextValid {
+				legacyPolicyChanged = legacyPolicyChanged || previousFingerprint != nextFingerprint
+			} else {
+				legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+			}
+		} else {
+			legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+		}
 	}
 	for _, key := range AccountCatalogRuleExtraFields() {
 		rulesChanged = rulesChanged || !reflect.DeepEqual(current.Extra[key], incoming.Extra[key])
