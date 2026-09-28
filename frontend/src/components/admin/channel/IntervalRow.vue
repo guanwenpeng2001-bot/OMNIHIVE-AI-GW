@@ -136,14 +136,14 @@ function emitField(field: keyof IntervalFormEntry, value: string | number | null
 }
 
 function toInt(val: string): number {
-  const n = parseInt(val, 10)
-  return isNaN(n) ? 0 : n
+  const tokenCount = Math.trunc(Number(val))
+  return Number.isFinite(tokenCount) ? tokenCount : 0
 }
 
 function toIntOrNull(val: string): number | null {
   if (val === '') return null
-  const n = parseInt(val, 10)
-  return isNaN(n) ? null : n
+  const tokenCount = Math.trunc(Number(val))
+  return Number.isFinite(tokenCount) ? tokenCount : null
 }
 </script>
 
