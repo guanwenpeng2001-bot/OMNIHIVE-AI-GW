@@ -23,6 +23,87 @@ func newSchedulerCacheUnit(t *testing.T) *schedulerCache {
 	return cache
 }
 
+func TestSchedulerSnapshotPreservesCatalogBindingAndRevocation(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	account := service.Account{
+		ID: 51, Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"public": "deepseek-coder"},
+			"base_url":      "https://api.deepseek.com", "api_protocol": "chat_completions", "account_mode": "payg",
+		},
+		Extra: map[string]any{
+			service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2},
+			service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{
+				LegacyAccountID: 51, Complete: true, IdentityRevision: 3, RulesRevision: 2,
+				SourceKind: "legacy-mapping-upgrade", DiscoveryScope: "legacy-mapping-upgrade", ObservedAt: "2026-09-20T00:00:00Z",
+				EligibleModels: []service.AccountCatalogModel{{ID: "deepseek-coder", Endpoints: []string{}, EvidenceKind: "legacy-mapping-upgrade", EvidenceObservedAt: "2026-09-20T00:00:00Z"}},
+			},
+		},
+	}
+	bucket := service.SchedulerBucket{GroupID: 10, Platform: account.Platform, Mode: service.SchedulerModeSingle}
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
+	read := func() *service.Account {
+		t.Helper()
+		accounts, hit, err := cache.GetSnapshot(ctx, bucket)
+		require.NoError(t, err)
+		require.True(t, hit)
+		require.Len(t, accounts, 1)
+		return accounts[0]
+	}
+	options := service.AccountModelBindingOptions{Endpoint: "chat_completions"}
+	require.True(t, service.AccountSupportsResolvedModel(ctx, &account, "public", options))
+	projected := read()
+	require.Equal(t, []string{"chat_completions"}, projected.GetUpstreamModelCatalog().EligibleModels[0].Endpoints)
+	require.True(t, service.AccountSupportsResolvedModel(ctx, projected, "public", options))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "unseeded", options))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "public", service.AccountModelBindingOptions{Endpoint: "embeddings"}))
+
+	account.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Models: []string{"other"}}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "snapshot refresh must retain allowlist denial")
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 4, RulesRevision: 2}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "snapshot refresh must retain identity revocation")
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2}
+	account.Extra[service.UpstreamModelMetadataExtraKey] = service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"deepseek-coder": {SupportedMethods: []string{}}}}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "explicit empty model methods must not fall back to legacy text endpoints")
+}
+
+func TestSchedulerProjectionPreservesCatalogInputs(t *testing.T) {
+	account := service.Account{
+		ID: 51, Platform: service.PlatformCommandCode, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"public": "private-model"},
+			"base_url":      "https://private.example/v1", "api_base_urls": map[string]any{"responses": "https://private.example/responses"},
+			"account_mode": "coding", "api_protocol": "adaptive", "protocol_rules": []any{map[string]any{"pattern": "private-*", "protocol": "anthropic"}},
+			"openai_capabilities": []string{"chat_completions"},
+		},
+		Extra: map[string]any{
+			service.UpstreamModelCatalogExtraKey:      service.AccountModelCatalogSnapshot{Complete: true},
+			service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 7, RulesRevision: 8},
+			service.UpstreamModelAllowlistExtraKey:    service.AccountModelAllowlist{Enabled: true},
+			service.UpstreamModelMetadataExtraKey:     service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"private-model": {SupportedMethods: []string{"messages"}}}},
+			service.ModelAvailabilityExtraKey:         []service.ModelAvailabilityDeclaration{{AccountID: 51, Model: "private-model", Endpoint: "messages", IdentityRevision: 7, RulesRevision: 8, ConfirmedBy: 1, Reason: "operator declaration", ConfirmedAt: time.Now().Add(-time.Minute), EvidenceKind: service.ModelEvidenceAdministrator}},
+		},
+	}
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	projected := buildSchedulerMetadataAccount(account)
+	actual, err := json.Marshal(projected)
+	require.NoError(t, err)
+	var restored service.Account
+	require.NoError(t, json.Unmarshal(actual, &restored))
+	options := service.AccountModelBindingOptions{Endpoint: "responses"}
+	require.True(t, service.AccountSupportsResolvedModel(context.Background(), &account, "public", options))
+	require.True(t, service.AccountSupportsResolvedModel(context.Background(), &restored, "public", options), "availability evidence and custom native protocol must survive projection")
+	require.False(t, service.AccountSupportsResolvedModel(context.Background(), &restored, "public", service.AccountModelBindingOptions{Endpoint: "embeddings"}))
+}
+
 func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
