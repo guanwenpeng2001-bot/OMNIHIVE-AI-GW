@@ -39,6 +39,7 @@ func TestAuditQianwenTPMOnlyRejectsBeforeSend(t *testing.T) {
 			}
 			t.Logf("status=%d upstream=%s plan_nil=%t key_has_period_budget=%t", w.Code, upstream.lastURL, service.GatewayRequestPlanFromContext(c.Request.Context()) == nil, key.HasPeriodBudget())
 			require.Empty(t, upstream.lastURL, "TPM policy must be checked before upstream")
+			require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
 		})
 	}
 }
@@ -56,6 +57,7 @@ func TestAuditBedrockTPMOnlyRejectsBeforeSend(t *testing.T) {
 		t.Logf("status=%d upstream=%s plan_nil=%t", w.Code, request.URL.Path, service.GatewayRequestPlanFromContext(request.Context()) == nil)
 	}
 	require.Empty(t, requests, "TPM policy must be checked before upstream")
+	require.Equal(t, http.StatusTooManyRequests, w.Code, w.Body.String())
 }
 
 func TestQianwenNativeAndImageTPMAdmission(t *testing.T) {
@@ -77,6 +79,7 @@ func TestQianwenNativeAndImageTPMAdmission(t *testing.T) {
 				handler.QianwenNative(requestContext)
 			}
 			require.Empty(t, upstream.lastURL)
+			require.Equal(t, http.StatusTooManyRequests, recorder.Code, recorder.Body.String())
 			plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
 			require.NotNil(t, plan, recorder.Body.String())
 			require.True(t, service.IsTPMAdmissionError(plan.TPMAdmissionRejection()), recorder.Body.String())

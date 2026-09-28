@@ -103,6 +103,9 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeSyncResource(c *gin.Context, o
 	}
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := h.gatewayService.ForwardQianwenNative(c.Request.Context(), c, account, operation, body, false)
+	if writeGatewayTPMError(c, err) {
+		return
+	}
 	if err != nil {
 		return
 	}

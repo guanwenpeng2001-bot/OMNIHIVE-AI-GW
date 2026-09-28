@@ -124,6 +124,9 @@ func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianw
 	defer beginGatewayRequestPlan(c, h.gatewayService, adm.key, adm.model, protocol, h.maxAccountSwitches)()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := forward(account)
+	if writeGatewayTPMError(c, err) {
+		return nil, nil, false
+	}
 	if err != nil || result == nil {
 		return nil, nil, false
 	}

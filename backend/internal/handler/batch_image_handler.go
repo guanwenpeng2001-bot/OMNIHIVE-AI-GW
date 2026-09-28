@@ -311,12 +311,10 @@ func batchImageOwnerFromContext(c *gin.Context) (service.BatchImageOwner, bool) 
 }
 
 func batchImageError(c *gin.Context, err error) {
-	if service.IsTPMAdmissionError(err) {
-		status, code, message, _ := billingErrorDetails(err)
-		writeAdmissionRejectionHeaders(c, err)
-		c.JSON(status, gin.H{"error": gin.H{"type": code, "code": code, "message": message}})
+	if writeGatewayTPMError(c, err) {
 		return
 	}
+
 	status := infraerrors.Code(err)
 	code := infraerrors.Reason(err)
 	message := infraerrors.Message(err)
