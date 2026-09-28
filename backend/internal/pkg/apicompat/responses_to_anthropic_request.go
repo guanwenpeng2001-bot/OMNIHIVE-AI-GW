@@ -476,6 +476,10 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 					Text: p.Text,
 				})
 			}
+		case "input_file":
+			if source := dataURIToAnthropicImageSource(p.FileData); source != nil {
+				blocks = append(blocks, AnthropicContentBlock{Type: "document", Source: source})
+			}
 		case "input_image":
 			src := dataURIToAnthropicImageSource(p.ImageURL)
 			if src != nil {

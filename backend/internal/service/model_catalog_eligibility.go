@@ -301,8 +301,9 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if options.FinalModel != "" {
 		model = options.FinalModel
 	} else {
+		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
 		_, matched := account.ResolveMappedModel(model)
-		if len(configuredModelMapping(account)) > 0 && !matched && !account.IsOpenAIPassthroughEnabled() && options.MessagesDispatchModel == "" {
+		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !account.IsOpenAIPassthroughEnabled() && options.MessagesDispatchModel == "" {
 			return binding
 		}
 		switch {
@@ -313,7 +314,11 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 				return binding
 			}
 		case account.Platform == PlatformAntigravity:
-			model = mapAntigravityModel(account, model)
+			if variantResolved {
+				model = variant
+			} else {
+				model = mapAntigravityModel(account, model)
+			}
 			if thinking, ok := ThinkingEnabledFromContext(ctx); ok {
 				model = applyThinkingModelSuffix(model, thinking)
 			}
