@@ -162,6 +162,10 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort
 			}
 
 			out, err := AnthropicToChatCompletionsRequest(req)
+			if effort != "" {
+				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, "none", out.ReasoningEffort)
 		})

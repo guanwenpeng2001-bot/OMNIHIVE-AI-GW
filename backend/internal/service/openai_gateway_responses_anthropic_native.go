@@ -63,17 +63,15 @@ func (s *OpenAIGatewayService) forwardResponsesViaNativeAnthropic(
 	}
 	clientStream := responsesReq.Stream
 
-	// 3. Convert Responses → Anthropic
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
-	if err != nil {
-		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
-	}
-
-	// 4. Model mapping（OpenAI 网关统一入口的映射语义）
+	// Resolve the final model before converting its thinking controls.
 	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
 	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	anthropicReq.Model = upstreamModel
+	responsesReq.Model = upstreamModel
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	if err != nil {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
 
 	// 5. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。

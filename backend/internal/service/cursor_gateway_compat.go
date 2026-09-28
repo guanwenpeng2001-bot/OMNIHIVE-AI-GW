@@ -181,7 +181,14 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 				return nil, "", fmt.Errorf("cursor: only custom function tools are supported")
 			}
 		}
-		chat, err = apicompat.AnthropicToChatCompletionsRequest(&request)
+		// Cursor represents thinking and effort separately below. The Chat
+		// intermediary cannot encode that combination, so convert only the
+		// message content while retaining the native controls on request.
+		conversionRequest := request
+		if request.Thinking != nil && request.Thinking.Type == "disabled" {
+			conversionRequest.OutputConfig = nil
+		}
+		chat, err = apicompat.AnthropicToChatCompletionsRequest(&conversionRequest)
 		if request.Thinking != nil {
 			enabled := request.Thinking.Type == "enabled" || request.Thinking.Type == "adaptive"
 			thinking = &enabled
@@ -213,7 +220,7 @@ func cursorNormalizeRequest(body []byte, protocol string) ([]byte, string, error
 		return body, "", nil
 	}
 	if err != nil {
-		return nil, "", fmt.Errorf("cursor: invalid text request")
+		return nil, "", fmt.Errorf("cursor: %w", err)
 	}
 	messages := make([]cursor.ChatMessage, 0, len(chat.Messages))
 	for _, item := range chat.Messages {
