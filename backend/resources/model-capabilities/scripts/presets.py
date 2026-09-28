@@ -18,6 +18,54 @@ TASKS = {"unknown", "text_generation", "code_generation", "embedding", "rerank",
          "transcription", "realtime", "ocr", "three_dimensional_generation"}
 MODALITIES = {"text", "image", "audio", "video", "pdf", "embedding", "score", "mesh"}
 LIFECYCLES = {"unknown", "active", "preview", "deprecated", "retired"}
+ENDPOINT_METHODS = {"/chat/completions": "chat_completions",
+                    "/messages": "messages", "/responses": "responses"}
+METHOD_REVIEW_SCOPES = {
+    ("opencode_go", "opencode-go"): ("https://opencode.ai/docs/go/", "https://opencode.ai/zen/go/v1"),
+    ("commandcode", "native"): ("https://api.commandcode.ai/provider/v1/models", ""),
+}
+
+
+def reviewed_methods(profile, sources):
+    """Validate the fixed per-ID projection; public evidence never grants access."""
+    identity = (profile["platform"], profile["provider_profile"])
+    review = profile["coverage_scope"].get("methods_review")
+    if identity not in METHOD_REVIEW_SCOPES:
+        catalog.require(review is None, "methods review has an unreviewed hosted identity")
+        return
+    catalog.require(isinstance(review, dict), "missing per-model methods review")
+    expected_url, endpoint_base = METHOD_REVIEW_SCOPES[identity]
+    models = {model["id"]: model for model in profile["models"]}
+    records = review["records"]
+    catalog.require(len(records) == len(models) and
+                    {record["exact_id"] for record in records} == models.keys(),
+                    "methods review must cover each exact identity once")
+    catalog.require(review["identity_sha256"] == catalog.digest(
+        ("\n".join(sorted(models)) + "\n").encode()), "methods review identity set changed")
+    for record in records:
+        catalog.require((record["platform"], record["provider_profile"]) == identity,
+                        "methods evidence crosses hosted identity")
+        catalog.require(record["method_or_field"] == "methods", "unexpected reviewed field")
+        source = sources.get(record["source"], {})
+        catalog.require(source.get("url") == record["evidence_url"] == expected_url and
+                        source.get("content_sha256") == record["capture_sha256"] and
+                        source.get("observed_at") == record["observed_at"],
+                        "methods evidence is not bound to its captured source")
+        catalog.require(record["decision"] in {"confirmed", "conflicting", "unavailable"} and
+                        record["remaining_gap"], "missing methods disposition or gap")
+        model = models[record["exact_id"]]
+        if record["decision"] != "confirmed":
+            catalog.require(not model["methods"], "unknown/conflicting methods must stay unasserted")
+            continue
+        endpoints = record["endpoints"]
+        allowed = {endpoint_base + path: method for path, method in ENDPOINT_METHODS.items()}
+        catalog.require(isinstance(endpoints, list) and endpoints and
+                        all(endpoint in allowed for endpoint in endpoints),
+                        "unsupported endpoint or wrong hosted lane")
+        catalog.require(model["methods"] == sorted({allowed[endpoint] for endpoint in endpoints}),
+                        "methods differ from exact endpoint evidence")
+        catalog.require(model.get("field_sources", {}).get("methods") == expected_url,
+                        "methods require their field-specific source")
 
 
 def generate(inputs):
@@ -35,6 +83,7 @@ def generate(inputs):
         identities.add(identity)
         catalog.require(profile["coverage_status"] in {"partial", "complete", "unconfigured"}, "invalid coverage")
         catalog.require(profile.get("coverage_scope"), "missing coverage scope")
+        reviewed_methods(profile, sources)
         if profile["coverage_status"] == "complete":
             catalog.require(not profile.get("gaps") and profile["coverage_scope"].get("official_full_inventory"),
                             "complete requires an official scoped inventory and no unresolved gaps")
