@@ -249,13 +249,17 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 }
 
 // mapAntigravityModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
+// 显式账户映射优先；裸 Gemini 名仅从有效目录选取思考变体，再使用既有默认映射。
 // 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号
 func mapAntigravityModel(account *Account, requestedModel string) string {
 	if account == nil {
 		return ""
 	}
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
+	// Scheduling and forwarding share the same evidence-backed default target.
+	if variant, resolved := resolveGeminiThinkingVariantForLevel(account, requestedModel, ""); resolved {
+		return variant
+	}
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
 	mapping := account.GetModelMapping()
@@ -285,8 +289,17 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 }
 
 // getMappedModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底
+// 使用默认思考档位，供连接测试等没有请求体配置的入口使用。
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
+	return s.getMappedModelForThinkingLevel(account, requestedModel, "")
+}
+
+// getMappedModelForThinkingLevel resolves bare Gemini names only through the
+// account's approved catalog; all callers retain the existing send-time check.
+func (s *AntigravityGatewayService) getMappedModelForThinkingLevel(account *Account, requestedModel string, thinkingLevel string) string {
+	if mapped, ok := resolveGeminiThinkingVariantForLevel(account, requestedModel, thinkingLevel); ok {
+		return mapped
+	}
 	return mapAntigravityModel(account, requestedModel)
 }
 

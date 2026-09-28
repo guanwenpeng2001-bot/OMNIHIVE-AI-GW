@@ -3581,7 +3581,7 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 							},
 						},
 					})
-				case "image":
+				case "image", "document":
 					if src, ok := bm["source"].(map[string]any); ok {
 						if srcType, _ := src["type"].(string); srcType == "base64" {
 							mediaType, _ := src["media_type"].(string)

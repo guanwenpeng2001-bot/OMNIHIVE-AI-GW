@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -293,10 +294,26 @@ func filterOpenCodePrompt(text string) string {
 	return ""
 }
 
-// stripClaudeAttribution removes the leading Claude Code attribution metadata line
-// from Antigravity system text. This is prompt metadata, not an HTTP header; it
-// can trigger RESOURCE_EXHAUSTED on the Google upstream. Keep this scoped to the
-// Antigravity transformer: native Anthropic OAuth may require the attribution.
+// claudeIdentityOpeners match only known client identity sentences at the
+// start of a system block; references elsewhere remain user content.
+var claudeIdentityOpeners = []*regexp.Regexp{
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are a Claude agent, built on Anthropic'?s Claude Agent SDK(?:\.|$)`),
+	regexp.MustCompile(`(?i)^[ \t\r\n]*You are Claude Code, Anthropic'?s official CLI for Claude(?:\.|$)`),
+}
+
+// neutralizeClaudeIdentity rewrites a leading vendor identity sentence into a
+// vendor-neutral one. It keeps the rest of the block, including any user
+// instructions that follow.
+func neutralizeClaudeIdentity(text string) string {
+	for _, pattern := range claudeIdentityOpeners {
+		if match := pattern.FindStringIndex(text); match != nil {
+			return "You are an AI agent." + text[match[1]:]
+		}
+	}
+	return text
+}
+
+// stripClaudeAttribution removes only leading client attribution metadata.
 func stripClaudeAttribution(text string) string {
 	trimmed := strings.TrimLeft(text, " \t\r\n")
 	if !strings.HasPrefix(trimmed, "x-anthropic-billing-header:") {
@@ -325,7 +342,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 		// 尝试解析为字符串
 		var sysStr string
 		if err := json.Unmarshal(system, &sysStr); err == nil {
-			sysStr = stripClaudeAttribution(sysStr)
+			sysStr = neutralizeClaudeIdentity(stripClaudeAttribution(sysStr))
 			if strings.TrimSpace(sysStr) != "" {
 				if strings.Contains(sysStr, "You are Antigravity") {
 					userHasAntigravityIdentity = true
@@ -341,7 +358,7 @@ func buildSystemInstruction(system json.RawMessage, modelName string, opts Trans
 			var sysBlocks []SystemBlock
 			if err := json.Unmarshal(system, &sysBlocks); err == nil {
 				for _, block := range sysBlocks {
-					block.Text = stripClaudeAttribution(block.Text)
+					block.Text = neutralizeClaudeIdentity(stripClaudeAttribution(block.Text))
 					if block.Type == "text" && strings.TrimSpace(block.Text) != "" {
 						if strings.Contains(block.Text, "You are Antigravity") {
 							userHasAntigravityIdentity = true
@@ -508,8 +525,8 @@ func buildParts(content json.RawMessage, toolIDToName map[string]string, allowDu
 			}
 			parts = append(parts, part)
 
-		case "image":
-			if block.Source != nil && block.Source.Type == "base64" {
+		case "image", "document":
+			if block.Source != nil && block.Source.Type == "base64" && strings.TrimSpace(block.Source.Data) != "" {
 				parts = append(parts, GeminiPart{
 					InlineData: &GeminiInlineData{
 						MimeType: block.Source.MediaType,
