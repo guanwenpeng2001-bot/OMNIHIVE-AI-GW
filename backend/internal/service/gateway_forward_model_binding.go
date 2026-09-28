@@ -100,6 +100,11 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 }
 
 func (s *OpenAIGatewayService) supportsOpenAIAccountModel(ctx context.Context, account *Account, model string, capability OpenAIEndpointCapability) bool {
+	var err error
+	account, err = accountForCatalogSelection(ctx, s.accountRepo, account)
+	if err != nil {
+		return false
+	}
 	endpoint := string(capability)
 	if GatewayRequestPlanFromContext(ctx) != nil {
 		endpoint = openAICompatiblePlanCatalogEndpoint(ctx, account)
@@ -360,11 +365,40 @@ func requestAccountCatalogSupports(ctx context.Context, account *Account, model,
 	if plan == nil {
 		return true
 	}
+	var err error
+	account, err = accountForCatalogSelection(ctx, plan.catalogRepo, account)
+	if err != nil {
+		return false
+	}
 	parent, err := loadCatalogCredentialAccount(ctx, plan.catalogRepo, account)
 	if err != nil {
 		return false
 	}
 	return AccountSupportsResolvedModel(ctx, account, model, AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: parent})
+}
+
+// Scheduler metadata (including already cached projections) omits catalog
+// evidence and protocol configuration. Judge those candidates using the full
+// catalog account, never interpret omitted evidence as an empty catalog.
+func accountForCatalogSelection(ctx context.Context, repo AccountRepository, account *Account) (*Account, error) {
+	if account == nil {
+		return nil, nil
+	}
+	if _, present := account.Extra[UpstreamModelCatalogExtraKey]; present {
+		return account, nil
+	}
+	reader, ok := repo.(ModelCatalogAccountRepository)
+	if !ok {
+		return account, nil
+	}
+	current, err := reader.GetModelCatalogAccount(ctx, account.ID)
+	if err != nil {
+		return nil, err
+	}
+	if current == nil || current.ID != account.ID || current.Platform != account.Platform || current.Type != account.Type {
+		return nil, ErrAccountModelUnsupported
+	}
+	return current, nil
 }
 
 func gatewaySelectionCatalogEndpoint(ctx context.Context, account *Account) string {
