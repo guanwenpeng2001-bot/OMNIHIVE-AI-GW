@@ -823,7 +823,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
-			if IsAttemptAdmissionError(err) {
+			if IsAttemptAdmissionError(err) || isClientCanceledTransportError(ctx, err) {
 				return nil, err
 			}
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
@@ -1380,7 +1380,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
-			if IsAttemptAdmissionError(err) {
+			if IsAttemptAdmissionError(err) || isClientCanceledTransportError(ctx, err) {
 				return nil, err
 			}
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
@@ -1683,6 +1683,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        stream,
+		ReasoningEffort:               extractGeminiReasoningEffortFromBody(body),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ImageCount:                    imageCount,

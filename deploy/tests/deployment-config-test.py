@@ -58,7 +58,7 @@ OVERRIDES = {
 }
 
 
-def render(compose_path, fixture_dir):
+def render(compose_path, fixture_dir, overrides=None):
     # Prevent developer shell values from changing the fixture's interpolation.
     prefixes = ("COMPOSE_", "SERVER_", "DATABASE_", "POSTGRES_", "REDIS_",
                 "GATEWAY_", "SECURITY_", "BATCH_IMAGE_", "JWT_", "TOTP_",
@@ -66,6 +66,7 @@ def render(compose_path, fixture_dir):
     environment = {key: value for key, value in os.environ.items()
                    if not key.startswith(prefixes)}
     environment.update(CONNECTIONS)
+    environment.update(overrides or {})
     result = subprocess.run(
         ["docker", "compose", "--project-directory", str(fixture_dir),
          "-p", "deployment-config-test", "-f", str(compose_path),
@@ -105,6 +106,10 @@ def verify_variant(source_path, fixture_dir):
             assert actual["REDIS_PORT"] == "6379"
             maxclients = "12345" if profile == "override" else "10000"
             assert f"--maxclients {maxclients}" in " ".join(services["redis"]["command"])
+            command = services["redis"]["command"]
+            assert command[:3] == ["redis-server", "--maxclients", maxclients]
+            assert command[3:-1] == ["--save", "60", "1", "--appendonly",
+                                     "yes", "--appendfsync", "everysec", "--requirepass"]
             connections = "300" if profile == "override" else "100"
             assert f"max_connections={connections}" in services["postgres"]["command"]
         else:
@@ -117,6 +122,14 @@ def verify_variant(source_path, fixture_dir):
             assert actual["BATCH_IMAGE_VERTEX_PROJECT_ID"] == ""
             assert actual["BATCH_IMAGE_VERTEX_MANAGED_GCS_BUCKET"] == ""
         print(f"PASS {source_path.name}: {profile}")
+    if "redis" in services:
+        for password in ("", "space 'double\" dollar$ semicolon; backtick` slash\\"):
+            rendered = render(compose_path, fixture_dir, {"REDIS_PASSWORD": password})
+            command = rendered["redis"]["command"]
+            # Compose escapes dollars in rendered config so it can be loaded again.
+            assert command[-1] == password.replace("$", "$$")
+            assert command[0] == "redis-server" and len(command) == 12
+        print(f"PASS {source_path.name}: Redis empty and special-character argv")
     env_path.unlink()
 
 
