@@ -907,7 +907,9 @@ var _ service.AdminService = (*stubAdminService)(nil)
 func (s *stubAdminService) AdminSetAPIKeyTPMLimit(ctx context.Context, keyID int64, limit *int64) (*service.APIKey, error) {
 	for index := range s.apiKeys {
 		if s.apiKeys[index].ID == keyID {
-			if limit != nil { s.apiKeys[index].TPMLimit = *limit }
+			if limit != nil {
+				s.apiKeys[index].TPMLimit = *limit
+			}
 			return &s.apiKeys[index], nil
 		}
 	}

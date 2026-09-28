@@ -51,7 +51,9 @@ func (s *adminServiceImpl) AdminSetAPIKeyTPMLimit(ctx context.Context, keyID int
 	if err != nil {
 		return nil, err
 	}
-	if limit == nil {return key,nil}
+	if limit == nil {
+		return key, nil
+	}
 	key.TPMLimit = *limit
 	if err := s.apiKeyRepo.Update(ctx, key, APIKeyUpdateFields{TPMLimit: true}); err != nil {
 		return nil, err

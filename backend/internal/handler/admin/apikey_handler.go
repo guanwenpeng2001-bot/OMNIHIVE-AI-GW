@@ -30,7 +30,7 @@ func (h *AdminAPIKeyHandler) UpdateTPMLimit(c *gin.Context) {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
 	}
-		key, err := h.adminService.AdminSetAPIKeyTPMLimit(c.Request.Context(), keyID, request.TPMLimit.Pointer())
+	key, err := h.adminService.AdminSetAPIKeyTPMLimit(c.Request.Context(), keyID, request.TPMLimit.Pointer())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

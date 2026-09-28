@@ -55,14 +55,15 @@ func TestTPMConfig_OmittedAndZeroAreDifferent(t *testing.T) {
 }
 
 func TestTPMConfig_BulkOnlyTPMLimitIsAnUpdate(t *testing.T) {
-	admin:=&stubAdminService{}
-	handler:=&AccountHandler{adminService:admin}
-	response:=httptest.NewRecorder();request,_:=gin.CreateTestContext(response)
-	request.Request=httptest.NewRequest(http.MethodPost,"/api/v1/admin/accounts/bulk-update",strings.NewReader(`{"account_ids":[1,2],"tpm_limit":0}`))
-	request.Request.Header.Set("Content-Type","application/json")
+	admin := &stubAdminService{}
+	handler := &AccountHandler{adminService: admin}
+	response := httptest.NewRecorder()
+	request, _ := gin.CreateTestContext(response)
+	request.Request = httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts/bulk-update", strings.NewReader(`{"account_ids":[1,2],"tpm_limit":0}`))
+	request.Request.Header.Set("Content-Type", "application/json")
 	handler.BulkUpdate(request)
-	require.Equal(t,200,response.Code,response.Body.String())
-	require.NotNil(t,admin.lastBulkUpdateAccountInput)
-	require.NotNil(t,admin.lastBulkUpdateAccountInput.TPMLimit)
-	require.Zero(t,*admin.lastBulkUpdateAccountInput.TPMLimit)
+	require.Equal(t, 200, response.Code, response.Body.String())
+	require.NotNil(t, admin.lastBulkUpdateAccountInput)
+	require.NotNil(t, admin.lastBulkUpdateAccountInput.TPMLimit)
+	require.Zero(t, *admin.lastBulkUpdateAccountInput.TPMLimit)
 }
