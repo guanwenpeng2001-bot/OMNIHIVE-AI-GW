@@ -588,6 +588,12 @@ func (r *accountRepository) updateLockedAccount(
 			account.SessionWindowStatus = *current.SessionWindowStatus
 		}
 	}
+	// The row is locked by lockAndMergeAccountProbeExtra. Capture a valid old
+	// seed before changing its credentials, never after revision advancement.
+	legacyAccount := accountEntityToService(current)
+	if service.UpgradeLegacyModelCatalogEvidence(legacyAccount) {
+		current.Extra = legacyAccount.Extra
+	}
 	for _, key := range []string{service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey, service.UpstreamModelMetadataExtraKey, service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey} {
 		delete(extra, key)
 		if value, exists := current.Extra[key]; exists {
@@ -950,6 +956,9 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 		if err != nil {
 			return err
 		}
+	}
+	if err := upgradeLegacyCatalogBeforeCredentials(ctx, client, id); err != nil {
+		return err
 	}
 	payload, err := json.Marshal(normalizeJSONMap(credentials))
 	if err != nil {
@@ -4252,7 +4261,10 @@ func (r *accountRepository) CommitAccountModelCatalog(ctx context.Context, id in
 	if baseline.RequireActive {
 		activePredicate = " AND status = 'active'"
 	}
-	result, err := tx.ExecContext(ctx, `UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb, updated_at = NOW()
+	result, err := tx.ExecContext(ctx, `UPDATE accounts SET extra = COALESCE(extra, '{}'::jsonb) || $2::jsonb ||
+	jsonb_build_object('upstream_model_catalog_state', ($2::jsonb->'upstream_model_catalog_state') ||
+	jsonb_build_object('legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) +
+	CASE WHEN $2::jsonb ? 'upstream_model_catalog' OR $2::jsonb->'upstream_model_catalog_state'->>'result' = 'credentials_invalid' THEN 1 ELSE 0 END)), updated_at = NOW()
 	WHERE id = $1 AND deleted_at IS NULL
 	AND COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint, 0) = $3
 	AND COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint, 0) = $4
@@ -4291,7 +4303,8 @@ func (r *accountRepository) UpdateAccountModelAllowlist(ctx context.Context, id 
 	defer func() { _ = tx.Rollback() }()
 	result, err := tx.ExecContext(ctx, `UPDATE accounts SET extra = COALESCE(extra,'{}'::jsonb) || jsonb_build_object(
  'upstream_model_allowlist', $2::jsonb,
- 'upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('rules_revision',$4::bigint+1)
+ 'upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('rules_revision',$4::bigint+1,
+ 'legacy_policy_revision',COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0)+1)
  ) || CASE WHEN extra->'upstream_model_catalog' IS NOT NULL THEN
  jsonb_build_object('upstream_model_catalog', extra->'upstream_model_catalog' || jsonb_build_object(
  'eligible_models', COALESCE((SELECT jsonb_agg(member) FROM jsonb_array_elements(COALESCE(extra->'upstream_model_catalog'->'eligible_models','[]'::jsonb)) AS member
@@ -4354,6 +4367,7 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 	for _, field := range fields {
 		changes = append(changes, "credentials->'"+field+"' IS DISTINCT FROM "+incoming+"->'"+field+"'")
 	}
+	legacyIdentity := "(" + strings.Join(changes, " OR ") + ")"
 	stable := []string{}
 	for _, field := range []string{"chatgpt_account_id", "chatgpt_user_id", "account_id", "user_id", "sub"} {
 		stable = append(stable, "(COALESCE(credentials->>'"+field+"','') <> '' AND credentials->'"+field+"' = "+incoming+"->'"+field+"')")
@@ -4376,5 +4390,13 @@ func accountCatalogRevisionPatchSQL(incoming, incomingExtra, proxyChanged string
 		ruleChanges = append(ruleChanges, proxyChanged)
 	}
 	rules := "(" + strings.Join(ruleChanges, " OR ") + ")"
-	return "jsonb_build_object('upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('identity_revision', COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, 'rules_revision', COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END))"
+	ruleChanges[0] = legacyIdentity
+	// The fingerprint treats an absent mapping and JSON null identically.
+	for index, field := range service.AccountCatalogRuleCredentialFields() {
+		if field == "model_mapping" {
+			ruleChanges[index+1] = "COALESCE(credentials->'model_mapping','null'::jsonb) IS DISTINCT FROM COALESCE(" + incoming + "->'model_mapping','null'::jsonb)"
+		}
+	}
+	legacyPolicy := "(" + strings.Join(ruleChanges, " OR ") + ")"
+	return "jsonb_build_object('upstream_model_catalog_state', COALESCE(extra->'upstream_model_catalog_state','{}'::jsonb) || jsonb_build_object('identity_revision', COALESCE((extra->'upstream_model_catalog_state'->>'identity_revision')::bigint,0) + CASE WHEN " + identity + " THEN 1 ELSE 0 END, 'rules_revision', COALESCE((extra->'upstream_model_catalog_state'->>'rules_revision')::bigint,0) + CASE WHEN " + rules + " THEN 1 ELSE 0 END, 'legacy_policy_revision', COALESCE((extra->'upstream_model_catalog_state'->>'legacy_policy_revision')::bigint,0) + CASE WHEN " + legacyPolicy + " THEN 1 ELSE 0 END))"
 }

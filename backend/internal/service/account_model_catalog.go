@@ -201,6 +201,7 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	for _, key := range AccountCatalogIdentityCredentialFields() {
 		identityChanged = identityChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
 	}
+	legacyPolicyChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
 	stableSubject := false
 	for _, key := range []string{"chatgpt_account_id", "chatgpt_user_id", "sub", "account_id", "user_id"} {
 		stableSubject = stableSubject || (current.GetCredential(key) != "" && current.GetCredential(key) == incoming.GetCredential(key))
@@ -211,9 +212,24 @@ func AdvanceAccountModelCatalogRevisionsForUpdate(current, incoming *Account, co
 	rulesChanged := identityChanged || !reflect.DeepEqual(current.ProxyID, incoming.ProxyID)
 	for _, key := range AccountCatalogRuleCredentialFields() {
 		rulesChanged = rulesChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+		if key == "model_mapping" {
+			previousFingerprint, previousValid := LegacyModelMappingFingerprint(current.Credentials)
+			nextFingerprint, nextValid := LegacyModelMappingFingerprint(incoming.Credentials)
+			if previousValid && nextValid {
+				legacyPolicyChanged = legacyPolicyChanged || previousFingerprint != nextFingerprint
+			} else {
+				legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+			}
+		} else {
+			legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Credentials[key], incoming.Credentials[key])
+		}
 	}
 	for _, key := range AccountCatalogRuleExtraFields() {
 		rulesChanged = rulesChanged || !reflect.DeepEqual(current.Extra[key], incoming.Extra[key])
+		legacyPolicyChanged = legacyPolicyChanged || !reflect.DeepEqual(current.Extra[key], incoming.Extra[key])
+	}
+	if legacyPolicyChanged {
+		state.LegacyPolicyRevision++
 	}
 	if identityChanged {
 		state.IdentityRevision++
