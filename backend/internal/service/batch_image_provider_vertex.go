@@ -227,6 +227,9 @@ func (p *VertexBatchImageProvider) Submit(ctx context.Context, job *BatchImageJo
 		InstanceConfig: &VertexBatchInstanceConfig{KeyField: "key"},
 	}
 	created, err := p.client.CreateBatchPredictionJob(ctx, accessToken, req)
+	if IsTPMAdmissionError(err) {
+		return nil, &geminiBatchNotCreatedError{err}
+	}
 	if err != nil {
 		return nil, mapVertexClientError(err)
 	}

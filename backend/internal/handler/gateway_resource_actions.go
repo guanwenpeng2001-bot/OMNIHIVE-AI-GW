@@ -671,6 +671,7 @@ func (h *GatewayResourceHandler) CreateMessageBatch(c *gin.Context) {
 		h.anthropicError(c, http.StatusUnprocessableEntity, "invalid_request_error", err.Error())
 		return
 	}
+	defer beginGatewayRequestPlan(c, h.openAI.gatewayService, key, model, "resources", h.openAI.maxAccountSwitches)()
 	template := &service.UpstreamJob{Platform: service.PlatformAnthropic, Family: "batch", AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), template, canonical, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.openAI.gatewayService.SubmitAnthropicMessageBatch(ctx, account, template, canonical)

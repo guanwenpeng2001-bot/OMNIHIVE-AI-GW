@@ -126,6 +126,7 @@ func (h *OpenAIGatewayHandler) handleQianwenNativeAsyncJobs(c *gin.Context) bool
 	if (family != "video" || !key.Group.VideoRateIndependent) && key.GroupID != nil {
 		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(c.Request.Context(), key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(time.Now())
 	}
+	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "media", h.maxAccountSwitches)()
 	job, err := h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot}, body, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 		return h.gatewayService.SubmitQianwenAsync(ctx, account, family, body)
 	})

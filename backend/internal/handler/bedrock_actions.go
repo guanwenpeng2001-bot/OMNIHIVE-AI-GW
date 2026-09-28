@@ -55,7 +55,7 @@ func (h *GatewayHandler) BedrockEmbeddings(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, account, ok := h.forwardBedrockAction(c, admission, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardBedrockAction(c, admission, "embeddings", func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.openAIGatewayService.ForwardBedrockEmbeddings(c.Request.Context(), c, account, admission.body, "")
 	})
 	if !ok {
@@ -75,7 +75,7 @@ func (h *GatewayHandler) BedrockRerank(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, account, ok := h.forwardBedrockAction(c, admission, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardBedrockAction(c, admission, "rerank", func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.openAIGatewayService.ForwardBedrockRerank(c.Request.Context(), c, account, admission.body)
 	})
 	if !ok {
@@ -106,7 +106,7 @@ func (h *GatewayHandler) BedrockImages(c *gin.Context) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
-	result, account, ok := h.forwardBedrockAction(c, admission, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardBedrockAction(c, admission, "images", func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.openAIGatewayService.ForwardBedrockImageGeneration(c.Request.Context(), c, account, admission.body, parsed, action, "")
 	})
 	if !ok {
@@ -207,7 +207,7 @@ func (h *GatewayHandler) admitBedrockAction(c *gin.Context, body []byte, model, 
 // scheduler and runs the forward. A failed forward releases the sticky session
 // slot so a retry can pick another account; a successful one keeps it, and usage
 // is never recorded for a failure.
-func (h *GatewayHandler) forwardBedrockAction(c *gin.Context, admission *bedrockActionAdmission, forward func(account *service.Account) (*service.OpenAIForwardResult, error)) (*service.OpenAIForwardResult, *service.Account, bool) {
+func (h *GatewayHandler) forwardBedrockAction(c *gin.Context, admission *bedrockActionAdmission, protocol string, forward func(account *service.Account) (*service.OpenAIForwardResult, error)) (*service.OpenAIForwardResult, *service.Account, bool) {
 	parsed := &service.ParsedRequest{
 		Body:  service.NewRequestBodyRef(admission.body),
 		Model: admission.model,
@@ -227,8 +227,12 @@ func (h *GatewayHandler) forwardBedrockAction(c *gin.Context, admission *bedrock
 		h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 		return nil, nil, false
 	}
+	defer beginGatewayRequestPlan(c, h.openAIGatewayService, admission.key, admission.model, protocol, h.maxAccountSwitches)()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := forward(account)
+	if writeGatewayTPMError(c, err) {
+		return nil, nil, false
+	}
 	if err != nil || result == nil {
 		h.gatewayService.ReleaseAccountSession(context.Background(), account, sessionHash)
 		return nil, nil, false

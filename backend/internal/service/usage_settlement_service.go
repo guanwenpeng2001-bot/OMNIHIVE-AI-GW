@@ -109,6 +109,9 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	writeCtx, cancel := detachedBillingContext(ctx)
 	stored, err := s.repo.Persist(writeCtx, prepared)
 	cancel()
+	if errors.Is(err, ErrTPMReservationConflict) || errors.Is(err, ErrUsageBillingRequestConflict) {
+		return err
+	}
 	if err != nil {
 		persistErr := err
 		readCtx, readCancel := detachedBillingContext(ctx)
@@ -124,6 +127,10 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 	if stored.Key != prepared.Key || stored.Command.RequestFingerprint != prepared.Command.RequestFingerprint {
 		slog.Error("usage settlement conflict", "request_id", prepared.Key.RequestID, "failure_category", "conflict")
 		return ErrUsageBillingRequestConflict
+	}
+	if (stored.TPMReservation == nil) != (prepared.TPMReservation == nil) ||
+		(stored.TPMReservation != nil && *stored.TPMReservation != *prepared.TPMReservation) {
+		return ErrTPMReservationConflict
 	}
 	if stored.State == UsageSettlementNeedsReview {
 		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
