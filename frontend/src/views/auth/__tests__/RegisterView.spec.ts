@@ -96,6 +96,51 @@ describe('RegisterView invitation layout', () => {
     registerMock.mockResolvedValue({})
   })
 
+
+  it.each([
+    ['', 'auth.confirmPasswordRequired'],
+    ['different-password', 'auth.passwordsDoNotMatch']
+  ])('blocks invalid confirmation %j and allows correction', async (confirmation, error) => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue(confirmation)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(showErrorMock).toHaveBeenCalledWith(error)
+    expect(wrapper.get('#confirmPassword').attributes('aria-invalid')).toBe('true')
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).toHaveBeenCalledWith(expect.objectContaining({ password: 'secret-123' }))
+    expect(registerMock.mock.calls[0][0]).not.toHaveProperty('confirmPassword')
+    expect(wrapper.get('#confirmPassword').attributes('aria-invalid')).toBe('false')
+  })
+
+  it('confirms the password before continuing to email verification', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false, email_verify_enabled: true })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('different-password')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.parse(sessionStorage.getItem('register_data')!)).toEqual({ email: 'user@example.com', password: 'secret-123' })
+    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    expect(registerMock).not.toHaveBeenCalled()
+  })
+
   it.each([null, {}, { promo_code_enabled: false }])('keeps promo hidden with initial settings %j', async cached => {
     appStoreMock.cachedPublicSettings = cached
     let resolveSettings!: (settings: typeof publicSettings) => void
@@ -127,6 +172,7 @@ describe('RegisterView invitation layout', () => {
     const wrapper = mountRegister()
     await wrapper.get('#email').setValue('user@example.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     const form = wrapper.get('form')
     await form.trigger('submit.prevent')
     expect(registerMock).not.toHaveBeenCalled()
@@ -141,13 +187,14 @@ describe('RegisterView invitation layout', () => {
     expect(wrapper.find('form').exists()).toBe(false)
   })
 
-  it('keeps email verification working with the existing two-field form', async () => {
+  it('keeps email verification working with password confirmation', async () => {
     getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, email_verify_enabled: true, turnstile_enabled: false })
     const wrapper = mountRegister()
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
     await wrapper.get('#password').setValue('secret-123')
-    expect(wrapper.find('#confirmPassword').exists()).toBe(false)
+    await wrapper.get('#confirmPassword').setValue('secret-123')
+    expect(wrapper.find('#confirmPassword').exists()).toBe(true)
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
     expect(registerMock).not.toHaveBeenCalled()
@@ -163,6 +210,7 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('user@example.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
     await wrapper.get('form').trigger('submit.prevent')
@@ -224,6 +272,7 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('first@custom.example')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -249,6 +298,7 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('second@custom.example')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -269,6 +319,7 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('first@custom.example')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
@@ -289,6 +340,7 @@ describe('RegisterView invitation layout', () => {
     await flushPromises()
     await wrapper.get('#email').setValue('user@allowed.com')
     await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('#confirmPassword').setValue('secret-123')
     await wrapper.get('form').trigger('submit.prevent')
     await flushPromises()
 
