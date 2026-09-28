@@ -77,6 +77,8 @@ const (
 	defaultOpenAIHTTP2FallbackErrorThreshold = 2
 	defaultOpenAIHTTP2FallbackWindow         = 60 * time.Second
 	defaultOpenAIHTTP2FallbackTTL            = 10 * time.Minute
+	openAIHTTP2ReadIdleTimeout               = 15 * time.Second
+	openAIHTTP2PingTimeout                   = 15 * time.Second
 	// 长流 HTTP/2 连接健康探测：池化连接被代理/NAT
 	// 静默掐断会成为“死连接”（两端都以为存活），请求落上去会挂到 TCP 重传超时
 	// （分钟级）。Go 的 http2.Transport 默认 ReadIdleTimeout=0（不发健康 PING），
@@ -206,7 +208,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 		if response == nil || response.Body == nil || requestError != nil {
 			cancelRequest()
 		} else {
-			response.Body = wrapTrackedBody(response.Body, cancelRequest)
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
 		}
 	}()
 	applyGrokCLIProxyHeaders(req)
@@ -261,7 +263,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		if response == nil || response.Body == nil || requestError != nil {
 			cancelRequest()
 		} else {
-			response.Body = wrapTrackedBody(response.Body, cancelRequest)
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
 		}
 	}()
 	if profile == nil {
@@ -324,6 +326,42 @@ func (s *httpUpstreamService) requestClient(entry *upstreamClientEntry, req *htt
 		return entry.publicClient
 	}
 	return entry.client
+}
+
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+	err    error
+	readMu sync.Mutex
+	closed bool
+}
+
+func (b *cancelOnCloseBody) Read(buffer []byte) (int, error) {
+	b.readMu.Lock()
+	defer b.readMu.Unlock()
+	if b.closed {
+		return 0, http.ErrBodyReadAfterClose
+	}
+	return b.ReadCloser.Read(buffer)
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	b.once.Do(func() {
+		// Cancel before closing, including before closing a decompressor. In Go
+		// 1.27 an early HTTP/1 close concurrent with Read can otherwise leave an
+		// EOF waiter on a reused connection and stall subsequent responses.
+		// Fully consumed responses have already released their transport request,
+		// so cancelling here preserves normal keep-alive reuse.
+		b.cancel()
+		// Wait for an active read to observe cancellation before touching the
+		// body or decompressor. Do not hold readMu while cancelling the request.
+		b.readMu.Lock()
+		defer b.readMu.Unlock()
+		b.closed = true
+		b.err = b.ReadCloser.Close()
+	})
+	return b.err
 }
 
 // httpClientForUpstreamRequest applies redirect policy without changing pools.
@@ -1372,7 +1410,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		transport.ForceAttemptHTTP2 = true
 		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
 		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
-		if _, err := enableHTTP2KeepAlive(transport); err != nil {
+		if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
 			return nil, err
 		}
 	case upstreamProtocolModeOpenAIH1:
@@ -1393,7 +1431,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 // Go 默认惰性配置 http2 且 ReadIdleTimeout=0（不发健康 PING），无法检测被代理/NAT
 // 静默掐断的死连接。此处主动设置 ReadIdleTimeout/PingTimeout，让死连接被提前 PING
 // 出并关闭，请求得以重建连接而非挂到 TCP 重传超时。返回底层 *http2.Transport 便于测试。
-func enableHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, error) {
+func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) (*http2.Transport, error) {
 	h2, err := http2.ConfigureTransports(transport)
 	if err != nil {
 		return nil, err
@@ -1401,11 +1439,15 @@ func enableHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, error) {
 	if h2 != nil {
 		h2.ReadIdleTimeout = longStreamHTTP2ReadIdleTimeout
 		h2.PingTimeout = longStreamHTTP2PingTimeout
+		if protocolMode == upstreamProtocolModeOpenAIH2 {
+			h2.ReadIdleTimeout = openAIHTTP2ReadIdleTimeout
+			h2.PingTimeout = openAIHTTP2PingTimeout
+		}
 		// Preserve the native Go 1.27 settings when a public-host transport
 		// clones this transport; registered alternate protocols are not cloned.
 		transport.HTTP2 = &http.HTTP2Config{
-			SendPingTimeout: longStreamHTTP2ReadIdleTimeout,
-			PingTimeout:     longStreamHTTP2PingTimeout,
+			SendPingTimeout: h2.ReadIdleTimeout,
+			PingTimeout:     h2.PingTimeout,
 		}
 	}
 	return h2, nil
