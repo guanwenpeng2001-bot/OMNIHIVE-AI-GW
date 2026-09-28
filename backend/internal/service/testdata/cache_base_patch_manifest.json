@@ -161,6 +161,164 @@
       "note": "Approved for shipped override by explicit six-model decision"
     }
   ],
+  "prefixed_source_review": [
+    {
+      "exact_model_id": "vertex_ai/gemini-3-pro-preview",
+      "field": "cache_creation_input_token_cost",
+      "status": "unproven",
+      "value": null,
+      "currency": null,
+      "original_unit": null,
+      "conversion": null,
+      "effective_date": null,
+      "scope": "vertex_ai/gemini-3-pro-preview; no proven base cache-creation quote, region or threshold",
+      "sources": [
+        {
+          "kind": "upstream_git_history",
+          "url": "https://github.com/BerriAI/litellm/blob/90e4962c816695a87f357e0a1774a6369ca4520a/model_prices_and_context_window.json",
+          "revision": "90e4962c816695a87f357e0a1774a6369ca4520a",
+          "blob_sha": "185a09b208acba6489875e5f5f40dc9e560069f8",
+          "sha256": "7af475fd7dd2f2a25494cb6cdf0e223db91cdabd9bf87dc3a68ecc5236d9683a",
+          "fetched_at": "2026-09-28T08:56:52.468603+00:00",
+          "history_blobs_checked": 2507,
+          "exact_id_blobs_checked": 1459,
+          "base_field_occurrences": 0,
+          "introduction_url": "https://github.com/BerriAI/litellm/commit/c3143e388e300c61d96de8162ea208f2f0dc2fd5",
+          "introduction_blob_sha": "b4b4f763860f247b2564c7504535ef4731afad2d",
+          "introduction_sha256": "d13cd7e30a4a8b6573a4bdd3961e1bbf1567ce064e385a0902139d16f962348b",
+          "excerpt": "{\"vertex_ai/gemini-3-pro-preview\": {\"cache_creation_input_token_cost_above_200k_tokens\": 2.5e-07}}",
+          "conclusion": "Exact ID lacks the base field at introduction and throughout reachable pricing-file history; above-200k is not a base quote."
+        },
+        {
+          "kind": "official_provider",
+          "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+          "final_url": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+          "http_status": 200,
+          "sha256": "29a2963ab63f685327469e54e561567860de06e37b1d2f7de0271508c766188d",
+          "fetched_at": "2026-09-28T08:46:58.062391+00:00",
+          "excerpt": "Context Cache Storage price for Explicit Caching; Price Tok/hr",
+          "conclusion": "Input/cache-hit USD per million tokens and storage USD per token-hour do not establish this exact preview/customtools base cache-creation price."
+        }
+      ]
+    },
+    {
+      "exact_model_id": "vertex_ai/gemini-3.1-pro-preview",
+      "field": "cache_creation_input_token_cost",
+      "status": "unproven",
+      "value": null,
+      "currency": null,
+      "original_unit": null,
+      "conversion": null,
+      "effective_date": null,
+      "scope": "vertex_ai/gemini-3.1-pro-preview; no proven base cache-creation quote, region or threshold",
+      "sources": [
+        {
+          "kind": "upstream_git_history",
+          "url": "https://github.com/BerriAI/litellm/blob/90e4962c816695a87f357e0a1774a6369ca4520a/model_prices_and_context_window.json",
+          "revision": "90e4962c816695a87f357e0a1774a6369ca4520a",
+          "blob_sha": "185a09b208acba6489875e5f5f40dc9e560069f8",
+          "sha256": "7af475fd7dd2f2a25494cb6cdf0e223db91cdabd9bf87dc3a68ecc5236d9683a",
+          "fetched_at": "2026-09-28T08:56:52.468603+00:00",
+          "history_blobs_checked": 2507,
+          "exact_id_blobs_checked": 1193,
+          "base_field_occurrences": 0,
+          "introduction_url": "https://github.com/BerriAI/litellm/commit/2133a97e97a272bdbdca5d5277817d4ecae0b4ac",
+          "introduction_blob_sha": "8ed45ddd90c690a8989c680707dcfe11d3769a18",
+          "introduction_sha256": "13b28f9886e0f69d8d99efa002732838065c933a8060eb3a3c6c7cf4cf05387e",
+          "excerpt": "{\"vertex_ai/gemini-3.1-pro-preview\": {\"cache_creation_input_token_cost_above_200k_tokens\": 2.5e-07}}",
+          "conclusion": "Exact ID lacks the base field at introduction and throughout reachable pricing-file history; above-200k is not a base quote."
+        },
+        {
+          "kind": "official_provider",
+          "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+          "final_url": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+          "http_status": 200,
+          "sha256": "29a2963ab63f685327469e54e561567860de06e37b1d2f7de0271508c766188d",
+          "fetched_at": "2026-09-28T08:46:58.062391+00:00",
+          "excerpt": "Context Cache Storage price for Explicit Caching; Price Tok/hr",
+          "conclusion": "Input/cache-hit USD per million tokens and storage USD per token-hour do not establish this exact preview/customtools base cache-creation price."
+        }
+      ]
+    },
+    {
+      "exact_model_id": "vertex_ai/gemini-3.1-pro-preview-customtools",
+      "field": "cache_creation_input_token_cost",
+      "status": "unproven",
+      "value": null,
+      "currency": null,
+      "original_unit": null,
+      "conversion": null,
+      "effective_date": null,
+      "scope": "vertex_ai/gemini-3.1-pro-preview-customtools; no proven base cache-creation quote, region or threshold",
+      "sources": [
+        {
+          "kind": "upstream_git_history",
+          "url": "https://github.com/BerriAI/litellm/blob/90e4962c816695a87f357e0a1774a6369ca4520a/model_prices_and_context_window.json",
+          "revision": "90e4962c816695a87f357e0a1774a6369ca4520a",
+          "blob_sha": "185a09b208acba6489875e5f5f40dc9e560069f8",
+          "sha256": "7af475fd7dd2f2a25494cb6cdf0e223db91cdabd9bf87dc3a68ecc5236d9683a",
+          "fetched_at": "2026-09-28T08:56:52.468603+00:00",
+          "history_blobs_checked": 2507,
+          "exact_id_blobs_checked": 1193,
+          "base_field_occurrences": 0,
+          "introduction_url": "https://github.com/BerriAI/litellm/commit/2133a97e97a272bdbdca5d5277817d4ecae0b4ac",
+          "introduction_blob_sha": "8ed45ddd90c690a8989c680707dcfe11d3769a18",
+          "introduction_sha256": "13b28f9886e0f69d8d99efa002732838065c933a8060eb3a3c6c7cf4cf05387e",
+          "excerpt": "{\"vertex_ai/gemini-3.1-pro-preview-customtools\": {\"cache_creation_input_token_cost_above_200k_tokens\": 2.5e-07}}",
+          "conclusion": "Exact ID lacks the base field at introduction and throughout reachable pricing-file history; above-200k is not a base quote."
+        },
+        {
+          "kind": "official_provider",
+          "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+          "final_url": "https://cloud.google.com/gemini-enterprise-agent-platform/generative-ai/pricing",
+          "http_status": 200,
+          "sha256": "29a2963ab63f685327469e54e561567860de06e37b1d2f7de0271508c766188d",
+          "fetched_at": "2026-09-28T08:46:58.062391+00:00",
+          "excerpt": "Context Cache Storage price for Explicit Caching; Price Tok/hr",
+          "conclusion": "Input/cache-hit USD per million tokens and storage USD per token-hour do not establish this exact preview/customtools base cache-creation price."
+        }
+      ]
+    },
+    {
+      "exact_model_id": "openrouter/google/gemini-3-pro-preview",
+      "field": "cache_creation_input_token_cost",
+      "status": "unproven",
+      "value": null,
+      "currency": null,
+      "original_unit": null,
+      "conversion": null,
+      "effective_date": null,
+      "scope": "openrouter/google/gemini-3-pro-preview; no proven base cache-creation quote, region or threshold",
+      "sources": [
+        {
+          "kind": "upstream_git_history",
+          "url": "https://github.com/BerriAI/litellm/blob/90e4962c816695a87f357e0a1774a6369ca4520a/model_prices_and_context_window.json",
+          "revision": "90e4962c816695a87f357e0a1774a6369ca4520a",
+          "blob_sha": "185a09b208acba6489875e5f5f40dc9e560069f8",
+          "sha256": "7af475fd7dd2f2a25494cb6cdf0e223db91cdabd9bf87dc3a68ecc5236d9683a",
+          "fetched_at": "2026-09-28T08:56:52.468603+00:00",
+          "history_blobs_checked": 2507,
+          "exact_id_blobs_checked": 1458,
+          "base_field_occurrences": 0,
+          "introduction_url": "https://github.com/BerriAI/litellm/commit/be9f2e026c24a108e740f8a19bd8cfc1ec535523",
+          "introduction_blob_sha": "273502ac22b7f472cdde54b6215e3162abd5cc22",
+          "introduction_sha256": "6e445af065ba88503ff23f5cdde0ed4a50313d814571d851792a6861c6609d19",
+          "excerpt": "{\"openrouter/google/gemini-3-pro-preview\": {\"cache_creation_input_token_cost_above_200k_tokens\": 2.5e-07}}",
+          "conclusion": "Exact ID lacks the base field at introduction and throughout reachable pricing-file history; above-200k is not a base quote."
+        },
+        {
+          "kind": "official_provider",
+          "url": "https://openrouter.ai/api/v1/models/google/gemini-3-pro-preview/endpoints",
+          "final_url": "https://openrouter.ai/api/v1/models/google/gemini-3-pro-preview/endpoints",
+          "http_status": 200,
+          "sha256": "63ffc4b3a3e0e8c9e00e1fcbec81ce7e1cb2484c5c5dd3e419e7cbea93b77060",
+          "fetched_at": "2026-09-28T08:46:57.974683+00:00",
+          "excerpt": "\"id\":\"google/gemini-3-pro-preview\",\"endpoints\":[]",
+          "conclusion": "Exact ID absent from current model list; endpoint list empty; no provider cache-write quote."
+        }
+      ]
+    }
+  ],
   "runtime_entries": {
     "gemini-2.5-pro": {
       "deprecation_date": "2026-10-20",
