@@ -57,3 +57,44 @@ func TestAuditBedrockTPMOnlyRejectsBeforeSend(t *testing.T) {
 	}
 	require.Empty(t, requests, "TPM policy must be checked before upstream")
 }
+
+func TestQianwenNativeAndImageTPMAdmission(t *testing.T) {
+	for _, scenario := range []struct{ name, model, path, body string }{
+		{"native_embedding", "text-embedding-v4", service.QianwenNativeEmbeddingPath, `{"model":"text-embedding-v4","input":{"texts":["hello"]}}`},
+		{"native_rerank", "gte-rerank-v2", service.QianwenNativeRerankPath, `{"model":"gte-rerank-v2","input":{"query":"q","documents":["a"]}}`},
+		{"image", "qwen-image-3.0", "/v1/images/generations", `{"model":"qwen-image-3.0","prompt":"cat"}`},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			upstream := &httpUpstreamRecorderStub{body: `{}`}
+			account := qianwenCatalogAccount(1, scenario.model, "chat_completions", "images")
+			handler := newQianwenStandardTestHandler(t, upstream, []service.Account{account})
+			denied := &unlimitedTPMReceiptStub{unlimitedTPMRepository: unlimitedTPMRepository{rejection: &service.TPMLimitExceeded{Scope: service.TPMScopeAPIKey}}}
+			handler.gatewayService = service.ProvideOpenAIGatewayService(&qianwenStandardAccountRepo{accounts: []service.Account{account}}, nil, nil, nil, nil, nil, nil, handler.cfg, nil, nil, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(denied, nil, nil))
+			requestContext, recorder := qianwenStandardContext(t, http.MethodPost, scenario.path, []byte(scenario.body), nil)
+			if scenario.name == "image" {
+				handler.QianwenImages(requestContext)
+			} else {
+				handler.QianwenNative(requestContext)
+			}
+			require.Empty(t, upstream.lastURL)
+			plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
+			require.NotNil(t, plan, recorder.Body.String())
+			require.True(t, service.IsTPMAdmissionError(plan.TPMAdmissionRejection()), recorder.Body.String())
+		})
+	}
+}
+
+func TestBatchImageHandlerInstallsParentPlan(t *testing.T) {
+	openAI := newQianwenStandardTestHandler(t, &httpUpstreamRecorderStub{}, nil)
+	handler := ProvideBatchImageHandler(&service.BatchImagePublicService{}, nil, nil, openAI)
+	requestContext, _ := qianwenStandardContext(t, http.MethodPost, "/v1/images/batches", []byte(`{"model":"gemini-image","items":[{"custom_id":"image","prompt":"cat"}]}`), nil)
+	key, _ := middleware.GetAPIKeyFromContext(requestContext)
+	key.WorkspaceID = 51
+	handler.Submit(requestContext)
+	parent := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
+	require.NotNil(t, parent)
+	require.EqualValues(t, 51, parent.Snapshot().WorkspaceID)
+	require.Equal(t, key.ID, parent.Snapshot().APIKeyID)
+	require.Equal(t, "gemini-image", parent.Snapshot().Model)
+	require.True(t, parent.State().Finalized)
+}
