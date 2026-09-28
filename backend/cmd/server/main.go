@@ -9,6 +9,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -190,6 +191,16 @@ func runMainServer() {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+
+	// SUB2API_PPROF=1 时在 127.0.0.1:6060 暴露 pprof（仅本机，排障用）。
+	if os.Getenv("SUB2API_PPROF") == "1" {
+		go func() {
+			log.Printf("pprof listening on 127.0.0.1:6060")
+			if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+				log.Printf("pprof server exited: %v", err)
+			}
+		}()
+	}
 
 	log.Printf("Server started on %s", app.Server.Addr)
 
