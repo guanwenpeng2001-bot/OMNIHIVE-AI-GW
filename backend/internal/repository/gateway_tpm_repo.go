@@ -71,7 +71,7 @@ ORDER BY CASE scope_kind WHEN 'api_key' THEN 0 WHEN 'group' THEN 1 ELSE 2 END,sc
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var reservations []tpmReservationRow
 	for rows.Next() {
 		var reservation tpmReservationRow
@@ -103,7 +103,7 @@ func (r *usageSettlementReceiptRepository) reserveTPMTransaction(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	policies, err := readTPMPolicies(ctx, tx, command)
 	if err != nil {
 		return nil, err
@@ -279,7 +279,7 @@ func (r *usageSettlementReceiptRepository) RetireExpiredTPMReservations(ctx cont
 	for rows.Next() {
 		var identity service.TPMReservationIdentity
 		if err := rows.Scan(&identity.WorkspaceID, &identity.APIKeyID, &identity.ExecutionID, &identity.AttemptIndex); err != nil {
-			rows.Close()
+			_ = rows.Close()
 			return 0, err
 		}
 		if !seen[identity] {
@@ -288,7 +288,7 @@ func (r *usageSettlementReceiptRepository) RetireExpiredTPMReservations(ctx cont
 		}
 	}
 	err = rows.Err()
-	rows.Close()
+	_ = rows.Close()
 	if err != nil {
 		return 0, err
 	}
@@ -308,7 +308,7 @@ func (r *usageSettlementReceiptRepository) updateTPM(ctx context.Context, identi
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err := updateTPMAttempt(ctx, tx, identity, state, actual); err != nil {
 		return err
 	}

@@ -52,7 +52,7 @@ func testAdminUsageExportTransport(t *testing.T, httpTwo bool) {
 			result, err := client.Get(server.URL + "/api/v1/admin/usage/export?timezone=UTC")
 			close(releaseFailure) // Headers arrive only after the handler flushed its first batch.
 			require.NoError(t, err)
-			defer result.Body.Close()
+			defer func() { _ = result.Body.Close() }()
 			require.Equal(t, http.StatusOK, result.StatusCode)
 			expectedProtocol := 1
 			if httpTwo {
@@ -73,7 +73,7 @@ func testAdminUsageExportTransport(t *testing.T, httpTwo bool) {
 			healthyRequest = healthyRequest.WithContext(httptrace.WithClientTrace(context.Background(), &httptrace.ClientTrace{GotConn: func(info httptrace.GotConnInfo) { reused = info.Reused }}))
 			healthy, err := client.Do(healthyRequest)
 			require.NoError(t, err)
-			defer healthy.Body.Close()
+			defer func() { _ = healthy.Body.Close() }()
 			healthyBody, err := io.ReadAll(healthy.Body)
 			require.NoError(t, err)
 			require.Equal(t, "healthy", string(healthyBody))
@@ -99,7 +99,7 @@ func (writer *exportFaultResponseWriter) Write(data []byte) (int, error) {
 		return writer.ResponseWriter.Write(data)
 	}
 	if writer.commit {
-		writer.ResponseWriter.WriteHeaderNow()
+		writer.WriteHeaderNow()
 	}
 	if writer.partial > 0 {
 		written, _ := writer.ResponseWriter.Write(data[:writer.partial])
