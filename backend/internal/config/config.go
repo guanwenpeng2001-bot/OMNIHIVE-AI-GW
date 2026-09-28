@@ -2408,12 +2408,12 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_interval_seconds", 60)
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
-	viper.SetDefault("model_catalog_refresh_enabled", false)
+	viper.SetDefault("model_catalog_refresh_enabled", true)
 	viper.SetDefault("bounded_model_probes_enabled", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久
-	viper.SetDefault("gateway.session_affinity_enabled", false)
+	viper.SetDefault("gateway.session_affinity_enabled", true)
 	viper.SetDefault("gateway.affinity_hmac_key", "")
 	viper.SetDefault("gateway.affinity_hmac_key_version", "")
 	viper.SetDefault("gateway.openai_response_header_timeout", 0)
