@@ -1098,13 +1098,8 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	assert.Contains(t, resp.Include, "reasoning.encrypted_content")
-	assert.NotContains(t, resp.Include, "reasoning.summary")
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
@@ -1116,12 +1111,8 @@ func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	assert.NotContains(t, resp.Include, "reasoning.summary")
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_ThinkingDisabled(t *testing.T) {
@@ -1151,6 +1142,10 @@ func TestAnthropicToResponses_ThinkingDisabledOverridesOutputEffort(t *testing.T
 			}
 
 			resp, err := AnthropicToResponses(req)
+			if effort != "" {
+				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+				return
+			}
 			require.NoError(t, err)
 			require.NotNil(t, resp.Reasoning)
 			assert.Equal(t, "none", resp.Reasoning.Effort)
@@ -1188,10 +1183,8 @@ func TestAnthropicToResponses_OutputConfigOverridesDefault(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "low", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutThinking(t *testing.T) {
@@ -1253,9 +1246,8 @@ func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {

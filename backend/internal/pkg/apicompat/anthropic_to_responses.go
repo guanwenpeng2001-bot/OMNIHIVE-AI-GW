@@ -11,6 +11,9 @@ import (
 // Chat Completions intermediary round-trip (e.g. thinking, cache_control,
 // structured system prompts).
 func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
+	if err := validateAnthropicReasoningForOpenAI(req); err != nil {
+		return nil, err
+	}
 	input, err := convertAnthropicToResponsesInput(req.System, req.Messages)
 	if err != nil {
 		return nil, err
@@ -415,6 +418,18 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 		}
 	}
 	return strings.Join(parts, "\n\n")
+}
+
+// validateAnthropicReasoningForOpenAI rejects controls with no exact OpenAI
+// representation. Native Messages forwarding does not call this bridge.
+func validateAnthropicReasoningForOpenAI(req *AnthropicRequest) error {
+	if req.Thinking != nil && req.Thinking.BudgetTokens != 0 {
+		return fmt.Errorf("unsupported thinking.budget_tokens for OpenAI conversion; use the native Messages endpoint")
+	}
+	if req.Thinking != nil && req.Thinking.Type == "disabled" && req.OutputConfig != nil && req.OutputConfig.Effort != "" {
+		return fmt.Errorf("unsupported thinking.type=disabled with output_config.effort for OpenAI conversion; use the native Messages endpoint")
+	}
+	return nil
 }
 
 // anthropicReasoningEffort resolves the Anthropic request preference for both

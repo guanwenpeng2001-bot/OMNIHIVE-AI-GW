@@ -67,3 +67,10 @@ func normalizeEffortModelID(model string) string {
 	}
 	return id
 }
+
+// SupportsAdaptiveThinking reports the known adaptive families in the effort
+// catalog. Opus 4.5 supports effort but still requires manual thinking budgets.
+func SupportsAdaptiveThinking(model string) bool {
+	id := normalizeEffortModelID(model)
+	return len(EffortLevelsForModel(model)) > 0 && id != "claude-opus-4-5" && !strings.HasPrefix(id, "claude-opus-4-5-")
+}
