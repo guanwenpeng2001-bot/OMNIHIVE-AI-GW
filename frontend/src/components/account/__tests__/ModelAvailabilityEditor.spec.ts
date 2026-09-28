@@ -25,6 +25,43 @@ beforeEach(() => {
 })
 
 describe('account availability declarations', () => {
+  it('does not offer the unwired videos family for new declarations', async () => {
+    const wrapper = mountEditor()
+    await wrapper.get('[data-testid="load-availability"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findAll('[data-testid="availability-endpoint"] option').map(option => option.attributes('value'))).toEqual([
+      'chat_completions', 'responses', 'messages', 'generate_content', 'images'
+    ])
+    wrapper.unmount()
+  })
+
+  it('preserves and revokes a legacy videos declaration using its original endpoint', async () => {
+    const declaration = { account_id: 12, model: 'legacy-video-target', endpoint: 'videos', identity_revision: 1, rules_revision: 4, reason: 'legacy video basis', confirmed_by: 3, confirmed_at: '2026-01-01T00:00:00Z', evidence_kind: 'administrator_declaration' as const, valid: true }
+    api.get.mockResolvedValueOnce({ ...saved, declarations: [declaration] })
+    const wrapper = mountEditor()
+    await wrapper.get('[data-testid="load-availability"]').trigger('click')
+    await flushPromises()
+    const evidence = wrapper.get('[data-testid="availability-evidence"]')
+    expect(evidence.text()).toContain('legacy-video-target · videos')
+    expect(evidence.text()).toContain('legacy video basis')
+    expect(wrapper.get('[data-testid="revoke-availability"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="availability-endpoint"]').setValue('images')
+    await wrapper.get('[data-testid="availability-reason"]').setValue('legacy access removed')
+    await wrapper.get('[data-testid="revoke-availability"]').trigger('click')
+    expect(api.revoke).not.toHaveBeenCalled()
+    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(true)
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(api.revoke).toHaveBeenCalledOnce()
+    expect(api.revoke).toHaveBeenCalledWith(12, {
+      identity_revision: saved.identity_revision, rules_revision: saved.rules_revision, snapshot_revision: saved.snapshot_revision,
+      model: 'legacy-video-target', endpoint: 'videos', reason: 'legacy access removed', confirmed: true
+    })
+    expect(api.declare).not.toHaveBeenCalled()
+    expect(wrapper.emitted('changed')).toHaveLength(1)
+    wrapper.unmount()
+  })
+
   it('requires basis and a separate confirmation, preserves opaque CAS, and omits optional expiry', async () => {
     const wrapper = mountEditor()
     expect(api.get).not.toHaveBeenCalled()

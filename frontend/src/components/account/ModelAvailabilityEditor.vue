@@ -24,7 +24,7 @@ const endpoint = ref('chat_completions')
 const reason = ref('')
 const expiresAt = ref('')
 const pending = ref<{ action: 'declare' | 'revoke'; request: ChangeModelAvailability } | null>(null)
-const endpoints = ['chat_completions', 'responses', 'messages', 'generate_content', 'images', 'videos']
+const endpoints = ['chat_completions', 'responses', 'messages', 'generate_content', 'images']
 let generation = 0
 const available = computed(() => props.active && !props.configurationDirty && !busy.value && !!state.value)
 const validExpiry = computed(() => !expiresAt.value || new Date(expiresAt.value).getTime() > Date.now())
