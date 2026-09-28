@@ -68,6 +68,7 @@ type ExcludedCatalogModel struct {
 }
 
 type AccountModelCatalogSnapshot struct {
+	LegacyAccountID            int64                            `json:"legacy_account_id,omitempty"`
 	SchemaVersion              int                              `json:"schema_version,omitempty"`
 	EnrichmentVersion          string                           `json:"enrichment_version,omitempty"`
 	SourceGeneration           int64                            `json:"source_generation,omitempty"`
@@ -150,6 +151,9 @@ func (account *Account) GetUpstreamModelCatalog() *AccountModelCatalogSnapshot {
 	if !decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &snapshot) || !snapshot.Complete {
 		return nil
 	}
+	if snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade {
+		populateLegacyModelCatalogEndpoints(account, &snapshot)
+	}
 	return &snapshot
 }
 
@@ -169,6 +173,9 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 		if credentialAccount == nil || credentialAccount.ID != snapshot.CredentialAccountID || !credentialAccount.IsOpenAIOAuth() || credentialAccount.IsShadow() || credentialAccount.ModelCatalogState().IdentityRevision != snapshot.CredentialIdentityRevision {
 			snapshot = nil
 		}
+	}
+	if snapshot != nil && snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && !legacyModelCatalogValidFor(account, snapshot) {
+		snapshot = nil
 	}
 	snapshot = appendAvailabilityModels(account, credentialAccount, snapshot)
 	if snapshot == nil {
@@ -361,7 +368,12 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
 	}
 	for _, member := range snapshot.EligibleModels {
-		if member.ID != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member)) {
+		legacyEvidence := hasLegacyModelCatalogEvidence(snapshot, member)
+		memberModel := member.ID
+		if legacyEvidence {
+			memberModel = legacyModelCatalogWireModel(account, memberModel)
+		}
+		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
 			continue
 		}
 		endpoint := options.Endpoint
