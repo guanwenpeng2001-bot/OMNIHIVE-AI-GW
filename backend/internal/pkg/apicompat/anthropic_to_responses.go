@@ -58,7 +58,7 @@ func AnthropicToResponses(req *AnthropicRequest) (*ResponsesRequest, error) {
 		out.Tools = convertAnthropicToolsToResponses(req.Tools)
 	}
 
-	// An explicit thinking disable takes precedence over output_config.effort.
+	// Incompatible thinking and effort controls were rejected above.
 	effort := anthropicReasoningEffort(req)
 	out.Reasoning = &ResponsesReasoning{
 		Effort: effort,
@@ -424,17 +424,17 @@ func extractAnthropicTextFromBlocks(blocks []AnthropicContentBlock) string {
 // representation. Native Messages forwarding does not call this bridge.
 func validateAnthropicReasoningForOpenAI(req *AnthropicRequest) error {
 	if req.Thinking != nil && req.Thinking.BudgetTokens != 0 {
-		return fmt.Errorf("unsupported thinking.budget_tokens for OpenAI conversion; use the native Messages endpoint")
+		return fmt.Errorf("unsupported thinking.budget_tokens for OpenAI conversion; use an Anthropic-native upstream")
 	}
 	if req.Thinking != nil && req.Thinking.Type == "disabled" && req.OutputConfig != nil && req.OutputConfig.Effort != "" {
-		return fmt.Errorf("unsupported thinking.type=disabled with output_config.effort for OpenAI conversion; use the native Messages endpoint")
+		return fmt.Errorf("unsupported thinking.type=disabled with output_config.effort for OpenAI conversion; use an Anthropic-native upstream")
 	}
 	return nil
 }
 
 // anthropicReasoningEffort resolves the Anthropic request preference for both
-// OpenAI bridges. Explicitly disabled thinking overrides output_config.effort;
-// otherwise the bridge keeps its medium default.
+// OpenAI bridges after incompatible controls have been rejected. Explicitly
+// disabled thinking becomes none; otherwise the bridge keeps its medium default.
 func anthropicReasoningEffort(req *AnthropicRequest) string {
 	if req.Thinking != nil && req.Thinking.Type == "disabled" {
 		return "none"

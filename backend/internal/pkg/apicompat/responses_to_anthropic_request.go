@@ -62,7 +62,7 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 			out.Thinking = &AnthropicThinking{Type: "disabled"}
 		} else {
 			if !claude.SupportsAdaptiveThinking(req.Model) || !slices.Contains(claude.EffortLevelsForModel(req.Model), effort) {
-				return nil, fmt.Errorf("unsupported reasoning.effort %q for the target model; use native Messages thinking controls", effort)
+				return nil, fmt.Errorf("unsupported reasoning.effort %q for the target model; use the target model native API for thinking controls", effort)
 			}
 			out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
 			out.Thinking = &AnthropicThinking{Type: "adaptive"}

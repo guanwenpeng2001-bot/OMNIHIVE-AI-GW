@@ -68,6 +68,19 @@ func TestAnthropicModelPaginationAndNegotiation(t *testing.T) {
 	previous := request("?before_id=gamma&limit=1", "2023-06-01")
 	require.Equal(t, "beta", gjson.GetBytes(previous.Body.Bytes(), "first_id").String())
 	require.True(t, gjson.GetBytes(previous.Body.Bytes(), "has_more").Bool())
+	// has_more is directional, not a claim that the entire catalog is exhausted.
+	last := request("?after_id=beta&limit=1", "2023-06-01")
+	require.False(t, gjson.GetBytes(last.Body.Bytes(), "has_more").Bool())
+	require.Equal(t, "gamma", gjson.GetBytes(last.Body.Bytes(), "last_id").String())
+	beginning := request("?before_id=beta&limit=1", "2023-06-01")
+	require.False(t, gjson.GetBytes(beginning.Body.Bytes(), "has_more").Bool())
+	require.Equal(t, "alpha", gjson.GetBytes(beginning.Body.Bytes(), "first_id").String())
+	for _, query := range []string{"?before_id=alpha", "?after_id=gamma"} {
+		empty := request(query, "2023-06-01")
+		require.Equal(t, 200, empty.Code)
+		require.JSONEq(t, `{"data":[],"first_id":null,"last_id":null,"has_more":false}`, empty.Body.String())
+	}
+	require.Equal(t, 400, request("?after_id=alpha&before_id=gamma", "2023-06-01").Code)
 	require.Equal(t, 400, request("?limit=0", "2023-06-01").Code)
 	require.Equal(t, 400, request("?after_id=missing", "2023-06-01").Code)
 	ordinary := request("", "")

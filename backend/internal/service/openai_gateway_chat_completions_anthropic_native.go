@@ -74,8 +74,6 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 
 	preserveChatCompletionTokenLimit(&ccReq, anthropicReq)
 
-	// 3. Model mapping（OpenAI 网关统一入口的映射语义）
-
 	// 4. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。
 	anthropicReq.Stream = true
