@@ -613,6 +613,7 @@ export default {
         testNoResults: 'No results found',
       },
       site: {
+        siteICP: 'ICP Registration Number (optional)',
         title: 'Site Settings',
         description: 'Customize site branding',
         backendMode: 'Backend Mode',

@@ -7,6 +7,7 @@ export function useGeneralSettingsForm(tablePageSizeDefault: number) {
       SettingsForm,
       | "registration_email_suffix_whitelist"
       | "site_name"
+      | "site_icp"
       | "site_logo"
       | "site_subtitle"
       | "api_base_url"
@@ -37,6 +38,8 @@ export function useGeneralSettingsForm(tablePageSizeDefault: number) {
     registration_email_suffix_whitelist: [],
 
     site_name: "Sub2API",
+
+    site_icp: "",
 
     site_logo: "",
 
