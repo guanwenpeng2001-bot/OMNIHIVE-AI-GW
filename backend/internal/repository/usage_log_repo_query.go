@@ -102,15 +102,22 @@ func (r *usageLogRepository) ListWithFilters(ctx context.Context, params paginat
 			logs       []service.UsageLog
 			pagination *pagination.PaginationResult
 		}
-		start := time.Unix(0, 0)
-		if filters.StartTime != nil {
-			start = *filters.StartTime
-		}
 		end := time.Now()
 		if filters.EndTime != nil {
 			end = *filters.EndTime
 		}
-		result, err := rawUsageReadSnapshot(ctx, r, start, end, func(snapshot *usageLogRepository) (page, error) {
+		// 未显式指定 StartTime 时（如用户端“全部记录”列表）把读窗口夹到已验证
+		// 的原始保留起点，而不是 Unix 纪元——否则窗口必然越过保留边界，被
+		// 缺失历史守卫整页 409。显式指定早于保留起点的时间仍按原语义报错，
+		// 由前端提示“缺失历史不代表零用量”。
+		result, err := usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) (page, error) {
+			start := c.raw
+			if filters.StartTime != nil {
+				start = *filters.StartTime
+			}
+			if err := c.requireRaw(start, end); err != nil {
+				return page{}, err
+			}
 			logs, pagination, err := snapshot.ListWithFilters(ctx, params, filters)
 			return page{logs, pagination}, err
 		})

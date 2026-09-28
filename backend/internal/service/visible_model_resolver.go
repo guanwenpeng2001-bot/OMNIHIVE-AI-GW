@@ -70,20 +70,36 @@ type visibleModelRevision struct {
 }
 
 func (r *VisibleModelResolver) freeze(ctx context.Context) (context.Context, error) {
+	return r.freezeMode(ctx, false)
+}
+
+// freezeMode 在 replace=true 时强制重新冻结目录版本（忽略已存在的 revision），
+// 供目录版本竞态后的有限次重试使用；快照也一并重读，避免用旧快照对比新版本。
+func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (context.Context, error) {
 	if r == nil || r.gateway == nil {
 		return ctx, nil
 	}
 	if _, ok := r.gateway.accountRepo.(ModelCatalogAccountRepository); !ok {
 		return ctx, nil
 	}
-	if _, ok := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); ok {
-		return ctx, nil
+	if !replace {
+		if _, ok := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); ok {
+			return ctx, nil
+		}
 	}
 	generation, authoritative, err := modelCatalogGeneration(ctx, r.gateway.accountRepo, "catalog")
 	if err != nil {
 		return ctx, err
 	}
-	if _, loaded := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); !loaded {
+	if replace {
+		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
+			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
+			if readErr != nil {
+				return ctx, readErr
+			}
+			ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
+		}
+	} else if _, loaded := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); !loaded {
 		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
 			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
 			if readErr != nil {
@@ -140,8 +156,15 @@ func (s *GatewayService) VisibleModelsWithMetadata(ctx context.Context, groupID 
 	return view, metadata, nil
 }
 
+// visibleModelResolveMaxAttempts bounds retries when the visible model catalog
+// revision moves mid-resolution (e.g. a concurrent upstream catalog refresh
+// publishes a new generation). Only the resolver that froze the revision itself
+// retries; nested callers under an outer freeze keep fail-fast consistency.
+const visibleModelResolveMaxAttempts = 3
+
 func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, mixedOnly ...bool) (VisibleModelSet, error) {
 	view := VisibleModelSet{FullyEnumerable: true, Bindings: make(map[string][]AccountModelBinding), ExecutableEndpoints: make(map[string][]string)}
+	_, preFrozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
 	ctx, err := r.freeze(ctx)
 	if err != nil {
 		return VisibleModelSet{}, err
@@ -149,12 +172,29 @@ func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, plat
 	if r == nil || r.gateway == nil {
 		return view, nil
 	}
-	view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, mixedOnly...)
-	if err != nil {
-		return VisibleModelSet{}, err
-	}
-	if err := r.validate(ctx); err != nil {
-		return VisibleModelSet{}, err
+	for attempt := 1; ; attempt++ {
+		view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, mixedOnly...)
+		if err != nil {
+			return VisibleModelSet{}, err
+		}
+		validateErr := r.validate(ctx)
+		if validateErr == nil {
+			break
+		}
+		if preFrozen || attempt >= visibleModelResolveMaxAttempts || !errors.Is(validateErr, ErrVisibleModelRevisionChanged) {
+			return VisibleModelSet{}, validateErr
+		}
+		ctx, err = r.freezeMode(ctx, true)
+		if err != nil {
+			return VisibleModelSet{}, err
+		}
+		// 上一次尝试可能已部分填充 Bindings/ExecutableEndpoints/metadata，重算前清空。
+		view.Bindings = make(map[string][]AccountModelBinding)
+		view.ExecutableEndpoints = make(map[string][]string)
+		view.FullyEnumerable = true
+		for key := range metadata {
+			delete(metadata, key)
+		}
 	}
 	revision, _ := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
 	view.Revision = fmt.Sprintf("%d:%s", revision.generation, ModelRegistrySnapshotFromContext(ctx).Version())

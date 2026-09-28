@@ -35,15 +35,19 @@ func (r *usageLogRepository) StreamUsageLogsWithFilters(
 	if needsUsageSnapshot(r) {
 		// One read snapshot for the whole walk: the replica/raw-coverage guard
 		// runs once, and every batch observes the same published state.
-		start := time.Unix(0, 0)
-		if filters.StartTime != nil {
-			start = *filters.StartTime
-		}
+		// 未显式指定 StartTime 时夹到已验证原始保留起点（与列表查询同语义）。
 		end := time.Now()
 		if filters.EndTime != nil {
 			end = *filters.EndTime
 		}
-		_, err := rawUsageReadSnapshot(ctx, r, start, end, func(snapshot *usageLogRepository) (struct{}, error) {
+		_, err := usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) (struct{}, error) {
+			start := c.raw
+			if filters.StartTime != nil {
+				start = *filters.StartTime
+			}
+			if err := c.requireRaw(start, end); err != nil {
+				return struct{}{}, err
+			}
 			return struct{}{}, snapshot.StreamUsageLogsWithFilters(ctx, filters, after, batchSize, yield)
 		})
 		return err
