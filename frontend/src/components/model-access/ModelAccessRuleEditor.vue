@@ -55,7 +55,9 @@ async function perform(save: boolean) {
 
 <template>
   <section class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-600">
-    <h3 class="input-label">{{ t('modelAccess.title') }}</h3>
+    <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
+    <details :open="!!error || undefined" class="space-y-3" data-testid="model-access-rules">
+    <summary class="cursor-pointer py-2 font-medium">{{ t('modelAccess.title') }}</summary>
     <p class="input-hint">{{ t('modelAccess.explanation') }}</p>
     <template v-if="loaded">
       <Select v-model="selected" :options="options" :disabled="busy" :placeholder="t('modelAccess.inherit')" />
@@ -66,6 +68,6 @@ async function perform(save: boolean) {
       <p v-if="saved" role="status" class="input-hint">{{ t('modelAccess.saved') }}</p>
       <div v-if="impact" class="input-hint" role="status"><p>{{ t('modelAccess.impact', { count: impact.models.length }) }}</p><p v-if="!impact.fully_enumerable">{{ t('modelAccess.partial') }}</p><p class="max-h-32 overflow-auto break-all">{{ impact.models.join(', ') || t('modelAccess.empty') }}</p></div>
     </template>
-    <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
+    </details>
   </section>
 </template>

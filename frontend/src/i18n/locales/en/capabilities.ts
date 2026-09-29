@@ -1,15 +1,20 @@
 export default {
   capabilityDefaults: {
-  title: 'Private deployment specifications (JSON)', input: 'Account model capability declaration',
+  title: 'Supplement private model capabilities', input: 'Account model capability declaration',
   hint: 'The deployment owner declares actual input/output limits, modalities, reasoning controls and function calling by original model ID, with confirmation and evidence. Native fields take priority; declarations do not grant access or routing. Preview field sources and gaps, then save the account and preview/apply its catalog. Clear to remove declarations.',
   invalid: 'Enter a valid declaration with schema_version: 1, a verification reason, and a nonempty models object indexed by original ID.',
   placeholder: 'Leave empty when no deployment specification is declared', example: 'Format example (replace illustrative values with verified deployment facts)',
   binding: 'The server generates confirmed_by, confirmed_at and identity information. After an identity change, verify the deployment facts and remove the old identity_fingerprint before previewing and saving to reconfirm. reasoning_control.kind supports none / effort / toggle / budget / adaptive / fixed / unknown; declare only controls the deployment actually supports.'
 },
   capabilityCatalog: {
+  progress: "Showing {shown} models out of {matched} matches",
+  candidateProgress: "Showing {shown} candidates out of {matched} matches",
+  coverageSummary: "Complete information for {complete} of {total} models; estimated information for {estimated}; incomplete or unavailable information for {incomplete} models",
+  missingFields: "Missing information",
+
   selectFiltered: 'Select all matching models', resolutions: 'Resolutions', duration: 'Maximum duration (seconds)', dimensions: 'Dimensions', width: 'Maximum width', height: 'Maximum height',
-  sets: 'Model sets', setsHint: 'D discovered · M mapping targets · U capability catalog (D ∪ M) · E routing eligible; complete capabilities do not grant eligibility.', coverage: 'Complete capabilities', noDiscovery: 'No models discovered', noEligibility: 'Models discovered, none eligible', partial: 'Some capabilities are missing or estimated', complete: 'Capabilities complete', unknownDiscovery: 'Discovery status unknown', search: 'Filter model ID or name', filter: 'Filter capability status', all: 'All statuses', more: 'Show more',
-  title: 'Model capabilities', missing: 'Missing fields', estimated: 'Estimated fields', conflict: 'Conflict',
+  sets: 'Model sets', setsHint: 'D discovered · M mapping targets · U capability catalog (D ∪ M) · E routing eligible; complete capabilities do not grant eligibility, and eligibility does not guarantee a successful call.', coverage: 'Complete capabilities', noDiscovery: 'No models discovered', noEligibility: 'Models discovered, none eligible', partial: 'Some capabilities are missing or estimated', complete: 'Capabilities complete', unknownDiscovery: 'Discovery status unknown', search: 'Filter model ID or name', filter: 'Filter capability status', all: 'All statuses', more: 'Show more',
+  title: 'Model capabilities', missing: 'Incomplete or unavailable information', estimated: 'Estimated fields', conflict: 'Conflict',
   unknown: 'Status unavailable', unavailable: 'Field completeness was not returned. Preview again; completeness is unverified.',
   source: 'Source tier', version: 'Source version', match: 'Match evidence', noSources: 'No field-level source evidence available.', stale: 'Specifications or account settings changed; these results belong to the previous preview.'
 },

@@ -1,5 +1,5 @@
 <template>
-  <details class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
+  <details :open="error || undefined" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
     <summary class="cursor-pointer text-sm font-medium text-gray-700 dark:text-gray-200">{{ labels.title }}</summary>
     <div class="mt-3 space-y-2">
       <p :id="`${id}-hint`" class="input-hint">{{ labels.hint }}</p>

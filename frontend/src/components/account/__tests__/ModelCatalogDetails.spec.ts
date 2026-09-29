@@ -3,7 +3,7 @@ import en from '@/i18n/locales/en'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
 const testLocale = vi.hoisted(() => ({ value: 'zh' }))
-vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key.startsWith('capabilityCatalog.') || key.startsWith('admin.accounts.modelSync.evidenceSources.') ? key.split('.').reduce((value: any, part) => value[part], testLocale.value === 'zh' ? zh : en) : key, te: () => true }) }))
+vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string, params?: Record<string, unknown>) => { const message = key.startsWith('capabilityCatalog.') || key.startsWith('admin.accounts.modelSync.evidenceSources.') ? key.split('.').reduce((value: any, part) => value[part], testLocale.value === 'zh' ? zh : en) : key; return Object.entries(params ?? {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), message) }, te: () => true }) }))
 import { formatDateTime } from '@/utils/format'
 import ModelCatalogDetails from '../ModelCatalogDetails.vue'
 import notSynced from '@/api/__tests__/fixtures/model-catalog-not_synced.json'
@@ -265,8 +265,33 @@ it('keeps coverage counts unchanged when candidate display facts enrich a detail
   const displayMetadata = { model: { category: 'video', metadata_status: 'complete', task_limits: { max_duration_seconds: 12 } } }
   const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 1, displayMetadata,
     mappingTargets: [], result: { models: ['model'], discovered_models: ['model'] } } })
-  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain(`${zh.capabilityCatalog.coverage}: 0 / 1`)
+  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('资料完整 0 个模型，共 1 个；仅有估计依据 0 个；资料不完整或未提供 1 个模型')
   expect(wrapper.get('[data-model-category="video"] summary').text()).toContain('12')
   expect(wrapper.get('[data-testid="capability-state"]').text()).toBe(zh.capabilityCatalog.partial)
+  wrapper.unmount()
+})
+
+
+it.each([0, 2, 27, 100, 1000])('labels progress once for %i models and preserves counts after search', async count => {
+  const models = Array.from({ length: count }, (_, index) => `provider/model-${index}`)
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: count, mappingTargets: [], result: { models, discovered_models: models, metadata: {} } } })
+  const coverage = wrapper.get('[data-testid="capability-sets"]').text()
+  expect(coverage).toContain(`资料不完整或未提供 ${count} 个模型`)
+  if (count) {
+    const details = wrapper.get<HTMLDetailsElement>('[data-testid="capability-details"]')
+    expect(details.element.open).toBe(false)
+    expect(wrapper.findAll('[data-testid="capability-progress"]')).toHaveLength(1)
+    expect(wrapper.get('[data-testid="capability-progress"]').text()).toBe(`显示 ${Math.min(50, count)} 个模型，共 ${count} 个匹配结果`)
+    if (count > 50) {
+      await wrapper.get('[data-testid="capability-more"]').trigger('click')
+      expect(wrapper.get('[data-testid="capability-progress"]').text()).toBe(`显示 100 个模型，共 ${count} 个匹配结果`)
+    }
+    await wrapper.get('[data-testid="capability-search"]').setValue('no-such-model')
+    expect(wrapper.get('[data-testid="capability-progress"]').text()).toBe('admin.accounts.noMatchingModels')
+    expect(wrapper.get('[data-testid="capability-sets"]').text()).toBe(coverage)
+    await wrapper.get('[data-testid="capability-search"]').setValue('provider/model-0')
+    expect(wrapper.get('[data-testid="capability-progress"]').text()).toBe('显示 1 个模型，共 1 个匹配结果')
+    expect(wrapper.get('[data-testid="capability-row"] summary').text()).toContain('provider/model-0')
+  } else expect(wrapper.find('[data-testid="capability-progress"]').exists()).toBe(false)
   wrapper.unmount()
 })
