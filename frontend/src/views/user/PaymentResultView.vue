@@ -100,6 +100,7 @@
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { paymentPageIdentity } from '@/components/payment/paymentRoute'
 import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
@@ -121,7 +122,7 @@ const route = useRoute()
 const router = useRouter()
 const paymentStore = usePaymentStore()
 const authStore = useAuthStore()
-const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query), clearStatusRefreshTimer)
+const lifecycle = usePaymentPageLifecycle(() => paymentPageIdentity(route, 'result'), clearStatusRefreshTimer)
 
 type ResolvedOrder = PaymentOrder | PublicOrderVerifyResult
 

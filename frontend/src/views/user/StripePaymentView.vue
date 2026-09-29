@@ -97,6 +97,7 @@
 import { ref, computed, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { paymentPageIdentity } from '@/components/payment/paymentRoute'
 import { usePaymentStore } from '@/stores/payment'
 import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
@@ -104,7 +105,7 @@ import { isMobileDevice } from '@/utils/device'
 import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
 import { PAYMENT_RECOVERY_STORAGE_KEY, usePaymentPageLifecycle, readOwnedPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
 import type { PaymentOrder } from '@/types/payment'
-import type { Stripe, StripeElements } from '@stripe/stripe-js'
+import type { Stripe, StripeElements, StripePaymentElement } from '@stripe/stripe-js'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -131,10 +132,12 @@ const showPaymentElement = ref(false)
 
 let stripeInstance: Stripe | null = null
 let elementsInstance: StripeElements | null = null
+let paymentElement: StripePaymentElement | null = null
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
-const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query), () => {
+const lifecycle = usePaymentPageLifecycle(() => paymentPageIdentity(route, 'stripe'), () => {
   if (redirectTimer) clearTimeout(redirectTimer)
   if (pollTimer) clearInterval(pollTimer)
+  paymentElement?.destroy()
 })
 
 onMounted(async () => {
@@ -259,7 +262,7 @@ function mountPaymentElement(stripe: Stripe, clientSecret: string) {
     appearance: { theme: isDark ? 'night' : 'stripe', variables: { borderRadius: '8px' } },
   })
   elementsInstance = elements
-  const paymentElement = elements.create('payment', {
+  paymentElement = elements.create('payment', {
     layout: 'tabs',
     paymentMethodOrder: ['alipay', 'wechat_pay', 'card', 'link'],
   } as Record<string, unknown>)

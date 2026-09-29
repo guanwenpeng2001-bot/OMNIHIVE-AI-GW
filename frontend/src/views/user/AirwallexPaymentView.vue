@@ -28,6 +28,7 @@
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { paymentPageIdentity } from '@/components/payment/paymentRoute'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
@@ -43,7 +44,7 @@ const router = useRouter()
 
 const loading = ref(true)
 const errorMessage = ref('')
-const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query))
+const lifecycle = usePaymentPageLifecycle(() => paymentPageIdentity(route, 'airwallex'))
 
 function queryString(key: string): string {
   const value = route.query[key]

@@ -14,6 +14,7 @@ import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { identityScoped } from './identityScope'
+import { paymentRouteComponent } from '@/components/payment/paymentRoute'
 
 /**
  * Route definitions with lazy loading
@@ -349,7 +350,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/result',
     name: 'PaymentResult',
-    component: () => import('@/views/user/PaymentResultView.vue'),
+    component: () => import('@/views/user/PaymentResultView.vue').then(({ default: component }) => paymentRouteComponent(component, 'result')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
@@ -361,7 +362,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/stripe',
     name: 'StripePayment',
-    component: () => import('@/views/user/StripePaymentView.vue'),
+    component: () => import('@/views/user/StripePaymentView.vue').then(({ default: component }) => paymentRouteComponent(component, 'stripe')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
@@ -373,7 +374,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/airwallex',
     name: 'AirwallexPayment',
-    component: () => import('@/views/user/AirwallexPaymentView.vue'),
+    component: () => import('@/views/user/AirwallexPaymentView.vue').then(({ default: component }) => paymentRouteComponent(component, 'airwallex')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
