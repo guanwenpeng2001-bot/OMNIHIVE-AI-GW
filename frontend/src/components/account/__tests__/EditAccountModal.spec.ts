@@ -85,6 +85,18 @@ import EditAccountModal from '../EditAccountModal.vue'
 import CursorKeyFields from '../CursorKeyFields.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import { modelAccess } from '@/api/modelAccess'
+import { modelAvailabilityAPI } from '@/api/admin/modelAvailability'
+import { convertCredentialSecret, rotateCredentialSecret, revokeCredentialSecret } from '@/api/admin/credentialSecrets'
+vi.mock('@/api/modelAccess', () => ({ modelAccess: {
+  groups: vi.fn().mockResolvedValue([]), rule: vi.fn().mockResolvedValue({ access_group_id: null, models: null, exclude: [], revision: 0 }),
+  saveRule: vi.fn(), preview: vi.fn()
+} }))
+vi.mock('@/api/admin/modelAvailability', () => ({ modelAvailabilityAPI: { get: vi.fn(), declare: vi.fn(), revoke: vi.fn() } }))
+vi.mock('@/api/admin/credentialSecrets', () => ({
+  getCredentialSecret: vi.fn().mockRejectedValue({ reason: 'CREDENTIAL_SECRET_NOT_FOUND' }),
+  convertCredentialSecret: vi.fn(), rotateCredentialSecret: vi.fn(), revokeCredentialSecret: vi.fn()
+}))
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
@@ -2548,4 +2560,100 @@ describe('account form semantic and localized validation regressions', () => {
   it('never assigns toggle button aria-pressed to editing radio cards', () => {
     expect(editAccountSource).not.toContain(':aria-pressed=')
   })
+})
+
+
+describe('account editor organization', () => {
+  it('keeps drafts mounted through folds and saves only account settings', async () => {
+    updateAccountMock.mockReset().mockResolvedValue(buildAccount())
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    allowlistWrite.mockClear()
+    syncUpstreamModelsMock.mockClear()
+    const wrapper = mountModal(buildAccount(), false, true)
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    const initialReads = catalogRead.mock.calls.length
+    const originalSelector = selector.vm.$
+    const selection = wrapper.get<HTMLDetailsElement>('[data-testid="model-selection"]')
+    const customInput = selector.get('input[aria-label="admin.accounts.customModelName"]')
+    await customInput.setValue('provider/draft-model')
+    selection.element.open = true
+    await selection.trigger('toggle')
+    selection.element.open = false
+    await selection.trigger('toggle')
+    selection.element.open = true
+    await selection.trigger('toggle')
+    expect(wrapper.getComponent(ModelWhitelistSelector).vm.$).toBe(originalSelector)
+    expect((customInput.element as HTMLInputElement).value).toBe('provider/draft-model')
+    expect(catalogRead).toHaveBeenCalledTimes(initialReads)
+    const access = wrapper.get<HTMLDetailsElement>('[data-testid="model-access-rules"]')
+    await access.get('textarea').setValue('provider/excluded-draft')
+    access.element.open = false
+    await access.trigger('toggle')
+    expect((access.get('textarea').element as HTMLTextAreaElement).value).toBe('provider/excluded-draft')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(allowlistWrite).not.toHaveBeenCalled()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    expect(modelAccess.saveRule).not.toHaveBeenCalled()
+    expect(modelAccess.preview).not.toHaveBeenCalled()
+    expect(modelAvailabilityAPI.declare).not.toHaveBeenCalled()
+    expect(modelAvailabilityAPI.revoke).not.toHaveBeenCalled()
+    expect(convertCredentialSecret).not.toHaveBeenCalled()
+    expect(rotateCredentialSecret).not.toHaveBeenCalled()
+    expect(revokeCredentialSecret).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('type')).toBe('submit')
+    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('form')).toBe('edit-account-form')
+    wrapper.unmount()
+  })
+
+  it('reveals native invalid fields without changing drafts or requests', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    const connection = wrapper.get<HTMLDetailsElement>('[data-testid="account-connection-settings"]')
+    const input = connection.get<HTMLInputElement>('input')
+    const originalValue = input.element.value
+    connection.element.open = false
+    await input.trigger('invalid')
+    await flushPromises()
+    expect(connection.element.open).toBe(true)
+    expect(input.element.value).toBe(originalValue)
+    wrapper.unmount()
+  })
+
+  it('reveals business validation inside a collapsed capabilities editor', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+    const editor = wrapper.getComponent({ name: 'ModelCapabilityDefaultsEditor' })
+    const details = editor.get<HTMLDetailsElement>('details')
+    expect(details.element.open).toBe(false)
+    await editor.get('textarea').setValue('{invalid JSON')
+    await flushPromises()
+    expect(details.element.open).toBe(true)
+    expect(editor.get('textarea').attributes('aria-invalid')).toBe('true')
+    details.element.open = false
+    updateAccountMock.mockClear()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(details.element.open).toBe(true)
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+
+it('reveals a folded connection section when an existing submit validator rejects credentials', async () => {
+  const account = { ...buildAccount(), credentials: { base_url: 'https://synthetic.example' }, credentials_status: { has_api_key: false } }
+  const wrapper = mountModal(account)
+  await flushPromises()
+  const connection = wrapper.get<HTMLDetailsElement>('[data-testid="account-connection-settings"]')
+  connection.element.open = false
+  updateAccountMock.mockClear()
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(connection.element.open).toBe(true)
+  expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.apiKeyIsRequired')
+  expect(updateAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
 })

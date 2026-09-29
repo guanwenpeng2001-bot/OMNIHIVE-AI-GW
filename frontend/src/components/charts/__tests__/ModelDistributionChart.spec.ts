@@ -73,6 +73,39 @@ describe('ModelDistributionChart', () => {
     },
   ]
 
+  it('preserves successful model data when ranking is unknown and recovers to a real empty ranking', async () => {
+    const wrapper = mount(ModelDistributionChart, { props: { modelStats, enableRankingView: true, rankingUnknown: true } })
+    expect(wrapper.text()).toContain('model-a')
+    const rankingButton = wrapper.findAll('button').find(button => button.text() === 'User Spending Ranking')!
+    await rankingButton.trigger('click')
+    expect(wrapper.get('[role="status"]').text()).toBe('—')
+    expect(wrapper.text()).not.toContain('No data available')
+    expect(wrapper.text()).not.toContain('admin.dashboard.failedToLoad')
+    await wrapper.setProps({ rankingUnknown: false })
+    expect(wrapper.text()).toContain('No data available')
+    await wrapper.setProps({ rankingError: true })
+    expect(wrapper.text()).toContain('admin.dashboard.failedToLoad')
+    wrapper.unmount()
+  })
+
+  it('preserves successful ranking data when model data is unknown or failed', async () => {
+    const wrapper = mount(ModelDistributionChart, { props: {
+      modelStats: [], modelUnknown: true, enableRankingView: true,
+      rankingItems: [{ user_id: 42, username: 'ranked-user', email: '', actual_cost: 3, requests: 5, tokens: 10 }],
+      rankingTotalActualCost: 3, rankingTotalRequests: 5, rankingTotalTokens: 10,
+    } })
+    expect(wrapper.get('[role="status"]').text()).toBe('—')
+    expect(wrapper.find('[data-testid="distribution-denominator"]').exists()).toBe(false)
+    await wrapper.findAll('button').find(button => button.text() === 'User Spending Ranking')!.trigger('click')
+    expect(wrapper.text()).toContain('ranked-user')
+    expect(wrapper.text()).toContain('3.00000000')
+    await wrapper.setProps({ modelUnknown: false, modelError: true })
+    expect(wrapper.text()).toContain('ranked-user')
+    await wrapper.findAll('button').find(button => button.text() === 'Model Distribution')!.trigger('click')
+    expect(wrapper.get('[role="status"]').text()).toBe('admin.dashboard.failedToLoad')
+    wrapper.unmount()
+  })
+
   it('uses total_tokens and token ordering by default', () => {
     const wrapper = mount(ModelDistributionChart, {
       props: {

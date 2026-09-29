@@ -54,7 +54,7 @@ func TestUsageDashboardWriterLocks(t *testing.T) {
 			execute(usageTable)
 			execute(`CREATE TABLE usage_dashboard_aggregation_watermark(id smallint PRIMARY KEY, last_aggregated_at timestamptz, updated_at timestamptz);
 INSERT INTO usage_dashboard_aggregation_watermark VALUES(1,'1970-01-01',NOW())`)
-			for _, migrationName := range []string{"222_group_usage_daily_rollups.sql", "223_group_usage_rollup_timezone.sql", "258_usage_dashboard_coverage.sql"} {
+			for _, migrationName := range []string{"222_group_usage_daily_rollups.sql", "223_group_usage_rollup_timezone.sql", "258_usage_dashboard_coverage.sql", "279_usage_history_origin.sql"} {
 				migrationSQL, readErr := migrations.FS.ReadFile(migrationName)
 				require.NoError(t, readErr)
 				execute(string(migrationSQL))
@@ -187,6 +187,29 @@ INSERT INTO usage_dashboard_aggregation_watermark VALUES(1,'1970-01-01',NOW())`)
 				var dirty time.Time
 				require.NoError(t, isolated.QueryRow(`SELECT dirty_from FROM usage_dashboard_aggregation_watermark`).Scan(&dirty))
 				require.Equal(t, time.Date(2026, 2, 28, 12, 0, 0, 0, time.UTC), dirty.UTC())
+			})
+			t.Run("origin_revocations_serialize_before_first_publication", func(test *testing.T) {
+				execute(`UPDATE usage_group_rollup_state SET closed_before='1970-01-01'; UPDATE usage_dashboard_aggregation_watermark SET last_aggregated_at='1970-01-01',dirty_from=NULL,history_known_empty_before='2026-03-02'`)
+				firstWriter := begin(test)
+				secondWriter := begin(test)
+				_, err := firstWriter.Exec(insert)
+				require.NoError(test, err)
+				_, err = secondWriter.Exec(insert)
+				require.NoError(test, err)
+				_, err = firstWriter.Exec(`INSERT INTO ` + tableName + `(group_id,created_at) VALUES(NULL,'2026-03-01')`)
+				require.NoError(test, err, "revocation coexists with an open normal writer")
+				finished := make(chan error, 1)
+				go func() {
+					_, err := secondWriter.Exec(`INSERT INTO ` + tableName + `(group_id,created_at) VALUES(NULL,'2026-02-28')`)
+					finished <- err
+				}()
+				require.NoError(test, firstWriter.Commit())
+				require.NoError(test, <-finished)
+				require.NoError(test, secondWriter.Commit())
+				var origin, dirty sql.NullTime
+				require.NoError(test, isolated.QueryRow(`SELECT history_known_empty_before,dirty_from FROM usage_dashboard_aggregation_watermark`).Scan(&origin, &dirty))
+				require.False(test, origin.Valid)
+				require.False(test, dirty.Valid)
 			})
 			t.Run("delete_rollback_and_verified_retention", func(t *testing.T) {
 				reset()

@@ -1,7 +1,6 @@
 <template>
-  <section v-if="result || summary" class="mb-3 space-y-2 rounded-lg border border-gray-200 p-3 text-sm text-gray-700 dark:border-dark-500 dark:text-gray-200" :aria-label="t('admin.accounts.modelSync.title')">
+  <section v-if="result || summary" class="mb-3 min-w-0 break-words space-y-2 rounded-lg border border-gray-200 p-3 text-sm text-gray-700 dark:border-dark-500 dark:text-gray-200" :aria-label="t('admin.accounts.modelSync.title')">
     <p v-if="summary?.staleness === 'stale' && result?.applied !== true" role="alert" class="font-semibold text-amber-700 dark:text-amber-400">{{ t('admin.accounts.modelCatalog.stale') }}</p>
-    <p v-if="!summary && !result">{{ t('admin.accounts.modelSync.unknown') }}</p>
     <p v-if="summary && !result">{{ summary.warnings.includes('identity_changed') ? reasonText('identity_changed') : t(`admin.accounts.modelSync.${summary.synced ? (summary.last_error ? 'failedPrevious' : summary.eligible_count ? 'synced' : 'syncedEmpty') : 'notSynced'}`) }}</p>
     <p v-if="result">{{ t(`admin.accounts.modelSync.${result.applied === true ? (eligibleCount ? 'synced' : 'syncedEmpty') : 'previewOnly'}`) }}</p>
     <p v-if="result && (result.discovery_complete ?? result.complete) !== true">{{ t('admin.accounts.modelSync.incomplete') }}</p>
@@ -14,15 +13,15 @@
       <p>{{ labels.sets }}: D {{ discoveredCount }} · M {{ mappingCount }} · U {{ unionCount }} · E {{ stale ? '—' : eligibleCount }}</p>
       <p>{{ labels.setsHint }}</p>
       <p role="status" data-testid="capability-state">{{ capabilityState }}</p>
-      <p>{{ labels.coverage }}: {{ completeCount }} / {{ metadataRows.length }} · {{ labels.estimated }} {{ estimatedCount }} · {{ labels.missing }} {{ metadataRows.length - completeCount - estimatedCount }}</p>
+      <p>{{ t('capabilityCatalog.coverageSummary', { complete: completeCount, total: metadataRows.length, estimated: estimatedCount, incomplete: metadataRows.length - completeCount - estimatedCount }) }}</p>
     </div>
     <div v-else-if="summary?.synced" data-testid="capability-sets" class="space-y-1">
       <p>{{ labels.sets }}: D {{ summary.discovered_count }} · M {{ savedCapabilities?.mapping_targets ?? '—' }} · U {{ savedCapabilities?.total ?? '—' }} · E {{ stale ? '—' : summary.eligible_count }}</p>
       <p>{{ labels.setsHint }}</p>
-      <p v-if="savedCapabilities">{{ labels.coverage }}: {{ savedCapabilities.complete }} / {{ savedCapabilities.total }} · {{ labels.estimated }} {{ savedCapabilities.estimated }} · {{ labels.missing }} {{ savedCapabilities.incomplete }}</p>
+      <p v-if="savedCapabilities">{{ t('capabilityCatalog.coverageSummary', { complete: savedCapabilities.complete, total: savedCapabilities.total, estimated: savedCapabilities.estimated, incomplete: savedCapabilities.incomplete }) }}</p>
     </div>
-    <section v-if="metadataRows.length" class="space-y-2" :aria-label="labels.title">
-      <h3 class="font-semibold">{{ labels.title }}</h3>
+    <details v-if="metadataRows.length" class="space-y-2" data-testid="capability-details" :aria-label="labels.title">
+      <summary class="cursor-pointer py-2 font-semibold">{{ labels.title }}</summary>
       <p v-if="stale" role="status" class="text-amber-700 dark:text-amber-400">{{ labels.stale }}</p>
       <div class="flex flex-wrap gap-2">
         <input v-model="query" type="search" class="input" :aria-label="labels.search" :placeholder="labels.search" data-testid="capability-search" />
@@ -31,7 +30,7 @@
           <option value="estimated">{{ labels.estimated }}</option><option value="incomplete">{{ labels.missing }}</option>
           <option value="conflict">{{ labels.conflict }}</option>
         </select>
-        <p role="status">{{ visibleMetadata.length }} / {{ filteredMetadata.length }}</p>
+        <p role="status" data-testid="capability-progress">{{ filteredMetadata.length ? t('capabilityCatalog.progress', { shown: visibleMetadata.length, matched: filteredMetadata.length }) : t('admin.accounts.noMatchingModels') }}</p>
         <button v-if="visibleMetadata.length < filteredMetadata.length" type="button" class="btn btn-secondary" data-testid="capability-more" @click="visibleLimit += 50">{{ labels.more }}</button>
       </div>
       <div class="max-h-[min(24rem,50vh)] space-y-2 overflow-y-auto">
@@ -43,7 +42,7 @@
             <div v-if="expanded.has(entry.id)" class="text-xs">{{ entry.metadata_status === 'complete' ? labels.complete : entry.metadata_status === 'estimated' ? labels.estimated : entry.metadata_status === 'incomplete' ? labels.missing : labels.unknown }}<span v-if="entry.conflicts?.length"> · {{ labels.conflict }}</span></div>
             <div v-if="expanded.has(entry.id)" class="mt-2 space-y-1 break-words text-xs" data-testid="capability-fields">
               <p v-if="exclusions.get(entry.id)">{{ t('admin.accounts.modelSync.excluded') }}: {{ reasonText(exclusions.get(entry.id)!) }}</p>
-              <p v-if="entry.missing_fields?.length" class="font-semibold text-amber-700 dark:text-amber-400">{{ labels.missing }}: {{ entry.missing_fields.join(', ') }}</p>
+              <p v-if="entry.missing_fields?.length" class="font-semibold text-amber-700 dark:text-amber-400">{{ t('capabilityCatalog.missingFields') }}: {{ entry.missing_fields.join(', ') }}</p>
               <p v-if="entry.estimated_fields?.length" class="text-amber-700 dark:text-amber-400">{{ labels.estimated }}: {{ entry.estimated_fields.join(', ') }}</p>
               <p v-for="conflict in entry.conflicts ?? []" :key="conflict" class="text-red-600 dark:text-red-400">{{ labels.conflict }}: {{ conflict }}</p>
               <p v-if="entry.evidence_kind">{{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind }}</p>
@@ -62,7 +61,7 @@
           </details>
         </section>
       </div>
-    </section>
+    </details>
     <details data-testid="catalog-diagnostics">
       <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.modelSync.technicalDetails') }}</summary>
       <div class="max-h-[min(16rem,40vh)] space-y-2 overflow-y-auto break-all">

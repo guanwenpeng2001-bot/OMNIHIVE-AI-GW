@@ -2,11 +2,6 @@
   <AppLayout>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-        <p>{{ t('dashboard.historyUnavailable') }}</p>
-        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
-        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
-      </div>
       <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
@@ -30,7 +25,7 @@
         </div>
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ModelDistributionChart
+          <ModelDistributionChart :model-unknown="modelState === 'unknown'" :model-error="modelState === 'error'"
             v-model:metric="modelDistributionMetric"
             :model-stats="requestedModelStats"
             :loading="modelStatsLoading"
@@ -41,34 +36,40 @@
             :start-date="startDate"
             :end-date="endDate"
           />
-          <GroupDistributionChart
-            v-model:metric="groupDistributionMetric"
-            :group-stats="groupStats"
-            :loading="chartsLoading"
-            :show-metric-toggle="true"
-            :enable-breakdown="false"
-            :show-account-cost="false"
-            :start-date="startDate"
-            :end-date="endDate"
-          />
+          <UsageStatsState :state="historyGap ? 'unknown' : chartError ? 'error' : 'known'">
+            <GroupDistributionChart
+              v-model:metric="groupDistributionMetric"
+              :group-stats="groupStats"
+              :loading="chartsLoading"
+              :show-metric-toggle="true"
+              :enable-breakdown="false"
+              :show-account-cost="false"
+              :start-date="startDate"
+              :end-date="endDate"
+            />
+          </UsageStatsState>
         </div>
 
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <EndpointDistributionChart
-            v-model:source="endpointDistributionSource"
-            v-model:metric="endpointDistributionMetric"
-            :endpoint-stats="inboundEndpointStats"
-            :upstream-endpoint-stats="upstreamEndpointStats"
-            :endpoint-path-stats="endpointPathStats"
-            :loading="endpointStatsLoading"
-            :show-source-toggle="false"
-            :show-metric-toggle="true"
-            :enable-breakdown="false"
-            :title="t('usage.endpointDistribution')"
-            :start-date="startDate"
-            :end-date="endDate"
-          />
-          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+          <UsageStatsState :state="statsHistoryGap ? 'unknown' : statsError ? 'error' : 'known'">
+            <EndpointDistributionChart
+              v-model:source="endpointDistributionSource"
+              v-model:metric="endpointDistributionMetric"
+              :endpoint-stats="inboundEndpointStats"
+              :upstream-endpoint-stats="upstreamEndpointStats"
+              :endpoint-path-stats="endpointPathStats"
+              :loading="endpointStatsLoading"
+              :show-source-toggle="false"
+              :show-metric-toggle="true"
+              :enable-breakdown="false"
+              :title="t('usage.endpointDistribution')"
+              :start-date="startDate"
+              :end-date="endDate"
+            />
+          </UsageStatsState>
+          <UsageStatsState :state="historyGap ? 'unknown' : chartError ? 'error' : 'known'">
+            <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+          </UsageStatsState>
         </div>
       </div>
 
@@ -168,18 +169,20 @@
       </div>
 
       <template v-if="activeTab === 'usage'">
-        <UsageTable :time-zone="reportTimeZone"
-          :data="usageLogs"
-          :loading="loading"
-          :columns="visibleColumns"
-          :server-side-sort="true"
-          :show-account-billing="false"
-          :show-upstream-endpoint="false"
-          default-sort-key="created_at"
-          default-sort-order="desc"
-          @sort="handleSort"
-          @ipGeoBatchFailed="handleIpGeoBatchFailed"
-        />
+        <UsageStatsState :state="logsState">
+            <UsageTable :time-zone="reportTimeZone"
+            :data="usageLogs"
+            :loading="loading"
+            :columns="visibleColumns"
+            :server-side-sort="true"
+            :show-account-billing="false"
+            :show-upstream-endpoint="false"
+            default-sort-key="created_at"
+            default-sort-order="desc"
+            @sort="handleSort"
+            @ipGeoBatchFailed="handleIpGeoBatchFailed"
+          />
+        </UsageStatsState>
 
         <Pagination
           v-if="pagination.total > 0"
@@ -216,6 +219,7 @@ const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
 
+import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, usageExportFailureMessage, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { billingEvidenceFields } from '@/utils/usageBillingExplanation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
@@ -257,6 +261,9 @@ import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 const { t } = useI18n()
 const historyGap = ref<HistoryGap | null>(null)
 const statsError = ref(false)
+const chartError = ref(false)
+const modelState = ref<'known' | 'unknown' | 'error'>('known')
+const logsState = ref<'known' | 'unknown' | 'error'>('known')
 const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 
@@ -423,18 +430,18 @@ const loadLogs = async () => {
   const controller = new AbortController()
   abortController = controller
   loading.value = true
+  logsState.value = 'known'
+  usageLogs.value = []
+  pagination.total = 0
   try {
-    const res = await usageAPI.query(buildUsageListParams(pagination.page, pagination.page_size), {
-      signal: controller.signal,
-    })
-    if (!controller.signal.aborted) {
-      usageLogs.value = res.items
-      pagination.total = res.total
-    }
+    const response = await usageAPI.query(buildUsageListParams(pagination.page, pagination.page_size), { signal: controller.signal })
+    if (controller.signal.aborted || abortController !== controller) return
+    usageLogs.value = response.items
+    pagination.total = response.total
   } catch (error: any) {
-    if (error?.name !== 'AbortError' && error?.code !== 'ERR_CANCELED') {
-      appStore.showError(t('usage.failedToLoad'))
-    }
+    if (controller.signal.aborted || abortController !== controller || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
+    logsState.value = historyGapFromError(error) ? 'unknown' : 'error'
+    if (logsState.value === 'error') appStore.showError(t('usage.failedToLoad'))
   } finally {
     if (abortController === controller) loading.value = false
   }
@@ -470,6 +477,7 @@ const loadStats = async () => {
 const loadModelStats = async () => {
   const seq = ++modelStatsReqSeq
   modelStatsLoading.value = true
+  modelState.value = 'known'
   try {
     const response = await usageAPI.getDashboardModels({
       ...normalizedFilters.value,
@@ -480,6 +488,7 @@ const loadModelStats = async () => {
     refreshModelOptions(response.models || [])
   } catch (error) {
     if (seq !== modelStatsReqSeq) return
+    modelState.value = historyGapFromError(error) ? 'unknown' : 'error'
     console.error('Failed to load model stats:', error)
     requestedModelStats.value = []
   } finally {
@@ -490,6 +499,8 @@ const loadModelStats = async () => {
 const loadChartData = async () => {
   const seq = ++chartReqSeq
   chartsLoading.value = true
+  chartError.value = false
+  historyGap.value = null
   try {
     const snapshot = await usageAPI.getDashboardSnapshotV2({
       ...normalizedFilters.value,
@@ -505,6 +516,7 @@ const loadChartData = async () => {
   } catch (error) {
     if (seq !== chartReqSeq) return
     historyGap.value = historyGapFromError(error)
+    chartError.value = !historyGap.value
     console.error('Failed to load chart data:', error)
     trendData.value = []
     groupStats.value = []
@@ -836,6 +848,10 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  chartReqSeq++
+  statsReqSeq++
+  modelStatsReqSeq++
+
   abortController?.abort()
   document.removeEventListener('click', handleColumnClickOutside)
 })

@@ -118,3 +118,25 @@ describe('AccountCredentialSecretSection', () => {
     expect(mockedGet).toHaveBeenCalledTimes(2)
   })
 })
+
+
+it('keeps rotation draft and current status when management is folded', async () => {
+  mockedGet.mockResolvedValue(metadata())
+  const wrapper = mountSection()
+  await flushPromises()
+  const details = wrapper.get<HTMLDetailsElement>('[data-testid="credential-secret-management"]')
+  expect(details.element.open).toBe(false)
+  expect(wrapper.get('[data-testid="credential-secret-state"]').element.closest('details')).toBeNull()
+  const reads = mockedGet.mock.calls.length
+  const input = wrapper.get<HTMLTextAreaElement>('[data-testid="rotate-credential-payload"]')
+  await input.setValue('{"api_key":"synthetic-draft"}')
+  details.element.open = true
+  await details.trigger('toggle')
+  details.element.open = false
+  await details.trigger('toggle')
+  details.element.open = true
+  await details.trigger('toggle')
+  expect(input.element.value).toBe('{"api_key":"synthetic-draft"}')
+  expect(mockedGet).toHaveBeenCalledTimes(reads)
+  wrapper.unmount()
+})

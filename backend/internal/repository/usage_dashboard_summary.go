@@ -10,7 +10,7 @@ import (
 func (r *usageLogRepository) fillDashboardClosedAndRaw(ctx context.Context, stats *DashboardStats, today, now time.Time) error {
 	if needsUsageSnapshot(r) {
 		_, err := usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) (bool, error) {
-			stats.Coverage = c.metadata()
+			stats.Coverage = c.metadataFor(c.summaryComplete(today, now))
 			return true, snapshot.fillDashboardClosedAndRaw(ctx, stats, today, now)
 		})
 		return err

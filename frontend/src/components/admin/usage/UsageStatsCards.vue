@@ -2,7 +2,7 @@
   <div v-if="loading || error || historyGap || !stats" data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <div v-for="label in ['usage.totalRequests', 'usage.totalTokens', 'usage.totalCost', 'usage.avgDuration']" :key="label" class="card p-4">
       <p class="text-xs font-medium text-gray-500">{{ t(label) }}</p>
-      <p class="text-xl font-bold" role="status">{{ t(loading ? 'common.loading' : historyGap ? 'usage.statsUnknown' : 'usage.statsUnavailable') }}</p>
+      <p class="text-xl font-bold" role="status">{{ loading ? t('common.loading') : historyGap ? '—' : t('usage.failedToLoad') }}</p>
       <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
     </div>
   </div>
