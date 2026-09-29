@@ -42,10 +42,7 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		ctx = WithCompositeRouteTargets(ctx, decision.Targets)
 	}
 	ctx = WithCompositeSelectedTarget(ctx, decision.SelectedTarget)
-	requiredType := decision.AccountType
-	if requiredType == "" {
-		requiredType = domain.HostedAccountType(decision.TargetPlatform)
-	}
+	requiredType := domain.ResolveAccountTypeIdentity(decision.TargetPlatform, decision.AccountType).RequiredAccountType()
 	ctx = context.WithValue(ctx, hostedRouteAccountTypeKey{}, requiredType)
 	if model := strings.TrimSpace(decision.UpstreamModel); model != "" {
 		ctx = context.WithValue(ctx, ctxkey.ResolvedUpstreamModel, model)

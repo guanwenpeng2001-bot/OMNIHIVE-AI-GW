@@ -2379,6 +2379,9 @@ func (r *accountRepository) ListModelAvailabilityCandidates(
 
 // queryModelCatalogAccounts projects only membership evidence and name-resolution
 // configuration in SQL; authentication secrets never enter catalog readers.
+// Semantic source: domain.ResolveAccountTypeIdentity (internal/domain/platform_identity.go).
+// The SQL platform predicates preserve raw account types; the group's COALESCE
+// mirrors RequiredAccountType (explicit type first, then legacy hosted default).
 func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id int64, groupID *int64, platforms []string, includeGrouped bool, groupIDs ...[]int64) ([]service.Account, error) {
 	// Composite catalogs have no platform restriction. pq.Array encodes nil as
 	// SQL NULL, so normalize it to an empty array before applying the predicate.
