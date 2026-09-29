@@ -2,6 +2,7 @@ package logredact
 
 import (
 	"encoding/json"
+	"net/url"
 	"regexp"
 	"sort"
 	"strings"
@@ -12,6 +13,19 @@ import (
 const maxRedactDepth = 32
 
 var defaultSensitiveKeys = map[string]struct{}{
+	"api_key":             {},
+	"api-key":             {},
+	"apikey":              {},
+	"x-api-key":           {},
+	"x-goog-api-key":      {},
+	"authorization":       {},
+	"proxy-authorization": {},
+	"key":                 {},
+	"token":               {},
+	"secret":              {},
+	"cookie":              {},
+	"set-cookie":          {},
+
 	"authorization_code": {},
 	"code":               {},
 	"code_verifier":      {},
@@ -23,6 +37,19 @@ var defaultSensitiveKeys = map[string]struct{}{
 }
 
 var defaultSensitiveKeyList = []string{
+	"api_key",
+	"api-key",
+	"apikey",
+	"x-api-key",
+	"x-goog-api-key",
+	"authorization",
+	"proxy-authorization",
+	"key",
+	"token",
+	"secret",
+	"cookie",
+	"set-cookie",
+
 	"authorization_code",
 	"code",
 	"code_verifier",
@@ -40,8 +67,14 @@ type textRedactPatterns struct {
 }
 
 var (
-	reGOCSPX = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
-	reAIza   = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
+	reDiagnosticURI   = regexp.MustCompile(`https?://[^\s"<>]+`)
+	reDiagnosticEmail = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}`)
+	reAuthorization   = regexp.MustCompile(`(?i)(authorization\s*[:=]\s*)(?:bearer|basic)\s+[^\s,;"}]+`)
+	reURIUser         = regexp.MustCompile(`(https?://)[^/\s:@]+:[^/\s@]+@`)
+	reOpenAIKey       = regexp.MustCompile(`\bsk-[0-9A-Za-z_-]{6,}`)
+	reHTTPBody        = regexp.MustCompile(`(?i)\b(?:body|response)\s*[:=]\s*[\{<]`)
+	reGOCSPX          = regexp.MustCompile(`GOCSPX-[0-9A-Za-z_-]{24,}`)
+	reAIza            = regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)
 
 	defaultTextRedactPatterns = compileTextRedactPatterns(nil)
 	extraTextPatternCache     sync.Map // map[string]*textRedactPatterns
@@ -96,7 +129,9 @@ func RedactText(input string, extraKeys ...string) string {
 
 	patterns := getTextRedactPatterns(extraKeys)
 
-	out := input
+	out := reAuthorization.ReplaceAllString(input, `${1}***`)
+	out = reDiagnosticURI.ReplaceAllStringFunc(out, RedactURI)
+	out = reOpenAIKey.ReplaceAllString(out, "sk-***")
 	out = reGOCSPX.ReplaceAllString(out, "GOCSPX-***")
 	out = reAIza.ReplaceAllString(out, "AIza***")
 	out = patterns.reJSONLike.ReplaceAllString(out, `$1***$3`)
@@ -109,7 +144,7 @@ func compileTextRedactPatterns(extraKeys []string) *textRedactPatterns {
 	keyAlt := buildKeyAlternation(extraKeys)
 	return &textRedactPatterns{
 		// JSON-like: "access_token":"..."
-		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")([^"]*)(")`),
+		reJSONLike: regexp.MustCompile(`(?i)("(?:` + keyAlt + `)"\s*:\s*")((?:\\.|[^"\\])*)("|$)`),
 		// Query-like: access_token=...
 		reQueryLike: regexp.MustCompile(`(?i)\b((?:` + keyAlt + `))=([^&\s]+)`),
 		// Plain: access_token: ... / access_token = ...
@@ -211,6 +246,14 @@ func redactValueWithDepth(value any, keys map[string]struct{}, depth int) any {
 			out[k] = redactValueWithDepth(val, keys, depth+1)
 		}
 		return out
+	case string:
+		patterns := getTextRedactPatterns(nil)
+		redacted := patterns.reQueryLike.ReplaceAllString(v, `$1=***`)
+		redacted = reOpenAIKey.ReplaceAllString(redacted, "sk-***")
+		redacted = reGOCSPX.ReplaceAllString(redacted, "GOCSPX-***")
+		redacted = reAIza.ReplaceAllString(redacted, "AIza***")
+		redacted = reAuthorization.ReplaceAllString(redacted, `${1}***`)
+		return reDiagnosticURI.ReplaceAllStringFunc(redacted, RedactURI)
 	case []any:
 		out := make([]any, len(v))
 		for i, item := range v {
@@ -229,4 +272,50 @@ func isSensitiveKey(key string, keys map[string]struct{}) bool {
 
 func normalizeKey(key string) string {
 	return strings.ToLower(strings.TrimSpace(key))
+}
+
+// RedactDiagnostic removes credentials and private routing/identity details from
+// a human-readable upstream reason. Never return an HTTP body verbatim to an SDK.
+func RedactDiagnostic(message string) string {
+	if reHTTPBody.MatchString(message) {
+		return "Upstream request failed"
+	}
+	if json.Valid([]byte(message)) {
+		return "Upstream request failed"
+	}
+	message = RedactText(message, "account_id", "user_id", "organization_id", "project_id", "host", "hostname")
+	lowered := strings.ToLower(strings.TrimSpace(message))
+	if strings.Contains(lowered, "dial tcp") || strings.Contains(lowered, "dial udp") || strings.Contains(lowered, "lookup ") {
+		return "Upstream connection failed"
+	}
+	if strings.Contains(lowered, "<html") || strings.Contains(lowered, "<!doctype") || strings.HasPrefix(lowered, "http/") {
+		return "Upstream request failed"
+	}
+	message = reDiagnosticURI.ReplaceAllString(message, "[upstream]")
+	return reDiagnosticEmail.ReplaceAllString(message, "[identity]")
+}
+
+// RedactURI parses query names before matching so encoded Gemini keys are covered.
+func RedactURI(raw string) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return reURIUser.ReplaceAllString(raw, `${1}***@`)
+	}
+	changed := false
+	if parsed.User != nil {
+		parsed.User = url.User("***")
+		changed = true
+	}
+	query := parsed.Query()
+	for key := range query {
+		if isSensitiveKey(key, defaultSensitiveKeys) {
+			query.Set(key, "***")
+			changed = true
+		}
+	}
+	if !changed {
+		return raw
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }

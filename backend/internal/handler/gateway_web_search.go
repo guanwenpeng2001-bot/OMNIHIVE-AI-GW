@@ -77,6 +77,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		return
 	}
 
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, searchModel, searchLabel, h.maxAccountSwitches)()
 	// Billing eligibility (same as other requests)
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
@@ -137,8 +138,8 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		}
 	}()
 
-	// First attempt + up to 3 failover accounts (max 4 total).
-	for attempt := 0; attempt < 4; attempt++ {
+	// One configured request allowance includes the initial send.
+	for attempt := 0; attempt <= h.maxAccountSwitches; attempt++ {
 		selected, selectErr := h.gatewayService.SelectAccountWithLoadAwareness(
 			c.Request.Context(), groupID, "", searchModel, failedAccounts, "", 0,
 		)

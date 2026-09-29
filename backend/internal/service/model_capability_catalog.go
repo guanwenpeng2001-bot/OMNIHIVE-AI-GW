@@ -38,10 +38,17 @@ type LiteLLMCapabilityFields struct {
 // CapabilityRecord contains specifications only; it cannot authorize a model
 // or provide any billing or Codex-specific tool defaults.
 type CapabilityRecord struct {
-	Aliases             []string          `json:"aliases,omitempty"`
-	Control             *ReasoningControl `json:"control,omitempty"`
-	SupportedMethods    []string          `json:"supported_methods,omitempty"`
-	EmbeddingDimensions *int64            `json:"embedding_dimensions,omitempty"`
+	CreatedAt    string `json:"created_at,omitempty"`
+	ModelVersion string `json:"model_version,omitempty"`
+
+	ContextWindow         int64                      `json:"context_window,omitempty"`
+	ContextLimitKind      string                     `json:"context_limit_kind,omitempty"`
+	InputModalitiesStatus string                     `json:"input_modalities_status,omitempty"`
+	TaskLimits            map[string]json.RawMessage `json:"task_limits,omitempty"`
+	Aliases               []string                   `json:"aliases,omitempty"`
+	Control               *ReasoningControl          `json:"control,omitempty"`
+	SupportedMethods      []string                   `json:"supported_methods,omitempty"`
+	EmbeddingDimensions   *int64                     `json:"embedding_dimensions,omitempty"`
 	LiteLLMCapabilityFields
 	Provider                string                           `json:"provider"`
 	Profile                 string                           `json:"profile"`
@@ -132,6 +139,12 @@ func cloneCapabilityRecord(r CapabilityRecord) CapabilityRecord {
 		c.EmbeddingDimensions = &dimensions
 	}
 	c.Control = cloneReasoningControl(r.Control)
+	if r.TaskLimits != nil {
+		c.TaskLimits = make(map[string]json.RawMessage, len(r.TaskLimits))
+		for name, value := range r.TaskLimits {
+			c.TaskLimits[name] = append(json.RawMessage(nil), value...)
+		}
+	}
 	src, dst := reflect.ValueOf(r.LiteLLMCapabilityFields), reflect.ValueOf(&c.LiteLLMCapabilityFields).Elem()
 	for i := 0; i < src.NumField(); i++ {
 		v := src.Field(i)
@@ -156,6 +169,11 @@ func cloneCapabilityRecord(r CapabilityRecord) CapabilityRecord {
 }
 
 func validateCapabilityRecord(r CapabilityRecord) error {
+	if r.CreatedAt != "" {
+		if _, err := time.Parse(time.RFC3339Nano, r.CreatedAt); err != nil {
+			return fmt.Errorf("invalid model creation time: %w", err)
+		}
+	}
 	if strings.TrimSpace(r.ModelID) == "" || strings.ContainsRune(r.ModelID, 0) || strings.ContainsRune(r.Profile, 0) {
 		return fmt.Errorf("invalid model identity")
 	}
@@ -224,8 +242,46 @@ func fillCapabilityFields(primary, fallback CapabilityRecord) CapabilityRecord {
 			primary.FieldSources[name] = fallback.FieldSources[name]
 		}
 	}
-	if primary.Mode == "" {
+	if primary.CreatedAt == "" && fallback.CreatedAt != "" {
+		primary.CreatedAt = fallback.CreatedAt
+		primary.FieldSources["created_at"] = fallback.FieldSources["created_at"]
+	}
+	if primary.ModelVersion == "" && fallback.ModelVersion != "" {
+		primary.ModelVersion = fallback.ModelVersion
+		primary.FieldSources["model_version"] = fallback.FieldSources["model_version"]
+	}
+	if primary.Mode == "" && fallback.Mode != "" {
 		primary.Mode = fallback.Mode
+		primary.FieldSources["mode"] = fallback.FieldSources["mode"]
+	}
+	if primary.ContextWindow == 0 && primary.MaxInputTokens == nil && fallback.ContextWindow > 0 {
+		primary.ContextWindow, primary.ContextLimitKind = fallback.ContextWindow, fallback.ContextLimitKind
+		primary.FieldSources["context_window"] = fallback.FieldSources["context_window"]
+		primary.FieldSources["context_limit_kind"] = fallback.FieldSources["context_limit_kind"]
+	}
+	if primary.Control == nil && fallback.Control != nil {
+		primary.Control = cloneReasoningControl(fallback.Control)
+		primary.FieldSources["control"] = fallback.FieldSources["control"]
+	}
+	if primary.SupportedMethods == nil && fallback.SupportedMethods != nil {
+		primary.SupportedMethods = append([]string(nil), fallback.SupportedMethods...)
+		primary.FieldSources["supported_methods"] = fallback.FieldSources["supported_methods"]
+	}
+	if primary.EmbeddingDimensions == nil && fallback.EmbeddingDimensions != nil {
+		primary.EmbeddingDimensions = fallback.EmbeddingDimensions
+		primary.FieldSources["embedding_dimensions"] = fallback.FieldSources["embedding_dimensions"]
+	}
+	if primary.InputModalitiesStatus == "" {
+		primary.InputModalitiesStatus = fallback.InputModalitiesStatus
+	}
+	if primary.TaskLimits == nil && len(fallback.TaskLimits) > 0 {
+		primary.TaskLimits = make(map[string]json.RawMessage)
+	}
+	for name, value := range fallback.TaskLimits {
+		if _, exists := primary.TaskLimits[name]; !exists {
+			primary.TaskLimits[name] = append(json.RawMessage(nil), value...)
+			primary.FieldSources["task_limits."+name] = fallback.FieldSources["task_limits."+name]
+		}
 	}
 	return primary
 }
@@ -282,6 +338,10 @@ func parseCapabilityRecords(body []byte, source string) (map[string]CapabilityRe
 // buildModelCapabilitySnapshot never reads custom pricing overrides. Supplements
 // are version-bound; runtime fills before embed and boolean false is never missing.
 func buildModelCapabilitySnapshot(runtime []byte) (*ModelCapabilitySnapshot, error) {
+	return buildModelCapabilitySnapshotFromCatalog(runtime, modelcapabilities.JSON())
+}
+
+func buildModelCapabilitySnapshotFromCatalog(runtime, supplement []byte) (*ModelCapabilitySnapshot, error) {
 	baseline := modelpricing.JSON()
 	records, err := parseCapabilityRecords(baseline, "litellm:embed")
 	if err != nil {
@@ -301,7 +361,6 @@ func buildModelCapabilitySnapshot(runtime []byte) (*ModelCapabilitySnapshot, err
 		}
 		contentHash = capabilityHash(runtime)
 	}
-	supplement := modelcapabilities.JSON()
 	var catalog struct {
 		SchemaVersion int                `json:"schema_version"`
 		GeneratedAt   string             `json:"generated_at"`
@@ -335,6 +394,11 @@ func buildModelCapabilitySnapshot(runtime []byte) (*ModelCapabilitySnapshot, err
 		// The independently pinned release approves exact profile/model identities.
 		// Historical input hashes are provenance, never a live pricing predicate.
 		r.FieldSources = make(map[string]CapabilityFieldSource)
+		for name, value := range map[string]string{"created_at": r.CreatedAt, "model_version": r.ModelVersion} {
+			if value != "" {
+				r.FieldSources[name] = CapabilityFieldSource{r.Source, r.SourceContentHash}
+			}
+		}
 		v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 		for i := 0; i < v.NumField(); i++ {
 			if !v.Field(i).IsNil() {
@@ -356,9 +420,13 @@ func (s *PricingService) CapabilitySnapshot() *ModelCapabilitySnapshot {
 	if s == nil {
 		return nil
 	}
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.capabilityData
+	if s.registrySnapshot != nil {
+		return s.registrySnapshot.CapabilitySnapshot()
+	}
+	if s.registry != nil {
+		return s.registry.CapabilitySnapshot()
+	}
+	return NewModelRegistry().CapabilitySnapshot()
 }
 
 func (s *PricingService) buildCapabilityCandidate(body []byte, declaredHash string) *ModelCapabilitySnapshot {
@@ -449,41 +517,37 @@ func unmarshalPricingEntry(body []byte, entry *LiteLLMRawEntry) error {
 }
 
 func (s *PricingService) persistPricingDownload(path string, body []byte, candidate *ModelCapabilitySnapshot) error {
-	// Write the capability approval marker first. A crash between replacements
-	// leaves a mismatched pair, which can never promote unverified capabilities.
-	marker := "rejected:" + capabilityHash(body)
-	if candidate != nil {
-		marker = candidate.ContentHash()
-	}
-	if err := writePricingFileAtomically(path+".capabilities.sha256", []byte(marker)); err != nil {
-		return err
-	}
+	s.stageCapabilityReview(path, body, candidate)
 	return writePricingFileAtomically(path, body)
 }
 
-func (s *PricingService) loadCapabilityCandidate(body []byte, path string) *ModelCapabilitySnapshot {
-	if s.cfg != nil && path == s.cfg.Pricing.FallbackFile {
-		// Custom pricing fallback files do not grant capability override authority.
-		return nil
+func (s *PricingService) stageCapabilityReview(path string, body []byte, candidate *ModelCapabilitySnapshot) {
+	// Collection never updates the registry. Human review and a new pinned local
+	// package are required even when the remote content hash matches.
+	if candidate != nil {
+		previous := s.CapabilitySnapshot()
+		changes := []string{}
+		observed, _ := parseCapabilityRecords(body, "pending-review")
+		for identity, record := range observed {
+			if !reflect.DeepEqual(previous.records[identity], record) {
+				changes = append(changes, identity)
+			}
+		}
+		sort.Strings(changes)
+		pending, err := json.Marshal(struct {
+			Status            string          `json:"status"`
+			BaseGeneration    int64           `json:"base_generation"`
+			ContentHash       string          `json:"content_hash"`
+			Input             json.RawMessage `json:"input"`
+			ChangedIdentities []string        `json:"changed_identities"`
+		}{"pending_review", previous.generation, capabilityHash(body), body, changes})
+		if err == nil {
+			err = writePricingFileAtomically(path+".capabilities.pending.json", pending)
+		}
+		if err != nil {
+			logger.LegacyPrintf("service.pricing", "[Capabilities] Cannot stage pending review: %v", err)
+		}
 	}
-	marker, err := os.ReadFile(path + ".capabilities.sha256")
-	if err != nil && !os.IsNotExist(err) {
-		return nil
-	}
-	if err == nil && strings.TrimSpace(string(marker)) != capabilityHash(body) {
-		logger.LegacyPrintf("service.pricing", "[Capabilities] Cache approval hash mismatch; retaining previous snapshot")
-		return nil
-	}
-	return s.buildCapabilityCandidate(body, "")
-}
-
-func (s *PricingService) publishCapabilityCandidate(candidate *ModelCapabilitySnapshot) {
-	if candidate == nil {
-		return
-	}
-	s.mu.Lock()
-	s.capabilityData = candidate
-	s.mu.Unlock()
 }
 
 // MarshalJSON emits the public schema and preserves explicit empty declarations.

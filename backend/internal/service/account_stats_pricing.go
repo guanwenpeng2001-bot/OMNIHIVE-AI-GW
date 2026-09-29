@@ -49,7 +49,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
+	if cost := tryCustomRulesAt(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, pricingAt, reasoningEffort); cost != nil {
 		return cost
 	}
 
@@ -62,9 +62,20 @@ func resolveAccountStatsCost(
 		return &cost
 	}
 
+	// Explicit cost dimensions are read from the frozen request price snapshot.
+	// They enter the reference-cost fallback only after custom rules and the
+	// apply-customer-pricing switch, preserving existing precedence.
+	resolver := NewModelPricingResolver(channelService, billingService)
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, PricingInput{Model: upstreamModel, GroupID: &groupID, Group: &Group{Platform: platform}})
+	if err == nil && found {
+		if cost, costErr := descriptor.tokenCost(tokens); costErr == nil {
+			return &cost
+		}
+		return nil
+	}
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
+		return tryModelFilePricing(billingService.forGatewayRequest(ctx), upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
 	}
 
 	return nil
@@ -101,6 +112,14 @@ func tryCustomRules(
 	platform, model string, tokens UsageTokens, requestCount int,
 	reasoningEfforts ...string,
 ) *float64 {
+	return tryCustomRulesAt(channel, accountID, groupID, platform, model, tokens, requestCount, time.Now(), reasoningEfforts...)
+}
+
+func tryCustomRulesAt(
+	channel *Channel, accountID, groupID int64,
+	platform, model string, tokens UsageTokens, requestCount int, pricingAt time.Time,
+	reasoningEfforts ...string,
+) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
@@ -113,6 +132,14 @@ func tryCustomRules(
 		pricing := findPricingForModel(rule.Pricing, platform, modelLower)
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
+		}
+		if len(pricing.PriceVariants) > 0 {
+			descriptor := &ModelPricingDescriptor{Model: model, PricingAt: pricingAt, Variants: cloneModelPriceVariants(pricing.PriceVariants)}
+			cost, err := descriptor.tokenCost(tokens)
+			if err != nil {
+				return nil
+			}
+			return &cost
 		}
 		cost := calculateStatsCost(pricing, tokens, requestCount)
 		if cost != nil {

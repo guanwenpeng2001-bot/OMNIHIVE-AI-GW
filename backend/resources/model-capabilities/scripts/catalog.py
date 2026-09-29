@@ -21,7 +21,7 @@ LIMITS = ("max_input_tokens", "max_output_tokens")
 BOOLS = ("supports_reasoning", "supports_vision", "supports_function_calling", "supports_prompt_caching")
 MODALITIES = ("input_modalities", "output_modalities")
 FIELDS = LIMITS + BOOLS + MODALITIES
-EXTENDED_FIELDS = ("supported_methods", "embedding_dimensions", "reasoning_control")
+EXTENDED_FIELDS = ("supported_methods", "embedding_dimensions", "reasoning_control", "created_at", "model_version")
 TEXT_MODES = {"chat", "responses", "completion"}
 TIERS = {"local-data", "online-registry", "official-schema"}
 # Provider namespaces are audited here, never used to create model aliases.
@@ -82,6 +82,7 @@ def missing_fields(record, required):
 
 
 def check_fields(record):
+    check_identity_facts(record)
     for field in LIMITS:
         if field in record:
             require(type(record[field]) is int and 0 < record[field] <= 2**63 - 1,
@@ -93,6 +94,18 @@ def check_fields(record):
         if field in record:
             require(isinstance(record[field], list) and all(
                 isinstance(v, str) and v.strip() for v in record[field]), f"invalid {field}")
+
+
+def check_identity_facts(record):
+    if "created_at" in record:
+        value = record["created_at"]
+        require(isinstance(value, str) and re.fullmatch(
+            r"\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})", value),
+            "created_at must be an explicit RFC3339 timestamp")
+        datetime.fromisoformat(value.replace("Z", "+00:00"))
+    if "model_version" in record:
+        require(isinstance(record["model_version"], str) and record["model_version"].strip(),
+                "model_version must be an explicit nonempty string")
 
 
 def capture(args):
@@ -257,7 +270,7 @@ def validate(catalog):
     datetime.strptime(catalog["generated_at"], "%Y-%m-%dT%H:%M:%SZ")
     require(isinstance(catalog.get("records"), list) and catalog["records"], "empty catalog")
     allowed = set(FIELDS) | {"provider", "profile", "model_id", "region", "protocol", "mode",
-        "reasoning_control", "supported_methods", "embedding_dimensions", "aliases",
+        "reasoning_control", "supported_methods", "embedding_dimensions", "aliases", "created_at", "model_version",
         "source", "verified_at", "source_content_hash", "applicable_content_hashes", "field_sources"}
     seen = set()
     for record in catalog["records"]:

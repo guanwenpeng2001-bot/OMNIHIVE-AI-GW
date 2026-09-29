@@ -27,7 +27,7 @@ func loggedFields(t *testing.T, logs *observer.ObservedLogs) map[string]any {
 		case "body_len":
 			fields[f.Key] = int(f.Integer)
 		case "error":
-			fields[f.Key] = f.Interface.(error).Error()
+			fields[f.Key] = f.String
 		default:
 			fields[f.Key] = f.String
 		}
@@ -97,4 +97,17 @@ func TestLogRequestBodyParseFailure_NilLoggerNoPanic(t *testing.T) {
 	require.NotPanics(t, func() {
 		logRequestBodyParseFailure(nil, []byte(`{`), nil)
 	})
+}
+
+func TestLogRequestBodyParseFailureRedactsBeforeTruncation(t *testing.T) {
+	log, logs := newObservedLogger(t)
+	body := []byte(`{"Authorization":"Bearer ` + strings.Repeat("credential-secret", 1000) + `","api_key":"credential-secret",`)
+	logRequestBodyParseFailure(log, body, nil)
+	fields := loggedFields(t, logs)
+	for _, name := range []string{"body_head", "body_tail", "error"} {
+		if value, ok := fields[name].(string); ok {
+			require.NotContains(t, value, "credential-secret")
+			require.NotContains(t, value, "Bearer")
+		}
+	}
 }

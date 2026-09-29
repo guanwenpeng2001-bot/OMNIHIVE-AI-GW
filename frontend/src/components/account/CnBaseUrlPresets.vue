@@ -1,25 +1,10 @@
 <template>
-  <div class="flex flex-wrap gap-2">
-    <button
-      v-for="preset in presets"
-      :key="preset.mode + ':' + preset.protocol + ':' + preset.url"
-      type="button"
-      data-testid="cn-base-url-preset"
-      :class="[
-        'rounded-lg px-3 py-1 text-xs transition-colors',
-        isActive(preset)
-          ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-          : 'bg-gray-100 text-gray-700 hover:bg-primary-50 hover:text-primary-700 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-primary-900/30 dark:hover:text-primary-400'
-      ]"
-      @click="emit('select', preset)"
-    >
-      {{ preset.label }} ({{ displayUrl(preset.url) }})
-    </button>
-  </div>
+  <AccountEndpointPresets :presets="presets" :current-url="currentUrl" test-id="cn-base-url-preset" @select="emit('select', $event)" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import AccountEndpointPresets from './AccountEndpointPresets.vue'
 import { CN_BASE_URL_PRESETS, type CnProviderPlatform, type CnBaseUrlPreset } from './credentialsBuilder'
 
 // 国产供应商快捷端点：点击把预设地址（及对应账号类型/协议）回填到调用方。
@@ -46,8 +31,4 @@ const presets = computed(() => {
   return all.filter(p => p.protocol === props.protocol)
 })
 
-const isActive = (preset: CnBaseUrlPreset) =>
-  (props.mode != null && preset.mode === props.mode) || preset.url === props.currentUrl
-
-const displayUrl = (url: string) => url.replace(/^https?:\/\//i, '')
 </script>

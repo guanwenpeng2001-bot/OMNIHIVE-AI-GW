@@ -315,7 +315,9 @@ func TestGeminiForwardNative_StreamNonSSEJSONBodyIsInspected(t *testing.T) {
 		_, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
 			"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
 		require.NoError(t, err)
-		require.Equal(t, body, rec.Body.String())
+		require.Contains(t, rec.Body.String(), "data: ")
+		require.Contains(t, rec.Body.String(), "PROHIBITED_CONTENT")
+		require.Contains(t, rec.Header().Get("Content-Type"), "text/event-stream")
 		streamErrs := GetOpsStreamErrors(c)
 		require.Len(t, streamErrs, 1)
 		require.Equal(t, "PROHIBITED_CONTENT", streamErrs[0].Code)
@@ -354,7 +356,8 @@ func TestGeminiForwardNative_StreamOversizedNonSSEBodyLeavesNoMark(t *testing.T)
 	_, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
 		"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
 	require.NoError(t, err)
-	require.Equal(t, len(body), rec.Body.Len())
+	require.Contains(t, rec.Body.String(), "data: ")
+	require.Contains(t, rec.Body.String(), filler)
 	require.Empty(t, GetOpsStreamErrors(c), "超限的兜底体放弃判定，不得记成空流")
 	require.Empty(t, upstreamErrorEventsFromContext(t, c))
 }
@@ -373,7 +376,7 @@ func TestGeminiForwardNative_StreamNonSSEEmptyBodyIsEmpty(t *testing.T) {
 			_, err := svc.ForwardNative(context.Background(), c, geminiSignalTestAccount(),
 				"gemini-3.7-flash", "streamGenerateContent", true, geminiSignalTestRequest())
 			require.NoError(t, err)
-			require.Equal(t, body, rec.Body.String())
+			require.Contains(t, rec.Header().Get("Content-Type"), "text/event-stream")
 			streamErrs := GetOpsStreamErrors(c)
 			require.Len(t, streamErrs, 1)
 			require.Equal(t, geminiSignalEmptyStreamReason, streamErrs[0].Code)

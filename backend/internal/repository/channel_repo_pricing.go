@@ -51,7 +51,7 @@ func (r *channelRepository) UpdateModelPricing(ctx context.Context, pricing *ser
 	if err != nil {
 		return fmt.Errorf("marshal models: %w", err)
 	}
-	timePricingJSON, err := marshalChannelTimePricing(pricing.TimePricing)
+	timePricingJSON, err := marshalChannelPricingExtensions(pricing)
 	if err != nil {
 		return err
 	}
@@ -188,11 +188,10 @@ func scanModelPricingRows(rows *sql.Rows) ([]service.ChannelModelPricing, []int6
 		if err := json.Unmarshal(modelsJSON, &p.Models); err != nil {
 			p.Models = []string{}
 		}
-		timePricing, err := unmarshalChannelTimePricing(timePricingJSON)
+		err := unmarshalChannelPricingExtensions(timePricingJSON, &p)
 		if err != nil {
 			return nil, nil, err
 		}
-		p.TimePricing = timePricing
 		pricingIDs = append(pricingIDs, p.ID)
 		result = append(result, p)
 	}
@@ -234,7 +233,7 @@ func createModelPricingExec(ctx context.Context, exec dbExec, pricing *service.C
 	if err != nil {
 		return fmt.Errorf("marshal models: %w", err)
 	}
-	timePricingJSON, err := marshalChannelTimePricing(pricing.TimePricing)
+	timePricingJSON, err := marshalChannelPricingExtensions(pricing)
 	if err != nil {
 		return err
 	}
@@ -330,4 +329,48 @@ func escapeLike(s string) string {
 	s = strings.ReplaceAll(s, `%`, `\%`)
 	s = strings.ReplaceAll(s, `_`, `\_`)
 	return s
+}
+
+// The existing JSON column retains its legacy schedule shape. Conditional cards
+// live alongside it, so old schedules require no migration and disabled schedules
+// do not discard native pricing.
+type channelPricingExtensions struct {
+	PriceVariants []service.ModelPriceVariant `json:"price_variants,omitempty"`
+	*service.ChannelTimePricing
+	NativePricingSource  string                      `json:"native_pricing_source,omitempty"`
+	ThinkingPricing      *service.QianwenModePricing `json:"thinking_pricing,omitempty"`
+	ExplicitCachePricing *service.QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
+	BatchChatPricing     *service.QianwenModePricing `json:"batch_chat_pricing,omitempty"`
+}
+
+func marshalChannelPricingExtensions(pricing *service.ChannelModelPricing) (any, error) {
+	if len(pricing.PriceVariants) == 0 && pricing.NativePricingSource == "" && pricing.ThinkingPricing == nil && pricing.ExplicitCachePricing == nil && pricing.BatchChatPricing == nil {
+		return marshalChannelTimePricing(pricing.TimePricing)
+	}
+	extensions := channelPricingExtensions{PriceVariants: pricing.PriceVariants, NativePricingSource: pricing.NativePricingSource, ThinkingPricing: pricing.ThinkingPricing, ExplicitCachePricing: pricing.ExplicitCachePricing, BatchChatPricing: pricing.BatchChatPricing}
+	if pricing.TimePricing != nil && len(pricing.TimePricing.Periods) > 0 {
+		extensions.ChannelTimePricing = pricing.TimePricing
+	}
+	data, err := json.Marshal(extensions)
+	if err != nil {
+		return nil, fmt.Errorf("marshal conditional pricing: %w", err)
+	}
+	return string(data), nil
+}
+
+func unmarshalChannelPricingExtensions(data []byte, pricing *service.ChannelModelPricing) error {
+	if len(data) == 0 {
+		return nil
+	}
+	var extensions channelPricingExtensions
+	if err := json.Unmarshal(data, &extensions); err != nil {
+		return fmt.Errorf("unmarshal time pricing extensions: %w", err)
+	}
+	pricing.PriceVariants = extensions.PriceVariants
+	pricing.TimePricing = extensions.ChannelTimePricing
+	pricing.NativePricingSource = extensions.NativePricingSource
+	pricing.ThinkingPricing = extensions.ThinkingPricing
+	pricing.ExplicitCachePricing = extensions.ExplicitCachePricing
+	pricing.BatchChatPricing = extensions.BatchChatPricing
+	return nil
 }

@@ -49,7 +49,15 @@ func ProvideAdminHandlers(
 	auditLogHandler *admin.AuditLogHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
+	authService *service.AuthService,
 ) *AdminHandlers {
+	credentialDrafts, _ := authService.PendingIdentityService()
+	accountHandler.SetCredentialDraftService(credentialDrafts)
+	oauthHandler.SetCredentialDraftService(credentialDrafts)
+	openaiOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	geminiOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	antigravityOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	grokOAuthHandler.SetCredentialDraftService(credentialDrafts)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	return &AdminHandlers{

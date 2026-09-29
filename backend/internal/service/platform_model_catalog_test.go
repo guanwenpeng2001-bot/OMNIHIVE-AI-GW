@@ -45,5 +45,6 @@ func TestPlatformModelCatalogDoesNotBorrowClaudeDefaults(t *testing.T) {
 		})
 	}
 	require.Empty(t, DefaultModelIDsForPlatform("unknown"))
-	require.Contains(t, DefaultModelIDsForPlatform(PlatformComposite), DefaultModelIDsForPlatform(PlatformCursor)[0])
+	require.Empty(t, DefaultModelIDsForPlatform(PlatformComposite))
+	require.NotEmpty(t, NewModelRegistry().Snapshot().CandidateIDs(PlatformCursor, ""))
 }

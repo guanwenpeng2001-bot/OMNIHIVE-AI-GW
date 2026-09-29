@@ -242,6 +242,7 @@ func TestGrokOAuthHandlerValidateSSOTokenReturnsTokenInfo(t *testing.T) {
 	oauthService := service.NewGrokOAuthService(nil, oauthClient)
 	defer oauthService.Stop()
 	handler := NewGrokOAuthHandler(oauthService, nil, nil, nil)
+	handler.SetCredentialDraftService(credentialDraftTestStore(t))
 
 	router := gin.New()
 	router.POST("/api/v1/admin/grok/oauth/sso-token", handler.ValidateSSOToken)
@@ -251,7 +252,9 @@ func TestGrokOAuthHandlerValidateSSOTokenReturnsTokenInfo(t *testing.T) {
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `"access_token":"access-token"`)
+	require.Contains(t, rec.Body.String(), `"credential_draft"`)
+	require.NotContains(t, rec.Body.String(), `access-token`)
+	require.NotContains(t, rec.Body.String(), `refresh-token`)
 	require.NotContains(t, rec.Body.String(), `"sso_token"`)
 }
 
@@ -264,6 +267,7 @@ func TestGrokOAuthHandlerAuthorizePasswordReturnsTokenInfoWithoutPassword(t *tes
 	oauthService := service.NewGrokOAuthService(nil, oauthClient, cfg)
 	defer oauthService.Stop()
 	handler := NewGrokOAuthHandler(oauthService, nil, nil, nil)
+	handler.SetCredentialDraftService(credentialDraftTestStore(t))
 
 	router := gin.New()
 	router.POST("/api/v1/admin/grok/oauth/password", handler.AuthorizePassword)
@@ -273,7 +277,9 @@ func TestGrokOAuthHandlerAuthorizePasswordReturnsTokenInfoWithoutPassword(t *tes
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusOK, rec.Code)
-	require.Contains(t, rec.Body.String(), `"access_token":"access-token"`)
+	require.Contains(t, rec.Body.String(), `"credential_draft"`)
+	require.NotContains(t, rec.Body.String(), `access-token`)
+	require.NotContains(t, rec.Body.String(), `refresh-token`)
 	require.NotContains(t, rec.Body.String(), "super-secret")
 }
 
@@ -371,7 +377,7 @@ func TestGrokSSOImportCredentialsDefaultsToOfficialBaseURL(t *testing.T) {
 
 func TestGrokSSOImportWorkerHandlesMissingOAuthService(t *testing.T) {
 	h := &GrokOAuthHandler{}
-	result := h.safeCreateAccountFromSSOToken(context.Background(), GrokSSOToOAuthRequest{}, "token", 2, 3)
+	result := h.safeCreateAccountFromSSOToken(context.Background(), GrokSSOToOAuthRequest{}, "token", 2, 3, "browser")
 	require.False(t, result.created)
 	require.Equal(t, 2, result.item.Index)
 	require.Contains(t, result.item.Error, "GROK_OAUTH_CLIENT_NOT_CONFIGURED")

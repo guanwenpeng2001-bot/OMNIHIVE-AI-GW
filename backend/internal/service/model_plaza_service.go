@@ -88,6 +88,15 @@ func NewModelPlazaService(
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
+	var visibility *VisibleModelResolver
+	if s.resolver != nil && s.resolver.channelService != nil {
+		visibility = s.resolver.channelService.visibleModels
+	}
+	var err error
+	ctx, err = visibility.freeze(ctx)
+	if err != nil {
+		return nil, err
+	}
 	channels, err := s.channelRepo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -95,6 +104,11 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+
+	ctx, visible, err := visibleModelsForGroups(ctx, visibility, groups)
+	if err != nil {
+		return nil, err
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -153,6 +167,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			fillGlobalPricingFallback(s.pricingService, supported)
 			for j := range supported {
 				m := supported[j]
+				if !panelModelVisible(ctx, groupEnt[gid], m.Name, visible) {
+					continue
+				}
 				if pg.Platform == PlatformComposite {
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
@@ -203,6 +220,9 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		}
 		return out[i].Name < out[j].Name
 	})
+	if err := visibility.validate(ctx); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

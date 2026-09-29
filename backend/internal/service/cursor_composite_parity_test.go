@@ -27,7 +27,7 @@ func TestCursorCompositeRoutesParity(t *testing.T) {
 			require.Equal(t, CompositeRouteSourceAccount, decision.Source)
 		})
 	}
-	require.Contains(t, compositeDefaultModelsListCandidateIDs(), "default")
+	require.NotContains(t, NewModelRegistry().Snapshot().CandidateIDs(PlatformCursor, ""), "default", "automatic router is a protocol selector, not a reviewed model ID")
 	require.Contains(t, schedulerSnapshotPlatforms(), PlatformCursor)
 	require.True(t, groupSupportsOAuthOnlyFilter(PlatformCursor))
 	require.True(t, canCopyAccountsFromGroupPlatform(PlatformComposite, PlatformCursor))

@@ -253,6 +253,7 @@ func newOpenAIRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo U
 		nil,
 		"service.openai_gateway.test",
 	)
+	svc.usageSettlement = NewUsageSettlementService(&recordUsageReceiptFixture{usage: usageRepo, users: userRepo, subscriptions: subRepo, billing: func() UsageBillingRepository { return svc.usageBillingRepo }}, nil, nil)
 	return svc
 }
 
@@ -343,7 +344,7 @@ func TestOpenAIGatewayServiceRecordUsage_ZeroUsageStillWritesUsageLog(t *testing
 	require.Zero(t, billingRepo.lastCmd.AccountQuotaCost)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_MissingPricingRecordsZeroCostUsageLog(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_MissingPricingRetainsReviewReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	billingRepo := &openAIRecordUsageBillingRepoStub{result: &UsageBillingApplyResult{Applied: true}}
 	userRepo := &openAIRecordUsageUserRepoStub{}
@@ -367,25 +368,27 @@ func TestOpenAIGatewayServiceRecordUsage_MissingPricingRecordsZeroCostUsageLog(t
 		APIKeyService: quotaSvc,
 	})
 
-	require.ErrorIs(t, err, ErrModelPricingUnavailable)
-	require.Equal(t, PricingStateUnpriced, usageRepo.lastLog.PricingState)
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
 	require.Zero(t, billingRepo.calls)
-	require.Equal(t, 1, usageRepo.calls)
+	require.Zero(t, usageRepo.calls)
 	require.Equal(t, 0, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
 	require.Equal(t, 0, quotaSvc.quotaCalls)
 	require.Equal(t, 0, quotaSvc.rateLimitCalls)
 
-	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, "resp_missing_pricing", usageRepo.lastLog.RequestID)
-	require.Equal(t, "pricing-missing-test-model", usageRepo.lastLog.Model)
-	require.Equal(t, "pricing-missing-test-model", usageRepo.lastLog.RequestedModel)
-	require.Equal(t, 1200, usageRepo.lastLog.InputTokens)
-	require.Equal(t, 300, usageRepo.lastLog.OutputTokens)
-	require.Zero(t, usageRepo.lastLog.TotalCost)
-	require.Zero(t, usageRepo.lastLog.ActualCost)
-	require.NotNil(t, usageRepo.lastLog.BillingMode)
-	require.Equal(t, string(BillingModeToken), *usageRepo.lastLog.BillingMode)
+	require.NotNil(t, (&receipt.Usage))
+	require.Equal(t, "resp_missing_pricing", (&receipt.Usage).RequestID)
+	require.Equal(t, "pricing-missing-test-model", (&receipt.Usage).Model)
+	require.Equal(t, "pricing-missing-test-model", (&receipt.Usage).RequestedModel)
+	require.Equal(t, 1200, (&receipt.Usage).InputTokens)
+	require.Equal(t, 300, (&receipt.Usage).OutputTokens)
+	require.Zero(t, (&receipt.Usage).TotalCost)
+	require.Zero(t, (&receipt.Usage).ActualCost)
+	require.NotNil(t, (&receipt.Usage).BillingMode)
+	require.Equal(t, string(BillingModeToken), *(&receipt.Usage).BillingMode)
 
 	require.Nil(t, billingRepo.lastCmd)
 }
@@ -807,7 +810,7 @@ func TestOpenAIGatewayServiceRecordUsage_DuplicateBillingKeySkipsBillingWithRepo
 	require.Equal(t, 0, quotaSvc.quotaCalls)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_BillsWhenUsageLogCreateReturnsError(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_NoDebitWhenUsageLogCreateReturnsError(t *testing.T) {
 	usage := OpenAIUsage{InputTokens: 8, OutputTokens: 4}
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: errors.New("usage log batch state uncertain")}
 	userRepo := &openAIRecordUsageUserRepoStub{}
@@ -827,12 +830,13 @@ func TestOpenAIGatewayServiceRecordUsage_BillsWhenUsageLogCreateReturnsError(t *
 	})
 
 	require.NoError(t, err)
+	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
 	require.Equal(t, 1, usageRepo.calls)
-	require.Equal(t, 1, userRepo.deductCalls)
+	require.Zero(t, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_UsageLogWriteErrorRetainsPendingReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: MarkUsageLogCreateNotPersisted(context.Canceled)}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
@@ -859,15 +863,16 @@ func TestOpenAIGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t 
 	})
 
 	require.NoError(t, err)
+	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
 	require.Equal(t, 1, usageRepo.calls)
-	require.Equal(t, 1, userRepo.deductCalls)
+	require.Zero(t, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
+	require.Zero(t, quotaSvc.quotaCalls)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T) {
 	usage := OpenAIUsage{InputTokens: 10, OutputTokens: 6, CacheReadInputTokens: 2}
-	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: context.DeadlineExceeded}
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	quotaSvc := &openAIRecordUsageAPIKeyQuotaStub{}
@@ -895,7 +900,7 @@ func TestOpenAIGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T
 	require.NoError(t, err)
 	require.Equal(t, 1, userRepo.deductCalls)
 	require.NoError(t, userRepo.lastCtxErr)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
+	require.Zero(t, quotaSvc.quotaCalls)
 	require.NoError(t, quotaSvc.lastQuotaCtxErr)
 }
 
@@ -1077,7 +1082,7 @@ func TestOpenAIGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing
 	require.Equal(t, billingRepo.lastCmd.RequestID, usageRepo.lastLog.RequestID)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_BillingErrorRetainsFrozenPendingReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingErr := errors.New("billing tx failed")
 	billingRepo := &openAIRecordUsageBillingRepoStub{err: billingErr}
@@ -1100,7 +1105,8 @@ func TestOpenAIGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *
 		Account: &Account{ID: 30048},
 	})
 
-	require.ErrorIs(t, err, billingErr)
+	require.NoError(t, err)
+	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
 	require.Equal(t, 1, billingRepo.calls)
 	require.Equal(t, 1, usageRepo.calls)
 	require.NotNil(t, usageRepo.lastLog)
@@ -1109,10 +1115,10 @@ func TestOpenAIGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *
 	require.Greater(t, usageRepo.lastLog.InputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.OutputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.TotalCost, 0.0)
-	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.Greater(t, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.Command.BalanceCost, 0.0)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_UpdatesAPIKeyQuotaWhenConfigured(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_IncludesQuotaChargeInReceipt(t *testing.T) {
 	usage := OpenAIUsage{InputTokens: 10, OutputTokens: 6, CacheReadInputTokens: 2}
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
@@ -1137,10 +1143,10 @@ func TestOpenAIGatewayServiceRecordUsage_UpdatesAPIKeyQuotaWhenConfigured(t *tes
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
+	require.Zero(t, quotaSvc.quotaCalls)
 	require.Equal(t, 0, quotaSvc.rateLimitCalls)
 	expected := expectedOpenAICost(t, svc, "gpt-5.1", usage, 1.1)
-	require.InDelta(t, expected.ActualCost, quotaSvc.lastAmount, 1e-12)
+	require.InDelta(t, expected.ActualCost, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.Command.APIKeyQuotaCost, 1e-12)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_ClampsActualInputTokensToZero(t *testing.T) {
@@ -1964,7 +1970,7 @@ func TestOpenAIGatewayServiceRecordUsage_FallsBackToUpstreamModelWhenPrimaryUnpr
 	require.InDelta(t, expectedCost.ActualCost, userRepo.lastAmount, 1e-12)
 }
 
-func TestOpenAIGatewayServiceRecordUsage_UnpricedTokenModelFallsBackToZeroCostUsageLog(t *testing.T) {
+func TestOpenAIGatewayServiceRecordUsage_UnpricedTokenModelRetainsReviewReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
@@ -1982,15 +1988,17 @@ func TestOpenAIGatewayServiceRecordUsage_UnpricedTokenModelFallsBackToZeroCostUs
 		Account: &Account{ID: 30},
 	})
 
-	require.ErrorIs(t, err, ErrModelPricingUnavailable)
-	require.Equal(t, PricingStateUnpriced, usageRepo.lastLog.PricingState)
-	require.Equal(t, 1, usageRepo.calls)
-	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, "not-priceable-alias", usageRepo.lastLog.Model)
-	require.Equal(t, 20, usageRepo.lastLog.InputTokens)
-	require.Equal(t, 10, usageRepo.lastLog.OutputTokens)
-	require.Zero(t, usageRepo.lastLog.TotalCost)
-	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
+	require.Zero(t, usageRepo.calls)
+	require.NotNil(t, (&receipt.Usage))
+	require.Equal(t, "not-priceable-alias", (&receipt.Usage).Model)
+	require.Equal(t, 20, (&receipt.Usage).InputTokens)
+	require.Equal(t, 10, (&receipt.Usage).OutputTokens)
+	require.Zero(t, (&receipt.Usage).TotalCost)
+	require.Zero(t, (&receipt.Usage).ActualCost)
 	require.Equal(t, 0, userRepo.deductCalls)
 	require.Equal(t, 0, subRepo.incrementCalls)
 }
@@ -2068,14 +2076,16 @@ func TestOpenAIGatewayServiceRecordUsage_ImageOnlyUsageStillPersists(t *testing.
 		Account: &Account{ID: 3007},
 	})
 
-	require.ErrorIs(t, err, ErrModelPricingUnavailable)
-	require.Equal(t, PricingStateUnpriced, usageRepo.lastLog.PricingState)
-	require.NotNil(t, usageRepo.lastLog)
-	require.Equal(t, 2, usageRepo.lastLog.ImageCount)
-	require.NotNil(t, usageRepo.lastLog.ImageSize)
-	require.Equal(t, "1K", *usageRepo.lastLog.ImageSize)
-	require.NotNil(t, usageRepo.lastLog.BillingMode)
-	require.Equal(t, string(BillingModeToken), *usageRepo.lastLog.BillingMode)
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	receipt := svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
+	require.NotNil(t, (&receipt.Usage))
+	require.Equal(t, 2, (&receipt.Usage).ImageCount)
+	require.NotNil(t, (&receipt.Usage).ImageSize)
+	require.Equal(t, "1K", *(&receipt.Usage).ImageSize)
+	require.NotNil(t, (&receipt.Usage).BillingMode)
+	require.Equal(t, string(BillingModeToken), *(&receipt.Usage).BillingMode)
 }
 
 func TestOpenAIGatewayServiceRecordUsage_EmptyImageSizeDefaultsBeforeBillingAndPersistence(t *testing.T) {

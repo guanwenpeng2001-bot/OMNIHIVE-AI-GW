@@ -57,6 +57,12 @@ type updateChannelRequest struct {
 }
 
 type channelModelPricingRequest struct {
+	PriceVariants        []service.ModelPriceVariant `json:"price_variants,omitempty"`
+	NativePricingSource  string                      `json:"native_pricing_source,omitempty"`
+	ThinkingPricing      *service.QianwenModePricing `json:"thinking_pricing,omitempty"`
+	ExplicitCachePricing *service.QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
+	BatchChatPricing     *service.QianwenModePricing `json:"batch_chat_pricing,omitempty"`
+
 	Platform                     string                     `json:"platform" binding:"omitempty,max=50"`
 	Models                       []string                   `json:"models" binding:"required,min=1,max=100"`
 	BillingMode                  string                     `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
@@ -130,6 +136,12 @@ type channelResponse struct {
 }
 
 type channelModelPricingResponse struct {
+	PriceVariants        []service.ModelPriceVariant `json:"price_variants,omitempty"`
+	NativePricingSource  string                      `json:"native_pricing_source,omitempty"`
+	ThinkingPricing      *service.QianwenModePricing `json:"thinking_pricing,omitempty"`
+	ExplicitCachePricing *service.QianwenModePricing `json:"explicit_cache_pricing,omitempty"`
+	BatchChatPricing     *service.QianwenModePricing `json:"batch_chat_pricing,omitempty"`
+
 	ID                           int64                       `json:"id"`
 	Platform                     string                      `json:"platform"`
 	Models                       []string                    `json:"models"`
@@ -260,6 +272,12 @@ func pricingToResponse(p *service.ChannelModelPricing) channelModelPricingRespon
 		intervals = append(intervals, intervalToResponse(iv))
 	}
 	return channelModelPricingResponse{
+		PriceVariants:        p.PriceVariants,
+		NativePricingSource:  p.NativePricingSource,
+		ThinkingPricing:      p.ThinkingPricing,
+		ExplicitCachePricing: p.ExplicitCachePricing,
+		BatchChatPricing:     p.BatchChatPricing,
+
 		ID:                           p.ID,
 		Platform:                     platform,
 		Models:                       models,
@@ -360,6 +378,12 @@ func pricingRequestToService(reqs []channelModelPricingRequest, allowChannelMult
 			maxReasoningEffortMultiplier = r.MaxReasoningEffortMultiplier
 		}
 		result = append(result, service.ChannelModelPricing{
+			PriceVariants:        r.PriceVariants,
+			NativePricingSource:  r.NativePricingSource,
+			ThinkingPricing:      r.ThinkingPricing,
+			ExplicitCachePricing: r.ExplicitCachePricing,
+			BatchChatPricing:     r.BatchChatPricing,
+
 			Platform:                     platform,
 			Models:                       r.Models,
 			BillingMode:                  billingMode,

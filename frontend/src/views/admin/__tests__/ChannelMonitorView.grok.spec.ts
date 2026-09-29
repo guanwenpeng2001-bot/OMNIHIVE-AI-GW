@@ -1,3 +1,6 @@
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([
+  { platform: 'grok', provider_profile: 'xai', models: [{ id: 'grok-4.5', task_type: 'text_generation' }] }
+]) }))
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -109,6 +112,7 @@ describe('channel monitor Grok provider', () => {
     expect(grokButton.find('svg').exists()).toBe(true)
     expect(grokButton.text()).toContain('monitorCommon.providers.grok')
     await grokButton.trigger('click')
+    await flushPromises()
     expect(grokButton.classes().join(' ')).toContain('zinc')
 
     const endpoint = wrapper.get('[data-testid="monitor-endpoint"]')
@@ -121,14 +125,15 @@ describe('channel monitor Grok provider', () => {
     expect((model.element as HTMLInputElement).value).toBe('')
 
     await grokButton.trigger('click')
+    await flushPromises()
     await endpoint.setValue('https://gateway.example.com')
     await model.setValue('grok-custom')
     await wrapper.get('[data-testid="monitor-provider-openai"]').trigger('click')
     expect((endpoint.element as HTMLInputElement).value).toBe('https://gateway.example.com')
-    expect((model.element as HTMLInputElement).value).toBe('grok-custom')
+    expect((model.element as HTMLInputElement).value).toBe('')
   })
 
-  it('prefills only empty Grok fields and preserves existing provider values', async () => {
+  it('preserves the endpoint but replaces model selection on provider switches', async () => {
     const wrapper = mountDialog()
     await flushPromises()
 
@@ -139,6 +144,7 @@ describe('channel monitor Grok provider', () => {
 
     await endpoint.setValue('https://gateway.example.com')
     await grokButton.trigger('click')
+    await flushPromises()
     expect((endpoint.element as HTMLInputElement).value).toBe('https://gateway.example.com')
     expect((model.element as HTMLInputElement).value).toBe(DEFAULT_GROK_MODEL)
 
@@ -149,7 +155,8 @@ describe('channel monitor Grok provider', () => {
     await endpoint.setValue('')
     await model.setValue('grok-custom')
     await grokButton.trigger('click')
+    await flushPromises()
     expect((endpoint.element as HTMLInputElement).value).toBe(DEFAULT_GROK_ENDPOINT)
-    expect((model.element as HTMLInputElement).value).toBe('grok-custom')
+    expect((model.element as HTMLInputElement).value).toBe(DEFAULT_GROK_MODEL)
   })
 })

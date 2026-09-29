@@ -1,5 +1,8 @@
 <template>
   <div @keydown.esc="handleEscape">
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
     <!-- Quick Actions -->
     <div class="mb-4 flex flex-wrap gap-2">
       <button
@@ -37,7 +40,7 @@
     </div>
 
     <div v-if="!catalogOnly" class="mb-3 space-y-1">
-      <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.selectedModels', { count: modelValue.length }) }}</p>
+      <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.selectedModels', { count: selectedModels.length }) }}</p>
       <p v-if="!modelValue.length" class="text-xs text-secondary">{{ t('admin.accounts.supportsAllModels') }}</p>
       <p class="text-xs text-secondary">{{ t(accountId ? 'admin.accounts.modelSync.selectionPendingSave' : 'admin.accounts.modelSync.selectionPendingCreate') }}</p>
     </div>
@@ -47,14 +50,16 @@
         class="cursor-pointer rounded-lg border border-gray-300 bg-white px-3 py-2 dark:border-dark-500 dark:bg-dark-700"
       >
         <div v-if="modelValue.length" data-testid="selected-models" class="flex max-h-[min(12rem,30vh)] flex-wrap gap-1.5 overflow-y-auto">
+          <section v-for="group in selectedGroups" :key="group.category" :data-model-category="group.category" class="w-full space-y-1">
+            <h3 class="text-xs font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
           <span
-            v-for="model in modelValue"
+            v-for="model in group.models"
             :key="model"
             class="inline-flex min-w-0 max-w-full items-center justify-between gap-1 rounded bg-gray-100 px-2 py-1 text-xs text-gray-700 dark:bg-dark-600 dark:text-gray-300"
           >
             <span class="flex min-w-0 items-center gap-1">
               <ModelIcon :model="model" size="14px" />
-              <span class="break-all">{{ model }}</span>
+              <span class="break-all">{{ model }}<small v-if="capabilitySummary(model)" class="block">{{ capabilitySummary(model) }}</small></span>
             </span>
             <button
               type="button"
@@ -65,6 +70,7 @@
               <Icon name="x" size="xs" class="h-3.5 w-3.5" :stroke-width="2" />
             </button>
           </span>
+          </section>
         </div>
         <button ref="trigger" type="button" :aria-expanded="showDropdown" :aria-controls="dropdownId" :aria-label="t('admin.accounts.selectModels')" @click="toggleDropdown" class="flex w-full items-center justify-between py-2" :class="{ 'mt-2 border-t border-gray-200 dark:border-dark-600': modelValue.length }">
           <span class="text-xs text-secondary">{{ t('admin.accounts.modelSync.expandModels') }}</span>
@@ -91,8 +97,9 @@
         </div>
         <div v-if="filteredModels.length > 100" class="flex items-center gap-2 p-2">
           <span role="status">{{ Math.min(optionLimit, filteredModels.length) }} / {{ filteredModels.length }}</span>
-          <button v-if="optionLimit < filteredModels.length" type="button" data-testid="model-options-more" class="btn btn-secondary" @click="optionLimit += 100">{{ (locale?.startsWith('zh') ?? true) ? '显示更多' : 'Show more' }}</button>
+          <button v-if="optionLimit < filteredModels.length" type="button" data-testid="model-options-more" class="btn btn-secondary" @click="optionLimit += 100">{{ t('capabilityCatalog.more') }}</button>
         </div>
+        <button type="button" data-testid="select-filtered-models" class="btn btn-secondary m-2" :disabled="!filteredModels.length" @click="selectFilteredModels">{{ t('capabilityCatalog.selectFiltered') }}</button>
         <div data-testid="model-options" class="max-h-[min(18rem,40vh)] overflow-y-auto">
           <section v-for="group in groupedModels" :key="group.category" :data-model-category="group.category">
             <h3 class="bg-gray-50 px-3 py-1.5 text-xs font-semibold text-secondary dark:bg-dark-800">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
@@ -122,7 +129,7 @@
                   </svg>
                 </span>
                 <ModelIcon :model="model.value" size="18px" />
-                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ model.value }}</span>
+                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ model.value }}<small v-if="capabilitySummary(model.value)" class="block text-xs text-secondary">{{ capabilitySummary(model.value) }}</small></span>
               </button>
               <button
                 type="button"
@@ -195,19 +202,19 @@
     </section>
     <ConfirmDialog :show="confirmSnapshot" :title="t('admin.accounts.modelSync.apply')"
       :message="t('admin.accounts.modelSync.applyConfirmation')" @confirm="applyModelSnapshot" @cancel="confirmSnapshot = false" />
-    <ModelCatalogDetails :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="needsPreview" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
+    <ModelCatalogDetails :display-metadata="displayMetadata" :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="needsPreview" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { groupModelsByCategory, type ModelCategoryMetadata } from '@/utils/modelCategories'
+import { groupModelsByCategory, filterModelDisplay, limitModelGroups, modelCapabilitySummary, type ModelCategoryMetadata } from '@/utils/modelCategories'
 import { ref, computed, watch, onUnmounted, useId, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { platformSupportsModelCatalog } from '@/constants/platforms'
 import { accountsAPI } from '@/api/admin/accounts'
 import { parseModelCapabilityDefaults, modelCapabilityRequestError } from './modelCapabilityDefaults'
-import { getPlatformModelPresets, type PlatformModelPreset } from '@/api/admin/platformModelPresets'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import type { AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -217,7 +224,7 @@ import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry, type ModelCandidateIdentity, modelCandidateKey, modelSyncErrorKey } from '@/composables/useModelWhitelist'
 
-const { t, locale } = useI18n()
+const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
   capabilityDefaultsDirty?: boolean
@@ -421,24 +428,10 @@ watch(context, () => {
   }
 }, { immediate: true, flush: 'sync' })
 
-const platformPresets = ref<PlatformModelPreset[] | null>(null)
-let presetGeneration = 0
-watch(() => props.active, async (active) => {
-  const request = ++presetGeneration
-  if (!active || props.catalogOnly || platformPresets.value) return
-  try {
-    const presets = await getPlatformModelPresets()
-    if (!disposed && request === presetGeneration) platformPresets.value = presets
-  } catch {
-    // Missing platform evidence stays unknown; never substitute local hardcoded IDs.
-  }
-}, { immediate: true })
-const selectedPresets = computed(() => platformPresets.value?.filter(preset =>
-  normalizedPlatforms.value.includes(preset.platform) &&
-  (!props.candidateIdentity?.profile || preset.provider_profile === props.candidateIdentity.profile) &&
-  (!['bedrock', 'service_account'].includes(props.candidateIdentity?.type ?? '') || !!props.candidateIdentity?.profile)) ?? [])
-const presetModels = computed(() => [...new Set(selectedPresets.value.flatMap(preset => (preset.models ?? []).map(model => model.id)))])
-const presetCount = computed(() => platformPresets.value && selectedPresets.value.length
+const { presets: selectedPresets, models: presetModels, loaded: presetsLoaded, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  normalizedPlatforms, () => props.candidateIdentity ?? {}, () => props.active && !props.catalogOnly
+)
+const presetCount = computed(() => presetsLoaded.value && selectedPresets.value.length
   && !selectedPresets.value.some(preset => preset.coverage_status === 'unconfigured')
   && normalizedPlatforms.value.every(platform => selectedPresets.value.some(preset => preset.platform === platform))
   ? presetModels.value.length : null)
@@ -446,23 +439,23 @@ const availableOptions = computed(() => {
   return [...new Set([...props.modelValue, ...presetModels.value, ...catalog.value])].map(value => ({ value, label: value }))
 })
 
-const filteredModels = computed(() => {
-  const query = searchQuery.value.toLowerCase().trim()
-  if (!query) return availableOptions.value
-  return availableOptions.value.filter(
-    m => m.value.toLowerCase().includes(query) || m.label.toLowerCase().includes(query)
-  )
-})
-
-const groupedModels = computed(() => {
+const displayMetadata = computed(() => {
   const metadata: Record<string, ModelCategoryMetadata> = Object.fromEntries(
     selectedPresets.value.flatMap(preset => (preset.models ?? []).map(model => [model.id, model]))
   )
   for (const model of catalogSummary.value?.snapshot?.eligible_models ?? []) metadata[model.id] = { ...metadata[model.id], ...model }
   for (const [id, model] of Object.entries(catalogMetadata.value)) metadata[id] = { ...metadata[id], ...model }
   for (const [id, model] of Object.entries(syncResult.value?.metadata ?? {})) metadata[id] = { ...metadata[id], ...model }
-  return groupModelsByCategory(filteredModels.value.slice(0, optionLimit.value), model => metadata[model.value])
+  for (const model of syncResult.value?.eligible_models ?? []) metadata[model.id] = { ...metadata[model.id], ...model }
+  return metadata
 })
+const selectedModels = computed(() => [...new Set(props.modelValue)])
+const selectedGroups = computed(() => groupModelsByCategory(
+  filterModelDisplay(selectedModels.value, '', model => model, model => displayMetadata.value[model]), model => displayMetadata.value[model]))
+const filteredModels = computed(() => filterModelDisplay(availableOptions.value, searchQuery.value, model => model.value, model => displayMetadata.value[model.value]))
+const groupedModels = computed(() => limitModelGroups(groupModelsByCategory(filteredModels.value, model => displayMetadata.value[model.value]), optionLimit.value))
+const capabilitySummary = (id: string) => modelCapabilitySummary(displayMetadata.value[id], t)
+const selectFilteredModels = () => emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value)])])
 
 const toggleDropdown = () => {
   showDropdown.value = !showDropdown.value

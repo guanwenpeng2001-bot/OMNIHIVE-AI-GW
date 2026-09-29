@@ -356,6 +356,7 @@ func registerGroupRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAuth middleware.StepUpAuthMiddleware) {
 	admin.GET("/platform-model-presets", h.Admin.Account.GetPlatformModelPresets)
+	admin.POST("/model-registry/reload", h.Admin.Account.ReloadModelRegistry)
 	accounts := admin.Group("/accounts")
 	{
 		accounts.GET("", h.Admin.Account.List)
@@ -432,6 +433,10 @@ func registerAccountRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpAu
 
 		// Claude OAuth routes
 		accounts.POST("/generate-auth-url", h.Admin.OAuth.GenerateAuthURL)
+		accounts.GET("/credential-drafts/:draft", h.Admin.OAuth.PreviewCredentialDraft)
+		accounts.POST("/credential-drafts", h.Admin.Account.IssueCursorCredentialDraft)
+		accounts.DELETE("/credential-drafts/:draft", h.Admin.OAuth.CancelCredentialDraft)
+		accounts.POST("/credential-drafts/:draft/review", h.Admin.Account.ReviewCredentialDraft)
 		accounts.POST("/generate-setup-token-url", h.Admin.OAuth.GenerateSetupTokenURL)
 		accounts.POST("/exchange-code", h.Admin.OAuth.ExchangeCode)
 		accounts.POST("/exchange-setup-token-code", h.Admin.OAuth.ExchangeSetupTokenCode)

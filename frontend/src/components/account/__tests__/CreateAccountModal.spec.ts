@@ -23,7 +23,12 @@ const {
   authIsSimpleMode: { value: true },
 }))
 
-vi.mock('@/stores/app', () => ({
+vi.mock('@/api/client', () => ({ apiClient: {
+  post: vi.fn(async (url: string) => ({ data: { credential_draft: 'synthetic-draft', revision: url.endsWith('/review') ? 'reviewed' : 'initial', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } })),
+  delete: vi.fn().mockResolvedValue({ data: { cancelled: true } })
+} }))
+
+vi.mock('@/stores/app' , () => ({
   useAppStore: () => ({
     showError: vi.fn(),
     showSuccess: vi.fn(),
@@ -44,6 +49,11 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       create: createAccountMock,
+      batchCreate: async (payloads: Record<string, unknown>[]) => {
+        const results = []
+        for (const payload of payloads) { const account = await createAccountMock(payload); results.push({ name: payload.name, success: true, id: account.id }) }
+        return { success: results.length, failed: 0, results }
+      },
       probeUpstreamBilling: probeUpstreamBillingMock,
       syncUpstreamModels: syncUpstreamModelsMock,
       checkMixedChannelRisk: vi.fn().mockResolvedValue({ has_risk: false }),
@@ -74,6 +84,8 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import { apiClient } from '@/api/client'
+import type { CreateAccountRequest } from '@/types'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
@@ -165,6 +177,20 @@ function mountModal(groups: any[] = [], realCatalog = false, attachTo?: HTMLElem
   })
 }
 
+async function confirmReview(wrapper: ReturnType<typeof mountModal>) {
+  await flushPromises()
+  const confirm = wrapper.find('[data-testid="confirm-account-review"]')
+  if (confirm.exists()) { await confirm.trigger('click'); await flushPromises() }
+}
+
+async function openReview(wrapper: ReturnType<typeof mountModal>) {
+  const name = wrapper.get('form#create-account-form input[type="text"]')
+  if (!(name.element as HTMLInputElement).value) await name.setValue('Review fixture')
+  await wrapper.get('form#create-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(wrapper.find('[data-testid="account-review"]').exists()).toBe(true)
+}
+
 async function selectButtonByText(wrapper: ReturnType<typeof mountModal>, text: string) {
   const button = wrapper.findAll('button').find((candidate) => candidate.text().includes(text))
   expect(button).toBeDefined()
@@ -190,6 +216,7 @@ async function submitApiKeyAccount(
     await wrapper.get('[data-testid="upstream-billing-auto-probe"]').trigger('click')
   }
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
   await flushPromises()
   return wrapper
 }
@@ -202,6 +229,7 @@ async function openCodexImportStep(toggleClicks = 0) {
   }
   await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
   await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
   return wrapper
 }
 
@@ -241,7 +269,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'Cursor')
     ;(wrapper.vm as unknown as { cursorKeyMode: string }).cursorKeyMode = 'auto'
     await flushPromises()
-    wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('success', 93)
+    createAccountMock.mockResolvedValueOnce({ id: 93, platform: 'cursor' })
+    wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('draft', { credential_draft: 'browser-draft', revision: 'initial', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' })
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(wrapper.get('[data-testid="account-review"]').exists()).toBe(true)
+    await confirmReview(wrapper)
     await flushPromises()
     expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#93')
     expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('configureModels')
@@ -267,7 +300,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       errors: [],
       warnings: [],
     })
-    createOpenAICodexPATMock.mockReset().mockResolvedValue({})
+    createOpenAICodexPATMock.mockReset().mockResolvedValue({ credential_draft: 'pat-draft', revision: 'initial', platform: 'openai', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' })
   })
 
   afterEach(() => vi.useRealTimers())
@@ -279,7 +312,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(group.attributes('data-tour')).toBe('account-form-platform')
     expect(group.classes()).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'rounded-lg', 'p-1', 'bg-gray-100']))
     const radios = group.findAll('[role="radio"]')
-    expect(radios).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length)
+    expect(radios).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length + 1)
+    expect(group.find('[data-testid="vertex-platform"]').exists()).toBe(true)
     CONCRETE_PLATFORM_OPTIONS.forEach((option, index) => {
       const radio = radios[index]!
       expect(radio.attributes('data-testid')).toBe(`${option.value}-platform`)
@@ -300,8 +334,9 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     document.body.append(host)
     const wrapper = mountModal([], false, host)
     try {
-      const radio = (index: number) => wrapper.get(`[data-testid="${CONCRETE_PLATFORM_OPTIONS[index]!.value}-platform"]`)
-      const last = CONCRETE_PLATFORM_OPTIONS.length - 1
+      const entrypoints = [...CONCRETE_PLATFORM_OPTIONS, { value: 'vertex' }]
+      const radio = (index: number) => wrapper.get(`[data-testid="${entrypoints[index]!.value}-platform"]`)
+      const last = entrypoints.length - 1
       for (const [from, key, to] of [
         [0, 'ArrowRight', 1], [1, 'ArrowDown', 2], [2, 'ArrowLeft', 1],
         [1, 'ArrowUp', 0], [0, 'ArrowLeft', last], [last, 'ArrowRight', 0],
@@ -311,7 +346,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
         expect(radio(to).attributes('aria-checked')).toBe('true')
         expect(radio(to).attributes('tabindex')).toBe('0')
         expect(document.activeElement).toBe(radio(to).element)
-        expect(wrapper.findAll('[role="radio"][tabindex="0"]')).toHaveLength(1)
+        expect(wrapper.get('[data-tour="account-form-platform"]').findAll('[role="radio"][tabindex="0"]')).toHaveLength(1)
       }
       const ignored = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
       radio(0).element.dispatchEvent(ignored)
@@ -350,9 +385,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await keyboard.get('[data-testid="opencode_go-platform"]').trigger('click')
     await keyboard.get('[data-testid="opencode_go-platform"]').trigger('keydown', { key: 'ArrowRight' })
     await mouse.get('[data-testid="qianwen-platform"]').trigger('click')
-    expect(keyboard.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toEqual(
-      mouse.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')
-    )
+    expect((keyboard.get('[data-testid="cn-adaptive-base-url-chat_completions"]').element as HTMLInputElement).value).toBe((mouse.get('[data-testid="cn-adaptive-base-url-chat_completions"]').element as HTMLInputElement).value)
     expect(keyboard.get('[data-testid="qianwen-platform"]').attributes('aria-checked')).toBe('true')
     keyboard.unmount()
     mouse.unmount()
@@ -368,6 +401,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     const vm = wrapper.vm as unknown as { createImageTool: string }
     vm.createImageTool = 'block'
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ credentials: { account_scheduling_threshold: 72 }, extra: { codex_image_generation_explicit_tool_policy: 'strip' } })
     wrapper.unmount()
@@ -383,6 +417,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Gemini paid')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0].credentials.tier_id).toBe('aistudio_paid')
     wrapper.unmount()
@@ -394,11 +429,13 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Reviewed account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-key')
+    await openReview(wrapper)
     await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.clearAllModels')!.trigger('click')
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledOnce()
     expect(createAccountMock.mock.calls[0][0].credentials.model_mapping).toEqual({ 'public-glm': 'public-glm' })
@@ -424,6 +461,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     expect(createAccountMock).toHaveBeenCalledOnce()
     expect(wrapper.findAllComponents(ModelWhitelistSelector).some(selector => selector.props('accountId') === 42)).toBe(true)
     wrapper.unmount()
@@ -438,12 +476,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
       await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
     }
-    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
-      platform: 'cursor', type: 'oauth', credentials: { access_token: 'synthetic-access', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) }
-    })
+    await openReview(wrapper)
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({ platform: 'cursor', type: 'oauth', credential_draft: 'synthetic-draft', credential_draft_revision: 'initial' })
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
-    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', concurrency: 7, credentials: { access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) } })
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', concurrency: 7, credential_draft: 'synthetic-draft', credential_draft_revision: 'reviewed' })
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials).not.toHaveProperty('api_key')
     wrapper.unmount()
   })
@@ -455,6 +493,8 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor account')
     await wrapper.get(`[data-testid="cursor-key-mode-${mode}"]`).trigger('click')
     await wrapper.get('[data-testid="cursor-api-key"]').setValue('crsr_test')
+    if (mode === 'relay') await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    await openReview(wrapper)
     const selector = wrapper.findComponent(ModelWhitelistSelectorStub)
     expect(selector.exists()).toBe(true)
     selector.vm.$emit('update:modelValue', ['composer-2.5'])
@@ -462,6 +502,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(wrapper.find('[data-testid="cursor-native-settings-hint"]').exists()).toBe(mode === 'official')
     if (mode === 'relay') await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     const payload = createAccountMock.mock.calls[0]?.[0]
     expect(payload).toMatchObject({ platform: 'cursor', type: mode === 'official' ? 'apikey' : 'upstream', concurrency: 7 })
@@ -496,6 +537,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     }
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]?.expires_at).toBe(new Date('2027-01-31T12:34:00').getTime() / 1000)
     wrapper.unmount()
@@ -511,6 +553,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('input[type="datetime-local"]').setValue('2030-04-15T09:20')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]?.expires_at).toBe(new Date('2030-04-15T09:20:00').getTime() / 1000)
     wrapper.unmount()
@@ -566,6 +609,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
     await wrapper.get('[data-testid="upstream-request-id-header"]').setValue('  X-Oneapi-Request-Id  ')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -587,6 +631,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
     await wrapper.get('[data-testid="openai-images-url-to-b64-json-toggle"]').trigger('click')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -599,8 +644,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenCode account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await openReview(wrapper)
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledOnce()
@@ -614,6 +661,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'OpenAI')
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await openReview(wrapper)
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await flushPromises()
 
@@ -628,11 +676,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Mapped account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
-    await selectButtonByText(wrapper, 'admin.accounts.modelMapping')
+    await openReview(wrapper)
     await selectButtonByText(wrapper, 'admin.accounts.addMapping')
     await wrapper.get('input[placeholder="admin.accounts.requestModel"]').setValue('public-glm')
     await wrapper.get('input[placeholder="admin.accounts.actualModel"]').setValue('glm-5.3')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock.mock.calls[0]?.[0]?.credentials?.model_mapping).toEqual({
@@ -653,8 +702,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenCode account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await openReview(wrapper)
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
@@ -671,8 +722,10 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'API Key')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenCode account')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await openReview(wrapper)
     await wrapper.get('[data-testid="model-whitelist-selector"]').trigger('click')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
@@ -730,14 +783,15 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   it('creates independent Bedrock with the existing regional credential form', async () => {
     const wrapper = mountModal()
     await wrapper.get('[data-testid="bedrock-platform"]').trigger('click')
-    expect(wrapper.text()).not.toContain('admin.accounts.bedrockForceGlobal')
+    expect(wrapper.get('[data-testid="bedrock-platform"]').attributes('aria-checked')).toBe('true')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('Bedrock fixture')
     await wrapper.get('input[type="radio"][value="apikey"]').setValue()
     await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledTimes(1)
-    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'bedrock', type: 'bedrock', credentials: { auth_mode: 'apikey', api_key: 'fixture-key', aws_region: 'us-east-1' } })
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'anthropic', type: 'bedrock', credentials: { auth_mode: 'apikey', api_key: 'fixture-key', aws_region: 'us-east-1' } })
   })
 
   it.each(Object.entries(CHAT_PLATFORM_BASE_URLS))('creates %s with exact chat credentials', async (platform, baseURL) => {
@@ -746,6 +800,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="text"]').setValue('runtime fixture')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform, type: 'apikey', credentials: { api_key: 'fixture-key', base_url: baseURL } })
@@ -763,6 +818,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       expect(wrapper.find('option[value="responses"]').exists()).toBe(false)
     }
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     const payload = createAccountMock.mock.calls[0][0]
@@ -785,6 +841,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-opencode-zen')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -815,6 +872,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-opencode-go')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -844,6 +902,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-kimi')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -867,6 +926,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-kimi-coding')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -889,6 +949,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-minimax')
 
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -911,6 +972,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
       .get('[data-testid="cn-adaptive-base-url-chat_completions"]')
       .setValue('https://relay.example.com/v1')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-relay')
+    await openReview(wrapper)
 
     expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
       platform: 'kimi',
@@ -926,6 +988,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await selectButtonByText(wrapper, 'OpenAI')
     await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI account')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
 
     const flow = wrapper.getComponent(OAuthAuthorizationFlowStub)
     expect(flow.props('showManualOption')).toBe(true)
@@ -985,6 +1048,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await baseInput?.setValue('https://relay.example')
     await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-upstream')
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
@@ -1006,13 +1070,16 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   it('retains imported Codex account IDs for explicit catalog confirmation', async () => {
-    importCodexSessionMock.mockResolvedValueOnce({ total: 1, created: 1, updated: 0, skipped: 0, failed: 0, items: [{ index: 0, action: 'created', account_id: 81 }] })
+    createAccountMock.mockResolvedValueOnce({ id: 81, platform: 'openai' })
+    importCodexSessionMock.mockResolvedValueOnce({ total: 1, created: 0, updated: 0, skipped: 0, failed: 0, ready: [{ account: { name: 'Codex', platform: 'openai', type: 'oauth', credentials: {}, credential_draft: 'codex-draft', credential_draft_revision: 'initial' } }] })
     const wrapper = await openCodexImportStep()
     const declaration = { schema_version: 1, reason: 'verified', models: { Private: { supports_function_calling: false } } }
     ;(wrapper.vm as unknown as { capabilityDefaultsJSON: string }).capabilityDefaultsJSON = JSON.stringify(declaration)
     await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
     await flushPromises()
     expect(importCodexSessionMock.mock.calls[0][0].extra.model_capability_defaults).toEqual(declaration)
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await confirmReview(wrapper)
     expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#81')
     expect(wrapper.emitted('close')).toBeUndefined()
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
@@ -1020,10 +1087,12 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   it('retains a created Codex PAT account ID for explicit catalog confirmation', async () => {
-    createOpenAICodexPATMock.mockResolvedValueOnce({ id: 82 })
+    createAccountMock.mockResolvedValueOnce({ id: 82, platform: 'openai' })
     const wrapper = await openCodexImportStep()
     await wrapper.get('[data-testid="import-codex-pat"]').trigger('click')
     await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    await confirmReview(wrapper)
     expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#82')
     expect(wrapper.emitted('close')).toBeUndefined()
     expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
@@ -1079,6 +1148,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
     expect(wrapper.get('[data-testid="upstream-billing-auto-probe"]').exists()).toBe(true)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await confirmReview(wrapper)
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', upstream_billing_probe_enabled: true })
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
@@ -1105,5 +1175,120 @@ it('opens and resets without inferred Claude selections and keeps foreign authen
   await wrapper.setProps({ show: true })
   await flushPromises()
   expect(state.allowedModels).toEqual([])
+  wrapper.unmount()
+})
+
+
+it.each(['anthropic', 'gemini'] as const)('stages %s OAuth with no writes, then saves the selected models with the reviewed revision', async platform => {
+  createAccountMock.mockReset().mockResolvedValue({ id: 142, platform })
+  const wrapper = mountModal()
+  const workflow = wrapper.vm as unknown as { createWithOptions: (payload: CreateAccountRequest) => Promise<never>; allowedModels: string[] }
+  await workflow.createWithOptions({ name: 'OAuth review', platform, type: 'oauth', concurrency: 1, priority: 1,
+    credentials: { credential_draft: `${platform}-draft`, revision: 'initial', platform, type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } }).catch(() => {})
+  await flushPromises()
+  expect(createAccountMock).not.toHaveBeenCalled()
+  expect(wrapper.findAll('[data-testid="account-model-configuration"]')).toHaveLength(1)
+  workflow.allowedModels = ['chosen-model']
+  await confirmReview(wrapper)
+  expect(createAccountMock).toHaveBeenCalledOnce()
+  expect(createAccountMock.mock.calls[0][0]).toMatchObject({ credential_draft: `${platform}-draft`, credential_draft_revision: 'reviewed', credentials: { model_mapping: { 'chosen-model': 'chosen-model' } } })
+  wrapper.unmount()
+})
+
+it('cancels an OAuth review with no account writes and preserves the credential form for retry', async () => {
+  createAccountMock.mockReset()
+  const wrapper = mountModal()
+  const workflow = wrapper.vm as unknown as { createWithOptions: (payload: CreateAccountRequest) => Promise<never>; cancelAccountReview: () => Promise<void>; form: { name: string } }
+  workflow.form.name = 'Keep this name'
+  await workflow.createWithOptions({ name: workflow.form.name, platform: 'anthropic', type: 'oauth', concurrency: 1, priority: 1,
+    credentials: { credential_draft: 'cancelled-draft', revision: 'initial', platform: 'anthropic', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } }).catch(() => {})
+  await workflow.cancelAccountReview()
+  await flushPromises()
+  expect(apiClient.delete).toHaveBeenCalledWith('/admin/accounts/credential-drafts/cancelled-draft')
+  expect(createAccountMock).not.toHaveBeenCalled()
+  expect(workflow.form.name).toBe('Keep this name')
+  expect(wrapper.find('[data-testid="account-review"]').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+it('refuses an old confirmation after the model payload changes while its review is pending', async () => {
+  createAccountMock.mockReset()
+  const wrapper = mountModal()
+  const workflow = wrapper.vm as unknown as { createWithOptions: (payload: CreateAccountRequest) => Promise<never>; confirmAccountReview: () => Promise<void>; allowedModels: string[] }
+  await workflow.createWithOptions({ name: 'Binding', platform: 'anthropic', type: 'oauth', concurrency: 1, priority: 1,
+    credentials: { credential_draft: 'binding-draft', revision: 'initial', platform: 'anthropic', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' } }).catch(() => {})
+  let finishReview!: (value: { data: { revision: string } }) => void
+  vi.mocked(apiClient.post).mockImplementationOnce(() => new Promise(resolve => { finishReview = resolve }))
+  const confirmation = workflow.confirmAccountReview()
+  await flushPromises()
+  workflow.allowedModels = ['changed-after-confirm']
+  finishReview({ data: { revision: 'new-review' } })
+  await confirmation
+  expect(createAccountMock).not.toHaveBeenCalled()
+  expect(wrapper.find('[data-testid="account-review"]').exists()).toBe(true)
+  wrapper.unmount()
+})
+
+
+it('selects the Beijing Coding Anthropic endpoint without rewriting later hand-entered URLs', async () => {
+  const wrapper = mountModal()
+  await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+  const state = wrapper.vm as unknown as { accountMode: 'payg' | 'coding'; apiProtocol: string; apiKeyBaseUrl: string; onCnPresetSelect: (preset: { mode: 'coding'; protocol: 'anthropic'; url: string }) => void }
+  const endpoint = 'https://coding.dashscope.aliyuncs.com/apps/anthropic'
+  state.onCnPresetSelect({ mode: 'coding', protocol: 'anthropic', url: endpoint })
+  await flushPromises()
+  expect(state.apiKeyBaseUrl).toBe(endpoint)
+  expect(state.accountMode).toBe('coding')
+  expect(state.apiProtocol).toBe('anthropic')
+  state.apiKeyBaseUrl = 'https://hand-entered.example/custom/v1'
+  state.accountMode = 'payg'
+  await flushPromises()
+  expect(state.apiKeyBaseUrl).toBe('https://hand-entered.example/custom/v1')
+  state.apiProtocol = 'chat_completions'
+  await flushPromises()
+  expect(state.apiKeyBaseUrl).toBe('https://hand-entered.example/custom/v1')
+  wrapper.unmount()
+})
+
+it('focuses a missing API key without losing the rest of the form', async () => {
+  createAccountMock.mockReset()
+  const host = document.createElement('div')
+  document.body.append(host)
+  const wrapper = mountModal([], false, host)
+  await selectButtonByText(wrapper, 'admin.accounts.claudeConsole')
+  await wrapper.get('form#create-account-form input[type="text"]').setValue('Preserve account name')
+  await wrapper.get('form#create-account-form').trigger('submit.prevent')
+  await flushPromises()
+  const field = wrapper.get('[data-account-field="apiKeyValue"]')
+  expect(field.attributes('aria-invalid')).toBe('true')
+  expect(document.activeElement).toBe(field.element)
+  expect((wrapper.get('form#create-account-form input[type="text"]').element as HTMLInputElement).value).toBe('Preserve account name')
+  expect(createAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+  host.remove()
+})
+
+
+it('retains reviewed OAuth configuration and retries a lost confirmation response without reviewing a consumed draft', async () => {
+  createAccountMock.mockReset().mockRejectedValueOnce(new Error('response lost')).mockResolvedValueOnce({ id: 143, platform: 'openai' })
+  vi.mocked(apiClient.post).mockClear()
+  const wrapper = mountModal()
+  const workflow = wrapper.vm as unknown as {
+    createWithOptions: (payload: CreateAccountRequest) => Promise<never>
+    createPlanType: string
+    createSchedulingThreshold: number
+  }
+  workflow.createPlanType = 'legacy-custom-plan'
+  workflow.createSchedulingThreshold = 72
+  await workflow.createWithOptions({ name: 'Configured OAuth', platform: 'openai', type: 'oauth', concurrency: 1, priority: 1,
+    credentials: { credential_draft: 'configured-draft', revision: 'initial', platform: 'openai', type: 'oauth', expires_at: '2099-01-01T00:00:00Z', intercept_warmup_requests: true } }).catch(() => {})
+  await confirmReview(wrapper)
+  expect(wrapper.emitted('created')).toBeUndefined()
+  expect(createAccountMock.mock.calls[0][0].credentials).toMatchObject({ plan_type: 'legacy-custom-plan', account_scheduling_threshold: 72, intercept_warmup_requests: true })
+  const frozen = structuredClone(createAccountMock.mock.calls[0][0])
+  await confirmReview(wrapper)
+  expect(apiClient.post).toHaveBeenCalledTimes(1)
+  expect(createAccountMock.mock.calls[1][0]).toEqual(frozen)
+  expect(wrapper.emitted('created')).toHaveLength(1)
   wrapper.unmount()
 })

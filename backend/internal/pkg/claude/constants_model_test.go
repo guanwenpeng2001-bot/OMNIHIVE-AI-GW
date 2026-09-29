@@ -1,6 +1,7 @@
-package claude
+package claude_test
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -9,10 +10,10 @@ import (
 func TestDefaultModelsContainsClaudeFable51(t *testing.T) {
 	t.Parallel()
 
-	for _, model := range DefaultModels {
+	for _, model := range service.ClaudePresetModels() {
 		if model.ID == "claude-fable-5-1" {
 			require.Equal(t, "Claude Fable 5.1", model.DisplayName)
-			require.Equal(t, "2026-09-01T00:00:00Z", model.CreatedAt)
+			require.Empty(t, model.CreatedAt, "a preset does not invent a creation date")
 			return
 		}
 	}

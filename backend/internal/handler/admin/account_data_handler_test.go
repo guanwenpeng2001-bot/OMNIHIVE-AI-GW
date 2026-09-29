@@ -47,7 +47,7 @@ type dataAccount struct {
 	Priority    int            `json:"priority"`
 }
 
-func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
+func setupAccountDataRouter(t *testing.T) (*gin.Engine, *stubAdminService) {
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	adminSvc := newStubAdminService()
@@ -69,13 +69,14 @@ func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
 		nil,
 	)
 
+	h.SetCredentialDraftService(credentialDraftTestStore(t))
 	router.GET("/api/v1/admin/accounts/data", h.ExportData)
 	router.POST("/api/v1/admin/accounts/data", h.ImportData)
 	return router, adminSvc
 }
 
 func TestExportDataIncludesSecrets(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 
 	proxyID := int64(11)
 	adminSvc.proxies = []service.Proxy{
@@ -132,7 +133,7 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 }
 
 func TestExportDataWithoutProxies(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 
 	proxyID := int64(11)
 	adminSvc.proxies = []service.Proxy{
@@ -177,7 +178,7 @@ func TestExportDataWithoutProxies(t *testing.T) {
 // TestExportDataExcludesSparkShadow 验证外审第5轮 P1/P2:导出时排除 spark 影子账号
 // (影子无凭据、导入侧强制 credentials 非空,混入会产出无法还原的坏备份),并透出跳过计数。
 func TestExportDataExcludesSparkShadow(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 
 	parentID := int64(21)
 	adminSvc.accounts = []service.Account{
@@ -215,7 +216,7 @@ func TestExportDataExcludesSparkShadow(t *testing.T) {
 }
 
 func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 	adminSvc.accounts = []service.Account{
 		{ID: 1, Name: "acc-1", Status: service.StatusActive},
 	}
@@ -241,7 +242,7 @@ func TestExportDataPassesAccountFiltersAndSort(t *testing.T) {
 }
 
 func TestExportDataSelectedIDsOverrideFilters(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(
@@ -260,7 +261,7 @@ func TestExportDataSelectedIDsOverrideFilters(t *testing.T) {
 }
 
 func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
-	router, adminSvc := setupAccountDataRouter()
+	router, adminSvc := setupAccountDataRouter(t)
 
 	adminSvc.proxies = []service.Proxy{
 		{

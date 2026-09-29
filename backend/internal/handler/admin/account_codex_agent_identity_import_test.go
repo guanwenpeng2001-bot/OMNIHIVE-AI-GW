@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/x509"
@@ -75,23 +74,23 @@ func TestCodexAgentIdentityIndexSeparatesTeamsForSameUser(t *testing.T) {
 	require.Equal(t, "account:team-a", matchedKey)
 }
 
-func TestImportCodexSessionsKeepsAgentIdentityTeamsSeparate(t *testing.T) {
+func TestCodexSessionDraftPlanKeepsAgentIdentityTeamsSeparate(t *testing.T) {
 	first := buildAgentIdentityImportValue(t, "runtime-a", "team-a", "same-user", "task-a")
 	second := buildAgentIdentityImportValue(t, "runtime-b", "team-b", "same-user", "task-b")
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := planCodexImportForTest(t, handler, CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{Index: 1, Value: first}, {Index: 2, Value: second}})
 	require.NoError(t, err)
-	require.Equal(t, 2, result.Created)
-	require.Zero(t, result.Updated)
+	require.Equal(t, 2, result.NewCount)
+	require.Zero(t, result.ExistingCount)
 	require.Zero(t, result.Skipped)
-	require.Len(t, svc.createdAccounts, 2)
+	require.Len(t, result.NewAccounts, 2)
 }
 
-func TestImportCodexSessionsMergesAgentIdentityRuntimesForSameTeam(t *testing.T) {
+func TestCodexSessionDraftPlanMergesAgentIdentityRuntimesForSameTeam(t *testing.T) {
 	first := buildAgentIdentityImportValue(t, "runtime-a", "team-a", "same-user", "task-a")
 	second := buildAgentIdentityImportValue(t, "runtime-b", "team-a", "same-user", "task-b")
 	firstIdentity, ok := first["agent_identity"].(map[string]any)
@@ -112,15 +111,15 @@ func TestImportCodexSessionsMergesAgentIdentityRuntimesForSameTeam(t *testing.T)
 	svc := newCodexImportMemoryAdminService([]service.Account{existing})
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := planCodexImportForTest(t, handler, CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{Index: 1, Value: second}})
 	require.NoError(t, err)
-	require.Zero(t, result.Created)
-	require.Equal(t, 1, result.Updated)
-	require.Len(t, svc.updatedAccounts, 1)
-	require.Equal(t, "runtime-b", svc.updatedAccounts[0].input.Credentials["agent_runtime_id"])
-	require.Equal(t, "task-b", svc.updatedAccounts[0].input.Credentials["task_id"])
+	require.Zero(t, result.NewCount)
+	require.Equal(t, 1, result.ExistingCount)
+	require.Len(t, result.ExistingAccounts, 1)
+	require.Equal(t, "runtime-b", result.ExistingAccounts[0].input.Credentials["agent_runtime_id"])
+	require.Equal(t, "task-b", result.ExistingAccounts[0].input.Credentials["task_id"])
 }
 
 func buildAgentIdentityImportValue(t *testing.T, runtimeID, accountID, userID, taskID string) map[string]any {
@@ -141,7 +140,7 @@ func buildAgentIdentityImportValue(t *testing.T, runtimeID, accountID, userID, t
 	}
 }
 
-func TestImportCodexSessionsCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T) {
+func TestCodexSessionDraftPlanCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T) {
 	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	require.NoError(t, err)
 	der, err := x509.MarshalPKCS8PrivateKey(privateKey)
@@ -149,7 +148,7 @@ func TestImportCodexSessionsCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T)
 
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	result, err := handler.importCodexSessions(context.Background(), CodexSessionImportRequest{
+	result, err := planCodexImportForTest(t, handler, CodexSessionImportRequest{
 		SkipDefaultGroupBind: boolPtr(true),
 	}, []codexImportEntry{{
 		Index: 1,
@@ -165,10 +164,10 @@ func TestImportCodexSessionsCreatesAgentIdentityWithoutOAuthExpiry(t *testing.T)
 		},
 	}})
 	require.NoError(t, err)
-	require.Equal(t, 1, result.Created)
+	require.Equal(t, 1, result.NewCount)
 	require.Zero(t, result.Failed)
-	require.Len(t, svc.createdAccounts, 1)
-	created := svc.createdAccounts[0]
+	require.Len(t, result.NewAccounts, 1)
+	created := result.NewAccounts[0]
 	require.Nil(t, created.ExpiresAt)
 	require.Nil(t, created.AutoPauseOnExpired)
 	require.Equal(t, service.OpenAIAuthModeAgentIdentity, created.Credentials["auth_mode"])

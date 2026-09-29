@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"math"
 	"net/http"
 	"strconv"
@@ -16,15 +17,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -168,6 +165,9 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	body = parsedReq.Body.Bytes()
+	if !validateMessagesMaxTokens(c, body) {
+		return
+	}
 	reqModel := parsedReq.Model
 	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches, h.maxAccountSwitchesGemini)()
 	requestBudget := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot()
@@ -1128,106 +1128,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
-	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
-
-	var groupID *int64
-	var platform string
-
-	if apiKey != nil && apiKey.Group != nil {
-		groupID = &apiKey.Group.ID
-		platform = apiKey.Group.Platform
-	}
-	if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && strings.TrimSpace(forcedPlatform) != "" {
-		platform = forcedPlatform
-	}
-
-	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
-		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
-		h.pinnedOpenAIModels(c, apiKey.Group)
-		return
-	}
-
-	if models, metadata, err := h.gatewayService.CatalogModelsWithMetadata(c.Request.Context(), groupID, platform); models != nil || err != nil {
-		if err != nil {
-			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
-			return
-		}
-		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-			models = apiKey.Group.ModelAllowlist.FilterForListing(models)
-		}
-		c.Set(publicModelMetadataContextKey, metadata)
-		writeModelsList(c, platform, models)
-		return
-	}
-	if platform == service.PlatformComposite {
-		availableModels, err := h.compositeAvailableModelsChecked(c.Request.Context(), groupID)
-		if err != nil {
-			h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
-			return
-		}
-		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-			source := availableModels
-			if len(source) == 0 {
-				source = defaultModelIDsForPlatform(service.PlatformComposite)
-			}
-			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
-			return
-		}
-		if len(availableModels) > 0 {
-			writeModelsList(c, service.PlatformComposite, availableModels)
-			return
-		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
-		return
-	}
-
-	// Get available models from account configurations for the selected group platform.
-	availableModels, err := h.gatewayService.GetAvailableModelsChecked(c.Request.Context(), groupID, platform)
-	if err != nil {
-		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
-		return
-	}
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
-		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
-		return
-	}
-
-	if len(availableModels) > 0 {
-		writeModelsList(c, platform, availableModels)
-		return
-	}
-
-	// Fallback to default models
-	if platform == service.PlatformCursor {
-		writeModelsList(c, platform, service.DefaultCursorModelIDs())
-		return
-	}
-	if platform == service.PlatformOpenAI {
-		writeModelsListResponse(c, openai.DefaultModels)
-		return
-	}
-
-	if platform == service.PlatformGemini {
-		writeModelsListResponse(c, geminicli.DefaultModels)
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
-		return
-	}
-
-	if platform == service.PlatformAnthropic {
-		writeModelsListResponse(c, claude.DefaultModels)
-		return
-	}
-	writeModelsList(c, platform, service.DefaultModelIDsForPlatform(platform))
+	h.publicModels(c)
 }
 
 // CodexModels returns the effective group model list using the manifest shape
 // expected by Codex custom providers. Official OpenAI groups continue to use
 // OpenAIGatewayHandler.CodexModels so their live upstream metadata is preserved.
 func (h *GatewayHandler) CodexModels(c *gin.Context) {
+	publicModelHeaders(c, "")
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil || apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
@@ -1350,127 +1258,6 @@ func (h *GatewayHandler) compositeAvailableModelsChecked(ctx context.Context, gr
 	return models, nil
 }
 
-func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
-	if platform == service.PlatformCursor {
-		models := make([]openai.Model, 0, len(modelIDs))
-		for _, modelID := range modelIDs {
-			models = append(models, openai.Model{ID: modelID, Object: "model", Type: "model", DisplayName: modelID, OwnedBy: "cursor"})
-		}
-		writeModelsListResponse(c, models)
-		return
-	}
-	if platform == service.PlatformOpenAI {
-		writeOpenAIModelsList(c, modelIDs)
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, modelIDs)
-		return
-	}
-	models := make([]claude.Model, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		models = append(models, claude.Model{
-			ID:          modelID,
-			Type:        "model",
-			DisplayName: modelID,
-			CreatedAt:   "2024-01-01T00:00:00Z",
-		})
-	}
-	writeModelsListResponse(c, models)
-}
-
-func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string) {
-	if platform == service.PlatformOpenAI {
-		writeOpenAIModelsList(c, modelIDs)
-		return
-	}
-	writeModelsList(c, platform, modelIDs)
-}
-
-type grokReasoningEffortOption struct {
-	Value   string `json:"value"`
-	Label   string `json:"label"`
-	Default bool   `json:"default,omitempty"`
-}
-
-type grokModelListItem struct {
-	xai.Model
-	SupportsReasoningEffort bool                        `json:"supportsReasoningEffort,omitempty"`
-	ReasoningEffort         string                      `json:"reasoningEffort,omitempty"`
-	ReasoningEfforts        []grokReasoningEffortOption `json:"reasoningEfforts,omitempty"`
-}
-
-func writeGrokModelsList(c *gin.Context, modelIDs []string) {
-	defaults := xai.DefaultModels()
-	defaultsByID := make(map[string]xai.Model, len(defaults))
-	for _, model := range defaults {
-		defaultsByID[model.ID] = model
-	}
-
-	models := make([]grokModelListItem, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		model, ok := defaultsByID[modelID]
-		if !ok {
-			model = xai.Model{
-				ID:          modelID,
-				Object:      "model",
-				OwnedBy:     "xai",
-				DisplayName: modelID,
-			}
-		}
-		item := grokModelListItem{Model: model}
-		if grokModelSupportsConfigurableReasoning(modelID) {
-			item.SupportsReasoningEffort = true
-			item.ReasoningEffort = "high"
-			efforts := []grokReasoningEffortOption{
-				{Value: "low", Label: "Low"},
-				{Value: "medium", Label: "Medium"},
-				{Value: "high", Label: "High", Default: true},
-			}
-			if service.GrokSupportsXHighReasoningEffort(modelID) {
-				efforts = append(efforts, grokReasoningEffortOption{Value: "xhigh", Label: "xHigh"})
-			}
-			item.ReasoningEfforts = efforts
-		}
-		models = append(models, item)
-	}
-
-	writeModelsListResponse(c, models)
-}
-
-func grokModelSupportsConfigurableReasoning(modelID string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "grok-4.6", "grok-4.6-latest", "grok-4.5", "grok-4.5-latest", "grok", "grok-latest", "grok-build", "grok-build-latest", "grok-build-0.1":
-		return true
-	default:
-		return false
-	}
-}
-
-func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
-	defaultsByID := make(map[string]openai.Model, len(openai.DefaultModels))
-	for _, model := range openai.DefaultModels {
-		defaultsByID[model.ID] = model
-	}
-
-	models := make([]openai.Model, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		if model, ok := defaultsByID[modelID]; ok {
-			models = append(models, model)
-			continue
-		}
-		models = append(models, openai.Model{
-			ID:          modelID,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: modelID,
-		})
-	}
-	writeModelsListResponse(c, models)
-}
-
 // modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）
 // 与平台默认列表（fallbackModels）。账号映射为空时回落默认列表；Anthropic
 // 平台两者取并集，其余平台以账号映射键为准。
@@ -1525,7 +1312,11 @@ func mergeModelIDs(primary, secondary []string) []string {
 // GET /antigravity/models
 // 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	models := antigravity.DefaultModels()
+	if h.gatewayService != nil {
+		h.Models(c)
+		return
+	}
+	models := []antigravity.ClaudeModel{}
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		filtered := make([]antigravity.ClaudeModel, 0, len(models))
 		for _, model := range models {
@@ -1973,20 +1764,10 @@ func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, statu
 				return
 			}
 		}
-		// Stream already started, send error as SSE event then close
-		flusher, ok := c.Writer.(http.Flusher)
-		if ok {
-			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorCode := ""
-			if code != "" {
-				errorCode = `,"code":` + strconv.Quote(code)
-			}
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + errorCode + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
-			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
-				_ = c.Error(err)
-			}
-			flusher.Flush()
+		if code == "" {
+			code = errType
 		}
+		gatewayerror.WriteStream(c, status, code, message)
 		return
 	}
 
@@ -2087,14 +1868,10 @@ func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, mess
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
-	errorObject := gin.H{"type": errType, "message": message}
-	if code != "" {
-		errorObject["code"] = code
+	if code == "" {
+		code = errType
 	}
-	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": errorObject,
-	})
+	gatewayerror.Write(c, status, code, message)
 }
 
 // CountTokens handles token counting endpoint
@@ -2425,9 +2202,9 @@ func sendMockInterceptResponse(c *gin.Context, model string, interceptType Inter
 }
 
 // extractQuotaResetSeconds 从 quota 错误的 metadata 中提取 window_resets_at 并计算
-// 距重置剩余秒数。fallback 路径必须返回 ≥1 秒，避免客户端立即重试无限循环。
+// 距重置剩余秒数。没有可信的未来重置时间时返回 0，调用者省略 Retry-After。
 func extractQuotaResetSeconds(err error) int {
-	const fallback = 60
+	const fallback = 0
 	appErr := pkgerrors.FromError(err)
 	if appErr == nil {
 		return fallback
@@ -2447,14 +2224,16 @@ func extractQuotaResetSeconds(err error) int {
 	}
 	secs := time.Until(resetAt).Seconds()
 	if secs <= 0 {
-		// reset 时间已过：cache 与 DB 应该正在自愈，返回 fallback 让客户端按常规节奏退避，
-		// 避免返回 1 秒导致客户端立即重试仍触发限额的退避循环。
+		// 过去的 reset 不能证明下一个窗口何时恢复。
 		return fallback
 	}
 	return int(math.Ceil(secs))
 }
 
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
+	if errors.Is(err, service.ErrInsufficientBalance) {
+		return http.StatusTooManyRequests, "insufficient_quota", "Insufficient account balance", 0
+	}
 	if errors.Is(err, service.ErrBillingServiceUnavailable) {
 		msg := pkgerrors.Message(err)
 		if msg == "" {
@@ -2475,10 +2254,10 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
 	}
 	// 用户/分组 RPM 超限统一映射为 HTTP 429；保留与其它 rate_limit 一致的错误码便于客户端分类。
-	// 返回 Retry-After 秒数（当前分钟剩余秒数），让 SDK 自动退避。
+	// 仅使用真实窗口元数据；没有 Redis 窗口时间时不根据本机时钟伪造重置。
 	if errors.Is(err, service.ErrGroupRPMExceeded) || errors.Is(err, service.ErrUserRPMExceeded) {
 		msg := pkgerrors.Message(err)
-		retrySeconds := 60 - int(time.Now().Unix()%60)
+		retrySeconds := extractQuotaResetSeconds(err)
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, retrySeconds
 	}
 	if errors.Is(err, service.ErrUserPlatformDailyQuotaExhausted) ||

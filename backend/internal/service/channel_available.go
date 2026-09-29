@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // AvailableGroupRef 渠道视图中关联分组的简要信息。
@@ -50,6 +52,11 @@ type AvailableChannel struct {
 // 前置条件：s.groupRepo 必须非 nil（由 wire DI 保证）。直接 nil-deref 用于 fail-fast，
 // 避免静默掩盖注入缺失。
 func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel, error) {
+	var err error
+	ctx, err = s.visibleModels.freeze(ctx)
+	if err != nil {
+		return nil, err
+	}
 	channels, err := s.repo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -58,6 +65,14 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+	ctx, visible, err := visibleModelsForGroups(ctx, s.visibleModels, groups)
+	if err != nil {
+		return nil, err
+	}
+	policyGroups := make(map[int64]*Group, len(groups))
+	for index := range groups {
+		policyGroups[groups[index].ID] = &groups[index]
 	}
 	groupByID := make(map[int64]AvailableGroupRef, len(groups))
 	for i := range groups {
@@ -89,7 +104,19 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 
 		ch.normalizeBillingModelSource()
 
-		supported := ch.SupportedModels()
+		supported := make([]SupportedModel, 0)
+		for _, model := range ch.SupportedModels() {
+			for _, groupID := range ch.GroupIDs {
+				group := policyGroups[groupID]
+				if group == nil || (group.Platform != PlatformComposite && !domain.MatchesPlatformIdentity(model.Platform, domain.HostedAccountType(model.Platform), group.Platform, group.RequiredAccountType())) {
+					continue
+				}
+				if panelModelVisible(ctx, group, model.Name, visible) {
+					supported = append(supported, model)
+					break
+				}
+			}
+		}
 		fillGlobalPricingFallback(s.pricingService, supported)
 
 		out = append(out, AvailableChannel{
@@ -107,6 +134,9 @@ func (s *ChannelService) ListAvailable(ctx context.Context) ([]AvailableChannel,
 	sort.SliceStable(out, func(i, j int) bool {
 		return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name)
 	})
+	if err := s.visibleModels.validate(ctx); err != nil {
+		return nil, err
+	}
 	return out, nil
 }
 

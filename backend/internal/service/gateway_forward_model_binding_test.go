@@ -23,6 +23,23 @@ type forwardCatalogRepo struct {
 	assertScope func(*int64, []string, bool)
 }
 
+func TestRequestPlanMediaUsesActualCapabilityAndPreservesTextBridge(t *testing.T) {
+	for _, scenario := range []struct{ protocol, endpoint string }{
+		{"images", "images"}, {"media", "grok_media_generation"}, {"embeddings", "embeddings"},
+		{"search", "alpha_search"}, {"live", "live"}, {"chat_completions", "responses"},
+	} {
+		t.Run(scenario.protocol, func(t *testing.T) {
+			account := catalogEvidenceAccount(1, PlatformOpenAI, "fixture")
+			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			snapshot.EligibleModels[0].Endpoints = []string{scenario.endpoint}
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Protocol: scenario.protocol, Model: "fixture"}))
+			require.True(t, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, "fixture", OpenAIEndpointCapabilityChatCompletions))
+			snapshot.EligibleModels[0].Endpoints = []string{"unrelated"}
+			require.False(t, (&OpenAIGatewayService{}).supportsOpenAIAccountModel(ctx, &account, "fixture", OpenAIEndpointCapabilityChatCompletions))
+		})
+	}
+}
+
 func (r *forwardCatalogRepo) GetModelCatalogAccount(_ context.Context, id int64) (*Account, error) {
 	r.reads++
 	if r.err != nil {

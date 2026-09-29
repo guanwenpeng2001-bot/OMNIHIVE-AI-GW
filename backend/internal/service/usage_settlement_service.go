@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -36,6 +37,7 @@ func (s *UsageSettlementService) Status(ctx context.Context, requestID string, a
 		return nil, err
 	}
 	status.PersistenceUnconfirmed = s.persistFailures.Load()
+	status.UsageTaskPanics = UsageRecordPanicCount()
 	if stats, ok := s.repo.(interface {
 		SettlementContention() *UsageSettlementContention
 	}); ok {
@@ -134,7 +136,16 @@ func (s *UsageSettlementService) Submit(ctx context.Context, input *UsageSettlem
 		plan.acknowledgeReceipt(stored)
 	}
 	task := func(ctx context.Context) {
+		defer func() {
+			if recover() != nil {
+				usageRecordPanicTotal.Add(1)
+				slog.Error("usage settlement panic; durable receipt remains recoverable", "request_id", key.RequestID)
+			}
+		}()
 		result, err := s.settleIdentity(ctx, key, fingerprint)
+		if errors.Is(err, errUsageSettlementPanic) && ctx.Err() == nil {
+			result, err = s.settleIdentity(ctx, key, fingerprint)
+		}
 		if err != nil {
 			slog.Error("usage settlement pending", "request_id", key.RequestID, "api_key_id", key.APIKeyID, "failure_category", billingFailureCategory(err))
 			return
@@ -166,8 +177,16 @@ func (s *UsageSettlementService) settle(ctx context.Context, receipt *UsageSettl
 	return s.settleIdentity(ctx, receipt.Key, receipt.Command.RequestFingerprint)
 }
 
-func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSettlementKey, fingerprint string) (*UsageSettlementResult, error) {
-	result, err := s.repo.Settle(ctx, key, fingerprint)
+var errUsageSettlementPanic = errors.New("usage settlement panicked; durable receipt retained")
+
+func (s *UsageSettlementService) settleIdentity(ctx context.Context, key UsageSettlementKey, fingerprint string) (result *UsageSettlementResult, err error) {
+	defer func() {
+		if recover() != nil {
+			usageRecordPanicTotal.Add(1)
+			result, err = nil, errUsageSettlementPanic
+		}
+	}()
+	result, err = s.repo.Settle(ctx, key, fingerprint)
 	if err != nil {
 		return nil, err
 	}
@@ -237,6 +256,9 @@ func (s *UsageSettlementService) Recover(ctx context.Context) error {
 }
 
 func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage *UsageLog, p *postUsageBillingParams, deps *billingDeps, interrupted bool) error {
+	if s == nil || s.repo == nil {
+		return fmt.Errorf("usage settlement repository is required")
+	}
 	if p.Cost.PricingState != PricingStateUnpriced && p.Cost.PricingState != PricingStateError {
 		if err := FreezeUsagePricing(p.Cost, firstNonEmpty(optionalStringValue(usage.UpstreamModel), usage.Model), p.Account.Platform, p.AccountRateMultiplier, usage.AccountStatsCost); err != nil {
 			p.Cost.PricingState = PricingStateError

@@ -49,6 +49,7 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	if strings.TrimSpace(model) == "" {
 		model = "grok-voice-latest"
 	}
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "realtime", h.maxAccountSwitches)()
 	// Keep the HTTP response uncommitted while selecting and probing an account.
 	// Realtime is not an HTTP streaming response; using reqStream=true here would
 	// let the wait queue flush an SSE ping before the WebSocket handshake succeeds.
@@ -58,7 +59,7 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 	var token string
 	var upstream *service.GrokRealtimeUpstream
 	var candidateSeen bool
-	for attempts := 0; attempts < 4; attempts++ {
+	for attempts := 0; attempts <= h.maxAccountSwitches; attempts++ {
 		// Realtime's voice model is not a text-model capability. Passing a
 		// concrete text model here would reject accounts mapped only to an
 		// older/default text model before the upstream handshake can decide.
@@ -217,12 +218,13 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 		contentType = "application/json"
 	}
 
-	failed := map[int64]struct{}{}
-	var last *service.UpstreamFailoverError
+	failoverState := NewFailoverState(h.maxAccountSwitches, false)
+	failed := failoverState.FailedAccountIDs
 	reqLog := requestLogger(c, "handler.openai_gateway.grok_voice", zap.String("endpoint", endpoint))
 	selectionModel := "grok-4.5"
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, selectionModel, "audio", h.maxAccountSwitches)()
 
-	for attempts := 0; attempts < 4; attempts++ {
+	for attempts := 0; attempts <= h.maxAccountSwitches; attempts++ {
 		selection, _, selectErr := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
 			apiKey.GroupID,
@@ -238,8 +240,8 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 			service.PlatformGrok,
 		)
 		if selectErr != nil || selection == nil || selection.Account == nil {
-			if last != nil {
-				h.handleFailoverExhausted(c, last, false)
+			if failoverState.LastFailoverErr != nil {
+				h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 			} else {
 				h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "No available Grok accounts")
 			}
@@ -271,15 +273,17 @@ func (h *OpenAIGatewayHandler) GrokVoice(c *gin.Context, endpoint string) {
 		}
 		var failoverErr *service.UpstreamFailoverError
 		if errors.As(forwardErr, &failoverErr) && failoverErr.ShouldRetryNextAccount() {
-			failed[account.ID] = struct{}{}
-			last = failoverErr
+			if failoverState.HandleFailoverError(c.Request.Context(), nil, account.ID, account.Platform, 0, failoverErr) != FailoverContinue {
+				h.handleFailoverExhausted(c, failoverErr, false)
+				return
+			}
 			continue
 		}
 		// Non-failover errors: handleGrokMediaErrorResponse / transport already wrote response.
 		return
 	}
-	if last != nil {
-		h.handleFailoverExhausted(c, last, false)
+	if failoverState.LastFailoverErr != nil {
+		h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 	}
 }
 

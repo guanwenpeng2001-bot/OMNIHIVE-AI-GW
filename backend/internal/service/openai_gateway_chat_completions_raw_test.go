@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -119,7 +120,7 @@ func TestForwardAsRawChatCompletions_ForcesStreamUsageUpstreamAndPassesUsageDown
 	require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled)
 	require.Equal(t, HTTPUpstreamProfileOpenAI, HTTPUpstreamProfileFromContext(upstream.lastReq.Context()))
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
-	require.Contains(t, rec.Body.String(), `"usage"`)
+	require.NotContains(t, rec.Body.String(), `"usage"`, "unrequested usage must stay server-side")
 	require.Contains(t, rec.Body.String(), "data: [DONE]")
 }
 
@@ -1251,5 +1252,21 @@ func TestRawChatDuplicateModelRejectedBeforeMapping(t *testing.T) {
 			require.Nil(t, upstream.lastReq)
 			require.NotContains(t, rec.Body.String(), "revoked")
 		})
+	}
+}
+
+func TestRawChatUsageIsDeliveredOnlyWhenRequested(t *testing.T) {
+	for _, include := range []bool{false, true} {
+		body := []byte(`{"model":"gpt-5.4","stream":true,"stream_options":{"include_usage":` + strconv.FormatBool(include) + `},"messages":[{"role":"user","content":"hello"}]}`)
+		recorder := httptest.NewRecorder()
+		ctx, _ := gin.CreateTestContext(recorder)
+		ctx.Request = httptest.NewRequest("POST", "/v1/chat/completions", bytes.NewReader(body))
+		upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"text/event-stream"}}, Body: io.NopCloser(strings.NewReader("data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"}}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":9,\"completion_tokens\":4}}\n\ndata: [DONE]\n\n"))}}
+		gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+		result, err := gateway.forwardAsRawChatCompletions(context.Background(), ctx, rawChatCompletionsTestAccount(), body, "")
+		require.NoError(t, err)
+		require.Equal(t, 9, result.Usage.InputTokens)
+		require.Equal(t, include, strings.Contains(recorder.Body.String(), `"usage"`))
+		require.Contains(t, recorder.Body.String(), "[DONE]")
 	}
 }

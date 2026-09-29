@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 )
@@ -118,6 +119,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	if upstreamResponseModelObserverFromContext(c) == nil {
 		beginUpstreamResponseModelObservation(c)
 	}
+	nativeJSON := c.Request != nil && strings.Contains(c.Request.URL.Path, "/v1beta/") && c.Query("alt") != "sse"
 	c.Status(resp.StatusCode)
 	c.Header("Cache-Control", "no-cache")
 	c.Header("Connection", "keep-alive")
@@ -127,7 +129,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	if contentType == "" {
 		contentType = "text/event-stream; charset=utf-8"
 	}
+	if nativeJSON {
+		contentType = "application/json"
+	}
 	c.Header("Content-Type", contentType)
+	c.Writer.Header().Del("Content-Length")
 
 	flusher, ok := c.Writer.(http.Flusher)
 	if !ok {
@@ -209,6 +215,30 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	lastDataAt := time.Now()
 
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity gemini")
+	arrayStarted := false
+	separator := ""
+	writePayload := func(payload string) {
+		sanitized, _ := sanitizeGoogleErrorPayload([]byte(payload))
+		payload = string(sanitized)
+		if nativeJSON {
+			if !arrayStarted {
+				cw.Fprintf("[")
+				arrayStarted = true
+			}
+			cw.Fprintf("%s%s", separator, payload)
+			separator = ","
+			return
+		}
+		cw.Fprintf("data: %s\n\n", payload)
+	}
+	defer func() {
+		if nativeJSON && !cw.Disconnected() && c.Request.Context().Err() == nil {
+			if !arrayStarted {
+				cw.Fprintf("[")
+			}
+			cw.Fprintf("]")
+		}
+	}()
 
 	// 仅发送一次错误事件，避免多次写入导致协议混乱
 	errorEventSent := false
@@ -217,7 +247,12 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			return
 		}
 		errorEventSent = true
-		_, _ = fmt.Fprintf(c.Writer, "event: error\ndata: {\"error\":\"%s\"}\n\n", reason)
+		_, envelope := gatewayerror.Envelope("google", http.StatusBadGateway, reason, "Upstream stream failed")
+		payload, _ := json.Marshal(envelope)
+		if !nativeJSON {
+			cw.Fprintf("event: error\n")
+		}
+		writePayload(string(payload))
 		flusher.Flush()
 	}
 
@@ -254,7 +289,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			if strings.HasPrefix(trimmed, "data:") {
 				payload := strings.TrimSpace(strings.TrimPrefix(trimmed, "data:"))
 				if payload == "" || payload == "[DONE]" {
-					cw.Fprintf("%s\n", line)
+					if !nativeJSON {
+						cw.Fprintf("%s\n", line)
+					}
 					continue
 				}
 
@@ -290,7 +327,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 					firstTokenMs = &ms
 				}
 
-				cw.Fprintf("data: %s\n\n", payload)
+				writePayload(payload)
 				continue
 			}
 
@@ -298,7 +335,9 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 			if trimmed == "" {
 				continue
 			}
-			cw.Fprintf("%s\n", line)
+			if !nativeJSON {
+				cw.Fprintf("%s\n", line)
+			}
 
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
@@ -321,7 +360,11 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 				continue
 			}
 			// SSE ping/keepalive：保持连接活跃防止 Cloudflare Tunnel 等代理断开
-			if !cw.Fprintf(":\n\n") {
+			keepalive := ":\n\n"
+			if nativeJSON {
+				keepalive = " "
+			}
+			if !cw.Fprintf("%s", keepalive) {
 				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity gemini), canceling upstream and preserving observed usage")
 				continue
 			}

@@ -1,3 +1,5 @@
+import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 import { defineComponent, nextTick } from 'vue'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -377,6 +379,10 @@ describe('MonitorFormDialog linked account selector', () => {
     ['qianwen', 'qwen-flash', 'https://dashscope.aliyuncs.com/compatible-mode/v1'],
     ['commandcode', 'gpt-5.6-luna', 'https://api.commandcode.ai/provider/v1'],
   ])('prefills %s inference and disables quota modes', async (provider, model, endpoint) => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([
+      { platform: provider, provider_profile: 'native', models: [{ id: model, task_type: 'text_generation' }] }
+    ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+
     const wrapper = mountDialog()
     await wrapper.get('[data-testid="monitor-check-mode-quota"]').trigger('click')
     await wrapper.get(`[data-testid="monitor-provider-${provider}"]`).trigger('click')
@@ -388,4 +394,27 @@ describe('MonitorFormDialog linked account selector', () => {
     }
   })
 
+})
+
+
+it('keeps monitor candidates empty on failure and retries from the same server source', async () => {
+  vi.mocked(getPlatformModelPresets).mockRejectedValueOnce(new Error('preset offline'))
+  const wrapper = mountDialog()
+  await flushPromises()
+  expect(wrapper.get('[role="alert"]').text()).toContain('preset offline')
+  expect(wrapper.findAll('#monitor-preset-models option')).toHaveLength(0)
+  vi.mocked(getPlatformModelPresets).mockResolvedValueOnce([
+    { platform: 'anthropic', provider_profile: 'native', models: [{ id: 'server-monitor-model', task_type: 'text_generation' }] }
+  ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+  await wrapper.get('[role="alert"] button').trigger('click')
+  await flushPromises()
+  expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+  expect(wrapper.get('#monitor-preset-models option').attributes('value')).toBe('server-monitor-model')
+  expect((wrapper.get('[data-testid="monitor-primary-model"]').element as HTMLInputElement).value).toBe('server-monitor-model')
+  vi.mocked(getPlatformModelPresets).mockResolvedValueOnce([])
+  await wrapper.get('[data-testid="monitor-provider-grok"]').trigger('click')
+  await flushPromises()
+  expect(wrapper.findAll('#monitor-preset-models option')).toHaveLength(0)
+  expect((wrapper.get('[data-testid="monitor-primary-model"]').element as HTMLInputElement).value).toBe('')
+  wrapper.unmount()
 })

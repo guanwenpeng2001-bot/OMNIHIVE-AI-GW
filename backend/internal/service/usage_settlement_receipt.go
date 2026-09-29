@@ -75,6 +75,7 @@ type UsageSettlementStatusItem struct {
 }
 
 type UsageSettlementStatus struct {
+	UsageTaskPanics        uint64                      `json:"usage_task_panics"`
 	Contention             *UsageSettlementContention  `json:"contention,omitempty"`
 	Pending                int64                       `json:"pending"`
 	NeedsReview            int64                       `json:"needs_review"`

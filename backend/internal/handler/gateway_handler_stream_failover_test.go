@@ -93,7 +93,8 @@ func TestStreamWrittenGuard_GeminiPath_AbortFailoverOnSSEContentWritten(t *testi
 	body := w.Body.String()
 
 	require.Contains(t, body, "event: message_start")
-	require.Contains(t, body, `"type":"error"`)
+	require.Contains(t, body, `"status":"INTERNAL"`)
+	require.Contains(t, body, `"code":502`)
 
 	firstIdx := strings.Index(body, "event: message_start")
 	lastIdx := strings.LastIndex(body, "event: message_start")

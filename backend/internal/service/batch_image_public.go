@@ -330,6 +330,9 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		})
 	}
 
+	ctx, finishPlan := CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: account.ID, UserID: owner.UserID, APIKeyID: owner.APIKeyID, Model: normalized.Model, Action: "batch_images", ExecutionID: job.BatchID})
+	defer finishPlan()
+
 	// Persist the at-most-once submission claim before contacting the provider.
 	// Uploading without a receipt remains ambiguous after a crash.
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusUploading, BatchImageTransitionOptions{

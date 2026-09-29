@@ -711,7 +711,7 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return gatewayFailoverCanReplay(e)
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {
@@ -868,6 +868,9 @@ func NewGatewayService(
 		compositeResolver:     compositeResolver,
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
+	}
+	if channelService != nil {
+		channelService.visibleModels = &VisibleModelResolver{gateway: svc}
 	}
 	if compositeResolver != nil {
 		compositeResolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)

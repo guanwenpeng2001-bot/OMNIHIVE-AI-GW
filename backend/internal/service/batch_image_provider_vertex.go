@@ -951,7 +951,13 @@ func doVertexJSON[T any](client *http.Client, req *http.Request) (*T, error) {
 }
 
 func doVertexDecodeJSON(client *http.Client, req *http.Request, out any) error {
-	resp, err := client.Do(req)
+	var resp *http.Response
+	var err error
+	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, "/batchPredictionJobs") {
+		resp, err = generationBatchHTTP(req, client)
+	} else {
+		resp, err = client.Do(req)
+	}
 	if err != nil {
 		return err
 	}

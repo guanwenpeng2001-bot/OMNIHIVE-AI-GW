@@ -62,7 +62,7 @@ import { getModelCatalog, list } from '@/api/admin/accounts'
 import { previewPricing, type ChannelPricingPreview, type PricingQuote } from '@/api/admin/channels'
 import type { AccountModelCatalogDetails } from '@/types'
 import { extractApiErrorMessage } from '@/utils/apiError'
-import { formIntervalsToAPI, formTimePricingToAPI, mTokToPerToken, type PricingFormEntry } from './types'
+import { copyPricingFacts, formIntervalsToAPI, formTimePricingToAPI, mTokToPerToken, type PricingFormEntry } from './types'
 
 const props = defineProps<{ entry: PricingFormEntry; platform: string; groupIds: number[] }>()
 const { t } = useI18n()
@@ -165,6 +165,7 @@ async function preview(withSource: boolean) {
     const response = await previewPricing({
       model: model.value, profile: metadata.value?.provider_profile || '', task_type: metadata.value?.task_type || '',
       pricing: {
+        ...copyPricingFacts(entry),
         platform: props.platform, models: [...entry.models], billing_mode: entry.billing_mode,
         input_price: mTokToPerToken(entry.input_price), output_price: mTokToPerToken(entry.output_price),
         cache_write_price: mTokToPerToken(entry.cache_write_price), cache_read_price: mTokToPerToken(entry.cache_read_price),

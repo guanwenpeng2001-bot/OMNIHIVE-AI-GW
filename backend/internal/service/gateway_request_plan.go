@@ -15,19 +15,23 @@ import (
 // GatewayRequestSpec contains values, never hydrated identities or credentials.
 // Route describes the inbound contract; attempts retain their own upstream route.
 type GatewayRequestSpec struct {
-	UserID, APIKeyID, BillingGroupID int64
-	Route, Protocol, Model           string
-	MaxAccountSwitches               int
-	MaxAccountSwitchesGemini         int
-	GenerationAttempts               int
-	Deadline                         time.Time
-	PricingAt                        time.Time
-	PriceVersion, ModelVersion       string
+	UpstreamAccountID                                 int64
+	WorkspaceID                                       int64
+	Action, UpstreamModel, ExecutionKind, ExecutionID string
+	UserID, APIKeyID, BillingGroupID                  int64
+	Route, Protocol, Model                            string
+	MaxAccountSwitches                                int
+	MaxAccountSwitchesGemini                          int
+	GenerationAttempts                                int
+	Deadline                                          time.Time
+	PricingAt                                         time.Time
+	PriceVersion, ModelVersion                        string
 }
 
 // GatewayRequestState deliberately separates client completion from settlement.
 // ReceiptState is empty until persistence acknowledges a durable receipt.
 type GatewayRequestState struct {
+	UsageRecoveryRequired                              bool
 	Finalized, Canceled, ClientCommitted, UsageClaimed bool
 	ReceiptState                                       UsageSettlementState
 	ReceiptKey                                         UsageSettlementKey
@@ -39,12 +43,14 @@ type gatewayRequestPlanKey struct{}
 // GatewayRequestPlan owns one HTTP execution. A websocket adapter must create a
 // new plan per turn, never reuse the connection's usage claim across turns.
 type GatewayRequestPlan struct {
+	registrySnapshot *ModelRegistrySnapshot
 	spec             GatewayRequestSpec
 	forwarding       *gatewayForwardingSettingsResult
 	channels         *ChannelService
 	channelSnapshot  *channelCache
 	channelError     error
 	billing          *BillingService
+	settlement       *UsageSettlementService
 	budget           *AttemptBudget
 	mu               sync.Mutex
 	state            GatewayRequestState
@@ -62,7 +68,13 @@ type gatewayPlanLease struct {
 }
 
 func NewGatewayRequestPlan(spec GatewayRequestSpec) *GatewayRequestPlan {
-	return &GatewayRequestPlan{spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
+	snapshot := NewModelRegistry().Snapshot()
+	spec.ModelVersion = snapshot.Version()
+	return &GatewayRequestPlan{registrySnapshot: snapshot, spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
+}
+
+func (p *GatewayRequestPlan) ModelRegistrySnapshot() *ModelRegistrySnapshot {
+	return p.registrySnapshot
 }
 
 func (p *GatewayRequestPlan) Snapshot() GatewayRequestSpec { return p.spec }
@@ -82,6 +94,9 @@ func GatewayRequestPlanFromContext(ctx context.Context) *GatewayRequestPlan {
 func WithGatewayRequestPlan(ctx context.Context, p *GatewayRequestPlan) context.Context {
 	if p != nil && p.affinityState != nil {
 		ctx = context.WithValue(ctx, affinityBindingStateKey{}, p.affinityState)
+	}
+	if p != nil {
+		ctx = WithModelRegistrySnapshot(ctx, p.registrySnapshot)
 	}
 	return context.WithValue(ctx, gatewayRequestPlanKey{}, p)
 }
@@ -168,7 +183,17 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	if spec.PricingAt.IsZero() {
 		spec.PricingAt = time.Now()
 	}
+	if spec.ExecutionKind == "" {
+		spec.ExecutionKind = "request"
+	}
+	if spec.ExecutionID == "" {
+		spec.ExecutionID = resolveUsageBillingRequestID(ctx, "")
+	}
+	if spec.Action == "" {
+		spec.Action = spec.Route
+	}
 	p := NewGatewayRequestPlan(spec)
+	ConfigureAttemptBudget(ctx, spec.MaxAccountSwitches)
 	p.budget = AttemptBudgetFromContext(ctx)
 	if p.budget != nil {
 		p.budget.mu.Lock()
@@ -186,11 +211,9 @@ func captureGatewayRequestPlan(ctx context.Context, spec GatewayRequestSpec, set
 	if billing != nil && billing.pricingService != nil {
 		prices := billing.pricingService
 		prices.mu.RLock()
-		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, capabilityData: prices.capabilityData, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
+		frozen := &PricingService{cfg: prices.cfg, pricingData: prices.pricingData, registrySnapshot: p.registrySnapshot, localHash: prices.localHash, customFilesHash: prices.customFilesHash, lastUpdated: prices.lastUpdated}
 		p.spec.PriceVersion = prices.localHash + ":" + prices.customFilesHash
-		if prices.capabilityData != nil {
-			p.spec.ModelVersion = prices.capabilityData.Version()
-		}
+		p.spec.ModelVersion = p.registrySnapshot.Version()
 		prices.mu.RUnlock()
 		p.billing = &BillingService{cfg: billing.cfg, pricingService: frozen, fallbackPrices: billing.fallbackPrices}
 	}
@@ -207,6 +230,7 @@ func (s *GatewayService) CaptureRequestPlan(ctx context.Context, spec GatewayReq
 		return ctx, existing
 	}
 	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	plan.settlement = s.usageSettlement
 	plan.catalogRepo = s.accountRepo
 	return ctx, plan
 }
@@ -219,6 +243,7 @@ func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec Gate
 		return ctx, existing
 	}
 	ctx, plan := captureGatewayRequestPlan(ctx, spec, s.settingService, s.billingService, s.channelService)
+	plan.settlement = s.usageSettlement
 	plan.catalogRepo = s.accountRepo
 	return ctx, plan
 }
@@ -316,9 +341,33 @@ func admitGatewayRequestBinding(ctx context.Context, accountID int64) error {
 // CaptureRequestTurn starts a separate logical WS request while retaining the
 // connection's cancellation and existing attempt budget. Retries retain its plan.
 func (s *OpenAIGatewayService) CaptureRequestTurn(ctx context.Context, spec GatewayRequestSpec) (context.Context, *GatewayRequestPlan) {
+	spec.ExecutionKind = "turn"
 	ctx = WithGatewayRequestPlan(ctx, nil)
 	ctx = context.WithValue(ctx, affinityBindingStateKey{}, &AffinityBindingState{})
 	return s.CaptureRequestPlan(ctx, spec)
+}
+
+// CaptureGatewayJobPlan gives an already-persisted job its own execution identity.
+// It retains inbound pricing snapshots and allowance; retries cannot renew either.
+func CaptureGatewayJobPlan(ctx context.Context, spec GatewayRequestSpec) (context.Context, func()) {
+	spec.ExecutionKind = "job"
+	parent := GatewayRequestPlanFromContext(ctx)
+	ctx, cancel := WithAttemptBudget(ctx, 1, DefaultGenerationDeadline)
+	ctx = WithGatewayRequestPlan(ctx, nil)
+	if parent != nil {
+		spec.MaxAccountSwitches = parent.spec.MaxAccountSwitches
+	}
+	ctx, plan := captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
+	if parent != nil {
+		plan.billing, plan.channels = parent.billing, parent.channels
+		plan.settlement = parent.settlement
+		plan.channelSnapshot, plan.channelError = parent.channelSnapshot, parent.channelError
+		plan.registrySnapshot = parent.registrySnapshot
+		plan.spec.PriceVersion, plan.spec.ModelVersion = parent.spec.PriceVersion, parent.spec.ModelVersion
+		plan.spec.PricingAt = parent.spec.PricingAt
+		ctx = WithGatewayRequestPlan(ctx, plan)
+	}
+	return ctx, func() { plan.Finalize(false); cancel() }
 }
 
 // A transient scheduler veto can spill this request without destroying the

@@ -160,6 +160,7 @@ func TestQianfanAdapterContract(t *testing.T) {
 		recorder = httptest.NewRecorder()
 		ginContext, _ = gin.CreateTestContext(recorder)
 		ginContext.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
+		ginContext.Set("chat_client_include_usage", true) // This low-level relay test explicitly requests usage.
 		streamResult, err := service.streamRawChatCompletions(ginContext, &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(stream.String()))}, account, "synthetic-text", "synthetic-text", "synthetic-text", nil, nil, time.Now(), 0)
 		require.NoError(t, err)
 		require.Equal(t, result.Usage, streamResult.Usage, "repeated cumulative usage must not be summed")

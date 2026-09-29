@@ -1,4 +1,3 @@
-import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -233,8 +232,8 @@ describe('UseKeyModal', () => {
     expect(parsedSettings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
     expect(wrapper.text()).toContain('keys.useKeyModal.claudeSettingsHint')
     expect(wrapper.text()).toContain('keys.useKeyModal.grok.claudeNote')
-    expect(wrapper.find('nav[aria-label="Client"]').classes()).toContain('min-w-max')
-    expect(wrapper.find('nav[aria-label="Client"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true)
+    expect(wrapper.find('nav[aria-label="keys.useKeyModal.clientLabel"]').classes()).toContain('min-w-max')
+    expect(wrapper.find('nav[aria-label="keys.useKeyModal.clientLabel"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true)
 
     const cmdTab = wrapper.findAll('button').find(
       (button) => button.text().trim() === 'Windows CMD'
@@ -939,7 +938,18 @@ describe('UseKeyModal', () => {
       await tab.trigger('click')
       const config = JSON.parse(wrapper.get('pre code').text())
       expect(Object.keys(config.provider)).toEqual([platform])
-      expect(Object.keys(config.provider[platform].models)).toEqual(getModelsByPlatform(platform))
+      expect(Object.keys(config.provider[platform].models)).toEqual([])
+      const fetchModels = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [{ slug: 'key-visible-model', display_name: 'Key visible model' }] }) })
+      vi.stubGlobal('fetch', fetchModels)
+      await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
+      await flushPromises()
+      expect(fetchModels).toHaveBeenCalledWith(expect.stringContaining('/v1/models?'), expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer sk-example' }) }))
+      const loadedConfig = JSON.parse(wrapper.get('pre code').text())
+      expect(Object.keys(loadedConfig.provider[platform].models)).toEqual(['key-visible-model'])
+      await wrapper.setProps({ apiKey: 'sk-other-key' })
+      expect(Object.keys(JSON.parse(wrapper.get('pre code').text()).provider[platform].models)).toEqual([])
+      vi.unstubAllGlobals()
+
       expect(config.provider[platform].options).toEqual({ baseURL: 'https://example.com/v1', apiKey: 'sk-example' })
       expect(config.provider[platform].npm).toBe('@ai-sdk/openai-compatible')
       wrapper.unmount()

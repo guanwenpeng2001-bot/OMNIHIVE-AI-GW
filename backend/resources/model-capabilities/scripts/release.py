@@ -6,6 +6,12 @@ BACKEND = catalog.ROOT.parents[2]
 MANIFEST = catalog.ROOT.parent / "release-manifest.json"
 PIN = catalog.ROOT.parent / "release-pin.json"
 VERSION_FILES = (
+    "internal/service/model_registry.go",
+    "internal/service/model_registry_reload.go",
+    "internal/service/model_registry_metadata.go",
+    "internal/service/visible_model_resolver.go",
+    "internal/service/upstream_models.go",
+    "internal/service/platform_model_catalog.go",
     "internal/service/model_capability_catalog.go",
     "internal/service/model_capability_profile.go",
     "internal/service/model_capability_readonly.go",
@@ -31,6 +37,7 @@ def manifest_for(value, review):
     return {"schema_version": 1,
             "approved_generation": int(datetime.strptime(value["generated_at"], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=timezone.utc).timestamp()),
             "catalog_sha256": catalog.digest(catalog.encode(value)),
+            "presets_sha256": catalog.digest((BACKEND / "internal/service/platform_model_presets.json").read_bytes().replace(b"\r\n", b"\n")),
             "applicability": "reviewed-profile-model",
             "review_sha256": catalog.digest(catalog.encode(review)),
             "inputs_sha256": review["approved_inputs_sha256"],

@@ -66,7 +66,7 @@ describe('model catalog evidence display', () => {
       ],
       metadata: { declared: { evidence_kind: 'specification_only' } }
     } } })
-    const evidence = wrapper.findAll('[data-model-category] li').map(row => row.text())
+    const evidence = wrapper.findAll('[data-testid="catalog-diagnostics"] li').map(row => row.text())
     expect(evidence.find(row => row.includes('native'))).toContain('chat_completions')
     expect(evidence.find(row => row.includes('declared'))).toContain('administrator_declaration')
     expect(evidence.find(row => row.includes('declared'))).toContain('responses')
@@ -178,7 +178,8 @@ it('retains discovered-only models in the saved coverage denominator before a ne
   expect(rows.some(row => row.includes('native-target'))).toBe(true)
   expect(rows.some(row => row.includes('pending-target'))).toBe(true)
   expect(rows.some(row => row.includes('mapped-only'))).toBe(true)
-  expect(rows.every(row => row.includes('状态未提供'))).toBe(true)
+  expect(rows.every(row => !row.includes('状态未提供'))).toBe(true)
+  expect(wrapper.findAll('[data-testid="capability-fields"]')).toHaveLength(0)
 })
 
 
@@ -231,4 +232,41 @@ it('shows mapped-only read projection without changing discovery or eligibility'
   expect(JSON.stringify(summary)).toBe(before)
   expect(summary.synced).toBe(false)
   expect(summary.eligible_count).toBe(0)
+})
+
+
+it.each([51, 505, 1000])('keeps every modality in the bounded %s model detail list', async count => {
+  const categories = ['chat', 'image', 'video', 'embedding', 'audio', 'memory', 'other']
+  const models = Array.from({ length: count }, (_, index) => `model-${index}`)
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: count, result: {
+    models, metadata: Object.fromEntries(models.map((id, index) => [id, {
+      category: categories[Math.min(6, Math.floor(index * 7 / count))],
+      task_limits: { resolutions: ['1920x1080'], max_duration_seconds: 12 }, embedding_dimensions: 1536,
+      field_evidence: { 'task_limits.max_duration_seconds': { source: 'upstream' } }
+    }]))
+  } } })
+  expect(wrapper.findAll('[data-model-category]').map(group => group.attributes('data-model-category'))).toEqual(categories)
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(50)
+  expect(wrapper.get('[data-testid="catalog-diagnostics"]').attributes('open')).toBeUndefined()
+  const row = wrapper.get<HTMLDetailsElement>('[data-testid="capability-row"]')
+  expect(row.get('summary').text()).toContain('1920x1080')
+  expect(row.get('summary').text()).toContain('12')
+  expect(row.get('summary').text()).toContain('1536')
+  expect(row.attributes('open')).toBeUndefined()
+  expect(wrapper.find('[data-testid="capability-fields"]').exists()).toBe(false)
+  row.element.open = true
+  await row.trigger('toggle')
+  expect(row.get('[data-testid="capability-fields"]').text()).toContain('task_limits.max_duration_seconds: 12')
+  wrapper.unmount()
+})
+
+
+it('keeps coverage counts unchanged when candidate display facts enrich a detail row', () => {
+  const displayMetadata = { model: { category: 'video', metadata_status: 'complete', task_limits: { max_duration_seconds: 12 } } }
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 1, displayMetadata,
+    mappingTargets: [], result: { models: ['model'], discovered_models: ['model'] } } })
+  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain(`${zh.capabilityCatalog.coverage}: 0 / 1`)
+  expect(wrapper.get('[data-model-category="video"] summary').text()).toContain('12')
+  expect(wrapper.get('[data-testid="capability-state"]').text()).toBe(zh.capabilityCatalog.partial)
+  wrapper.unmount()
 })

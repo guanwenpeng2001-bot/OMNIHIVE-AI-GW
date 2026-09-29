@@ -171,13 +171,13 @@ func testCursorMCPGatewayThreeProtocolsHTTP2(t *testing.T, opaqueIDs bool, persi
 					gateway.toolStore = store
 				}
 				gateway.native = &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL}
-				gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.FallbackModels(), expires: time.Now().Add(time.Hour)}}
+				gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.ProtocolVariantModels(), expires: time.Now().Add(time.Hour)}}
 				for _, second := range []bool{false, true} {
 					if second && len(persistence) > 0 && persistence[0] == "restart" {
 						gateway, account, _ = cursorTestGateway()
 						gateway.toolStore = store
 						gateway.native = &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL}
-						gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.FallbackModels(), expires: time.Now().Add(time.Hour)}}
+						gateway.catalog = map[string]cursorCatalogEntry{cursorSessionKey(account): {models: cursor.ProtocolVariantModels(), expires: time.Now().Add(time.Hour)}}
 					}
 					writer := httptest.NewRecorder()
 					c, _ := gin.CreateTestContext(writer)

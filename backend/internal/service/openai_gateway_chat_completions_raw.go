@@ -61,6 +61,7 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	body []byte,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	c.Set("chat_client_include_usage", gjson.GetBytes(body, "stream_options.include_usage").Bool())
 	startTime := time.Now()
 	if err := requestmodel.ValidateJSON(body); err != nil {
 		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body")
@@ -347,7 +348,7 @@ func (s *OpenAIGatewayService) rawChatCompletionsURL(account *Account) (string, 
 // 末尾 [DONE] 之前的 chunk 中的 usage 字段，按 OpenAI CC 协议）。
 //
 // usage 字段仅在客户端请求 stream_options.include_usage=true 时出现于上游响应中。
-// 网关会对上游强制打开 include_usage 以保证计费完整，并原样向下游透传 usage，
+// 网关对上游强制打开 include_usage 以保证计费完整；只在客户端显式请求时透传 usage，
 // 让级联代理或下游计费系统也能拿到完整用量。
 func (s *OpenAIGatewayService) streamRawChatCompletions(
 	c *gin.Context,
@@ -382,6 +383,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	var usage OpenAIUsage
 	var firstTokenMs *int
 	mistralUsageKnown := false
+	hunyuanUsageKnown := false
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
@@ -465,7 +467,13 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
-				if reported := extractCCStreamUsage(payload); reported != nil {
+				if account.Platform == PlatformHunyuan {
+					if reported, usageErr := parseHunyuanChatUsage([]byte(payload)); usageErr == nil && reported != nil {
+						usage = *reported
+						hunyuanUsageKnown = true
+					}
+				}
+				if reported := extractCCStreamUsage(payload); reported != nil && account.Platform != PlatformHunyuan {
 					if account.Platform != PlatformMistral || mistralChatUsageKnown([]byte(payload)) {
 						usage = *reported
 						mistralUsageKnown = true
@@ -475,6 +483,17 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 					scanner.Semantic()
 					elapsed := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &elapsed
+				}
+			}
+		}
+		if !c.GetBool("chat_client_include_usage") && payload != "[DONE]" {
+			if isOpenAIChatUsageOnlyStreamChunk(payload) {
+				continue
+			}
+			if gjson.Get(payload, "usage").Exists() {
+				filtered, err := sjson.Delete(payload, "usage")
+				if err == nil {
+					line = "data: " + filtered
 				}
 			}
 		}
@@ -504,7 +523,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
-		if account.Platform == PlatformMistral && !mistralUsageKnown {
+		if (account.Platform == PlatformMistral && !mistralUsageKnown) || (account.Platform == PlatformHunyuan && !hunyuanUsageKnown) {
 			return nil
 		}
 		return &OpenAIForwardResult{
@@ -541,6 +560,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	// 沿用既有语义：按已收到的用量正常收尾计费，不判为上游故障。
 	if account.Platform == PlatformMistral && !mistralUsageKnown {
 		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	}
+	if account.Platform == PlatformHunyuan && !hunyuanUsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("hunyuan usage is unknown"))
 	}
 	clientAborted := clientDisconnected || c.Request.Context().Err() != nil
 
@@ -594,7 +616,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 }
 
 // ensureOpenAIChatStreamUsage 确保 raw Chat Completions 流式请求会让上游返回 usage。
-// usage 也会继续向下游透传，支持级联代理和下游计费系统。
+// 下游仅在客户端显式请求 include_usage 时收到用量；服务端计费始终保留。
 func ensureOpenAIChatStreamUsage(body []byte) ([]byte, error) {
 	updated, err := sjson.SetBytes(body, "stream_options.include_usage", true)
 	if err != nil {

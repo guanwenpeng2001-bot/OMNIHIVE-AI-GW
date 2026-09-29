@@ -143,6 +143,8 @@ export default {
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
     useKeyModal: {
+      clientLabel: '客户端',
+      shellLabel: '操作系统与终端',
       title: '使用 API 密钥',
       description: '将以下环境变量添加到您的终端配置文件或直接在终端中运行。',
       copy: '复制',
@@ -1054,6 +1056,7 @@ export default {
 
   // Pagination
   pagination: {
+    label: '分页',
     showing: '显示',
     to: '至',
     of: '共',

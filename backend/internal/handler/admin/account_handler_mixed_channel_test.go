@@ -93,18 +93,27 @@ func TestAccountHandlerCreateMixedChannelConflictEnvelope(t *testing.T) {
 		CurrentPlatform: "Antigravity",
 		OtherPlatform:   "Anthropic",
 	}
-	router := setupAccountMixedChannelRouter(adminSvc)
+	pending := credentialDraftTestStore(t)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	accountHandler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	accountHandler.SetCredentialDraftService(pending)
+	router.POST("/api/v1/admin/accounts", accountHandler.Create)
+	cookie, draft := issueHTTPCredentialDraft(t, pending, service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"refresh_token": "rt"})
 
 	body, _ := json.Marshal(map[string]any{
-		"name":        "ag-oauth-1",
-		"platform":    "antigravity",
-		"type":        "oauth",
-		"credentials": map[string]any{"refresh_token": "rt"},
-		"group_ids":   []int64{27},
+		"name":                      "ag-oauth-1",
+		"platform":                  "antigravity",
+		"type":                      "oauth",
+		"credentials":               map[string]any{},
+		"group_ids":                 []int64{27},
+		"credential_draft":          draft.Reference,
+		"credential_draft_revision": draft.Revision,
 	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusConflict, rec.Code)

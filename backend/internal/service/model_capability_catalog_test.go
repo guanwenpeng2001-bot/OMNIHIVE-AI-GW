@@ -136,7 +136,7 @@ func TestModelCapabilityDownloadHashMismatchAndCacheReplay(t *testing.T) {
 	svc := newCapabilityPricing(t, remote)
 	require.NoError(t, svc.downloadPricingData())
 	valid := svc.CapabilitySnapshot()
-	require.Equal(t, capabilityHash(body), valid.ContentHash())
+	require.NotEqual(t, capabilityHash(body), valid.ContentHash(), "remote collection is not approval")
 	remote.body = []byte(`{"runtime":{"litellm_provider":"test","max_input_tokens":512,"supports_reasoning":true,"input_cost_per_token":0.02}}`)
 	remote.hash = "mismatched-remote-sync-anchor"
 	require.NoError(t, svc.downloadPricingData())
@@ -152,9 +152,10 @@ func TestModelCapabilityDownloadHashMismatchAndCacheReplay(t *testing.T) {
 	require.Same(t, embed, restarted.CapabilitySnapshot())
 	remote.hash = capabilityHash(remote.body)
 	require.NoError(t, svc.downloadPricingData())
-	require.NotEqual(t, valid.Version(), svc.CapabilitySnapshot().Version())
-	old, _ := valid.LookupExact("test", "runtime")
-	require.EqualValues(t, 256, *old.MaxInputTokens)
+	require.Same(t, valid, svc.CapabilitySnapshot())
+	_, found := valid.LookupExact("test", "runtime")
+	require.False(t, found)
+	require.FileExists(t, svc.getPricingFilePath()+".capabilities.pending.json")
 }
 
 func TestModelCapabilityReloadAndOverrideIsolation(t *testing.T) {
@@ -167,11 +168,8 @@ func TestModelCapabilityReloadAndOverrideIsolation(t *testing.T) {
 	svc.cfg.Pricing.OverrideFile = filepath.Join(t.TempDir(), "override.json")
 	require.NoError(t, os.WriteFile(svc.cfg.Pricing.OverrideFile, []byte(`{"runtime-only":{"max_input_tokens":999999,"supports_vision":true,"input_cost_per_token":0.02}}`), 0644))
 	require.NoError(t, svc.reloadCustomPricingLayers())
-	r, found := svc.CapabilitySnapshot().LookupExact("test", "runtime-only")
-	require.True(t, found)
-	require.NotNil(t, r.MaxInputTokens)
-	require.EqualValues(t, 32000, *r.MaxInputTokens)
-	require.False(t, *r.SupportsVision)
+	_, found := svc.CapabilitySnapshot().LookupExact("test", "runtime-only")
+	require.False(t, found, "unapproved local pricing cannot publish model facts")
 	require.Equal(t, original.Version(), svc.CapabilitySnapshot().Version())
 	require.Equal(t, 0.02, svc.pricingData["runtime-only"].InputCostPerToken)
 	stable := svc.CapabilitySnapshot()
@@ -205,8 +203,10 @@ func TestModelCapabilityOfflineInitializeAndProvider(t *testing.T) {
 }
 
 func TestModelCapabilityConcurrentPublication(t *testing.T) {
-	svc := newCapabilityPricing(t, nil)
-	first := svc.CapabilitySnapshot()
+	svc := &capabilityTestProvider{}
+	first, err := buildModelCapabilitySnapshot(nil)
+	require.NoError(t, err)
+	svc.publishCapabilityCandidate(first)
 	next, err := buildModelCapabilitySnapshot([]byte(`{"gpt-4o":{"litellm_provider":"openai","max_input_tokens":100}}`))
 	require.NoError(t, err)
 	var wg sync.WaitGroup
@@ -226,13 +226,11 @@ func TestModelCapabilityConcurrentPublication(t *testing.T) {
 		}()
 	}
 	for i := 0; i < 100; i++ {
-		svc.mu.Lock()
 		if i%2 == 0 {
-			svc.capabilityData = next
+			svc.publishCapabilityCandidate(next)
 		} else {
-			svc.capabilityData = first
+			svc.publishCapabilityCandidate(first)
 		}
-		svc.mu.Unlock()
 	}
 	wg.Wait()
 	r, _ := first.LookupExact("openai", "gpt-4o")
@@ -244,9 +242,8 @@ func TestModelCapabilityOnlyLoadDoesNotRequirePriceAdmission(t *testing.T) {
 	path := svc.getPricingFilePath()
 	require.NoError(t, os.WriteFile(path, []byte(`{"spec-only":{"litellm_provider":"test","max_input_tokens":42}}`), 0644))
 	require.Error(t, svc.loadPricingData(path), "price loading must still reject absent prices")
-	record, ok := svc.CapabilitySnapshot().LookupExact("test", "spec-only")
-	require.True(t, ok)
-	require.EqualValues(t, 42, *record.MaxInputTokens)
+	_, ok := svc.CapabilitySnapshot().LookupExact("test", "spec-only")
+	require.False(t, ok, "an unsigned local pricing file cannot publish facts")
 	require.Empty(t, svc.pricingData)
 }
 

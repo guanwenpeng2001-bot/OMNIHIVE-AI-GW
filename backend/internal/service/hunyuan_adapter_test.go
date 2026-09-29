@@ -4,25 +4,37 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
-// These are synthetic fixtures for the frozen compatibility contract, not
-// authenticated vendor captures. Unsupported stream semantics stay unverified.
+// Synthetic wire fixtures follow TokenHub documents 1823/130079 and 130058;
+// they do not claim authenticated vendor access.
 func TestHunyuanAdapterContract(t *testing.T) {
 	newAccount := func() *Account {
 		return &Account{Platform: "hunyuan", Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "synthetic-compatibility-key"}}
 	}
 	const chatBody = `{"model":"client-alias","messages":[{"role":"user","content":"hello"}]}`
-	t.Run("legacy_endpoint_and_bearer", func(t *testing.T) {
-		for _, baseURL := range []string{"", "https://api.hunyuan.cloud.tencent.com", hunyuanCompatibilityBaseURL, hunyuanCompatibilityBaseURL + "/"} {
+	t.Run("official_endpoints_and_bearer", func(t *testing.T) {
+		for _, baseURL := range []string{"", "https://api.hunyuan.cloud.tencent.com", hunyuanLegacyBaseURL, hunyuanCompatibilityBaseURL, hunyuanCompatibilityBaseURL + "/", "https://tokenhub.tencentmaas.cn/v1", "https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.cn/v1"} {
 			account := newAccount()
 			account.Credentials["base_url"] = baseURL
 			request, err := buildHunyuanChatRequest(context.Background(), account, []byte(chatBody), "hunyuan-turbos-latest")
 			require.NoError(t, err)
-			require.Equal(t, "https://api.hunyuan.cloud.tencent.com/v1/chat/completions", request.URL.String())
+			expectedBase := strings.TrimSuffix(baseURL, "/")
+			if expectedBase == "" {
+				expectedBase = hunyuanCompatibilityBaseURL
+			}
+			if expectedBase == "https://api.hunyuan.cloud.tencent.com" {
+				expectedBase = hunyuanLegacyBaseURL
+			}
+			require.Equal(t, expectedBase+"/chat/completions", request.URL.String())
+			discovery, err := buildHunyuanModelsRequest(context.Background(), account)
+			require.NoError(t, err)
+			require.Equal(t, expectedBase+"/models", discovery.URL.String())
+			require.Equal(t, "Bearer synthetic-compatibility-key", discovery.Header.Get("Authorization"))
 			require.Equal(t, http.MethodPost, request.Method)
 			require.Equal(t, "Bearer synthetic-compatibility-key", request.Header.Get("Authorization"))
 			require.Equal(t, "application/json", request.Header.Get("Accept"))
@@ -40,27 +52,34 @@ func TestHunyuanAdapterContract(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, body, string(payload))
 	})
-	t.Run("unconfirmed_actions_fail_before_transport", func(t *testing.T) {
-		request, err := buildHunyuanChatRequest(context.Background(), newAccount(), []byte(`{"model":"target","messages":[{"role":"user","content":"hello"}],"stream":true}`), "target")
-		require.ErrorIs(t, err, errHunyuanStreamUnsupported)
-		require.Nil(t, request)
-		models, err := hunyuanDiscoveredModels()
-		require.ErrorIs(t, err, errHunyuanDiscoveryUnsupported)
-		require.Nil(t, models)
+	t.Run("stream_request_preserved", func(t *testing.T) {
+		const body = `{"model":"target","messages":[{"role":"user","content":"hello"}],"stream":true}`
+		request, err := buildHunyuanChatRequest(context.Background(), newAccount(), []byte(body), "target")
+		require.NoError(t, err)
+		require.Equal(t, "text/event-stream", request.Header.Get("Accept"))
+		payload, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		require.Equal(t, body, string(payload))
 	})
 	t.Run("credential_and_product_boundaries", func(t *testing.T) {
-		for _, baseURL := range []string{"https://tokenhub.tencent.com/v1", "https://hunyuan.tencentcloudapi.com", hunyuanCompatibilityBaseURL + "/v1", hunyuanCompatibilityBaseURL + "?secret=value", "https://api.hunyuan.cloud.tencent.com.attacker.invalid/v1"} {
+		for _, baseURL := range []string{"https://tokenhub.tencentmaas.com.attacker.invalid/v1", "https://tokenhub.tencentmaas.com/v1#fragment", "https://tokenhub.tencentmaas.com/v1/../v1", "https://tokenhub.tencentmaas.com:443/v1", "http://tokenhub.tencentmaas.com/v1", "https://user@tokenhub.tencentmaas.com/v1", "https://tokenhub.tencent.com/v1", "https://hunyuan.tencentcloudapi.com", hunyuanCompatibilityBaseURL + "/v1", hunyuanCompatibilityBaseURL + "?secret=value", "https://api.hunyuan.cloud.tencent.com.attacker.invalid/v1"} {
 			account := newAccount()
 			account.Credentials["base_url"] = baseURL
 			request, err := buildHunyuanChatRequest(context.Background(), account, []byte(chatBody), "target")
 			require.Error(t, err)
 			require.Nil(t, request)
 			require.NotContains(t, err.Error(), baseURL)
+			discovery, err := buildHunyuanModelsRequest(context.Background(), account)
+			require.Error(t, err)
+			require.Nil(t, discovery)
 		}
 		for _, account := range []*Account{nil, {Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, {Platform: "hunyuan", Type: AccountTypeOAuth}, {Platform: "hunyuan", Type: AccountTypeAPIKey, Credentials: map[string]any{"secret_id": "synthetic", "secret_key": "synthetic"}}} {
 			request, err := buildHunyuanChatRequest(context.Background(), account, []byte(chatBody), "target")
 			require.Error(t, err)
 			require.Nil(t, request)
+			discovery, err := buildHunyuanModelsRequest(context.Background(), account)
+			require.Error(t, err)
+			require.Nil(t, discovery)
 		}
 	})
 	t.Run("invalid_request_rejected", func(t *testing.T) {

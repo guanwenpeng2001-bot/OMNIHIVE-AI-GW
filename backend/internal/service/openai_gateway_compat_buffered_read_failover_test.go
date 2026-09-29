@@ -54,6 +54,7 @@ func TestChatCompletionsBufferedResponsesReadErrorReturnsFailover(t *testing.T) 
 			require.Nil(t, result)
 			var failoverErr *UpstreamFailoverError
 			require.ErrorAs(t, err, &failoverErr)
+			require.False(t, failoverErr.ShouldRetryNextAccount(), "read failures do not prove rejection")
 			require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
 			require.Equal(t, "upstream-rid", failoverErr.ResponseHeaders.Get("x-request-id"))
 			require.Equal(t, readError.expectedCode, gjson.GetBytes(failoverErr.ResponseBody, "error.code").String())

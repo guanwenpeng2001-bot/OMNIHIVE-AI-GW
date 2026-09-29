@@ -5,10 +5,13 @@
     width="wide"
     @close="handleClose"
   >
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
     <form
       v-if="account"
       id="edit-account-form"
-      @submit.prevent="handleSubmit"
+      @submit.prevent="handleSubmit()"
       class="space-y-5"
     >
       <div>
@@ -33,13 +36,13 @@
         <p class="input-hint">{{ t('admin.accounts.gemini.tier.hint') }}</p>
       </div>
       <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
-      <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @success="handleCursorAuthorized" />
+      <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
-            v-model="editBaseUrl"
+            v-model="editBaseUrl" data-account-field="editBaseUrl"
             type="text"
             class="input"
             :placeholder="
@@ -91,7 +94,7 @@
         <!-- OpenCode Zen vs GO -->
         <div v-if="isCNApiKeyAccount && account.platform === 'opencode_go'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
             <button
               type="button"
               @click="editOpenCodeAccountMode = 'zen'"
@@ -100,7 +103,7 @@
                 editOpenCodeAccountMode === 'zen'
                   ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
                   : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-              ]"
+              ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'zen'" :tabindex="editOpenCodeAccountMode === 'zen' ? 0 : -1"
             >
               <div
                 :class="[
@@ -123,7 +126,7 @@
                 editOpenCodeAccountMode === 'go'
                   ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
                   : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-              ]"
+              ]" role="radio" :aria-checked="editOpenCodeAccountMode === 'go'" :tabindex="editOpenCodeAccountMode === 'go' ? 0 : -1"
             >
               <div
                 :class="[
@@ -143,7 +146,7 @@
         <!-- Account Mode Selection (CN providers) -->
         <div v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode', 'qianwen'].includes(account.platform)">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
             <button
               v-for="opt in cnAccountModeOptions"
               :key="opt.value"
@@ -155,7 +158,7 @@
                   ? cnAccentActiveClass
                   : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
               ]"
-              @click="editAccountMode = opt.value"
+              @click="editAccountMode = opt.value" role="radio" :aria-checked="editAccountMode === opt.value" :tabindex="editAccountMode === opt.value ? 0 : -1"
             >
               <div :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
@@ -173,7 +176,7 @@
         <!-- API Protocol Selection (CN providers / OpenCode) -->
         <div v-if="isCNApiKeyAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
-          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="edit-apiProtocol">
+          <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="edit-apiProtocol" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
             <button
               v-for="opt in cnProtocolOptions"
               :key="opt.value"
@@ -185,7 +188,7 @@
                   ? cnAccentActiveClass
                   : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
               ]"
-              @click="editApiProtocol = opt.value"
+              @click="editApiProtocol = opt.value" role="radio" :aria-checked="editApiProtocol === opt.value" :tabindex="editApiProtocol === opt.value ? 0 : -1"
             >
               <div :class="[
                 'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
@@ -238,7 +241,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
           <input
-            v-model="editApiKey"
+            v-model="editApiKey" data-account-field="editApiKey"
             type="password"
             class="input font-mono"
             autocomplete="new-password"
@@ -264,193 +267,6 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
           <p v-if="account.platform === 'qianwen' && (editApiKey || String(account.credentials?.api_key || '')).trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
-        </div>
-
-        <!-- Model Restriction Section (不适用于 Antigravity) -->
-        <div v-if="account.platform !== 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <div
-            v-if="isOpenAIModelRestrictionDisabled"
-            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-          >
-            <p class="text-xs text-amber-700 dark:text-amber-400">
-              {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-            </p>
-          </div>
-
-          <template v-else>
-            <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'whitelist'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'whitelist'
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelWhitelist') }}
-              </button>
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'mapping'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'mapping'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelMapping') }}
-              </button>
-            </div>
-
-            <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector
-                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
-              <p class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
-                  t('admin.accounts.supportsAllModels')
-                }}</span>
-              </p>
-            </div>
-
-            <!-- Mapping Mode -->
-            <div v-else>
-              <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-                <p class="text-xs text-purple-700 dark:text-purple-400">
-                  <svg
-                    class="mr-1 inline h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {{ t('admin.accounts.mapRequestModels') }}
-                </p>
-              </div>
-
-            <!-- Model Mapping List -->
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.addMapping') }}
-            </button>
-
-              <!-- Quick Add Buttons -->
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="preset in presetMappings"
-                  :key="preset.label"
-                  type="button"
-                  @click="addPresetMapping(preset.from, preset.to)"
-                  :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-                >
-                  + {{ preset.label }}
-                </button>
-              </div>
-            </div>
-          </template>
         </div>
 
         <!-- Pool Mode Section -->
@@ -770,149 +586,12 @@
         </div>
       </div>
 
-      <!-- OpenAI/Grok OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
-      <div
-        v-if="((account.platform === 'openai' || account.platform === 'grok') && account.type === 'oauth') || account.platform === 'cursor'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <div
-          v-if="isOpenAIModelRestrictionDisabled"
-          class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-        >
-          <p class="text-xs text-amber-700 dark:text-amber-400">
-            {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-          </p>
-        </div>
-
-        <template v-else>
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
-                t('admin.accounts.supportsAllModels')
-              }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else>
-            <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-              <p class="text-xs text-purple-700 dark:text-purple-400">
-                {{ t('admin.accounts.mapRequestModels') }}
-              </p>
-            </div>
-
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="'oauth-' + getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-
-            <!-- Quick Add Buttons -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in presetMappings"
-                :key="'oauth-' + preset.label"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
-        </template>
-      </div>
-
       <!-- Upstream fields (only for upstream type) -->
       <div v-if="account.type === 'upstream'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
           <input
-            v-model="editBaseUrl"
+            v-model="editBaseUrl" data-account-field="editBaseUrl"
             type="text"
             class="input"
             placeholder="https://cloudcode-pa.googleapis.com"
@@ -922,7 +601,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.apiKey') }}</label>
           <input
-            v-model="editApiKey"
+            v-model="editApiKey" data-account-field="editApiKey"
             type="password"
             class="input font-mono"
             placeholder="sk-..."
@@ -970,181 +649,6 @@
           </div>
         </div>
 
-        <!-- Model Restriction Section for Service Account -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              <svg
-                class="mr-1.5 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                />
-              </svg>
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              <svg
-                class="mr-1.5 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                />
-              </svg>
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{
-                t('admin.accounts.supportsAllModels')
-              }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else>
-            <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-              <p class="text-xs text-purple-700 dark:text-purple-400">
-                <svg
-                  class="mr-1 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.mapRequestModels') }}
-              </p>
-            </div>
-
-            <!-- Model Mapping List -->
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.addMapping') }}
-            </button>
-
-            <!-- Quick Add Buttons -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in presetMappings"
-                :key="preset.label"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
-        </div>
       </div>
 
       <!-- Bedrock fields (for bedrock type, both SigV4 and API Key modes) -->
@@ -1212,76 +716,6 @@
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockForceGlobal') }}</span>
           </label>
           <p class="input-hint mt-1">{{ t('admin.accounts.bedrockForceGlobalHint') }}</p>
-        </div>
-
-        <!-- Model Restriction for Bedrock -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :candidate-identity="modelCandidateIdentity" :active="show" v-model="allowedModels" :platform="account.platform" discovery-disabled />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0 && modelMappings.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else class="space-y-3">
-            <div v-for="(mapping, index) in modelMappings" :key="getModelMappingKey(mapping)" class="flex items-center gap-2">
-              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
-              <span class="text-gray-400">→</span>
-              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
-              <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
-                <Icon name="trash" size="sm" />
-              </button>
-            </div>
-            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-            <!-- Bedrock Preset Mappings -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in bedrockPresets"
-                :key="preset.from"
-                type="button"
-                @click="modelMappings.push({ from: preset.from, to: preset.to })"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
@@ -1364,95 +798,7 @@
         <p class="input-hint">{{ t('admin.accounts.antigravityProjectIdHint') }}</p>
       </div>
 
-      <!-- Antigravity model restriction (applies to all antigravity types) -->
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
-      <div v-if="account.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <!-- Mapping Mode Only (no toggle for Antigravity) -->
-        <div>
-          <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-            <p class="text-xs text-purple-700 dark:text-purple-400">{{ t('admin.accounts.mapRequestModels') }}</p>
-          </div>
-
-          <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
-            <div
-              v-for="(mapping, index) in antigravityModelMappings"
-              :key="getAntigravityModelMappingKey(mapping)"
-              class="space-y-1"
-            >
-              <div class="flex items-center gap-2">
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    !isValidWildcardPattern(mapping.from) ? 'border-red-500 dark:border-red-500' : '',
-                    mapping.to.includes('*') ? '' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg class="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    mapping.to.includes('*') ? 'border-red-500 dark:border-red-500' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeAntigravityModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <!-- 校验错误提示 -->
-              <p v-if="!isValidWildcardPattern(mapping.from)" class="text-xs text-red-500">
-                {{ t('admin.accounts.wildcardOnlyAtEnd') }}
-              </p>
-              <p v-if="mapping.to.includes('*')" class="text-xs text-red-500">
-                {{ t('admin.accounts.targetNoWildcard') }}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            @click="addAntigravityModelMapping"
-            class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-          >
-            <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            {{ t('admin.accounts.addMapping') }}
-          </button>
-
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="preset in antigravityPresetMappings"
-              :key="preset.label"
-              type="button"
-              @click="addAntigravityPresetMapping(preset.from, preset.to)"
-              :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-            >
-              + {{ preset.label }}
-            </button>
-          </div>
-        </div>
-      </div>
 
       <!-- Temp Unschedulable Rules -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4">
@@ -1601,7 +947,6 @@
           </button>
         </div>
       </div>
-
 
       <div
         v-if="supportsAccountSchedulingThresholdOverride"
@@ -1851,7 +1196,7 @@
             </div>
           </div>
           <div class="border-t border-sky-100 bg-white/70 p-2 dark:border-sky-900/50 dark:bg-dark-800/70">
-            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <div class="grid grid-cols-1 gap-2 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.openai.codexImageToolDesc')" @keydown="navigateAccountChoices">
               <button
                 v-for="option in codexImageToolOptions"
                 :key="option.value"
@@ -1863,7 +1208,7 @@
                   codexImageToolMode === option.value
                     ? option.selectedCardClass
                     : 'border-transparent bg-transparent text-slate-600 hover:border-gray-200 hover:bg-gray-50 dark:text-slate-300 dark:hover:border-dark-500 dark:hover:bg-dark-700'
-                ]"
+                ]" role="radio" :aria-checked="codexImageToolMode === option.value" :tabindex="codexImageToolMode === option.value ? 0 : -1"
               >
                 <span
                   :class="[
@@ -2307,7 +1652,10 @@
             </p>
           </div>
           <div class="w-44 flex-shrink-0">
-            <Select v-model="editPlanType" :options="planTypeOptions" />
+            <div class="grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.openai.planTypeDesc')" @keydown="navigateAccountChoices">
+              <button v-for="option in planTypeOptions" :key="option.value" type="button" @click="editPlanType = option.value"
+                :class="['rounded-lg border-2 p-3 text-left text-sm', editPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-dark-600']" role="radio" :aria-checked="editPlanType === option.value" :tabindex="editPlanType === option.value ? 0 : -1">{{ option.label }}</button>
+            </div>
           </div>
         </div>
       </div>
@@ -2708,7 +2056,7 @@
 
             <div>
               <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
-              <div class="flex gap-2">
+              <div class="flex gap-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.strategy')" @keydown="navigateAccountChoices">
                 <button
                   type="button"
                   @click="rpmStrategy = 'tiered'"
@@ -2717,7 +2065,7 @@
                     rpmStrategy === 'tiered'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'tiered'" :tabindex="rpmStrategy === 'tiered' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
@@ -2732,7 +2080,7 @@
                     rpmStrategy === 'sticky_exempt'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'sticky_exempt'" :tabindex="rpmStrategy === 'sticky_exempt' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
@@ -2763,7 +2111,7 @@
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
               {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
             </p>
-            <div class="flex space-x-2">
+            <div class="flex space-x-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint')" @keydown="navigateAccountChoices">
               <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
                 @click="userMsgQueueMode = opt.value"
                 :class="[
@@ -2771,7 +2119,7 @@
                   userMsgQueueMode === opt.value
                     ? 'bg-primary-600 text-white border-primary-600'
                     : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
-                ]">
+                ]" role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
                 {{ opt.label }}
               </button>
             </div>
@@ -2993,9 +2341,10 @@
       <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
         :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
-      <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :active="show" :account-id="account.id" :platform="account.platform" v-model="allowedModels" :model-mappings="modelMappings"
+      <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
+        v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
         :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
-        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only catalog-selection-enabled />
+        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" />
     </form>
 
     <template #footer>
@@ -3050,6 +2399,11 @@
 </template>
 
 <script setup lang="ts">
+import { navigateAccountChoices } from './accountChoiceNavigation'
+import { apiClient } from '@/api/client'
+import type { AccountCredentialDraft, AccountWorkflowRequest } from './accountCredentialDraft'
+import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
@@ -3087,7 +2441,7 @@ import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
-import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+
 import ModelAvailabilityEditor from './ModelAvailabilityEditor.vue'
 import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
 import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
@@ -3149,14 +2503,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import {
-  getPresetMappingsByPlatform,
-  commonErrorCodes,
-  buildModelMappingObject,
-  validateModelRestrictions, translateModelRestrictionErrors,
-  splitModelMappingObject,
-  isValidWildcardPattern
-} from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, splitModelMappingObject } from '@/composables/useModelWhitelist'
 
 interface Props {
   show: boolean
@@ -3216,9 +2563,6 @@ const baseUrlHint = computed(() => {
   return t('admin.accounts.platformBaseUrlHint')
 })
 
-const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
-const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
-
 // Model mapping type
 interface ModelMapping {
   from: string
@@ -3240,11 +2584,12 @@ const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
-const handleCursorAuthorized = async (accountId: number) => {
-  const account = await adminAPI.accounts.getById(accountId)
-  emit('updated', account)
-  handleClose()
-}
+const cursorCredentialDraft = ref<AccountCredentialDraft | null>(null)
+const cursorDraftPreview = computed(() => cursorCredentialDraft.value ? {
+  platform: 'cursor', type: 'oauth', credential_draft: cursorCredentialDraft.value.credential_draft,
+  credential_draft_revision: cursorCredentialDraft.value.revision,
+  credentials: { model_mapping: buildModelRestrictionMapping() ?? {} }
+} : undefined)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
@@ -3339,7 +2684,7 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
       defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
     return
   }
-  editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
+  if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), previousProtocol)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
 })
 watch(editAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || syncingForm.value) return
@@ -3361,7 +2706,7 @@ watch(editAccountMode, (mode, previousMode) => {
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
     return
   }
-  editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, editApiProtocol.value)
+  if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, previousMode, editApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, editApiProtocol.value)
 })
 watch(editOpenCodeAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || props.account?.platform !== 'opencode_go' || syncingForm.value) return
@@ -3375,7 +2720,7 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
   } else {
-    editBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, editApiProtocol.value)
+    if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl('opencode_go', previousMode, editApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, editApiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(editOpenCodeGoProtocolRules.value) === previousRules) {
@@ -3384,6 +2729,7 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
 })
 // 点击预设端点：回填 base url 与对应模式/协议。
 function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+  if (preset.protocol !== 'adaptive') editAdaptiveBaseUrls.value[preset.protocol] = preset.url
   editAccountMode.value = preset.mode
   editApiProtocol.value = preset.protocol
   editBaseUrl.value = preset.url
@@ -3412,6 +2758,11 @@ const modelCandidateIdentity = computed(() => ({
     : props.account?.type === 'service_account' ? editVertexLocation.value : '',
   mode: currentOpenCodeOrCNMode()
 }))
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  () => [props.account?.platform || ''], modelCandidateIdentity, () => props.show
+)
+const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || '', modelCandidateIdentity.value, platformPresets.value))
+
 const isBedrockAPIKeyMode = computed(() =>
   props.account?.type === 'bedrock' &&
   (props.account?.credentials as Record<string, unknown>)?.auth_mode === 'apikey'
@@ -3505,9 +2856,9 @@ const loadGrokMediaEligibility = async (accountID: number): Promise<GrokMediaEli
     grokMediaEligibilityMode.value = state.mode
     grokMediaEligibilityInitialMode.value = state.mode
     return state
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (requestVersion !== grokMediaEligibilityRequestVersion) return null
-    grokMediaEligibilityError.value = error?.message || t('admin.accounts.grokMediaEligibility.loadFailed')
+    grokMediaEligibilityError.value = extractApiErrorMessage(error, t('admin.accounts.grokMediaEligibility.loadFailed'))
     return null
   } finally {
     if (requestVersion === grokMediaEligibilityRequestVersion) {
@@ -3539,6 +2890,14 @@ const antigravityProjectId = ref('')
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
+const workflowAllowedModels = computed({
+  get: () => props.account?.platform === 'antigravity' ? antigravityWhitelistModels.value : allowedModels.value,
+  set: (models: string[]) => { if (props.account?.platform === 'antigravity') antigravityWhitelistModels.value = models; else allowedModels.value = models }
+})
+const workflowModelMappings = computed({
+  get: () => props.account?.platform === 'antigravity' ? antigravityModelMappings.value : modelMappings.value,
+  set: (mappings: ModelMapping[]) => { if (props.account?.platform === 'antigravity') antigravityModelMappings.value = mappings; else modelMappings.value = mappings }
+})
 
 const tempUnschedEnabled = ref(false)
 const accountSchedulingThresholdOverrideEnabled = ref(false)
@@ -3548,9 +2907,9 @@ const supportsAccountSchedulingThresholdOverride = computed(() =>
   supportsAccountSchedulingThresholdOverridePlatform(props.account?.platform)
 )
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
-const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-model-mapping')
+
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-openai-compact-model-mapping')
-const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('edit-antigravity-model-mapping')
+
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('edit-temp-unsched-rule')
 
 const showMixedChannelWarning = ref(false)
@@ -3827,9 +3186,7 @@ const normalizeOpenAIResponsesMode = (mode: unknown): OpenAIResponsesMode => {
   }
   return 'auto'
 }
-const isOpenAIModelRestrictionDisabled = computed(() =>
-  props.account?.platform === 'openai' && openaiPassthroughEnabled.value
-)
+
 const openAIResponsesStatusKey = computed(() => {
   if (openAIResponsesMode.value === 'force_responses') {
     return 'admin.accounts.openai.responsesStatusForcedResponses'
@@ -3860,8 +3217,6 @@ const openAICompactStatusKey = computed(() => {
   return 'admin.accounts.openai.compactAuto'
 })
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(props.account?.platform || '', { type: props.account?.type }))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4496,26 +3851,6 @@ watch(
 )
 
 // Model mapping helpers
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
-
-const removeModelMapping = (index: number) => {
-  modelMappings.value.splice(index, 1)
-}
-
-const addPresetMapping = (from: string, to: string) => {
-  const exists = modelMappings.value.some((m) => m.from === from)
-  if (exists) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  modelMappings.value.push({ from, to })
-}
-
-const addAntigravityModelMapping = () => {
-  antigravityModelMappings.value.push({ from: '', to: '' })
-}
 
 const addOpenAICompactModelMapping = () => {
   openAICompactModelMappings.value.push({ from: '', to: '' })
@@ -4523,19 +3858,6 @@ const addOpenAICompactModelMapping = () => {
 
 const removeOpenAICompactModelMapping = (index: number) => {
   openAICompactModelMappings.value.splice(index, 1)
-}
-
-const removeAntigravityModelMapping = (index: number) => {
-  antigravityModelMappings.value.splice(index, 1)
-}
-
-const addAntigravityPresetMapping = (from: string, to: string) => {
-  const exists = antigravityModelMappings.value.some((m) => m.from === from)
-  if (exists) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  antigravityModelMappings.value.push({ from, to })
 }
 
 // Error code toggle helper
@@ -4666,7 +3988,6 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
   credentials.temp_unschedulable_rules = rules
   return true
 }
-
 
 function supportsAccountSchedulingThresholdOverridePlatform(platform: Account['platform'] | undefined) {
   return platform === 'openai' || platform === 'anthropic' || platform === 'grok' || platform === 'cursor'
@@ -4931,7 +4252,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
       }
     })
     return false
-  } catch (error: any) {
+  } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
     return false
   }
@@ -4942,6 +4263,11 @@ const parseDateTimeLocal = parseDateTimeLocalInput
 
 // Methods
 const handleClose = () => {
+  if (submitting.value) return
+  if (cursorCredentialDraft.value) {
+    void apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(cursorCredentialDraft.value.credential_draft)}`).catch(() => {})
+    cursorCredentialDraft.value = null
+  }
   cursorAutoCredentials.value = {}
   cursorAuthorizing.value = false
   antigravityMixedChannelConfirmed.value = false
@@ -4969,7 +4295,7 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
       nextExtra.grok_media_eligible = state.mode === 'enabled'
     }
     updatedAccount.extra = nextExtra
-  } catch (error: any) {
+  } catch (error: unknown) {
     appStore.showError(t('admin.accounts.grokMediaEligibility.partialSave'))
     try {
       const state = await loadGrokMediaEligibility(accountID)
@@ -4986,7 +4312,7 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
   return updatedAccount
 }
 
-const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>) => {
+const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>, reviewedPayload: string) => {
   submitting.value = true
   try {
     const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
@@ -4995,12 +4321,29 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       extra.model_capability_defaults = declaration
       updatePayload.extra = extra
     }
-    let updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
+    let updatedAccount: Account
+    if (cursorCredentialDraft.value) {
+      const pending = cursorCredentialDraft.value
+      const currentRevision = JSON.stringify([form, modelConnectionContext.value, autoPauseOnExpired.value])
+      const payload: AccountWorkflowRequest = {
+        ...form, load_factor: form.load_factor ?? undefined, platform: 'cursor', type: 'oauth', existing_account_id: accountID,
+        credentials: { model_mapping: buildModelRestrictionMapping() ?? {} }, extra,
+        auto_pause_on_expired: autoPauseOnExpired.value,
+        credential_draft: cursorCredentialDraft.value.credential_draft, credential_draft_revision: cursorCredentialDraft.value.revision
+      }
+      const { data } = await apiClient.post<AccountCredentialDraft>(`/admin/accounts/credential-drafts/${encodeURIComponent(payload.credential_draft!)}/review`, payload)
+      pending.revision = data.revision
+      payload.credential_draft_revision = data.revision
+      if (!props.show || cursorCredentialDraft.value !== pending || currentRevision !== JSON.stringify([form, modelConnectionContext.value, autoPauseOnExpired.value])) return
+      await adminAPI.accounts.batchCreate([payload])
+      cursorCredentialDraft.value = null
+      updatedAccount = await adminAPI.accounts.getById(accountID)
+    } else updatedAccount = await adminAPI.accounts.update(accountID, withAntigravityConfirmFlag(updatePayload))
     updatedAccount = await persistGrokMediaEligibility(accountID, updatedAccount)
     appStore.showSuccess(t('admin.accounts.accountUpdated'))
     emit('updated', updatedAccount)
     syncFormFromAccount(updatedAccount)
-  } catch (error: any) {
+  } catch (error: unknown) {
     if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck()) {
       const metadata = extractApiErrorMetadata(error)
       openMixedChannelDialog({
@@ -5013,7 +4356,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
         } } : undefined,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
-          await submitUpdateAccount(accountID, updatePayload)
+          await handleSubmit({ payload: reviewedPayload })
         }
       })
       return
@@ -5024,8 +4367,9 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
   }
 }
 
-const handleSubmit = async () => {
-  const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
+const handleSubmit = async (confirmation?: { payload: string }) => {
+  if (!confirmation) antigravityMixedChannelConfirmed.value = false
+  const restrictionErrors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id
@@ -5418,10 +4762,7 @@ const handleSubmit = async () => {
       delete newCredentials.model_mapping
 
       // 只使用映射模式
-      const antigravityModelMapping = buildModelMappingObject(
-        'mapping',
-        [],
-        antigravityModelMappings.value
+      const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
       )
       if (antigravityModelMapping) {
         newCredentials.model_mapping = antigravityModelMapping
@@ -5438,6 +4779,15 @@ const handleSubmit = async () => {
       if (cursorAuthorizing.value) return
       if (cursorKeyMode.value === 'relay' && !editBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
       const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      if (cursorKeyMode.value === 'auto' && !cursorCredentialDraft.value && Object.entries(cursorAutoCredentials.value).some(([key, value]) => value.trim() && value.trim() !== String(props.account?.credentials?.[key] ?? ''))) {
+        submitting.value = true
+        try {
+          const { data } = await apiClient.post<AccountCredentialDraft>('/admin/accounts/credential-drafts', { credentials: cursorCredentials })
+          cursorCredentialDraft.value = data
+          cursorAutoCredentials.value = {}
+        } finally { submitting.value = false }
+        return
+      }
       const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
       delete cursorCredentials.model_mapping
       if (mapping) cursorCredentials.model_mapping = mapping
@@ -5782,15 +5132,28 @@ const handleSubmit = async () => {
       updatePayload.extra = newExtra
     }
 
+    if (['anthropic', 'gemini'].includes(props.account.platform) && ['oauth', 'setup-token'].includes(props.account.type)) {
+      const credentials = { ...props.account.credentials, ...((updatePayload.credentials as Record<string, unknown>) ?? {}) }
+      const mapping = buildModelRestrictionMapping()
+      if (mapping) credentials.model_mapping = mapping
+      else delete credentials.model_mapping
+      updatePayload.credentials = credentials
+    }
+
+    const reviewedPayload = JSON.stringify([accountID, updatePayload])
+    if (confirmation && confirmation.payload !== reviewedPayload) {
+      antigravityMixedChannelConfirmed.value = false
+      return
+    }
     const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-      await submitUpdateAccount(accountID, updatePayload)
+      await handleSubmit({ payload: reviewedPayload })
     })
     if (!canContinue) {
       return
     }
 
-    await submitUpdateAccount(accountID, updatePayload)
-  } catch (error: any) {
+    await submitUpdateAccount(accountID, updatePayload, reviewedPayload)
+  } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
   }
 }

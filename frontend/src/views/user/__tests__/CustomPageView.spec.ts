@@ -270,10 +270,13 @@ describe('custom page open button', () => {
       return new Promise(() => {})
     }))
     const wrapper = mountPage()
+    await nextTick()
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
     routeState.params.id = 'embed'
     await nextTick()
     expect(wrapper.find('iframe').exists()).toBe(true)
     expect(signals[0]?.aborted).toBe(true)
+    expect(wrapper.find('[role="status"]').exists()).toBe(false)
     routeState.params.id = 'docs'
     await nextTick()
     wrapper.unmount()

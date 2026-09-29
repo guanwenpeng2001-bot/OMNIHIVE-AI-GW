@@ -1,8 +1,9 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { adminAPI } from '@/api/admin'
 
 const { showError, showSuccess, translate, catalogPreview } = vi.hoisted(() => ({
@@ -46,8 +47,9 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-function mountModal(extraProps: Record<string, unknown> = {}) {
+function mountModal(extraProps: Record<string, unknown> = {}, realDialogs = false) {
   return mount(BulkEditAccountModal, {
+    attachTo: realDialogs ? document.body : undefined,
     props: {
       show: true,
       accountIds: [1, 2],
@@ -59,8 +61,8 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
     } as any,
     global: {
       stubs: {
-        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
-        ConfirmDialog: true,
+        BaseDialog: realDialogs ? false : { template: '<div><slot /><slot name="footer" /></div>' },
+        ConfirmDialog: realDialogs ? false : true,
         Select: {
           props: ['modelValue', 'options'],
           emits: ['update:modelValue'],
@@ -181,12 +183,13 @@ describe('BulkEditAccountModal', () => {
   it('antigravity 映射预设包含图片映射并过滤 OpenAI 预设', async () => {
     const wrapper = mountModal()
 
-    const mappingTab = wrapper.findAll('button').find((btn) => btn.text().includes('admin.accounts.modelMapping'))
-    expect(mappingTab).toBeTruthy()
-    await mappingTab!.trigger('click')
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="account-model-configuration"]').exists()).toBe(true)
 
-    expect(wrapper.text()).toContain('3.1-Flash-Image透传')
-    expect(wrapper.text()).toContain('3-Pro-Image→3.1')
+    expect(wrapper.text()).toContain('gemini-3.1-flash-image')
+    expect(wrapper.text()).toContain('gemini-2.5-flash-image')
+    expect(wrapper.text()).not.toContain('3-Pro-Image→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
   })
 
@@ -1078,5 +1081,37 @@ describe('Management error contract bulk confirmation', () => {
       expect(wrapper.emitted('updated')).toBeUndefined()
     }
     wrapper.unmount()
+  })
+})
+
+
+describe('bulk error code confirmation', () => {
+  it('keeps cancellation write-free and restores focus to the warning trigger', async () => {
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockClear()
+    const nativeConfirm = vi.spyOn(window, 'confirm')
+    const wrapper = mountModal({}, true)
+    await flushPromises()
+    const documentWrapper = new DOMWrapper(document.body)
+    await documentWrapper.get('#bulk-edit-custom-error-codes-enabled').setValue(true)
+    const trigger = documentWrapper.findAll('button').find(button => button.text().startsWith('429 '))!
+    ;(trigger.element as HTMLButtonElement).focus()
+    await trigger.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.customErrorCodes')!
+    expect(dialog.props('show')).toBe(true)
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    dialog.vm.$emit('cancel')
+    await flushPromises()
+    expect(document.activeElement).toBe(trigger.element)
+    expect((wrapper.vm as unknown as { selectedErrorCodes: number[] }).selectedErrorCodes).not.toContain(429)
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    await trigger.trigger('click')
+    await flushPromises()
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect((wrapper.vm as unknown as { selectedErrorCodes: number[] }).selectedErrorCodes).toContain(429)
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+    nativeConfirm.mockRestore()
   })
 })

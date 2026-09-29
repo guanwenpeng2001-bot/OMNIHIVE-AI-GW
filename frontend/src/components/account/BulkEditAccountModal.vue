@@ -6,6 +6,9 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <p v-if="presetError" role="alert" class="text-sm text-red-600">
+        {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+      </p>
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -266,199 +269,9 @@
           </div>
 
           <template v-else>
-            <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
-              <button
-                type="button"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'whitelist'
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-                @click="modelRestrictionMode = 'whitelist'"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelWhitelist') }}
-              </button>
-              <button
-                type="button"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'mapping'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-                @click="modelRestrictionMode = 'mapping'"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelMapping') }}
-              </button>
-            </div>
-
-            <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
-              <div class="mb-3 rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
-                <p class="text-xs text-blue-700 dark:text-blue-400">
-                  <svg
-                    class="mr-1 inline h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {{ t('admin.accounts.selectAllowedModels') }}
-                </p>
-              </div>
-
-              <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
-              <ModelWhitelistSelector :active="show && enableModelRestriction" discovery-disabled
-                v-model="allowedModels"
-                :platforms="targetSelectedPlatforms"
-              />
-
-              <p class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0">{{
-                  t('admin.accounts.supportsAllModels')
-                }}</span>
-              </p>
-            </div>
-
-            <!-- Mapping Mode -->
-            <div v-else>
-              <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-                <p class="text-xs text-purple-700 dark:text-purple-400">
-                  <svg
-                    class="mr-1 inline h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {{ t('admin.accounts.mapRequestModels') }}
-                </p>
-              </div>
-
-              <!-- Model Mapping List -->
-              <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-                <div
-                  v-for="(mapping, index) in modelMappings"
-                  :key="index"
-                  class="flex items-center gap-2"
-                >
-                  <input
-                    v-model="mapping.from"
-                    type="text"
-                    class="input flex-1"
-                    :placeholder="t('admin.accounts.requestModel')"
-                  />
-                  <svg
-                    class="h-4 w-4 flex-shrink-0 text-gray-400"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M14 5l7 7m0 0l-7 7m7-7H3"
-                    />
-                  </svg>
-                  <input
-                    v-model="mapping.to"
-                    type="text"
-                    class="input flex-1"
-                    :placeholder="t('admin.accounts.actualModel')"
-                  />
-                  <button
-                    type="button"
-                    class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                    @click="removeModelMapping(index)"
-                  >
-                    <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                      <path
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="2"
-                        d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                      />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="button"
-                class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-                @click="addModelMapping"
-              >
-                <svg
-                  class="mr-1 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M12 4v16m8-8H4"
-                  />
-                </svg>
-                {{ t('admin.accounts.addMapping') }}
-              </button>
-
-              <!-- Quick Add Buttons -->
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="preset in filteredPresets"
-                  :key="preset.label"
-                  type="button"
-                  :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-                  @click="addPresetMapping(preset.from, preset.to)"
-                >
-                  + {{ preset.label }}
-                </button>
-              </div>
-            </div>
+            <BulkModelPreview :active="show && enableModelRestriction" :account-ids="accountIds" :filtered="targetMode === 'filtered'" v-model="allowedModels" :model-mappings="modelMappings" :connection-context="[baseUrl, enableBaseUrl, proxyId, enableProxy, enableHeaderOverride, headerOverrideEnabled, headerOverrideRows, modelMappings]" />
+            <AccountModelConfigurationSection :active="show && enableModelRestriction" discovery-disabled
+              v-model="allowedModels" v-model:mappings="modelMappings" :platforms="targetSelectedPlatforms" :presets="filteredPresets" />
           </template>
         </div>
       </div>
@@ -1462,6 +1275,15 @@
   </BaseDialog>
 
   <ConfirmDialog
+    :show="errorCodeConfirmation !== null"
+    :title="t('admin.accounts.customErrorCodes')"
+    :message="errorCodeConfirmation?.message ?? ''"
+    danger
+    @confirm="confirmErrorCode"
+    @cancel="errorCodeConfirmation = null"
+  />
+
+  <ConfirmDialog
     :show="showMixedChannelWarning"
     :title="t('admin.accounts.mixedChannelWarningTitle')"
     :message="mixedChannelWarningMessage"
@@ -1474,7 +1296,8 @@
 </template>
 
 <script setup lang="ts">
-import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage } from '@/utils/apiError'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
+import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage, extractApiErrorMetadata } from '@/utils/apiError'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -1494,7 +1317,7 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
-import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
 import BulkModelPreview from './BulkModelPreview.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
@@ -1631,12 +1454,15 @@ const allAnthropicOAuthOrSetupToken = computed(() => {
   )
 })
 
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  targetSelectedPlatforms, {}, () => props.show
+)
 const filteredPresets = computed(() => {
   if (targetSelectedPlatforms.value.length === 0) return []
 
   const dedupedPresets = new Map<string, ReturnType<typeof getPresetMappingsByPlatform>[number]>()
   for (const platform of targetSelectedPlatforms.value) {
-    for (const preset of getPresetMappingsByPlatform(platform)) {
+    for (const preset of getPresetMappingsByPlatform(platform, {}, platformPresets.value)) {
       const key = `${preset.from}=>${preset.to}`
       if (!dedupedPresets.has(key)) {
         dedupedPresets.set(key, preset)
@@ -1685,6 +1511,8 @@ const submitting = ref(false)
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningMessage = ref('')
 const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
+const pendingTargetRevision = ref('')
+const targetRevision = computed(() => JSON.stringify([props.accountIds, props.target, targetMode.value]))
 const baseUrl = ref('')
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
@@ -1841,13 +1669,6 @@ const openAIAPIKeyWSModeHintKey = computed(() =>
 )
 
 // Model mapping helpers
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
-
-const removeModelMapping = (index: number) => {
-  modelMappings.value.splice(index, 1)
-}
 
 const addOpenAICompactModelMapping = () => {
   openAICompactModelMappings.value.push({ from: '', to: '' })
@@ -1857,30 +1678,34 @@ const removeOpenAICompactModelMapping = (index: number) => {
   openAICompactModelMappings.value.splice(index, 1)
 }
 
-const addPresetMapping = (from: string, to: string) => {
-  const exists = modelMappings.value.some((m) => m.from === from)
-  if (exists) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
+// Error code helpers
+const errorCodeConfirmation = ref<{ code: number; message: string; clearInput: boolean } | null>(null)
+
+const requestErrorCode = (code: number, clearInput = false) => {
+  if (code === 429 || code === 529) {
+    errorCodeConfirmation.value = {
+      code,
+      message: t(code === 429 ? 'admin.accounts.customErrorCodes429Warning' : 'admin.accounts.customErrorCodes529Warning'),
+      clearInput
+    }
     return
   }
-  modelMappings.value.push({ from, to })
+  selectedErrorCodes.value.push(code)
+  if (clearInput) customErrorCodeInput.value = null
 }
 
-// Error code helpers
+const confirmErrorCode = () => {
+  const pending = errorCodeConfirmation.value
+  errorCodeConfirmation.value = null
+  if (!pending || !props.show) return
+  if (!selectedErrorCodes.value.includes(pending.code)) selectedErrorCodes.value.push(pending.code)
+  if (pending.clearInput && customErrorCodeInput.value === pending.code) customErrorCodeInput.value = null
+}
+
 const toggleErrorCode = (code: number) => {
   const index = selectedErrorCodes.value.indexOf(code)
   if (index === -1) {
-    // Adding code - check for 429/529 warning
-    if (code === 429) {
-      if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
-        return
-      }
-    } else if (code === 529) {
-      if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
-        return
-      }
-    }
-    selectedErrorCodes.value.push(code)
+    requestErrorCode(code)
   } else {
     selectedErrorCodes.value.splice(index, 1)
   }
@@ -1896,18 +1721,7 @@ const addCustomErrorCode = () => {
     appStore.showInfo(t('admin.accounts.errorCodeExists'))
     return
   }
-  // Check for 429/529 warning
-  if (code === 429) {
-    if (!confirm(t('admin.accounts.customErrorCodes429Warning'))) {
-      return
-    }
-  } else if (code === 529) {
-    if (!confirm(t('admin.accounts.customErrorCodes529Warning'))) {
-      return
-    }
-  }
-  selectedErrorCodes.value.push(code)
-  customErrorCodeInput.value = null
+  requestErrorCode(code, true)
 }
 
 const removeErrorCode = (code: number) => {
@@ -1915,14 +1729,6 @@ const removeErrorCode = (code: number) => {
   if (index !== -1) {
     selectedErrorCodes.value.splice(index, 1)
   }
-}
-
-const buildModelMappingObject = (): Record<string, string> | null => {
-  return buildModelMappingPayload(
-    modelRestrictionMode.value,
-    allowedModels.value,
-    modelMappings.value
-  )
 }
 
 const buildOpenAICompactModelMapping = (): Record<string, string> | null => {
@@ -2023,22 +1829,8 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   }
 
   if (enableModelRestriction.value && !isOpenAIModelRestrictionDisabled.value) {
-    // 统一使用 model_mapping 字段
-    if (modelRestrictionMode.value === 'whitelist') {
-      // 白名单模式：将模型转换为 model_mapping 格式（key=value）
-      // 空白名单表示“支持所有模型”，需显式发送空对象以覆盖已有限制。
-      const mapping: Record<string, string> = {}
-      for (const m of allowedModels.value) {
-        mapping[m] = m
-      }
-      credentials.model_mapping = mapping
-      credentialsChanged = true
-    } else {
-      // 映射模式下空配置同样表示“支持所有模型”。
-      const modelMapping = buildModelMappingObject()
-      credentials.model_mapping = modelMapping ?? {}
-      credentialsChanged = true
-    }
+    credentials.model_mapping = buildModelMappingPayload('combined', allowedModels.value, modelMappings.value) ?? {}
+    credentialsChanged = true
   }
 
   if (enableCustomErrorCodes.value) {
@@ -2173,6 +1965,7 @@ const canPreCheck = () =>
   (targetSelectedPlatforms.value[0] === 'antigravity' || targetSelectedPlatforms.value[0] === 'anthropic')
 
 const handleClose = () => {
+  errorCodeConfirmation.value = null
   showMixedChannelWarning.value = false
   mixedChannelWarningMessage.value = ''
   pendingUpdatesForConfirm.value = null
@@ -2193,16 +1986,18 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
     if (!result.has_risk) return true
 
     pendingUpdatesForConfirm.value = built
+    pendingTargetRevision.value = targetRevision.value
     mixedChannelWarningMessage.value = result.message || t('admin.accounts.bulkEdit.failed')
     showMixedChannelWarning.value = true
     return false
-  } catch (error: any) {
+  } catch (error: unknown) {
     appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkEdit.failed')))
     return false
   }
 }
 
 const handleSubmit = async () => {
+  mixedChannelConfirmed.value = false
   if (targetMode.value === 'selected' && props.accountIds.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
     return
@@ -2320,17 +2115,18 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
       emit('updated')
       handleClose()
     }
-  } catch (error: any) {
+  } catch (error: unknown) {
     // 兜底：多平台混合场景下，预检查跳过，由后端 409 触发确认框
     if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning') {
       pendingUpdatesForConfirm.value = baseUpdates
+      pendingTargetRevision.value = targetRevision.value
       mixedChannelWarningMessage.value = extractApiErrorMessage(error)
       showMixedChannelWarning.value = true
-    } else if (error.reason === 'UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT') {
+    } else if (extractApiErrorCode(error) === 'UPSTREAM_BILLING_RATE_SYNC_BULK_CONFLICT') {
       appStore.showError(t('admin.accounts.bulkEdit.rateSyncConflict', {
-        count: error.metadata?.count ?? 1
+        count: extractApiErrorMetadata(error).count ?? 1
       }))
-    } else if (error.reason === 'OPENAI_LONG_CONTEXT_PARENT_REQUIRED') {
+    } else if (extractApiErrorCode(error) === 'OPENAI_LONG_CONTEXT_PARENT_REQUIRED') {
       appStore.showError(t('admin.accounts.bulkEdit.longContextParentRequired'))
     } else {
       appStore.showError(extractApiErrorMessage(error, t('admin.accounts.bulkEdit.failed')))
@@ -2343,6 +2139,12 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
 
 const handleMixedChannelConfirm = async () => {
   showMixedChannelWarning.value = false
+  const current = buildUpdatePayload()
+  if (!current || targetRevision.value !== pendingTargetRevision.value || JSON.stringify(current) !== JSON.stringify(pendingUpdatesForConfirm.value)) {
+    pendingUpdatesForConfirm.value = null
+    mixedChannelConfirmed.value = false
+    return
+  }
   mixedChannelConfirmed.value = true
   if (pendingUpdatesForConfirm.value) {
     await submitBulkUpdate(pendingUpdatesForConfirm.value)

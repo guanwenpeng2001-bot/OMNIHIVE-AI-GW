@@ -42,6 +42,7 @@ def generate(inputs):
             catalog.require(profile["models"] and profile.get("gaps"), "partial requires candidates and gaps")
         seen = set()
         for model in profile["models"]:
+            catalog.check_identity_facts(model)
             source_id = model.pop("source")
             catalog.require(source_id in sources, "unknown model source")
             source = sources[source_id]

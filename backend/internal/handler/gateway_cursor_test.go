@@ -28,8 +28,7 @@ import (
 
 func TestCursorModelFallbackAndEndpointOwnership(t *testing.T) {
 	models := defaultModelIDsForPlatform(service.PlatformCursor)
-	require.Contains(t, models, "default")
-	require.Contains(t, models, "claude-sonnet-4-6")
+	require.Empty(t, models)
 	for _, inbound := range []string{EndpointChatCompletions, EndpointMessages, EndpointResponses} {
 		require.Equal(t, "/agent.v1.AgentService/Run", DeriveUpstreamEndpoint(inbound, inbound, service.PlatformCursor))
 	}
@@ -49,7 +48,7 @@ func TestCursorPublicModelsFallsBackWithoutMapping(t *testing.T) {
 	require.Equal(t, http.StatusOK, writer.Code)
 	var response gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(writer.Body.Bytes(), &response))
-	require.Equal(t, service.DefaultCursorModelIDs(), modelIDsForTest(response.Data))
+	require.Empty(t, response.Data)
 	for _, model := range response.Data {
 		require.Equal(t, "cursor", model.OwnedBy)
 	}
@@ -331,12 +330,12 @@ func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
 }
 
 func TestCursorCompositeModelsIncludeMappedAndDefaultCatalog(t *testing.T) {
-	require.Subset(t, defaultModelIDsForPlatform(service.PlatformComposite), service.DefaultCursorModelIDs())
+	require.Empty(t, defaultModelIDsForPlatform(service.PlatformComposite))
 	for _, mapped := range []bool{false, true} {
 		t.Run(fmt.Sprint(mapped), func(t *testing.T) {
 			groupID := int64(82)
 			account := service.Account{ID: 1, Platform: service.PlatformCursor}
-			expected := service.DefaultCursorModelIDs()
+			expected := []string{}
 			if mapped {
 				account.Credentials = map[string]any{"model_mapping": map[string]any{"cursor-custom": "default"}}
 				expected = []string{"cursor-custom"}
