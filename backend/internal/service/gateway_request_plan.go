@@ -349,16 +349,20 @@ func requestAffinityPermanentlyInvalid(ctx context.Context, repo AccountReposito
 	return !AccountSupportsResolvedModel(ctx, account, plan.Snapshot().Model, AccountModelBindingOptions{Endpoint: endpoint, CredentialAccount: parent})
 }
 func (s *GatewayService) clearRequestStickySession(ctx context.Context, groupID *int64, hash string) error {
-	if s.cache == nil {
+	return clearRequestAffinityBinding(ctx, s.cache, s.accountRepo, derefGroupID(groupID), hash)
+}
+
+func clearRequestAffinityBinding(ctx context.Context, cache GatewayCache, repo AccountRepository, groupID int64, hash string) error {
+	if cache == nil {
 		return nil
 	}
 	if IsV2AffinityKey(hash) {
-		accountID, err := s.cache.GetSessionAccountID(ctx, derefGroupID(groupID), hash)
-		if err != nil || !requestAffinityPermanentlyInvalid(ctx, s.accountRepo, accountID) {
+		accountID, err := cache.GetSessionAccountID(ctx, groupID, hash)
+		if err != nil || !requestAffinityPermanentlyInvalid(ctx, repo, accountID) {
 			return nil
 		}
 	}
-	return s.cache.DeleteSessionAccountID(ctx, derefGroupID(groupID), hash)
+	return cache.DeleteSessionAccountID(ctx, groupID, hash)
 }
 func (s *OpenAIGatewayService) clearRequestStickySession(ctx context.Context, groupID *int64, hash string) error {
 	if IsV2AffinityKey(hash) {

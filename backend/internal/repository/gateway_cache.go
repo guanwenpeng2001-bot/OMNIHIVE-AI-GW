@@ -134,8 +134,12 @@ func (c *gatewayCache) DeleteSessionAccountID(ctx context.Context, groupID int64
 		if !ok || expected == "" {
 			return nil
 		}
-		changed, err := affinityCompareDeleteScript.Run(ctx, c.rdb, []string{key}, expected).Int()
-		if err == nil && changed == 1 {
+		version, ok := expected.(string)
+		if !ok {
+			return errors.New("invalid affinity binding version")
+		}
+		changed, err := compareAndDeleteMatched(ctx, c.rdb, key, version)
+		if err == nil && changed {
 			state.Versions.CompareAndSwap(key, expected, "")
 		}
 		return err
@@ -155,15 +159,6 @@ if current == false or current ~= ARGV[1] then
   return 0
 end
 redis.call('PEXPIRE', KEYS[1], ARGV[2])
-return 1
-`)
-
-var compareAndDeleteOpenAIResponsesSessionWindowScript = redis.NewScript(`
-local current = redis.call('GET', KEYS[1])
-if current == false or current ~= ARGV[1] then
-  return 0
-end
-redis.call('DEL', KEYS[1])
 return 1
 `)
 
@@ -223,13 +218,12 @@ func (c *gatewayCache) CompareAndDeleteOpenAIResponsesSessionWindow(ctx context.
 	if len(expected) == 0 || strings.TrimSpace(sessionHash) == "" {
 		return false, errors.New("invalid OpenAI Responses session-window delete")
 	}
-	n, err := compareAndDeleteOpenAIResponsesSessionWindowScript.Run(
+	return compareAndDeleteMatched(
 		ctx,
 		c.rdb,
-		[]string{buildOpenAIResponsesSessionWindowKey(groupID, sessionHash)},
-		expected,
-	).Int()
-	return n == 1, err
+		buildOpenAIResponsesSessionWindowKey(groupID, sessionHash),
+		string(expected),
+	)
 }
 
 var _ service.OpenAIWSSessionPreemptionCache = (*gatewayCache)(nil)
@@ -572,10 +566,5 @@ elseif current ~= ARGV[1] then
  return 0
 end
 redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
-return 1
-`)
-var affinityCompareDeleteScript = redis.NewScript(`
-if redis.call('GET', KEYS[1]) ~= ARGV[1] then return 0 end
-redis.call('DEL', KEYS[1])
 return 1
 `)

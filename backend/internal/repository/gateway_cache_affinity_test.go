@@ -12,6 +12,69 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestAffinityDeleteObservedVersion(t *testing.T) {
+	for _, outcome := range []string{"matched", "mismatched", "missing"} {
+		t.Run(outcome, func(t *testing.T) {
+			server := miniredis.RunT(t)
+			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+			t.Cleanup(func() { _ = client.Close() })
+			cache := NewGatewayCache(client)
+			ctx := service.WithAffinityBindingState(context.Background())
+			const hash = "gemini:v2:binding:hmac:k1:0123456789abcdef"
+			key := buildSessionKey(7, hash)
+			const observed = "v2:42:old-nonce"
+			require.NoError(t, client.Set(ctx, key, observed, time.Minute).Err())
+			_, err := cache.GetSessionAccountID(ctx, 7, hash)
+			require.NoError(t, err)
+			switch outcome {
+			case "mismatched":
+				require.NoError(t, client.Set(ctx, key, "v2:42:new-nonce", time.Minute).Err())
+			case "missing":
+				server.Del(key)
+			}
+			// A reread cannot grant ownership of the concurrent winner's nonce.
+			_, _ = cache.GetSessionAccountID(ctx, 7, hash)
+			require.NoError(t, cache.DeleteSessionAccountID(ctx, 7, hash))
+			version, ok := service.AffinityBindingStateFromContext(ctx).Versions.Load(key)
+			require.True(t, ok)
+			if outcome == "matched" {
+				require.Equal(t, "", version)
+			} else {
+				require.Equal(t, observed, version)
+			}
+			if outcome == "mismatched" {
+				value, err := server.Get(key)
+				require.NoError(t, err)
+				require.Equal(t, "v2:42:new-nonce", value)
+				require.Equal(t, time.Minute, server.TTL(key))
+			} else {
+				require.False(t, server.Exists(key))
+			}
+		})
+	}
+}
+
+func TestResponsesSessionWindowDeleteMatchedContract(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { _ = client.Close() })
+	cache, ok := NewGatewayCache(client).(service.OpenAIWSSessionPreemptionCache)
+	require.True(t, ok)
+	ctx := context.Background()
+	owner := []byte("owner\x00full-value")
+	_, err := cache.ClaimOpenAIResponsesSessionWindow(ctx, 7, "session", owner, time.Minute)
+	require.NoError(t, err)
+	matched, err := cache.CompareAndDeleteOpenAIResponsesSessionWindow(ctx, 7, "session", []byte("owner"))
+	require.NoError(t, err)
+	require.False(t, matched)
+	matched, err = cache.CompareAndDeleteOpenAIResponsesSessionWindow(ctx, 7, "session", owner)
+	require.NoError(t, err)
+	require.True(t, matched)
+	matched, err = cache.CompareAndDeleteOpenAIResponsesSessionWindow(ctx, 7, "session", owner)
+	require.NoError(t, err)
+	require.False(t, matched)
+}
+
 func TestAffinityConcurrentFirstBinding(t *testing.T) {
 	server := miniredis.RunT(t)
 	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
