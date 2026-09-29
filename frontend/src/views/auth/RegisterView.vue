@@ -47,9 +47,12 @@
               :disabled="registrationActionDisabled"
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'email-error' : undefined"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
+          <p v-if="errors.email" id="email-error" role="alert" class="sr-only">{{ errors.email }}</p>
         </div>
 
         <!-- Password Input -->
@@ -70,6 +73,8 @@
               :disabled="registrationActionDisabled"
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'password-error' : undefined"
               :placeholder="t('auth.createPasswordPlaceholder')"
             />
             <button
@@ -85,6 +90,7 @@
           <p class="input-hint">
             {{ t('auth.passwordHint') }}
           </p>
+          <p v-if="errors.password" id="password-error" role="alert" class="sr-only">{{ errors.password }}</p>
         </div>
 
         <!-- Invitation Code Input (Required when enabled) -->
@@ -388,7 +394,8 @@ const showPassword = ref<boolean>(false)
 // Public settings
 const registrationEnabled = ref<boolean>(true)
 const emailVerifyEnabled = ref<boolean>(false)
-const promoCodeEnabled = ref<boolean>(true)
+// Use injected settings on the first render; stay hidden until explicitly enabled.
+const promoCodeEnabled = ref<boolean>(appStore.cachedPublicSettings?.promo_code_enabled === true)
 const invitationCodeEnabled = ref<boolean>(false)
 const affiliateEnabled = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
@@ -942,6 +949,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleRegister(): Promise<void> {
+  if (registrationActionDisabled.value || !registrationEnabled.value) return
+
   // Clear previous error
   errorMessage.value = ''
 

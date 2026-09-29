@@ -139,6 +139,7 @@ func TestGatewayRoutesGroupModelAllowlistCoversRootAliasRoutes(t *testing.T) {
 		body   string
 	}{
 		{http.MethodPost, "/responses", `{"model":"gpt-4.1"}`},
+		{http.MethodPost, "/messages", `{"model":"gpt-4.1","messages":[]}`},
 		{http.MethodPost, "/responses/compact", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/chat/completions", `{"model":"gpt-4.1"}`},
 		{http.MethodPost, "/embeddings", `{"model":"gpt-4.1","input":"hi"}`},

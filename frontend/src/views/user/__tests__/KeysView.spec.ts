@@ -1,9 +1,22 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
+import { identityScoped } from '@/router/identityScope'
+import * as gatewayUrl from '@/api/url'
+import englishDashboard from '@/i18n/locales/en/dashboard'
+import chineseDashboard from '@/i18n/locales/zh/dashboard'
 
 import type { ApiKey } from '@/types'
 import KeysView from '../KeysView.vue'
+
+let credentialLocale: 'en' | 'zh' = 'en'
+const { authState } = vi.hoisted(() => ({ authState: { current: null as any } }))
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => authState.current }))
+const translateCredential = (key: string, values: Record<string, string> = {}) => {
+  const translations = credentialLocale === 'en' ? englishDashboard.keys.payAsYouGo : chineseDashboard.keys.payAsYouGo
+  const message = translations[key.slice('keys.payAsYouGo.'.length) as keyof typeof translations]
+  return message?.replace(/\{(\w+)\}/g, (_, name: string) => values[name] ?? `{${name}}`) ?? key
+}
 
 const {
   listKeys,
@@ -102,7 +115,9 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, values: Record<string, string> = {}) => key.startsWith('keys.payAsYouGo.')
+        ? translateCredential(key, values)
+        : messages[key] ?? key,
     }),
   }
 })
@@ -218,8 +233,8 @@ const IconStub = {
   template: '<span data-test="icon">{{ name }}</span>',
 }
 
-const mountView = async () => {
-  const wrapper = mount(KeysView, {
+const mountView = async (scoped = false) => {
+  const wrapper = mount(scoped ? identityScoped(KeysView, false) : KeysView, {
     global: {
       stubs: {
         AppLayout: AppLayoutStub,
@@ -265,6 +280,8 @@ const getButtonByText = (wrapper: VueWrapper, text: string) => {
 describe('user KeysView column settings', () => {
   beforeEach(() => {
     localStorage.clear()
+    vi.restoreAllMocks()
+    credentialLocale = 'en'
 
     listKeys.mockReset()
     updateKey.mockReset()
@@ -290,6 +307,98 @@ describe('user KeysView column settings', () => {
     getAvailableGroups.mockResolvedValue([])
     getUserGroupRates.mockResolvedValue({})
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it.each(['AUTH_SESSION_CHANGED', 'NETWORK_ERROR'])('ignores a delayed old-session %s after same-user relogin', async (code) => {
+    authState.current = reactive({ user: { id: 1, role: 'user' }, isAuthenticated: true, sessionRevision: 'first' })
+    let rejectOld!: (error: unknown) => void
+    listKeys.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const wrapper = await mountView(true)
+    const oldSignal = listKeys.mock.calls[0][3].signal as AbortSignal
+    authState.current.sessionRevision = 'second'
+    await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    expect(listKeys).toHaveBeenCalledTimes(2)
+    expect(wrapper.text()).toContain('test-key')
+    rejectOld({ code })
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('ignores session-change rejection while preserving real current-session failures', async () => {
+    listKeys.mockRejectedValueOnce({ code: 'AUTH_SESSION_CHANGED' })
+    const stale = await mountView()
+    expect(showError).not.toHaveBeenCalled()
+    stale.unmount()
+    listKeys.mockRejectedValueOnce({ code: 'NETWORK_ERROR' })
+    const current = await mountView()
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).toHaveBeenCalledWith('keys.failedToLoad')
+    current.unmount()
+  })
+
+  it('does not surface an older request failure after a newer list succeeds', async () => {
+    let rejectOld!: (error: unknown) => void
+    listKeys.mockImplementationOnce(() => new Promise((_, reject) => { rejectOld = reject }))
+    const wrapper = await mountView()
+    await wrapper.get('[data-test="sort-current-concurrency"]').trigger('click')
+    await flushPromises()
+    rejectOld({ code: 'NETWORK_ERROR' })
+    await flushPromises()
+    expect(wrapper.text()).toContain('test-key')
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each(['en', 'zh'] as const)('renders and copies gateway addresses in %s', async (locale) => {
+    credentialLocale = locale
+    copyToClipboard.mockResolvedValue(true)
+    const wrapper = await mountView()
+    const translations = locale === 'en' ? englishDashboard.keys.payAsYouGo : chineseDashboard.keys.payAsYouGo
+    const credentials = wrapper.get('section[aria-labelledby="pay-as-you-go-title"]')
+
+    expect(credentials.get('h2').text()).toBe(translations.title)
+    expect(credentials.text()).toContain(translations.description)
+    expect(credentials.text()).toContain(translations.mode)
+    expect(credentials.text()).toContain(translations.addressHint)
+    expect(credentials.findAll('code').map((address) => address.text())).toEqual([
+      `${window.location.origin}/v1`,
+      `${window.location.origin}/v1/messages`
+    ])
+    const copyButtons = credentials.findAll('button')
+    for (const [index, protocol] of [translations.openai, translations.anthropic].entries()) {
+      expect(copyButtons[index].attributes('aria-label')).toBe(
+        translations.copyAddress.replace('{protocol}', protocol)
+      )
+      await copyButtons[index].trigger('click')
+    }
+    expect(copyToClipboard).toHaveBeenNthCalledWith(1, `${window.location.origin}/v1`, translations.copied)
+    expect(copyToClipboard).toHaveBeenNthCalledWith(2, `${window.location.origin}/v1/messages`, translations.copied)
+    expect(wrapper.findComponent({ name: 'DataTable' }).exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('preserves the gateway origin returned by the environment URL helper', async () => {
+    const buildGatewayUrl = vi.spyOn(gatewayUrl, 'buildGatewayUrl')
+      .mockImplementation((path) => `https://gateway.example:8443${path}`)
+    const wrapper = await mountView()
+    expect(wrapper.findAll('section code').map((address) => address.text())).toEqual([
+      'https://gateway.example:8443/v1',
+      'https://gateway.example:8443/v1/messages'
+    ])
+    expect(buildGatewayUrl).toHaveBeenCalledWith('/v1')
+    expect(buildGatewayUrl).toHaveBeenCalledWith('/v1/messages')
+    wrapper.unmount()
+  })
+
+  it('resolves relative gateway subpaths against the current site origin', async () => {
+    vi.spyOn(gatewayUrl, 'buildGatewayUrl').mockImplementation((path) => `/proxy/sub2api${path}`)
+    const wrapper = await mountView()
+    expect(wrapper.get('section code').text()).toBe(`${window.location.origin}/proxy/sub2api/v1`)
+    await wrapper.get('section button').trigger('click')
+    expect(copyToClipboard).toHaveBeenCalledWith(`${window.location.origin}/proxy/sub2api/v1`, englishDashboard.keys.payAsYouGo.copied)
+    wrapper.unmount()
   })
 
   it.each([

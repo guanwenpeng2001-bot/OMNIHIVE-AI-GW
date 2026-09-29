@@ -695,6 +695,8 @@ const autoRefreshIntervalSeconds = ref<(typeof autoRefreshIntervals)[number]>(30
 const autoRefreshCountdown = ref(0)
 const autoRefreshETag = ref<string | null>(null)
 const autoRefreshFetching = ref(false)
+let autoRefreshRevision = 0
+let accountPageDisposed = false
 const AUTO_REFRESH_SILENT_WINDOW_MS = 15000
 const autoRefreshSilentUntil = ref(0)
 const hasPendingListSync = ref(false)
@@ -1146,6 +1148,7 @@ useSwipeSelect(accountTableRef, {
 }, swipeVirtualContext)
 
 const resetAutoRefreshCache = () => {
+  autoRefreshRevision++
   autoRefreshETag.value = null
   upstreamBillingRateETag.value = null
 }
@@ -1438,8 +1441,9 @@ const mergeAccountsIncrementally = (nextRows: Account[]) => {
 }
 
 const refreshAccountsIncrementally = async () => {
-  if (autoRefreshFetching.value) return
+  if (accountPageDisposed || autoRefreshFetching.value) return
   syncAccountListDerivedParams()
+  const requestRevision = autoRefreshRevision
   autoRefreshFetching.value = true
   try {
     const result = await adminAPI.accounts.listWithEtag(
@@ -1459,6 +1463,8 @@ const refreshAccountsIncrementally = async () => {
       { etag: autoRefreshETag.value }
     )
 
+    // Paging, filters, sorting and explicit reloads invalidate older background data.
+    if (accountPageDisposed || requestRevision !== autoRefreshRevision) return
     if (result.etag) {
       autoRefreshETag.value = result.etag
     }
@@ -2539,6 +2545,7 @@ onMounted(async () => {
     adminAPI.proxies.getAll(),
     adminAPI.groups.getAll()
   ])
+  if (accountPageDisposed) return
   if (proxiesResult.status === 'fulfilled') {
     proxies.value = proxiesResult.value
   } else {
@@ -2562,6 +2569,8 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  accountPageDisposed = true
+  autoRefreshRevision++
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

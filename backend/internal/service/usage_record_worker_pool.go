@@ -113,6 +113,9 @@ type UsageRecordWorkerPool struct {
 	autoScaleCancel       context.CancelFunc
 	lifecycleWg           sync.WaitGroup
 	stopOnce              sync.Once
+	admissionMu           sync.Mutex
+	stopping              bool
+	submissions           sync.WaitGroup
 }
 
 // NewUsageRecordWorkerPool 从配置构建使用量记录池。
@@ -156,11 +159,16 @@ func (p *UsageRecordWorkerPool) Submit(task UsageRecordTask) UsageRecordSubmitMo
 	if p == nil || task == nil {
 		return UsageRecordSubmitModeDropped
 	}
-	if p.pool == nil || p.pool.Stopped() {
+	p.admissionMu.Lock()
+	if p.stopping || p.pool == nil || p.pool.Stopped() {
+		p.admissionMu.Unlock()
 		p.droppedPoolStopped.Add(1)
 		p.logDrop("stopped")
 		return UsageRecordSubmitModeDroppedStopped
 	}
+	p.submissions.Add(1)
+	p.admissionMu.Unlock()
+	defer p.submissions.Done()
 
 	_, ok := p.pool.TrySubmit(func() {
 		p.execute(task)
@@ -219,11 +227,17 @@ func (p *UsageRecordWorkerPool) Stop() {
 		return
 	}
 	p.stopOnce.Do(func() {
+		p.admissionMu.Lock()
+		p.stopping = true
+		p.admissionMu.Unlock()
 		if p.autoScaleCancel != nil {
 			p.autoScaleCancel()
 		}
 		p.lifecycleWg.Wait()
 		p.pool.StopAndWait()
+		// Pond drains queued tasks, but synchronous overflow runs in submitters.
+		// Admission is closed before waiting so Add cannot race with Wait.
+		p.submissions.Wait()
 	})
 }
 

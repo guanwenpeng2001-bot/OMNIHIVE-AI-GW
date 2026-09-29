@@ -55,8 +55,8 @@ export const paymentAPI = {
   },
 
   /** Get a specific order by ID */
-  getOrder(id: number) {
-    return apiClient.get<PaymentOrder>(`/payment/orders/${id}`)
+  getOrder(id: number, signal?: AbortSignal) {
+    return apiClient.get<PaymentOrder>(`/payment/orders/${id}`, { signal })
   },
 
   /** Cancel a pending order */
@@ -65,18 +65,18 @@ export const paymentAPI = {
   },
 
   /** Verify order payment status with upstream provider */
-  verifyOrder(outTradeNo: string) {
-    return apiClient.post<PaymentOrder>('/payment/orders/verify', { out_trade_no: outTradeNo })
+  verifyOrder(outTradeNo: string, signal?: AbortSignal) {
+    return apiClient.post<PaymentOrder>('/payment/orders/verify', { out_trade_no: outTradeNo }, ...(signal ? [{ signal }] : []))
   },
 
   /** Legacy-compatible public order lookup by out_trade_no */
-  verifyOrderPublic(outTradeNo: string) {
-    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/verify', { out_trade_no: outTradeNo })
+  verifyOrderPublic(outTradeNo: string, signal?: AbortSignal) {
+    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/verify', { out_trade_no: outTradeNo }, ...(signal ? [{ signal }] : []))
   },
 
   /** Resolve an order from a signed resume token without auth */
-  resolveOrderPublicByResumeToken(resumeToken: string) {
-    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/resolve', { resume_token: resumeToken })
+  resolveOrderPublicByResumeToken(resumeToken: string, signal?: AbortSignal) {
+    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/resolve', { resume_token: resumeToken }, ...(signal ? [{ signal }] : []))
   },
 
   /** Request a refund for a completed order */

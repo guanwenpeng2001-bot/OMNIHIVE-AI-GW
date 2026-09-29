@@ -2528,8 +2528,13 @@ func TestFetchCodexModelsManifestRejectsInvalidEnvelope(t *testing.T) {
 		{name: "non-object", body: `[]`},
 		{name: "null object", body: `null`},
 		{name: "missing models", body: `{}`},
+		{name: "uppercase models", body: `{"Models":[]}`},
+		{name: "nested models", body: `{"data":{"models":[]}}`},
+		{name: "malformed models array", body: `{"models":[{"slug":"gpt-5.6"},]}`},
+		{name: "trailing JSON", body: `{"models":[]} {}`},
 		{name: "models object", body: `{"models":{}}`},
 		{name: "models null", body: `{"models":null}`},
+		{name: "models string", body: `{"models":"[]"}`},
 	}
 
 	for _, tt := range tests {
@@ -2560,6 +2565,12 @@ func TestFetchCodexModelsManifestRejectsInvalidEnvelope(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCodexModelsManifestEnvelopeRequiresExactModelsKey(t *testing.T) {
+	require.NoError(t, validateCodexModelsManifestEnvelope([]byte(`{"models":[]}`)))
+	require.NoError(t, validateCodexModelsManifestEnvelope([]byte(`{"models": [ {"slug":"gpt-5.6"} ]}`)))
+	require.Error(t, validateCodexModelsManifestEnvelope([]byte(`{"Models":[]}`)))
 }
 
 func TestFetchCodexModelsManifestAPIKeyDoesNotCacheInvalidEnvelope(t *testing.T) {

@@ -45,6 +45,8 @@ const (
 	OpsStreamErrorKey  = "ops_stream_error"
 	OpsStreamErrorsKey = "ops_stream_errors"
 	OpsStreamTurnKey   = "ops_stream_turn"
+	// Preserve the highest observed turn across per-turn state resets.
+	opsObservedStreamTurnKey = "ops_observed_stream_turn"
 
 	// Client-side configuration denials should remain visible in ops_error_logs,
 	// but should be excluded from SLA/error-rate calculations.
@@ -177,6 +179,13 @@ const maxOpsStreamErrorsPerRequest = 64
 func BeginOpsStreamTurn(c *gin.Context, turn int) {
 	if c == nil || turn <= 0 {
 		return
+	}
+	if c.Request != nil {
+		BeginAttemptStreamTurn(c.Request.Context(), turn)
+	}
+	if turn > c.GetInt(opsObservedStreamTurnKey) {
+		updateOpsDiagnostics(func(v *OpsDiagnosticsSnapshot) { v.WSTurns++ })
+		c.Set(opsObservedStreamTurnKey, turn)
 	}
 	c.Set(OpsStreamTurnKey, turn)
 	// Rule and attempt state is turn-scoped on a long-lived WS connection.
@@ -471,6 +480,7 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	c.Set(OpsUpstreamErrorsKey, existing)
 
 	checkSkipMonitoringForUpstreamEvent(c, &evCopy)
+	recordOpsUpstreamEvent(evCopy)
 }
 
 // opsUpstreamProxyAttribution derives both attribution fields from one

@@ -238,6 +238,7 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { formatLedgerAmount } from '@/utils/money'
 import { formatReasoningEffort } from '@/utils/format'
 import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
@@ -666,8 +667,8 @@ const exportToCSV = async () => {
       'Cache Read Tokens',
       'Cache Creation Tokens',
       'Rate Multiplier',
-      'Billed Cost',
-      'Original Cost',
+      'Billed Cost (USD)',
+      'Original Cost (USD)',
       'First Token (ms)',
       'Duration (ms)',
       ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`)),
@@ -686,8 +687,8 @@ const exportToCSV = async () => {
       log.cache_read_tokens,
       log.cache_creation_tokens,
       log.rate_multiplier,
-      log.actual_cost.toFixed(8),
-      log.total_cost.toFixed(8),
+      formatLedgerAmount(log.actual_cost),
+      formatLedgerAmount(log.total_cost),
       log.first_token_ms ?? '',
       log.duration_ms ?? '',
       ...billingExplanationValues(log, t),

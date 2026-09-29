@@ -10,6 +10,37 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func TestUsageRecordWorkerPool_StopDrainsSynchronousOverflow(t *testing.T) {
+	pool := NewUsageRecordWorkerPoolWithOptions(UsageRecordWorkerPoolOptions{WorkerCount: 1, QueueSize: 1, OverflowPolicy: "sync"})
+	workerEntered, workerRelease := make(chan struct{}), make(chan struct{})
+	pool.Submit(func(context.Context) { close(workerEntered); <-workerRelease })
+	<-workerEntered
+	pool.Submit(func(context.Context) {})
+	inlineEntered, inlineRelease, submitDone := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(submitDone)
+		pool.Submit(func(context.Context) { close(inlineEntered); <-inlineRelease })
+	}()
+	<-inlineEntered
+	stopped := make(chan struct{})
+	go func() { pool.Stop(); close(stopped) }()
+	close(workerRelease)
+	require.Eventually(t, func() bool { return pool.pool.Stopped() }, time.Second, time.Millisecond)
+	select {
+	case <-stopped:
+		t.Error("Stop returned before the synchronous billing task finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+	require.Equal(t, UsageRecordSubmitModeDroppedStopped, pool.Submit(func(context.Context) { t.Error("new work admitted during stop") }))
+	close(inlineRelease)
+	<-submitDone
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not drain")
+	}
+}
+
 func TestUsageRecordWorkerPool_SubmitEnqueued(t *testing.T) {
 	pool := NewUsageRecordWorkerPoolWithOptions(UsageRecordWorkerPoolOptions{
 		WorkerCount:           1,

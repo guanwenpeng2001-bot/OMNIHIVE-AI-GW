@@ -121,7 +121,7 @@ func (client *Client) run(ctx context.Context, credentials Credentials, messages
 		return TokenUsage{}, fmt.Errorf("cursor: invalid Run endpoint")
 	}
 	request.Header = headers(credentials, runID)
-	response, err := Do(client.HTTPClient, request, true)
+	response, err := sendGeneration(client.HTTPClient, request)
 	if err != nil {
 		return TokenUsage{}, fmt.Errorf("cursor: Run transport failed")
 	}

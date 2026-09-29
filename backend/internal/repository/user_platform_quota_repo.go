@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
+	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -312,7 +314,17 @@ func monthlyMaybeReset(prevUsage float64, prevStart *time.Time, cost float64, no
 // 清空某平台的限额即软删该行并放弃其累计用量；之后再次配置限额会新建行、从新窗口起算。
 func (r *userPlatformQuotaRepository) UpsertForUser(ctx context.Context, userID int64, records []UserPlatformQuotaRecord) error {
 	records = configuredRecords(records)
+	sort.SliceStable(records, func(i, j int) bool { return records[i].Platform < records[j].Platform })
 	return r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		// Lock every existing platform before either deletion or update. Two
+		// replacements with disjoint keep sets must not lock deleted -> kept rows
+		// in opposite orders. This also agrees with batch snapshot/initialization.
+		_, err := txClient.UserPlatformQuota.Query().Where(userplatformquota.UserIDEQ(userID)).
+			Order(dbent.Asc(userplatformquota.FieldPlatform)).
+			ForUpdate(func(options *entsql.LockOptions) { options.Strength = entsql.LockNoKeyUpdate }).IDs(txCtx)
+		if err != nil {
+			return err
+		}
 		platforms := make([]string, 0, len(records))
 		for _, rec := range records {
 			platforms = append(platforms, rec.Platform)
@@ -427,6 +439,13 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 	if len(snapshots) == 0 {
 		return nil
 	}
+	snapshots = append([]UserPlatformQuotaSnapshot(nil), snapshots...)
+	sort.SliceStable(snapshots, func(i, j int) bool {
+		if snapshots[i].UserID != snapshots[j].UserID {
+			return snapshots[i].UserID < snapshots[j].UserID
+		}
+		return snapshots[i].Platform < snapshots[j].Platform
+	})
 
 	client := clientFromContext(ctx, r.client)
 
@@ -438,16 +457,7 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 		batch := snapshots[start:end]
 
 		var sb strings.Builder
-		_, _ = sb.WriteString(
-			"UPDATE user_platform_quotas AS q SET" +
-				"  daily_usage_usd      = v.daily_usage_usd," +
-				"  weekly_usage_usd     = v.weekly_usage_usd," +
-				"  monthly_usage_usd    = v.monthly_usage_usd," +
-				"  daily_window_start   = v.daily_window_start," +
-				"  weekly_window_start  = v.weekly_window_start," +
-				"  monthly_window_start = v.monthly_window_start," +
-				"  updated_at           = $1" +
-				" FROM (VALUES ")
+		_, _ = sb.WriteString("WITH snapshot(user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd, daily_window_start, weekly_window_start, monthly_window_start) AS (VALUES ")
 
 		// $1 = now（共用）；每行 8 个 per-row 参，从 $2 起连续编号。
 		// VALUES 里的占位符显式转型，避免 Postgres 对多行 VALUES 推断不出参数类型。
@@ -466,10 +476,13 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 			)
 		}
 
-		_, _ = sb.WriteString(
-			") AS v(user_id, platform, daily_usage_usd, weekly_usage_usd, monthly_usage_usd," +
-				" daily_window_start, weekly_window_start, monthly_window_start)" +
-				" WHERE q.user_id = v.user_id AND q.platform = v.platform AND q.deleted_at IS NULL AND NOT q.derived_usage")
+		_, _ = sb.WriteString(`), locked AS MATERIALIZED (
+			SELECT q.id FROM user_platform_quotas q JOIN snapshot v ON q.user_id=v.user_id AND q.platform=v.platform
+			WHERE q.deleted_at IS NULL AND NOT q.derived_usage ORDER BY q.user_id,q.platform FOR NO KEY UPDATE OF q
+		) UPDATE user_platform_quotas AS q SET
+			daily_usage_usd=v.daily_usage_usd, weekly_usage_usd=v.weekly_usage_usd, monthly_usage_usd=v.monthly_usage_usd,
+			daily_window_start=v.daily_window_start, weekly_window_start=v.weekly_window_start, monthly_window_start=v.monthly_window_start, updated_at=$1
+			FROM snapshot v, locked l WHERE q.id=l.id AND q.user_id=v.user_id AND q.platform=v.platform AND q.deleted_at IS NULL AND NOT q.derived_usage`)
 
 		if _, err := client.ExecContext(ctx, sb.String(), args...); err != nil {
 			return err
@@ -486,5 +499,11 @@ func configuredRecords(records []UserPlatformQuotaRecord) []UserPlatformQuotaRec
 			out = append(out, rec)
 		}
 	}
+	sort.SliceStable(out, func(i, j int) bool {
+		if out[i].UserID != out[j].UserID {
+			return out[i].UserID < out[j].UserID
+		}
+		return out[i].Platform < out[j].Platform
+	})
 	return out
 }

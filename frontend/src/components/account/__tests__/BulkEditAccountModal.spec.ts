@@ -130,7 +130,8 @@ describe('BulkEditAccountModal', () => {
     const selector = wrapper.findComponent(ModelWhitelistSelector)
     expect(selector.exists()).toBe(true)
 
-    await selector.find('div.cursor-pointer').trigger('click')
+    await selector.get('button[aria-label="admin.accounts.selectModels"]').trigger('click')
+    expect(selector.get('button[aria-expanded]').attributes('aria-expanded')).toBe('true')
 
     expect(wrapper.text()).toContain('gemini-3.1-flash-image')
     expect(wrapper.text()).toContain('gemini-2.5-flash-image')

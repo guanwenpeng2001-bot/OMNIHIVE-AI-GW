@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -59,6 +60,9 @@ func writeOpenAICompactSSEBridge(c *gin.Context, statusCode int, finalResponse [
 	if c == nil || !openAICompactClientWantsStream(c) {
 		return false
 	}
+	if c.GetBool(apicompat.ResponsesTerminalSentKey) {
+		return true
+	}
 	// 先停心跳再写回，避免注释行与最终事件交错；停止后经互斥锁与心跳
 	// goroutine 建立 happens-before，可安全接管 ResponseWriter。
 	committed := StopOpenAICompactSSEKeepaliveCommitted(c)
@@ -85,6 +89,7 @@ func writeOpenAICompactSSEBridge(c *gin.Context, statusCode int, finalResponse [
 		header.Set("X-Accel-Buffering", "no")
 		c.Writer.WriteHeader(statusCode)
 	}
+	c.Set(apicompat.ResponsesTerminalSentKey, true)
 	_, _ = c.Writer.Write(payload)
 	c.Writer.Flush()
 	return true
@@ -109,12 +114,14 @@ func writeOpenAICompactSSEFailure(c *gin.Context, statusCode int, errorBody []by
 // 不被识别，会退化为 "stream closed before response.completed" 盲重连）。
 // 同时标记流内错误，保证挂在 200 流上的失败仍进入 ops 错误看板。
 func writeOpenAICompactSSEFailureMessage(c *gin.Context, statusCode int, errType, message string) {
-	if c == nil {
+	if c == nil || c.GetBool(apicompat.ResponsesTerminalSentKey) {
 		return
 	}
+	c.Set(apicompat.ResponsesTerminalSentKey, true)
 	MarkOpsStreamError(c, errType, message, statusCode)
 	payload, err := json.Marshal(map[string]any{
-		"type": "response.failed",
+		"type":            "response.failed",
+		"sequence_number": 0,
 		"response": map[string]any{
 			"id":     "resp_" + strings.ReplaceAll(uuid.NewString(), "-", ""),
 			"object": "response",
@@ -176,14 +183,37 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 
 	var buf bytes.Buffer
 	outputIndex := 0
-	appendEvent := func(eventType string, data []byte) {
+	sequence := 0
+	appendEvent := func(eventType string, data []byte) bool {
+		data, err := sjson.SetBytes(data, "sequence_number", sequence)
+		if err != nil {
+			return false
+		}
+		sequence++
 		_, _ = buf.WriteString("event: ")
 		_, _ = buf.WriteString(eventType)
 		_, _ = buf.WriteString("\ndata: ")
 		_, _ = buf.Write(data)
 		_, _ = buf.WriteString("\n\n")
+		return true
+	}
+	terminalType := "response.completed"
+	switch root.Get("status").String() {
+	case "failed", "cancelled", "canceled":
+		terminalType = "response.failed"
+	case "incomplete":
+		terminalType = "response.incomplete"
+	case "", "completed":
+	default:
+		return nil, false
+	}
+	if root.Get("error").IsObject() {
+		terminalType = "response.failed"
 	}
 	for _, item := range gjson.GetBytes(response, "output").Array() {
+		if terminalType == "response.failed" {
+			break
+		}
 		if !item.IsObject() {
 			continue
 		}
@@ -195,15 +225,20 @@ func buildOpenAICompactSSEPayload(finalResponse []byte) ([]byte, bool) {
 		if err != nil {
 			return nil, false
 		}
-		appendEvent("response.output_item.done", event)
+		if !appendEvent("response.output_item.done", event) {
+			return nil, false
+		}
 		outputIndex++
 	}
 
-	completed, err := sjson.SetRawBytes([]byte(`{"type":"response.completed"}`), "response", response)
+	terminal, _ := json.Marshal(map[string]string{"type": terminalType})
+	completed, err := sjson.SetRawBytes(terminal, "response", response)
 	if err != nil {
 		return nil, false
 	}
-	appendEvent("response.completed", completed)
+	if !appendEvent(terminalType, completed) {
+		return nil, false
+	}
 	return buf.Bytes(), true
 }
 

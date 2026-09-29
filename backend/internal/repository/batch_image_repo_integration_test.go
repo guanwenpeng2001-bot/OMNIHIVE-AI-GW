@@ -352,6 +352,45 @@ func batchImageTestID(t *testing.T, prefix string) string {
 	return "imgbatch_" + safePrefix + "_" + hex.EncodeToString(sum[:])[:16]
 }
 
+func TestBatchImageRepository_RecoveryScanAndStaleClaim(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+	for _, status := range []string{"created", "uploading", "submitted", "settling", "failed"} {
+		id := batchImageTestID(t, status)
+		_, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+			BatchID: id, UserID: 1001, Provider: service.BatchImageProviderVertex,
+			Model: "gemini-2.5-flash-image", ItemCount: 1, Status: status,
+		})
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `UPDATE batch_image_jobs SET hold_amount=1, updated_at=NOW()-INTERVAL '1 hour' WHERE batch_id=$1`, id)
+		require.NoError(t, err)
+	}
+	ids, err := repo.ListRecoverableBatchImageJobs(ctx, "", 100)
+	require.NoError(t, err)
+	require.Contains(t, ids, batchImageTestID(t, "submitted"))
+	require.Contains(t, ids, batchImageTestID(t, "settling"))
+	require.Contains(t, ids, batchImageTestID(t, "failed"))
+	require.NotContains(t, ids, batchImageTestID(t, "uploading"))
+	first, err := repo.ListRecoverableBatchImageJobs(ctx, "", 1)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	next, err := repo.ListRecoverableBatchImageJobs(ctx, first[0], 100)
+	require.NoError(t, err)
+	require.NotContains(t, next, first[0])
+	applied, err := repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "uploading"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.False(t, applied, "missing receipt cannot authorize refund after submission started")
+	err = repo.TransitionBatchImageJobStatus(ctx, batchImageTestID(t, "uploading"), service.BatchImageJobStatusCancelled, service.BatchImageTransitionOptions{})
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition, "cancel must recheck a concurrent submission claim")
+	applied, err = repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "created"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.True(t, applied)
+	applied, err = repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "created"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.False(t, applied, "claim must be idempotent")
+}
+
 func batchImageSafeTestIDSegment(v string, maxLen int) string {
 	v = strings.ToLower(strings.TrimSpace(v))
 	v = regexp.MustCompile(`[^a-z0-9_-]+`).ReplaceAllString(v, "-")

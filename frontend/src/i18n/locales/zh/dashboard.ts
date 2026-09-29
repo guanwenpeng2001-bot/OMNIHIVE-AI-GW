@@ -66,6 +66,16 @@ export default {
 
   // API Keys
   keys: {
+    payAsYouGo: {
+      title: '按量付费模式',
+      mode: '按量付费',
+      description: '展示按量付费模式的访问凭证，用于模型调用身份鉴权。请使用下方 API 密钥及对应协议地址发起调用。',
+      openai: 'OpenAI 兼容 · Base URL',
+      anthropic: 'Anthropic 兼容 · Messages 端点',
+      copyAddress: '复制{protocol}地址',
+      copied: '接入地址已复制',
+      addressHint: '请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。'
+    },
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
     searchPlaceholder: '搜索名称或Key...',
@@ -715,7 +725,7 @@ export default {
       paidPrice: '实付价格(折后)',
       officialPrice: '官方价格',
       rate: '折扣倍率',
-      unitPerMillion: '$ / 1M token',
+      unitPerMillion: 'USD / 1M token',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',
       perRequest: '按次计费',
@@ -813,6 +823,7 @@ export default {
     days: '天',
     codeRedeemSuccess: '兑换成功！',
     failedToRedeem: '兑换失败，请检查兑换码后重试。',
+    historyLoadFailed: '加载兑换记录失败，请重试。',
     userRefreshFailed: '兑换成功，但账户信息刷新失败。',
     subscriptionRefreshFailed: '兑换成功，但订阅状态刷新失败。',
     pleaseEnterCode: '请输入兑换码'

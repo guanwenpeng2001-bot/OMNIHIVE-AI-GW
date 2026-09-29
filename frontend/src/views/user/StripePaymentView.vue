@@ -94,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { usePaymentStore } from '@/stores/payment'
@@ -102,7 +102,7 @@ import { paymentAPI } from '@/api/payment'
 import { extractI18nErrorMessage } from '@/utils/apiError'
 import { isMobileDevice } from '@/utils/device'
 import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
-import { PAYMENT_RECOVERY_STORAGE_KEY, readPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
+import { PAYMENT_RECOVERY_STORAGE_KEY, usePaymentPageLifecycle, readOwnedPaymentRecoverySnapshot } from '@/components/payment/paymentFlow'
 import type { PaymentOrder } from '@/types/payment'
 import type { Stripe, StripeElements } from '@stripe/stripe-js'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -132,6 +132,10 @@ const showPaymentElement = ref(false)
 let stripeInstance: Stripe | null = null
 let elementsInstance: StripeElements | null = null
 let redirectTimer: ReturnType<typeof setTimeout> | null = null
+const lifecycle = usePaymentPageLifecycle(() => JSON.stringify(route.query), () => {
+  if (redirectTimer) clearTimeout(redirectTimer)
+  if (pollTimer) clearInterval(pollTimer)
+})
 
 onMounted(async () => {
   const orderId = Number(route.query.order_id)
@@ -147,7 +151,7 @@ onMounted(async () => {
 
   try {
     if (typeof window !== 'undefined') {
-      const restored = readPaymentRecoverySnapshot(
+      const restored = readOwnedPaymentRecoverySnapshot(
         window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
         { resumeToken },
       )
@@ -155,18 +159,22 @@ onMounted(async () => {
         currency.value = normalizePaymentCurrency(restored.currency)
       }
     }
-    const res = await paymentAPI.getOrder(orderId)
+    const res = await paymentAPI.getOrder(orderId, lifecycle.signal)
+    if (!lifecycle.isCurrent()) return
     order.value = res.data
     if (res.data.currency) {
       currency.value = normalizePaymentCurrency(res.data.currency)
     }
 
     await paymentStore.fetchConfig()
+    if (!lifecycle.isCurrent()) return
     const publishableKey = paymentStore.config?.stripe_publishable_key
     if (!publishableKey) { initError.value = t('payment.stripeNotConfigured'); return }
 
     const { loadStripe } = await import('@stripe/stripe-js/pure')
+    if (!lifecycle.isCurrent()) return
     const stripe = await loadStripe(publishableKey)
+    if (!lifecycle.isCurrent()) return
     if (!stripe) { initError.value = t('payment.stripeLoadFailed'); return }
 
     stripeInstance = stripe
@@ -181,12 +189,14 @@ onMounted(async () => {
       // 未指定方式时渲染完整 Payment Element
       showPaymentElement.value = true
       await nextTick()
+      if (!lifecycle.isCurrent()) return
       mountPaymentElement(stripe, clientSecret)
     }
   } catch (err: unknown) {
+    if (!lifecycle.isCurrent()) return
     initError.value = extractI18nErrorMessage(err, t, 'payment.errors', t('payment.stripeLoadFailed'))
   } finally {
-    loading.value = false
+    if (lifecycle.isCurrent()) loading.value = false
   }
 })
 
@@ -207,6 +217,7 @@ async function confirmAlipay(stripe: Stripe, clientSecret: string, orderId: numb
   redirecting.value = true
   const returnUrl = window.location.origin + '/payment/result?order_id=' + orderId + '&status=success'
   const { error } = await stripe.confirmAlipayPayment(clientSecret, { return_url: returnUrl })
+  if (!lifecycle.isCurrent()) return
   if (error) {
     redirecting.value = false
     stripeError.value = error.message || t('payment.result.failed')
@@ -220,6 +231,7 @@ async function confirmWechatPay(stripe: Stripe, clientSecret: string) {
   }).confirmWechatPayPayment(clientSecret, {
     payment_method_options: { wechat_pay: { client: isMobileDevice() ? 'mobile_web' : 'web' } },
   })
+  if (!lifecycle.isCurrent()) return
 
   if (error) {
     stripeError.value = error.message || t('payment.result.failed')
@@ -252,11 +264,11 @@ function mountPaymentElement(stripe: Stripe, clientSecret: string) {
     paymentMethodOrder: ['alipay', 'wechat_pay', 'card', 'link'],
   } as Record<string, unknown>)
   paymentElement.mount('#stripe-payment-element')
-  paymentElement.on('ready', () => { stripeReady.value = true })
+  paymentElement.on('ready', () => { if (lifecycle.isCurrent()) stripeReady.value = true })
 }
 
 async function handleGenericPay() {
-  if (!stripeInstance || !elementsInstance || stripeSubmitting.value) return
+  if (!lifecycle.isCurrent() || !stripeInstance || !elementsInstance || stripeSubmitting.value) return
   stripeSubmitting.value = true
   stripeError.value = ''
   try {
@@ -267,6 +279,7 @@ async function handleGenericPay() {
       },
       redirect: 'if_required',
     })
+    if (!lifecycle.isCurrent()) return
     if (error) {
       stripeError.value = error.message || t('payment.result.failed')
     } else {
@@ -274,9 +287,10 @@ async function handleGenericPay() {
       scheduleClose()
     }
   } catch (err: unknown) {
+    if (!lifecycle.isCurrent()) return
     stripeError.value = extractI18nErrorMessage(err, t, 'payment.errors', t('payment.result.failed'))
   } finally {
-    stripeSubmitting.value = false
+    if (lifecycle.isCurrent()) stripeSubmitting.value = false
   }
 }
 
@@ -284,31 +298,36 @@ let pollTimer: ReturnType<typeof setInterval> | null = null
 
 function startPolling() {
   const orderId = Number(route.query.order_id)
-  if (!orderId) return
+  if (!lifecycle.isCurrent() || !orderId || pollTimer) return
+  let inFlight = false
   pollTimer = setInterval(async () => {
-    const o = await paymentStore.pollOrderStatus(orderId)
-    if (!o) return
-    if (o.status === 'COMPLETED' || o.status === 'PAID') {
-      if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
-      stripeSuccess.value = true
-      wechatQrUrl.value = ''
-      scheduleClose()
+    if (inFlight || !lifecycle.isCurrent()) return
+    inFlight = true
+    try {
+      const o = await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
+      if (!lifecycle.isCurrent() || !o) return
+      if (o.status === 'COMPLETED' || o.status === 'PAID') {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = null }
+        stripeSuccess.value = true
+        wechatQrUrl.value = ''
+        scheduleClose()
+      }
+    } finally {
+      inFlight = false
     }
   }, 3000)
 }
 
 function scheduleClose() {
+  if (!lifecycle.isCurrent() || redirectTimer) return
   if (window.opener) {
-    redirectTimer = setTimeout(() => { window.close() }, 2000)
+    redirectTimer = setTimeout(() => { if (lifecycle.isCurrent()) window.close() }, 2000)
   } else {
     redirectTimer = setTimeout(() => {
+      if (!lifecycle.isCurrent()) return
       router.push({ path: '/payment/result', query: { order_id: String(route.query.order_id || ''), status: 'success' } })
     }, 2000)
   }
 }
 
-onUnmounted(() => {
-  if (redirectTimer) clearTimeout(redirectTimer)
-  if (pollTimer) clearInterval(pollTimer)
-})
 </script>

@@ -2,10 +2,17 @@ import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import RegisterView from '@/views/auth/RegisterView.vue'
 
-const { getPublicSettingsMock, registerMock, showErrorMock } = vi.hoisted(() => ({
+const { getPublicSettingsMock, registerMock, showErrorMock, appStoreMock, pushMock } = vi.hoisted(() => ({
   getPublicSettingsMock: vi.fn(),
   registerMock: vi.fn(),
-  showErrorMock: vi.fn()
+  showErrorMock: vi.fn(),
+  pushMock: vi.fn(),
+  appStoreMock: {
+    cachedPublicSettings: null as { promo_code_enabled?: boolean } | null,
+    showError: (...args: unknown[]) => showErrorMock(...args),
+    showSuccess: vi.fn(),
+    showWarning: vi.fn()
+  }
 }))
 
 const publicSettings = {
@@ -26,7 +33,7 @@ const publicSettings = {
 }
 
 vi.mock('vue-router', () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: pushMock }),
   useRoute: () => ({ query: {} })
 }))
 
@@ -47,11 +54,7 @@ vi.mock('vue-i18n', () => ({
 
 vi.mock('@/stores', () => ({
   useAuthStore: () => ({ register: (...args: unknown[]) => registerMock(...args) }),
-  useAppStore: () => ({
-    showError: (...args: unknown[]) => showErrorMock(...args),
-    showSuccess: vi.fn(),
-    showWarning: vi.fn()
-  })
+  useAppStore: () => appStoreMock
 }))
 
 vi.mock('@/api/auth', async () => {
@@ -86,8 +89,99 @@ describe('RegisterView invitation layout', () => {
     getPublicSettingsMock.mockReset()
     registerMock.mockReset()
     showErrorMock.mockReset()
+    pushMock.mockReset()
+    appStoreMock.cachedPublicSettings = null
+    sessionStorage.clear()
     getPublicSettingsMock.mockResolvedValue(publicSettings)
     registerMock.mockResolvedValue({})
+  })
+
+  it.each([null, {}, { promo_code_enabled: false }])('keeps promo hidden with initial settings %j', async cached => {
+    appStoreMock.cachedPublicSettings = cached
+    let resolveSettings!: (settings: typeof publicSettings) => void
+    getPublicSettingsMock.mockReturnValueOnce(new Promise(resolve => { resolveSettings = resolve }))
+    const wrapper = mountRegister()
+    expect(wrapper.find('#promo_code').exists()).toBe(false)
+    resolveSettings(publicSettings)
+    await flushPromises()
+    expect(wrapper.find('#promo_code').exists()).toBe(false)
+  })
+
+  it('shows promo immediately when injected settings explicitly enable it', () => {
+    appStoreMock.cachedPublicSettings = { promo_code_enabled: true }
+    getPublicSettingsMock.mockReturnValueOnce(new Promise(() => {}))
+    expect(mountRegister().find('#promo_code').exists()).toBe(true)
+  })
+
+  it('shows promo only after async settings explicitly enable it', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, promo_code_enabled: true })
+    const wrapper = mountRegister()
+    expect(wrapper.find('#promo_code').exists()).toBe(false)
+    await flushPromises()
+    expect(wrapper.find('#promo_code').exists()).toBe(true)
+  })
+
+  it('blocks submission while settings load and after registration is closed', async () => {
+    let resolveSettings!: (settings: typeof publicSettings) => void
+    getPublicSettingsMock.mockReturnValueOnce(new Promise(resolve => { resolveSettings = resolve }))
+    const wrapper = mountRegister()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    const form = wrapper.get('form')
+    await form.trigger('submit.prevent')
+    expect(registerMock).not.toHaveBeenCalled()
+    resolveSettings({ ...publicSettings, registration_enabled: false, turnstile_enabled: false })
+    await flushPromises()
+    // A retained DOM listener must not bypass the closed-registration guard.
+    await form.trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(pushMock).not.toHaveBeenCalled()
+    expect(sessionStorage.getItem('register_data')).toBeNull()
+    expect(wrapper.find('form').exists()).toBe(false)
+  })
+
+  it('keeps email verification working with the existing two-field form', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, email_verify_enabled: true, turnstile_enabled: false })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    expect(wrapper.find('#confirmPassword').exists()).toBe(false)
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    expect(registerMock).not.toHaveBeenCalled()
+    expect(pushMock).toHaveBeenCalledWith('/email-verify')
+    expect(JSON.parse(sessionStorage.getItem('register_data')!)).toMatchObject({ email: 'user@example.com', password: 'secret-123' })
+  })
+
+  it('ignores another submission while registration is in progress', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
+    let finishRegister!: () => void
+    registerMock.mockReturnValueOnce(new Promise<void>(resolve => { finishRegister = resolve }))
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('#email').setValue('user@example.com')
+    await wrapper.get('#password').setValue('secret-123')
+    await wrapper.get('form').trigger('submit.prevent')
+    await flushPromises()
+    await wrapper.get('form').trigger('submit.prevent')
+    expect(registerMock).toHaveBeenCalledTimes(1)
+    finishRegister()
+    await flushPromises()
+  })
+
+  it('associates invalid email and password with accessible error messages', async () => {
+    getPublicSettingsMock.mockResolvedValueOnce({ ...publicSettings, turnstile_enabled: false })
+    const wrapper = mountRegister()
+    await flushPromises()
+    await wrapper.get('form').trigger('submit.prevent')
+    for (const field of ['email', 'password']) {
+      expect(wrapper.get(`#${field}`).attributes('aria-invalid')).toBe('true')
+      expect(wrapper.get(`#${field}`).attributes('aria-describedby')).toBe(`${field}-error`)
+      expect(wrapper.get(`#${field}-error`).attributes('role')).toBe('alert')
+    }
+    expect(registerMock).not.toHaveBeenCalled()
   })
 
   it('keeps the optional affiliate invitation field before Turnstile', async () => {

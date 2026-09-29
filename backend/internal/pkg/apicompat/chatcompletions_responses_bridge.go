@@ -21,6 +21,11 @@ type toolOutputMediaByCallID map[string][]ChatContentPart
 // ResponsesToChatCompletionsRequestWithOptions. All fields are optional; a nil
 // *ResponsesToChatOptions behaves exactly like ResponsesToChatCompletionsRequest.
 type ResponsesToChatOptions struct {
+	// SingleLeadingSystemMessage selects the strict Qianwen Chat profile: merge
+	// the leading instruction messages into one system message and reject later
+	// instructions. The default preserves system/developer roles and positions.
+	SingleLeadingSystemMessage bool
+
 	// ReasoningContentByID looks up the cached reasoning text for a reasoning
 	// item id. Codex histories may carry reasoning items with no plaintext
 	// summary (empty summary + opaque encrypted_content, e.g. after remote
@@ -312,7 +317,7 @@ func responsesInputToChatMessages(instructions string, inputRaw json.RawMessage)
 // optional hooks (see ResponsesToChatOptions).
 func responsesInputToChatMessagesWithOptions(instructions string, inputRaw json.RawMessage, opts *ResponsesToChatOptions) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	if strings.TrimSpace(instructions) != "" {
+	if instructions != "" {
 		content, _ := json.Marshal(instructions)
 		messages = append(messages, ChatMessage{Role: "system", Content: content})
 	}
@@ -339,26 +344,25 @@ func responsesInputToChatMessagesWithOptions(instructions string, inputRaw json.
 	if err != nil {
 		return nil, err
 	}
-	normalized := normalizeChatMessagesWithToolOutputMedia(built, mediaByCallID)
-	return normalizeResponsesDerivedChatMessageRoles(normalized), nil
+	if opts != nil && opts.SingleLeadingSystemMessage {
+		// Check before tool normalization can remove an unanswered assistant turn
+		// and accidentally make a later instruction appear to be leading.
+		built, err = normalizeResponsesDerivedChatMessageRoles(built)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return normalizeChatMessagesWithToolOutputMedia(built, mediaByCallID), nil
 }
 
 // normalizeResponsesDerivedChatMessageRoles rewrites the Chat Completions
 // message list produced by the Responses bridge so that strict upstreams which
 // only accept system content at the very start of the conversation accept it.
 //
-// The bridge turns the Responses `instructions` field and every role:"developer"
-// item into a system message. Codex always sends both instructions and a leading
-// developer item, and it also injects developer notices into the middle of the
-// message history (for example when the user switches models). Forwarded as-is
-// that produces two leading system messages and mid-conversation system
-// messages, which Qwen-family upstreams reject with
-// "System message must be at the beginning." (HTTP 400).
-//
-// Leading system/developer messages are therefore merged into a single leading
-// system message, while later ones keep their position but are downgraded to
-// user messages so the same text still reaches the model.
-func normalizeResponsesDerivedChatMessageRoles(messages []ChatMessage) []ChatMessage {
+// This is opt-in for a strict target profile, never a generic role rewrite.
+// Later instructions cannot be represented without changing their authority;
+// reject them rather than moving them or silently downgrading them to user.
+func normalizeResponsesDerivedChatMessageRoles(messages []ChatMessage) ([]ChatMessage, error) {
 	isInstructionRole := func(role string) bool {
 		return role == "system" || role == "developer"
 	}
@@ -366,6 +370,11 @@ func normalizeResponsesDerivedChatMessageRoles(messages []ChatMessage) []ChatMes
 	leading := 0
 	for leading < len(messages) && isInstructionRole(messages[leading].Role) {
 		leading++
+	}
+	for i := leading; i < len(messages); i++ {
+		if isInstructionRole(messages[i].Role) {
+			return nil, fmt.Errorf("strict chat profile does not support mid-conversation %s message at index %d", messages[i].Role, i)
+		}
 	}
 
 	out := make([]ChatMessage, 0, len(messages))
@@ -375,27 +384,24 @@ func normalizeResponsesDerivedChatMessageRoles(messages []ChatMessage) []ChatMes
 	case 1:
 		// A single leading prompt is already valid; keep its content byte for
 		// byte instead of round-tripping it through the text merge below.
-		out = append(out, messages[0])
+		m := messages[0]
+		m.Role = "system"
+		out = append(out, m)
 	default:
 		merged := make([]string, 0, leading)
 		for _, m := range messages[:leading] {
-			if text := strings.TrimSpace(chatMessageContentText(m.Content)); text != "" {
-				merged = append(merged, text)
+			var text string
+			if err := json.Unmarshal(m.Content, &text); err != nil {
+				return nil, fmt.Errorf("strict chat profile requires text instruction content: %w", err)
 			}
+			merged = append(merged, text)
 		}
-		if len(merged) > 0 {
-			content, _ := json.Marshal(strings.Join(merged, "\n\n"))
-			out = append(out, ChatMessage{Role: "system", Content: content})
-		}
+		content, _ := json.Marshal(strings.Join(merged, "\n\n"))
+		out = append(out, ChatMessage{Role: "system", Content: content})
 	}
 
-	for _, m := range messages[leading:] {
-		if isInstructionRole(m.Role) {
-			m.Role = "user"
-		}
-		out = append(out, m)
-	}
-	return out
+	out = append(out, messages[leading:]...)
+	return out, nil
 }
 
 // buildChatMessagesFromItems walks the Responses input items and appends the
@@ -418,6 +424,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 	mediaByCallID := make(toolOutputMediaByCallID)
 	invalidFunctionCallIDs := make(map[string]struct{})
 	invalidEmptyFunctionCallOutputs := 0
+	instructionPrefix := true
 
 	reasoningForAssistant := func() string {
 		if pendingReasoning != "" {
@@ -426,7 +433,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		return lastTurnReasoning
 	}
 
-	for _, raw := range rawItems {
+	for itemIndex, raw := range rawItems {
 		raw = bytesTrimSpace(raw)
 		if len(raw) == 0 || string(raw) == "null" {
 			continue
@@ -436,6 +443,7 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 		if err := json.Unmarshal(raw, &item); err != nil {
 			var text string
 			if textErr := json.Unmarshal(raw, &text); textErr == nil {
+				instructionPrefix = false
 				content, _ := json.Marshal(text)
 				messages = append(messages, ChatMessage{Role: "user", Content: content})
 				pendingReasoning = ""
@@ -447,6 +455,16 @@ func buildChatMessagesFromItems(messages []ChatMessage, rawItems []json.RawMessa
 
 		role := chatCompletionsBridgeRole(rawString(item["role"]))
 		itemType := rawString(item["type"])
+		if opts != nil && opts.SingleLeadingSystemMessage && itemType != "additional_tools" {
+			if (itemType == "" || itemType == "message") && (role == "system" || role == "developer") {
+				if !instructionPrefix {
+					return nil, nil, fmt.Errorf("strict chat profile does not support mid-conversation %s message at input index %d", role, itemIndex)
+				}
+			} else {
+				// Even items dropped during historical tool repair end the prefix.
+				instructionPrefix = false
+			}
+		}
 		switch itemType {
 		case "reasoning":
 			if txt := extractResponsesReasoningText(item); txt != "" {
@@ -991,12 +1009,18 @@ func chatCompletionsBridgeRole(role string) string {
 		return "user"
 	}
 	if strings.EqualFold(trimmed, "developer") {
+		return "developer"
+	}
+	if strings.EqualFold(trimmed, "system") {
 		return "system"
 	}
 	return role
 }
 
 func responsesContentToChatContent(raw json.RawMessage, role string) (json.RawMessage, error) {
+	if role == "system" || role == "developer" {
+		return responsesInstructionContentToChat(raw, role)
+	}
 	raw = bytesTrimSpace(raw)
 	if len(raw) == 0 || string(raw) == "null" {
 		empty, _ := json.Marshal("")
@@ -1019,6 +1043,43 @@ func responsesContentToChatContent(raw json.RawMessage, role string) (json.RawMe
 	}
 
 	return raw, nil
+}
+
+// Instruction messages only support text in Chat. Validate before the generic
+// content converter can discard unknown parts or non-user images. Keep empty
+// parts and whitespace so merging does not erase instruction boundaries.
+func responsesInstructionContentToChat(raw json.RawMessage, role string) (json.RawMessage, error) {
+	raw = bytesTrimSpace(raw)
+	if len(raw) == 0 || string(raw) == "null" {
+		return json.RawMessage(`""`), nil
+	}
+	var text string
+	if err := json.Unmarshal(raw, &text); err == nil {
+		return raw, nil
+	}
+	var parts []json.RawMessage
+	if raw[0] == '{' {
+		parts = []json.RawMessage{raw}
+	} else if err := json.Unmarshal(raw, &parts); err != nil {
+		return nil, fmt.Errorf("unsupported %s instruction content: expected text or text parts", role)
+	}
+	texts := make([]string, 0, len(parts))
+	for i, rawPart := range parts {
+		var part map[string]json.RawMessage
+		if err := json.Unmarshal(rawPart, &part); err != nil || part == nil {
+			return nil, fmt.Errorf("unsupported %s instruction content part at index %d", role, i)
+		}
+		switch rawString(part["type"]) {
+		case "input_text", "output_text", "text", "":
+		default:
+			return nil, fmt.Errorf("unsupported %s instruction content type %q at index %d", role, rawString(part["type"]), i)
+		}
+		if len(part["text"]) == 0 || string(part["text"]) == "null" || json.Unmarshal(part["text"], &text) != nil {
+			return nil, fmt.Errorf("unsupported %s instruction text at index %d: expected string", role, i)
+		}
+		texts = append(texts, text)
+	}
+	return json.Marshal(strings.Join(texts, "\n\n"))
 }
 
 func responsesContentPartsToChatContent(rawParts []json.RawMessage, role string) (json.RawMessage, error) {

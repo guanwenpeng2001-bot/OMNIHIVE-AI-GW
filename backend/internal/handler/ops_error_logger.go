@@ -1076,6 +1076,10 @@ func (state *opsCaptureWriterState) shouldCapture() bool {
 // - Streaming errors after the response has started (SSE) may still need explicit logging.
 func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		finishBudget := installAttemptBudget(c)
+		defer finishBudget()
+		finishIngress := service.BeginOpsIngress()
+		defer finishIngress()
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
 		w.setContext(c)
@@ -1139,11 +1143,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		// Skip logging if a passthrough rule with skip_monitoring=true matched.
 		if shouldSkipFinalOpsFailure(c) {
+			service.RecordOpsSuppressedFailure(true)
 			return
 		}
 
 		// Skip logging if the error should be filtered based on settings
 		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Message, string(body), c.Request.URL.Path) {
+			service.RecordOpsSuppressedFailure(false)
 			return
 		}
 
@@ -1434,11 +1440,13 @@ func opsStreamErrorsAllRequestScoped(streamErrs []service.OpsStreamError) bool {
 func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus int, streamErr service.OpsStreamError) {
 	// 命中 skip_monitoring=true 透传规则的请求跳过落库，与其它分支一致。
 	if streamErr.SkipMonitoring || (streamErr.Turn == 0 && !streamErr.RequestScoped && shouldSkipFinalOpsFailure(c)) {
+		service.RecordOpsSuppressedFailure(true)
 		return
 	}
 
 	// 复用与 status>=400 分支相同的设置过滤（context canceled / 无可用账号等）。
 	if shouldSkipOpsErrorLog(c.Request.Context(), ops, streamErr.Message, streamErr.Message, c.Request.URL.Path) {
+		service.RecordOpsSuppressedFailure(false)
 		return
 	}
 

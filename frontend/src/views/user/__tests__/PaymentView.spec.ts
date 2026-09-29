@@ -68,6 +68,7 @@ vi.mock('@/stores/auth', () => ({
 vi.mock('@/stores/payment', () => ({
   usePaymentStore: () => ({
     createOrder,
+    clearCurrentOrder: vi.fn(),
   }),
 }))
 
@@ -238,6 +239,8 @@ async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoW
   getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoWithPlansFixture(options))
   bridgeInvoke.mockReset()
   window.localStorage.clear()
+  window.localStorage.setItem('auth_token', 'test-token')
+  window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
   ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = undefined
 
   const wrapper = shallowMount(PaymentView, {
@@ -278,6 +281,8 @@ async function mountSubscriptionPlanList(planCount: number) {
   getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({ plans }))
   bridgeInvoke.mockReset()
   window.localStorage.clear()
+  window.localStorage.setItem('auth_token', 'test-token')
+  window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
   ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = undefined
 
   const wrapper = shallowMount(PaymentView, {
@@ -303,6 +308,8 @@ describe('PaymentView help text', () => {
     routeState.query = {}
     createOrder.mockReset()
     window.localStorage.clear()
+    window.localStorage.setItem('auth_token', 'test-token')
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
   })
 
   async function mountHelp(help_text: string, help_image_url = '') {
@@ -517,6 +524,8 @@ describe('PaymentView payment recovery', () => {
     showWarning.mockReset()
     bridgeInvoke.mockReset()
     window.localStorage.clear()
+    window.localStorage.setItem('auth_token', 'test-token')
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
     ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = undefined
   })
 
@@ -553,6 +562,7 @@ describe('PaymentView payment recovery', () => {
       orderType: 'balance',
       paymentMode: 'popup',
       resumeToken: '',
+      ownerUserId: 9,
       createdAt: Date.now(),
     }))
 
@@ -602,9 +612,41 @@ describe('PaymentView WeChat JSAPI flow', () => {
     getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture())
     bridgeInvoke.mockReset()
     window.localStorage.clear()
+    window.localStorage.setItem('auth_token', 'test-token')
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
     ;(window as Window & { WeixinJSBridge?: { invoke: typeof bridgeInvoke } }).WeixinJSBridge = {
       invoke: bridgeInvoke,
     }
+  })
+
+  it.each(['unmount', 'identity', 'route'])('does not launch or persist a late order after %s', async (change) => {
+    let resolve!: (value: unknown) => void
+    createOrder.mockReturnValue(new Promise(done => { resolve = done }))
+    const wrapper = shallowMount(PaymentView, { global: { stubs: { Teleport: true, Transition: false } } })
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledTimes(1)
+    if (change === 'unmount') wrapper.unmount()
+    if (change === 'identity') localStorage.setItem('auth_user', JSON.stringify({ id: 10 }))
+    if (change === 'route') routeState.path = '/dashboard'
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, 'new-owner-credentials')
+    resolve(jsapiOrderFixture('late-token'))
+    await flushPromises()
+    expect(bridgeInvoke).not.toHaveBeenCalled()
+    expect(routerPush).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBe('new-owner-credentials')
+    if (change !== 'unmount') wrapper.unmount()
+  })
+
+  it('ignores a late checkout failure after leaving the page', async () => {
+    let reject!: (error: Error) => void
+    getCheckoutInfo.mockReturnValue(new Promise((_resolve, fail) => { reject = fail }))
+    const wrapper = shallowMount(PaymentView, { global: { stubs: { Teleport: true, Transition: false } } })
+    wrapper.unmount()
+    reject(new Error('late checkout error'))
+    await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    expect(createOrder).not.toHaveBeenCalled()
   })
 
   it('resets payment state and redirects to /payment/result after JSAPI reports success', async () => {
@@ -704,6 +746,7 @@ describe('PaymentView WeChat JSAPI flow', () => {
       orderType: 'balance',
       paymentMode: 'popup',
       resumeToken: '',
+      ownerUserId: 9,
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     }))
 

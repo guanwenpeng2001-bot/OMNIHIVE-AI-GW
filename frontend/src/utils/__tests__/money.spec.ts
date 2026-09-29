@@ -1,0 +1,77 @@
+import { describe, expect, it, vi } from 'vitest'
+import { formatLedgerAmount, formatBalanceAmount, formatMoney, accountBilledAmount } from '../money'
+import { formatCurrency, formatDateTimeWithZone, formatDateTime, formatRelativeTime, formatRelativeWithDateTime } from '../format'
+import { formatScaled } from '../pricing'
+import { formatTokenPricePerMillion } from '../usagePricing'
+import { billingExplanationValues } from '../usageBillingExplanation'
+import type { UsageLog } from '@/types'
+
+vi.mock('@/i18n', () => ({
+  getLocale: () => 'en-GB',
+  i18n: { global: { t: (key: string, params?: { n: number }) => params ? `${key}:${params.n}` : key } },
+}))
+
+describe('amount and unit contract', () => {
+  it.each([null, undefined, NaN, Infinity, -Infinity])('keeps unknown %s separate from zero', value => {
+    expect(formatLedgerAmount(value)).toBe('-')
+    expect(formatBalanceAmount(value)).toBe('-')
+    expect(formatCurrency(value, 'CNY')).toBe('-')
+  })
+  it.each([0, 1e-8, -1e-8, 123.12345678, -123.12345678])('shares exact ledger precision with billing evidence for %s', value => {
+    const formatted = formatLedgerAmount(value)
+    expect(formatted).toBe(value.toFixed(8))
+    const log = { billing_explanation: { snapshot: { charged_amount: value } } } as UsageLog
+    expect(billingExplanationValues(log, key => key)[9]).toBe(formatted)
+    expect(formatMoney(value, 'USD', 'ledger')).toBe(`USD ${formatted}`)
+  })
+  it('separates overview, unit prices, and currency codes without converting amounts', () => {
+    expect(formatBalanceAmount(123.12345678)).toBe('123.12')
+    expect(formatBalanceAmount(-1e-8)).toBe('-0.00000001')
+    expect(formatMoney(0, 'CNY')).toBe('CNY 0.00')
+    expect(formatMoney(0, 'USD')).toBe('USD 0.00')
+    expect(formatTokenPricePerMillion(1e-8, 1e6)).toBe('$0.00000001')
+  })
+  it('does not corrupt scientific exponents or non-finite price cards', () => {
+    expect(formatScaled(1e-10, 1)).toBe('$1e-10')
+    expect(formatScaled(1e10, 1)).toBe('$1e+10')
+    expect(formatScaled(NaN, 1)).toBe('-')
+    expect(formatScaled(0, 1)).toBe('$0')
+  })
+  it('preserves unknown and explicit zero for account charges and quantities', () => {
+    expect(accountBilledAmount({})).toBeNull()
+    expect(accountBilledAmount({ total_cost: 1, account_stats_cost: 0 })).toBe(0)
+    expect(accountBilledAmount({ total_cost: -1e-8, account_rate_multiplier: 2 })).toBe(-2e-8)
+    const log = { billing_explanation: { snapshot: {} } } as UsageLog
+    expect(billingExplanationValues(log, key => key)[6]).toBe('usage.evidence.unknown')
+  })
+})
+
+describe('visible display time zone contract', () => {
+  it.each([
+    ['2026-01-31T16:00:00Z', 'Asia/Shanghai', '2026-02-01 00:00 (Asia/Shanghai, GMT+08:00)'],
+    ['2026-03-08T06:59:00Z', 'America/New_York', '2026-03-08 01:59 (America/New_York, GMT-05:00)'],
+    ['2026-03-08T07:00:00Z', 'America/New_York', '2026-03-08 03:00 (America/New_York, GMT-04:00)'],
+    ['2026-11-01T05:30:00Z', 'America/New_York', '2026-11-01 01:30 (America/New_York, GMT-04:00)'],
+    ['2026-11-01T06:30:00Z', 'America/New_York', '2026-11-01 01:30 (America/New_York, GMT-05:00)'],
+    ['2026-01-01T00:00:00Z', 'invalid', '2026-01-01 00:00 (UTC, GMT+00:00)'],
+  ])('labels %s in %s', (date, zone, expected) => {
+    const effectiveZone = zone === 'invalid' ? 'UTC' : zone
+    const localDate = formatDateTime(date, { timeZone: effectiveZone, year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
+    expect(formatDateTimeWithZone(date, zone)).toBe(`${localDate} ${expected.slice(expected.indexOf('('))}`)
+    expect(formatDateTimeWithZone(date, zone)).toContain(expected.slice(11, 16))
+  })
+})
+
+it('keeps invalid dates empty and relative time behavior stable', () => {
+  expect(formatDateTimeWithZone('invalid')).toBe('')
+  expect(formatDateTimeWithZone(null)).toBe('')
+  vi.useFakeTimers()
+  try {
+    vi.setSystemTime(new Date('2026-09-18T12:00:00Z'))
+    const date = '2026-09-18T11:55:00Z'
+    expect(formatRelativeTime(date)).toBe('common.time.minutesAgo:5')
+    expect(formatRelativeWithDateTime(date)).toBe(`${formatRelativeTime(date)} · ${formatDateTime(date)}`)
+    expect(formatRelativeTime('invalid')).toBe(formatRelativeTime(null))
+    expect(formatRelativeTime('2026-09-18T12:01:00Z')).toBe(formatRelativeTime(null))
+  } finally { vi.useRealTimers() }
+})

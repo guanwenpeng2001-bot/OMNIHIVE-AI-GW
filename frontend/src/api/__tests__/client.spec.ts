@@ -491,6 +491,87 @@ describe('API Client', () => {
     })
   })
 
+  describe('request identity snapshots', () => {
+    function seed(id: number, token: string, refresh = true) {
+      localStorage.setItem('auth_user', JSON.stringify({ id }))
+      localStorage.setItem('auth_token', token)
+      if (refresh) localStorage.setItem('refresh_token', `refresh-${token}`)
+      else localStorage.removeItem('refresh_token')
+      localStorage.setItem('token_expires_at', String(Date.now() + 3600_000))
+    }
+
+    it.each([true, false])('never replays a late write under a new user (refresh=%s)', async refresh => {
+      seed(1, 'a', refresh)
+      const refreshModule = await import('@/api/tokenRefresh')
+      const refreshSpy = vi.spyOn(refreshModule, 'refreshAuthTokens')
+      const adapter = vi.fn(async config => {
+        seed(2, 'b', refresh)
+        throw { config, response: { status: 401, data: {} } }
+      })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.put('/user', { username: 'for-a' })).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(refreshSpy).not.toHaveBeenCalled()
+      expect(localStorage.getItem('auth_token')).toBe('b')
+      expect(sessionStorage.getItem('auth_expired')).toBeNull()
+    })
+
+    it('allows a same-session peer rotation before the 401 arrives', async () => {
+      seed(1, 'a')
+      const adapter = vi.fn(async config => {
+        if (config.headers.Authorization === 'Bearer a') {
+          seed(1, 'rotated')
+          throw { config, response: { status: 401, data: {} } }
+        }
+        return { config, status: 200, data: { code: 0, data: 'ok' }, headers: {}, statusText: 'OK' }
+      })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.get('/user')).resolves.toMatchObject({ data: 'ok' })
+      expect(adapter).toHaveBeenCalledTimes(2)
+      expect(adapter.mock.calls[1][0].headers.Authorization).toBe('Bearer rotated')
+    })
+
+    it('checks identity again after refresh succeeds and before replay', async () => {
+      seed(1, 'a')
+      const refreshModule = await import('@/api/tokenRefresh')
+      vi.spyOn(refreshModule, 'refreshAuthTokens').mockImplementationOnce(async () => {
+        seed(2, 'b')
+        return { access_token: 'b', refresh_token: 'refresh-b', expires_in: 3600, token_type: 'Bearer' }
+      })
+      const adapter = vi.fn(async config => { throw { config, response: { status: 401, data: {} } } })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem('auth_token')).toBe('b')
+    })
+
+    it('cancels in-flight requests on peer logout and preserves caller cancellation', async () => {
+      seed(1, 'a')
+      apiClient.defaults.adapter = async config => {
+        const signal = config.signal!
+        localStorage.clear()
+        window.dispatchEvent(new StorageEvent('storage', { key: null }))
+        expect(signal.aborted).toBe(true)
+        throw new axios.CanceledError('canceled', config)
+      }
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      const controller = new AbortController()
+      controller.abort()
+      await expect(apiClient.get('/user', { signal: controller.signal })).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+    })
+
+    it('rejects same-user requests from a previous login generation', async () => {
+      seed(1, 'a')
+      const { advanceAuthSession } = await import('@/api/tokenRefresh')
+      apiClient.defaults.adapter = async config => {
+        advanceAuthSession()
+        throw { config, response: { status: 401, data: {} } }
+      }
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(localStorage.getItem('auth_token')).toBe('a')
+    })
+  })
+
   // --- 网络错误 ---
 
   describe('网络错误', () => {

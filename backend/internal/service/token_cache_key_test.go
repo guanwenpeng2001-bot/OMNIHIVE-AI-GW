@@ -3,10 +3,46 @@
 package service
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+type geminiAccountIsolationCache struct {
+	GeminiTokenCache
+	tokens map[string]string
+}
+
+func (c *geminiAccountIsolationCache) GetAccessToken(_ context.Context, key string) (string, error) {
+	return c.tokens[key], nil
+}
+
+func (c *geminiAccountIsolationCache) SetAccessToken(_ context.Context, key, token string, _ time.Duration) error {
+	c.tokens[key] = token
+	return nil
+}
+
+func TestGeminiTokenProvider_SharedProjectKeepsCredentialOwnersIsolated(t *testing.T) {
+	cache := &geminiAccountIsolationCache{tokens: map[string]string{"gemini:shared-project": "legacy-shared-token"}}
+	provider := NewGeminiTokenProvider(nil, cache, nil)
+	account := func(id int64, token string) *Account {
+		return &Account{ID: id, Platform: PlatformGemini, Type: AccountTypeOAuth, Credentials: map[string]any{
+			"project_id": "shared-project", "access_token": token,
+			"expires_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+		}}
+	}
+	a, b := account(201, "token-a"), account(202, "token-b")
+	for _, acc := range []*Account{a, b, a, b} {
+		token, err := provider.GetAccessToken(context.Background(), acc)
+		require.NoError(t, err)
+		require.Equal(t, acc.GetCredential("access_token"), token)
+	}
+	require.NotEqual(t, GeminiTokenCacheKey(a), GeminiTokenCacheKey(b))
+	a.Credentials["project_id"] = "auto-detected-project"
+	require.Equal(t, "token-a", cache.tokens[GeminiTokenCacheKey(a)], "project discovery must not change credential ownership")
+}
 
 func TestGeminiTokenCacheKey(t *testing.T) {
 	tests := []struct {
@@ -22,7 +58,7 @@ func TestGeminiTokenCacheKey(t *testing.T) {
 					"project_id": "my-project-123",
 				},
 			},
-			expected: "gemini:my-project-123",
+			expected: "gemini:account:100",
 		},
 		{
 			name: "project_id_with_whitespace",
@@ -32,7 +68,7 @@ func TestGeminiTokenCacheKey(t *testing.T) {
 					"project_id": "  project-with-spaces  ",
 				},
 			},
-			expected: "gemini:project-with-spaces",
+			expected: "gemini:account:101",
 		},
 		{
 			name: "empty_project_id_fallback_to_account_id",
@@ -94,7 +130,7 @@ func TestAntigravityTokenCacheKey(t *testing.T) {
 					"project_id": "ag-project-456",
 				},
 			},
-			expected: "ag:ag-project-456",
+			expected: "ag:account:200",
 		},
 		{
 			name: "project_id_with_whitespace",
@@ -104,7 +140,7 @@ func TestAntigravityTokenCacheKey(t *testing.T) {
 					"project_id": "  ag-project-spaces  ",
 				},
 			},
-			expected: "ag:ag-project-spaces",
+			expected: "ag:account:201",
 		},
 		{
 			name: "empty_project_id_fallback_to_account_id",

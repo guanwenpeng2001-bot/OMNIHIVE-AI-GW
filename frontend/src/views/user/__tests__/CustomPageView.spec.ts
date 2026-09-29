@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
-import { nextTick } from 'vue'
+import { nextTick, reactive } from 'vue'
 import CustomPageView from '../CustomPageView.vue'
 
 const { appStore } = vi.hoisted(() => ({
@@ -11,10 +11,12 @@ const { appStore } = vi.hoisted(() => ({
 }))
 
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<div><slot /></div>' } }))
-vi.mock('vue-router', () => ({ useRoute: () => ({ params: { id: 'docs' } }) }))
+const routeState = reactive({ params: { id: 'docs' } })
+vi.mock('vue-router', () => ({ useRoute: () => routeState }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key, locale: { value: 'en' } }) }))
 vi.mock('@/stores', () => ({ useAppStore: () => appStore }))
-vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ isAdmin: false, user: { id: 7 }, token: 'test-token' }) }))
+const authState = reactive({ isAdmin: false, user: { id: 7, role: 'user' }, token: 'test-token' })
+vi.mock('@/stores/auth', () => ({ useAuthStore: () => authState }))
 vi.mock('@/stores/adminSettings', () => ({ useAdminSettingsStore: () => ({ customMenuItems: [] }) }))
 vi.mock('@/api/client', () => ({ buildApiUrl: (path: string) => `/api/v1${path}` }))
 
@@ -66,6 +68,7 @@ function click(button: HTMLElement, detail = 1) {
 
 describe('custom page open button', () => {
   beforeEach(() => {
+    routeState.params.id = 'docs'
     appStore.cachedPublicSettings.custom_menu_items = [{ id: 'docs', url: 'https://example.com/docs' }]
     vi.stubGlobal('ResizeObserver', class {
       constructor(callback: () => void) { notifyResize = callback }
@@ -164,5 +167,56 @@ describe('custom page open button', () => {
     expect(wrapper.find('.custom-open-fab').exists()).toBe(false)
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.get('.markdown-page-content h1').text()).toBe('Guide')
+  })
+
+  it('keeps the latest Markdown page when an older response arrives last', async () => {
+    appStore.cachedPublicSettings.custom_menu_items = [
+      { id: 'docs', url: 'md:first' }, { id: 'next', url: 'md:second' },
+    ]
+    let finishOld!: (response: unknown) => void
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce({ ok: true, text: async () => '# Second page' }))
+    const wrapper = mountPage()
+    routeState.params.id = 'next'
+    await flushPromises()
+    expect(wrapper.get('.markdown-page-content h1').text()).toBe('Second page')
+    finishOld({ ok: true, text: async () => '# First page' })
+    await flushPromises()
+    expect(wrapper.get('.markdown-page-content h1').text()).toBe('Second page')
+    expect(wrapper.get('.toc-nav').text()).toBe('Second page')
+  })
+
+  it('ignores Markdown from a previous identity on the same page', async () => {
+    appStore.cachedPublicSettings.custom_menu_items = [{ id: 'docs', url: 'md:guide' }]
+    let finishOld!: (response: unknown) => void
+    vi.stubGlobal('fetch', vi.fn().mockReturnValueOnce(new Promise(resolve => { finishOld = resolve }))
+      .mockResolvedValueOnce({ ok: true, text: async () => '# New identity' }))
+    const wrapper = mountPage()
+    authState.user = { id: 8, role: 'user' }
+    await flushPromises()
+    finishOld({ ok: true, text: async () => '# Private old identity' })
+    await flushPromises()
+    expect(wrapper.get('.markdown-page-content h1').text()).toBe('New identity')
+    expect(wrapper.text()).not.toContain('Private old identity')
+  })
+
+  it('aborts Markdown loading when switching to an embedded page or unmounting', async () => {
+    appStore.cachedPublicSettings.custom_menu_items = [
+      { id: 'docs', url: 'md:first' }, { id: 'embed', url: 'https://example.com/embed' },
+    ]
+    const signals: AbortSignal[] = []
+    vi.stubGlobal('fetch', vi.fn((_url: string, options: RequestInit) => {
+      signals.push(options.signal as AbortSignal)
+      return new Promise(() => {})
+    }))
+    const wrapper = mountPage()
+    routeState.params.id = 'embed'
+    await nextTick()
+    expect(wrapper.find('iframe').exists()).toBe(true)
+    expect(signals[0]?.aborted).toBe(true)
+    routeState.params.id = 'docs'
+    await nextTick()
+    wrapper.unmount()
+    expect(signals[1]?.aborted).toBe(true)
   })
 })

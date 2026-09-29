@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"net/url"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
+
 	utls "github.com/refraction-networking/utls"
 	"golang.org/x/net/proxy"
 )
@@ -273,6 +275,11 @@ func performTLSHandshake(ctx context.Context, conn net.Conn, profile *Profile, a
 	host, _, err := net.SplitHostPort(addr)
 	if err != nil {
 		host = addr
+	}
+	// Restricted HTTP transports pin addr to a validated IP. Keep that IP for
+	// TCP/CONNECT/SOCKS routing, but verify the certificate for the original host.
+	if originalHost := httpclient.OriginalHostname(ctx); originalHost != "" {
+		host = originalHost
 	}
 
 	spec := buildClientHelloSpecFromProfile(profile)

@@ -19,6 +19,19 @@ import (
 	"github.com/tidwall/gjson"
 )
 
+func TestOpenAIWSHTTPBridgeSyntheticTerminalSequence(t *testing.T) {
+	for _, body := range [][]byte{
+		buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadGateway, "broken"),
+		buildOpenAIWSHTTPBridgeFailedEvent("resp_test", "model", nil, "broken"),
+	} {
+		require.True(t, gjson.ValidBytes(body))
+		sequence := gjson.GetBytes(body, "sequence_number")
+		require.True(t, sequence.Exists(), "synthetic terminal must carry sequence_number")
+		require.Equal(t, gjson.Number, sequence.Type)
+		require.Equal(t, int64(0), sequence.Int(), "unknown preceding sequence uses zero")
+	}
+}
+
 func TestResolveOpenAIWSClientFirstMessageTimeout(t *testing.T) {
 	defaultTimeout := time.Duration(config.DefaultOpenAIWSClientFirstMessageTimeoutSeconds) * time.Second
 	require.Equal(t, defaultTimeout, ResolveOpenAIWSClientFirstMessageTimeout(nil))

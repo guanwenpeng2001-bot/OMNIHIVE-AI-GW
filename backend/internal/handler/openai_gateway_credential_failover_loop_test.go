@@ -259,11 +259,11 @@ func (c *grokCredentialHandlerTokenCache) DeleteAccessToken(context.Context, str
 	return c.deleteErr
 }
 
-func (c *grokCredentialHandlerTokenCache) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (c *grokCredentialHandlerTokenCache) AcquireRefreshLock(context.Context, string, string, time.Duration) (bool, error) {
 	return true, nil
 }
 
-func (c *grokCredentialHandlerTokenCache) ReleaseRefreshLock(context.Context, string) error {
+func (c *grokCredentialHandlerTokenCache) ReleaseRefreshLock(context.Context, string, string) error {
 	return nil
 }
 

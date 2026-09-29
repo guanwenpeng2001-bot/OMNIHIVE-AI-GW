@@ -13,7 +13,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => messages[key] ?? key,
+      t: (key: string, params?: { timezone: string }) => params ? `${key}: ${params.timezone}` : messages[key] ?? key,
     }),
   }
 })
@@ -117,4 +117,20 @@ describe('TokenUsageTrend', () => {
     // Hit rate = 500 / (200 + 500 + 300) * 100 = 50%
     expect(hitRateDataset.data[0]).toBe(50)
   })
+})
+
+it('preserves query-zone bucket labels and keeps token counts separate from exact money', () => {
+  const dates = ['2026-11-01 01:00', '2026-11-01 02:00']
+  const wrapper = mount(TokenUsageTrend, {
+    props: { timeZone: 'America/New_York', trendData: dates.map(date => ({ date, requests: 1,
+      input_tokens: 23, output_tokens: 0, cache_creation_tokens: 0, cache_read_tokens: 0,
+      actual_cost: -1e-8, cost: 1e-8 })) },
+  })
+  const data = JSON.parse(wrapper.get('.chart-data').text())
+  expect(data.labels).toEqual(dates)
+  expect(data.datasets[0].data).toEqual([23, 23])
+  expect(wrapper.get('h3').text()).toContain('America/New_York')
+  const options = wrapper.findComponent('.chart-data').props('options')
+  expect(options.plugins.tooltip.callbacks.footer([{ dataIndex: 0 }])).toBe('dashboard.actual: USD -0.00000001 | dashboard.standard: USD 0.00000001')
+  wrapper.unmount()
 })

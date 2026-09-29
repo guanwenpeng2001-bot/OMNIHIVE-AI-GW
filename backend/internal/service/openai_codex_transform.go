@@ -1228,6 +1228,10 @@ func normalizeOpenAIModelForUpstream(account *Account, model string) string {
 	if account == nil || account.UsesOpenAICodexProtocol() {
 		return normalizeCodexModel(model)
 	}
+	// Explicit mappings, passthrough and private endpoints own their model names.
+	if shouldNormalizeDeepSeekContextSuffix(account) {
+		return normalizeClaudeCodeLongContextModel(strings.TrimSpace(model))
+	}
 	return strings.TrimSpace(model)
 }
 

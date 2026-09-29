@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"strconv"
+	"strings"
 )
 
 type TokenCacheInvalidator interface {
@@ -24,7 +25,9 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 	if c == nil || c.cache == nil || account == nil {
 		return nil
 	}
-	if account.Type != AccountTypeOAuth {
+	// Antigravity may have just been converted away from OAuth. Still retire
+	// its old shared/account keys so a rollback cannot reuse that cached token.
+	if account.Type != AccountTypeOAuth && account.Platform != PlatformAntigravity {
 		return nil
 	}
 
@@ -33,15 +36,17 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 
 	switch account.Platform {
 	case PlatformGemini:
-		// Gemini 可能有两种缓存键：project_id 或 account_id
-		// 首次获取 token 时可能没有 project_id，之后自动检测到 project_id 后会使用新 key
-		// 刷新时需要同时删除两种可能的 key，确保不会遗留旧缓存
+		// Retire legacy project-scoped tokens, but never read them. A project is
+		// not a credential owner; all current OAuth callers use the account key.
+		if projectID := strings.TrimSpace(account.GetCredential("project_id")); projectID != "" {
+			keysToDelete = append(keysToDelete, "gemini:"+projectID)
+		}
 		keysToDelete = append(keysToDelete, GeminiTokenCacheKey(account))
 		keysToDelete = append(keysToDelete, "gemini:"+accountIDKey)
 	case PlatformAntigravity:
-		// Antigravity 同样可能有两种缓存键
-		keysToDelete = append(keysToDelete, AntigravityTokenCacheKey(account))
-		keysToDelete = append(keysToDelete, "ag:"+accountIDKey)
+		// Purge current and legacy shared keys; never read legacy keys.
+		keysToDelete = append(keysToDelete, antigravityCredentialTokenCacheKey(account))
+		keysToDelete = append(keysToDelete, antigravityLegacyTokenCacheKeys(account)...)
 	case PlatformOpenAI:
 		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account))
 	case PlatformGrok:
