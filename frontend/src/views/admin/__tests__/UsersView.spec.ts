@@ -29,7 +29,8 @@ vi.mock('@/api/admin', () => ({
     users: {
       list: listUsers,
       toggleStatus: vi.fn(),
-      delete: deleteUser
+      delete: deleteUser,
+      getPlatformQuotas: vi.fn().mockResolvedValue({ platform_quotas: [] })
     },
     groups: {
       getAll: getAllGroups
@@ -56,8 +57,8 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string, params?: { count?: number }) =>
-        params?.count === undefined ? key : `${key}:${params.count}`
+      t: (key: string, params?: { count?: number; time?: string }) =>
+        params?.time ? `${key}:${params.time}` : params?.count === undefined ? key : `${key}:${params.count}`
     })
   }
 })
@@ -104,6 +105,8 @@ const DataTableStub = {
         <slot :name="'header-' + col.key" :column="col" />
       </template>
       <div v-for="row in data" :key="row.id">
+        <div data-test="usage"><slot name="cell-usage" :row="row" /></div>
+        <div data-test="platform-usage"><slot name="cell-usage_grok" :row="row" /></div>
         <slot name="cell-last_used_at" :value="row.last_used_at" :row="row" />
       </div>
     </div>
@@ -164,6 +167,10 @@ const mountBulkDeleteView = () => mount(UsersView, {
   }
 })
 
+const retainedFrom = '2026-09-01T00:00:00Z'
+const historyError = { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: retainedFrom } }
+const usageResponse = { stats: { 42: { today_actual_cost: 12.3456, total_actual_cost: 45.6789, by_platform: [{ platform: 'grok', today_actual_cost: 12.3456, total_actual_cost: 45.6789 }] } } }
+
 describe('admin UsersView', () => {
   beforeEach(() => {
     vi.useRealTimers()
@@ -212,6 +219,90 @@ describe('admin UsersView', () => {
     await flushPromises()
     expect(wrapper.get('[data-test="columns"]').text()).toContain(`usage_${platform}`)
     expect(vm.sortedUsers.map(user => user.id)).toEqual([2, 1])
+    wrapper.unmount()
+  })
+
+  it('shows incomplete history and retention boundary on the first usage request', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('user-column-settings-version', '4')
+    localStorage.setItem('user-hidden-columns', JSON.stringify([]))
+    getBatchUsersUsage.mockRejectedValueOnce(historyError)
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
+    expect(wrapper.get('[data-test="platform-usage"]').text()).toContain(retainedFrom)
+    wrapper.unmount()
+  })
+
+  it('clears known usage on reload and shows incomplete history instead of old costs', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('user-column-settings-version', '4')
+    localStorage.setItem('user-hidden-columns', JSON.stringify([]))
+    getBatchUsersUsage.mockResolvedValueOnce(usageResponse)
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('12.3456')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('45.6789')
+    let rejectUsage!: (error: unknown) => void
+    getBatchUsersUsage.mockImplementationOnce(() => new Promise((_, reject) => { rejectUsage = reject }))
+    await wrapper.get('[data-test="sort-last-used"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('common.loading')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('12.3456')
+    rejectUsage(historyError)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('45.6789')
+    expect((wrapper.vm as unknown as { usageStats: object }).usageStats).toEqual({})
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['success', 'list'], ['failure', 'list'],
+    ['success', 'secondary'], ['failure', 'secondary']
+  ] as const)('ignores a late usage %s after a newer %s request settles', async (outcome, refresh) => {
+    vi.useFakeTimers()
+    localStorage.setItem('user-column-settings-version', '4')
+    localStorage.setItem('user-hidden-columns', JSON.stringify([]))
+    let resolveOld!: (value: typeof usageResponse) => void
+    let rejectOld!: (error: unknown) => void
+    getBatchUsersUsage.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject }))
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('common.loading')
+    if (outcome === 'success') getBatchUsersUsage.mockRejectedValueOnce(historyError)
+    else getBatchUsersUsage.mockResolvedValueOnce(usageResponse)
+    if (refresh === 'list') {
+      await wrapper.get('[data-test="sort-last-used"]').trigger('click')
+    } else {
+      (wrapper.vm as unknown as { refreshCurrentPageSecondaryData: () => void }).refreshCurrentPageSecondaryData()
+    }
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    await flushPromises()
+    if (outcome === 'success') resolveOld(usageResponse)
+    else rejectOld(historyError)
+    await flushPromises()
+    const usage = wrapper.get('[data-test="usage"]').text()
+    if (outcome === 'success') {
+      expect(usage).toContain('dashboard.historyUnavailable')
+      expect(usage).toContain(retainedFrom)
+      expect(usage).not.toContain('12.3456')
+    } else {
+      expect(usage).toContain('12.3456')
+      expect(usage).not.toContain('dashboard.historyUnavailable')
+    }
     wrapper.unmount()
   })
 

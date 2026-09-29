@@ -117,7 +117,7 @@ vi.mock('vue-i18n', async () => {
     useI18n: () => ({
       t: (key: string, values: Record<string, string> = {}) => key.startsWith('keys.payAsYouGo.')
         ? translateCredential(key, values)
-        : messages[key] ?? key,
+        : values.time ? `${key}:${values.time}` : messages[key] ?? key,
     }),
   }
 })
@@ -186,6 +186,7 @@ const DataTableStub = {
         >
           <slot name="cell-id" :value="row.id" :row="row" />
         </div>
+        <div data-test="usage"><slot name="cell-usage" :row="row" /></div>
         <slot name="cell-name" :value="row.name" :row="row" />
         <slot name="cell-actions" :row="row" />
         <div data-test="current-concurrency">
@@ -277,6 +278,10 @@ const getButtonByText = (wrapper: VueWrapper, text: string) => {
   return button
 }
 
+const retainedFrom = '2026-09-01T00:00:00Z'
+const historyError = { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: retainedFrom } }
+const usageResponse = { stats: { 1: { today_actual_cost: 12.3456, total_actual_cost: 45.6789, by_platform: [{ platform: 'grok', today_actual_cost: 12.3456, total_actual_cost: 45.6789 }] } } }
+
 describe('user KeysView column settings', () => {
   beforeEach(() => {
     localStorage.clear()
@@ -323,6 +328,67 @@ describe('user KeysView column settings', () => {
     rejectOld({ code })
     await flushPromises()
     expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('shows incomplete history and retention boundary on the first usage request', async () => {
+
+    getDashboardApiKeysUsage.mockRejectedValueOnce(historyError)
+    const wrapper = await mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
+
+    wrapper.unmount()
+  })
+
+  it('clears known usage on reload and shows incomplete history instead of old costs', async () => {
+
+    getDashboardApiKeysUsage.mockResolvedValueOnce(usageResponse)
+    const wrapper = await mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('12.3456')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('45.6789')
+    let rejectUsage!: (error: unknown) => void
+    getDashboardApiKeysUsage.mockImplementationOnce(() => new Promise((_, reject) => { rejectUsage = reject }))
+    await wrapper.get('[data-test="sort-current-concurrency"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('common.loading')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('12.3456')
+    rejectUsage(historyError)
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('45.6789')
+    expect((wrapper.vm as unknown as { usageStats: object }).usageStats).toEqual({})
+    wrapper.unmount()
+  })
+
+  it.each(['success', 'failure'] as const)('ignores a late usage %s after a newer request settles', async (outcome) => {
+
+    let resolveOld!: (value: typeof usageResponse) => void
+    let rejectOld!: (error: unknown) => void
+    getDashboardApiKeysUsage.mockImplementationOnce(() => new Promise((resolve, reject) => { resolveOld = resolve; rejectOld = reject }))
+    const wrapper = await mountView()
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('common.loading')
+    if (outcome === 'success') getDashboardApiKeysUsage.mockRejectedValueOnce(historyError)
+    else getDashboardApiKeysUsage.mockResolvedValueOnce(usageResponse)
+    await wrapper.get('[data-test="sort-current-concurrency"]').trigger('click')
+    await flushPromises()
+    if (outcome === 'success') resolveOld(usageResponse)
+    else rejectOld(historyError)
+    await flushPromises()
+    const usage = wrapper.get('[data-test="usage"]').text()
+    if (outcome === 'success') {
+      expect(usage).toContain('dashboard.historyUnavailable')
+      expect(usage).toContain(retainedFrom)
+      expect(usage).not.toContain('12.3456')
+    } else {
+      expect(usage).toContain('12.3456')
+      expect(usage).not.toContain('dashboard.historyUnavailable')
+    }
     wrapper.unmount()
   })
 

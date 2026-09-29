@@ -223,18 +223,20 @@
 
           <template #cell-usage="{ row }">
             <div class="text-sm">
-              <div class="flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
-                </span>
-              </div>
-              <div class="mt-0.5 flex items-center gap-1.5">
-                <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
-                <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
-                </span>
-              </div>
+              <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+                <div class="flex items-center gap-1.5">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('keys.today') }}:</span>
+                  <span class="font-medium text-gray-900 dark:text-white">
+                    ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                  </span>
+                </div>
+                <div class="mt-0.5 flex items-center gap-1.5">
+                  <span class="text-gray-500 dark:text-gray-400">{{ t('keys.total') }}:</span>
+                  <span class="font-medium text-gray-900 dark:text-white">
+                    ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                  </span>
+                </div>
+              </UsageStatsState>
               <!-- Quota progress (if quota is set) -->
               <div v-if="row.quota > 0" class="mt-1.5">
                 <div class="flex items-center gap-1.5">
@@ -1151,6 +1153,8 @@
 </template>
 
 <script setup lang="ts">
+import UsageStatsState from '@/components/common/UsageStatsState.vue'
+import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
 	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
@@ -1319,6 +1323,8 @@ const submitting = ref(false)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
+const usageState = ref<'loading' | 'known' | 'unknown'>('loading')
+const usageHistoryGap = ref<HistoryGap | null>(null)
 const userGroupRates = ref<Record<number, number>>({})
 
 const pagination = ref({
@@ -1503,6 +1509,9 @@ const loadApiKeys = async () => {
   const { signal } = controller
   const isCurrentRequest = () => !disposed && !signal.aborted && abortController === controller
   loading.value = true
+  usageStats.value = {}
+  usageHistoryGap.value = null
+  usageState.value = 'loading'
   try {
     // Build filters
     const filters: {
@@ -1533,9 +1542,13 @@ const loadApiKeys = async () => {
         const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, { signal })
         if (!isCurrentRequest()) return
         usageStats.value = usageResponse.stats
+        usageState.value = 'known'
       } catch (e) {
         if (isCurrentRequest() && !isAbortError(e)) {
-          console.error('Failed to load usage stats:', e)
+          usageStats.value = {}
+          usageHistoryGap.value = historyGapFromError(e)
+          usageState.value = 'unknown'
+          if (!usageHistoryGap.value) console.error('Failed to load usage stats:', e)
         }
       }
     }
