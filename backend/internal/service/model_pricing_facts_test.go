@@ -149,7 +149,7 @@ func TestPricingFactsCatalogRefreshKeepsRequestAndCostFrozen(t *testing.T) {
 	prices.mu.Unlock()
 	resolved := resolver.Resolve(requestContext, PricingInput{Model: "native", Group: &Group{Platform: PlatformQianwen}})
 	require.Equal(t, 2.0, resolved.BasePricing.InputPricePerToken)
-	cost := resolveAccountStatsCost(requestContext, channels, billing, 19, group.ID, "native", UsageTokens{InputTokens: 3, OutputTokens: 2}, 1, 14, "", time.Now())
+	cost := resolveAccountStatsCost(requestContext, channels, billing, 19, group.ID, "native", UsageTokens{InputTokens: 3, OutputTokens: 2}, 1, 14, "", time.Now(), true)
 	require.NotNil(t, cost)
 	require.Equal(t, 7.0, *cost)
 	price, err := descriptor.UnitPrice("image", "output", "")

@@ -1,0 +1,28 @@
+package googleapi
+
+import (
+	"net/http"
+	"testing"
+)
+
+func TestHTTPStatusToGoogleStatus(t *testing.T) {
+	cases := []struct {
+		status int
+		want   string
+	}{
+		{http.StatusBadRequest, "INVALID_ARGUMENT"},
+		{http.StatusUnauthorized, "UNAUTHENTICATED"},
+		{http.StatusForbidden, "PERMISSION_DENIED"},
+		{http.StatusNotFound, "NOT_FOUND"},
+		{http.StatusTooManyRequests, "RESOURCE_EXHAUSTED"},
+		{499, "CANCELLED"},
+		{http.StatusBadGateway, "INTERNAL"},
+		{http.StatusServiceUnavailable, "UNAVAILABLE"},
+		{http.StatusConflict, "UNKNOWN"},
+	}
+	for _, testCase := range cases {
+		if got := HTTPStatusToGoogleStatus(testCase.status); got != testCase.want {
+			t.Errorf("HTTPStatusToGoogleStatus(%d) = %q, want %q", testCase.status, got, testCase.want)
+		}
+	}
+}

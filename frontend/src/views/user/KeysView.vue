@@ -1368,6 +1368,7 @@ import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
 import { maskApiKey } from '@/utils/maskApiKey'
 import {
+  CC_SWITCH_USAGE_SCRIPT,
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
@@ -2258,22 +2259,7 @@ const executeCcsImport = async (row: ApiKey, clientType: CcSwitchClientType) => 
   }
   const platform = row.group?.platform || 'anthropic'
 
-  const usageScript = `({
-    request: {
-      url: "{{baseUrl}}/v1/usage",
-      method: "GET",
-      headers: { "Authorization": "Bearer {{apiKey}}" }
-    },
-    extractor: function(response) {
-      const remaining = response?.remaining ?? response?.quota?.remaining ?? response?.balance;
-      const unit = response?.unit ?? response?.quota?.unit ?? "USD";
-      return {
-        isValid: response?.is_active ?? response?.isValid ?? true,
-        remaining,
-        unit
-      };
-    }
-  })`
+  const usageScript = CC_SWITCH_USAGE_SCRIPT
   // The import model must come from this Key's visible set. When the server
   // cannot answer, the deep link simply carries no model.
   const visible = await keyVisibleModels(row.id)

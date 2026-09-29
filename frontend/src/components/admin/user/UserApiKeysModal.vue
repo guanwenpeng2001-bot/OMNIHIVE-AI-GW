@@ -161,6 +161,7 @@ const appStore = useAppStore()
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+let requestGeneration = 0
 const tpmDrafts = ref<Record<number, number>>({})
 const saveTpm = async (key: ApiKey) => {
   updatingKeyIds.value.add(key.id)
@@ -247,27 +248,32 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
   }
 }
 
-watch(() => props.show, (v) => {
-  if (v && props.user) {
+watch(() => [props.show, props.user?.id] as const, ([visible], _previous, onCleanup) => {
+  onCleanup(() => { requestGeneration++ })
+  closeGroupSelector()
+  if (visible && props.user) {
     load()
     loadGroups()
-  } else {
-    closeGroupSelector()
   }
 })
 
 const load = async () => {
   if (!props.user) return
+  const currentGeneration = ++requestGeneration
+  apiKeys.value = []
+  tpmDrafts.value = {}
   loading.value = true
   groupButtonRefs.value.clear()
   try {
     const res = await adminAPI.users.getUserApiKeys(props.user.id)
+    if (currentGeneration !== requestGeneration) return
     apiKeys.value = res.items || []
     tpmDrafts.value = Object.fromEntries(apiKeys.value.map(key => [key.id, key.tpm_limit ?? 0]))
   } catch (error) {
+    if (currentGeneration !== requestGeneration) return
     console.error('Failed to load API keys:', error)
   } finally {
-    loading.value = false
+    if (currentGeneration === requestGeneration) loading.value = false
   }
 }
 

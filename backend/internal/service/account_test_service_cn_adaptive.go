@@ -80,6 +80,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *accoun
 	// Ollama Cloud Anthropic 兼容端点按 adaptive 实际选用的 Anthropic
 	// base_url 强制 Bearer，其余保持 extra/default 行为。
 	setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetCNProtocolBaseURL(APIProtocolAnthropic))
+	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 
@@ -136,6 +137,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *accoun
 	req.Header.Set("Accept", "text/event-stream")
 	req.Header.Set("Authorization", "Bearer "+authToken)
 	applyOpenAICodexProbeHeaders(req.Header)
+	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 
@@ -219,6 +221,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *accountProbeCo
 	// Ollama Cloud Anthropic 兼容端点按实际 base_url 强制 Bearer，其余保持
 	// extra/default 行为。
 	setAnthropicAPIKeyAuthHeader(req.Header, account, authToken, account.GetAnthropicProtocolBaseURL())
+	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 

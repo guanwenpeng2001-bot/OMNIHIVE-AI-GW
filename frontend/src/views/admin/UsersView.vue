@@ -1836,11 +1836,21 @@ const closeEditModal = () => {
 const handleToggleStatus = async (user: AdminUser) => {
   const newStatus = user.status === 'active' ? 'disabled' : 'active'
   try {
-    await adminAPI.users.toggleStatus(user.id, newStatus)
+    const updatedUser = await adminAPI.users.toggleStatus(user.id, newStatus)
     appStore.showSuccess(
       newStatus === 'active' ? t('admin.users.userEnabled') : t('admin.users.userDisabled')
     )
-    loadUsers()
+    if (loading.value) {
+      // A concurrent list request may have read the previous status.
+      loadUsers()
+      return
+    }
+    // Keep concurrency, subscriptions and other list-only fields intact.
+    const currentUser = users.value.find((entry) => entry.id === user.id)
+    if (currentUser) {
+      currentUser.status = updatedUser.status
+      currentUser.updated_at = updatedUser.updated_at
+    }
   } catch (error: any) {
     appStore.showError(extractApiErrorMessage(error, '') || t('admin.users.failedToToggle'))
     console.error('Error toggling user status:', error)
