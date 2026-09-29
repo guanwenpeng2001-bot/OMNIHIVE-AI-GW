@@ -24,7 +24,8 @@ import (
 )
 
 func TestHTTPUpstreamPublicRequestsUseIsolatedPinnedTransport(t *testing.T) {
-	s := NewHTTPUpstream(nil).(*httpUpstreamService)
+	s, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	require.True(t, ok)
 	entry, err := s.acquireClient("", 1, 1)
 	require.NoError(t, err)
 	req, _ := http.NewRequest("GET", "https://example.com", nil)
@@ -71,7 +72,7 @@ func installTestPublicDNS(t *testing.T, answer func(int32) [4]byte) *atomic.Int3
 	t.Helper()
 	dns, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { dns.Close() })
+	t.Cleanup(func() { _ = dns.Close() })
 	var lookups atomic.Int32
 	go func() {
 		buf := make([]byte, 2048)
@@ -84,8 +85,8 @@ func installTestPublicDNS(t *testing.T, answer func(int32) [4]byte) *atomic.Int3
 			if msg.Unpack(buf[:n]) != nil {
 				continue
 			}
-			msg.Header.Response = true
-			msg.Header.RecursionAvailable = true
+			msg.Response = true
+			msg.RecursionAvailable = true
 			for _, q := range msg.Questions {
 				if q.Type != dnsmessage.TypeA {
 					continue
@@ -114,14 +115,15 @@ func TestHTTPUpstreamPinnedTransportBlocksPrivateEvenWithoutPrecheck(t *testing.
 	var calls int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(204) }))
 	defer server.Close()
-	s := NewHTTPUpstream(nil).(*httpUpstreamService)
+	s, ok := NewHTTPUpstream(nil).(*httpUpstreamService)
+	require.True(t, ok)
 	entry, err := s.acquireClient("", 1, 1)
 	require.NoError(t, err)
 	// Seed the unrestricted pool, then access the strict transport directly to
 	// prove that safety does not depend on validateRequestHost or cache state.
 	resp, err := entry.client.Get(server.URL)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 	_, err = entry.publicClient.Get(server.URL)
 	require.ErrorContains(t, err, "not allowed")
 	require.Equal(t, 1, calls)
@@ -161,7 +163,7 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 			installTestPublicDNS(t, func(int32) [4]byte { return [4]byte{93, 184, 216, 34} })
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
-			defer listener.Close()
+			defer func() { _ = listener.Close() }()
 			target := make(chan []byte, 1)
 			sni := make(chan string, 1)
 			go func() {
@@ -169,8 +171,10 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer conn.Close()
-				conn.SetDeadline(time.Now().Add(3 * time.Second))
+				defer func() { _ = conn.Close() }()
+				if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+					return
+				}
 				greeting := make([]byte, 2)
 				if _, err := io.ReadFull(conn, greeting); err != nil {
 					return
@@ -179,26 +183,30 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 				if _, err := io.ReadFull(conn, methods); err != nil {
 					return
 				}
-				conn.Write([]byte{5, 0})
+				if _, err := conn.Write([]byte{5, 0}); err != nil {
+					return
+				}
 				command := make([]byte, 10)
 				if _, err := io.ReadFull(conn, command); err != nil {
 					return
 				}
 				target <- command
-				conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 0})
+				if _, err := conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 0}); err != nil {
+					return
+				}
 				if fingerprint {
 					tlsConn := tls.Server(conn, &tls.Config{GetConfigForClient: func(hello *tls.ClientHelloInfo) (*tls.Config, error) {
 						sni <- hello.ServerName
 						return nil, fmt.Errorf("captured ClientHello")
 					}})
-					tlsConn.Handshake()
+					_ = tlsConn.Handshake() // The ClientHello capture intentionally aborts TLS.
 				} else {
 					req, err := http.ReadRequest(bufio.NewReader(conn))
 					if err != nil {
 						return
 					}
-					req.Body.Close()
-					io.WriteString(conn, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+					_ = req.Body.Close()
+					_, _ = io.WriteString(conn, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
 				}
 			}()
 			proxyURL, _ := url.Parse("socks5h://" + listener.Addr().String())
@@ -218,7 +226,7 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 				require.Error(t, err)
 			} else {
 				require.NoError(t, err)
-				resp.Body.Close()
+				require.NoError(t, resp.Body.Close())
 			}
 			select {
 			case command := <-target:
@@ -266,7 +274,7 @@ func TestHTTPUpstreamPinnedHTTP2RetainsIdentityAndConnectionReuse(t *testing.T) 
 	for range 2 {
 		resp, err := (&http.Client{Transport: tr}).Get("https://example.com")
 		require.NoError(t, err)
-		resp.Body.Close()
+		require.NoError(t, resp.Body.Close())
 		require.Equal(t, 2, resp.ProtoMajor)
 	}
 	require.Equal(t, int32(1), dials.Load())
@@ -278,9 +286,11 @@ func TestHTTPUpstreamPinnedFingerprintCONNECTTarget(t *testing.T) {
 	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(t, "CONNECT", r.Method)
 		require.Equal(t, "93.184.216.34:443", r.Host)
-		conn, rw, err := w.(http.Hijacker).Hijack()
+		hijacker, ok := w.(http.Hijacker)
+		require.True(t, ok)
+		conn, rw, err := hijacker.Hijack()
 		require.NoError(t, err)
-		defer conn.Close()
+		defer func() { _ = conn.Close() }()
 		_, err = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 		require.NoError(t, err)
 		require.NoError(t, rw.Flush())
@@ -288,7 +298,7 @@ func TestHTTPUpstreamPinnedFingerprintCONNECTTarget(t *testing.T) {
 			sni <- hello.ServerName
 			return nil, fmt.Errorf("captured ClientHello")
 		}})
-		tlsConn.Handshake()
+		_ = tlsConn.Handshake() // The ClientHello capture intentionally aborts TLS.
 	}))
 	defer proxy.Close()
 	proxyURL, _ := url.Parse(proxy.URL)

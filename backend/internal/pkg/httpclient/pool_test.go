@@ -42,7 +42,7 @@ func TestPublicTransportPinsDNSAndRejectsRebinding(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://example.com/path", nil)
 	resp, err := tr.RoundTrip(req)
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 	require.Equal(t, "example.com", req.URL.Host)
 	require.Same(t, req, resp.Request)
 	_, err = tr.RoundTrip(req)
@@ -86,7 +86,7 @@ func TestPublicTransportPreservesTLSIdentity(t *testing.T) {
 	defer tr.CloseIdleConnections()
 	resp, err := (&http.Client{Transport: tr}).Get("https://example.com")
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 }
 
 func TestPublicTransportPinsHTTPProxyTarget(t *testing.T) {
@@ -101,7 +101,7 @@ func TestPublicTransportPinsHTTPProxyTarget(t *testing.T) {
 	defer tr.CloseIdleConnections()
 	resp, err := (&http.Client{Transport: tr}).Get("http://example.com")
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 }
 
 func TestPublicTransportRedirectRevalidates(t *testing.T) {
@@ -134,8 +134,9 @@ func TestBuildClientPrivateHostPolicy(t *testing.T) {
 		resp, err := client.Get(server.URL)
 		if allow {
 			require.NoError(t, err)
-			io.Copy(io.Discard, resp.Body)
-			resp.Body.Close()
+			_, err = io.Copy(io.Discard, resp.Body)
+			require.NoError(t, err)
+			require.NoError(t, resp.Body.Close())
 		} else {
 			require.ErrorContains(t, err, "not allowed")
 		}
@@ -159,13 +160,23 @@ func TestPublicTransportPinsCONNECTAndPreservesProxyTLSIdentity(t *testing.T) {
 				}
 				upstream, err := net.Dial("tcp", origin.Listener.Addr().String())
 				require.NoError(t, err)
-				conn, rw, err := w.(http.Hijacker).Hijack()
+				hijacker, ok := w.(http.Hijacker)
+				require.True(t, ok)
+				conn, rw, err := hijacker.Hijack()
 				require.NoError(t, err)
 				_, err = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 				require.NoError(t, err)
 				require.NoError(t, rw.Flush())
-				go func() { defer conn.Close(); defer upstream.Close(); io.Copy(upstream, rw) }()
-				go func() { io.Copy(conn, upstream); conn.Close(); upstream.Close() }()
+				go func() {
+					defer func() { _ = conn.Close() }()
+					defer func() { _ = upstream.Close() }()
+					_, _ = io.Copy(upstream, rw)
+				}()
+				go func() {
+					_, _ = io.Copy(conn, upstream)
+					_ = conn.Close()
+					_ = upstream.Close()
+				}()
 			}))
 			if secureProxy {
 				proxy.StartTLS()
@@ -184,7 +195,7 @@ func TestPublicTransportPinsCONNECTAndPreservesProxyTLSIdentity(t *testing.T) {
 			defer tr.CloseIdleConnections()
 			resp, err := (&http.Client{Transport: tr}).Get("https://example.com")
 			require.NoError(t, err)
-			resp.Body.Close()
+			require.NoError(t, resp.Body.Close())
 		})
 	}
 }
@@ -207,7 +218,7 @@ func TestPublicTransportFallsBackOnlyToValidatedAddresses(t *testing.T) {
 	defer tr.CloseIdleConnections()
 	resp, err := (&http.Client{Transport: tr}).Get("http://example.com")
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 	require.Equal(t, []string{"[2001:4860:4860::8888]:80", "93.184.216.34:80"}, addresses)
 }
 
@@ -241,7 +252,7 @@ func TestPublicTransportConditionalProxyPreservesDirectTLSIdentity(t *testing.T)
 	defer tr.CloseIdleConnections()
 	resp, err := (&http.Client{Transport: tr}).Get("https://example.com")
 	require.NoError(t, err)
-	resp.Body.Close()
+	require.NoError(t, resp.Body.Close())
 }
 
 func TestPublicTransportRejectsWrongTLSIdentity(t *testing.T) {

@@ -178,7 +178,7 @@ func TestBillingRetriesOnlyDefinitiveAbort(t *testing.T) {
 func TestBillingFinancialRowLockOrder(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer db.Close()
+	defer func() { _ = db.Close() }()
 	mock.ExpectBegin()
 	tx, err := db.Begin()
 	require.NoError(t, err)
