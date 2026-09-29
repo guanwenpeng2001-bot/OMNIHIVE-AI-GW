@@ -63,7 +63,7 @@ func IsQianwenRealtimeModel(model string) bool {
 	return false
 }
 
-func QianwenRealtimeBillingSnapshot(group *Group, account *Account, key *APIKey, model string, subscription *UserSubscription) (UpstreamJobBilling, error) {
+func QianwenRealtimeBillingSnapshot(ctx context.Context, group *Group, account *Account, key *APIKey, model string, subscription *UserSubscription) (UpstreamJobBilling, error) {
 	b := UpstreamJobBilling{RequestedModel: model}
 	if group == nil || account == nil || key == nil || account.Platform != PlatformQianwen {
 		return b, ErrUpstreamJobTariff
@@ -77,14 +77,18 @@ func QianwenRealtimeBillingSnapshot(group *Group, account *Account, key *APIKey,
 	if region == "singapore" {
 		b.UnitPrice = 0.13 / 10000
 	}
-	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(time.Now())
+	pricingAt := time.Now()
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
+		pricingAt = plan.Snapshot().PricingAt
+	}
+	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(pricingAt)
 	b.AccountRateMultiplier = account.BillingRateMultiplier()
 	b.KeyQuota, b.KeyRateLimit, b.AccountQuota = key.Quota > 0, key.HasRateLimits(), account.HasAnyQuotaLimit()
 	if subscription != nil {
 		b.SubscriptionID = &subscription.ID
 	}
 	b.Realtime = &QianwenRealtimeSnapshot{Region: region, PriceVersion: QianwenRealtimePriceVersion}
-	descriptor, found, err := NewModelPricingResolver(nil, nil).configuredPriceDescriptor(context.Background(), PricingInput{Model: model, Group: group})
+	descriptor, found, err := NewModelPricingResolver(nil, nil).configuredPriceDescriptor(ctx, PricingInput{Model: model, Group: group})
 	if err != nil {
 		return b, err
 	}

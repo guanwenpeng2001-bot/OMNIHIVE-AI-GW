@@ -126,14 +126,15 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		}
 		defer slot.ReleaseFunc()
 	}
-	snapshot, err := service.QianwenRealtimeBillingSnapshot(key.Group, account, key, forwardModel, subscription)
+	snapshot, err := service.QianwenRealtimeBillingSnapshot(ctx, key.Group, account, key, forwardModel, subscription)
 	if err != nil {
 		h.errorResponse(c, 422, "unsupported_operation_error", err.Error())
 		return
 	}
 	snapshot.RequestedModel = model
 	if key.GroupID != nil {
-		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(time.Now())
+		pricingAt := service.GatewayRequestPlanFromContext(ctx).Snapshot().PricingAt
+		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(pricingAt)
 	}
 	session, err := h.upstreamJobs.StartQianwenRealtime(ctx, &service.UpstreamJob{Platform: service.PlatformQianwen, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot})
 	if err != nil {

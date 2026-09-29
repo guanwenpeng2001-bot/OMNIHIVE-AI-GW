@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
@@ -158,6 +159,56 @@ func TestPricingFactsCatalogRefreshKeepsRequestAndCostFrozen(t *testing.T) {
 	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
+func TestPricingFactsRealtimeQuoteUsesRequestInstantBeforeExpiryAndPeakBoundary(t *testing.T) {
+	// Both instants precede quote creation; no sleeping or wall-clock boundary
+	// race is needed to model admission delayed past expiry and the peak window.
+	pricingAt := time.Date(2020, time.January, 15, 8, 30, 0, 0, timezone.Location())
+	afterBoundary := pricingAt.Add(time.Hour)
+	for _, configured := range []bool{false, true} {
+		name := "official"
+		if configured {
+			name = "group"
+		}
+		t.Run(name, func(t *testing.T) {
+			group := pricingFactsGroup()
+			model := "qwen3-tts-flash-realtime"
+			group.RateMultiplier = 2
+			group.SubscriptionType = SubscriptionTypeSubscription
+			group.PeakRateEnabled, group.PeakRateMultiplier = true, 3
+			group.PeakStart, group.PeakEnd = "08:00", "09:00"
+			if configured {
+				group.ModelPricing[0].Models = []string{model}
+				group.ModelPricing[0].PriceVariants[0].ID = model
+				expiry := pricingAt.Add(30 * time.Minute)
+				group.ModelPricing[0].PriceVariants[0].ExpiresAt = &expiry
+			} else {
+				group.ModelPricing = nil
+			}
+			account := &Account{Platform: PlatformQianwen, Type: AccountTypeAPIKey}
+			key := &APIKey{Group: group}
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{PricingAt: pricingAt}))
+			snapshot, err := QianwenRealtimeBillingSnapshot(ctx, group, account, key, model, nil)
+			require.NoError(t, err)
+			require.Equal(t, 6.0, snapshot.RateMultiplier)
+			if configured {
+				require.Equal(t, .02, snapshot.UnitPrice)
+				require.Equal(t, .01, *snapshot.Realtime.PriceQuote.Cost)
+			} else {
+				require.Nil(t, snapshot.Realtime.PriceQuote)
+				require.Equal(t, QianwenRealtimePriceVersion, snapshot.Realtime.PriceVersion)
+			}
+			laterCtx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{PricingAt: afterBoundary}))
+			later, err := QianwenRealtimeBillingSnapshot(laterCtx, group, account, key, model, nil)
+			if configured {
+				require.ErrorIs(t, err, ErrModelPricingUnavailable)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, 2.0, later.RateMultiplier)
+			}
+		})
+	}
+}
+
 func TestPricingFactsRealtimeReceiptRetainsSeparateFrozenCost(t *testing.T) {
 	group := pricingFactsGroup()
 	model := "qwen3-tts-flash-realtime"
@@ -165,7 +216,7 @@ func TestPricingFactsRealtimeReceiptRetainsSeparateFrozenCost(t *testing.T) {
 	group.ModelPricing[0].PriceVariants[0].ID = model
 	account := &Account{ID: 19, Platform: PlatformQianwen, Type: AccountTypeAPIKey, RateMultiplier: priceFactNumber(1)}
 	key := &APIKey{ID: 2, Group: group, GroupID: &group.ID, Quota: 10}
-	snapshot, err := QianwenRealtimeBillingSnapshot(group, account, key, model, nil)
+	snapshot, err := QianwenRealtimeBillingSnapshot(context.Background(), group, account, key, model, nil)
 	require.NoError(t, err)
 	snapshot.Realtime.SessionID = "frozen-session"
 	job := &UpstreamJob{Platform: PlatformQianwen, PublicRequestID: "receipt", UserID: 1, APIKeyID: 2, AccountID: 19, Billing: snapshot, UsageJSON: json.RawMessage(`{"characters":25}`)}
