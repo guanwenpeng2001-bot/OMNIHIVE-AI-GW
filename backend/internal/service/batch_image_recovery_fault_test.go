@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -18,6 +19,7 @@ type recoveryScanRepo struct {
 }
 
 func (r *recoveryScanRepo) ListRecoverableBatchImageJobs(_ context.Context, after string, limit int) ([]string, error) {
+	limit = NormalizeBatchImageRecoveryLimit(limit)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -28,6 +30,36 @@ func (r *recoveryScanRepo) ListRecoverableBatchImageJobs(_ context.Context, afte
 		}
 	}
 	return out, nil
+}
+
+func TestBatchImageRecovery_PersistentHeadDoesNotStarveTail(t *testing.T) {
+	for _, configured := range []int{0, -1, 100, 1000, 1001, 2000} {
+		t.Run(fmt.Sprintf("limit_%d", configured), func(t *testing.T) {
+			repo := &recoveryScanRepo{}
+			for index := 0; index < 2005; index++ {
+				repo.ids = append(repo.ids, fmt.Sprintf("imgbatch_%04d", index))
+			}
+			queue := &recoveryQueue{fakeBatchImageQueue: newFakeBatchImageQueue(""), seen: map[string]bool{}}
+			worker := NewBatchImageWorker(queue, &fakeBatchImageProcessor{}, BatchImageWorkerOptions{RecoverLimit: configured})
+			expectedLimit := 100
+			if configured == 1000 {
+				expectedLimit = 1000
+			}
+			require.Equal(t, expectedLimit, worker.opts.RecoverLimit)
+			runtime := NewBatchImageWorkerRuntime(worker, nil)
+			runtime.billingRecovery = &BatchImageBillingRecoveryService{Repo: repo}
+			// Every row remains recoverable, even after enqueue. Scan twice to
+			// exercise both duplicate head pages and cursor wraparound.
+			for round := 0; round < 2; round++ {
+				for page := 0; page <= len(repo.ids)/expectedLimit; page++ {
+					require.NoError(t, runtime.recoverQueueOnce(context.Background()))
+				}
+				require.True(t, queue.seen["imgbatch_2004"], "tail must be visited despite persistent head rows")
+				require.Len(t, queue.seen, len(repo.ids))
+				require.Empty(t, runtime.recoveryAfter)
+			}
+		})
+	}
 }
 
 type recoveryQueue struct {
