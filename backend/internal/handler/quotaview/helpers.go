@@ -16,9 +16,10 @@ func LazyZeroQuotaForResponse(r service.UserPlatformQuotaRecord, now time.Time, 
 	daily := buildWindowSlice(r.DailyUsageUSD, r.DailyLimitUSD, r.DailyWindowStart, NeedsDailyReset(r.DailyWindowStart, now), nextDailyResetTime(now), includeWindowStart)
 	weekly := buildWindowSlice(r.WeeklyUsageUSD, r.WeeklyLimitUSD, r.WeeklyWindowStart, NeedsWeeklyReset(r.WeeklyWindowStart, now), nextWeeklyResetTime(now), includeWindowStart)
 	monthly := buildWindowSlice(r.MonthlyUsageUSD, r.MonthlyLimitUSD, r.MonthlyWindowStart, NeedsMonthlyReset(r.MonthlyWindowStart, now), NextMonthlyResetTimeFrom(r.MonthlyWindowStart, now), includeWindowStart)
+	identity := domain.ResolveAccountTypeIdentity(r.Platform, "")
 	out := map[string]any{
-		"platform":                 domain.CanonicalPlatform(r.Platform),
-		"account_type":             domain.HostedAccountType(r.Platform),
+		"platform":                 identity.Platform(),
+		"account_type":             identity.RequiredAccountType(),
 		"daily_usage_usd":          daily.usage,
 		"daily_limit_usd":          daily.limit,
 		"daily_window_resets_at":   daily.resetsAt,

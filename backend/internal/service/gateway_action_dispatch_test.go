@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -110,6 +111,54 @@ func TestGatewayInputAdmissionUsesVisibleEvidenceAndRetainsBody(t *testing.T) {
 			require.Equal(t, http.StatusNoContent, recorder.Code)
 		}
 	}
+}
+
+func TestGatewayInputAdmissionResolvesOnlyRequestedModel(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	models := make([]string, 100)
+	for index := range models {
+		models[index] = fmt.Sprintf("private-model-%d", index)
+	}
+	account := catalogEvidenceAccount(1, PlatformOpenAI, models...)
+	account.GroupIDs = []int64{9}
+	disabled := false
+	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+		models[0]: {ProviderProfile: resolveCapabilityProfile(&account), SupportsVision: &disabled},
+	}})
+	reads := 0
+	ownershipQueries := make(map[string]int)
+	group := Group{ID: 9, Platform: PlatformComposite}
+	gateway := &GatewayService{
+		accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}, assertScope: func(*int64, []string, bool) { reads++ }},
+		groupRepo:   &visiblePolicyGroupRepo{groups: []Group{group}},
+		compositeResolver: &CompositeRouteResolver{modelOwnershipResolver: func(_ context.Context, _ int64, model string) (CompositeModelOwnership, error) {
+			ownershipQueries[model]++
+			return CompositeModelOwnership{Matched: true, TargetPlatform: PlatformOpenAI}, nil
+		}},
+	}
+	_, metadata, err := gateway.VisibleModelsWithMetadata(context.Background(), &group.ID, group.Platform)
+	require.NoError(t, err)
+	require.Len(t, metadata, len(models))
+	require.Len(t, ownershipQueries, len(models), "full lists still resolve every public model")
+	queriesPerModel := ownershipQueries[models[0]]
+	require.Positive(t, queriesPerModel)
+	clear(ownershipQueries)
+	reads = 0
+	router := gin.New()
+	router.POST("/chat/completions", func(requestContext *gin.Context) {
+		requestContext.Set("api_key", &APIKey{GroupID: &group.ID, Group: &group})
+		if gatewayInputAdmission(requestContext, gateway) {
+			requestContext.Status(http.StatusNoContent)
+		}
+	})
+	request := httptest.NewRequest(http.MethodPost, "/chat/completions", strings.NewReader(`{"model":"private-model-0","messages":[{"role":"user","content":[{"type":"image_url","image_url":{"url":"https://example.test/image"}}]}]}`))
+	request.Header.Set("Content-Type", "application/json")
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusBadRequest, recorder.Code)
+	require.Contains(t, recorder.Body.String(), "model_input_unsupported")
+	require.Equal(t, 1, reads, "one account snapshot is sufficient for admission")
+	require.Equal(t, map[string]int{models[0]: queriesPerModel}, ownershipQueries, "unrelated models must never reach endpoint resolution")
 }
 
 func TestGatewayActionCredentialsDoNotNeedDevelopmentUnlock(t *testing.T) {

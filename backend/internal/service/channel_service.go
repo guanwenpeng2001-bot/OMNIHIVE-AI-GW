@@ -190,7 +190,10 @@ func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
 	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
 		return plan.channelSnapshot, plan.channelError
 	}
-	generation, authoritative, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+	if revision, frozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); frozen && revision.channels == s && revision.channelSnapshot != nil {
+		return revision.channelSnapshot, nil
+	}
+	generation, authoritative, versionErr := catalogEvidenceGeneration(ctx, s.groupRepo)
 	if versionErr != nil {
 		return s.buildCache(ctx)
 	}

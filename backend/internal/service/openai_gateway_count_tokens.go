@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
@@ -160,7 +159,7 @@ func shouldEstimateOpenAIInputTokensLocally(account *Account) bool {
 	if rawBaseURL == "" {
 		return false
 	}
-	parsed, err := url.Parse(rawBaseURL)
+	parsed, err := account.parsedBaseURL(rawBaseURL)
 	if err != nil {
 		return true
 	}

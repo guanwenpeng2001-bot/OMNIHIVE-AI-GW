@@ -615,7 +615,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 			if err != nil {
 				return nil, err
 			}
-			targetURL = buildOpenAIResponsesURLForPlatform(account.Platform, validatedURL)
+			targetURL = account.buildOpenAIResponsesURL(validatedURL)
 		}
 	}
 	targetURL = appendOpenAIResponsesRequestPathSuffix(targetURL, openAIResponsesRequestPathSuffix(c))

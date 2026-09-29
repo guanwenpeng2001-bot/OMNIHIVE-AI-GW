@@ -65,10 +65,25 @@ func visibleModelPolicyAllows(ctx context.Context, model string) bool {
 
 var ErrVisibleModelRevisionChanged = errors.New("visible model catalog changed during resolution")
 
+// admissionGroupKey carries the authentication-loaded group into admission
+// resolution so the request does not re-read the same row. Only attached for
+// the first resolution attempt; retries after a revision race read live.
+type admissionGroupKey struct{}
+
+func admissionGroupFromContext(ctx context.Context, groupID int64) *Group {
+	group, _ := ctx.Value(admissionGroupKey{}).(*Group)
+	if group == nil || group.ID != groupID {
+		return nil
+	}
+	return group
+}
+
 type visibleModelRevisionKey struct{}
 type visibleModelRevision struct {
-	generation    int64
-	authoritative bool
+	generation      int64
+	authoritative   bool
+	channels        *ChannelService
+	channelSnapshot *channelCache
 }
 
 func (r *VisibleModelResolver) freeze(ctx context.Context) (context.Context, error) {
@@ -89,10 +104,8 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 			return ctx, nil
 		}
 	}
-	generation, authoritative, err := modelCatalogGeneration(ctx, r.gateway.accountRepo, "catalog")
-	if err != nil {
-		return ctx, err
-	}
+	generation := int64(0)
+	authoritative := false
 	if replace {
 		// Authenticated policies cannot be refreshed as keyID=0: that would
 		// discard KeyGroup/KeyExclude restrictions during a revision race.
@@ -116,11 +129,40 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 			ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
 		}
 	}
+	// An access snapshot is generation-fenced at read time; when it is known,
+	// anchor this freeze to it instead of probing the generation again. Any
+	// drift since the snapshot read is still caught by validate() before the
+	// response completes, which retries with a freshly read snapshot.
+	if snapshot, ok := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); ok && snapshot.RevisionKnown {
+		if _, readerOK := r.gateway.accountRepo.(ModelCatalogGenerationReader); readerOK {
+			generation, authoritative = snapshot.Generation, true
+		}
+	}
+	if !authoritative {
+		var err error
+		generation, authoritative, err = modelCatalogGeneration(ctx, r.gateway.accountRepo, "catalog")
+		if err != nil {
+			return ctx, err
+		}
+	}
 	ctx = WithModelRegistrySnapshot(ctx, ModelRegistrySnapshotFromContext(ctx))
 	if snapshot, ok := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); ok && snapshot.RevisionKnown && snapshot.Generation != generation {
 		return ctx, ErrVisibleModelRevisionChanged
 	}
-	return context.WithValue(ctx, visibleModelRevisionKey{}, visibleModelRevision{generation, authoritative}), nil
+	revision := visibleModelRevision{generation: generation, authoritative: authoritative}
+	if channels := r.gateway.channelService; channels != nil {
+		// Reuse only immutable channel evidence within this projection. The
+		// generation is still read before and after the complete response, and
+		// user/Key authorization is never shared between requests. Clear an old
+		// projection revision when retrying so its channel snapshot is not reused.
+		readContext := context.WithValue(ctx, visibleModelRevisionKey{}, visibleModelRevision{})
+		snapshot, readErr := channels.loadCache(readContext)
+		if readErr != nil {
+			return ctx, readErr
+		}
+		revision.channels, revision.channelSnapshot = channels, snapshot
+	}
+	return context.WithValue(ctx, visibleModelRevisionKey{}, revision), nil
 }
 
 func (r *VisibleModelResolver) validate(ctx context.Context) error {
@@ -164,6 +206,18 @@ func (s *GatewayService) VisibleModelsWithMetadata(ctx context.Context, groupID 
 	return view, metadata, nil
 }
 
+// visibleModelInputMetadata projects only the requested public model. Keep the
+// catalog's membership rules and endpoint union: input admission historically
+// accepts a requirement supported by any visible binding, not just one action.
+func (s *GatewayService) visibleModelInputMetadata(ctx context.Context, groupID *int64, platform, model string) ([]UpstreamModelMetadata, error) {
+	metadata := make(map[string][]UpstreamModelMetadata)
+	_, err := (&VisibleModelResolver{gateway: s}).resolveScoped(ctx, groupID, platform, metadata, &model)
+	if err != nil {
+		return nil, err
+	}
+	return metadata[model], nil
+}
+
 // visibleModelResolveMaxAttempts bounds retries when the visible model catalog
 // revision moves mid-resolution (e.g. a concurrent upstream catalog refresh
 // publishes a new generation). Only the resolver that froze the revision itself
@@ -171,6 +225,10 @@ func (s *GatewayService) VisibleModelsWithMetadata(ctx context.Context, groupID 
 const visibleModelResolveMaxAttempts = 3
 
 func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, mixedOnly ...bool) (VisibleModelSet, error) {
+	return r.resolveScoped(ctx, groupID, platform, metadata, nil, mixedOnly...)
+}
+
+func (r *VisibleModelResolver) resolveScoped(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, requestedModel *string, mixedOnly ...bool) (VisibleModelSet, error) {
 	view := VisibleModelSet{FullyEnumerable: true, Bindings: make(map[string][]AccountModelBinding), ExecutableEndpoints: make(map[string][]string)}
 	_, preFrozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision)
 	ctx, err := r.freeze(ctx)
@@ -181,7 +239,7 @@ func (r *VisibleModelResolver) resolve(ctx context.Context, groupID *int64, plat
 		return view, nil
 	}
 	for attempt := 1; ; attempt++ {
-		view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, mixedOnly...)
+		view.Models, err = r.gateway.resolveVisibleModelIDs(ctx, groupID, platform, metadata, &view, requestedModel, mixedOnly...)
 		if err != nil && !errors.Is(err, ErrVisibleModelRevisionChanged) {
 			return VisibleModelSet{}, err
 		}
@@ -226,7 +284,7 @@ func internalMappedTarget(account *Account, model string) bool {
 	return false
 }
 
-func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, view *VisibleModelSet, mixedOnly ...bool) ([]string, error) {
+func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *int64, platform string, metadata map[string][]UpstreamModelMetadata, view *VisibleModelSet, requestedModel *string, mixedOnly ...bool) ([]string, error) {
 	if s == nil {
 		return nil, nil
 	}
@@ -255,6 +313,13 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 		}
 	}
 	candidates := make(map[string]struct{})
+	// Still inspect declarations to preserve finite membership and private
+	// target hiding. Only selected candidates need endpoint binding resolution.
+	addCandidate := func(model string) {
+		if requestedModel == nil || model == *requestedModel {
+			candidates[model] = struct{}{}
+		}
+	}
 	privateTargets := make(map[string]bool)
 	explicitPublicNames := make(map[string]bool)
 	for i := range accounts {
@@ -268,14 +333,14 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 		}
 		for _, member := range catalog.EligibleModels {
 			if !internalMappedTarget(account, member.ID) {
-				candidates[member.ID] = struct{}{}
+				addCandidate(member.ID)
 			}
 		}
 		for alias := range account.GetModelMapping() {
 			if strings.Contains(alias, "*") {
 				view.FullyEnumerable = false
 			} else {
-				candidates[alias] = struct{}{}
+				addCandidate(alias)
 				explicitPublicNames[alias] = true
 			}
 		}
@@ -284,15 +349,18 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 	if batched && groupID != nil {
 		group = batch.groups[*groupID]
 	} else if groupID != nil && s.groupRepo != nil {
-		group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
-		if err != nil {
-			return []string{}, err
+		group = admissionGroupFromContext(ctx, *groupID)
+		if group == nil {
+			group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
+			if err != nil {
+				return []string{}, err
+			}
 		}
 	}
 	if group != nil {
 		for _, model := range group.ModelAllowlist.Models {
 			if !strings.Contains(model, "*") {
-				candidates[model] = struct{}{}
+				addCandidate(model)
 			}
 		}
 	}
@@ -313,7 +381,7 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 		}
 		for key, target := range channels.mappingByGroupModel {
 			if key.groupID == *groupID && (platform == PlatformComposite || platform == "" || key.platform == platform) {
-				candidates[key.model] = struct{}{}
+				addCandidate(key.model)
 				explicitPublicNames[key.model] = true
 				if key.model != target {
 					privateTargets[target] = true
@@ -345,7 +413,7 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 					}
 				}
 				if route.MatchType == CompositeRouteMatchExact {
-					candidates[route.PublicModel] = struct{}{}
+					addCandidate(route.PublicModel)
 					explicitPublicNames[route.PublicModel] = true
 					if route.UpstreamModel != route.PublicModel && route.UpstreamModel != "" {
 						privateTargets[route.UpstreamModel] = true

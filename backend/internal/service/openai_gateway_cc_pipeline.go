@@ -167,7 +167,7 @@ func (s *OpenAIGatewayService) openAIChatCompletionsTargetURL(account *Account) 
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	return buildOpenAIChatCompletionsURL(validatedURL), nil
+	return account.buildOpenAIEndpointURL(validatedURL, "/v1/chat/completions"), nil
 }
 
 // resolveCCFallbackTarget 解析两条 CC 回退路径共用的账号凭证与上游端点

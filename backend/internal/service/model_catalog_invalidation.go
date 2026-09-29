@@ -28,6 +28,11 @@ func catalogVersionedCacheKey(ctx context.Context, repository any, key string) (
 	if workspaceID, scoped := domain.WorkspaceScope(ctx); scoped {
 		key = fmt.Sprintf("workspace:%d|%s", workspaceID, key)
 	}
+	// A frozen request revision already anchored this generation against the
+	// primary database; reuse it instead of probing again per cache lookup.
+	if revision, ok := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); ok && revision.authoritative {
+		return fmt.Sprintf("%s|generation:%d", key, revision.generation), nil
+	}
 	generation, authoritative, err := modelCatalogGeneration(ctx, repository, "catalog")
 	if err != nil {
 		return "", err
@@ -41,6 +46,7 @@ func catalogVersionedCacheKey(ctx context.Context, repository any, key string) (
 // Versioned keys also fence a load that finishes after invalidation: its value
 // can only be read using the old authoritative version.
 func InvalidateModelCatalogCaches() {
+	dispatchCatalogAccountEvidence.flush()
 	if gateway := availableModelsCacheInvalidator.Load(); gateway != nil && gateway.modelsListCache != nil {
 		gateway.modelsListCache.Flush()
 	}

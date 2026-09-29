@@ -36,8 +36,8 @@ func loadCatalogCredentialAccount(ctx context.Context, repo AccountRepository, a
 	if account == nil || !account.IsShadow() || repo == nil {
 		return nil, nil
 	}
-	if reader, ok := repo.(ModelCatalogAccountRepository); ok {
-		return reader.GetModelCatalogAccount(ctx, *account.ParentAccountID)
+	if _, ok := repo.(ModelCatalogAccountRepository); ok {
+		return modelCatalogAccountEvidence(ctx, repo, *account.ParentAccountID)
 	}
 	return repo.GetByID(ctx, *account.ParentAccountID)
 }
@@ -213,9 +213,11 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 		return ErrAccountModelUnsupported
 	}
 	current := account
-	if reader, ok := repo.(ModelCatalogAccountRepository); ok {
+	if _, ok := repo.(ModelCatalogAccountRepository); ok {
 		var err error
-		current, err = reader.GetModelCatalogAccount(ctx, account.ID)
+		// Generation-keyed evidence stays exactly as fresh as this re-read: any
+		// catalog write advances the generation probed for the cache key.
+		current, err = modelCatalogAccountEvidence(ctx, repo, account.ID)
 		if err != nil {
 			return err
 		}
@@ -230,8 +232,8 @@ func validateAccountForwardModel(ctx context.Context, repo AccountRepository, ac
 	}
 	if current.IsShadow() {
 		var err error
-		if reader, ok := repo.(ModelCatalogAccountRepository); ok {
-			options.CredentialAccount, err = reader.GetModelCatalogAccount(ctx, *current.ParentAccountID)
+		if _, ok := repo.(ModelCatalogAccountRepository); ok {
+			options.CredentialAccount, err = modelCatalogAccountEvidence(ctx, repo, *current.ParentAccountID)
 		} else if repo != nil {
 			options.CredentialAccount, err = repo.GetByID(ctx, *current.ParentAccountID)
 		}
@@ -399,11 +401,10 @@ func accountForCatalogSelection(ctx context.Context, repo AccountRepository, acc
 	if _, present := account.Extra[UpstreamModelCatalogExtraKey]; present {
 		return account, nil
 	}
-	reader, ok := repo.(ModelCatalogAccountRepository)
-	if !ok {
+	if _, ok := repo.(ModelCatalogAccountRepository); !ok {
 		return account, nil
 	}
-	current, err := reader.GetModelCatalogAccount(ctx, account.ID)
+	current, err := modelCatalogAccountEvidence(ctx, repo, account.ID)
 	if err != nil {
 		return nil, err
 	}

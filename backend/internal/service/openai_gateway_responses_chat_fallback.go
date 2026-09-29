@@ -464,7 +464,7 @@ func targetsDeepSeekAPIHost(account *Account) bool {
 	if account.Platform == PlatformDeepseek {
 		return true
 	}
-	upstreamURL, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
+	upstreamURL, err := account.parsedBaseURL(strings.TrimSpace(account.GetOpenAIBaseURL()))
 	if err != nil {
 		return false
 	}
