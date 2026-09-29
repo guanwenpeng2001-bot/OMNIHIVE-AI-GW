@@ -95,7 +95,7 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 		lockOwner := newRefreshLockOwner()
 		locked, lockErr := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, lockOwner, 30*time.Second)
 		if lockErr == nil && locked {
-			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, cacheKey, lockOwner) }()
+			defer releaseRefreshLock(ctx, p.tokenCache, cacheKey, lockOwner)
 		} else if lockErr != nil {
 			slog.Warn("gemini_token_lock_failed", "account_id", account.ID, "error", lockErr)
 		}

@@ -36,7 +36,6 @@ type GrokOAuthRefreshSuccessRepository interface {
 
 const (
 	defaultRefreshLockTTL                   = 60 * time.Second
-	defaultRefreshLockReleaseTimeout        = 2 * time.Second
 	defaultRefreshPostPersistCleanupTimeout = 2 * time.Second
 )
 
@@ -205,7 +204,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			// 锁被其他 worker 持有
 			return &OAuthRefreshResult{LockHeld: true}, nil
 		} else {
-			defer api.releaseRefreshLock(ctx, cacheKey, lockOwner)
+			defer releaseRefreshLock(ctx, api.tokenCache, cacheKey, lockOwner)
 		}
 	}
 
@@ -382,18 +381,6 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		NewCredentials: newCredentials,
 		Account:        freshAccount,
 	}, nil
-}
-
-func (api *OAuthRefreshAPI) releaseRefreshLock(parent context.Context, cacheKey string, lockOwner string) {
-	cleanupParent := context.Background()
-	if parent != nil {
-		cleanupParent = context.WithoutCancel(parent)
-	}
-	ctx, cancel := context.WithTimeout(cleanupParent, defaultRefreshLockReleaseTimeout)
-	defer cancel()
-	if err := api.tokenCache.ReleaseRefreshLock(ctx, cacheKey, lockOwner); err != nil {
-		slog.Warn("oauth_refresh_lock_release_failed", "cache_key", cacheKey, "error", err)
-	}
 }
 
 func (api *OAuthRefreshAPI) loadGrokDurableAccountAfterPersist(parent context.Context, cacheKey string, accountID int64) (*Account, error) {

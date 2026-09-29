@@ -11,17 +11,6 @@ import (
 
 const leaderLockKeyPrefix = "leader:lock:"
 
-// leaderLockReleaseScript releases a leader lock only when the caller still owns
-// it (compare-and-delete by owner token). This prevents a previous holder whose
-// lock already expired — and was re-acquired by another instance — from deleting
-// the new owner's lock.
-var leaderLockReleaseScript = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-  return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
-
 type leaderLockCache struct {
 	rdb *redis.Client
 }
@@ -38,5 +27,5 @@ func (c *leaderLockCache) TryAcquireLeaderLock(ctx context.Context, key, owner s
 }
 
 func (c *leaderLockCache) ReleaseLeaderLock(ctx context.Context, key, owner string) error {
-	return leaderLockReleaseScript.Run(ctx, c.rdb, []string{leaderLockKeyPrefix + key}, owner).Err()
+	return compareAndDelete(ctx, c.rdb, leaderLockKeyPrefix+key, owner)
 }

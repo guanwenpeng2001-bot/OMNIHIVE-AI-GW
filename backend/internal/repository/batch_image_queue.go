@@ -44,13 +44,6 @@ end
 return #jobs
 `)
 
-var batchImageReleaseLockScript = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-  return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
-
 var batchImageRefreshLockScript = redis.NewScript(`
 if redis.call("GET", KEYS[1]) == ARGV[1] then
   return redis.call("PEXPIRE", KEYS[1], ARGV[2])
@@ -329,7 +322,7 @@ func (l *batchImageRedisJobLock) Release(ctx context.Context) error {
 	if l == nil || l.rdb == nil || l.key == "" || l.token == "" {
 		return nil
 	}
-	return batchImageReleaseLockScript.Run(ctx, l.rdb, []string{l.key}, l.token).Err()
+	return compareAndDelete(ctx, l.rdb, l.key, l.token)
 }
 
 // Refresh 在仍持有锁（token 匹配）时续期 TTL，供长处理任务的心跳调用。

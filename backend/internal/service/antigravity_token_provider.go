@@ -134,7 +134,7 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		lockOwner := newRefreshLockOwner()
 		locked, err := p.tokenCache.AcquireRefreshLock(ctx, lockKey, lockOwner, 30*time.Second)
 		if err == nil && locked {
-			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, lockKey, lockOwner) }()
+			defer releaseRefreshLock(ctx, p.tokenCache, lockKey, lockOwner)
 		}
 	}
 
