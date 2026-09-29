@@ -17,5 +17,12 @@ return 0
 // compareAndDelete atomically deletes the full key only if its value is owner.
 // Missing keys and ownership mismatches are successful no-ops.
 func compareAndDelete(ctx context.Context, rdb *redis.Client, key, owner string) error {
-	return compareAndDeleteScript.Run(ctx, rdb, []string{key}, owner).Err()
+	_, err := compareAndDeleteMatched(ctx, rdb, key, owner)
+	return err
+}
+
+// compareAndDeleteMatched reports whether the complete expected value was deleted.
+func compareAndDeleteMatched(ctx context.Context, rdb *redis.Client, key, expected string) (bool, error) {
+	n, err := compareAndDeleteScript.Run(ctx, rdb, []string{key}, expected).Int()
+	return n == 1, err
 }

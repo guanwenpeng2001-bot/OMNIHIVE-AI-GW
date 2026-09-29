@@ -317,7 +317,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		resetAt := time.Now().Add(rateLimitDuration)
 		s.setAntigravityModelRateLimits(p.ctx, p.accountRepo, p.account, modelName, p.prefix, resp.StatusCode, resetAt, true)
 
-		// 清除粘性会话绑定，避免下次请求仍命中限流账号
+		// 临时限流保留 v2 恢复绑定；永久失效才按观察版本删除。
 		s.clearStickySession(p.ctx, p.groupID, p.sessionHash)
 
 		// 返回账号切换信号，让上层切换账号重试
@@ -904,7 +904,7 @@ func (s *AntigravityGatewayService) clearStickySession(ctx context.Context, grou
 	if s == nil || s.cache == nil || strings.TrimSpace(sessionHash) == "" {
 		return
 	}
-	if err := s.cache.DeleteSessionAccountID(ctx, groupID, sessionHash); err != nil {
+	if err := clearRequestAffinityBinding(ctx, s.cache, s.accountRepo, groupID, sessionHash); err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "[antigravity-Forward] sticky_session_clear_failed group_id=%d session=%s err=%v", groupID, shortSessionHash(sessionHash), err)
 	}
 }
@@ -1163,9 +1163,9 @@ func (s *AntigravityGatewayService) setModelRateLimitAndClearSession(p *handleMo
 
 	s.setAntigravityModelRateLimits(p.ctx, s.accountRepo, p.account, info.ModelName, p.prefix, p.statusCode, resetAt, false)
 
-	// 清除粘性会话绑定
+	// 保留临时限流的 v2 绑定，传统会话仍按原策略清除。
 	if p.cache != nil && p.sessionHash != "" {
-		_ = p.cache.DeleteSessionAccountID(p.ctx, p.groupID, p.sessionHash)
+		_ = clearRequestAffinityBinding(p.ctx, p.cache, s.accountRepo, p.groupID, p.sessionHash)
 	}
 }
 
