@@ -67,8 +67,10 @@ var ErrVisibleModelRevisionChanged = errors.New("visible model catalog changed d
 
 type visibleModelRevisionKey struct{}
 type visibleModelRevision struct {
-	generation    int64
-	authoritative bool
+	generation      int64
+	authoritative   bool
+	channels        *ChannelService
+	channelSnapshot *channelCache
 }
 
 func (r *VisibleModelResolver) freeze(ctx context.Context) (context.Context, error) {
@@ -120,7 +122,20 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 	if snapshot, ok := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); ok && snapshot.RevisionKnown && snapshot.Generation != generation {
 		return ctx, ErrVisibleModelRevisionChanged
 	}
-	return context.WithValue(ctx, visibleModelRevisionKey{}, visibleModelRevision{generation, authoritative}), nil
+	revision := visibleModelRevision{generation: generation, authoritative: authoritative}
+	if channels := r.gateway.channelService; channels != nil {
+		// Reuse only immutable channel evidence within this projection. The
+		// generation is still read before and after the complete response, and
+		// user/Key authorization is never shared between requests. Clear an old
+		// projection revision when retrying so its channel snapshot is not reused.
+		readContext := context.WithValue(ctx, visibleModelRevisionKey{}, visibleModelRevision{})
+		snapshot, readErr := channels.loadCache(readContext)
+		if readErr != nil {
+			return ctx, readErr
+		}
+		revision.channels, revision.channelSnapshot = channels, snapshot
+	}
+	return context.WithValue(ctx, visibleModelRevisionKey{}, revision), nil
 }
 
 func (r *VisibleModelResolver) validate(ctx context.Context) error {
