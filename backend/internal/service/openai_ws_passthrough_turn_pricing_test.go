@@ -3,8 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -279,5 +281,48 @@ func testPassthroughIngressFreezesSubsequentTurnBeforeRequestPolicy(t *testing.T
 	case <-serverErr:
 	case <-time.After(3 * time.Second):
 		t.Fatal("passthrough ingress did not exit")
+	}
+}
+
+func TestPassthroughDuplicateModelNeverReachesUpstream(t *testing.T) {
+	for _, mapped := range []string{"gpt-5.1", "gpt-5.2"} {
+		for _, first := range []bool{true, false} {
+			t.Run(mapped+fmt.Sprint(first), func(t *testing.T) {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				upstream := newStagedPassthroughConn()
+				upstream.Send(`{"type":"response.completed","response":{"id":"resp_1","model":"gpt-5.1","usage":{"input_tokens":1,"output_tokens":1}}}`)
+				account := passthroughLifecycleAccount()
+				account.Credentials["model_mapping"] = map[string]any{"gpt-5.1": mapped}
+				server, errs := startPassthroughHookRecordingServer(t, ctx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), account, &OpenAIWSIngressHooks{MapRequestModel: func(int, string) (string, error) { return mapped, nil }})
+				defer server.Close()
+				conn, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
+				require.NoError(t, err)
+				defer func() { _ = conn.CloseNow() }()
+				if !first {
+					require.NoError(t, conn.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","input":[]}`)))
+					require.Equal(t, mapped, gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "model").String())
+					_, _, err = conn.Read(ctx)
+					require.NoError(t, err)
+				}
+				require.NoError(t, conn.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","input":[],"model":"revoked"}`)))
+				_, _, _ = conn.Read(ctx)
+				select {
+				case err := <-errs:
+					require.Error(t, err)
+					var closeErr *OpenAIWSClientCloseError
+					require.ErrorAs(t, err, &closeErr)
+					require.Equal(t, coderws.StatusPolicyViolation, closeErr.StatusCode())
+					require.Equal(t, "invalid websocket request payload", closeErr.Reason())
+				case <-ctx.Done():
+					t.Fatal("duplicate frame did not terminate ingress")
+				}
+				select {
+				case body := <-upstream.writes:
+					t.Fatalf("duplicate frame forwarded: %s", body)
+				default:
+				}
+			})
+		}
 	}
 }

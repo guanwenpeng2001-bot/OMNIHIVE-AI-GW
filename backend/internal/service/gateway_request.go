@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -188,8 +189,11 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 	}
 
 	bodyBytes := parsed.Body.Bytes()
-	if !gjson.ValidBytes(bodyBytes) {
-		return DescribeInvalidJSON(bodyBytes)
+	if err := requestmodel.ValidateJSON(bodyBytes); err != nil {
+		if !json.Valid(bodyBytes) {
+			return DescribeInvalidJSON(bodyBytes)
+		}
+		return err
 	}
 
 	// 只在当前函数内零拷贝读取 JSON 字段；ReplaceBody 后必须重新进入本函数刷新派生状态。

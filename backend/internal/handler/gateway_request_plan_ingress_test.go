@@ -153,3 +153,33 @@ func TestGatewayRequestPlanWebSocketIngressTwoTurns(t *testing.T) {
 		})
 	}
 }
+
+func TestDuplicateModelHTTPIngressMappingMatrix(t *testing.T) {
+	for _, mapped := range []string{"gpt-5.1", "gpt-5.2"} {
+		for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses"} {
+			t.Run(mapped+path, func(t *testing.T) {
+				cfg := &config.Config{RunMode: config.RunModeSimple}
+				account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture", "model_mapping": map[string]any{"gpt-5.1": mapped}}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
+				repo := &openAIWSUsageHandlerAccountRepoStub{account: account}
+				upstream := &requestPlanHTTPFixture{t: t}
+				svc := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
+				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+				defer billing.Stop()
+				h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+				group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, AllowMessagesDispatch: true}
+				c, rec := requestPlanHTTPContext(path, `{"model":"gpt-5.1","messages":[{"role":"user","content":"hello"}],"input":"hello","max_tokens":32,"model":"revoked"}`, group)
+				switch path {
+				case "/v1/messages":
+					h.Messages(c)
+				case "/v1/chat/completions":
+					h.ChatCompletions(c)
+				default:
+					h.Responses(c)
+				}
+				require.Equal(t, http.StatusBadRequest, rec.Code)
+				require.Zero(t, upstream.calls)
+				require.NotContains(t, rec.Body.String(), "revoked")
+			})
+		}
+	}
+}

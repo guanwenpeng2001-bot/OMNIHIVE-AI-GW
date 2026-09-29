@@ -43,7 +43,8 @@ func TestQianwenNativeConflictingModelsRejectedBeforeAdmission(t *testing.T) {
 	key.Group = &service.Group{Platform: service.PlatformQianwen}
 	h.QianwenNative(c)
 	require.Equal(t, 400, w.Code)
-	require.Contains(t, w.Body.String(), "Conflicting DashScope model fields")
+	require.Contains(t, w.Body.String(), "invalid_request_error")
+	require.NotContains(t, w.Body.String(), "another-model")
 	_, selected := c.Get(opsAccountIDKey)
 	require.False(t, selected)
 }
