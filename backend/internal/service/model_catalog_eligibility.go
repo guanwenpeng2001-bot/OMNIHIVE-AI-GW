@@ -352,53 +352,9 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		model = forward.model
 		options.Compact = forward.useCompactModelMapping
 	}
-	if options.FinalModel != "" {
-		model = options.FinalModel
-	} else {
-		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
-		_, matched := account.ResolveMappedModel(model)
-		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !account.IsOpenAIPassthroughEnabled() && options.MessagesDispatchModel == "" {
-			return binding
-		}
-		switch {
-		case account.IsBedrock():
-			var ok bool
-			model, ok = ResolveBedrockModelID(account, model)
-			if !ok {
-				return binding
-			}
-		case account.Platform == PlatformAntigravity:
-			if variantResolved {
-				model = variant
-			} else {
-				model = mapAntigravityModel(account, model)
-			}
-			if thinking, ok := ThinkingEnabledFromContext(ctx); ok {
-				model = applyThinkingModelSuffix(model, thinking)
-			}
-		case account.Platform == PlatformOpenAI:
-			if !account.IsOpenAIPassthroughEnabled() {
-				model = resolveOpenAIForwardModel(account, model, options.MessagesDispatchModel)
-			}
-			if options.Compact {
-				model = resolveOpenAICompactForwardModel(account, model)
-			}
-			model = normalizeOpenAIModelForUpstream(account, model)
-		default:
-			model = account.GetMappedModel(model)
-			if account.Platform == PlatformDeepseek {
-				model = normalizeOpenAIModelForUpstream(account, model)
-			}
-			if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-				model = claude.NormalizeModelID(model)
-				if account.Type == AccountTypeServiceAccount {
-					model = normalizeVertexAnthropicModelID(model)
-				}
-			}
-			if account.IsGemini() {
-				model = strings.TrimPrefix(model, "models/")
-			}
-		}
+	model, mapped := memoizedAccountBindingModel(ctx, account, model, options)
+	if !mapped {
+		return binding
 	}
 	binding.UpstreamModel = strings.TrimSpace(model)
 	if !accountSupportsGatewayInput(ctx, account, binding.UpstreamModel) {
@@ -433,47 +389,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
 			continue
 		}
-		endpoint := options.Endpoint
-		if endpoint == "realtime" {
-			endpoint = string(OpenAIEndpointCapabilityLive)
-		}
-		// Reuse the actual Responses bridge decision; native chat evidence can
-		// support that adapter, but never an unrelated endpoint or compact call.
-		if options.FinalModel == "" && !options.Compact && endpoint == CompositeRouteEndpointResponses {
-			switch {
-			case account.IsOpenCodeGo() || account.IsCommandCode():
-				endpoint = catalogProtocolEndpoint(modelRoutedNativeProtocol(account, binding.UpstreamModel))
-			case account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock():
-				endpoint = CompositeRouteEndpointMessages
-			case account.IsOpenAICompatible() && shouldForwardOpenAIResponsesViaRawChatCompletions(account):
-				endpoint = CompositeRouteEndpointChatCompletions
-			}
-		}
-		if options.FinalModel == "" && endpoint == CompositeRouteEndpointChatCompletions && (account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock()) {
-			endpoint = CompositeRouteEndpointMessages
-		}
-		if endpoint == CompositeRouteEndpointGemini {
-			endpoint = "generate_content"
-		}
-		if account.Platform == PlatformAntigravity && endpoint == CompositeRouteEndpointMessages && options.FinalModel == "" {
-			endpoint = "generate_content"
-		}
-		if endpoint == CompositeRouteEndpointCountTokens {
-			endpoint = CompositeRouteEndpointMessages
-		}
-		var implemented []string
-		if account.modelCatalogReadEvidence != nil {
-			implemented = account.modelCatalogReadEvidence.implemented[binding.UpstreamModel][memberIndex]
-		} else {
-			implemented = accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
-		}
-		executable := false
-		for _, action := range implemented {
-			if catalogEndpointsContain(member.Endpoints, action) && (endpoint == "" || endpoint == CompositeRouteEndpointAny || catalogEndpointsContain([]string{action}, endpoint)) {
-				executable = true
-				break
-			}
-		}
+		executable := memoizedAccountBindingEndpoint(ctx, account, binding.UpstreamModel, options, memberIndex, member)
 		if !executable {
 			continue
 		}
@@ -502,4 +418,101 @@ func catalogEndpointsContain(endpoints []string, endpoint string) bool {
 		}
 	}
 	return false
+}
+
+func computeAccountBindingModel(ctx context.Context, account *Account, model string, options AccountModelBindingOptions) (string, bool) {
+	if options.FinalModel != "" {
+		model = options.FinalModel
+	} else {
+		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
+		_, matched := account.ResolveMappedModel(model)
+		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !account.IsOpenAIPassthroughEnabled() && options.MessagesDispatchModel == "" {
+			return "", false
+		}
+		switch {
+		case account.IsBedrock():
+			var ok bool
+			model, ok = ResolveBedrockModelID(account, model)
+			if !ok {
+				return "", false
+			}
+		case account.Platform == PlatformAntigravity:
+			if variantResolved {
+				model = variant
+			} else {
+				model = mapAntigravityModel(account, model)
+			}
+			if thinking, ok := ThinkingEnabledFromContext(ctx); ok {
+				model = applyThinkingModelSuffix(model, thinking)
+			}
+		case account.Platform == PlatformOpenAI:
+			if !account.IsOpenAIPassthroughEnabled() {
+				model = resolveOpenAIForwardModel(account, model, options.MessagesDispatchModel)
+			}
+			if options.Compact {
+				model = resolveOpenAICompactForwardModel(account, model)
+			}
+			model = normalizeOpenAIModelForUpstream(account, model)
+		default:
+			model = account.GetMappedModel(model)
+			if account.Platform == PlatformDeepseek {
+				model = normalizeOpenAIModelForUpstream(account, model)
+			}
+			if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+				model = claude.NormalizeModelID(model)
+				if account.Type == AccountTypeServiceAccount {
+					model = normalizeVertexAnthropicModelID(model)
+				}
+			}
+			if account.IsGemini() {
+				model = strings.TrimPrefix(model, "models/")
+			}
+		}
+	}
+	return model, true
+}
+
+func computeAccountBindingEndpoint(account *Account, model string, options AccountModelBindingOptions, memberIndex int, member AccountCatalogModel) bool {
+	endpoint := options.Endpoint
+	if endpoint == "realtime" {
+		endpoint = string(OpenAIEndpointCapabilityLive)
+	}
+	// Reuse the actual Responses bridge decision; native chat evidence can
+	// support that adapter, but never an unrelated endpoint or compact call.
+	if options.FinalModel == "" && !options.Compact && endpoint == CompositeRouteEndpointResponses {
+		switch {
+		case account.IsOpenCodeGo() || account.IsCommandCode():
+			endpoint = catalogProtocolEndpoint(modelRoutedNativeProtocol(account, model))
+		case account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock():
+			endpoint = CompositeRouteEndpointMessages
+		case account.IsOpenAICompatible() && shouldForwardOpenAIResponsesViaRawChatCompletions(account):
+			endpoint = CompositeRouteEndpointChatCompletions
+		}
+	}
+	if options.FinalModel == "" && endpoint == CompositeRouteEndpointChatCompletions && (account.IsAnthropicProtocol() || account.IsAnthropic() || account.IsBedrock()) {
+		endpoint = CompositeRouteEndpointMessages
+	}
+	if endpoint == CompositeRouteEndpointGemini {
+		endpoint = "generate_content"
+	}
+	if account.Platform == PlatformAntigravity && endpoint == CompositeRouteEndpointMessages && options.FinalModel == "" {
+		endpoint = "generate_content"
+	}
+	if endpoint == CompositeRouteEndpointCountTokens {
+		endpoint = CompositeRouteEndpointMessages
+	}
+	var implemented []string
+	if account.modelCatalogReadEvidence != nil {
+		implemented = account.modelCatalogReadEvidence.implemented[model][memberIndex]
+	} else {
+		implemented = accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+	}
+	executable := false
+	for _, action := range implemented {
+		if catalogEndpointsContain(member.Endpoints, action) && (endpoint == "" || endpoint == CompositeRouteEndpointAny || catalogEndpointsContain([]string{action}, endpoint)) {
+			executable = true
+			break
+		}
+	}
+	return executable
 }

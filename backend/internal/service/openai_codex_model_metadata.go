@@ -3,7 +3,6 @@ package service
 import (
 	"bytes"
 	"encoding/json"
-	"net/url"
 	"strings"
 )
 
@@ -60,7 +59,7 @@ func accountCodexToolCapabilities(account *Account, modelID string) map[string]j
 	if baseURL == "" {
 		baseURL = account.GetOpenAIBaseURL()
 	}
-	parsed, err := url.Parse(baseURL)
+	parsed, err := account.parsedBaseURL(baseURL)
 	official := err == nil && (strings.EqualFold(parsed.Hostname(), "api.openai.com") ||
 		(account.IsOpenAIOAuth() && strings.EqualFold(parsed.Hostname(), "chatgpt.com")))
 	if account.IsOpenAI() && isOpenAIGPT6AstraModel(modelID) && official {

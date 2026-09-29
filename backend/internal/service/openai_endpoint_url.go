@@ -7,15 +7,25 @@ import (
 
 func buildOpenAIEndpointURL(base string, endpoint string) string {
 	normalized := strings.TrimSpace(base)
+	parsed, err := url.Parse(normalized)
+	return buildOpenAIEndpointURLFromParsed(normalized, endpoint, parsed, err)
+}
+
+func (account *Account) buildOpenAIEndpointURL(base, endpoint string) string {
+	normalized := strings.TrimSpace(base)
+	parsed, err := account.parsedBaseURL(normalized)
+	return buildOpenAIEndpointURLFromParsed(normalized, endpoint, parsed, err)
+}
+
+func buildOpenAIEndpointURLFromParsed(normalized, endpoint string, parsed *url.URL, err error) string {
 	endpoint = "/" + strings.TrimLeft(strings.TrimSpace(endpoint), "/")
 	relative := strings.TrimPrefix(endpoint, "/v1")
-	parsed, err := url.Parse(normalized)
 	if err != nil {
 		return strings.TrimRight(normalized, "/") + endpoint
 	}
 	path := strings.TrimRight(parsed.Path, "/")
 	if !strings.HasSuffix(path, endpoint) && !strings.HasSuffix(path, relative) {
-		if openAIBaseURLHasVersionSuffix(path) {
+		if openAIEndpointPathHasVersionSuffix(path) {
 			path += relative
 		} else {
 			path += endpoint
@@ -25,6 +35,13 @@ func buildOpenAIEndpointURL(base string, endpoint string) string {
 	parsed.RawPath = ""
 	parsed.Fragment = ""
 	return parsed.String()
+}
+
+// The endpoint builder already has a parsed path; parsing it as a URL again
+// only allocates and cannot provide a scheme or authority.
+func openAIEndpointPathHasVersionSuffix(path string) bool {
+	slash := strings.LastIndex(path, "/")
+	return slash >= 0 && isOpenAIAPIVersionSegment(path[slash+1:])
 }
 
 func buildOpenAIResponsesInputTokensURL(base string) string {

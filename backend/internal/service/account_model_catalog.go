@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"reflect"
 	"slices"
 	"sort"
@@ -255,7 +254,7 @@ func accountCatalogScope(account *Account) (string, string) {
 	if account.IsOpenAIOAuth() || (account.IsCursor() && account.Type != AccountTypeUpstream) || (account.Platform == PlatformAntigravity && account.Type == AccountTypeOAuth) {
 		return "account", profile
 	}
-	parsed, _ := url.Parse(upstreamModelRegistryBaseURL(account))
+	parsed, _ := account.parsedBaseURL(upstreamModelRegistryBaseURL(account))
 	if parsed != nil {
 		for _, host := range []string{"api.openai.com", "api.anthropic.com", "generativelanguage.googleapis.com", "api.deepseek.com", "api.x.ai", "api.moonshot.cn", "api.moonshot.ai", "api.kimi.com", "open.bigmodel.cn", "api.minimax.io", "api.minimaxi.com", "opencode.ai"} {
 			if strings.EqualFold(parsed.Hostname(), host) {
@@ -302,7 +301,7 @@ func projectAccountModelCatalog(account *Account, catalog *UpstreamModelCatalog)
 		}
 		endpoints := accountCatalogModelEndpoints(account, modelID, catalog.Metadata[modelID])
 		if account.Platform == PlatformQianwen && IsRetiredQianwenModel(modelID) {
-			endpoint, _ := url.Parse(upstreamModelRegistryBaseURL(account))
+			endpoint, _ := account.parsedBaseURL(upstreamModelRegistryBaseURL(account))
 			if endpoint != nil && (strings.HasPrefix(endpoint.Hostname(), "dashscope") || endpoint.Hostname() == "batch.dashscope.aliyuncs.com") && strings.HasSuffix(endpoint.Hostname(), ".aliyuncs.com") {
 				reason = CatalogReasonRetired
 			}

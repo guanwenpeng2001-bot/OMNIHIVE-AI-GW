@@ -1165,6 +1165,10 @@ func modelRegistryHostname(raw string) string {
 
 func normalizeModelRegistryBaseURL(raw string) string {
 	parsed, err := url.Parse(strings.TrimSpace(raw))
+	return normalizeParsedModelRegistryBaseURL(parsed, err)
+}
+
+func normalizeParsedModelRegistryBaseURL(parsed *url.URL, err error) string {
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return ""
 	}

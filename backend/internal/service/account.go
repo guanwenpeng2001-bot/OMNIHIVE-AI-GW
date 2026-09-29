@@ -6,7 +6,6 @@ import (
 	"errors"
 	"hash/fnv"
 	"log/slog"
-	"net/url"
 	"reflect"
 	"sort"
 	"strconv"
@@ -71,6 +70,7 @@ type Account struct {
 	// Request-local credential owner evidence, never persisted or serialized.
 	modelCatalogCredentialAccount *Account
 	modelCatalogReadEvidence      *catalogReadEvidence
+	baseURLMemo                   *accountBaseURLMemo
 
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
@@ -1833,7 +1833,7 @@ func (a *Account) GetGrokBaseURLOr(defaultBaseURL string) string {
 	if validated, err := xai.ValidateTrustedBaseURL(baseURL); err == nil {
 		return validated
 	}
-	if parsed, err := url.Parse(baseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" &&
+	if parsed, err := a.parsedBaseURL(baseURL); err == nil && parsed.Scheme != "" && parsed.Host != "" &&
 		parsed.User == nil && parsed.RawQuery == "" && parsed.Fragment == "" {
 		return strings.TrimRight(baseURL, "/")
 	}

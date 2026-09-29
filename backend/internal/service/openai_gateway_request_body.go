@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
-	"net/url"
 	"strings"
 	"unicode/utf8"
 
@@ -60,6 +59,14 @@ func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
 		return buildOpenAIEndpointURL(base, "/responses")
 	}
 	return buildOpenAIResponsesURL(base)
+}
+
+func (account *Account) buildOpenAIResponsesURL(base string) string {
+	endpoint := "/v1/responses"
+	if account.Platform == PlatformDeepseek {
+		endpoint = "/responses"
+	}
+	return account.buildOpenAIEndpointURL(base, endpoint)
 }
 
 func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account) bool {
@@ -201,7 +208,7 @@ func shouldAliasDeepSeekResponsesInputImages(account *Account) bool {
 	if account.Platform == PlatformDeepseek {
 		return account.UsesNativeCNResponses()
 	}
-	upstreamURL, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
+	upstreamURL, err := account.parsedBaseURL(strings.TrimSpace(account.GetOpenAIBaseURL()))
 	if err != nil {
 		return false
 	}
