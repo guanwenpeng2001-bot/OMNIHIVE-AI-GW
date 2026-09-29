@@ -178,3 +178,22 @@ describe('account availability declarations', () => {
     wrapper.unmount()
   })
 })
+
+
+it('folds a declaration draft without reading again or losing its fields', async () => {
+  const wrapper = mountEditor()
+  await fill(wrapper)
+  const details = wrapper.get<HTMLDetailsElement>('[data-testid="availability-management"]')
+  details.element.open = true
+  await details.trigger('toggle')
+  details.element.open = false
+  await details.trigger('toggle')
+  details.element.open = true
+  await details.trigger('toggle')
+  expect(wrapper.get<HTMLInputElement>('[data-testid="availability-model"]').element.value).toBe('private-target')
+  expect(wrapper.get<HTMLTextAreaElement>('[data-testid="availability-reason"]').element.value).toBe('deployment owner verified')
+  expect(api.get).toHaveBeenCalledTimes(1)
+  expect(api.declare).not.toHaveBeenCalled()
+  expect(api.revoke).not.toHaveBeenCalled()
+  wrapper.unmount()
+})

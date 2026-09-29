@@ -101,6 +101,11 @@ async function confirm() {
   }
 }
 
+const declarationStatuses = computed(() => ['valid', 'invalid', 'expired', 'revoked'].map(statusName => ({
+  status: statusName,
+  count: state.value?.declarations.filter(declaration => status(declaration) === statusName).length ?? 0
+})).filter(entry => entry.count > 0))
+
 function status(declaration: ModelAvailabilityDeclaration) {
   if (declaration.revoked_at) return 'revoked'
   if (declaration.expires_at && new Date(declaration.expires_at).getTime() <= Date.now()) return 'expired'
@@ -110,12 +115,18 @@ function status(declaration: ModelAvailabilityDeclaration) {
 
 <template>
   <section class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="model-availability-editor">
-    <h3 class="font-medium">{{ t('admin.accounts.modelAvailability.title') }}</h3>
-    <p class="input-hint">{{ t('admin.accounts.modelAvailability.hint') }}</p>
     <p v-if="configurationDirty" role="status">{{ t('admin.accounts.modelSync.saveBeforePreview') }}</p>
-    <button type="button" class="btn btn-secondary" data-testid="load-availability" :disabled="!active || configurationDirty || busy" @click="load">{{ t('admin.accounts.modelAvailability.load') }}</button>
     <p v-if="busy" role="status">{{ t('common.loading') }}</p>
     <p v-if="errorKey" role="alert">{{ t(`admin.accounts.modelAvailability.${errorKey}`) }}</p>
+    <ul v-if="state" class="space-y-1 text-sm" data-testid="availability-status-summary">
+      <li v-for="entry in declarationStatuses" :key="entry.status">
+        {{ t('admin.accounts.modelAvailability.statusCount', { status: t(`admin.accounts.modelAvailability.${entry.status}`), count: entry.count }) }}
+      </li>
+    </ul>
+    <details :open="!!errorKey || !validExpiry || undefined" class="space-y-3" data-testid="availability-management">
+      <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.modelAvailability.title') }}</summary>
+    <p class="input-hint">{{ t('admin.accounts.modelAvailability.hint') }}</p>
+    <button type="button" class="btn btn-secondary" data-testid="load-availability" :disabled="!active || configurationDirty || busy" @click="load">{{ t('admin.accounts.modelAvailability.load') }}</button>
     <div v-if="opened && state" class="space-y-3">
       <p v-if="!state.declarations.length" role="status">{{ t('admin.accounts.modelAvailability.empty') }}</p>
       <label :for="`${fieldId}-reason`" class="input-label">{{ t('admin.accounts.modelAvailability.reason') }}</label>
@@ -141,6 +152,7 @@ function status(declaration: ModelAvailabilityDeclaration) {
       <p :id="`${fieldId}-expiry-hint`" class="input-hint">{{ t('admin.accounts.modelAvailability.expiryHint') }}</p>
       <button type="button" class="btn btn-primary" data-testid="declare-availability" :disabled="!canDeclare" @click="prepare('declare')">{{ t('admin.accounts.modelAvailability.declare') }}</button>
     </div>
+    </details>
     <ConfirmDialog :show="!!pending" :title="t('admin.accounts.modelAvailability.confirmTitle')" :message="t('admin.accounts.modelAvailability.confirmHint')" @confirm="confirm" @cancel="pending = null">
       <div v-if="pending" class="space-y-2 break-words" data-testid="availability-confirmation">
         <p>{{ t(`admin.accounts.modelAvailability.${pending.action}`) }} · #{{ accountId }}</p>

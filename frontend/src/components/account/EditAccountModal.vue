@@ -1,7 +1,7 @@
 <template>
   <BaseDialog
     :show="show"
-    :title="t('admin.accounts.editAccount')"
+    :title="`${t('admin.accounts.editAccount')}${account ? ` · ${account.name}` : ''}`"
     width="wide"
     @close="handleClose"
   >
@@ -11,9 +11,13 @@
     <form
       v-if="account"
       id="edit-account-form"
+      ref="accountForm"
+      @invalid.capture="revealInvalidField"
       @submit.prevent="handleSubmit()"
       class="space-y-5"
     >
+      <section class="space-y-4" data-testid="account-basic-settings">
+      <h3 class="font-medium">{{ t('admin.accounts.editSections.basic') }}</h3>
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -29,6 +33,99 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div>
+          <label class="input-label">{{ t('common.status') }}</label>
+          <Select v-model="form.status" :options="statusOptions" />
+        </div>
+
+        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
+        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
+          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
+            <input
+              type="checkbox"
+              v-model="mixedScheduling"
+              disabled
+              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+            />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.mixedScheduling') }}
+            </span>
+          </label>
+          <div class="group relative">
+            <span
+              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+            >
+              ?
+            </span>
+            <!-- Tooltip（向下显示避免被弹窗裁剪） -->
+            <div
+              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
+            >
+              {{ t('admin.accounts.mixedSchedulingTooltip') }}
+              <div
+                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
+              ></div>
+            </div>
+          </div>
+        </div>
+        <div v-if="account?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
+          <label class="flex cursor-pointer items-center gap-2">
+            <input
+              type="checkbox"
+              v-model="allowOverages"
+              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
+            />
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+              {{ t('admin.accounts.allowOverages') }}
+            </span>
+          </label>
+          <div class="group relative">
+            <span
+              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
+            >
+              ?
+            </span>
+            <div
+              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
+            >
+              {{ t('admin.accounts.allowOveragesTooltip') }}
+              <div
+                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
+              ></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Group Selection - 仅标准模式显示 -->
+      <GroupSelector
+        v-model="form.group_ids"
+        :groups="selectableGroups"
+        :platform="account?.platform"
+        :mixed-scheduling="mixedScheduling"
+        data-tour="account-form-groups"
+      />
+
+      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
+        <input v-model="expiresAtInput" type="datetime-local" class="input" />
+        <div class="mt-2 flex gap-2">
+          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(1)">
+            {{ t('payment.oneMonth') }}
+          </button>
+          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(12)">
+            {{ t('payment.oneYear') }}
+          </button>
+        </div>
+        <p class="input-hint">
+          {{ t('admin.accounts.expiresAtHint') }}
+          {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
+        </p>
+      </div>
+
+      <details class="space-y-4" data-testid="account-connection-settings">
+        <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.connection') }}</summary>
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -832,6 +929,9 @@
         <p class="input-hint">{{ t('admin.accounts.antigravityProjectIdHint') }}</p>
       </div>
 
+      </details>
+      <details class="space-y-4" data-testid="account-advanced-settings">
+        <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.advanced') }}</summary>
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
 
       <!-- Temp Unschedulable Rules -->
@@ -1127,23 +1227,6 @@
           </div>
         </div>
       </div>
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
-        <input v-model="expiresAtInput" type="datetime-local" class="input" />
-        <div class="mt-2 flex gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(1)">
-            {{ t('payment.oneMonth') }}
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(12)">
-            {{ t('payment.oneYear') }}
-          </button>
-        </div>
-        <p class="input-hint">
-          {{ t('admin.accounts.expiresAtHint') }}
-          {{ t('admin.accounts.expiresAtTimezoneHint', { timezone: browserTimeZone }) }}
-        </p>
-      </div>
-
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token' || account?.type === 'apikey')"
@@ -2299,88 +2382,20 @@
         </div>
       </div>
 
-      <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <div>
-          <label class="input-label">{{ t('common.status') }}</label>
-          <Select v-model="form.status" :options="statusOptions" />
-        </div>
-
-        <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
-        <div v-if="account?.platform === 'antigravity'" class="flex items-center gap-2">
-          <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
-            <input
-              type="checkbox"
-              v-model="mixedScheduling"
-              disabled
-              class="h-4 w-4 cursor-not-allowed rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-            />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.mixedScheduling') }}
-            </span>
-          </label>
-          <div class="group relative">
-            <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
-            >
-              ?
-            </span>
-            <!-- Tooltip（向下显示避免被弹窗裁剪） -->
-            <div
-              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-            >
-              {{ t('admin.accounts.mixedSchedulingTooltip') }}
-              <div
-                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
-              ></div>
-            </div>
-          </div>
-        </div>
-        <div v-if="account?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
-          <label class="flex cursor-pointer items-center gap-2">
-            <input
-              type="checkbox"
-              v-model="allowOverages"
-              class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
-            />
-            <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
-              {{ t('admin.accounts.allowOverages') }}
-            </span>
-          </label>
-          <div class="group relative">
-            <span
-              class="inline-flex h-4 w-4 cursor-help items-center justify-center rounded-full bg-gray-200 text-xs text-gray-500 hover:bg-gray-300 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500"
-            >
-              ?
-            </span>
-            <div
-              class="pointer-events-none absolute left-0 top-full z-[100] mt-1.5 w-72 rounded bg-gray-900 px-3 py-2 text-xs text-white opacity-0 transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-            >
-              {{ t('admin.accounts.allowOveragesTooltip') }}
-              <div
-                class="absolute bottom-full left-3 border-4 border-transparent border-b-gray-900 dark:border-b-gray-700"
-              ></div>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Group Selection - 仅标准模式显示 -->
-      <GroupSelector
-        v-model="form.group_ids"
-        :groups="selectableGroups"
-        :platform="account?.platform"
-        :mixed-scheduling="mixedScheduling"
-        data-tour="account-form-groups"
-      />
-
+      </details>
+      </section>
+      <p class="input-hint">{{ t('admin.accounts.editSections.independentSaves') }}</p>
+      <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
+        v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
+        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
+        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty">
+        <template #model-rules>
       <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
         :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
-      <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
-        v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
-        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
-        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" />
+        </template>
+      </AccountModelConfigurationSection>
       <AccountCredentialSecretSection
         v-if="account && !isSparkShadow"
         :account-id="account.id"
@@ -2422,7 +2437,7 @@
               d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
             ></path>
           </svg>
-          {{ submitting ? t('admin.accounts.updating') : t('common.update') }}
+          {{ submitting ? t('admin.accounts.updating') : t('admin.accounts.editSections.save') }}
         </button>
       </div>
     </template>
@@ -2565,6 +2580,45 @@ interface Props {
   proxies: Proxy[]
   groups: AdminGroup[]
 }
+
+const accountForm = ref<HTMLFormElement>()
+function revealField(target: HTMLElement) {
+  let ancestor = target.parentElement
+  let expanded = false
+  while (ancestor && ancestor !== accountForm.value) {
+    if (ancestor instanceof HTMLDetailsElement && !ancestor.open) {
+      ancestor.open = true
+      expanded = true
+    }
+    ancestor = ancestor.parentElement
+  }
+  if (expanded) {
+    if (!target.matches('input, textarea, select, button, [tabindex]')) target.tabIndex = -1
+    void nextTick(() => target.focus())
+  }
+}
+function revealSection(testId: string) {
+  const summary = accountForm.value?.querySelector<HTMLElement>(`[data-testid="${testId}"] > summary`)
+  if (summary) revealField(summary)
+}
+function revealInvalidField(event: Event) {
+  if (event.target instanceof HTMLElement) revealField(event.target)
+}
+watch(accountForm, (element, _previous, cleanup) => {
+  if (!element) return
+  const observedErrors = new WeakMap<HTMLElement, string>()
+  const revealErrors = () => {
+    element.querySelectorAll<HTMLElement>('[role="alert"], [aria-invalid]').forEach(target => {
+      const message = target.getAttribute('aria-invalid') === 'true' ? 'invalid' : target.getAttribute('role') === 'alert' ? target.textContent?.trim() || '' : ''
+      if (message && observedErrors.get(target) !== message) revealField(target)
+      observedErrors.set(target, message)
+    })
+  }
+  const observer = new MutationObserver(revealErrors)
+  observer.observe(element, { subtree: true, childList: true, characterData: true, attributes: true, attributeFilter: ['aria-invalid'] })
+  revealErrors()
+  cleanup(() => observer.disconnect())
+}, { flush: 'post' })
 
 const props = defineProps<Props>()
 const emit = defineEmits<{
@@ -4146,6 +4200,7 @@ const applyTempUnschedConfig = (credentials: Record<string, unknown>) => {
 
   const rules = buildTempUnschedRules(tempUnschedRules.value)
   if (rules.length === 0) {
+    revealSection('account-advanced-settings')
     appStore.showError(t('admin.accounts.tempUnschedulable.rulesInvalid'))
     return false
   }
@@ -4534,9 +4589,10 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 }
 
 const handleSubmit = async (confirmation?: { payload: string }) => {
+  accountForm.value?.querySelectorAll<HTMLElement>('[aria-invalid="true"]').forEach(revealField)
   if (!confirmation) antigravityMixedChannelConfirmed.value = false
   const restrictionErrors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
-  if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
+  if (restrictionErrors.length) { revealSection('model-selection'); revealSection('model-mappings'); appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (!props.account) return
   const accountID = props.account.id
 
@@ -4547,6 +4603,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
 	if (autoResetCreditEnabled.value) {
 		const thresholds = [autoResetCredit5hThreshold.value, autoResetCredit7dThreshold.value]
 		if (thresholds.some((value) => !Number.isFinite(value) || value < 0.1 || value > 100)) {
+			revealSection('account-advanced-settings')
 			appStore.showError(t('admin.accounts.autoResetCredit.thresholdInvalid'))
 			return
 		}
@@ -4631,7 +4688,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       if (editApiKey.value.trim()) {
         newCredentials.api_key = editApiKey.value.trim()
       } else if (!hasExistingApiKey) {
-        appStore.showError(t('admin.accounts.apiKeyIsRequired'))
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.apiKeyIsRequired'))
         return
       }
 
@@ -4686,7 +4743,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
         if (headerOverrideEnabled.value) {
           const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
           if (headerError) {
-            appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+            revealSection('account-connection-settings'); appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
             return
           }
         }
@@ -4725,15 +4782,15 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       if (!editVertexProjectId.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingProjectId'))
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.vertexSaJsonMissingProjectId'))
         return
       }
       if (!editVertexClientEmail.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexSaJsonMissingClientEmail'))
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.vertexSaJsonMissingClientEmail'))
         return
       }
       if (!editVertexLocation.value.trim()) {
-        appStore.showError(t('admin.accounts.vertexLocationRequired'))
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.vertexLocationRequired'))
         return
       }
 
@@ -4746,7 +4803,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
           )
         : Boolean(currentCredentials.service_account_json || currentCredentials.service_account)
       if (!hasExistingServiceAccountJson) {
-        appStore.showError(t('admin.accounts.vertexSaJsonRequired'))
+        revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.vertexSaJsonRequired'))
         return
       }
       newCredentials.project_id = editVertexProjectId.value.trim()
@@ -4873,11 +4930,11 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       if (grokOAuthCustomBaseUrlEnabled.value) {
         const trimmedBaseUrl = grokOAuthBaseUrl.value.trim()
         if (!trimmedBaseUrl) {
-          appStore.showError(t('admin.accounts.grokCustomBaseUrl.required'))
+          revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.grokCustomBaseUrl.required'))
           return
         }
         if (!/^https?:\/\//i.test(trimmedBaseUrl)) {
-          appStore.showError(t('admin.accounts.grokCustomBaseUrl.invalid'))
+          revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.grokCustomBaseUrl.invalid'))
           return
         }
         newCredentials.base_url = trimmedBaseUrl
@@ -4888,7 +4945,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       if (headerOverrideEnabled.value) {
         const headerError = validateHeaderOverrideRows(headerOverrideRows.value)
         if (headerError) {
-          appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
+          revealSection('account-connection-settings'); appStore.showError(t(`admin.accounts.headerOverride.${headerError}`))
           return
         }
       }
@@ -4945,11 +5002,11 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
       if (isCursorRelay.value) {
-        if (!editBaseUrl.value.trim()) { appStore.showError(t('admin.accounts.baseUrlRequired')); return }
+        if (!editBaseUrl.value.trim()) { revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.baseUrlRequired')); return }
         // 保存前先按 builder 的合同预校验存量协议：非空非法值在用户明确改选前不发任何请求，
         // 只改名称也不会静默换协议；builder 自身的拒绝只作为绕过此处的兜底。
         if (selectedCursorRelayProtocol.value === null && resolveCursorRelayProtocol(cursorStoredRelayProtocol.value) === null) {
-          appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: cursorStoredRelayProtocolLabel.value }))
+          revealSection('account-connection-settings'); appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: cursorStoredRelayProtocolLabel.value }))
           return
         }
       }
@@ -4968,7 +5025,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       if (mapping) cursorCredentials.model_mapping = mapping
       if (cursorKeyMode.value === 'relay') {
         const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
-        if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
+        if (headerError) { revealSection('account-connection-settings'); appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
         applyHeaderOverride(cursorCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'edit')
       }
       // Cursor rebuilds credentials instead of spreading them; retain an unchanged override.

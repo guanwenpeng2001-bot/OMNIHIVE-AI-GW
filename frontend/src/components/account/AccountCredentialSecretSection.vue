@@ -142,8 +142,11 @@ async function confirm() {
     <p v-if="busy" role="status">{{ t('common.loading') }}</p>
     <p v-if="errorKey" role="alert">{{ t(`admin.accounts.credentialSecret.${errorKey}`) }}</p>
 
+    <p v-if="inline && !busy" role="status">{{ t('admin.accounts.credentialSecret.inlineState') }}</p>
+    <p v-if="metadata" role="status" data-testid="credential-secret-state">{{ t(revoked ? 'admin.accounts.credentialSecret.revokedState' : 'admin.accounts.credentialSecret.referenceState') }}</p>
+    <details :open="!!rotateError || undefined" class="space-y-3" data-testid="credential-secret-management">
+      <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.credentials') }}</summary>
     <div v-if="inline && !busy" class="space-y-2" data-testid="credential-secret-inline">
-      <p role="status">{{ t('admin.accounts.credentialSecret.inlineState') }}</p>
       <p v-if="!accountRevision" role="status" data-testid="credential-secret-revision-missing">
         {{ t('admin.accounts.credentialSecret.revisionUnavailable') }}
       </p>
@@ -180,6 +183,7 @@ async function confirm() {
       </template>
     </div>
 
+    </details>
     <ConfirmDialog
       :show="!!pending"
       :title="t('admin.accounts.credentialSecret.confirmTitle')"

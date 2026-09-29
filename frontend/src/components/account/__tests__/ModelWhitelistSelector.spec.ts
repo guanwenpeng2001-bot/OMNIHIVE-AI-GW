@@ -38,9 +38,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => realLocale
-        ? key.split('.').reduce((value: any, part) => value?.[part], realLocale === 'en' ? en : zh) ?? key
-        : (key === 'common.copy' ? '复制' : key)
+      t: (key: string, params?: Record<string, unknown>) => { const message = realLocale ? key.split('.').reduce((value: any, part) => value?.[part], realLocale === 'en' ? en : zh) ?? key : (key === 'common.copy' ? '复制' : key); return Object.entries(params ?? {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), message) }
     })
   }
 })
@@ -925,4 +923,32 @@ it.each([51, 505, 1000])('groups %s candidates and selections and selects all fi
   expect(emitted).toHaveLength(count)
   expect(new Set(emitted).size).toBe(count)
   wrapper.unmount()
+})
+
+
+it.each(['zh', 'en'] as const)('labels candidate progress and keeps the folded search draft in %s', async locale => {
+  realLocale = locale
+  getAvailableModels.mockResolvedValueOnce(Array.from({ length: 1000 }, (_, index) => ({ id: `provider/model-${index}` })))
+  const wrapper = mountSelector({ accountId: 89 })
+  await flushPromises()
+  const reads = getAvailableModels.mock.calls.length
+  const details = wrapper.get<HTMLDetailsElement>('[data-testid="model-selection"]')
+  expect(details.element.open).toBe(false)
+  await wrapper.get('button[aria-expanded]').trigger('click')
+  const progress = () => wrapper.findAll('[role="status"]').map(status => status.text()).filter(text => /候选|candidates/.test(text))
+  expect(progress()).toEqual([locale === 'zh' ? '显示 100 个候选，共 1002 个匹配结果' : 'Showing 100 candidates out of 1002 matches'])
+  await wrapper.get('[data-testid="model-options-more"]').trigger('click')
+  expect(progress()).toEqual([locale === 'zh' ? '显示 200 个候选，共 1002 个匹配结果' : 'Showing 200 candidates out of 1002 matches'])
+  const search = wrapper.get<HTMLInputElement>('input[placeholder]')
+  await search.setValue('provider/model-9')
+  details.element.open = true
+  await details.trigger('toggle')
+  details.element.open = false
+  await details.trigger('toggle')
+  details.element.open = true
+  await details.trigger('toggle')
+  expect(search.element.value).toBe('provider/model-9')
+  expect(getAvailableModels).toHaveBeenCalledTimes(reads)
+  wrapper.unmount()
+  realLocale = null
 })

@@ -44,6 +44,19 @@
       <p v-if="!modelValue.length" class="text-xs text-secondary">{{ t('admin.accounts.supportsAllModels') }}</p>
       <p class="text-xs text-secondary">{{ t(accountId ? 'admin.accounts.modelSync.selectionPendingSave' : 'admin.accounts.modelSync.selectionPendingCreate') }}</p>
     </div>
+    <p v-if="catalogState === 'idle' && accountId" role="status" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.unknown') }}</p>
+    <p v-if="catalogState !== 'idle'" role="status" class="mb-2 text-sm text-secondary">{{ t(`admin.accounts.modelCatalog.${catalogState}`) }}</p>
+    <button v-if="catalogState === 'failed' || catalogState === 'stale'" type="button" @click="accountId ? loadCatalog() : syncUpstreamModels()">{{ t('common.tryAgain') }}</button>
+
+    <p v-if="syncError" role="alert" class="mb-2 text-sm">{{ syncError }}</p>
+    <p v-if="syncResult && needsPreview" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.previewCandidates') }}</p>
+    <p v-if="previewDisabledReason && canSyncUpstream" :id="previewReasonId" class="mb-2 text-sm text-secondary">{{ previewDisabledReason }}</p>
+    <p v-if="configurationDirty && accountId" :id="dirtyReasonId" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.saveBeforePreview') }}</p>
+
+    <p v-if="accountId && capabilityDefaultsDirty" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.selectionPendingSave') }}</p>
+
+    <details v-if="!catalogOnly" class="mb-3 space-y-3" data-testid="model-selection">
+      <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.selection') }}</summary>
     <!-- Multi-select Dropdown -->
     <div v-if="!catalogOnly" class="mb-3">
       <div
@@ -96,7 +109,7 @@
           />
         </div>
         <div v-if="filteredModels.length > 100" class="flex items-center gap-2 p-2">
-          <span role="status">{{ Math.min(optionLimit, filteredModels.length) }} / {{ filteredModels.length }}</span>
+          <span role="status">{{ t('capabilityCatalog.candidateProgress', { shown: Math.min(optionLimit, filteredModels.length), matched: filteredModels.length }) }}</span>
           <button v-if="optionLimit < filteredModels.length" type="button" data-testid="model-options-more" class="btn btn-secondary" @click="optionLimit += 100">{{ t('capabilityCatalog.more') }}</button>
         </div>
         <button type="button" data-testid="select-filtered-models" class="btn btn-secondary m-2" :disabled="!filteredModels.length" @click="selectFilteredModels">{{ t('capabilityCatalog.selectFiltered') }}</button>
@@ -150,16 +163,6 @@
       </div>
     </div>
 
-    <p v-if="catalogState !== 'idle'" role="status" class="mb-2 text-sm text-secondary">{{ t(`admin.accounts.modelCatalog.${catalogState}`) }}</p>
-    <button v-if="catalogState === 'failed' || catalogState === 'stale'" type="button" @click="accountId ? loadCatalog() : syncUpstreamModels()">{{ t('common.tryAgain') }}</button>
-
-    <p v-if="syncError" role="alert" class="mb-2 text-sm">{{ syncError }}</p>
-    <p v-if="syncResult && needsPreview" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.previewCandidates') }}</p>
-    <p v-if="previewDisabledReason && canSyncUpstream" :id="previewReasonId" class="mb-2 text-sm text-secondary">{{ previewDisabledReason }}</p>
-    <p v-if="configurationDirty && accountId" :id="dirtyReasonId" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.saveBeforePreview') }}</p>
-
-    <p v-if="accountId && capabilityDefaultsDirty" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.selectionPendingSave') }}</p>
-
     <!-- Custom Model Input -->
     <div v-if="!catalogOnly" class="mb-3">
       <label :for="customModelId" class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.customModelName') }}</label>
@@ -184,6 +187,7 @@
         </button>
       </div>
     </div>
+    </details>
     <details v-if="accountId && catalogSummary?.synced" class="mb-3 rounded border p-3" data-testid="catalog-allowlist">
       <summary>{{ t('admin.accounts.modelSync.allowlistTitle') }}</summary>
       <p class="input-hint">{{ t('admin.accounts.modelSync.allowlistHint') }}</p>
@@ -193,7 +197,6 @@
       <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :disabled="!active || configurationDirty || allowlistBusy || !allowlistReason.trim() || (allowlistEnabled && !allowlistModels.trim())" @click="saveAllowlist">{{ t('common.save') }}</button>
     </details>
     <section v-if="syncResult" class="mb-3 space-y-2" data-testid="snapshot-actions">
-      <p role="status">{{ t('admin.accounts.modelSync.previewCount', { count: previewModels.length }) }}</p>
       <button v-if="accountId && syncResult && !syncResult.applied" type="button" data-testid="apply-model-snapshot"
         :disabled="!canApplySnapshot" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" @click="confirmSnapshot = true"
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 dark:text-emerald-300">
