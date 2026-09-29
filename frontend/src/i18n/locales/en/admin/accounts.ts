@@ -890,7 +890,7 @@ export default {
       mapRequestModels:
         'Map request models to actual models. Left is the requested model, right is the actual model sent to API.',
       selectedModels: 'Selected {count} model(s)',
-      supportsAllModels: 'No account restriction; support requires verified account evidence',
+      supportsAllModels: 'No exact models added; the actual scope is still subject to mappings and other restrictions',
       requestModel: 'Request model',
       actualModel: 'Actual model',
       addMapping: 'Add Mapping',

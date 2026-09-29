@@ -7,6 +7,8 @@ export default {
   binding: 'confirmed_by、confirmed_at 和身份信息由服务端生成。账号身份变化后，核验部署规格并移除旧 identity_fingerprint，再预览和保存以重新确认。reasoning_control.kind 支持 none / effort / toggle / budget / adaptive / fixed / unknown；仅填写实际支持的控制形式。'
 },
   capabilityCatalog: {
+  countSummary: "上游发现 {discovered} 个模型 · 映射目标 {mapped} 个 · 合并目录 {merged} 个 · 符合路由条件 {eligible} 个",
+  eligibilityHint: "能力资料完整不等于符合路由条件，符合条件也不保证实际调用成功。",
   progress: "显示 {shown} 个模型，共 {matched} 个匹配结果",
   candidateProgress: "显示 {shown} 个候选，共 {matched} 个匹配结果",
   coverageSummary: "资料完整 {complete} 个模型，共 {total} 个；仅有估计依据 {estimated} 个；资料不完整或未提供 {incomplete} 个模型",

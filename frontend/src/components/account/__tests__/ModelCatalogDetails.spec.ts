@@ -22,7 +22,7 @@ describe('model catalog evidence display', () => {
       complete: false, models: [],
     } } })
     expect(wrapper.text()).not.toContain('admin.accounts.modelSync.incomplete')
-    expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('E 1')
+    expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('符合路由条件 1 个')
     expect(wrapper.get('[data-testid="capability-state"]').text()).toBe(status === 'complete' ? zh.capabilityCatalog.complete : status === 'estimated' ? zh.capabilityCatalog.estimated : zh.capabilityCatalog.partial)
     wrapper.unmount()
   })
@@ -195,7 +195,7 @@ it.each([534, 1000])('bounds a %s model capability catalog and opens field evide
     }]))
   } as any
   const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 5, mappingTargets: [discovered[0]!, 'mapping-only', '*'], result } })
-  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain(`D ${count} · M 2 · U ${count + 1} · E 12`)
+  expect(wrapper.get('[data-testid="catalog-diagnostics"]').text()).toContain(`D ${count} · M 2 · U ${count + 1} · E 12`)
   expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(50)
   expect(wrapper.findAll('[data-testid="capability-fields"]')).toHaveLength(0)
   await wrapper.get('[data-testid="capability-search"]').setValue(discovered[count - 1])
@@ -293,5 +293,58 @@ it.each([0, 2, 27, 100, 1000])('labels progress once for %i models and preserves
     expect(wrapper.get('[data-testid="capability-progress"]').text()).toBe('显示 1 个模型，共 1 个匹配结果')
     expect(wrapper.get('[data-testid="capability-row"] summary').text()).toContain('provider/model-0')
   } else expect(wrapper.find('[data-testid="capability-progress"]').exists()).toBe(false)
+  wrapper.unmount()
+})
+
+
+it.each(['zh', 'en'] as const)('keeps count notation inside diagnostics with unchanged preview and saved counts (%s)', async locale => {
+  testLocale.value = locale
+  const messages = locale === 'zh' ? zh : en
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 20, mappingTargets: ['shared', 'mapped', 'mapped', '*'], result: {
+    models: ['shared'], discovered_models: ['shared', 'native', 'native']
+  } } })
+  const assertCounts = (discovered: number, mapped: number | string, merged: number | string, eligible: number | string) => {
+    const main = wrapper.get('[data-testid="capability-sets"]').text()
+    const expected = Object.entries({ discovered, mapped, merged, eligible }).reduce((text, [key, value]) => text.replaceAll(`{${key}}`, String(value)), messages.capabilityCatalog.countSummary)
+    expect(main).toContain(expected)
+    const mainContent = wrapper.element.cloneNode(true) as HTMLElement
+    mainContent.querySelectorAll('details').forEach(element => element.remove())
+    expect(mainContent.textContent).not.toMatch(/\b[DMEU]\b|∪/)
+    const diagnostics = wrapper.get<HTMLDetailsElement>('[data-testid="catalog-diagnostics"]')
+    expect(diagnostics.element.open).toBe(false)
+    expect(diagnostics.text()).toContain(`D ${discovered} · M ${mapped} · U ${merged} · E ${eligible}`)
+    expect(diagnostics.text()).toContain(messages.capabilityCatalog.setsHint)
+  }
+  assertCounts(2, 2, 3, 1)
+  const coverage = wrapper.get('[data-testid="capability-sets"]').findAll('p').at(-1)!.text()
+  await wrapper.setProps({ stale: true })
+  assertCounts(2, 2, 3, '—')
+  expect(wrapper.get('[data-testid="capability-sets"]').findAll('p').at(-1)!.text()).toBe(coverage)
+  await wrapper.setProps({ result: null, summary: { ...nonempty, snapshot: { ...nonempty.snapshot, capability_summary: { mapping_targets: 51, total: 53, complete: 40, estimated: 3, incomplete: 10 } } } as AccountModelCatalogDetails })
+  assertCounts(2, 51, 53, '—')
+  expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain(locale === 'zh' ? '资料完整 40 个模型，共 53 个' : 'Complete information for 40 of 53 models')
+  await wrapper.setProps({ stale: false })
+  assertCounts(2, 51, 53, 1)
+  await wrapper.setProps({ summary: nonempty })
+  assertCounts(2, '—', '—', 1)
+  wrapper.unmount()
+})
+
+it('shows each identity reason once while preserving distinct warnings and errors', async () => {
+  const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 2, summary: {
+    ...identityInvalid, warnings: ['identity_changed', 'stale_evidence', 'identity_changed'], last_error: 'provider_unavailable'
+  } as AccountModelCatalogDetails } })
+  const occurrences = (reason: string) => wrapper.findAll('p').filter(row => row.text() === `admin.accounts.modelSync.reasons.${reason}`).length
+  expect(occurrences('identity_changed')).toBe(1)
+  expect(occurrences('stale_evidence')).toBe(1)
+  expect(occurrences('provider_unavailable')).toBe(1)
+  await wrapper.setProps({ summary: { ...identityInvalid, warnings: ['identity_changed', 'stale_evidence'], last_error: 'identity_changed' } as AccountModelCatalogDetails })
+  expect(occurrences('identity_changed')).toBe(1)
+  expect(occurrences('stale_evidence')).toBe(1)
+  await wrapper.setProps({ result: { models: [], warnings: [{ code: 'identity_changed', message: '' }, { code: 'identity_changed', message: '' }, { code: 'stale_evidence', message: '' }], diff: { added: [], removed: ['old-model'], retained: [] }, invalid_aliases: ['old-alias'] } })
+  expect(occurrences('identity_changed')).toBe(1)
+  expect(occurrences('stale_evidence')).toBe(1)
+  expect(wrapper.text()).toContain('modelSync.removalRisk')
+  expect(wrapper.text()).toContain('old-alias')
   wrapper.unmount()
 })
