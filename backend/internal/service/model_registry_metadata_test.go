@@ -161,6 +161,8 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 func TestVisibleModelsGeminiMethodEvidenceStaysWithExecutableBinding(t *testing.T) {
 	chat := catalogEvidenceAccount(1, PlatformOpenAI, "private-chat")
 	gemini := catalogEvidenceAccount(2, PlatformGemini, "private-gemini")
+	chat.GroupIDs = []int64{9}
+	gemini.GroupIDs = []int64{9}
 	gemini.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"generate_content"}
 	gemini.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
 		"private-gemini": {ProviderProfile: resolveCapabilityProfile(&gemini), ModelVersion: "001", SupportedMethods: []string{"generateContent", "streamGenerateContent", "countTokens"}},

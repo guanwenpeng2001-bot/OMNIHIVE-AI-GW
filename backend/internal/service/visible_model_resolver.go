@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 )
 
 // VisibleModelSet is the finite, authorized public projection. Bindings are
@@ -164,7 +166,9 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 	}
 	platforms := []string{platform}
 	if platform == "" || platform == PlatformComposite {
-		platforms = nil
+		platforms = domain.ConcretePlatforms()
+	} else if !domain.IsConcretePlatform(platform) {
+		return []string{}, nil
 	}
 	accounts, err := reader.ListModelCatalogAccounts(ctx, groupID, platforms, s.cfg != nil && s.cfg.RunMode == "simple")
 	if err != nil {
