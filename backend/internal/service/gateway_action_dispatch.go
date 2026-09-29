@@ -630,12 +630,11 @@ func gatewayInputAdmission(requestContext *gin.Context, gateway *GatewayService)
 	if forced := requestContext.GetString("force_platform"); forced != "" {
 		catalogPlatform = forced
 	}
-	_, metadata, lookupErr := gateway.VisibleModelsWithMetadata(ctx, key.GroupID, catalogPlatform)
+	candidates, lookupErr := gateway.visibleModelInputMetadata(ctx, key.GroupID, catalogPlatform, model)
 	if lookupErr != nil {
 		requestContext.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "server_error", "message": "Model requirements temporarily unavailable"}})
 		return false
 	}
-	candidates := metadata[model]
 	if len(candidates) == 0 {
 		return true
 	}
