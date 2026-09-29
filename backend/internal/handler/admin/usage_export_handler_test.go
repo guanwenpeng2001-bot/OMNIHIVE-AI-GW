@@ -99,7 +99,7 @@ func TestAdminUsageExportStreamsCSVWithFrozenSnapshotRange(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, repo.filters.EndTime)
 	require.True(t, repo.filters.EndTime.Equal(snapshotEnd), "the stream filters on the frozen snapshot bound")
-	require.WithinDuration(t, time.Now(), snapshotEnd, time.Minute, "the snapshot is frozen at request time")
+	require.True(t, snapshotEnd.Equal(time.Date(2026, 9, 23, 0, 0, 0, 0, time.UTC)), "a past range clamps the snapshot to the range end; min(request time, range end)")
 	require.Equal(t, strings.Join(dto.UsageExportColumns(dto.UsageExportScopeAdmin), ","), rec.Header().Get(usageExportHeaderColumns))
 
 	records := readAdminExportCSV(t, rec.Body.String())
