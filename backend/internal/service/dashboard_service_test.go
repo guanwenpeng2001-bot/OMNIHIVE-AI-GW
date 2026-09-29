@@ -461,3 +461,26 @@ func TestDashboardServiceCoverageRevisionInvalidatesFreshCache(t *testing.T) {
 	require.Equal(t, "after-retention", cache.readLastEntry(t).CoverageRevision)
 	require.Equal(t, "corrected", repo.revision)
 }
+
+func TestDashboardServiceOriginCoverageCache(test *testing.T) {
+	origin := time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+	for _, transition := range []struct {
+		name              string
+		previous, current *usagestats.Coverage
+	}{
+		{"declared", &usagestats.Coverage{Complete: false}, &usagestats.Coverage{Complete: true, HistoryKnownEmptyBefore: &origin}},
+		{"revoked", &usagestats.Coverage{Complete: true, HistoryKnownEmptyBefore: &origin}, &usagestats.Coverage{Complete: false}},
+	} {
+		test.Run(transition.name, func(test *testing.T) {
+			payload, err := json.Marshal(dashboardStatsCacheEntry{Stats: &usagestats.DashboardStats{Coverage: transition.previous}, UpdatedAt: time.Now().Unix(), CoverageRevision: "old-origin"})
+			require.NoError(test, err)
+			repository := &coverageRevisionRepoStub{usageRepoStub: &usageRepoStub{stats: &usagestats.DashboardStats{Coverage: transition.current}}, revision: "new-origin"}
+			cache := &dashboardCacheStub{get: func(context.Context) (string, error) { return string(payload), nil }}
+			dashboard := NewDashboardService(repository, &dashboardAggregationRepoStub{}, cache, &config.Config{Dashboard: config.DashboardCacheConfig{Enabled: true}, DashboardAgg: config.DashboardAggregationConfig{Enabled: true}})
+			stats, err := dashboard.GetDashboardStats(context.Background())
+			require.NoError(test, err)
+			require.Equal(test, transition.current, stats.Coverage)
+			require.Equal(test, "new-origin", cache.readLastEntry(test).CoverageRevision)
+		})
+	}
+}

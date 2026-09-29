@@ -20,21 +20,22 @@ var ErrUsageHistoryUnavailable = infraerrors.New(409, "USAGE_HISTORY_INCOMPLETE"
 const dashboardProjectionVersion = 2
 
 type dashboardCoverage struct {
-	raw, published       time.Time
-	hourly, daily, dirty sql.NullTime
-	zone                 string
-	version              int
+	raw, published          time.Time
+	hourly, daily, dirty    sql.NullTime
+	zone                    string
+	version                 int
+	historyKnownEmptyBefore sql.NullTime
 }
 
 func readDashboardCoverage(ctx context.Context, q sqlExecutor, lock bool) (dashboardCoverage, error) {
 	var c dashboardCoverage
 	query := `SELECT raw_retained_from, hourly_retained_from, daily_retained_from,
- last_aggregated_at, dirty_from, timezone_name, projection_version
+ last_aggregated_at, dirty_from, timezone_name, projection_version, history_known_empty_before
  FROM usage_dashboard_aggregation_watermark WHERE id=1`
 	if lock {
 		query += " FOR UPDATE"
 	}
-	err := scanSingleRow(ctx, q, query, nil, &c.raw, &c.hourly, &c.daily, &c.published, &c.dirty, &c.zone, &c.version)
+	err := scanSingleRow(ctx, q, query, nil, &c.raw, &c.hourly, &c.daily, &c.published, &c.dirty, &c.zone, &c.version, &c.historyKnownEmptyBefore)
 	return c, err
 }
 
@@ -49,6 +50,9 @@ func (c dashboardCoverage) watermark() time.Time {
 }
 
 func (c dashboardCoverage) requireRaw(start, end time.Time) error {
+	if c.historyKnownEmptyBefore.Valid && start.Before(c.historyKnownEmptyBefore.Time) {
+		start = c.historyKnownEmptyBefore.Time
+	}
 	if end.After(start) && start.Before(c.raw) {
 		return ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": c.raw.UTC().Format(time.RFC3339Nano)})
 	}
@@ -74,6 +78,9 @@ func bucketCeil(t time.Time, granularity string) time.Time {
 
 func (c dashboardCoverage) bounds(start, end time.Time, granularity string) (time.Time, time.Time) {
 	first := bucketCeil(start, granularity)
+	if c.historyKnownEmptyBefore.Valid && !start.After(c.historyKnownEmptyBefore.Time) {
+		first = bucketFloor(c.historyKnownEmptyBefore.Time, granularity)
+	}
 	retained := c.daily
 	if granularity == "hour" {
 		retained = c.hourly
@@ -156,6 +163,11 @@ func rawUsageReadSnapshot[T any](ctx context.Context, r *usageLogRepository, sta
 
 func (c dashboardCoverage) metadata() *usagestats.Coverage {
 	result := &usagestats.Coverage{Complete: false, RawRetainedFrom: c.raw, Timezone: c.zone, ProjectionVersion: c.version, Reason: "history_before_coverage_floor_unverified"}
+	if c.historyKnownEmptyBefore.Valid {
+		origin := c.historyKnownEmptyBefore.Time
+		result.HistoryKnownEmptyBefore = &origin
+		result.Reason = "history_after_origin_unavailable"
+	}
 	if c.hourly.Valid && c.zone == timezone.Name() && c.version == dashboardProjectionVersion {
 		t := c.hourly.Time
 		result.HourlyRetainedFrom = &t
@@ -215,4 +227,40 @@ func (r *usageLogRepository) DashboardCoverageRevision(ctx context.Context) (str
 	var revision string
 	err := scanSingleRow(ctx, r.sql, `SELECT md5(row_to_json(state)::text) FROM usage_dashboard_aggregation_watermark state WHERE id=1`, nil, &revision)
 	return revision, err
+}
+
+// Completeness describes the sources actually read by the caller, independently
+// of projection freshness. Unknown origin is never proof of lifetime coverage.
+func (coverage dashboardCoverage) metadataFor(complete bool) *usagestats.Coverage {
+	metadata := coverage.metadata()
+	metadata.Complete = complete
+	if complete {
+		metadata.Reason = ""
+	}
+	return metadata
+}
+
+func (coverage dashboardCoverage) rawHistoryComplete() bool {
+	return coverage.historyKnownEmptyBefore.Valid && !coverage.raw.After(coverage.historyKnownEmptyBefore.Time)
+}
+
+// Match the daily archive and raw wings used by fillDashboardClosedAndRaw.
+func (coverage dashboardCoverage) summaryComplete(today, now time.Time) bool {
+	if !coverage.historyKnownEmptyBefore.Valid {
+		return false
+	}
+	first := now
+	if coverage.daily.Valid {
+		first = coverage.daily.Time
+	}
+	closed := coverage.watermark()
+	if now.Before(closed) {
+		closed = now
+	}
+	closed = bucketFloor(closed, "day")
+	historyComplete := coverage.rawHistoryComplete()
+	if closed.After(first) {
+		historyComplete = coverage.requireRaw(coverage.historyKnownEmptyBefore.Time, first) == nil && coverage.requireRaw(closed, now) == nil
+	}
+	return historyComplete && coverage.requireRaw(today, now) == nil && coverage.requireRaw(now.UTC().Truncate(time.Hour), now) == nil && coverage.requireRaw(now.Add(-5*time.Minute), now) == nil
 }

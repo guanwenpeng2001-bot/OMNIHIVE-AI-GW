@@ -37,8 +37,15 @@ func (r *dashboardAggregationRepository) AggregateRangeAndPublish(ctx context.Co
 }
 
 func dashboardPublicationWindow(c dashboardCoverage, start, closed time.Time) (time.Time, time.Time) {
+	if c.historyKnownEmptyBefore.Valid && !closed.After(c.historyKnownEmptyBefore.Time) && !c.dirty.Valid {
+		return closed, closed
+	}
+	firstRawDay := bucketCeil(c.raw, "day")
+	if c.historyKnownEmptyBefore.Valid && !c.raw.After(c.historyKnownEmptyBefore.Time) {
+		firstRawDay = bucketFloor(c.raw, "day")
+	}
 	if c.zone != timezone.Name() || c.version != dashboardProjectionVersion {
-		start = bucketCeil(c.raw, "day")
+		start = firstRawDay
 	} else {
 		if (c.hourly.Valid || c.daily.Valid) && start.After(c.published) {
 			start = c.published
@@ -47,14 +54,20 @@ func dashboardPublicationWindow(c dashboardCoverage, start, closed time.Time) (t
 			start = c.dirty.Time
 		}
 		if start.Before(c.raw) && (!c.dirty.Valid || !c.dirty.Time.Before(c.raw)) {
-			start = bucketCeil(c.raw, "day")
+			start = firstRawDay
 		}
 	}
+	// Do not jump over a gap in an existing archive: publication still needs
+	// adjacent rebuilt days before it may extend that archive's watermark.
+	if c.historyKnownEmptyBefore.Valid && start.Before(c.historyKnownEmptyBefore.Time) && !c.dirty.Valid &&
+		((!c.hourly.Valid && !c.daily.Valid) || !bucketFloor(c.historyKnownEmptyBefore.Time, "day").After(c.published)) {
+		start = c.historyKnownEmptyBefore.Time
+	}
 	start = bucketFloor(start, "day")
-	// A partial retained day is raw-only. An older dirty correction must fail
+	// A partial retained day without a proven empty prefix is raw-only. An older dirty correction must fail
 	// requireRaw instead of silently discarding its invalidation.
 	if start.Before(c.raw) && (!c.dirty.Valid || !c.dirty.Time.Before(c.raw)) {
-		start = bucketCeil(c.raw, "day")
+		start = firstRawDay
 	}
 	end := start.AddDate(0, 0, 1)
 	if closed.Before(end) {

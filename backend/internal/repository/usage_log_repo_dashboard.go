@@ -83,6 +83,16 @@ func (r *usageLogRepository) GetUserStats(ctx context.Context, userID int64, sta
 type DashboardStats = usagestats.DashboardStats
 
 func (r *usageLogRepository) GetDashboardStats(ctx context.Context) (*DashboardStats, error) {
+	if needsUsageSnapshot(r) {
+		return usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, coverage dashboardCoverage) (*DashboardStats, error) {
+			stats, err := snapshot.GetDashboardStats(ctx)
+			if err != nil {
+				return nil, err
+			}
+			stats.Coverage = coverage.metadataFor(coverage.summaryComplete(timezone.Today(), timezone.Now()))
+			return stats, nil
+		})
+	}
 	stats := &DashboardStats{}
 	now := timezone.Now()
 	todayStart := timezone.Today()
@@ -114,7 +124,9 @@ func (r *usageLogRepository) GetDashboardStatsWithRange(ctx context.Context, sta
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = c.metadata()
+			now := timezone.Now()
+			today := timezone.Today()
+			stats.Coverage = c.metadataFor(c.requireRaw(today, today.AddDate(0, 0, 1)) == nil && c.requireRaw(now.UTC().Truncate(time.Hour), now.UTC().Truncate(time.Hour).Add(time.Hour)) == nil && c.requireRaw(now.Add(-5*time.Minute), now) == nil)
 			return stats, nil
 		})
 	}
@@ -394,11 +406,7 @@ func (r *usageLogRepository) GetUserDashboardStats(ctx context.Context, userID i
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = c.metadata()
-			stats.Coverage.Complete = !c.raw.After(time.Unix(0, 0))
-			if stats.Coverage.Complete {
-				stats.Coverage.Reason = ""
-			}
+			stats.Coverage = c.metadataFor(c.rawHistoryComplete())
 			return stats, nil
 		})
 	}
@@ -573,11 +581,7 @@ func (r *usageLogRepository) GetAPIKeyDashboardStats(ctx context.Context, apiKey
 			if err != nil {
 				return nil, err
 			}
-			stats.Coverage = c.metadata()
-			stats.Coverage.Complete = !c.raw.After(time.Unix(0, 0))
-			if stats.Coverage.Complete {
-				stats.Coverage.Reason = ""
-			}
+			stats.Coverage = c.metadataFor(c.rawHistoryComplete())
 			return stats, nil
 		})
 	}

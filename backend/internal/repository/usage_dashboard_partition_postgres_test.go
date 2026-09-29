@@ -48,7 +48,8 @@ func TestUsageDashboardPartitionDropWaitsForCoverageReader(t *testing.T) {
  CREATE TABLE usage_group_rollup_state(id smallint PRIMARY KEY,closed_before date,updated_at timestamptz);
  INSERT INTO usage_group_rollup_state VALUES(1,'2026-04-01',NOW());
  CREATE TABLE usage_dashboard_aggregation_watermark(id smallint PRIMARY KEY,raw_retained_from timestamptz,hourly_retained_from timestamptz,daily_retained_from timestamptz,last_aggregated_at timestamptz,dirty_from timestamptz,timezone_name text,projection_version integer,updated_at timestamptz);
- INSERT INTO usage_dashboard_aggregation_watermark VALUES(1,'1970-01-01','2026-03-01','2026-03-01','2026-04-01',NULL,'UTC',2,NOW());`)
+ INSERT INTO usage_dashboard_aggregation_watermark VALUES(1,'1970-01-01','2026-03-01','2026-03-01','2026-04-01',NULL,'UTC',2,NOW());
+ ALTER TABLE usage_dashboard_aggregation_watermark ADD COLUMN history_known_empty_before timestamptz;`)
 	require.NoError(t, err)
 	previous := timezone.Name()
 	require.NoError(t, timezone.Init("UTC"))
