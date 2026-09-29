@@ -786,6 +786,10 @@ func extractCatalogModelIDsWithSelector(body []byte, selectID func(upstreamModel
 
 // ModelCatalogAccountRepository projects evidence and resolution rules without authentication secrets.
 type ModelCatalogAccountRepository interface {
+	// ListModelCatalogAccounts matches an explicit set of concrete platforms.
+	// Nil and empty sets both match no accounts; callers requesting all platforms
+	// must pass domain.ConcretePlatforms(). Group isolation still applies, and
+	// includeGrouped only affects queries without a group ID.
 	ListModelCatalogAccounts(context.Context, *int64, []string, bool) ([]Account, error)
 	GetModelCatalogAccount(context.Context, int64) (*Account, error)
 }
