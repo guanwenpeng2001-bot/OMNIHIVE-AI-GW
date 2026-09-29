@@ -6,7 +6,7 @@ import { defineComponent, ref } from 'vue'
 
 import UsageView from '../UsageView.vue'
 
-const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, fetchUsageExportRows, downloadUsageCsv, xlsxToFile, writeXlsxFile } = vi.hoisted(() => {
+const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, routeQuery, fetchUsageExportRows, downloadUsageCsv, xlsxToFile, writeXlsxFile, showError } = vi.hoisted(() => {
   vi.stubGlobal('localStorage', {
     getItem: vi.fn(() => null),
     setItem: vi.fn(),
@@ -23,6 +23,7 @@ const { list, getStats, getSnapshotV2, getById, getModelStats, listErrorLogs, ro
     routeQuery: {} as Record<string, string>,
     fetchUsageExportRows: vi.fn(),
     downloadUsageCsv: vi.fn(),
+    showError: vi.fn(),
     xlsxToFile: vi.fn(),
     writeXlsxFile: vi.fn(() => ({ toFile: xlsxToFile, toBlob: vi.fn() })),
   }
@@ -41,6 +42,9 @@ const messages: Record<string, string> = {
 	'usage.upstreamModelMismatch': 'Upstream model mismatch',
 	'common.yes': 'Yes',
 	'common.no': 'No',
+	'usage.exportFailed': 'Export failed',
+	'usage.exportHistoryIncomplete': 'Usage history is incomplete',
+	'dashboard.rawRetainedFrom': 'Raw records retained from: {time}',
 }
 
 const formatLocalDate = (date: Date): string => {
@@ -84,7 +88,7 @@ vi.mock('@/api/admin/ops', () => ({
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
-    showError: vi.fn(),
+    showError,
     showWarning: vi.fn(),
     showSuccess: vi.fn(),
     showInfo: vi.fn(),
@@ -993,4 +997,51 @@ describe('admin UsageView ops-disabled error tab', () => {
     expect(wrapper.find('[data-test="ops-error-table"]').exists()).toBe(true)
     wrapper.unmount()
   })
+})
+
+describe('admin UsageView CSV export failures', () => {
+	beforeEach(() => {
+		vi.useFakeTimers()
+		list.mockReset().mockResolvedValue({ items: [], total: 0, pages: 0 })
+		downloadUsageCsv.mockReset()
+		showError.mockReset()
+	})
+
+	afterEach(() => {
+		vi.useRealTimers()
+	})
+
+	it('shows the precise history-incomplete reason instead of the generic export failure', async () => {
+		downloadUsageCsv.mockRejectedValue({
+			status: 409,
+			code: 409,
+			reason: 'USAGE_HISTORY_INCOMPLETE',
+			message: 'Usage history is incomplete: raw history or a verified archive is unavailable',
+			metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+		})
+		const wrapper = mountRouteFilteredUsageView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		await (wrapper.vm as any).exportToCsv()
+		await flushPromises()
+
+		expect(showError).toHaveBeenCalledWith(expect.stringContaining('Usage history is incomplete'))
+		expect(showError).toHaveBeenCalledWith(expect.stringContaining('Raw records retained from'))
+		expect(showError).not.toHaveBeenCalledWith('Export failed')
+		wrapper.unmount()
+	})
+
+	it('keeps the generic export failure for errors that are not a history gap', async () => {
+		downloadUsageCsv.mockRejectedValue({ status: 500, reason: 'INTERNAL_ERROR', message: 'boom', metadata: {} })
+		const wrapper = mountRouteFilteredUsageView()
+		vi.advanceTimersByTime(120)
+		await flushPromises()
+
+		await (wrapper.vm as any).exportToCsv()
+		await flushPromises()
+
+		expect(showError).toHaveBeenCalledWith('Export failed')
+		wrapper.unmount()
+	})
 })

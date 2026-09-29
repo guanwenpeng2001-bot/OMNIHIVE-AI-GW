@@ -62,6 +62,60 @@ export function extractApiErrorMetadata(error: unknown): Record<string, unknown>
   return normalizeApiError(error).metadata
 }
 
+/**
+ * 错误正文的读取上限：错误信封只有几百字节，超过它说明拿到的是文件本体，
+ * 不该为了读错误把整份导出读进内存。
+ */
+export const ERROR_ENVELOPE_DECODE_LIMIT_BYTES = 64 * 1024
+
+function binaryBodySize(body: object): number | undefined {
+  const { size, byteLength } = body as { size?: unknown; byteLength?: unknown }
+  if (typeof size === 'number') return size
+  if (typeof byteLength === 'number') return byteLength
+  return undefined
+}
+
+/** 裸 ArrayBuffer 也认跨 realm 实例（测试环境里的 ArrayBuffer 不一定与页面同源）。 */
+function isBinaryBuffer(body: object): boolean {
+  return ArrayBuffer.isView(body) || Object.prototype.toString.call(body) === '[object ArrayBuffer]'
+}
+
+/** 读取二进制正文：jsdom 与旧浏览器的 Blob 没有 text()，用 FileReader 兜底。 */
+function readBinaryBodyText(body: object): Promise<string> {
+  const text = (body as { text?: unknown }).text
+  if (typeof text === 'function') return (text as (this: object) => Promise<string>).call(body)
+  if (isBinaryBuffer(body)) return Promise.resolve(new TextDecoder().decode(body as ArrayBuffer))
+  if (typeof FileReader === 'undefined') return Promise.reject(new Error('no reader for a binary error body'))
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read the error body'))
+    reader.readAsText(body as Blob)
+  })
+}
+
+/**
+ * 把二进制错误正文（`responseType: 'blob'` 的请求拿到的是 Blob）解码成 JSON 信封。
+ *
+ * 服务端的 409 守卫在 Blob 里仍然是 JSON；在进入规范化之前把它读回来，
+ * `reason` 与 `metadata` 才不会在公共拦截器里丢掉。超过上限、不是 JSON 对象、
+ * 读取或解析失败都返回 undefined（调用方保留原值），错误处理本身不会再抛。
+ */
+export async function decodeErrorEnvelopeBody(body: unknown): Promise<unknown> {
+  if (typeof body !== 'object' || body === null) return undefined
+  const size = binaryBodySize(body)
+  if (size === undefined && !isBinaryBuffer(body)) return undefined
+  if (size !== undefined && (size === 0 || size > ERROR_ENVELOPE_DECODE_LIMIT_BYTES)) return undefined
+  try {
+    const raw = await readBinaryBodyText(body)
+    if (raw.length > ERROR_ENVELOPE_DECODE_LIMIT_BYTES) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    return parsed !== null && typeof parsed === 'object' ? parsed : undefined
+  } catch {
+    return undefined
+  }
+}
+
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
 type TranslateWithExistsFn = TranslateFn & { te?: (key: string) => boolean }
 

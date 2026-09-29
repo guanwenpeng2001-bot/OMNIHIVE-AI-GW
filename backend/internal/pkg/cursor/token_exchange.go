@@ -36,7 +36,7 @@ func ExchangeKey(ctx context.Context, client *http.Client, baseURL, apiKey strin
 	if err != nil {
 		return Session{}, fmt.Errorf("cursor: exchange transport failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusOK {
 		return Session{}, &HTTPError{Status: response.StatusCode}
 	}

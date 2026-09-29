@@ -61,7 +61,7 @@
                   platformBadgeLightClass(m.platform)
                 ]"
               >
-                {{ platformLabel(m.platform) }}
+                {{ getPlatformLabel(m.platform, t) }}
               </span>
               <span
                 v-if="billingMode(m) !== BILLING_MODE_TOKEN"
@@ -265,7 +265,8 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { formatScaled, resolveIntervalPrices } from '@/utils/pricing'
-import { platformAccentColor, platformBadgeLightClass, platformLabel } from '@/utils/platformColors'
+import { platformAccentColor, platformBadgeLightClass } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_IMAGE,

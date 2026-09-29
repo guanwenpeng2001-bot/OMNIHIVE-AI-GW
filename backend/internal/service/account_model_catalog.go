@@ -398,6 +398,15 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 		if !account.IsGrok() {
 			endpoints = append(endpoints, CompositeRouteEndpointImages)
 		}
+	case "video_generation":
+		// The OpenAI native video lifecycle executes on the media surface the
+		// catalogue already publishes for image tasks, and service/openai_actions.go
+		// resolves the video actions to that same family before the send boundary.
+		// The CN platforms reach video through their own native ingress and keep
+		// no catalogue family here, so they stay unprojected.
+		if account.Platform == PlatformOpenAI {
+			endpoints = append(endpoints, CompositeRouteEndpointImages)
+		}
 	case "alpha_search", "embeddings", "live", "grok_media_generation":
 		endpoints = append(endpoints, task)
 	}
@@ -439,9 +448,39 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 // it remains a denial.
 func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadata UpstreamModelMetadata) []string {
 	endpoints := []string{}
+	// Task-only preset facts are endpoint evidence too. Video executes on the
+	// images catalog surface, but must prove its own video adapter binding.
+	taskEndpoint, taskAction := "", ""
+	switch task {
+	case "image_generation":
+		taskEndpoint, taskAction = CompositeRouteEndpointImages, "image.generate"
+	case "video_generation":
+		taskEndpoint, taskAction = CompositeRouteEndpointImages, "video.generate"
+	case "rerank", "reranking":
+		taskEndpoint, taskAction = "rerank", "rerank"
+	case "voice_clone":
+		taskEndpoint, taskAction = "voice", "voice"
+	case "audio.tts", "audio_tts", "audio_speech", "speech", "speech_generation", "text_to_speech", "tts":
+		taskEndpoint, taskAction = "speech", "audio.tts"
+	case "audio.stt", "audio_stt", "audio_transcription", "transcription", "transcriptions", "speech_to_text", "automatic_speech_recognition", "asr":
+		taskEndpoint, taskAction = "transcriptions", "audio.stt"
+	}
+	if taskAction != "" && platformActionAdapterBound(account, taskAction) {
+		endpoints = append(endpoints, taskEndpoint)
+	}
 	if task == "" || task == "text_generation" {
 		if metadata.SupportedMethods == nil || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions) {
 			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
+		}
+		// A chat-only entry that publishes a native text protocol on the same
+		// trunk serves its text models through that family too. The family comes
+		// from the platform descriptor's protocol facts and is admitted only when
+		// the action matrix binds the cell, so the dispatch gate and the catalog
+		// read one authority instead of two hand-maintained lists.
+		for _, family := range chatOnlyPublishedTextFamilies(account) {
+			if action := chatOnlyCatalogEndpointAction(family); action != "" && platformActionAdapterBound(account, action) {
+				endpoints = append(endpoints, family)
+			}
 		}
 	}
 	for _, method := range metadata.SupportedMethods {
@@ -452,6 +491,28 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 		endpoints = append(endpoints, method)
 	}
 	return dedupeAndSortModelIDs(endpoints)
+}
+
+// chatOnlyPublishedTextFamilies lists the protocol families a chat-only platform
+// publishes on its OpenAI-shaped trunk beyond Chat Completions. The platform
+// descriptor is the authority: ResponsesPOST and MessagesPOST are the dated
+// protocol facts, and a family whose action cell is not bound never contributes.
+func chatOnlyPublishedTextFamilies(account *Account) []string {
+	if account == nil {
+		return nil
+	}
+	descriptor, known := domain.LookupPlatform(account.Platform)
+	if !known {
+		return nil
+	}
+	families := make([]string, 0, 2)
+	if descriptor.ResponsesPOST != domain.EndpointRejected {
+		families = append(families, CompositeRouteEndpointResponses)
+	}
+	if descriptor.MessagesPOST != domain.EndpointRejected {
+		families = append(families, CompositeRouteEndpointMessages)
+	}
+	return families
 }
 
 // chatOnlyCatalogEndpointAction resolves the gateway action an endpoint family
@@ -474,6 +535,14 @@ func chatOnlyCatalogEndpointAction(endpoint string) string {
 		return "live"
 	case string(OpenAIEndpointCapabilityAlphaSearch):
 		return "alpha_search"
+	case "rerank":
+		return "rerank"
+	case "voice":
+		return "voice"
+	case "speech":
+		return "audio.tts"
+	case "transcriptions":
+		return "audio.stt"
 	default:
 		return ""
 	}

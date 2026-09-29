@@ -226,7 +226,7 @@
 
 <script setup lang="ts">
 import { formatBalanceAmount, formatLedgerAmount } from '@/utils/money'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -251,23 +251,9 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 
-const PLATFORM_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  grok: 'Grok',
-  kimi: 'Kimi',
-  zhipu: 'Zhipu GLM',
-  deepseek: 'DeepSeek',
-  minimax: 'MiniMax',
-  cursor: 'Cursor',
-}
-
-const platformLabel = (p: string) =>
-  ['qianwen', 'commandcode', 'opencode_go'].includes(p)
-    ? t(`monitorCommon.providers.${p}`)
-    : PLATFORM_LABELS[p] ?? p
+// 平台名统一取自共享词条表 admin.accounts.platforms.*（getPlatformLabel），
+// 避免本页自建一份缺平台的名表后回落到机器 id。
+const platformLabel = (p: string) => getPlatformLabel(p, t)
 
 // 处理"各平台之和 < 总值"的差值：后端按平台聚合时过滤了无法归属平台的行
 // （group 与 account 都缺 platform）。这里把差值作为"其他"卡片显式展示，

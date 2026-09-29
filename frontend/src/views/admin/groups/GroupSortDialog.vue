@@ -47,7 +47,7 @@
                                     : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
                 ]"
               >
-                {{ t("admin.groups.platforms." + group.platform) }}
+                {{ getPlatformLabel(group.platform, t) }}
               </span>
             </div>
           </div>
@@ -97,6 +97,7 @@
 import { useI18n } from "vue-i18n";
 import BaseDialog from "@/components/common/BaseDialog.vue";
 import Icon from "@/components/icons/Icon.vue";
+import { getPlatformLabel } from "@/constants/platforms";
 import { VueDraggable } from "vue-draggable-plus";
 import type { useGroupSorting } from "./useGroupSorting";
 const props = defineProps<{ controller: ReturnType<typeof useGroupSorting> }>();

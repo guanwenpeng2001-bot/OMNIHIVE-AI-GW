@@ -162,7 +162,7 @@ func TestCatalogIdentityWritesClearPersistentObservations(t *testing.T) {
 			if mode == "rollback_bulk" || mode == "rollback_extra" {
 				transaction, err = client.Tx(ctx)
 				require.NoError(t, err)
-				defer transaction.Rollback()
+				defer func() { _ = transaction.Rollback() }()
 				writeCtx = dbent.NewTxContext(ctx, transaction)
 			}
 			changed := true

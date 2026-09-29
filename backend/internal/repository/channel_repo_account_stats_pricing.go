@@ -253,10 +253,11 @@ func marshalAccountStatsPricingModels(pricing *service.ChannelModelPricing) ([]b
 	if extensions == nil {
 		return json.Marshal(pricing.Models)
 	}
+	extensionsJSON, _ := extensions.(string)
 	return json.Marshal(struct {
 		Models  []string        `json:"models"`
 		Pricing json.RawMessage `json:"pricing"`
-	}{pricing.Models, json.RawMessage(extensions.(string))})
+	}{pricing.Models, json.RawMessage(extensionsJSON)})
 }
 
 func unmarshalAccountStatsPricingModels(data []byte, pricing *service.ChannelModelPricing) error {

@@ -41,6 +41,8 @@ export interface HistoryGap {
   rawRetainedFrom?: string
 }
 
+type TranslateFn = (key: string, params?: Record<string, unknown>) => string
+
 /** The API client rejects a flat business error, not an Axios response. */
 export function historyGapFromError(error: unknown): HistoryGap | null {
   if (!error || typeof error !== 'object') return null
@@ -51,4 +53,15 @@ export function historyGapFromError(error: unknown): HistoryGap | null {
     rawRetainedFrom: typeof failure.metadata?.raw_retained_from === 'string'
       ? failure.metadata.raw_retained_from : undefined,
   }
+}
+
+/**
+ * 历史缺口导致的失败提示：把服务端 409 守卫给出的精确原因与原始记录保留起点告诉用户，
+ * 不再只报一句通用失败。缺口之外、或缺少时间的错误返回 undefined，由调用方决定通用文案。
+ */
+export function usageExportFailureMessage(error: unknown, t: TranslateFn): string | undefined {
+  const gap = historyGapFromError(error)
+  if (!gap) return undefined
+  const reason = t('usage.exportHistoryIncomplete')
+  return gap.rawRetainedFrom ? `${reason} ${t('dashboard.rawRetainedFrom', { time: gap.rawRetainedFrom })}` : reason
 }

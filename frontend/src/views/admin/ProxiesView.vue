@@ -984,6 +984,7 @@ import Select from '@/components/common/Select.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
+import { getPlatformLabel } from '@/constants/platforms'
 import { useClipboard } from '@/composables/useClipboard'
 import { useSwipeSelect } from '@/composables/useSwipeSelect'
 import { useTableSelection } from '@/composables/useTableSelection'
@@ -1782,28 +1783,9 @@ const qualityOverallLabel = (status?: string) => {
 }
 
 const qualityTargetLabel = (target: string) => {
-  switch (target) {
-    case 'base_connectivity':
-      return t('admin.proxies.qualityTargetBase')
-    case 'openai':
-      return 'OpenAI'
-    case 'anthropic':
-      return 'Anthropic'
-    case 'gemini':
-      return 'Gemini'
-    case 'grok':
-      return 'Grok'
-    case 'kimi':
-      return 'Kimi'
-    case 'zhipu':
-      return 'Zhipu GLM'
-    case 'deepseek':
-      return 'DeepSeek'
-    case 'minimax':
-      return 'MiniMax'
-    default:
-      return target
-  }
+  if (target === 'base_connectivity') return t('admin.proxies.qualityTargetBase')
+  // 其余取值都是平台 id：名字统一取自共享平台名表，避免本页再维护一份英文名。
+  return getPlatformLabel(target, t)
 }
 
 const fetchAllProxiesForBatch = async (): Promise<Proxy[]> => {

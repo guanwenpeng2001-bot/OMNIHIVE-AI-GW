@@ -176,16 +176,22 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 
 		// MODEL_CAPACITY_EXHAUSTED 使用独立的重试参数（60 次，固定 1s 间隔）
 		maxAttempts := antigravitySmartRetryMaxAttempts
+		// 冷却记录按 group + 凭据身份 + 上游模型隔离。
+		capacityCooldownKey := ""
+		var capacityProbe *RuntimeCooldownProbe
 		if isModelCapacityExhausted {
 			maxAttempts = antigravityModelCapacityRetryMaxAttempts
 			waitDuration = antigravityModelCapacityRetryWait
 
-			// Only reuse cooldown evidence for this group, credential identity and model.
 			if modelName != "" {
-				cooldownUntil := s.runtimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName))
-				if time.Now().Before(cooldownUntil) {
-					log.Printf("%s status=%d model_capacity_exhausted_dedup model=%s account=%d cooldown_until=%v (skip retry)",
-						p.prefix, resp.StatusCode, modelName, p.account.ID, cooldownUntil.Format("15:04:05"))
+				capacityCooldownKey = AccountRuntimeCooldownKey(p.groupID, p.account, modelName)
+				// 冷却恢复的唯一卡口：冷却期内不放行；冷却到期后跨实例只放行一个试探者。
+				// 拿不到租约的请求不干等、也不一起撞账号：按既有语义直接返回上游错误
+				// （MODEL_CAPACITY_EXHAUSTED 是共享容量，切换账号无意义）。
+				probe, admitted := s.AdmitRuntimeCooldownRecovery(p.ctx, capacityCooldownKey)
+				if !admitted {
+					log.Printf("%s status=%d model_capacity_exhausted_cooldown_gate model=%s account=%d (skip retry: cooling down or another instance is probing)",
+						p.prefix, resp.StatusCode, modelName, p.account.ID)
 					return &smartRetryResult{
 						action: smartRetryActionBreakWithResp,
 						resp: &http.Response{
@@ -195,10 +201,15 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 						},
 					}
 				}
+				capacityProbe = probe
+				// 试探成功/失败都不会忘记释放租约。
+				defer capacityProbe.Release()
 			}
 		}
 
 		for attempt := 1; attempt <= maxAttempts; attempt++ {
+			// 长试探按需续期，避免租约在试探进行中被别的实例接手。
+			capacityProbe.Renew(p.ctx)
 			log.Printf("%s status=%d oauth_smart_retry attempt=%d/%d delay=%v model=%s account=%d",
 				p.prefix, resp.StatusCode, attempt, maxAttempts, waitDuration, modelName, p.account.ID)
 
@@ -230,8 +241,8 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 				log.Printf("%s status=%d smart_retry_success attempt=%d/%d", p.prefix, retryResp.StatusCode, attempt, maxAttempts)
 				// 重试成功，清除 MODEL_CAPACITY_EXHAUSTED cooldown
-				if isModelCapacityExhausted && modelName != "" && retryResp.StatusCode >= http.StatusOK && retryResp.StatusCode < http.StatusMultipleChoices {
-					s.setRuntimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName), time.Time{})
+				if isModelCapacityExhausted && capacityCooldownKey != "" && retryResp.StatusCode >= http.StatusOK && retryResp.StatusCode < http.StatusMultipleChoices {
+					s.markRuntimeCooldownRecovered(p.ctx, capacityCooldownKey)
 				}
 				return &smartRetryResult{action: smartRetryActionBreakWithResp, resp: retryResp}
 			}
@@ -275,8 +286,8 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 		// 直接返回上游错误响应，不设置模型限流，不切换账号
 		if isModelCapacityExhausted {
 			// 设置 cooldown，让后续请求快速失败，避免重复重试
-			if modelName != "" {
-				s.setRuntimeCooldown(p.ctx, AccountRuntimeCooldownKey(p.groupID, p.account, modelName), time.Now().Add(antigravityModelCapacityCooldown))
+			if capacityCooldownKey != "" {
+				s.markRuntimeCooldownFailed(p.ctx, capacityCooldownKey)
 			}
 			log.Printf("%s status=%d smart_retry_exhausted_model_capacity attempts=%d model=%s account=%d body=%s (model capacity exhausted, not switching account)",
 				p.prefix, resp.StatusCode, maxAttempts, modelName, p.account.ID, truncateForLog(retryBody, 200))

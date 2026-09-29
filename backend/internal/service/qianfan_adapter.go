@@ -13,6 +13,14 @@ import (
 
 const qianfanDefaultBaseURL = "https://qianfan.baidubce.com/v2"
 
+// Token Plan 的专属子路径（个人版 / 企业版）：千帆把 https://qianfan.baidubce.com/v2/tokenplan/personal
+// 直接标为 Base URL，与常规 /v2 服务不同且要求专属 API Key（Token Plan 个人版 / 企业版文档，
+// 2026-09-23 抓取）。这两条路径本身就是版本根，不再追加 /v2。
+const (
+	qianfanTokenPlanPersonalPath = "/v2/tokenplan/personal"
+	qianfanTokenPlanTeamPath     = "/v2/tokenplan/team"
+)
+
 // buildQianfanRequest only builds domestic API-key models/chat requests. The
 // caller supplies the existing operator URL policy and HTTPUpstream transport;
 // this adapter neither registers a platform nor grants model eligibility.
@@ -45,6 +53,11 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 	baseURL := strings.TrimSpace(account.GetCredential("base_url"))
 	if baseURL == "" {
 		baseURL = qianfanDefaultBaseURL
+		// 套餐（Token Plan）账号走厂商专属 Base URL；显式 base_url 已在上一步优先返回。
+		// 企业版（…/v2/tokenplan/team）由用户显式填写覆盖。
+		if account.GetAccountMode() == AccountModeCoding {
+			baseURL = DefaultQianfanCodingBaseURL
+		}
 	}
 	if validateBaseURL == nil {
 		return nil, newUpstreamModelSyncConfigError("Qianfan URL policy is required", nil)
@@ -58,6 +71,7 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 		return nil, newUpstreamModelSyncConfigError("Invalid Qianfan base URL", nil)
 	}
 	// A custom relay may have a prefix, but the domestic version is always v2.
+	// Token Plan 的专属子路径是例外：官方把它作为 Base URL，直接在其后拼端点。
 	basePath := strings.TrimRight(parsed.Path, "/")
 	versionSegments := 0
 	for _, segment := range strings.Split(basePath, "/") {
@@ -68,10 +82,16 @@ func buildQianfanRequest(ctx context.Context, account *Account, endpoint string,
 			return nil, newUpstreamModelSyncConfigError("Invalid Qianfan API version path", nil)
 		}
 	}
-	if versionSegments > 1 || (versionSegments == 1 && !strings.HasSuffix(basePath, "/v2")) {
+	if versionSegments > 1 {
 		return nil, newUpstreamModelSyncConfigError("Invalid Qianfan API version path", nil)
 	}
-	if !strings.HasSuffix(basePath, "/v2") {
+	switch {
+	case versionSegments == 1 && (strings.HasSuffix(basePath, qianfanTokenPlanPersonalPath) || strings.HasSuffix(basePath, qianfanTokenPlanTeamPath)):
+	case strings.HasSuffix(basePath, "/v2"):
+	default:
+		if versionSegments == 1 {
+			return nil, newUpstreamModelSyncConfigError("Invalid Qianfan API version path", nil)
+		}
 		basePath += "/v2"
 	}
 	parsed.Path = basePath + "/" + endpoint

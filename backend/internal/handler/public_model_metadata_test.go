@@ -160,16 +160,6 @@ func TestPublicModelCursorRevocation(t *testing.T) {
 	require.Equal(t, 400, request(nextPath, nil, 7).Code)
 }
 
-type metadataSnapshotCapture struct {
-	snapshot any
-	reads    int
-}
-
-func (capture *metadataSnapshotCapture) MarshalJSON() ([]byte, error) {
-	capture.reads++
-	return json.Marshal(capture.snapshot)
-}
-
 func TestPublicListingDoesNotReapplyStaleAuthenticatedGroupPolicy(t *testing.T) {
 	repo := &publicMetadataRepository{accounts: []service.Account{publicMetadataAccount()}}
 	current := &service.Group{ID: 31, Platform: service.PlatformOpenAI, ModelAllowlist: service.GroupModelAllowlist{Enabled: true, Models: []string{"gpt-alias"}}}

@@ -131,6 +131,24 @@ func ErrorFrom(c *gin.Context, err error) bool {
 	return true
 }
 
+// DropDownloadHeaders removes the download headers a streaming handler already
+// set, so an error raised before the first body byte still answers as the shared
+// JSON envelope instead of JSON bytes delivered as a file attachment.
+// fileHeaders names the handler-specific headers that describe a file body and
+// have to disappear with it.
+//
+// Call it before writing the error response and only while nothing has been
+// written yet: once the first byte is on the wire the headers are already sent
+// and the transfer can only be aborted.
+func DropDownloadHeaders(c *gin.Context, fileHeaders ...string) {
+	header := c.Writer.Header()
+	header.Del("Content-Type")
+	header.Del("Content-Disposition")
+	for _, name := range fileHeaders {
+		header.Del(name)
+	}
+}
+
 // BadRequest 返回400错误
 func BadRequest(c *gin.Context, message string) {
 	Error(c, http.StatusBadRequest, message)

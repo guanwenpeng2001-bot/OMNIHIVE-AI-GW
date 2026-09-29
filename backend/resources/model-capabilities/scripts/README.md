@@ -133,6 +133,42 @@ without inferring native deployment facts. Capture does not approve its output.
 
 ## Approved runtime registry reload
 
+### Exact hosted method evidence
+
+The OpenCode Go (`opencode_go`, `opencode-go`) and Command Code
+(`commandcode`, `native`) method review freezes the existing 36 and 72 exact
+identities. `coverage_scope.methods_review` retains a price-free record for each
+identity: disposition, endpoint paths, field, scoped source URL, capture SHA256,
+observation time and remaining gap. The corresponding `sources` entry binds the
+URL/hash/time; `presets.py` validates that binding offline. Full raw HTTP responses
+and capture metadata belong in the review artifact directory, outside source control.
+
+Go evidence is restricted to exact rows in the Go Endpoints table and its
+`https://opencode.ai/zen/go/v1` lane. A Go inventory ID alone proves no method.
+Command Code evidence uses each exact provider ID's `supported_endpoints`, not
+CLI names or inferred provider aliases. `/chat/completions`, `/messages` and
+`/responses` map to `chat_completions`, `messages` and `responses` respectively;
+unknown paths and unresolved conflicts cannot populate methods. Model absence
+does not establish retirement. New upstream IDs do not enter this fixed review.
+
+Only confirmed methods receive a new `field_sources.methods`; model primary
+sources, `verified_at`, and unrelated facts retain their original observation
+dates. Profile `checked_at` and `coverage_scope.as_of` also keep their previous
+meaning; the method records carry this review's actual UTC timestamps. Partial
+coverage and unknown account/region/plan/lifecycle facts remain explicit. The
+public provider's Responses claim does not change Command Code's configured
+gateway bridge or grant account eligibility.
+
+After independent source/identity review, regenerate presets with `presets.py
+candidate` and verify with `presets.py validate`. Review and advance the release
+generation using the actual approval time, preserve unrelated catalog records
+and price inputs, and independently bind the final catalog/presets/review/code
+hashes in the manifest and compiled pin. Run `catalog.py report --output-dir`
+and then `catalog.py validate --check-artifacts --output-dir` against an explicit
+review directory. These commands never approve a release or repair its pin.
+Build the application containing the matching pin before a later deployment;
+preparing this data release does not perform a reload or deployment.
+
 The service combines the reviewed platform presets and capability catalog into one
 immutable `ModelRegistrySnapshot`. Presets are administrative candidates, never
 credential permissions or a fallback public model set. Price calculation and

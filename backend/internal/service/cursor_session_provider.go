@@ -114,7 +114,8 @@ func (provider *CursorSessionProvider) GetSessionToken(ctx context.Context, acco
 		if completed.Err != nil {
 			return "", completed.Err
 		}
-		return completed.Val.(string), nil
+		token, _ := completed.Val.(string)
+		return token, nil
 	}
 }
 
@@ -130,7 +131,8 @@ func (provider *CursorSessionProvider) getOAuthSessionToken(ctx context.Context,
 		if completed.Err != nil {
 			return "", completed.Err
 		}
-		return completed.Val.(string), nil
+		token, _ := completed.Val.(string)
+		return token, nil
 	}
 }
 

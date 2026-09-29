@@ -917,6 +917,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if cursorRefreshStateRecovered {
 		recovery, ok := s.accountRepo.(CursorAccountRecoveryRepository)
 		if !ok {
+			//nolint:staticcheck // ST1005: surfaced verbatim to the admin API caller, so the capitalised wording is client-visible.
 			return nil, errors.New("Cursor account recovery repository is not configured")
 		}
 		if err := recovery.UpdateWithCursorRefreshRecovery(ctx, account, requestedProbeEnabledUpdate, requestedRateSyncEnabledUpdate, input.RateMultiplier); err != nil {

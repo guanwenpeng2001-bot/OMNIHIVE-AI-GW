@@ -141,7 +141,16 @@ func hunyuanActionFixtureAccount(account service.Account) service.Account {
 	models := []string{"hy3", "hy-image-v3", "hy-world2-panorama", "hy-video-v1.5", "hy-asr-3.0-preview", "minimax-speech-2.8-hd", "minimax-voice-clone", "kinfra-text-embedding-0.6b"}
 	catalog := service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: models, EligibleModels: []service.AccountCatalogModel{}}
 	for _, model := range models {
-		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: []string{"responses", "chat_completions", "messages", "images"}, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"})
+		endpoints := []string{"responses", "chat_completions", "messages", "images"}
+		switch model {
+		case "hy-asr-3.0-preview":
+			endpoints = []string{"transcriptions"}
+		case "minimax-speech-2.8-hd":
+			endpoints = []string{"speech"}
+		case "minimax-voice-clone":
+			endpoints = []string{"voice"}
+		}
+		catalog.EligibleModels = append(catalog.EligibleModels, service.AccountCatalogModel{ID: model, Endpoints: endpoints, EvidenceKind: "fixture", EvidenceObservedAt: "2026-09-21T00:00:00Z"})
 	}
 	extra[service.UpstreamModelCatalogExtraKey] = catalog
 	account.Extra = extra
@@ -246,91 +255,86 @@ func hunyuanActionContext(method, path, body, platform string) (*gin.Context, *h
 	return c, w
 }
 
-// TestHunyuanNativeActionPathsFailClosedUntilPlatformBinding documents the
-// integration seam this branch cannot close on its own. Hunyuan keeps
-// ChatOnly=true in the platform descriptors, so no account is admitted for a
-// non-chat endpoint and every native action fails closed with 503 before any
-// upstream call or billing. Verified 2026-09-21: flipping only that flag does
-// not make these paths pass (the media and task-lookup scheduling path needs the
-// same catalog and capability wiring, and the owner-bound status read regresses
-// to 404), so promotion belongs to multimodal-ingress, which also registers the
-// dispatch keys listed at the top of domain/hunyuan_actions.go. Positive
-// upstream-shape coverage for these exact endpoints lives in
+// TestHunyuanNativeActionPathsReachTheDocumentedTokenHubEndpoints proves the
+// ingress seam end to end for the promoted cells: once the platform publishes its
+// protocol facts and the catalog evidence admits the account, every native
+// handler forwards to its documented TokenHub path instead of failing closed
+// before the upstream. Audio models declare their actual action family;
+// text evidence cannot authorize an audio request. Positive upstream-shape
+// coverage for these exact endpoints lives in
 // backend/internal/service/hunyuan_actions_test.go
 // (TestHunyuanForwardImageGeneration, TestHunyuanForwardVideoGeneration,
 // TestHunyuanForwardSpeechSynthesis, TestHunyuanForwardVoiceClone,
-// TestHunyuanForwardEmbeddings); the ingress change flips these to positive
-// assertions.
-func TestHunyuanNativeActionPathsOutliveThePlatformLockButStillNeedMediaEvidence(t *testing.T) {
-	upstreamOK := func(*http.Request, int64) (*http.Response, error) {
-		return hunyuanActionJSONResponse(`{"task_id":"task-xyz"}`), nil
-	}
+// TestHunyuanForwardEmbeddings).
+func TestHunyuanNativeActionPathsReachTheDocumentedTokenHubEndpoints(t *testing.T) {
 	scenarios := []struct {
 		name     string
 		method   string
 		path     string
 		body     string
 		platform string
+		response string
+		wantURL  string
 		invoke   func(*OpenAIGatewayHandler, *gin.Context)
 	}{
 		{
 			name: "image generate", method: http.MethodPost, path: "/v1/images/generations",
 			body:     `{"model":"hy-image-v3","prompt":"一只橙色小猫在窗台上","size":"1024x1024"}`,
 			platform: service.PlatformHunyuan,
+			response: `{"data":[{"url":"https://aigc-image.cos.myqcloud.com/xxx/result.png"}]}`,
+			wantURL:  "https://tokenhub.tencentmaas.com/v1/wand/hunyuan-image/v3-generation",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanImageGeneration(c) },
 		},
 		{
 			name: "video create", method: http.MethodPost, path: "/v1/videos",
 			body:     `{"model":"hy-video-v1.5","prompt":"一只小狗在草地上奔跑","aspect_ratio":"16:9"}`,
 			platform: service.PlatformHunyuan,
+			response: `{"task_id":"task-xyz"}`,
+			wantURL:  "https://tokenhub.tencentmaas.com/v1/wand/hunyuan-video/generation",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanVideoGeneration(c) },
 		},
 		{
 			name: "tts", method: http.MethodPost, path: "/v1/audio/speech",
 			body:     `{"model":"minimax-speech-2.8-hd","text":"刚吹过晚风的巷口"}`,
 			platform: service.PlatformHunyuan,
+			response: `{"data":{"audio":"deadbeef","status":2},"extra_info":{"audio_length":9900,"usage_characters":26},"base_resp":{"status_code":0,"status_msg":"success"}}`,
+			wantURL:  "https://tokenhub.tencentmaas.com/v1/wand/minimax-tts/sync_tts",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanAudioSpeech(c) },
 		},
 		{
 			name: "voice clone", method: http.MethodPost, path: "/v1/custom-voices",
 			body:     `{"model":"minimax-voice-clone","audio_url":"https://cos.example.com/source.wav"}`,
 			platform: service.PlatformHunyuan,
+			response: `{"voice_id":"minimax_55e81114-ce7e-4ca1","base_resp":{"status_code":0,"status_msg":"success"}}`,
+			wantURL:  "https://tokenhub.tencentmaas.com/v1/wand/minimax-tts/sync_clone",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanVoiceClone(c) },
-		},
-		{
-			name: "embeddings", method: http.MethodPost, path: "/v1/embeddings",
-			body:     `{"model":"kinfra-text-embedding-0.6b","input":"腾讯云 TokenHub"}`,
-			platform: service.PlatformHunyuan,
-			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanEmbeddings(c) },
 		},
 		{
 			name: "composite video create", method: http.MethodPost, path: "/v1/videos",
 			body:     `{"model":"hy-video-v1.5","prompt":"composite video"}`,
 			platform: service.PlatformComposite,
+			response: `{"task_id":"task-xyz"}`,
+			wantURL:  "https://tokenhub.tencentmaas.com/v1/wand/hunyuan-video/generation",
 			invoke:   func(h *OpenAIGatewayHandler, c *gin.Context) { h.HunyuanVideoGeneration(c) },
 		},
 	}
 	for _, scenario := range scenarios {
 		t.Run(scenario.name, func(t *testing.T) {
 			h, _, upstream, _ := newHunyuanActionHandler(t)
-			upstream.call = upstreamOK
+			var sent *http.Request
+			upstream.call = func(request *http.Request, _ int64) (*http.Response, error) {
+				sent = request
+				return hunyuanActionJSONResponse(scenario.response), nil
+			}
 			c, w := hunyuanActionContext(scenario.method, scenario.path, scenario.body, scenario.platform)
 			if scenario.platform == service.PlatformComposite {
 				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformHunyuan))
 			}
 			scenario.invoke(h, c)
-			// The chat-only platform lock is gone: the action matrix binds every
-			// one of these cells and routes/gateway.go registers every dispatch
-			// key (routes.TestGatewayActionHandlersCoverEveryImplementedCell).
-			// What still finds no account is the scheduler's media/model evidence
-			// gate: openAICompatiblePlanCatalogEndpoint keeps the conservative
-			// Responses family for chat-only media plans, and this fixture's
-			// catalog declares no family that resolves for that plan. That gate
-			// is owned by the scheduler media-endpoint work, not by this ingress
-			// wiring; the upstream contract for these exact endpoints is proven by
-			// the service-level hunyuan wire tests.
-			require.Equal(t, http.StatusServiceUnavailable, w.Code, w.Body.String())
-			require.Zero(t, upstream.callCount(), "account evidence must be resolved before any upstream call")
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+			require.Equal(t, 1, upstream.callCount(), "the documented endpoint is called exactly once")
+			require.NotNil(t, sent)
+			require.Equal(t, scenario.wantURL, sent.URL.String())
 		})
 	}
 }

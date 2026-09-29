@@ -231,11 +231,12 @@ func buildQianwenNativeRerankBody(mapped string, flat []byte) ([]byte, error) {
 		},
 		"parameters": map[string]any{"return_documents": true},
 	}
+	parameters, _ := native["parameters"].(map[string]any)
 	if topN, ok := payload["top_n"]; ok {
-		native["parameters"].(map[string]any)["top_n"] = topN
+		parameters["top_n"] = topN
 	}
 	if instruct, ok := payload["instruct"].(string); ok && instruct != "" && mapped == "qwen3-vl-rerank" {
-		native["parameters"].(map[string]any)["instruct"] = instruct
+		parameters["instruct"] = instruct
 	}
 	return json.Marshal(native)
 }

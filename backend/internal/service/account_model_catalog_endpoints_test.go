@@ -63,6 +63,9 @@ func TestAccountModelCatalogCapabilityInference(t *testing.T) {
 		{name: "imagine video", platform: PlatformGrok, model: "grok-imagine-video", want: []string{"grok_media_generation"}},
 		{name: "qualified imagine", platform: PlatformGrok, model: "xai/grok-imagine-image-quality", want: []string{"grok_media_generation"}},
 		{name: "media task", platform: PlatformGrok, metadata: UpstreamModelMetadata{TaskType: "video_generation"}, want: []string{"grok_media_generation"}},
+		{name: "openai video task", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "video_generation"}, want: []string{"images"}},
+		{name: "openai video output modality", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{OutputModalities: []string{"video"}}, want: []string{"images"}},
+		{name: "openai declared video task", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "video_generation", SupportedMethods: []string{"images", "chat_completions"}}, want: []string{"chat_completions", "images"}},
 		{name: "chat not media", platform: PlatformGrok, model: "grok-4.3", metadata: UpstreamModelMetadata{TaskType: "text_generation"}, want: []string{"chat_completions"}},
 		{name: "known grok text without metadata", platform: PlatformGrok, model: "grok-4.5", want: []string{"chat_completions"}},
 		{name: "unknown grok task stays unknown", platform: PlatformGrok, model: "grok-private", want: []string{}},
@@ -125,10 +128,14 @@ func TestAccountModelCatalogMixedTasksDoNotUseTextFallback(t *testing.T) {
 	for _, platform := range []string{PlatformQianwen, PlatformOpenAI} {
 		account := &Account{Platform: platform, Type: AccountTypeAPIKey}
 		require.Empty(t, accountCatalogModelEndpoints(account, "native", UpstreamModelMetadata{OutputModalities: []string{"text", "audio"}}))
-		require.Empty(t, accountCatalogModelEndpoints(account, "native", UpstreamModelMetadata{TaskType: "video_generation"}))
 		require.Equal(t, []string{"images"}, accountCatalogModelEndpoints(account, "native", UpstreamModelMetadata{OutputModalities: []string{"image"}}))
 		require.Equal(t, []string{"embeddings"}, accountCatalogModelEndpoints(account, "native", UpstreamModelMetadata{TaskType: "embedding"}))
 	}
+	// A video task is projected only for the OpenAI column, whose native video
+	// adapter executes on the media family; the CN platforms reach video through
+	// their own native ingress and keep no catalogue family for it.
+	require.Empty(t, accountCatalogModelEndpoints(&Account{Platform: PlatformQianwen, Type: AccountTypeAPIKey}, "native", UpstreamModelMetadata{TaskType: "video_generation"}))
+	require.Equal(t, []string{"images"}, accountCatalogModelEndpoints(&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}, "native", UpstreamModelMetadata{TaskType: "video_generation"}))
 }
 
 func TestAccountModelCatalogTextPlatformProtocols(t *testing.T) {

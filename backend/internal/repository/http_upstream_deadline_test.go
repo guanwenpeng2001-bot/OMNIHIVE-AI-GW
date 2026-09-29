@@ -25,7 +25,9 @@ func TestHTTPUpstreamSlowDripStopsAtRequestDeadline(t *testing.T) {
 				if _, err := io.WriteString(writer, ": heartbeat\n\n"); err != nil {
 					return
 				}
-				writer.(http.Flusher).Flush()
+				if flusher, ok := writer.(http.Flusher); ok {
+					flusher.Flush()
+				}
 			}
 		}
 	}))
@@ -36,7 +38,7 @@ func TestHTTPUpstreamSlowDripStopsAtRequestDeadline(t *testing.T) {
 	require.NoError(t, err)
 	response, err := NewHTTPUpstream(nil).Do(request, "", 1, 1)
 	require.NoError(t, err)
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	body, err := io.ReadAll(response.Body)
 	require.NotEmpty(t, body)
 	require.Error(t, err)

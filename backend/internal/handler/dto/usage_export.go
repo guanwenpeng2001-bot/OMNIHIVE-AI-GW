@@ -247,6 +247,7 @@ type UsageExportCSVStream struct {
 	target  io.Writer
 	columns []string
 	writer  *UsageExportCSVWriter
+	started bool
 }
 
 // NewUsageExportCSVStream prepares a lazy CSV stream for one export response.
@@ -256,13 +257,13 @@ func NewUsageExportCSVStream(target io.Writer, columns []string) *UsageExportCSV
 
 // Started reports whether any byte of the body has been written.
 func (s *UsageExportCSVStream) Started() bool {
-	return s.writer != nil
+	return s.started
 }
 
 // WriteRows writes one batch, creating the CSV writer on first use.
 func (s *UsageExportCSVStream) WriteRows(rows [][]string) error {
 	if s.writer == nil {
-		writer, err := NewUsageExportCSVWriter(s.target, s.columns)
+		writer, err := NewUsageExportCSVWriter(s, s.columns)
 		if err != nil {
 			return err
 		}
@@ -273,15 +274,28 @@ func (s *UsageExportCSVStream) WriteRows(rows [][]string) error {
 
 // Close emits an empty (header only) export when no batch was produced.
 func (s *UsageExportCSVStream) Close() error {
-	if s.writer != nil {
-		return nil
+	if s.writer == nil {
+		writer, err := NewUsageExportCSVWriter(s, s.columns)
+		if err != nil {
+			return err
+		}
+		s.writer = writer
 	}
-	writer, err := NewUsageExportCSVWriter(s.target, s.columns)
-	if err != nil {
-		return err
+	s.writer.Flush()
+	return s.writer.writer.Error()
+}
+
+// Write tracks actual output even when initializing the BOM/header only partly
+// succeeds. HTTP callers must also check whether their response was committed.
+func (s *UsageExportCSVStream) Write(data []byte) (int, error) {
+	written, err := s.target.Write(data)
+	if written > 0 {
+		s.started = true
 	}
-	writer.Flush()
-	return nil
+	if written < len(data) && err == nil {
+		err = io.ErrShortWrite
+	}
+	return written, err
 }
 
 // sanitizeUsageExportCell neutralizes spreadsheet formula injection. Values that

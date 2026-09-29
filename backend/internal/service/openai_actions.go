@@ -49,6 +49,20 @@ func openAIActionPath(action string) (string, bool) {
 	}
 }
 
+// openAIActionCatalogEndpoint maps one native action onto the catalogue endpoint
+// family its model evidence is recorded under. The video lifecycle shares the
+// media (images) family the catalogue publishes for video tasks, so the send
+// boundary must ask for that family instead of the action name; actions whose
+// family the catalogue never publishes keep their own token and stay refused.
+func openAIActionCatalogEndpoint(action string) string {
+	switch action {
+	case "video.generate", "video.edit", "video.extend":
+		return CompositeRouteEndpointImages
+	default:
+		return action
+	}
+}
+
 func openAIActionCredential(account *Account) (string, error) {
 	if account == nil || account.Platform != PlatformOpenAI || account.Type != AccountTypeAPIKey {
 		return "", ErrOpenAIActionCredential
@@ -209,7 +223,7 @@ func (s *OpenAIGatewayService) ForwardOpenAIAction(ctx context.Context, account 
 		return nil, err
 	}
 	if model != "" {
-		if err = validateAccountForwardModel(ctx, s.accountRepo, account, model, action); err != nil {
+		if err = validateAccountForwardModel(ctx, s.accountRepo, account, model, openAIActionCatalogEndpoint(action)); err != nil {
 			return nil, err
 		}
 	}
@@ -270,7 +284,8 @@ func (s *OpenAIGatewayService) OpenOpenAIRealtime(ctx context.Context, account *
 	query := parsed.Query()
 	query.Set("model", model)
 	parsed.RawQuery = query.Encode()
-	transport := http.DefaultTransport.(*http.Transport).Clone()
+	baseTransport, _ := http.DefaultTransport.(*http.Transport)
+	transport := baseTransport.Clone()
 	defer transport.CloseIdleConnections()
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxy, parseErr := url.Parse(account.Proxy.URL())
@@ -369,7 +384,7 @@ func openAIResourceID(id string) bool {
 		return false
 	}
 	for _, character := range id {
-		if !(character >= 'a' && character <= 'z' || character >= 'A' && character <= 'Z' || character >= '0' && character <= '9' || character == '_' || character == '-') {
+		if (character < 'a' || character > 'z') && (character < 'A' || character > 'Z') && (character < '0' || character > '9') && character != '_' && character != '-' {
 			return false
 		}
 	}

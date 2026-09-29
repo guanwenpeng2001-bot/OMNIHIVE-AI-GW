@@ -63,6 +63,11 @@ func resolveCapabilityProfile(account *Account) string {
 		return "hunyuan"
 	case "tokenhub.tencentmaas.com", "tokenhub.tencentmaas.cn", "tokenhub-intl.tencentmaas.com", "tokenhub-intl.tencentmaas.cn":
 		return "hunyuan"
+	// TokenHub 套餐（Coding Plan / Token Plan）的官方主机：同一厂商的数据面，
+	// registry profile 仍归 hunyuan，而不是退化成 custom:<host>（1823/130092、1823/130060，
+	// 2026-09-23 抓取）。
+	case "api.lkeap.cloud.tencent.com":
+		return "hunyuan"
 	case "api.mistral.ai":
 		return "mistral"
 	case "api.openai.com":

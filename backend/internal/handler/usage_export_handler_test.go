@@ -3,13 +3,16 @@ package handler
 import (
 	"context"
 	"encoding/csv"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	middleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -23,10 +26,15 @@ type userUsageExportRepo struct {
 	logs    []service.UsageLog
 	filters usagestats.UsageLogFilters
 	calls   int
+
+	// streamError 让替身模拟服务端读取失败（例如 USAGE_HISTORY_INCOMPLETE 守卫）。
+	streamError         error
+	failAfterFirstBatch bool
+	blockAfter          chan struct{}
 }
 
 func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
-	_ context.Context,
+	ctx context.Context,
 	filters usagestats.UsageLogFilters,
 	_ *usagestats.UsageExportCursor,
 	_ int,
@@ -34,22 +42,40 @@ func (s *userUsageExportRepo) StreamUsageLogsWithFilters(
 ) error {
 	s.calls++
 	s.filters = filters
+	if s.streamError != nil && !s.failAfterFirstBatch {
+		return s.streamError
+	}
 	if len(s.logs) == 0 {
 		return nil
 	}
-	return yield(s.logs)
+	if err := yield(s.logs); err != nil {
+		return err
+	}
+	if s.blockAfter != nil {
+		select {
+		case <-s.blockAfter:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	return s.streamError
 }
 
-func newUserUsageExportRouter(repo *userUsageExportRepo, userID int64) *gin.Engine {
+func newUserUsageExportRouter(repo *userUsageExportRepo, userID int64, extraMiddleware ...gin.HandlerFunc) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	usageService := service.NewUsageService(repo, nil, nil, nil)
 	handler := NewUsageHandler(usageService, nil, nil, nil)
 	router := gin.New()
+	router.Use(middleware.Recovery(), middleware.RequestLogger(),
+		middleware.SessionBindingContext(&config.Config{}), middleware.Logger(), middleware.CORS(config.CORSConfig{}),
+		middleware.SecurityHeaders(config.CSPConfig{}, nil), middleware.ServerTiming(true))
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: userID})
 		c.Next()
 	})
+	router.Use(extraMiddleware...)
 	router.GET("/usage/export", handler.Export)
+	router.GET("/api/v1/usage/export", handler.Export)
 	return router
 }
 
@@ -107,6 +133,29 @@ func TestUserUsageExportStreamsOwnerColumnsOnly(t *testing.T) {
 	require.NotContains(t, rec.Body.String(), "account_billed_cost")
 }
 
+// 读取失败必须回到统一的 JSON 错误信封：不能留着 CSV 下载头，让客户端把 JSON 正文当成文件（409 里的精确原因靠它传达）。
+func TestUserUsageExportAnswersReadFailuresWithTheJSONEnvelope(t *testing.T) {
+	repo := &userUsageExportRepo{streamError: infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").
+		WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})}
+	router := newUserUsageExportRouter(repo, 42)
+
+	req := httptest.NewRequest(http.MethodGet, "/usage/export?format=csv&start_date=2026-09-01&end_date=2026-09-22&timezone=UTC", nil)
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	require.Equal(t, http.StatusConflict, rec.Code)
+	require.Contains(t, rec.Header().Get("Content-Type"), "application/json", "失败响应不能声明 CSV 正文")
+	require.Empty(t, rec.Header().Get("Content-Disposition"), "失败响应不是附件下载")
+	require.Empty(t, rec.Header().Get("X-Usage-Export-Columns"), "列顺序头描述的是没有发出去的文件")
+	require.Empty(t, rec.Header().Get("X-Usage-Export-Snapshot-End"))
+
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Equal(t, float64(http.StatusConflict), envelope["code"])
+	require.Equal(t, "USAGE_HISTORY_INCOMPLETE", envelope["reason"])
+	require.Equal(t, map[string]any{"raw_retained_from": "2026-03-05T00:00:00Z"}, envelope["metadata"])
+}
+
 func TestUserUsageExportRejectsUnknownFormat(t *testing.T) {
 	repo := &userUsageExportRepo{}
 	router := newUserUsageExportRouter(repo, 42)
@@ -125,6 +174,9 @@ func TestUserUsageExportRequiresAuthentication(t *testing.T) {
 	usageService := service.NewUsageService(repo, nil, nil, nil)
 	handler := NewUsageHandler(usageService, nil, nil, nil)
 	router := gin.New()
+	router.Use(middleware.Recovery(), middleware.RequestLogger(),
+		middleware.SessionBindingContext(&config.Config{}), middleware.Logger(), middleware.CORS(config.CORSConfig{}),
+		middleware.SecurityHeaders(config.CSPConfig{}, nil), middleware.ServerTiming(true))
 	router.GET("/usage/export", handler.Export)
 
 	req := httptest.NewRequest(http.MethodGet, "/usage/export", nil)

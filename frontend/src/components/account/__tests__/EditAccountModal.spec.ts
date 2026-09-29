@@ -1,3 +1,7 @@
+import createAccountSource from '../CreateAccountModal.vue?raw'
+import editAccountSource from '../EditAccountModal.vue?raw'
+import englishAccounts from '@/i18n/locales/en/admin/accounts'
+import chineseAccounts from '@/i18n/locales/zh/admin/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
@@ -517,7 +521,7 @@ describe('EditAccountModal', () => {
       await button.trigger('click')
     }
     for (const option of ['auto', 'official', 'relay']) {
-      expect(wrapper.get(`[data-testid="cursor-key-mode-${option}"]`).attributes('aria-pressed')).toBe(option === mode ? 'true' : 'false')
+      expect(wrapper.get(`[data-testid="cursor-key-mode-${option}"]`).attributes('aria-checked')).toBe(option === mode ? 'true' : 'false')
     }
     expect(wrapper.findComponent(CursorKeyFields).props('mode')).toBe(mode)
 
@@ -932,7 +936,7 @@ describe('EditAccountModal', () => {
     await flushPromises()
 
     // 回填后的选项与保存值一致，而不是新建默认的一套。
-    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-pressed') === 'true')
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
     expect(pressed).toHaveLength(1)
     expect(pressed[0]!.text()).toContain(`admin.accounts.cnProviders.apiProtocol.${expectedProtocol === 'adaptive' ? 'adaptive' : 'chatCompletions'}`)
 
@@ -980,7 +984,7 @@ describe('EditAccountModal', () => {
 
     const labels = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').map(button => button.text())
     expect(labels.filter(text => text.includes('admin.accounts.cnProviders.apiProtocol.responses'))).toHaveLength(supportsNativeResponses ? 1 : 0)
-    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-pressed') === 'true')
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
     expect(pressed).toHaveLength(1)
     expect(pressed[0]!.text()).toContain('admin.accounts.cnProviders.apiProtocol.chatCompletions')
 
@@ -1011,7 +1015,7 @@ describe('EditAccountModal', () => {
     const wrapper = mountModal(account)
     await flushPromises()
 
-    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-pressed') === 'true')
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
     expect(pressed).toHaveLength(1)
     expect(pressed[0]!.text()).toContain(`admin.accounts.cnProviders.apiProtocol.${expectedProtocol === 'adaptive' ? 'adaptive' : expectedProtocol === 'responses' ? 'responses' : 'chatCompletions'}`)
 
@@ -1038,11 +1042,11 @@ describe('EditAccountModal', () => {
     await flushPromises()
     const cards = wrapper.get('[data-testid="edit-accountMode"]').findAll('button')
     expect(cards).toHaveLength(2)
-    expect(cards[0].attributes('aria-pressed')).toBe('true')
+    expect(cards[0].attributes('aria-checked')).toBe('true')
     expect(cards[1].text()).toContain('admin.accounts.cnProviders.accountMode.codingDesc')
     await cards[1].trigger('click')
-    expect(cards[1].attributes('aria-pressed')).toBe('true')
-    expect(cards[0].attributes('aria-pressed')).toBe('false')
+    expect(cards[1].attributes('aria-checked')).toBe('true')
+    expect(cards[0].attributes('aria-checked')).toBe('false')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.account_mode).toBe('coding')
     wrapper.unmount()
@@ -1067,7 +1071,7 @@ describe('EditAccountModal', () => {
     expect(adaptiveButton).toBeDefined()
     expect(adaptiveButton!.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptiveDesc')
     await adaptiveButton!.trigger('click')
-    expect(adaptiveButton!.attributes('aria-pressed')).toBe('true')
+    expect(adaptiveButton!.attributes('aria-checked')).toBe('true')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
@@ -2196,8 +2200,8 @@ describe('Cursor lossless modal submissions', () => {
     await flushPromises()
 
     // 打开时回填 Chat：不回显秘密，key 留空也不要求重输。
-    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-pressed')).toBe('false')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('false')
     const apiKeyInput = wrapper.get<HTMLInputElement>('[data-testid="cursor-api-key"]')
     expect(apiKeyInput.element.value).toBe('')
     expect(apiKeyInput.attributes('required')).toBeUndefined()
@@ -2217,9 +2221,9 @@ describe('Cursor lossless modal submissions', () => {
     const saved = { ...account, credentials: { ...account.credentials, ...updateAccountMock.mock.calls[0]?.[1]?.credentials } }
     const reopened = mountModal(saved)
     await flushPromises()
-    expect(reopened.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-pressed')).toBe('true')
+    expect(reopened.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
     await reopened.get('[data-testid="cursor-relay-protocol-adaptive"]').trigger('click')
-    expect(reopened.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-pressed')).toBe('true')
+    expect(reopened.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
     await reopened.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(2)
@@ -2230,7 +2234,7 @@ describe('Cursor lossless modal submissions', () => {
     const adaptiveSaved = { ...saved, credentials: { ...saved.credentials, api_protocol: 'adaptive' } }
     const replaced = mountModal(adaptiveSaved)
     await flushPromises()
-    expect(replaced.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-pressed')).toBe('true')
+    expect(replaced.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
     await replaced.get('[data-testid="cursor-api-key"]').setValue('crsr_replaced')
     await replaced.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -2248,7 +2252,7 @@ describe('Cursor lossless modal submissions', () => {
 
     // 不预选合法值：原值只读回显在提示里，网格无选中项。
     for (const button of wrapper.get('[data-testid="cursor-relay-protocol"]').findAll('button')) {
-      expect(button.attributes('aria-pressed')).toBe('false')
+      expect(button.attributes('aria-checked')).toBe('false')
     }
     const unsupported = wrapper.get('[data-testid="cursor-relay-protocol-unsupported"]')
     expect(unsupported.text()).toContain('admin.accounts.cursor.unsupportedRelayProtocol')
@@ -2265,7 +2269,7 @@ describe('Cursor lossless modal submissions', () => {
 
     // 明确改选合法协议后才提交。
     await wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').trigger('click')
-    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
     expect(wrapper.find('[data-testid="cursor-relay-protocol-unsupported"]').exists()).toBe(false)
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -2280,7 +2284,7 @@ describe('Cursor lossless modal submissions', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(first)
     await flushPromises()
-    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
     await wrapper.get('[data-testid="cursor-api-key"]').setValue('typed-for-first')
     await wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').trigger('click')
 
@@ -2289,7 +2293,7 @@ describe('Cursor lossless modal submissions', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="cursor-key-mode"]').exists()).toBe(false)
     expect(wrapper.get<HTMLInputElement>('[data-account-field="editApiKey"]').element.value).toBe('')
-    expect(wrapper.findAll('[data-testid="edit-apiProtocol"] button').find(button => button.attributes('aria-pressed') === 'true')?.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptive')
+    expect(wrapper.findAll('[data-testid="edit-apiProtocol"] button').find(button => button.attributes('aria-checked') === 'true')?.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptive')
 
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -2431,5 +2435,101 @@ describe('editor candidate identity and additive discovery', () => {
     expect(syncUpstreamModelsMock.mock.calls).toEqual([[1, false]])
     expect(updateAccountMock).not.toHaveBeenCalled()
     wrapper.unmount()
+  })
+})
+
+
+describe('late platform edit mode, protocol and endpoint persistence', () => {
+  const platforms = [
+    { platform: 'hunyuan', payg: 'https://tokenhub.tencentmaas.com/v1', coding: 'https://api.lkeap.cloud.tencent.com/coding/v3', anthropic: 'https://api.lkeap.cloud.tencent.com/coding/anthropic', protocols: 4 },
+    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: null, protocols: 3 },
+    { platform: 'qianfan', payg: 'https://qianfan.baidubce.com/v2', coding: 'https://qianfan.baidubce.com/v2/tokenplan/personal', anthropic: null, protocols: 3 },
+    { platform: 'mistral', payg: 'https://api.mistral.ai/v1', coding: null, anthropic: null, protocols: 1 }
+  ]
+  it.each(platforms)('normalizes legacy choices and saves the mode-aware fallback for $platform', async ({ platform, coding, payg }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'coding', api_protocol: 'chat_completions', base_url: coding ?? payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('[data-account-field="editBaseUrl"]').setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: coding ? 'coding' : 'payg', api_protocol: 'chat_completions', base_url: coding ?? payg })
+    wrapper.unmount()
+  })
+  it.each(platforms.filter(entry => entry.coding))('saves adaptive coding endpoints for $platform', async ({ platform, payg, coding, anthropic }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'payg', api_protocol: 'adaptive', base_url: payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-accountMode"]').findAll('button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const expectedEndpoints = anthropic ? { chat_completions: coding, responses: coding, anthropic } : { chat_completions: coding, responses: coding }
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: 'coding', api_protocol: 'adaptive', base_url: coding })
+    expect(updateAccountMock.mock.calls[0][1].credentials.api_base_urls).toEqual(expectedEndpoints)
+    wrapper.unmount()
+  })
+  it.each(platforms)('persists supported mode and protocol edits with exact presets for $platform', async ({ platform, payg, coding, anthropic, protocols }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'payg', api_protocol: 'chat_completions', base_url: payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const modeCards = wrapper.get('[data-testid="edit-accountMode"]').findAll('[role="radio"]')
+    expect(modeCards).toHaveLength(coding ? 2 : 1)
+    expect(wrapper.get('[data-testid="edit-apiProtocol"]').findAll('[role="radio"]')).toHaveLength(protocols)
+    expect(wrapper.findAll('[data-testid="cn-base-url-preset"]').map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(`(${payg.replace('https://', '')})`)]))
+    if (coding) {
+      await modeCards[1].trigger('click')
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[data-account-field="editBaseUrl"]').element.value).toBe(coding)
+      const presets = wrapper.findAll('[data-testid="cn-base-url-preset"]')
+      expect(presets.map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(coding.replace('https://', ''))]))
+      expect(presets.map(preset => preset.text())).not.toEqual(expect.arrayContaining([expect.stringContaining(`(${payg.replace('https://', '')})`)]))
+      await presets[0].trigger('click')
+    } else {
+      await modeCards[0].trigger('click')
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: coding ? 'coding' : 'payg', api_protocol: 'chat_completions', base_url: coding ?? payg })
+    if (coding) {
+      await wrapper.setProps({ account: { ...account, credentials: { ...account.credentials, ...updateAccountMock.mock.calls[0][1].credentials } } })
+      await flushPromises()
+      const nextProtocol = anthropic ? 'anthropic' : 'responses'
+      const nextBaseUrl = anthropic ?? coding
+      updateAccountMock.mockClear()
+      const protocolCards = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('[role="radio"]')
+      await protocolCards.find(card => card.text().includes(`apiProtocol.${nextProtocol}`))!.trigger('click')
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[data-account-field="editBaseUrl"]').element.value).toBe(nextBaseUrl)
+      expect(wrapper.findAll('[data-testid="cn-base-url-preset"]').map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(nextBaseUrl.replace('https://', ''))]))
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+      expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: 'coding', api_protocol: nextProtocol, base_url: nextBaseUrl })
+    }
+    for (const radio of wrapper.findAll('[role="radio"]')) {
+      expect(radio.attributes('aria-checked')).toMatch(/^(true|false)$/)
+      expect(radio.attributes()).not.toHaveProperty('aria-pressed')
+    }
+    wrapper.unmount()
+  })
+})
+
+
+describe('account form semantic and localized validation regressions', () => {
+  it.each([['create', createAccountSource], ['edit', editAccountSource]])('%s uses localized required Base URL errors', (_name, source) => {
+    expect(source).toContain("showError(t('admin.accounts.baseUrlRequired'))")
+    expect(source).not.toContain("showError('Base URL is required.')")
+    expect(englishAccounts.accounts.baseUrlRequired).toBe('Base URL is required.')
+    expect(chineseAccounts.accounts.baseUrlRequired).toBe('请填写 Base URL。')
+  })
+  it('never assigns toggle button aria-pressed to editing radio cards', () => {
+    expect(editAccountSource).not.toContain(':aria-pressed=')
   })
 })

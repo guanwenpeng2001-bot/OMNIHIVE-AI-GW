@@ -25,19 +25,25 @@ import "strings"
 //   - 1823/133515 text and multimodal embeddings, 1823/132358 in-request web
 //     search, 1823/130849 batch inference over /v1/batches (chat JSONL only),
 //     1823/133813 Responses compatibility mode (HTTP/SSE only).
+//   - TokenHub plan data planes, captured 2026-09-23: Coding Plan publishes
+//     https://api.lkeap.cloud.tencent.com/coding/v3 (OpenAI-compatible) and
+//     https://api.lkeap.cloud.tencent.com/coding/anthropic (Anthropic-compatible),
+//     Token Plan 个人版 publishes https://api.lkeap.cloud.tencent.com/plan/v3, and
+//     Tencent documents that plan keys (sk-sp- / sk-tp-) are not interchangeable
+//     with pay-as-you-go keys (cloud.tencent.com/document/product/1823/130060 and
+//     /130092). A plan account therefore resolves a different default base URL; it
+//     changes no cell status in this matrix.
 //
-// Runtime binding blocker (checked 2026-09-21): the Hunyuan platform row keeps
-// ChatOnly=true, so the catalog and capability layers
-// (service/account_model_catalog.go accountCatalogModelEndpoints,
-// service/account.go SupportsOpenAIEndpointCapability) and the chat-only route
-// guard admit only the chat-completions endpoint. The native adapters in
-// handler/hunyuan_actions.go and service/hunyuan_actions.go are implemented and
-// covered by service-level wire tests, but no Hunyuan account can execute them
-// until the platform-classification decision lands (owned by multimodal-ingress,
-// which also lifts the same wall for the other chat-only entries).
-// server/routes/gateway_protocol_matrix_test.go enforces that an implemented cell
-// must resolve a catalog binding, so those cells stay unverified here instead of
-// advertising an adapter that cannot run.
+// Runtime binding (checked 2026-09-22): the Hunyuan platform row keeps
+// ChatOnly=true because the OpenAI-shaped TokenHub base defines the entry, and
+// the same row now publishes ResponsesPOST and MessagesPOST as native protocol
+// paths. The action authority admits the responses and messages cells on those
+// protocol facts, and the chat-only catalog admits the matching endpoint
+// families for text models, so a Hunyuan API-key account can execute the native
+// adapters in handler/hunyuan_actions.go and service/hunyuan_actions.go together
+// with the shared text trunk. server/routes/gateway_protocol_matrix_test.go
+// enforces that an implemented cell must resolve a catalog binding, so a cell
+// may only be bound here when that binding holds.
 //
 // Dispatch keys this adapter needs registered in
 // service.GatewayActionHandlers (routes are registered once by
@@ -64,6 +70,9 @@ import "strings"
 //	hunyuan.embeddings.multimodal -> HunyuanMultimodalEmbeddings (/embeddings/multimodal)
 //	hunyuan.hy3d.submit        -> Hunyuan3DSubmit (/api/3d/submit)
 //	hunyuan.hy3d.query         -> Hunyuan3DQuery (/api/3d/query)
+//
+// The text protocol cells need no entry here: they bind the shared
+// openai.messages and openai.responses keys the ingress already registers.
 
 // hunyuanActionAdapters binds the TokenHub cells a Hunyuan API-key account can
 // execute today. The media, vector and voice entries were promoted by
@@ -71,9 +80,13 @@ import "strings"
 // routes/gateway.go GatewayActionHandlers and admits them through the
 // evidence-driven chat-only gates; count_tokens uses the shared non-billable
 // local estimation adapter because TokenHub publishes no token-count endpoint
-// (1823/130077).
+// (1823/130077). The text protocol cells bind the shared OpenAI trunk because
+// TokenHub serves Chat Completions, Responses and Anthropic Messages on one
+// site, so no second forwarder with its own token accounting is introduced.
 var hunyuanActionAdapters = map[string]string{
 	"chat":           "openai.chat",
+	"messages":       "openai.messages",
+	"responses":      "openai.responses",
 	"count_tokens":   "openai.count_tokens",
 	"embeddings":     "hunyuan.embeddings",
 	"image.generate": "hunyuan.images",
@@ -90,7 +103,9 @@ var hunyuanActionAdapters = map[string]string{
 // for every Hunyuan cell whose adapter exists in this branch.
 var hunyuanActionEvidence = map[string]string{
 	"count_tokens":   "The TokenHub 调用指南 index publishes no token-count endpoint (1823/130077, captured 2026-09-21); the shared openai.count_tokens adapter answers with the non-billable local estimation instead of forwarding a request TokenHub would 404",
-	"chat":           "openai.chat trunk to POST {base}/v1/chat/completions with Authorization: Bearer; TokenHub 1823/130079 lists Hy3 on Chat Completions and 1823/130078 fixes the four hosts, the Bearer/x-api-key split and GET /v1/models (captured 2026-09-21). service/openai_gateway_chat_completions_raw.go keeps an unobserved stream unbilled instead of reporting zero usage",
+	"chat":           "openai.chat trunk to POST {base}/v1/chat/completions with Authorization: Bearer; TokenHub 1823/130079 lists Hy3 on Chat Completions and 1823/130078 fixes the four hosts, the Bearer/x-api-key split and GET /v1/models (captured 2026-09-21). service/openai_gateway_chat_completions_raw.go keeps an unobserved stream unbilled instead of reporting zero usage. Coding Plan accounts use the plan data plane instead: Tencent publishes https://api.lkeap.cloud.tencent.com/coding/v3 as the Coding Plan OpenAI-compatible base and https://api.lkeap.cloud.tencent.com/plan/v3 for Token Plan 个人版, with plan keys documented as not interchangeable with pay-as-you-go keys (1823/130092 and 1823/130060, captured 2026-09-23); Account.GetOpenAIBaseURL and service/hunyuan_adapter.go resolve that base from credentials.account_mode when base_url is empty, while an explicit base_url still wins",
+	"messages":       "openai.messages trunk on the TokenHub Anthropic path: POST {base}/v1/messages authenticated with x-api-key, where {base} is the same version-suffixed TokenHub site as the chat trunk (the version-aware target builder resolves {host}/v1/messages, never a doubled /v1). 1823/130079 lists Hy3 on Chat Completions, Responses and Anthropic and 1823/130078 fixes the four hosts plus the Bearer/x-api-key split (captured 2026-09-21). An account with api_protocol=anthropic forwards with zero conversion through Account.GetAnthropicProtocolBaseURL; every other protocol setting keeps the shared Anthropic→text conversion, so no second messages forwarder with separate token accounting exists. Coding Plan accounts resolve the plan-specific Anthropic-compatible root https://api.lkeap.cloud.tencent.com/coding/anthropic instead (1823/130092, captured 2026-09-23), so the mode changes the base URL only and not this cell's status",
+	"responses":      "openai.responses trunk on the TokenHub Responses compatibility mode: POST {base}/responses over HTTP/SSE, derived by the shared trunk from the same version-suffixed TokenHub base (1823/133813 documents the compatibility mode and 1823/130079 lists Responses in the per-model protocol table, captured 2026-09-21). This path authenticates with Authorization: Bearer and its usage fields are billed by the shared Responses settlement",
 	"embeddings":     "hunyuan.embeddings handler to POST {base}/v1/embeddings (OpenAI-compatible text vectorization) and POST {base}/v1/embeddings/multimodal for the fused text/image/video vector (1823/133515, captured 2026-09-21); usage.prompt_tokens/total_tokens billing",
 	"image.generate": "hunyuan.images handler to POST {base}/v1/wand/hunyuan-image/v3-generation (Hy-Image-3.0, synchronous, data[].url with a 12-hour temporary COS URL, size/images/seed/footnote/revise parameters) plus POST {base}/v1/wand/hunyuan-image/world2-panorama for the Hy-World-2.1 360 panorama, which answers data[].super_resolution_image_url and cover_image_url (1823/135745, 1823/136578 and the 1823/135744 family list, captured 2026-09-21); per-image billing from the counted outputs",
 	"image.edit":     "hunyuan.image.edit handler on the same POST {base}/v1/wand/hunyuan-image/v3-generation endpoint: the documented 参考生图 form takes 0-3 source images in images[] next to the required prompt and returns the identical data[].url envelope, which is the faithful TokenHub bridge for the OpenAI /images/edits shape (1823/135745 and the 1823/135744 instruction-based editing rows, captured 2026-09-21); the vendor publishes no /images/edits path",
@@ -127,8 +142,6 @@ var hunyuanHardConflicts = map[string]string{
 // whose adapter exists elsewhere names that adapter and the gate blocking the
 // bind, so no cell ever reads as a bare \"unsupported\".
 var hunyuanUnverifiedReasons = map[string]string{
-	"messages":    "The Anthropic path is documented at POST {base}/v1/messages with x-api-key (1823/130079 protocol table and 1823/130078 auth split, captured 2026-09-21) and the shared trunk already lists hunyuan as an OpenAI-compatible text target (handler/openai_gateway_handler.go openAICompatibleTextTargetAllowed) with Account.GetAnthropicProtocolBaseURL resolving the TokenHub base (service/account.go). The cell stays unbound because PlatformAction gates messages on !ChatOnly, which is the multimodal-ingress platform-classification decision; this branch pins the native endpoint in service/hunyuan_actions.go (HunyuanEndpointMessages) and deliberately ships no second messages forwarder with separate token accounting",
-	"responses":   "The same trunk is the adapter: 1823/133813 documents the Responses compatibility mode over HTTP/SSE and 1823/130079 lists the model protocols, but the Hunyuan platform descriptor records ResponsesPOST as rejected and the cell is gated on !ChatOnly, so the bind is a descriptor decision owned by multimodal-ingress (captured 2026-09-21)",
 	"image.async": "Vidu-Image-q2 is documented as an asynchronous image family in the TokenHub image list (1823/135744) and the international product pages publish POST /wand/vidu-image/generation plus GET /wand/vidu-image/tasks/{task_id} returning creations[].url (intl 1300/83709, captured 2026-09-21); no async image job adapter or upstream-job family is shipped by this branch, and the standard /images/generations/async contract is owned by the upstream job work",
 	"video.edit":  "The Kling omni-video family is the documented TokenHub video-edit surface: POST /wand/kling/omni-video with a contents[] item {type: base_video, url} plus the instruction prompt, and GET /wand/kling/tasks/{task_id} for the task (1823/135742, captured 2026-09-21). The response envelope is documented as following the Kling structure \"以实际返回为准\" with no saved wire sample, and mapping the OpenAI /videos/edits shape onto contents[] is a bridge this branch does not ship; the capability is real, so the cell is unverified rather than a hard conflict",
 	"native":      "TokenHub's native families are the /wand/* and /api/3d/* paths plus /embeddings/multimodal (1823/130077 family index, captured 2026-09-21). The shared route classifier reserves the native action for the DashScope-style /api/v1, /api-ws/v1 and /compatible-mode/v1 paths, which TokenHub does not publish, so those families are reached through the per-action keys listed at the top of this file plus their own native path registrations instead of a native umbrella cell",
@@ -155,7 +168,7 @@ func hunyuanActionDescriptor(descriptor ActionDescriptor, action, adapter string
 		} else {
 			descriptor.Evidence = "Existing gateway adapter: " + bound
 		}
-		descriptor.CredentialPolicy = "hunyuan API-key account credential owner (Authorization: Bearer on the OpenAI paths, x-api-key on the Anthropic path); base URL is one of the official TokenHub sites"
+		descriptor.CredentialPolicy = "hunyuan API-key account credential owner (Authorization: Bearer on the OpenAI paths, x-api-key on the Anthropic path); base URL is one of the official TokenHub sites (or a documented Coding Plan / Token Plan site when account_mode=coding)"
 		descriptor.ModelPolicy = "resolved account model evidence and TokenHub task limits"
 		descriptor.UsagePolicy = "TokenHub response usage with frozen request pricing"
 		descriptor.Lifecycle = "request plan"

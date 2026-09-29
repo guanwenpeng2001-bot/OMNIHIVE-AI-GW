@@ -235,7 +235,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 	flusher, _ := c.Writer.(http.Flusher)
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity upstream")
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if cw.Disconnected() || c.Request.Context().Err() != nil {
 			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}

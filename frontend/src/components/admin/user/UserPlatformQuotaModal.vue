@@ -28,7 +28,7 @@
           </thead>
           <tbody>
             <tr v-for="row in quotas" :key="row.platform" class="border-b border-gray-100 dark:border-dark-800">
-              <td :title="row.platform" class="px-3 py-2 text-gray-900 dark:text-white">{{ platformLabel(row.platform) }}</td>
+              <td :title="row.platform" class="px-3 py-2 text-gray-900 dark:text-white">{{ getPlatformLabel(row.platform, t) }}</td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
                   <input
@@ -114,8 +114,7 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
-import { QUOTA_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

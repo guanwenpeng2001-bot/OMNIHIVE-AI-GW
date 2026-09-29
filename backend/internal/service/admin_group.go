@@ -316,21 +316,6 @@ func defaultAllowImageGenerationForPlatform(platform string) bool {
 	return platform == PlatformGrok || platform == PlatformMiniMax || platform == PlatformVolcengine
 }
 
-func compositeDefaultModelsListCandidateIDs() []string {
-	seen := make(map[string]struct{})
-	ids := make([]string, 0)
-	for _, platform := range ConcretePlatforms() {
-		for _, id := range defaultModelsListCandidateIDs(platform) {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-	}
-	return ids
-}
-
 func canCopyAccountsFromGroupPlatform(targetPlatform, sourcePlatform string) bool {
 	if targetPlatform == PlatformComposite {
 		return sourcePlatform == PlatformComposite || isConcreteRequestPlatform(sourcePlatform)

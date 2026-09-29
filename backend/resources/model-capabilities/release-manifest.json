@@ -3,14 +3,14 @@
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
   "applicability": "reviewed-profile-model",
-  "approved_generation": 1790004404,
-  "catalog_sha256": "81385b1f1edb20bec51586fcff1e3f7cf0a1d0e8f67b5668915b37d70cb9c460",
+  "approved_generation": 1790554945,
+  "catalog_sha256": "e78dcf2f35606f2279137067f4b7afb3f17d64cf184ea06268a98db54b214a9e",
   "code_versions": {
     "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
     "internal/service/model_capability_catalog.go": "2488265d39f0d9ff414d4c6cec925d725c03eb58b37457e89df9b4ae27639384",
     "internal/service/model_capability_heuristics.go": "fb24fd608d08e741502c3ae77439c98629cab454c160d2f43d24f0b46f5c9dda",
-    "internal/service/model_capability_matcher.go": "ec90a01e82f5564a17b886944c58d3c60f55ba1af03c6f2ba58b0791535b24b7",
+    "internal/service/model_capability_matcher.go": "0d34043d1a3aed8eb398dea7925581c8ee5298618e405559bd65d5dd27885ad2",
     "internal/service/model_capability_profile.go": "a633df00e0d8c4b217c404b721b3369da05942cb47da6f3011d2d335f626f538",
     "internal/service/model_capability_readonly.go": "dd8e78623014c7e23b02fba9dc78f2c082f44d78c3d0a412327fdd6647eff082",
     "internal/service/model_registry.go": "ef41af119383b9370312d2bea3b59acbe0ac72340026258441b185ec3e64dee8",
@@ -22,9 +22,9 @@
     "resources/model-capabilities/release.go": "162d39bad99e33835ea6e901edf07a418eb0fd734705e4325a1770dcde4417d0"
   },
   "inputs_sha256": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
-  "presets_sha256": "5c7a9d4e0cf33297250c611d32db4561b8f5854a52db5312326666d934ae9ec2",
+  "presets_sha256": "b4bef7e0fc40262af2d251725ea144d8b3a6e1f8d78f719dd11e7040efa80e90",
   "record_count": 296,
-  "review_sha256": "b96930b68af9c88acea374e9e6ee21123822359025fdfba6bf0f3c983827d048",
+  "review_sha256": "7c0955a5655471982ad9f3d750629ffc5b624de520565752041da418263b61e4",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

@@ -118,7 +118,8 @@ func TestVisibleModelsRetainEveryEndpointAndAccount(t *testing.T) {
 	second := catalogEvidenceAccount(2, PlatformOpenAI, "native")
 	first.Credentials["model_mapping"] = map[string]any{"public": "native"}
 	second.Credentials["model_mapping"] = map[string]any{"public": "native"}
-	second.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"embeddings", "images"}
+	secondSnapshot, _ := second.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	secondSnapshot.EligibleModels[0].Endpoints = []string{"embeddings", "images"}
 	first.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"native": {ProviderProfile: resolveCapabilityProfile(&first), CreatedAt: "2024-01-01T00:00:00Z", ModelVersion: "native-version"}}})
 	repository := &visiblePolicyAccountRepo{accounts: []Account{first, second}, generation: 10}
 	gateway := &GatewayService{accountRepo: repository}

@@ -16,7 +16,7 @@ func (r *upstreamJobRepository) ListResources(ctx context.Context, user, key, gr
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	jobs := []*service.UpstreamJob{}
 	for rows.Next() {
 		j, err := scanUpstreamJob(rows)

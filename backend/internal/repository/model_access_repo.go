@@ -33,7 +33,7 @@ func (r *modelAccessRepository) List(ctx context.Context) ([]service.ModelAccess
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	groups := []service.ModelAccessGroup{}
 	for rows.Next() {
 		var group service.ModelAccessGroup
@@ -133,7 +133,7 @@ func (r *modelAccessRepository) Rule(ctx context.Context, resource string, ident
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockAccessResource(ctx, tx, resource, identifier, owner); err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (r *modelAccessRepository) SaveRule(ctx context.Context, resource string, i
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if err = lockAccessResource(ctx, tx, resource, identifier, owner); err != nil {
 		return err
 	}
@@ -240,7 +240,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 	if err != nil {
 		return snapshot, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	for rows.Next() {
 		var accountID, key sql.NullInt64
 		var rule service.ModelAccessRule
@@ -277,7 +277,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 	if err := rows.Err(); err != nil {
 		return snapshot, err
 	}
-	rows.Close()
+	_ = rows.Close()
 	if keyID != 0 {
 		groupRows, readErr := executor.QueryContext(ctx, `SELECT resource_group.model_allowlist FROM api_keys api_key LEFT JOIN groups resource_group ON resource_group.id=api_key.group_id WHERE api_key.id=$1 AND api_key.workspace_id=$2 AND api_key.deleted_at IS NULL`, keyID, domain.ResourceWorkspaceID(ctx))
 		if readErr != nil {
@@ -285,7 +285,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 		}
 		if !groupRows.Next() {
 			readErr = groupRows.Err()
-			groupRows.Close()
+			_ = groupRows.Close()
 			if readErr != nil {
 				return snapshot, readErr
 			}
@@ -293,7 +293,7 @@ func readModelAccessSnapshot(ctx context.Context, executor sqlExecutor, keyID in
 		}
 		var encoded []byte
 		readErr = groupRows.Scan(&encoded)
-		groupRows.Close()
+		_ = groupRows.Close()
 		if readErr != nil {
 			return snapshot, readErr
 		}
@@ -318,7 +318,7 @@ func readAccessGeneration(ctx context.Context, executor sqlExecutor) (int64, err
 	if err != nil {
 		return 0, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var generation int64
 	if !rows.Next() {
 		if err = rows.Err(); err != nil {

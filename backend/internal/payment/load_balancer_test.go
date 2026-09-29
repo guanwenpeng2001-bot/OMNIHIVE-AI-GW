@@ -500,19 +500,6 @@ func TestDecryptConfigRejectsLegacyUntilMigrated(test *testing.T) {
 	}
 }
 
-// stringMapEqual compares two map[string]string values; nil and empty are equal.
-func stringMapEqual(a, b map[string]string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for k, v := range a {
-		if bv, ok := b[k]; !ok || bv != v {
-			return false
-		}
-	}
-	return true
-}
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------

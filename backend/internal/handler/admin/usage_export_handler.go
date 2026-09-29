@@ -198,6 +198,9 @@ func (h *UsageHandler) Export(c *gin.Context) {
 
 func (h *UsageHandler) exportUsageRowsCSV(c *gin.Context, filters usagestats.UsageLogFilters, snapshotEnd time.Time, userTZ string) {
 	columns := dto.UsageExportColumns(dto.UsageExportScopeAdmin)
+	// The download headers must reach the client with the first body byte, so the
+	// read below still runs with them in place and has to drop them again when it
+	// fails before writing anything.
 	c.Header("Content-Type", "text/csv; charset=utf-8")
 	c.Header("Content-Disposition", "attachment; filename=\""+dto.UsageExportFilename("usage", usageExportDate(filters.StartTime), usageExportDate(&snapshotEnd), dto.UsageExportFormatCSV)+"\"")
 	c.Header(usageExportHeaderColumns, strings.Join(columns, ","))
@@ -219,20 +222,19 @@ func (h *UsageHandler) exportUsageRowsCSV(c *gin.Context, filters usagestats.Usa
 		}
 		return nil
 	})
+	if err == nil {
+		err = stream.Close()
+	}
 	if err != nil {
-		if !stream.Started() {
+		if !stream.Started() && !c.Writer.Written() {
+			response.DropDownloadHeaders(c, usageExportHeaderColumns, usageExportHeaderSnapshotEnd)
 			response.ErrorFrom(c, err)
 			return
 		}
-		// The body is already committed; abort the transfer so the client does
-		// not keep a silently truncated file.
-		logger.LegacyPrintf("handler.admin.usage", "usage export stream aborted: %v", err)
-		c.Abort()
-		return
-	}
-	if err := stream.Close(); err != nil && !stream.Started() {
-		response.ErrorFrom(c, err)
-		return
+		// A committed CSV cannot carry a JSON error. Let net/http terminate the
+		// transport so clients cannot accept a syntactically valid partial file.
+		logger.FromContext(c.Request.Context()).Sugar().Errorf("usage export aborted: scope=admin error_type=%T", err)
+		panic(http.ErrAbortHandler)
 	}
 	if flusher != nil {
 		flusher.Flush()

@@ -15,12 +15,14 @@ func TestQianfanActionMatrixIsFullyEvidenced(t *testing.T) {
 		"responses.websocket",
 	}
 	// Promoted by multimodal-ingress: dispatch key, catalog endpoint evidence and
-	// the evidence-driven chat-only gates landed together.
+	// the evidence-driven chat-only gates landed together. The responses cell
+	// binds the shared OpenAI responses trunk on the live /v2/responses route.
 	implementedWithAdapter := []string{
 		"embeddings", "rerank", "image.generate", "image.edit", "video.generate",
 		"video.status", "video.content", "audio.tts", "voice", "search", "count_tokens",
+		"responses",
 	}
-	unverifiedWithoutAdapter := []string{"responses", "image.batch", "audio.stt", "audio.translate", "realtime", "native"}
+	unverifiedWithoutAdapter := []string{"image.batch", "audio.stt", "audio.translate", "realtime", "native"}
 
 	matrix := PlatformActionMatrix(ActionIdentity{Platform: PlatformQianfan})
 	if len(matrix) != len(GatewayActions()) {

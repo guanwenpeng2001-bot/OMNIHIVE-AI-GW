@@ -464,33 +464,6 @@ func bindOptionalOAuthAdoptionDecision(c *gin.Context) (oauthAdoptionDecisionReq
 	return req, nil
 }
 
-func cloneOAuthMetadata(values map[string]any) map[string]any {
-	if len(values) == 0 {
-		return map[string]any{}
-	}
-	cloned := make(map[string]any, len(values))
-	for key, value := range values {
-		cloned[key] = value
-	}
-	return cloned
-}
-
-func mergeOAuthMetadata(base map[string]any, overlay map[string]any) map[string]any {
-	merged := cloneOAuthMetadata(base)
-	for key, value := range overlay {
-		merged[key] = value
-	}
-	return merged
-}
-
-func normalizeAdoptedOAuthDisplayName(value string) string {
-	value = strings.TrimSpace(value)
-	if len([]rune(value)) > 100 {
-		value = string([]rune(value)[:100])
-	}
-	return value
-}
-
 func (h *AuthHandler) isForceEmailOnThirdPartySignup(ctx context.Context) bool {
 	if h == nil || h.settingSvc == nil {
 		return false

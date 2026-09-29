@@ -29,7 +29,8 @@ export default {
         "cursorNote": "客户端函数工具经 MCP/deferred 桥接；请使用网关已支持的工具格式，跨请求续传工具结果依赖工具 ID 持久化映射。中转模式能力取决于配置的上游。",
         "localUsage": "本地请求、Token 和成本统计并非上游剩余余额。通用 provider 映射定价同步尚不支持；千问可使用独立的北京区人民币原生定价流程。",
         "pricingUnsupported": "不支持通用 provider 映射定价同步",
-        "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。"
+        "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。",
+        "apiKeyOnlyAccountTypeDescription": "该平台只有 API Key 一种账号类型（无 OAuth / 云厂商服务账号）；协议与站点在下方选择。"
 },
       noGroupWarning: '未选择分组；账号需要加入分组后才能参与该分组的请求调度。',
       cursor: {
@@ -367,18 +368,8 @@ export default {
       deleteConfirm: "确定要删除账号 '{name}' 吗？此操作无法撤销。",
       failedToClearRateLimit: '清除速率限制失败',
       platforms: {
-      bedrock: 'Amazon Bedrock',
-      mistral: 'Mistral',
-      hunyuan: '腾讯混元',
-      qianfan: '百度千帆',
-      volcengine: '火山引擎',
-        qianwen: '千问AI',
-        commandcode: 'Command Code',
-        cursor: 'Cursor',
-        composite: 'Composite',
-        claude: 'Claude',
-        openai: 'OpenAI',
         anthropic: 'Anthropic',
+        openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
         grok: 'Grok',
@@ -387,6 +378,22 @@ export default {
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
         opencode_go: 'OpenCode',
+        qianwen: '千问AI',
+        commandcode: 'Command Code',
+        bedrock: 'Amazon Bedrock',
+        vertex: 'Vertex AI',
+        mistral: 'Mistral',
+        hunyuan: '腾讯混元',
+        qianfan: '百度千帆',
+        volcengine: '火山引擎',
+        cursor: 'Cursor',
+        composite: 'Composite',
+        claude: 'Claude',
+      },
+      platformFamilies: {
+        anthropic: 'Anthropic / Amazon Bedrock',
+        google: 'Google / Vertex AI',
+        openaiCompatible: 'OpenAI 兼容 / 其它'
       },
       cnProviders: {
         commandCodeAlpha: '上游 alpha 接口，可能随时变化。',
@@ -402,6 +409,12 @@ export default {
           paygDesc: '消耗账户余额，按 Token 计费。余额不足自动冷却，充值后恢复。',
           coding: 'Coding Plan',
           codingDesc: '订阅制编程套餐，按 5 小时 / 每周滚动用量窗口限流；请使用对应套餐的 Key。',
+          codingIsolatedDesc: '订阅制编程套餐，按 5 小时 / 每周滚动用量窗口限流。套餐与按量付费的 Base URL 与 Key 互不通用，请勿混用（用错地址会绕过套餐额度并产生额外费用）。',
+          paygOnlyNote: '该平台当前只有按量付费，官方没有套餐端点。',
+        },
+        baseUrlPresets: {
+          qianfanTokenPlanEnterprise: '千帆 TokenPlan 企业版',
+          qianfanTokenPlanEnterpriseAnthropic: '千帆 TokenPlan 企业版 Anthropic',
         },
         apiProtocol: {
           title: 'API 协议',
@@ -745,6 +758,7 @@ export default {
       addMethod: '添加方式',
       setupTokenLongLived: 'Setup Token（长期有效）',
       baseUrl: 'Base URL',
+      baseUrlRequired: '请填写 Base URL。',
       baseUrlHint: '留空使用官方 Anthropic API',
       platformBaseUrlHint: '留空使用所选平台及账号模式的默认 API 地址。',
       apiKeyRequired: 'API Key *',

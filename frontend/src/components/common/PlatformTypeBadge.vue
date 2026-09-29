@@ -4,9 +4,9 @@
     <div class="inline-flex items-center overflow-hidden rounded-md">
       <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
         <PlatformIcon :platform="platform" :account-type="type" size="xs" />
-        <span>{{ platformLabel }}</span>
+        <span data-testid="platform-label">{{ platformLabel }}</span>
       </span>
-      <span :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
+      <span :class="['inline-flex items-center gap-1 px-1.5 py-1', platformClass]">
         <!-- OAuth icon -->
         <svg
           v-if="type === 'oauth'"
@@ -66,11 +66,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { canonicalPlatform } from '@/constants/platforms'
+import { canonicalPlatform, getPlatformLabel } from '@/constants/platforms'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
-import { platformLabel as sharedPlatformLabel } from '@/utils/platformColors'
 import { normalizePlanType, openAIPlanTypeLabel } from '@/utils/planType'
+import { platformSolidBadgeClass } from '@/utils/platformColors'
 import GrokFreeIcon from './GrokFreeIcon.vue'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -80,6 +80,7 @@ const { t } = useI18n()
 interface Props {
   platform: AccountPlatform
   type: AccountType
+  showAwsSuffix?: boolean
   authMode?: string
   planType?: string
   privacyMode?: string
@@ -88,7 +89,12 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => sharedPlatformLabel(canonicalPlatform(props.platform)))
+const basePlatformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
+const isBedrock = computed(() => props.platform === 'bedrock' ||
+  (canonicalPlatform(props.platform) === 'anthropic' && props.type === 'bedrock'))
+const platformLabel = computed(() => props.showAwsSuffix && isBedrock.value
+  ? `${basePlatformLabel.value} (AWS)`
+  : basePlatformLabel.value)
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
@@ -176,61 +182,9 @@ const planIconName = computed<'bolt' | null>(() => {
   return null
 })
 
-const platformClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-  }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  if (props.platform === 'grok') {
-    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-  }
-  if (props.platform === 'kimi') {
-    return 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-  }
-  if (props.platform === 'zhipu') {
-    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-  }
-  if (props.platform === 'deepseek') {
-    return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-  }
-  if (props.platform === 'minimax') {
-    return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-  }
-  return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-})
-
-const typeClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
-  }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  if (props.platform === 'grok') {
-    return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-  }
-  if (props.platform === 'kimi') {
-    return 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400'
-  }
-  if (props.platform === 'zhipu') {
-    return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
-  }
-  if (props.platform === 'deepseek') {
-    return 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400'
-  }
-  if (props.platform === 'minimax') {
-    return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'
-  }
-  return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-})
+// 平台色只有一处权威定义（utils/platformColors.ts）：平台格与类型格共用同一档实心徽章，
+// 本组件不再维护自己的平台色表（此前未列出的平台会一起塌成蓝色兜底）。
+const platformClass = computed(() => platformSolidBadgeClass(props.platform))
 
 const planBadgeClass = computed(() => {
   if (normalizedPlanType.value === 'abnormal') {
@@ -270,7 +224,7 @@ const planBadgeClass = computed(() => {
   ) {
     return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
   }
-  return typeClass.value
+  return platformClass.value
 })
 
 // Subscription expiration label (non-free only)

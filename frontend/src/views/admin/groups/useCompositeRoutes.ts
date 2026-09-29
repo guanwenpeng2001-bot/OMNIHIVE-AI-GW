@@ -15,6 +15,7 @@ import type {
   GroupPlatform,
 } from "@/types";
 import type { PRODUCT_PLATFORM_OPTIONS } from "@/constants/platforms";
+import { getPlatformLabel } from "@/constants/platforms";
 import { extractApiErrorMessage } from "@/utils/apiError";
 
 const COMPOSITE_ROUTE_MAX_TARGETS = 16;
@@ -27,7 +28,12 @@ export function useCompositeRoutes(
 ) {
   const { t } = useI18n();
   const appStore = useAppStore();
-  const compositeRoutePlatformOptions = computed(() => [...platformCatalog]);
+  const compositeRoutePlatformOptions = computed(() =>
+    platformCatalog.map((option) => ({
+      ...option,
+      label: getPlatformLabel(option.value, t),
+    })),
+  );
 
   const compositeRouteEndpointOptions = computed(() => [
     { value: "any", label: t("admin.groups.compositeRoutes.endpoints.any") },
@@ -183,7 +189,7 @@ export function useCompositeRoutes(
 
   const formatCompositePlatform = (platform: string) => {
     if (!platform) return "—";
-    return t(`admin.groups.platforms.${platform}`);
+    return getPlatformLabel(platform, t);
   };
 
   const compositeRouteSourceLabel = (source: string) => {

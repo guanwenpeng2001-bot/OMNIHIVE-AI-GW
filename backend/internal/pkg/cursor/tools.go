@@ -77,7 +77,7 @@ func (store *redisToolIdentityStore) Get(ctx context.Context, id string) (ToolId
 func NormalizeToolCallID(id string) string {
 	valid := len(id) > 0 && len(id) <= 64 && !strings.HasPrefix(id, "cursor_call_")
 	for _, c := range id {
-		if !(c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '_' || c == '-') {
+		if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
 			valid = false
 		}
 	}

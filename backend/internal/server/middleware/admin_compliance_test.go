@@ -66,7 +66,7 @@ func TestAdminComplianceGuardBlocksAdminRouteWhenMissing(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
 	require.Equal(t, float64(http.StatusLocked), envelope["code"])
 	require.Equal(t, "ADMIN_COMPLIANCE_ACK_REQUIRED", envelope["reason"])
-	metadata := envelope["metadata"].(map[string]any)
+	metadata, _ := envelope["metadata"].(map[string]any)
 	require.Equal(t, service.AdminComplianceVersion, metadata["version"])
 }
 

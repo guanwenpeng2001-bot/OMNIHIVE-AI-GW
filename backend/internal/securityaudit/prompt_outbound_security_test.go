@@ -137,7 +137,7 @@ func TestPromptOutboundAllowlistChecksRedirectAndDial(t *testing.T) {
 			} else {
 				require.Equal(t, before, targetCalls.Load())
 			}
-			transport := client.Transport.(*http.Transport)
+			transport, _ := client.Transport.(*http.Transport)
 			connection, err := transport.DialContext(context.Background(), "tcp", "localhost:80")
 			require.Error(t, err)
 			require.Nil(t, connection)

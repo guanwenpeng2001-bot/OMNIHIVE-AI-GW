@@ -12,7 +12,8 @@ import (
 // endpoint.
 func requestPlanGateAccount(platform, model string, endpoints ...string) Account {
 	account := catalogEvidenceAccount(1, platform, model)
-	account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = endpoints
+	snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot.EligibleModels[0].Endpoints = endpoints
 	return account
 }
 

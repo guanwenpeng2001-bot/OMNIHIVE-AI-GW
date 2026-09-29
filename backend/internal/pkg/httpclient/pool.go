@@ -122,7 +122,9 @@ func buildClient(opts Options) (*http.Client, error) {
 	if opts.ValidateResolvedIP && !opts.AllowPrivateHosts {
 		rt = NewPublicTransport(transport)
 	}
-	closer := rt.(interface{ CloseIdleConnections() })
+	// Both *http.Transport and *PublicTransport implement CloseIdleConnections; the
+	// ok value is intentionally dropped because buildTransport never returns nil.
+	closer, _ := rt.(interface{ CloseIdleConnections() })
 	rt = idleClosingTransport{RoundTripper: servertiming.WrapRoundTripper(rt), closeIdle: closer.CloseIdleConnections}
 	return &http.Client{
 		Transport: rt,

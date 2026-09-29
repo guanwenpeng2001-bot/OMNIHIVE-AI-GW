@@ -28,10 +28,10 @@ also allow it. Stream/tool entries describe implemented paths, not every model.
 | cursor | OAuth/upstream account forms | Cursor conversion | B / rejected / rejected | Cursor-specific count-token estimate and model mapping; no generic provider grant |
 | qianwen | API key, domestic/international and account mode | Compatible chat and bounded native actions | N conditional / rejected / rejected | Native text/image/audio/video/files actions have separate gates below |
 | commandcode | API key | Model-selected native protocol | B / rejected / rejected | Keep model routing and upstream IDs; no static capability-based grant |
-| volcengine | Runtime API key, exact deployment/ep target | Chat only; tools conditional | rejected / rejected / rejected | SSE adapter locally covered; speculative discovery remains unsupported |
-| qianfan | Domestic API key, v2 base | Chat only; tools conditional | rejected / rejected / rejected | Nonstream/SSE adapter; do not substitute international contract |
-| hunyuan | Compatibility API key | Nonstream chat/tools | rejected / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance |
-| mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero |
+| volcengine | Runtime API key, exact deployment/ep target | Chat and native Responses; tools conditional | N / rejected / rejected | SSE adapter locally covered; no Anthropic Messages endpoint exists for CN, so that cell is a hard conflict |
+| qianfan | Domestic API key, v2 base | Chat and native Responses; tools conditional | N / rejected / rejected | Nonstream/SSE adapter; /v2/responses is live while /v2/messages answers 404, so Messages is a hard conflict |
+| hunyuan | Compatibility API key | Nonstream chat/tools; native Responses and Anthropic Messages on the same TokenHub site | N / rejected / rejected | Unverified SSE is rejected before upstream; no invented discovery or balance; the Anthropic path authenticates with x-api-key |
+| mistral | API key, original IDs including fine-tuned IDs | Chat only; tools conditional | rejected / rejected / rejected | SSE locally covered; missing usage cannot settle as trusted zero; no /v1/responses and no /v1/messages exist, so both cells are hard conflicts |
 | bedrock | Regional runtime API key or IAM SigV4 | Claude Invoke or non-Claude Converse; tools conditional | B / rejected / rejected | Messages/Responses/Chat POST admitted; ConverseStream/Claude streams; region/profile/ARN and catalog evidence still required |
 
 The new chat-only ingress guard admits Chat Completions POST plus model/usage
@@ -45,10 +45,10 @@ those errors or expand old protocols to make the table uniform.
 
 | Method | Path / aliases | Effective qualification | Nonstream, stream and tools |
 | --- | --- | --- | --- |
-| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; chat-only platforms rejected | Anthropic envelope; stream/tools adapter-specific |
+| POST | /v1/messages; /messages | Existing OpenAI-compatible dispatch or Gateway Messages; Hunyuan binds the native Anthropic path on the published MessagesPOST fact, every other chat-only platform rejects | Anthropic envelope; stream/tools adapter-specific |
 | POST | /v1/messages/count_tokens; /messages/count_tokens | OpenAI bridge, Grok/Cursor estimates, existing Anthropic-compatible path; new restricted platforms reject | Token count, no generation bill; not a generic Messages grant |
 | POST | /v1/chat/completions; /chat/completions | Concrete or resolved Composite target, exact catalog endpoint evidence | Native/bridge; Hunyuan stream explicitly unsupported |
-| POST | /v1/responses; /responses; /backend-api/codex/responses | Descriptor plus actual account mode/adapter; new chat-only platforms reject | Native/bridge with protocol-specific tools and SSE |
+| POST | /v1/responses; /responses; /backend-api/codex/responses | Descriptor plus actual account mode/adapter; a chat-only platform whose row publishes ResponsesPOST binds the shared responses trunk, the rest reject | Native/bridge with protocol-specific tools and SSE |
 | GET | Same Responses paths | WebSocket dispatcher, account WS qualification | OpenAI native, Grok bridge; no universal WS support |
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
 | POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch | Input-token result, no normal generation claim |
@@ -480,3 +480,46 @@ segments. Gin matches the raw encoded path and then decodes parameter values;
 this engine-wide rule also applies to non-model path parameters. Static route
 segments must use their documented canonical spelling (write `/models`, not
 `/mo%64els`). Resource handlers retain their existing ID validation.
+
+### Resource and native action entries (2026-09-28)
+
+| Method/path | Qualification |
+| --- | --- |
+| `DELETE /files/:file_id` | Standard owned resource; DeleteFile; shared gateway authentication and body limit |
+| `DELETE /messages/batches/:message_batch_id` | Standard owned resource; DeleteMessageBatch; shared gateway authentication and body limit |
+| `DELETE /v1/files/:file_id` | Standard owned resource; DeleteFile; shared gateway authentication and body limit |
+| `DELETE /v1/messages/batches/:message_batch_id` | Standard owned resource; DeleteMessageBatch; shared gateway authentication and body limit |
+| `GET /batches/:batch_id` | Standard owned resource; GetBatch; shared gateway authentication and body limit |
+| `GET /batches` | Standard owned resource; ListBatches; shared gateway authentication and body limit |
+| `GET /files/:file_id/content` | Standard owned resource; DownloadFileContent; shared gateway authentication and body limit |
+| `GET /files/:file_id` | Standard owned resource; GetFile; shared gateway authentication and body limit |
+| `GET /files` | Standard owned resource; ListFiles; shared gateway authentication and body limit |
+| `GET /messages/batches/:message_batch_id/results` | Standard owned resource; MessageBatchResults; shared gateway authentication and body limit |
+| `GET /messages/batches/:message_batch_id` | Standard owned resource; GetMessageBatch; shared gateway authentication and body limit |
+| `GET /messages/batches` | Standard owned resource; ListMessageBatches; shared gateway authentication and body limit |
+| `GET /v1/batches/:batch_id` | Standard owned resource; GetBatch; shared gateway authentication and body limit |
+| `GET /v1/batches` | Standard owned resource; ListBatches; shared gateway authentication and body limit |
+| `GET /v1/files/:file_id/content` | Standard owned resource; DownloadFileContent; shared gateway authentication and body limit |
+| `GET /v1/files/:file_id` | Standard owned resource; GetFile; shared gateway authentication and body limit |
+| `GET /v1/files` | Standard owned resource; ListFiles; shared gateway authentication and body limit |
+| `GET /v1/messages/batches/:message_batch_id/results` | Standard owned resource; MessageBatchResults; shared gateway authentication and body limit |
+| `GET /v1/messages/batches/:message_batch_id` | Standard owned resource; GetMessageBatch; shared gateway authentication and body limit |
+| `GET /v1/messages/batches` | Standard owned resource; ListMessageBatches; shared gateway authentication and body limit |
+| `POST /batches/:batch_id/cancel` | Standard owned resource; CancelBatch; shared gateway authentication and body limit |
+| `POST /batches` | Standard owned resource; CreateBatch; shared gateway authentication and body limit |
+| `POST /files` | Standard owned resource; UploadFile; shared gateway authentication and body limit |
+| `POST /messages/batches/:message_batch_id/cancel` | Standard owned resource; CancelMessageBatch; shared gateway authentication and body limit |
+| `POST /messages/batches` | Standard owned resource; CreateMessageBatch; shared gateway authentication and body limit |
+| `POST /moderations` | Standard owned resource; Moderations; shared gateway authentication and body limit |
+| `POST /tools/search_pro` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/batches/:batch_id/cancel` | Standard owned resource; CancelBatch; shared gateway authentication and body limit |
+| `POST /v1/batches` | Standard owned resource; CreateBatch; shared gateway authentication and body limit |
+| `POST /v1/files` | Standard owned resource; UploadFile; shared gateway authentication and body limit |
+| `POST /v1/messages/batches/:message_batch_id/cancel` | Standard owned resource; CancelMessageBatch; shared gateway authentication and body limit |
+| `POST /v1/messages/batches` | Standard owned resource; CreateMessageBatch; shared gateway authentication and body limit |
+| `POST /v1/moderations` | Standard owned resource; Moderations; shared gateway authentication and body limit |
+| `POST /v1/tools/search_pro` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/tools/search` | Native Kimi payg search; search action dispatch, request plan and per-call usage |
+| `POST /v1/videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |
+| `POST /videos/:request_id/cancel` | Qianfan video.cancel; owner-bound upstream DELETE task cancellation |

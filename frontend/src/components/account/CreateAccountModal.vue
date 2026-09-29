@@ -184,6 +184,38 @@
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
         </div>
       </div>
+      <!-- Account Type (后加平台)：后端只声明 API Key 一种账号类型，用与 Anthropic / Cursor 一致的卡片结构渲染 -->
+      <div v-if="declaredProtocolPlatform" data-testid="late-platform-account-type">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="late-platform-account-type-apikey"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? cnAccentActiveClass
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? cnAccentIconClass
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.apiKey') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.apiKeyOnlyAccountTypeDescription') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
       <div v-if="showsAccountTypeSummary" data-testid="account-type-summary">
         <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
         <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
@@ -489,8 +521,9 @@
         </div>
       </div>
 
-      <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek)：双模式平台此处即一级账号入口，DeepSeek 保留单项模式锚点 -->
-      <div v-if="isCNPlatform && form.platform !== 'qianwen'">
+      <!-- Account Mode Selection (国产多协议供应商 + 后加四家)：账号一级入口；DeepSeek / Mistral 保留单项按量付费卡，
+           千问没有套餐端点不显示此卡。后加平台的 API Key 类型卡另有一个锚点（见 cnModeTourAnchor） -->
+      <div v-if="accountModeCardVisible">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" :data-tour="cnModeTourAnchor" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <!-- Pay-as-you-go (token balance) -->
@@ -519,9 +552,9 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cnProviders.accountMode.paygDesc') }}</span>
             </div>
           </button>
-          <!-- Coding Plan (kimi / zhipu only — DeepSeek has no coding plan) -->
+          <!-- Coding Plan：DeepSeek 与 Mistral 官方只有按量付费，不给它们编造套餐入口 -->
           <button
-            v-if="form.platform !== 'deepseek'"
+            v-if="codingPlanModeVisible"
             type="button"
             @click="accountMode = 'coding'"
             :class="[
@@ -543,14 +576,15 @@
             </div>
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cnProviders.accountMode.coding') }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cnProviders.accountMode.codingDesc') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(codingModeDescriptionKey) }}</span>
             </div>
           </button>
         </div>
+        <p v-if="paygOnlyNoteKey" class="input-hint" data-testid="account-mode-payg-only-note">{{ t(paygOnlyNoteKey) }}</p>
       </div>
 
-      <!-- API Protocol Selection (国产多协议平台 / Cursor Relay)：同一份网格与选项计算 -->
-      <div v-if="isMultiProtocolPlatform || isCursorRelay" class="mt-4">
+      <!-- API Protocol Selection (国产多协议平台 / 后加平台 / Cursor Relay)：同一份网格与选项计算 -->
+      <div v-if="isMultiProtocolPlatform || declaredProtocolPlatform || isCursorRelay" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
         <div class="mt-2 grid grid-cols-1 gap-3" :class="isCursorRelay ? 'sm:grid-cols-2' : 'sm:grid-cols-3'" data-testid="account-protocol-choices" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
           <button
@@ -1294,7 +1328,7 @@
             @select="apiKeyBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNPlatform && !isOpenCodeGoPlatform"
+            v-if="showsCnBaseUrlPresets"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="accountMode"
@@ -1318,7 +1352,7 @@
               />
             </div>
           </div>
-          <p v-if="!cnSupportsNativeResponses(form.platform)" class="input-hint">
+          <p v-if="!hasDeclaredNativeResponses(form.platform)" class="input-hint">
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
@@ -3448,19 +3482,28 @@ import {
   applyInterceptWarmup,
   applyOpenCodeGoProtocolRules,
   cloneOpenCodeGoProtocolRules,
-  cnSupportsNativeResponses,
+  declaredPlatformApiProtocols,
+  declaredPlatformNativeProtocols,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
+  hasDeclaredNativeResponses,
+  hasPlatformBaseUrlPresets,
   isCNProviderPlatform,
+  isDeclaredProtocolPlatform,
   isMultiProtocolApiKeyPlatform,
+  platformPresetUrls,
+  showsAccountModeCard,
+  showsCodingPlanMode,
   DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   isHeaderOverrideCapable,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
+  type CnBaseUrlPresetPlatform,
   type CnNativeApiProtocol,
   type CnProviderPlatform,
+  type DeclaredProtocolPlatform,
   type HeaderOverrideRow,
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
@@ -3536,11 +3579,16 @@ const apiKeyHint = computed(() => {
   return form.platform === 'anthropic' ? t('admin.accounts.apiKeyHint') : ''
 })
 
-// Base URL / API Key 占位符：国产供应商随账号类型变化。
+// Base URL / API Key 占位符：国产供应商与后加四家都随账号类型变化
+// （套餐与按量付费的站点不同）。后加平台的站点根取自唯一来源 CHAT_PLATFORM_BASE_URLS，
+// 不再回落到 Anthropic 的占位符。
 const apiKeyBaseUrlPlaceholder = computed(() => {
   if (isMultiProtocolPlatform.value) {
     const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     return defaultCNBaseUrl(form.platform, mode, apiProtocol.value) || 'https://api.example.com'
+  }
+  if (isDeclaredProtocolPlatform(form.platform)) {
+    return defaultCNBaseUrl(form.platform, accountMode.value, apiProtocol.value) || CHAT_PLATFORM_BASE_URLS[form.platform]
   }
   switch (form.platform) {
     case 'openai':
@@ -3575,6 +3623,15 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
+    // 后加平台：能查到官方文档给出 Key 前缀的按文档给（千帆 bce-v3/ALTAK-），
+    // 查不到固定前缀的（腾讯云 TokenHub 仅说明脱敏显示、Mistral 不透明串、方舟 UUID）用中性占位，
+    // 一律不套用 Anthropic 的 sk-ant-，也不自行编造 sk- 前缀。
+    case 'qianfan':
+      return 'bce-v3/ALTAK-...'
+    case 'hunyuan':
+    case 'mistral':
+    case 'volcengine':
+      return '<api-key>'
     default:
       return 'sk-ant-...'
   }
@@ -3680,39 +3737,86 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   anthropic: '',
   responses: ''
 })
-const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
+// 账号类型卡（payg / coding）的覆盖平台：国产多协议供应商 + 后加四家。
+// 可见性由 credentialsBuilder 的 showsAccountModeCard / showsCodingPlanMode 单一决定，
+// 千问无卡、DeepSeek 与 Mistral 只有按量付费一项。
+const accountModeCardVisible = computed(() => showsAccountModeCard(form.platform))
+const codingPlanModeVisible = computed(() => showsCodingPlanMode(form.platform))
+/**
+ * 后加四家的模式卡文案差量（既有国产平台不改文案）：三家有编程套餐的平台要写清
+ * 套餐与按量付费的 Base URL 与 Key 互不通用（腾讯 TokenHub 原文"互不通用，请勿混用"）；
+ * Mistral 官方只有按量付费，需在单项卡下说明原因。
+ */
+const LATE_PLATFORM_ACCOUNT_MODE_COPY: Record<DeclaredProtocolPlatform, { codingDescKey?: string; paygOnlyNoteKey?: string }> = {
+  hunyuan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  volcengine: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  qianfan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  mistral: { paygOnlyNoteKey: 'admin.accounts.cnProviders.accountMode.paygOnlyNote' }
+}
+const latePlatformAccountModeCopy = computed(() =>
+  isDeclaredProtocolPlatform(form.platform) ? LATE_PLATFORM_ACCOUNT_MODE_COPY[form.platform] : undefined
+)
+const codingModeDescriptionKey = computed(
+  () => latePlatformAccountModeCopy.value?.codingDescKey ?? 'admin.accounts.cnProviders.accountMode.codingDesc'
+)
+const paygOnlyNoteKey = computed(() => latePlatformAccountModeCopy.value?.paygOnlyNoteKey ?? '')
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
 const isMultiProtocolPlatform = computed(() => isMultiProtocolApiKeyPlatform(form.platform))
+// 后加平台（混元 / 火山方舟 / 千帆 / Mistral）：协议集合来自后端 domain/platform_capabilities.go
+// 的 MessagesPOST / ResponsesPOST 声明，不再按 "是不是 chat-only" 一刀切成 chat_completions。
+const declaredProtocolPlatform = computed<DeclaredProtocolPlatform | null>(() =>
+  isDeclaredProtocolPlatform(form.platform) ? form.platform : null
+)
 // Cursor Relay 是 upstream 分类，不能因此进入国产多协议能力集合（端点预设、多 URL、account_mode、规则序列化）。
 const isCursorRelay = computed(() => form.platform === 'cursor' && accountCategory.value === 'upstream')
 // 双模式平台（Kimi/智谱/MiniMax/OpenCode）的一级入口就是模式卡本身，不再叠加只读 "API Key" 摘要。
 const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go'].includes(form.platform))
 const showsAccountTypeSummary = computed(() => !isDualModeAccountPlatform.value && form.platform !== 'commandcode' &&
+  declaredProtocolPlatform.value === null &&
   !['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform))
-// DeepSeek 只有单项 PayG，保留旧模式锚点；双模式平台的模式卡就是该平台唯一的一级账号入口。
-const cnModeTourAnchor = computed(() => form.platform === 'deepseek' ? 'account-form-mode' : 'account-form-type')
+// 官方站点预设：国产供应商（Kimi / 智谱 / DeepSeek / MiniMax / 千问）+ 后加四家
+// （混元 / 火山方舟 / 千帆 / Mistral）。自适应档由多端点编辑器接管，固定协议档才展示预设。
+const showsCnBaseUrlPresets = computed(() => hasPlatformBaseUrlPresets(form.platform) &&
+  apiProtocol.value !== 'adaptive')
+// DeepSeek 保留旧的单项按量付费锚点；后加平台已有 API Key 类型卡占着 account-form-type，
+// 模式卡改用模式锚点，避免同一个 data-tour 落在两个元素上。
+const cnModeTourAnchor = computed(() => form.platform === 'deepseek' || isDeclaredProtocolPlatform(form.platform)
+  ? 'account-form-mode'
+  : 'account-form-type')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return isOpenCodeGoPlatform.value ? openCodeAccountMode.value : accountMode.value
 }
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
-const cnPresetPlatform = computed<CnProviderPlatform>(() => {
+// 兜底值不可达：只有 hasPlatformBaseUrlPresets 为真的平台才会渲染预设组件。
+const cnPresetPlatform = computed<CnBaseUrlPresetPlatform>(() => {
   if (isCNProviderPlatform(form.platform)) {
+    return form.platform
+  }
+  if (isDeclaredProtocolPlatform(form.platform)) {
     return form.platform
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode'>(() => {
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode' | DeclaredProtocolPlatform>(() => {
   if (form.platform === 'commandcode') return 'commandcode'
   if (form.platform === 'opencode_go') return 'opencode_go'
+  if (isDeclaredProtocolPlatform(form.platform)) return form.platform
   return cnPresetPlatform.value
 })
-// 协议网格的唯一选项来源：国产多协议平台与 Cursor Relay 各自取档，标题与说明仍走既有词条。
+// 协议网格的唯一选项来源：国产多协议平台 / 后加平台 / Cursor Relay 各自取档，标题与说明仍走既有词条。
 interface AccountProtocolOption {
   value: CnApiProtocol
   titleKey: string
   descriptionKey: string
   testId?: string
+}
+/** 协议卡的标题 / 说明词条：后加平台与国产多协议平台共用同一套既有词条。 */
+const API_PROTOCOL_TEXT: Record<CnApiProtocol, { titleKey: string; descriptionKey: string }> = {
+  adaptive: { titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
+  chat_completions: { titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
+  anthropic: { titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' },
+  responses: { titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' }
 }
 const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
   if (isCursorRelay.value) {
@@ -3721,13 +3825,18 @@ const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
       { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cursor.relayChatCompletionsDesc', testId: 'cursor-relay-protocol-chat_completions' }
     ]
   }
+  // 后加平台：选项集合逐条来自后端声明（含 mistral 的单一 chat_completions），不自行加档。
+  if (declaredProtocolPlatform.value) {
+    return declaredPlatformApiProtocols(declaredProtocolPlatform.value)
+      .map(value => ({ value, ...API_PROTOCOL_TEXT[value] }))
+  }
   const opts: AccountProtocolOption[] = [
-    { value: 'adaptive', titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
-    { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
-    { value: 'anthropic', titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' }
+    { value: 'adaptive', ...API_PROTOCOL_TEXT.adaptive },
+    { value: 'chat_completions', ...API_PROTOCOL_TEXT.chat_completions },
+    { value: 'anthropic', ...API_PROTOCOL_TEXT.anthropic }
   ]
-  if (cnSupportsNativeResponses(form.platform)) {
-    opts.push({ value: 'responses', titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' })
+  if (hasDeclaredNativeResponses(form.platform)) {
+    opts.push({ value: 'responses', ...API_PROTOCOL_TEXT.responses })
   }
   return opts
 })
@@ -3736,7 +3845,7 @@ const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; l
     { value: 'chat_completions', labelKey: 'chatCompletions' },
     { value: 'anthropic', labelKey: 'anthropic' }
   ]
-  if (cnSupportsNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
+  if (hasDeclaredNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
   return opts
 })
 
@@ -3761,6 +3870,11 @@ function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['valu
   if (isChatOnlyPlatform(platform)) {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
+    // 后加平台没有套餐时（Mistral）不能再沿用上一个平台的 coding 模式：默认回落 payg，
+    // 三家有编程套餐的平台由模式卡自行选择（默认同样按量付费，不替用户假设订阅）。
+    accountMode.value = 'payg'
+    // 协议选项由后端声明决定（见 accountProtocolOptions / declaredProtocolPlatform），
+    // 默认保持既有的 chat_completions 直通，用户可在协议卡上切到已声明的原生协议。
     apiProtocol.value = 'chat_completions'
   }
   if (platform === 'commandcode') {
@@ -3814,6 +3928,17 @@ watch(openCodeAccountMode, (mode, previousMode) => {
   }
 })
 watch(accountMode, (mode, previousMode) => {
+  // 后加四家只有单一 base url 输入（协议卡不进入多端点编辑器），切模式直接换默认站点：
+  // 套餐与按量付费的站点不同，把按量地址留给套餐 Key 会打到错的计费口径
+  // （火山方舟明确：用按量地址不会消耗套餐额度，而是产生额外费用）。
+  if (isDeclaredProtocolPlatform(form.platform)) {
+    const previousOfficialUrls = platformPresetUrls(form.platform, previousMode)
+    const current = apiKeyBaseUrl.value.trim()
+    if (!current || previousOfficialUrls.includes(current)) {
+      apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
+    }
+    return
+  }
   if (!isMultiProtocolPlatform.value || isOpenCodeGoPlatform.value) return
   if (apiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, previousMode)
@@ -5226,7 +5351,7 @@ const handleSubmit = async () => {
     // Relay 只允许 Adaptive / Chat Completions：非空非法值必须让用户改选，不静默回落也不抛未捕获异常。
     const relayProtocol = isCursorRelay.value ? resolveCursorRelayProtocol(apiProtocol.value) : null
     if (isCursorRelay.value) {
-      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError('Base URL is required.'); return }
+      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError(t('admin.accounts.baseUrlRequired')); return }
       if (!relayProtocol) { appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: apiProtocol.value })); return }
     }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
@@ -5406,7 +5531,26 @@ const handleSubmit = async () => {
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
-  if (isMultiProtocolApiKeyPlatform(form.platform)) {
+  // 后加平台：账号类型（payg / coding）与协议集合同样进凭据。三家有编程套餐的平台在 coding
+  // 档下换成厂商的套餐专属站点（Base URL 与 Key 与按量付费互不通用）；协议集合来自后端声明
+  // （platform_capabilities.go 的 MessagesPOST / ResponsesPOST），已声明的协议共用同一站点根。
+  if (declaredProtocolPlatform.value) {
+    const mode = currentOpenCodeOrCNMode()
+    const typedSite = apiKeyBaseUrl.value.trim()
+    const site = (typedSite || defaultCNBaseUrl(form.platform, mode, apiProtocol.value)).trim()
+    credentials.account_mode = mode
+    credentials.api_protocol = apiProtocol.value
+    credentials.base_url = site
+    if (apiProtocol.value === 'adaptive') {
+      const protocolBaseUrls: Record<string, string> = {}
+      for (const protocol of declaredPlatformNativeProtocols(declaredProtocolPlatform.value)) {
+        // 用户填了地址就对每个协议生效；没填时逐协议取默认站点——套餐档下混元的 OpenAI 根
+        // 与 Anthropic 根不同（/coding/v3 与 /coding/anthropic），把一个根写进所有协议会打到错的路径。
+        protocolBaseUrls[protocol] = typedSite || defaultCNBaseUrl(form.platform, mode, protocol) || site
+      }
+      credentials.api_base_urls = protocolBaseUrls
+    }
+  } else if (isMultiProtocolApiKeyPlatform(form.platform)) {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {

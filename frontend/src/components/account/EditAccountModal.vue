@@ -46,7 +46,6 @@
             role="radio" :aria-checked="cursorKeyMode === option.value" :tabindex="cursorKeyMode === option.value ? 0 : -1"
             :data-testid="`cursor-key-mode-${option.value}`"
             disabled
-            :aria-pressed="cursorKeyMode === option.value"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50',
               cursorKeyMode === option.value
@@ -76,7 +75,6 @@
             :key="option.value"
             type="button"
             :data-testid="`cursor-relay-protocol-${option.value}`"
-            :aria-pressed="editApiProtocol === option.value"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               editApiProtocol === option.value
@@ -105,27 +103,13 @@
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
-        <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
+        <div v-if="!isProtocolApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
             v-model="editBaseUrl" data-account-field="editBaseUrl"
             type="text"
             class="input"
-            :placeholder="
-              account.platform === 'qianwen'
-                ? 'https://dashscope.aliyuncs.com/compatible-mode/v1'
-                : account.platform === 'commandcode'
-                  ? 'https://api.commandcode.ai/provider/v1'
-                  : account.platform === 'openai'
-                ? 'https://api.openai.com'
-                : account.platform === 'gemini'
-                  ? 'https://generativelanguage.googleapis.com'
-                  : account.platform === 'antigravity'
-                    ? 'https://cloudcode-pa.googleapis.com'
-                    : account.platform === 'grok'
-                      ? 'https://api.x.ai/v1'
-                      : 'https://api.anthropic.com'
-            "
+            :placeholder="editBaseUrlPlaceholder"
           />
           <p v-if="baseUrlHint" class="input-hint">{{ baseUrlHint }}</p>
           <GrokBaseUrlPresets
@@ -134,7 +118,7 @@
             @select="editBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode'].includes(account.platform)"
+            v-if="hasPlatformBaseUrlPresets(account.platform)"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="editAccountMode"
@@ -153,12 +137,12 @@
               <input v-model="editAdaptiveBaseUrls[item.value]" type="text" class="input" />
             </div>
           </div>
-          <p v-if="!cnSupportsNativeResponses(account.platform)" class="input-hint">
+          <p v-if="!hasDeclaredNativeResponses(account.platform)" class="input-hint">
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
         <!-- OpenCode Zen vs GO -->
-        <div v-if="isCNApiKeyAccount && account.platform === 'opencode_go'">
+        <div v-if="isProtocolApiKeyAccount && account.platform === 'opencode_go'">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
             <button
@@ -210,14 +194,13 @@
           </div>
         </div>
         <!-- Account Mode Selection (CN providers) -->
-        <div v-if="isCNApiKeyAccount && !['opencode_go', 'commandcode', 'qianwen'].includes(account.platform)">
+        <div v-if="showsAccountModeCard(account.platform)">
           <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="edit-accountMode" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
             <button
               v-for="opt in cnAccountModeOptions"
               :key="opt.value"
               type="button"
-              :aria-pressed="editAccountMode === opt.value"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editAccountMode === opt.value
@@ -240,14 +223,13 @@
           </div>
         </div>
         <!-- API Protocol Selection (CN providers / OpenCode) -->
-        <div v-if="isCNApiKeyAccount">
+        <div v-if="isProtocolApiKeyAccount">
           <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
           <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-testid="edit-apiProtocol" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
             <button
               v-for="opt in cnProtocolOptions"
               :key="opt.value"
               type="button"
-              :aria-pressed="editApiProtocol === opt.value"
               :class="[
                 'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
                 editApiProtocol === opt.value
@@ -314,21 +296,7 @@
             data-1p-ignore
             data-lpignore="true"
             data-bwignore="true"
-            :placeholder="
-              account.platform === 'qianwen'
-                ? 'sk-ws-... / sk-sp-...'
-                : account.platform === 'commandcode'
-                  ? '<api-key>'
-                  : account.platform === 'openai'
-                ? 'sk-proj-...'
-                : account.platform === 'gemini'
-                  ? 'AIza...'
-                  : account.platform === 'antigravity'
-                    ? 'sk-...'
-                    : account.platform === 'grok'
-                      ? 'xai-...'
-                      : 'sk-ant-...'
-            "
+            :placeholder="editApiKeyPlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
           <p v-if="account.platform === 'qianwen' && (editApiKey || String(account.credentials?.api_key || '')).trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
@@ -2543,11 +2511,18 @@ import {
   isHeaderOverrideCapable,
   splitHeaderOverridesObject,
   validateHeaderOverrideRows,
-  cnSupportsNativeResponses,
+  hasDeclaredNativeResponses,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
-  isCNProviderPlatform,
   isMultiProtocolApiKeyPlatform,
+  showsAccountModeCard,
+  showsCodingPlanMode,
+  hasPlatformBaseUrlPresets,
+  isDeclaredProtocolPlatform,
+  declaredPlatformApiProtocols,
+  declaredPlatformNativeProtocols,
+  type CnBaseUrlPresetPlatform,
+  type DeclaredProtocolPlatform,
   DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   HEADER_OVERRIDE_ENABLED_CREDENTIAL_KEY,
   HEADER_OVERRIDES_CREDENTIAL_KEY,
@@ -2647,6 +2622,36 @@ const baseUrlHint = computed(() => {
   return t('admin.accounts.platformBaseUrlHint')
 })
 
+// 占位符必须跟平台走：后加平台只有一条官方兼容站点（唯一来源 CHAT_PLATFORM_BASE_URLS），
+// 不能让它们显示 Anthropic 的地址或 Key 前缀。
+const editBaseUrlPlaceholder = computed(() => {
+  const platform = props.account?.platform
+  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return CHAT_PLATFORM_BASE_URLS[platform]
+  if (platform === 'qianwen') return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+  if (platform === 'commandcode') return 'https://api.commandcode.ai/provider/v1'
+  if (platform === 'openai') return 'https://api.openai.com'
+  if (platform === 'gemini') return 'https://generativelanguage.googleapis.com'
+  if (platform === 'antigravity') return 'https://cloudcode-pa.googleapis.com'
+  if (platform === 'grok') return 'https://api.x.ai/v1'
+  return 'https://api.anthropic.com'
+})
+
+// 与创建弹窗同口径：能查到官方文档给出前缀的按文档给，否则中性占位（TokenHub 不编造 sk-）。
+const editApiKeyPlaceholder = computed(() => {
+  const platform = props.account?.platform
+  if (platform === 'qianfan') return 'bce-v3/ALTAK-...'
+  if (platform && CHAT_PLATFORM_BASE_URLS[platform]) return '<api-key>'
+  if (platform === 'qianwen') return 'sk-ws-... / sk-sp-...'
+  if (platform === 'commandcode') return '<api-key>'
+  if (platform === 'openai') return 'sk-proj-...'
+  if (platform === 'gemini') return 'AIza...'
+  if (platform === 'antigravity') return 'sk-...'
+  if (platform === 'grok') return 'xai-...'
+  if (platform === 'kimi' || platform === 'deepseek' || platform === 'minimax' || platform === 'opencode_go') return 'sk-...'
+  if (platform === 'zhipu') return '<api-key>.<secret>'
+  return 'sk-ant-...'
+})
+
 // Model mapping type
 interface ModelMapping {
   from: string
@@ -2697,21 +2702,21 @@ const cursorDraftPreview = computed(() => cursorCredentialDraft.value ? {
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）account_mode / api_protocol 编辑 ──
 // account_mode 决定额度/余额监控路径，api_protocol 决定转发端点与格式；
 // 二者均可修正（早期创建的账号可能存错默认值），切换时重置 base_url 预置。
-const isCNApiKeyAccount = computed(
+const isProtocolApiKeyAccount = computed(
   () =>
     props.account?.type === 'apikey' &&
-    isMultiProtocolApiKeyPlatform(props.account.platform)
+    (isMultiProtocolApiKeyPlatform(props.account.platform) || isDeclaredProtocolPlatform(props.account.platform))
 )
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
-const cnPresetPlatform = computed<CnProviderPlatform>(() => {
+const cnPresetPlatform = computed<CnBaseUrlPresetPlatform>(() => {
   const platform = props.account?.platform
-  if (isCNProviderPlatform(platform ?? '')) {
-    return platform as CnProviderPlatform
+  if (platform && hasPlatformBaseUrlPresets(platform)) {
+    return platform
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode'>(() => {
+const adaptivePresetPlatform = computed<CnProviderPlatform | DeclaredProtocolPlatform | 'opencode_go' | 'commandcode'>(() => {
   if (props.account?.platform === 'commandcode') return 'commandcode'
   if (props.account?.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
@@ -2734,13 +2739,16 @@ function defaultMultiProtocolApiProtocol(platform: string): CnApiProtocol {
  */
 function resolveStoredMultiProtocolApiProtocol(platform: string, stored: unknown): CnApiProtocol {
   const normalized = typeof stored === 'string' ? stored.trim() : stored
+  if (isDeclaredProtocolPlatform(platform)) {
+    return declaredPlatformApiProtocols(platform).find(protocol => protocol === normalized) ?? 'chat_completions'
+  }
   switch (normalized) {
     case 'adaptive':
     case 'chat_completions':
     case 'anthropic':
       return normalized
     case 'responses':
-      return cnSupportsNativeResponses(platform) ? 'responses' : defaultMultiProtocolApiProtocol(platform)
+      return hasDeclaredNativeResponses(platform) ? 'responses' : defaultMultiProtocolApiProtocol(platform)
     default:
       return defaultMultiProtocolApiProtocol(platform)
   }
@@ -2780,8 +2788,8 @@ const cnAccentActiveClass = computed(() => platformSelectionClass(props.account?
 const cnAccentIconClass = computed(() => platformSelectionIconClass(props.account?.platform ?? ''))
 const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'payg' | 'coding' }>>(
   () => {
-    // DeepSeek 无 coding 套餐（与创建弹窗一致），仅保留按量付费。
-    if (props.account?.platform === 'deepseek') {
+    // 与创建弹窗共用套餐可见性：DeepSeek / Mistral 仅按量付费。
+    if (!showsCodingPlanMode(props.account?.platform ?? '')) {
       return [{ value: 'payg', labelKey: 'payg' }]
     }
     return [
@@ -2791,26 +2799,34 @@ const cnAccountModeOptions = computed<Array<{ value: CnAccountMode; labelKey: 'p
   }
 )
 const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
+  const platform = props.account?.platform
+  if (platform && isDeclaredProtocolPlatform(platform)) {
+    return declaredPlatformApiProtocols(platform).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
+  }
   const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
     { value: 'adaptive', labelKey: 'adaptive' },
     { value: 'chat_completions', labelKey: 'chatCompletions' },
     { value: 'anthropic', labelKey: 'anthropic' }
   ]
-  if (cnSupportsNativeResponses(props.account?.platform ?? '')) {
+  if (hasDeclaredNativeResponses(props.account?.platform ?? '')) {
     opts.push({ value: 'responses', labelKey: 'responses' })
   }
   return opts
 })
 const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; labelKey: string }>>(() => {
+  const platform = props.account?.platform
+  if (platform && isDeclaredProtocolPlatform(platform)) {
+    return declaredPlatformNativeProtocols(platform).map(value => ({ value, labelKey: value === 'chat_completions' ? 'chatCompletions' : value }))
+  }
   const opts: Array<{ value: CnNativeApiProtocol; labelKey: string }> = [
     { value: 'chat_completions', labelKey: 'chatCompletions' },
     { value: 'anthropic', labelKey: 'anthropic' }
   ]
-  if (cnSupportsNativeResponses(props.account?.platform ?? '')) opts.push({ value: 'responses', labelKey: 'responses' })
+  if (hasDeclaredNativeResponses(props.account?.platform ?? '')) opts.push({ value: 'responses', labelKey: 'responses' })
   return opts
 })
 watch(editApiProtocol, (protocol, previousProtocol) => {
-  if (!isCNApiKeyAccount.value || syncingForm.value || protocol === null) return
+  if (!isProtocolApiKeyAccount.value || syncingForm.value || protocol === null) return
   const previousNative: CnNativeApiProtocol | null =
     previousProtocol === 'chat_completions' || previousProtocol === 'anthropic' || previousProtocol === 'responses'
       ? previousProtocol
@@ -2834,10 +2850,10 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
   if (previousNative && (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), previousNative))) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
 })
 watch(editAccountMode, (mode, previousMode) => {
-  if (!isCNApiKeyAccount.value || syncingForm.value) return
+  if (!isProtocolApiKeyAccount.value || syncingForm.value) return
   if (props.account?.platform === 'opencode_go') return
-  // deepseek 无 coding 套餐：防御性回退（UI 已隐藏该选项）。
-  const effectiveMode = props.account!.platform === 'deepseek' && mode === 'coding' ? 'payg' : mode
+  // 无 coding 套餐的平台与创建弹窗保持一致。
+  const effectiveMode = !showsCodingPlanMode(props.account!.platform) && mode === 'coding' ? 'payg' : mode
   if (effectiveMode !== mode) {
     editAccountMode.value = effectiveMode
     return
@@ -2856,7 +2872,7 @@ watch(editAccountMode, (mode, previousMode) => {
   if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, previousMode, cnApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, cnApiProtocol.value)
 })
 watch(editOpenCodeAccountMode, (mode, previousMode) => {
-  if (!isCNApiKeyAccount.value || props.account?.platform !== 'opencode_go' || syncingForm.value) return
+  if (!isProtocolApiKeyAccount.value || props.account?.platform !== 'opencode_go' || syncingForm.value) return
   if (editApiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls('opencode_go', previousMode)
     const nextDefaults = defaultCNAdaptiveBaseUrls('opencode_go', mode)
@@ -3396,14 +3412,13 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
-  if (props.account && CHAT_PLATFORM_BASE_URLS[props.account.platform]) return CHAT_PLATFORM_BASE_URLS[props.account.platform]
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
   // CN 供应商：按当前模式/协议回落到官方预设（清空输入框提交时使用），
   // 不能落到 anthropic 默认值（会被当 CC base 拼出错误端点）。
   if (
-    props.account && isMultiProtocolApiKeyPlatform(props.account.platform)
+    props.account && (isMultiProtocolApiKeyPlatform(props.account.platform) || isDeclaredProtocolPlatform(props.account.platform))
   ) {
     return defaultCNBaseUrl(props.account.platform, currentOpenCodeOrCNMode(), cnApiProtocol.value)
   }
@@ -3817,11 +3832,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     const credentials = newAccount.credentials as Record<string, unknown>
     // 国产供应商：读取 account_mode 与 api_protocol 作为可编辑初始值
     // （编辑弹窗允许修正两者，用于修复早期存错默认值的账号）。
-    if (isMultiProtocolApiKeyPlatform(newAccount.platform)) {
+    if (isMultiProtocolApiKeyPlatform(newAccount.platform) || isDeclaredProtocolPlatform(newAccount.platform)) {
       if (newAccount.platform === 'opencode_go') {
         editOpenCodeAccountMode.value = resolveOpenCodeAccountMode(credentials.account_mode)
       } else {
-        editAccountMode.value = ['qianwen', 'commandcode'].includes(newAccount.platform) ? 'payg' : credentials.account_mode === 'coding' ? 'coding' : 'payg'
+        editAccountMode.value = !showsCodingPlanMode(newAccount.platform) ? 'payg' : credentials.account_mode === 'coding' ? 'coding' : 'payg'
       }
       // 与后端 GetAPIProtocol 一致：显式合法值优先，缺失/空值/与平台不匹配按平台回落解释，
       // 避免编辑保存把缺字段账号的有效路由改成另一套协议（创建默认不变）。
@@ -3876,10 +3891,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           ? 'https://generativelanguage.googleapis.com'
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
-            : isMultiProtocolApiKeyPlatform(newAccount.platform)
+            : (isMultiProtocolApiKeyPlatform(newAccount.platform) || isDeclaredProtocolPlatform(newAccount.platform))
               ? defaultCNBaseUrl(newAccount.platform, currentOpenCodeOrCNMode(), cnApiProtocol.value)
               : 'https://api.anthropic.com'
-    editBaseUrl.value = isCNApiKeyAccount.value && cnApiProtocol.value === 'adaptive'
+    editBaseUrl.value = isProtocolApiKeyAccount.value && cnApiProtocol.value === 'adaptive'
       ? editAdaptiveBaseUrls.value.chat_completions
       : (credentials.base_url as string) || platformDefaultUrl
 
@@ -4569,7 +4584,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
       }
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
-      if (isCNApiKeyAccount.value) {
+      if (isProtocolApiKeyAccount.value) {
         const cnProtocol = cnApiProtocol.value
         newCredentials.account_mode = currentOpenCodeOrCNMode()
         newCredentials.api_protocol = cnProtocol
@@ -4926,7 +4941,7 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
       if (isCursorRelay.value) {
-        if (!editBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
+        if (!editBaseUrl.value.trim()) { appStore.showError(t('admin.accounts.baseUrlRequired')); return }
         // 保存前先按 builder 的合同预校验存量协议：非空非法值在用户明确改选前不发任何请求，
         // 只改名称也不会静默换协议；builder 自身的拒绝只作为绕过此处的兜底。
         if (selectedCursorRelayProtocol.value === null && resolveCursorRelayProtocol(cursorStoredRelayProtocol.value) === null) {

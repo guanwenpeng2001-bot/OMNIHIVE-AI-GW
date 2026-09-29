@@ -653,7 +653,7 @@
 
       <!-- No data at all -->
       <div
-        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible && !hasNoUpstreamUsageApi"
+        v-if="!todayStats && !todayStatsLoading && !hasApiKeyQuota && !account.ollama_cloud_usage?.eligible"
         class="text-xs text-gray-400"
       >-</div>
     </div>
@@ -735,9 +735,14 @@ let desktopViewportListener: ((event: MediaQueryListEvent) => void) | null = nul
 let visibilityObserver: IntersectionObserver | null = null
 
 // These providers expose no public upstream quota/usage endpoint.
+// qianwen plus the four chat-only platforms (qianfan/hunyuan/mistral/volcengine):
+// the CN quota/balance services cover only kimi/zhipu/deepseek/minimax/opencode_go,
+// so their all-zero row is local statistics rather than an upstream reading.
+const PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT = ['qianwen', 'qianfan', 'hunyuan', 'mistral', 'volcengine']
+
 const hasNoUpstreamUsageApi = computed(() => {
   if (props.account.ollama_cloud_usage?.eligible) return false
-  if (props.account.platform === 'qianwen') return true
+  if (PLATFORMS_WITHOUT_UPSTREAM_USAGE_ENDPOINT.includes(props.account.platform)) return true
   return ['zhipu', 'minimax', 'opencode_go'].includes(props.account.platform)
     && !cnQuotaCellVisible.value && !cnBalanceCellVisible.value
 })

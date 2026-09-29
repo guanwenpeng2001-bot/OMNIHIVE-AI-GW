@@ -47,7 +47,7 @@ func PollPKCE(ctx context.Context, client *http.Client, baseURL string, session 
 	if err != nil {
 		return nil, errors.New("cursor: authorization transport failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode == http.StatusNotFound {
 		return nil, nil
 	}

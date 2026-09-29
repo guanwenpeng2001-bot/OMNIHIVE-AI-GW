@@ -1,3 +1,4 @@
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import { openAIPlanTypeLabel } from '@/utils/planType'
 
 /** Cursor Relay 上游协议：与后端 NormalizeCursorAccount 的两个字面量保持一致。 */
@@ -347,6 +348,85 @@ export function cnSupportsNativeResponses(platform: string): boolean {
   return platform === 'qianwen' || platform === 'deepseek' || platform === 'kimi' || platform === 'minimax' || platform === 'opencode_go'
 }
 
+// ===== 后加平台（混元 / 火山方舟 / 千帆 / Mistral）的文本协议 =====
+// 协议集合的唯一依据是后端 domain/platform_capabilities.go 的平台描述符：
+// MessagesPOST / ResponsesPOST 为 EndpointNative 即已核证，EndpointRejected 即缺失。
+// 这四个平台此前被前端按 "是不是 chat-only" 一刀切成 chat_completions，用户拿不到混元的
+// 原生 Anthropic Messages / Responses，也拿不到火山方舟与千帆的原生 Responses。
+
+/** 后端已声明原生文本协议、但不在既有国产多协议集合里的平台。 */
+export type DeclaredProtocolPlatform = 'hunyuan' | 'volcengine' | 'qianfan' | 'mistral'
+
+/** 后端描述符声明的原生文本协议。 */
+interface DeclaredTextProtocols {
+  /** MessagesPOST: 同一站点上的原生 Anthropic Messages 路径（TokenHub 用 x-api-key）。 */
+  messages: boolean
+  /** ResponsesPOST: 原生 Responses 路径。 */
+  responses: boolean
+}
+
+/**
+ * 镜像 backend/internal/domain/platform_capabilities.go 的声明：
+ *   hunyuan     ResponsesPOST + MessagesPOST 均为 native（混元是多协议 API-key 条目）
+ *   volcengine  ResponsesPOST native；国内数据面无 Anthropic Messages 端点
+ *   qianfan     ResponsesPOST native；messages 是已核证的缺失（POST /v2/messages 404）
+ *   mistral     上游只有 Chat Completions，不声明任何原生协议，因此不给协议选项
+ */
+export const DECLARED_PLATFORM_TEXT_PROTOCOLS: Record<DeclaredProtocolPlatform, DeclaredTextProtocols> = {
+  hunyuan: { messages: true, responses: true },
+  volcengine: { messages: false, responses: true },
+  qianfan: { messages: false, responses: true },
+  mistral: { messages: false, responses: false }
+}
+
+export function isDeclaredProtocolPlatform(platform: string): platform is DeclaredProtocolPlatform {
+  return Object.prototype.hasOwnProperty.call(DECLARED_PLATFORM_TEXT_PROTOCOLS, platform)
+}
+
+/** 平台已声明的原生协议（不含 adaptive）；chat_completions 是所有条目的既有 trunk。 */
+export function declaredPlatformNativeProtocols(platform: DeclaredProtocolPlatform): CnNativeApiProtocol[] {
+  const declared = DECLARED_PLATFORM_TEXT_PROTOCOLS[platform]
+  const protocols: CnNativeApiProtocol[] = ['chat_completions']
+  if (declared.messages) protocols.push('anthropic')
+  if (declared.responses) protocols.push('responses')
+  return protocols
+}
+
+/** 协议卡选项：只有一种原生协议时没有可自适应的第二协议，因此不给 adaptive。 */
+export function declaredPlatformApiProtocols(platform: DeclaredProtocolPlatform): CnApiProtocol[] {
+  const protocols = declaredPlatformNativeProtocols(platform)
+  return protocols.length > 1 ? ['adaptive', ...protocols] : protocols
+}
+
+/** 平台是否有原生 Responses 端点：既有国产/OpenCode 集合 + 后加平台的后端声明。 */
+export function hasDeclaredNativeResponses(platform: string): boolean {
+  if (cnSupportsNativeResponses(platform)) return true
+  return isDeclaredProtocolPlatform(platform) && DECLARED_PLATFORM_TEXT_PROTOCOLS[platform].responses
+}
+
+// ===== 账号类型卡（按量付费 / 编程套餐）的平台覆盖 =====
+// 用独立谓词而不是加宽 isCNProviderPlatform：后者被余额/额度单元格、协议选项与序列化
+// 等多处消费，把后加平台带进去会外溢到与账号类型无关的展示逻辑。
+
+/**
+ * 模式卡是否可见：既有国产多协议供应商（千问除外）+ 后加四家（混元 / 火山方舟 / 千帆 / Mistral）。
+ * 千问后端没有套餐额度端点，整张卡保持隐藏。
+ */
+export function showsAccountModeCard(platform: string): boolean {
+  if (platform === 'qianwen') return false
+  return isCNProviderPlatform(platform) || isDeclaredProtocolPlatform(platform)
+}
+
+/**
+ * coding（编程套餐）档是否可见：DeepSeek 与 Mistral 官方只有按量付费。
+ * Mistral 官方原文 "API keys are billed based on consumption, independent of any monthly
+ * subscription"，所以不给它们编造套餐端点，模式卡只剩按量付费一项。
+ */
+export function showsCodingPlanMode(platform: string): boolean {
+  if (!showsAccountModeCard(platform)) return false
+  return platform !== 'deepseek' && platform !== 'mistral'
+}
+
 export const OPENCODE_GO_BASE_URL = 'https://opencode.ai/zen/go/v1'
 export const OPENCODE_GO_ANTHROPIC_BASE_URL = 'https://opencode.ai/zen/go'
 export const OPENCODE_ZEN_BASE_URL = 'https://opencode.ai/zen/v1'
@@ -441,16 +521,152 @@ export function isMultiProtocolApiKeyPlatform(platform: string): platform is CnP
 export interface CnBaseUrlPreset {
   mode: CnAccountMode
   protocol: CnApiProtocol
-  /** 专有名词，不参与 i18n */
+  /** 专有名词，不参与 i18n（如 TokenHub Main、Ark）；给出 labelKey 时展示层按语言取词条 */
   label: string
+  /** 需要本地化的档位名（如千帆套餐的企业版）；展示层优先于 label */
+  labelKey?: string
   url: string
 }
 
+/** 有官方站点预设的平台：国产多协议供应商 + 后加四家（混元 / 火山方舟 / 千帆 / Mistral）。 */
+export type CnBaseUrlPresetPlatform = CnProviderPlatform | DeclaredProtocolPlatform
+
+/** 该平台是否有官方站点预设（预设组件的渲染门槛）。 */
+export function hasPlatformBaseUrlPresets(platform: string): platform is CnBaseUrlPresetPlatform {
+  return isCNProviderPlatform(platform) || isDeclaredProtocolPlatform(platform)
+}
+
+/**
+ * 混元 TokenHub 站点白名单：逐条镜像 backend/internal/service/hunyuan_adapter.go 的
+ * hunyuanActionBaseURL 白名单（4 个 TokenHub 站点 + 1 个旧版兼容站点），站点归属同时见
+ * backend/internal/service/model_capability_matcher.go 的 hunyuan 分支。前端不自行拼地址：
+ * 白名单以外的地址后端直接报错。混元的 Chat Completions / Anthropic Messages / Responses
+ * 共用同一站点根（协议路径由后端拼接），所以每个站点按协议各给一条预设。
+ */
+const HUNYUAN_TOKENHUB_SITES: Array<{ label: string; url: string }> = [
+  { label: 'TokenHub Main', url: 'https://tokenhub.tencentmaas.com/v1' },
+  { label: 'TokenHub Main CN', url: 'https://tokenhub.tencentmaas.cn/v1' },
+  { label: 'TokenHub Intl', url: 'https://tokenhub-intl.tencentmaas.com/v1' },
+  { label: 'TokenHub Intl CN', url: 'https://tokenhub-intl.tencentmaas.cn/v1' },
+  { label: 'Hunyuan Legacy', url: 'https://api.hunyuan.cloud.tencent.com/v1' }
+]
+
+const HUNYUAN_BASE_URL_PRESETS: CnBaseUrlPreset[] = HUNYUAN_TOKENHUB_SITES.flatMap((site): CnBaseUrlPreset[] =>
+  declaredPlatformNativeProtocols('hunyuan').map(protocol => ({
+    mode: 'payg',
+    protocol,
+    label: site.label,
+    url: site.url
+  }))
+)
+
+/**
+ * 后加三家的编程套餐（coding）端点。套餐与按量付费的 Base URL 与 Key 互不通用
+ * （腾讯 TokenHub 原文"互不通用，请勿混用"；火山方舟原文"请勿使用
+ * https://ark.cn-beijing.volces.com/api/v3 ：该 Base URL 不会消耗您的 Coding Plan 额度，
+ * 而是会产生额外费用"），所以地址逐字取自厂商一手文档，不自行拼接：
+ *   腾讯 TokenHub Coding Plan   https://cloud.tencent.com/document/product/1823/130092
+ *   火山方舟 Coding Plan 个人版 https://docs.volcengine.com/docs/ark/coding-plan-personal-get-started
+ *   千帆 Token Plan 个人版       https://cloud.baidu.com/doc/qianfan/s/Dmrabu8b6
+ * 与按量付费站点同一套约定：厂商公布的 OpenAI 兼容根服务 OpenAI 协议族
+ * （chat_completions / responses 同址），Anthropic 兼容根单独一条。
+ * Mistral 官方只有按量付费，因此不在此表内。
+ */
+const LATE_PLATFORM_CODING_BASE_URLS: Partial<Record<DeclaredProtocolPlatform, Partial<Record<CnNativeApiProtocol, string>>>> = {
+  hunyuan: {
+    chat_completions: 'https://api.lkeap.cloud.tencent.com/coding/v3',
+    anthropic: 'https://api.lkeap.cloud.tencent.com/coding/anthropic'
+  },
+  volcengine: {
+    chat_completions: 'https://ark.cn-beijing.volces.com/api/coding/v3',
+    anthropic: 'https://ark.cn-beijing.volces.com/api/coding'
+  },
+  qianfan: {
+    chat_completions: 'https://qianfan.baidubce.com/v2/tokenplan/personal',
+    anthropic: 'https://qianfan.baidubce.com/anthropic/tokenplan/personal'
+  }
+}
+
+/**
+ * 千帆 Token Plan 企业版站点：与个人版地址不同，只在预设列表里作为可选项给出（默认仍个人版），
+ * 不做第三级选择器。地址取自企业版文档 https://cloud.baidu.com/doc/qianfan/s/ymq8wwch2。
+ */
+const QIANFAN_TOKEN_PLAN_TEAM_BASE_URLS: Partial<Record<CnNativeApiProtocol, string>> = {
+  chat_completions: 'https://qianfan.baidubce.com/v2/tokenplan/team',
+  anthropic: 'https://qianfan.baidubce.com/anthropic/tokenplan/team'
+}
+
+/**
+ * 套餐站点在指定协议下的地址：OpenAI 协议族（chat_completions / responses）共用厂商公布的
+ * OpenAI 兼容根，adaptive 的单输入同样落在这个根上；Anthropic 兼容单独一条。
+ * 没有该形态套餐地址时返回空串：宁可不给默认值，也不拿按量付费地址去配套餐 Key。
+ */
+function latePlatformCodingBaseUrl(
+  platform: string,
+  mode: CnAccountMode | OpenCodeAccountMode,
+  protocol: CnApiProtocol
+): string {
+  if (mode !== 'coding' || !isDeclaredProtocolPlatform(platform)) return ''
+  const paths = LATE_PLATFORM_CODING_BASE_URLS[platform]
+  if (!paths) return ''
+  return protocol === 'anthropic' ? (paths.anthropic ?? '') : (paths.chat_completions ?? '')
+}
+
+/** 按量付费的单一官方站点展开到该平台声明的每个文本协议（站点根取自唯一来源）。 */
+function paygSitePresets(platform: DeclaredProtocolPlatform, label: string): CnBaseUrlPreset[] {
+  return declaredPlatformNativeProtocols(platform).map(protocol => ({
+    mode: 'payg',
+    protocol,
+    label,
+    url: CHAT_PLATFORM_BASE_URLS[platform]
+  }))
+}
+
+/** 套餐站点预设：OpenAI 兼容根服务 chat_completions / responses，Anthropic 兼容根单独一条。 */
+function codingSitePresets(platform: DeclaredProtocolPlatform, label: string): CnBaseUrlPreset[] {
+  const paths = LATE_PLATFORM_CODING_BASE_URLS[platform]
+  if (!paths?.chat_completions) return []
+  const presets: CnBaseUrlPreset[] = [
+    { mode: 'coding', protocol: 'chat_completions', label, url: paths.chat_completions },
+    { mode: 'coding', protocol: 'responses', label, url: paths.chat_completions }
+  ]
+  if (paths.anthropic) {
+    presets.push({ mode: 'coding', protocol: 'anthropic', label: `${label} Anthropic`, url: paths.anthropic })
+  }
+  return presets
+}
+
+/** 千帆套餐的企业版预设：地址是专有名词，档位名走 i18n。 */
+function qianfanTeamPresets(): CnBaseUrlPreset[] {
+  const presets: CnBaseUrlPreset[] = []
+  const chatUrl = QIANFAN_TOKEN_PLAN_TEAM_BASE_URLS.chat_completions
+  const anthropicUrl = QIANFAN_TOKEN_PLAN_TEAM_BASE_URLS.anthropic
+  if (chatUrl) {
+    presets.push({
+      mode: 'coding',
+      protocol: 'chat_completions',
+      label: 'Qianfan TokenPlan Enterprise',
+      labelKey: 'admin.accounts.cnProviders.baseUrlPresets.qianfanTokenPlanEnterprise',
+      url: chatUrl
+    })
+  }
+  if (anthropicUrl) {
+    presets.push({
+      mode: 'coding',
+      protocol: 'anthropic',
+      label: 'Qianfan TokenPlan Enterprise Anthropic',
+      labelKey: 'admin.accounts.cnProviders.baseUrlPresets.qianfanTokenPlanEnterpriseAnthropic',
+      url: anthropicUrl
+    })
+  }
+  return presets
+}
+
 /** 各供应商按账号类型 × API 协议分档的快捷端点（点击快速填充，输入框仍可自由填写）。 */
-export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> = {
+export const CN_BASE_URL_PRESETS: Record<CnBaseUrlPresetPlatform, CnBaseUrlPreset[]> = {
+  // 千问只有 payg 一档：模式卡对 qianwen 隐藏（后端没有 qianwen 的 coding 额度端点，
+  // account.go 也不按 account_mode 选 qianwen 的 base url），所以不保留 coding 预设。
   qianwen: [
-    { mode: 'coding', protocol: 'anthropic', label: 'Coding Beijing Anthropic', url: 'https://coding.dashscope.aliyuncs.com/apps/anthropic' },
-    { mode: 'coding', protocol: 'chat_completions', label: 'Coding Beijing OpenAI', url: 'https://coding.dashscope.aliyuncs.com/v1' },
     { mode: 'payg', protocol: 'chat_completions', label: 'DashScope Chat', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { mode: 'payg', protocol: 'responses', label: 'DashScope Responses', url: 'https://dashscope.aliyuncs.com/compatible-mode/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'DashScope Messages', url: 'https://dashscope.aliyuncs.com/apps/anthropic' }
@@ -474,6 +690,20 @@ export const CN_BASE_URL_PRESETS: Record<CnProviderPlatform, CnBaseUrlPreset[]> 
     { mode: 'payg', protocol: 'anthropic', label: 'DeepSeek Anthropic', url: 'https://api.deepseek.com/anthropic' },
     { mode: 'payg', protocol: 'responses', label: 'DeepSeek Responses', url: 'https://api.deepseek.com' }
   ],
+  hunyuan: [
+    ...HUNYUAN_BASE_URL_PRESETS,
+    ...codingSitePresets('hunyuan', 'TokenHub Coding Plan')
+  ],
+  volcengine: [
+    ...paygSitePresets('volcengine', 'Ark'),
+    ...codingSitePresets('volcengine', 'Ark Coding Plan')
+  ],
+  qianfan: [
+    ...paygSitePresets('qianfan', 'Qianfan'),
+    ...codingSitePresets('qianfan', 'Qianfan TokenPlan'),
+    ...qianfanTeamPresets()
+  ],
+  mistral: paygSitePresets('mistral', 'Mistral'),
   minimax: [
     { mode: 'payg', protocol: 'chat_completions', label: 'MiniMax CN', url: 'https://api.minimaxi.com/v1' },
     { mode: 'payg', protocol: 'anthropic', label: 'MiniMax CN Anthropic', url: 'https://api.minimaxi.com/anthropic' },
@@ -501,7 +731,7 @@ export function defaultCNBaseUrl(
       case 'commandcode':
         return 'https://api.commandcode.ai/provider/v1'
       case 'qianwen':
-        return mode === 'coding' ? 'https://coding.dashscope.aliyuncs.com/apps/anthropic' : 'https://dashscope.aliyuncs.com/apps/anthropic'
+        return 'https://dashscope.aliyuncs.com/apps/anthropic'
       case 'kimi':
         return mode === 'coding' ? 'https://api.kimi.com/coding' : 'https://api.moonshot.cn/anthropic'
       case 'zhipu':
@@ -512,16 +742,27 @@ export function defaultCNBaseUrl(
         return 'https://api.minimaxi.com/anthropic'
       case 'opencode_go':
         return mode === 'zen' ? OPENCODE_ZEN_ANTHROPIC_BASE_URL : OPENCODE_GO_ANTHROPIC_BASE_URL
+      case 'hunyuan':
+        // TokenHub 的 Anthropic Messages 路径与 OpenAI 路径共用同一站点根
+        // （backend/internal/service/openai_gateway_messages_anthropic_native.go 按版本段
+        // 拼 {base}/v1/messages，不会出现 /v1/v1）。套餐档换成厂商公布的 Anthropic 套餐根。
+        return latePlatformCodingBaseUrl(platform, mode, protocol) || CHAT_PLATFORM_BASE_URLS.hunyuan
+      case 'volcengine':
+      case 'qianfan':
+        // 按量付费的数据面没有 Messages 端点（后端声明 messagesPost 缺失），
+        // 只有套餐档公布了 Anthropic 兼容地址；非套餐档返回空串，不拿按量站点冒充。
+        return latePlatformCodingBaseUrl(platform, mode, protocol)
       default:
         return ''
     }
   }
-  // responses：Kimi / DeepSeek / MiniMax 的 base 与 chat_completions 相同（端点路径差异由后端处理）。
+  // responses：Kimi / DeepSeek / MiniMax 的 base 与 chat_completions 相同（端点路径差异由后端处理）；
+  // 后加平台的已声明原生协议同样共用同一站点根。
   switch (platform) {
     case 'commandcode':
       return 'https://api.commandcode.ai/provider/v1'
     case 'qianwen':
-      return mode === 'coding' ? 'https://coding.dashscope.aliyuncs.com/v1' : 'https://dashscope.aliyuncs.com/compatible-mode/v1'
+      return 'https://dashscope.aliyuncs.com/compatible-mode/v1'
     case 'kimi':
       return mode === 'coding' ? 'https://api.kimi.com/coding/v1' : 'https://api.moonshot.cn/v1'
     case 'zhipu':
@@ -534,20 +775,36 @@ export function defaultCNBaseUrl(
       return 'https://api.minimaxi.com/v1'
     case 'opencode_go':
       return mode === 'zen' ? OPENCODE_ZEN_BASE_URL : OPENCODE_GO_BASE_URL
+    // 后加平台：按量付费只有一条 OpenAI 形态的站点（TokenHub / Ark /api/v3 / 千帆 /v2），
+    // Chat 与 Responses 同址；套餐（coding）档换成厂商的套餐专属站点。
+    case 'hunyuan':
+    case 'volcengine':
+    case 'qianfan':
+    case 'mistral':
+      return latePlatformCodingBaseUrl(platform, mode, protocol) || CHAT_PLATFORM_BASE_URLS[platform]
     default:
       return ''
   }
 }
 
+/**
+ * 该平台在指定账号类型下的官方预设地址（用于判断输入框里的地址是否仍是官方站点，
+ * 而不是用户手填的中转地址）。
+ */
+export function platformPresetUrls(platform: string, mode: CnAccountMode): string[] {
+  if (!hasPlatformBaseUrlPresets(platform)) return []
+  return (CN_BASE_URL_PRESETS[platform] ?? []).filter(preset => preset.mode === mode).map(preset => preset.url)
+}
+
 /** 返回自适应模式下需要配置的原生协议及其默认端点。 */
 export function defaultCNAdaptiveBaseUrls(
-  platform: CnProviderPlatform | 'opencode_go' | 'commandcode',
+  platform: CnProviderPlatform | 'opencode_go' | 'commandcode' | DeclaredProtocolPlatform,
   mode: CnAccountMode | OpenCodeAccountMode
 ): Record<CnNativeApiProtocol, string> {
   return {
     chat_completions: defaultCNBaseUrl(platform, mode, 'chat_completions'),
     anthropic: defaultCNBaseUrl(platform, mode, 'anthropic'),
-    responses: cnSupportsNativeResponses(platform) ? defaultCNBaseUrl(platform, mode, 'responses') : ''
+    responses: hasDeclaredNativeResponses(platform) ? defaultCNBaseUrl(platform, mode, 'responses') : ''
   }
 }
 

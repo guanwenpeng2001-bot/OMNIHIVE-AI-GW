@@ -86,6 +86,14 @@ func TestPlatformResponsesSurfaces(t *testing.T) {
 		{PlatformKimi, EndpointNative, EndpointRejected, false},
 		{PlatformZhipu, EndpointBridge, EndpointRejected, false},
 		{PlatformCommandCode, EndpointBridge, EndpointRejected, false},
+		// The late CN/TokenHub entries publish the native Responses API on their
+		// OpenAI-shaped trunk (Ark docs/82379/1298459, Qianfan /v2/responses live
+		// probe and TokenHub 1823/133813, all captured 2026-09-21), while Mistral
+		// publishes none.
+		{PlatformVolcengine, EndpointNative, EndpointRejected, false},
+		{PlatformQianfan, EndpointNative, EndpointRejected, false},
+		{PlatformHunyuan, EndpointNative, EndpointRejected, false},
+		{PlatformMistral, EndpointRejected, EndpointRejected, false},
 		{PlatformComposite, EndpointRejected, EndpointRejected, false},
 		{"unknown", EndpointRejected, EndpointRejected, false},
 	} {

@@ -39,14 +39,12 @@ import "strings"
 // Integration prerequisites for the implemented media/embedding cells (verified
 // by running the gateway handler paths on 2026-09-21): the adapters and these
 // cells are in place, and service accountImplementsGatewayAction already resolves
-// them, but a Volcengine account still cannot execute them while the platform
-// descriptor keeps ChatOnly=true. That flag locks three layers at once
-// (service/account.go SupportsOpenAIEndpointCapability, service/
-// account_model_catalog.go accountCatalogModelEndpoints and service/
-// gateway_forward_model_binding.go requestCatalogEndpoint), and the media request
-// plan additionally requires the grok_media_generation catalog endpoint. The
-// dispatch keys the ingress must register for these handlers are listed in
-// volcengineActionAdapters below.
+// them. The platform row keeps ChatOnly=true because the OpenAI-shaped Ark base
+// defines the entry, and it now publishes ResponsesPOST, so the responses cell
+// binds the shared OpenAI responses trunk on that protocol fact instead of on
+// the classification. Media plans keep the conservative Responses family for a
+// chat-only entry. The dispatch keys the ingress must register for these
+// handlers are listed in volcengineActionAdapters below.
 
 // volcengineEvidenceCaptured is the date this matrix was verified against the
 // first-party material listed above.
@@ -67,6 +65,7 @@ const volcengineEvidenceCaptured = "captured 2026-09-21"
 // (docs/82379/1298459).
 var volcengineActionAdapters = map[string]string{
 	"chat":           "openai.chat",
+	"responses":      "openai.responses",
 	"count_tokens":   "openai.count_tokens",
 	"embeddings":     "volcengine.embeddings",
 	"image.generate": "volcengine.images",
@@ -81,7 +80,8 @@ var volcengineActionAdapters = map[string]string{
 // volcengineActionEvidence documents the serving adapter and its first-party
 // protocol evidence for implemented Volcengine actions.
 var volcengineActionEvidence = map[string]string{
-	"chat":           "Frozen Ark chat runtime contract (service/volcengine_adapter.go prepareVolcengineChatRequest): Bearer API key on {root}/chat/completions with the resolved Endpoint ID/model target (docs/82379/1298459 Base URL 及鉴权, " + volcengineEvidenceCaptured + ")",
+	"chat":           "Frozen Ark chat runtime contract (service/volcengine_adapter.go prepareVolcengineChatRequest): Bearer API key on {root}/chat/completions with the resolved Endpoint ID/model target (docs/82379/1298459 Base URL 及鉴权, " + volcengineEvidenceCaptured + "). Coding Plan accounts use the plan data plane instead: Ark documents https://ark.cn-beijing.volces.com/api/coding/v3 as the OpenAI-compatible base for subscription accounts and warns that the pay-as-you-go /api/v3 base does not consume Coding Plan quota but bills extra (火山方舟 Coding Plan 个人版快速开始, docs.volcengine.com/docs/ark/coding-plan-personal-get-started, captured 2026-09-23); prepareVolcengineChatRequest resolves that base from credentials.account_mode when base_url is empty, while an explicit base_url still wins",
+	"responses":      "openai.responses trunk on the native Ark Responses API: POST {root}/responses with Authorization: Bearer <ARK api_key>, derived by the shared trunk from the version-suffixed Ark base (docs/82379/1298459 Base URL 及鉴权 and the Responses API navigation, " + volcengineEvidenceCaptured + "). The account target stays the resolved Endpoint ID (ep-*) or model ID and the shared Responses settlement bills the upstream usage fields",
 	"embeddings":     "volcengine.embeddings handler to POST {root}/embeddings (text vectorization, docs/82379/1521765) and POST {root}/embeddings/multimodal for text/image/video input objects (多模态向量化 API, docs/82379/1409290); usage.prompt_tokens/total_tokens billing (" + volcengineEvidenceCaptured + ")",
 	"image.generate": "volcengine.images handler to POST {root}/images/generations (doubao-seedream-* / 即梦; 文生图 plus 组图生成 through sequential_image_generation, docs/82379/1541523, " + volcengineEvidenceCaptured + ")",
 	"image.edit":     "volcengine.images handler on the same POST {root}/images/generations endpoint with the reference `image` field (单张图生图 / 多参考图生图, docs/82379/1541523, " + volcengineEvidenceCaptured + "); the official image API publishes no separate /images/edits path",
@@ -98,6 +98,7 @@ var volcengineActionEvidence = map[string]string{
 // gateway rejects them with an explicit action error instead of a silent 404,
 // and a Composite group must route them to a platform that implements them.
 var volcengineHardConflicts = map[string]string{
+	"messages":            "The pay-as-you-go Ark data plane publishes no Anthropic Messages endpoint for CN: the API reference index and its Base URL 及鉴权 navigation enumerate Chat, Responses, Files, video, image, 3D, Embeddings, batch inference, tokenizer, context caching and the Application (Bot) API with no messages path (docs/82379/1298459, " + volcengineEvidenceCaptured + "). The gateway Claude→chat messages bridge lists volcengine as an OpenAI-compatible text target, but a bridge is not a native or faithful Messages contract, so this cell is a verified absence rather than a deferred wiring decision. Ark's Coding Plan data plane does publish an Anthropic-compatible base, https://ark.cn-beijing.volces.com/api/coding (Coding Plan 个人版快速开始, captured 2026-09-23), so this absence is scoped to the pay-as-you-go surface this row declares: re-adjudicating the cell for plan accounts is a product decision, and the status stays unchanged here",
 	"responses.compact":   "Ark Responses API navigation (docs/82379/1298459, " + volcengineEvidenceCaptured + ") publishes create/retrieve/context/delete/streaming and no compact subpath; Responses compact is an OpenAI proprietary extension",
 	"generate_content":    "Gemini protocol surface (generativelanguage.googleapis.com); the Ark data plane publishes no Google-protocol endpoint (docs/82379/1298459, " + volcengineEvidenceCaptured + ")",
 	"image.variation":     "Image generation API (docs/82379/1541523, " + volcengineEvidenceCaptured + ") requires a prompt and exposes only the reference `image` field for instruction-based 图生图; no /images/variations endpoint or prompt-free variation semantics exist",
@@ -114,8 +115,7 @@ var volcengineHardConflicts = map[string]string{
 // hard conflicts: a missing credential or a wiring decision owned by another
 // component is never proof that the supplier lacks the action.
 var volcengineUnverifiedReasons = map[string]string{
-	"messages":        "The Ark data plane publishes no Anthropic Messages endpoint for CN (docs/82379/1298459, " + volcengineEvidenceCaptured + "); the gateway Claude→chat messages bridge already lists volcengine as an OpenAI-compatible text target (handler/openai_gateway_handler.go openAICompatibleTextTargetAllowed) but the action authority gates messages on !ChatOnly, which is an action-dispatch descriptor decision",
-	"responses":       "Ark publishes a native Responses API at {root}/responses (docs/82379/1298459 Responses API, " + volcengineEvidenceCaptured + ") and the shared trunk already derives that URL from a version-suffixed base, but the Volcengine descriptor still records ResponsesPOST as rejected, so registering the adapter is an action-dispatch descriptor decision",
+	"video.cancel":    "No Volcengine cancellation adapter or task-cancel dispatch binding is implemented; the existing Ark task status/content contract (docs/82379/1521309, " + volcengineEvidenceCaptured + ") does not by itself establish cancellation support in this gateway (rechecked 2026-09-28)",
 	"rerank":          "The Ark data plane publishes no rerank endpoint (docs/82379/1298459, " + volcengineEvidenceCaptured + "); Volcengine rerank is the VikingDB knowledge service (/api/knowledge/service/rerank, docs/82379/1399545) with its own service token, a different product credential than this Ark API-key account",
 	"audio.tts":       "Doubao speech synthesis is served by the speech product on openspeech.bytedance.com with X-Api-Key + X-Api-Resource-Id (V3 HTTP/SSE unidirectional, docs/6561/1598757, " + volcengineEvidenceCaptured + "); no Ark data-plane speech endpoint exists, and that speech credential is not part of an Ark API-key account",
 	"audio.stt":       "Doubao speech recognition is served by the speech product on openspeech.bytedance.com (大模型流式语音识别, docs/6561/1354869, " + volcengineEvidenceCaptured + ") with the speech credential; the Ark data plane publishes no transcription endpoint",

@@ -15,11 +15,18 @@ import (
 const hunyuanCompatibilityBaseURL = "https://tokenhub.tencentmaas.com/v1"
 const hunyuanLegacyBaseURL = "https://api.hunyuan.cloud.tencent.com/v1"
 
+// TokenHub 套餐（Coding Plan / Token Plan）的专用官方站点。腾讯云为套餐发布了独立 Base URL
+// 与专属 API Key（sk-sp- / sk-tp- 前缀与按量 Key 互不通用），因此 base_url 为空时按
+// account_mode 选默认值；凭据里的显式 base_url 始终优先（用户填了就用他的）。
+const (
+	hunyuanTokenPlanBaseURL = "https://api.lkeap.cloud.tencent.com/plan/v3"
+)
+
 // hunyuanActionBaseURL resolves the account v1 base URL shared by chat and the
 // native TokenHub action families. Accounts that stored the bare legacy host
 // keep resolving to the documented legacy v1 path; every other value must be
-// one of the official TokenHub sites so a custom URL cannot silently redirect
-// vendor credentials to an unverified host.
+// one of the official TokenHub sites (or a documented plan site) so a custom
+// URL cannot silently redirect vendor credentials to an unverified host.
 func hunyuanActionBaseURL(account *Account) (string, error) {
 	if account == nil || account.Platform != PlatformHunyuan || account.Type != AccountTypeAPIKey {
 		return "", errors.New("hunyuan requires a hunyuan API key account")
@@ -28,12 +35,16 @@ func hunyuanActionBaseURL(account *Account) (string, error) {
 	switch baseURL {
 	case "":
 		baseURL = hunyuanCompatibilityBaseURL
+		if account.GetAccountMode() == AccountModeCoding {
+			baseURL = DefaultHunyuanCodingBaseURL
+		}
 	case "https://api.hunyuan.cloud.tencent.com":
 		baseURL = hunyuanLegacyBaseURL
 	case hunyuanCompatibilityBaseURL, "https://tokenhub.tencentmaas.cn/v1",
-		"https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.cn/v1", hunyuanLegacyBaseURL:
+		"https://tokenhub-intl.tencentmaas.com/v1", "https://tokenhub-intl.tencentmaas.cn/v1", hunyuanLegacyBaseURL,
+		DefaultHunyuanCodingBaseURL, DefaultHunyuanCodingAnthropicBaseURL, hunyuanTokenPlanBaseURL:
 	default:
-		return "", errors.New("hunyuan base URL must use an official TokenHub or legacy endpoint")
+		return "", errors.New("hunyuan base URL must use an official TokenHub, Coding Plan or Token Plan endpoint")
 	}
 	return baseURL, nil
 }
@@ -67,6 +78,8 @@ func buildHunyuanModelsRequest(ctx context.Context, account *Account) (*http.Req
 // fetchHunyuanModels uses the account discovery transport and its redirect,
 // proxy, timeout and concurrency policies. The shared discovery entry point
 // must dispatch here after its account validation, before candidate fallback.
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func (s *AccountTestService) fetchHunyuanModels(ctx context.Context, account *Account) ([]string, []byte, error) {
 	request, err := buildHunyuanModelsRequest(ctx, account)
 	if err != nil {
@@ -79,7 +92,7 @@ func (s *AccountTestService) fetchHunyuanModels(ctx context.Context, account *Ac
 	if err != nil || response == nil || response.Body == nil {
 		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request TokenHub models", err)
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	limit := resolveModelsListReadLimit(s.cfg)
 	body, err := io.ReadAll(io.LimitReader(response.Body, limit+1))
 	if err != nil || int64(len(body)) > limit {
@@ -152,6 +165,8 @@ func buildHunyuanChatRequest(ctx context.Context, account *Account, body []byte,
 
 // hunyuanDiscoveredModels rejects empty/unknown snapshots so failed discovery
 // cannot erase previously confirmed availability or fall back to old presets.
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func hunyuanDiscoveredModels(body []byte) ([]string, error) {
 	var response struct {
 		Data []struct {

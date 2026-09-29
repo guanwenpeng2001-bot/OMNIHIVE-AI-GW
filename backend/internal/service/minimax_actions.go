@@ -1884,10 +1884,9 @@ func (s *OpenAIGatewayService) minimaxUploadVoiceFile(
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode >= 400 {
+		// handleMiniMaxActionErrorResponse always reports a non-nil error, so it is
+		// propagated directly here like every other caller of this helper.
 		_, forwardErr := s.handleMiniMaxActionErrorResponse(ctx, resp, c, account, resp.Header.Get("x-request-id"))
-		if forwardErr == nil {
-			forwardErr = fmt.Errorf("minimax file upload failed with status %d", resp.StatusCode)
-		}
 		return 0, forwardErr
 	}
 	respBody, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, openAITooLargeError)

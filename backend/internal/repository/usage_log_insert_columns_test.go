@@ -11,7 +11,6 @@ import (
 	"time"
 
 	sqlmock "github.com/DATA-DOG/go-sqlmock"
-	dbentschema "github.com/Wei-Shaw/sub2api/ent/schema"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -68,18 +67,6 @@ func captureUsageLogInsertColumns(t *testing.T) []string {
 		require.Falsef(t, duplicate, "INSERT column %q appears twice", column)
 		seen[column] = struct{}{}
 		columns = append(columns, column)
-	}
-	sort.Strings(columns)
-	return columns
-}
-
-// entUsageLogProjectionColumns 返回 Ent schema 为 usage_logs 声明的列名。
-// 自增主键 id 不出现在 Fields() 里，与手写 INSERT 的列清单一致，因此无需额外剔除。
-func entUsageLogProjectionColumns() []string {
-	fields := dbentschema.UsageLog{}.Fields()
-	columns := make([]string, 0, len(fields))
-	for _, f := range fields {
-		columns = append(columns, f.Descriptor().Name)
 	}
 	sort.Strings(columns)
 	return columns

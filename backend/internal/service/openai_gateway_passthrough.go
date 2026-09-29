@@ -1996,7 +1996,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
 	defer stopCancellation()
 	for !clientDisconnected && ctx.Err() == nil && documentScanner.Scan() {

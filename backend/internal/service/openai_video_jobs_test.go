@@ -217,6 +217,35 @@ func TestOpenAIVideoSendBoundaryFailsClosedWithoutEndpointEvidence(t *testing.T)
 	require.Empty(t, upstream.requests, "rejected bindings never reach the upstream")
 }
 
+// TestOpenAIVideoSendBoundaryResolvesMediaCatalogEvidence is the admitted half
+// of the same boundary: an account whose catalogue records the media family for
+// the video model resolves generate, edit and extension, and each action reaches
+// the upstream exactly once. The identical fixture without that evidence stays
+// refused above, so the boundary still fails closed on missing evidence.
+func TestOpenAIVideoSendBoundaryResolvesMediaCatalogEvidence(t *testing.T) {
+	for _, test := range []struct {
+		action          string
+		body            string
+		billableSeconds int
+	}{
+		{action: "video.generate", body: `{"model":"sora-2","prompt":"waves","size":"1280x720","seconds":"8"}`},
+		{action: "video.edit", body: `{"video":{"id":"video_parent"},"prompt":"continue"}`},
+		{action: "video.extend", body: `{"video":{"id":"video_parent"},"prompt":"continue","seconds":"8"}`, billableSeconds: 8},
+	} {
+		t.Run(test.action, func(t *testing.T) {
+			account := openAIVideoTestAccount()
+			account.Extra = map[string]any{UpstreamModelCatalogExtraKey: AccountModelCatalogSnapshot{Complete: true, DiscoveredModels: []string{"sora-2"}, EligibleModels: []AccountCatalogModel{{ID: "sora-2", Endpoints: []string{CompositeRouteEndpointImages}, EvidenceKind: "synthetic-contract"}}}}
+			upstream := &httpUpstreamRecorder{resp: openAIVideoJobBody(`{"id":"video_abc","object":"video","status":"queued","model":"sora-2","progress":0,"seconds":"8","size":"1280x720"}`)}
+			service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream, accountRepo: openAIVideoAccountRepository{account: account}}
+			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "sora-2", Action: "video.generate"}))
+			update, err := service.SubmitOpenAIVideo(ctx, account, test.action, "application/json", []byte(test.body), "sora-2", test.billableSeconds)
+			require.NoError(t, err)
+			require.Equal(t, "video_abc", update.TaskID)
+			require.Len(t, upstream.requests, 1, "an admitted submission reaches the upstream exactly once")
+		})
+	}
+}
+
 // The shared job service owns the exclusive claim, poll scheduling and
 // settlement; this test proves the OpenAI video adapter plugs into that trunk
 // with idempotent submission and a single charge.

@@ -14,6 +14,35 @@ const tempUnschedPrefix = "temp_unsched:account:"
 
 const openAIAPIKeyHealthFailurePrefix = "openai_apikey_health:"
 
+const (
+	runtimeCooldownPrefix      = "runtime_cooldown:"
+	runtimeCooldownProbePrefix = "runtime_cooldown_probe:"
+)
+
+// runtimeCooldownProbeRenewScript extends a probe lease only while the caller
+// still owns it and only when the remaining TTL is running low. The return value
+// reports ownership, so a probe whose lease already expired (and may have been
+// taken over by another instance) cannot keep extending it forever.
+var runtimeCooldownProbeRenewScript = redis.NewScript(`
+	if redis.call('GET', KEYS[1]) ~= ARGV[1] then
+		return 0
+	end
+	if redis.call('PTTL', KEYS[1]) < tonumber(ARGV[3]) then
+		redis.call('PEXPIRE', KEYS[1], tonumber(ARGV[2]))
+	end
+	return 1
+`)
+
+// runtimeCooldownProbeReleaseScript releases a probe lease only when the caller
+// still owns it (compare-and-delete by owner token), so a previous holder whose
+// lease already expired cannot delete the new owner's lease.
+var runtimeCooldownProbeReleaseScript = redis.NewScript(`
+	if redis.call('GET', KEYS[1]) == ARGV[1] then
+		return redis.call('DEL', KEYS[1])
+	end
+	return 0
+`)
+
 var openAIAPIKeyHealthFailureScript = redis.NewScript(`
 	local key = KEYS[1]
 	local sequence_key = key .. ':sequence'
@@ -143,25 +172,50 @@ func (c *tempUnschedCache) RecordOpenAIAPIKeyHealthFailure(ctx context.Context, 
 }
 
 // Runtime cooldowns reuse the temporary scheduling Redis connection and TTLs.
-func (cache *tempUnschedCache) GetRuntimeCooldown(ctx context.Context, key string) (time.Time, error) {
-	value, err := cache.rdb.Get(ctx, "runtime_cooldown:"+key).Int64()
+// The stored value stays the cooldown deadline; the key itself outlives that
+// deadline by service.RuntimeCooldownRecoveryWindow so the gateway can tell
+// "still cooling down" apart from "cooldown expired, at most one instance probes".
+func (cache *tempUnschedCache) GetRuntimeCooldown(ctx context.Context, key string) (time.Time, bool, error) {
+	value, err := cache.rdb.Get(ctx, runtimeCooldownPrefix+key).Int64()
 	if err == redis.Nil {
-		return time.Time{}, nil
+		return time.Time{}, false, nil
 	}
 	if err != nil {
-		return time.Time{}, err
+		return time.Time{}, false, err
 	}
-	return time.UnixMilli(value), nil
+	return time.UnixMilli(value), true, nil
 }
 func (cache *tempUnschedCache) SetRuntimeCooldown(ctx context.Context, key string, until time.Time) error {
 	ttl := time.Until(until)
 	if ttl <= 0 {
 		return nil
 	}
-	return cache.rdb.Set(ctx, "runtime_cooldown:"+key, until.UnixMilli(), ttl).Err()
+	return cache.rdb.Set(ctx, runtimeCooldownPrefix+key, until.UnixMilli(), ttl+service.RuntimeCooldownRecoveryWindow).Err()
 }
 func (cache *tempUnschedCache) DeleteRuntimeCooldown(ctx context.Context, key string) error {
-	return cache.rdb.Del(ctx, "runtime_cooldown:"+key).Err()
+	return cache.rdb.Del(ctx, runtimeCooldownPrefix+key).Err()
+}
+
+// AcquireRuntimeCooldownProbe is the cross-instance "single winner" primitive:
+// SET NX plus TTL elects exactly one probing instance per recovery window.
+func (cache *tempUnschedCache) AcquireRuntimeCooldownProbe(ctx context.Context, key, owner string, ttl time.Duration) (bool, error) {
+	if ttl <= 0 {
+		return false, nil
+	}
+	return cache.rdb.SetNX(ctx, runtimeCooldownProbePrefix+key, owner, ttl).Result()
+}
+
+func (cache *tempUnschedCache) RenewRuntimeCooldownProbe(ctx context.Context, key, owner string, ttl, renewBelow time.Duration) (bool, error) {
+	result, err := runtimeCooldownProbeRenewScript.Run(ctx, cache.rdb, []string{runtimeCooldownProbePrefix + key},
+		owner, ttl.Milliseconds(), renewBelow.Milliseconds()).Int64()
+	if err != nil {
+		return false, fmt.Errorf("renew runtime cooldown probe: %w", err)
+	}
+	return result == 1, nil
+}
+
+func (cache *tempUnschedCache) ReleaseRuntimeCooldownProbe(ctx context.Context, key, owner string) error {
+	return runtimeCooldownProbeReleaseScript.Run(ctx, cache.rdb, []string{runtimeCooldownProbePrefix + key}, owner).Err()
 }
 
 func (cache *tempUnschedCache) ResetRuntimeHealth(ctx context.Context, accountID int64) error {

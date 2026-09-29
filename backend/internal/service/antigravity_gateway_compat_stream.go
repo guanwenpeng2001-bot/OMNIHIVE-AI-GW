@@ -310,7 +310,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		defer keepaliveTicker.Stop()
 	}
 
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	for {
 		if writer.Disconnected() || c.Request.Context().Err() != nil {
 			return session.collectResult(true), nil

@@ -399,21 +399,6 @@ func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 	respondCredentialDraft(c, h.credentialDrafts, service.PlatformOpenAI, service.AccountTypeOAuth, credentials)
 }
 
-func buildOpenAICodexPATAccountName(name string, tokenInfo *service.OpenAITokenInfo) string {
-	name = strings.TrimSpace(name)
-	if name != "" {
-		return name
-	}
-	if tokenInfo != nil {
-		for _, candidate := range []string{tokenInfo.Email, tokenInfo.ChatGPTAccountID, tokenInfo.ChatGPTUserID} {
-			if candidate = strings.TrimSpace(candidate); candidate != "" {
-				return candidate
-			}
-		}
-	}
-	return "Codex PAT Account"
-}
-
 // QueryQuota queries the rate-limit / quota usage for an OpenAI account.
 // GET /api/v1/admin/openai/accounts/:id/quota
 func (h *OpenAIOAuthHandler) QueryQuota(c *gin.Context) {

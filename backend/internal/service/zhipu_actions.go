@@ -111,9 +111,7 @@ func zhipuActionBaseURL(account *Account) string {
 		return ""
 	}
 	base := strings.TrimSpace(account.GetOpenAIFormatBaseURL())
-	if strings.Contains(base, zhipuCodingPlanPathSegment) {
-		base = strings.Replace(base, zhipuCodingPlanPathSegment, zhipuOpenPlatformPathSegment, 1)
-	}
+	base = strings.Replace(base, zhipuCodingPlanPathSegment, zhipuOpenPlatformPathSegment, 1)
 	return base
 }
 

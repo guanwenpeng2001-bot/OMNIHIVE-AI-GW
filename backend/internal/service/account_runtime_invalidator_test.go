@@ -88,9 +88,12 @@ func TestRuntimeCooldownScopeAndBoundedFallback(t *testing.T) {
 	service := &AntigravityGatewayService{}
 	service.setRuntimeCooldown(context.Background(), key, time.Now().Add(time.Minute))
 	service.setRuntimeCooldown(context.Background(), AccountRuntimeCooldownKey(4, account, "actual-model"), time.Time{})
-	require.True(t, time.Now().Before(service.runtimeCooldown(context.Background(), key)))
+	cooldownUntil, recorded := service.runtimeCooldown(context.Background(), key)
+	require.True(t, recorded)
+	require.True(t, time.Now().Before(cooldownUntil))
 	service.setRuntimeCooldown(context.Background(), key, time.Time{})
-	require.True(t, service.runtimeCooldown(context.Background(), key).IsZero())
+	_, recorded = service.runtimeCooldown(context.Background(), key)
+	require.False(t, recorded)
 	for entryIndex := 0; entryIndex <= runtimeCooldownFallbackLimit; entryIndex++ {
 		service.setRuntimeCooldown(context.Background(), "bounded-test:"+strconv.Itoa(entryIndex), time.Now().Add(time.Minute))
 	}

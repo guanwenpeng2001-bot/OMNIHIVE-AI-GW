@@ -107,6 +107,8 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,

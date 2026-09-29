@@ -26,6 +26,9 @@ func Recovery() gin.HandlerFunc {
 	// credentials to that writer. Panic values are arbitrary, potentially secret
 	// data too: log only their type, the correlation ID, and the stack.
 	return gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, recovered any) {
+		if recovered == http.ErrAbortHandler {
+			panic(recovered)
+		}
 		requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
 		panicLogger.Printf("panic recovered: type=%T request_id=%q\n%s",
 			recovered, requestID, debug.Stack())

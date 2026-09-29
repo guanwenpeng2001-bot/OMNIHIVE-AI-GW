@@ -101,7 +101,8 @@ func redactPluginUIPath(path string) string {
 		return path
 	}
 	redacted := logredact.RedactMap(map[string]any{"token": token}, "token")
-	path = prefix + redacted["token"].(string)
+	redactedToken, _ := redacted["token"].(string)
+	path = prefix + redactedToken
 	if hasResourcePath {
 		path += "/" + resourcePath
 	}

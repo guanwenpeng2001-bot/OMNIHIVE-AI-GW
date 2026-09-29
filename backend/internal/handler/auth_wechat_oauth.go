@@ -744,18 +744,6 @@ func (h *AuthHandler) findWeChatUserByLegacyOpenID(ctx context.Context, identity
 	return h.authService.FindWeChatUserByLegacyOpenID(ctx, identity, cfg.mode, cfg.appID, openid)
 }
 
-func wechatCompatibleProviderKeys(providerKey string) []string {
-	preferred := strings.TrimSpace(providerKey)
-	if preferred == "" {
-		preferred = wechatOAuthProviderKey
-	}
-	keys := []string{preferred}
-	if !strings.EqualFold(preferred, wechatOAuthLegacyProviderKey) {
-		keys = append(keys, wechatOAuthLegacyProviderKey)
-	}
-	return keys
-}
-
 func (h *AuthHandler) ensureWeChatRuntimeIdentityBinding(ctx context.Context, userID int64, identity service.PendingAuthIdentityKey, upstreamClaims map[string]any) error {
 	return h.authService.EnsureWeChatRuntimeIdentityBinding(ctx, userID, identity, upstreamClaims)
 }

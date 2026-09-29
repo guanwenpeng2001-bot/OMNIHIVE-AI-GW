@@ -63,7 +63,7 @@ func chatMessageText(raw json.RawMessage) (string, error) {
 		if part.Type != "text" {
 			return "", fmt.Errorf("%w: %q", ErrNonTextContent, part.Type)
 		}
-		joined.WriteString(part.Text)
+		_, _ = joined.WriteString(part.Text)
 	}
 	return joined.String(), nil
 }

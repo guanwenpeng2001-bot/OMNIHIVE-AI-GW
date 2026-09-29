@@ -49,7 +49,7 @@ func TestCacheSubscribersReconnectAndInvalidate(t *testing.T) {
 		t.Run(topic, func(t *testing.T) {
 			server := miniredis.RunT(t)
 			client := redis.NewClient(&redis.Options{Addr: server.Addr()})
-			defer client.Close()
+			defer func() { _ = client.Close() }()
 			ctx, cancel := context.WithCancel(context.Background())
 			defer cancel()
 			var received atomic.Int64

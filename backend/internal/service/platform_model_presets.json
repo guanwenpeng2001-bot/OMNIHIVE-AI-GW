@@ -7841,6 +7841,535 @@
     "coverage_scope": {
       "as_of": "2026-09-20T14:53:50Z",
       "description": "Exact provider namespace in the captured models.dev registry; region and plan availability require provider-specific confirmation.",
+      "methods_review": {
+        "identity_sha256": "7e4aa084998f52d50eab4ef9a8f1fc92920d4ac058d0818ff1d752008c4a0bbd",
+        "records": [
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "deepseek-v4-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "deepseek-v4-flash-vision-exp",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "deepseek-v4-pro",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "deepseek-v4.1-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "glm-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "glm-5.1",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "glm-5.2",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "glm-5.3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "glm-5.3-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/responses"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "gpt-5.6-luna",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "grok-4.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/responses"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "grok-4.6",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "hy3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "hy4-preview",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "kimi-k2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "kimi-k2.6",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "kimi-k2.7-code",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "kimi-k3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "longcat-2.0",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "mimo-v2-omni",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "mimo-v2-pro",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "mimo-v2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/chat/completions"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "mimo-v2.5-pro",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "minimax-m2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "minimax-m2.7",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "minimax-m3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/responses"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "muse-spark-1.2-contributor",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/responses"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "muse-spark-1.3-contributor",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "omen-alpha",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "ox-alpha-free",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID absent from scoped endpoint evidence; no alias or retirement inferred.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.5-plus",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Exact ID appears in Go inventory but has no endpoint row.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.6-plus",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.7-max",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.7-plus",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.8-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          },
+          {
+            "capture_sha256": "bafc00d46163fa45d058db624fead7ba92946202a1013e1cabe2b21f1b0671d5",
+            "decision": "confirmed",
+            "endpoints": [
+              "https://opencode.ai/zen/go/v1/messages"
+            ],
+            "evidence_url": "https://opencode.ai/docs/go/",
+            "exact_id": "qwen3.8-max",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:26Z",
+            "platform": "opencode_go",
+            "provider_profile": "opencode-go",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "opencode-go-doc-methods-review"
+          }
+        ]
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -7890,7 +8419,8 @@
     },
     "coverage_status": "partial",
     "gaps": [
-      "Official inventory, regional availability, plan restrictions, and lifecycle are not fully enumerated by this registry snapshot."
+      "Official inventory, regional availability, plan restrictions, and lifecycle are not fully enumerated by this registry snapshot.",
+      "Methods remain unknown for eight exact IDs without a row in the captured Go Endpoints table; inventory presence alone does not prove serving methods."
     ],
     "models": [
       {
@@ -7905,7 +8435,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -7916,7 +8446,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 384000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -7939,7 +8471,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -7951,7 +8483,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 384000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -7974,7 +8508,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -7985,7 +8519,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 384000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8008,7 +8544,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8020,7 +8556,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 384000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8077,7 +8615,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8088,7 +8626,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 32768,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8111,7 +8651,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8122,7 +8662,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8145,7 +8687,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8156,7 +8698,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8179,7 +8723,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8193,7 +8737,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8216,7 +8762,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8229,7 +8775,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 128000,
-        "methods": [],
+        "methods": [
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8287,7 +8835,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8299,7 +8847,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 500000,
-        "methods": [],
+        "methods": [
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8322,7 +8872,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8333,7 +8883,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 128000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8356,7 +8908,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8367,7 +8919,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 64000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8426,7 +8980,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8439,7 +8993,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 65536,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8462,7 +9018,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8475,7 +9031,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 262144,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8498,7 +9056,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8511,7 +9069,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8534,7 +9094,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8545,7 +9105,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8639,7 +9201,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8653,7 +9215,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 128000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8676,7 +9240,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8687,7 +9251,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 128000,
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8710,7 +9276,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8721,7 +9287,9 @@
         ],
         "lifecycle": "deprecated",
         "max_output_tokens": 65536,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8744,7 +9312,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8755,7 +9323,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8778,7 +9348,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8791,7 +9361,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8814,7 +9386,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8829,7 +9401,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8852,7 +9426,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -8867,7 +9441,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -8997,7 +9573,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -9010,7 +9586,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 65536,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -9033,7 +9611,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -9044,7 +9622,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 65536,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -9067,7 +9647,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -9080,7 +9660,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 65536,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -9103,7 +9685,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -9116,7 +9698,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -9139,7 +9723,7 @@
           "input_modalities": "https://models.dev/api.json",
           "lifecycle": "https://models.dev/api.json",
           "max_output_tokens": "https://models.dev/api.json",
-          "methods": "https://models.dev/api.json",
+          "methods": "https://opencode.ai/docs/go/",
           "output_modalities": "https://models.dev/api.json",
           "reasoning_control": "https://models.dev/api.json",
           "task_type": "https://models.dev/api.json"
@@ -9152,7 +9736,9 @@
         ],
         "lifecycle": "unknown",
         "max_output_tokens": 131072,
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -9166,7 +9752,7 @@
     ],
     "platform": "opencode_go",
     "provider_profile": "opencode-go",
-    "revision": "81dae364e3681f7e",
+    "revision": "7e35db80274ef068",
     "source_refs": [
       "https://models.dev/api.json#opencode-go",
       "https://opencode.ai/docs/go/"
@@ -16885,6 +17471,1146 @@
     "coverage_scope": {
       "as_of": "2026-09-20T14:53:51Z",
       "description": "All explicit model IDs in the official CLI model table; provider API serving lanes, BYOK credentials, and plan eligibility are separate.",
+      "methods_review": {
+        "identity_sha256": "ee4e97fb26b3fc27219c4b1708426a604fb5fc9ba438a234c5651c9311ab3d63",
+        "records": [
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "MiniMaxAI/MiniMax-M2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "MiniMaxAI/MiniMax-M2.7",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "MiniMaxAI/MiniMax-M3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.6-Max-Preview",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.6-Plus",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.7-Flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.7-Max",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.7-Plus",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.8-27B",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.8-Flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.8-Max",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.8-Max-0902",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "Qwen/Qwen3.8-Omni-Flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-fable-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-fable-5-1",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "unavailable",
+            "endpoints": [],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-haiku-4-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Exact ID absent from scoped endpoint evidence; no alias or retirement inferred.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-opus-4-7",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-opus-4-8",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-opus-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-sonnet-4-6",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/messages"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "claude-sonnet-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "deepseek/deepseek-v4-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "deepseek/deepseek-v4-flash-fast",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "deepseek/deepseek-v4-flash-vision-exp",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "deepseek/deepseek-v4-pro",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "deepseek/deepseek-v4.1-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.1-flash-lite",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.5-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.5-flash-lite",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.6-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.7-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "google/gemini-3.8-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.3-codex",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.4",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.4-mini",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.6-luna",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.6-sol",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-5.6-terra",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "gpt-6-astra",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "inclusionai/ling-3.0-flash-sante:free",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meituan/LongCat-2.0",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meta/muse-spark-1.1",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meta/muse-spark-1.2",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meta/muse-spark-1.2-contributor",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meta/muse-spark-1.3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "meta/muse-spark-1.3-contributor",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "moonshotai/Kimi-K2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "moonshotai/Kimi-K2.6",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "moonshotai/Kimi-K2.7-Code",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "moonshotai/Kimi-K2.7-Code-Highspeed",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "moonshotai/Kimi-K3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "nvidia/nemotron-3-ultra-550b-a55b",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "poolside/laguna-s-2.1-free",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "sakana/fugu-ultra",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "stepfun/Step-3.5-Flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "stepfun/Step-3.7-Flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "tencent/hy3-paid",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "tencent/hy4-preview",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "thinkingmachines/inkling",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "thinkingmachines/inkling-small",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "xai/grok-4.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "xai/grok-4.6",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "xiaomi/mimo-v2.5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "xiaomi/mimo-v2.5-pro",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "z-ai/glm-5.3-flash",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "z-ai/glm-5.3-flashx",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "zai-org/GLM-5",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "zai-org/GLM-5.1",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "zai-org/GLM-5.2",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "zai-org/GLM-5.2-Fast",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          },
+          {
+            "capture_sha256": "6bb8c0526a7c0103fb80776655db41519b45d3a9e082782b6e0b292e02f43c07",
+            "decision": "confirmed",
+            "endpoints": [
+              "/chat/completions",
+              "/responses"
+            ],
+            "evidence_url": "https://api.commandcode.ai/provider/v1/models",
+            "exact_id": "zai-org/GLM-5.3",
+            "method_or_field": "methods",
+            "observed_at": "2026-09-27T23:12:28Z",
+            "platform": "commandcode",
+            "provider_profile": "native",
+            "remaining_gap": "Account authorization, region, plan and lifecycle remain unverified.",
+            "source": "commandcode-models-methods-review"
+          }
+        ]
+      },
       "official_full_inventory": false,
       "official_review": {
         "comparison": "Exact candidate ID text occurrence in captured public overview only; this does not prove regional, plan, hosted-wire, or full inventory applicability.",
@@ -16969,7 +18695,7 @@
     },
     "coverage_status": "partial",
     "gaps": [
-      "The CLI table does not enumerate per-model API endpoints, context limits, or plan-specific eligibility."
+      "Exact methods evidence is unavailable for claude-haiku-4-5; no dated provider-ID alias is inferred. Context limits, account authorization, regional availability, plan eligibility and lifecycle have not been re-reviewed."
     ],
     "models": [
       {
@@ -16980,7 +18706,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -16990,7 +18716,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17006,7 +18735,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17016,7 +18745,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17032,7 +18764,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17042,7 +18774,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17058,7 +18793,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17068,7 +18803,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17084,7 +18822,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17094,7 +18832,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17110,7 +18851,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17120,7 +18861,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17136,7 +18880,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17146,7 +18890,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17162,7 +18909,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17172,7 +18919,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17188,7 +18938,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17198,7 +18948,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17214,7 +18967,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17224,7 +18977,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17240,7 +18995,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17250,7 +19005,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17266,7 +19024,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17276,7 +19034,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17292,7 +19052,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17302,7 +19062,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17318,7 +19081,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17328,7 +19091,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17344,7 +19109,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17354,7 +19119,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17396,7 +19163,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17406,7 +19173,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17422,7 +19191,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17432,7 +19201,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17448,7 +19219,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17458,7 +19229,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17474,7 +19247,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17484,7 +19257,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17500,7 +19275,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17510,7 +19285,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "messages"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17526,7 +19303,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17536,7 +19313,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17552,7 +19332,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17562,7 +19342,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17578,7 +19360,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17588,7 +19370,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17604,7 +19389,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17614,7 +19399,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17630,7 +19418,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17640,7 +19428,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17656,7 +19447,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17666,7 +19457,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17682,7 +19476,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17692,7 +19486,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17708,7 +19505,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17718,7 +19515,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17734,7 +19534,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17744,7 +19544,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17760,7 +19563,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17770,7 +19573,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17786,7 +19591,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17796,7 +19601,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17812,7 +19620,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17822,7 +19630,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17838,7 +19649,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17848,7 +19659,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17864,7 +19678,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17874,7 +19688,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17890,7 +19707,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17900,7 +19717,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17916,7 +19736,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17926,7 +19746,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17942,7 +19765,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17952,7 +19775,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17968,7 +19794,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -17978,7 +19804,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -17994,7 +19823,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18004,7 +19833,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18020,7 +19852,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18030,7 +19862,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18046,7 +19880,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18056,7 +19890,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18072,7 +19908,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18082,7 +19918,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18098,7 +19937,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18108,7 +19947,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18124,7 +19966,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18134,7 +19976,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18150,7 +19995,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18160,7 +20005,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18176,7 +20024,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18186,7 +20034,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18202,7 +20053,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18212,7 +20063,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18228,7 +20082,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18238,7 +20092,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18254,7 +20111,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18264,7 +20121,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18280,7 +20140,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18290,7 +20150,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18306,7 +20169,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18316,7 +20179,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18332,7 +20198,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18342,7 +20208,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18358,7 +20227,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18368,7 +20237,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18384,7 +20256,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18394,7 +20266,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18410,7 +20285,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18420,7 +20295,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18436,7 +20314,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18446,7 +20324,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18462,7 +20343,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18472,7 +20353,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18488,7 +20372,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18498,7 +20382,9 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18514,7 +20400,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18524,7 +20410,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18540,7 +20429,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18550,7 +20439,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18566,7 +20458,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18576,7 +20468,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18592,7 +20487,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18602,7 +20497,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18618,7 +20516,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18628,7 +20526,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18644,7 +20545,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18654,7 +20555,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18670,7 +20574,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18680,7 +20584,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18696,7 +20603,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18706,7 +20613,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18722,7 +20632,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18732,7 +20642,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18748,7 +20661,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18758,7 +20671,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18774,7 +20690,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18784,7 +20700,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18800,7 +20719,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18810,7 +20729,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18826,7 +20748,7 @@
           "input_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "input_modalities_status": "https://commandcode.ai/docs/reference/cli/models",
           "lifecycle": "https://commandcode.ai/docs/reference/cli/models",
-          "methods": "https://commandcode.ai/docs/reference/cli/models",
+          "methods": "https://api.commandcode.ai/provider/v1/models",
           "output_modalities": "https://commandcode.ai/docs/reference/cli/models",
           "task_type": "https://commandcode.ai/docs/reference/cli/models"
         },
@@ -18836,7 +20758,10 @@
         ],
         "input_modalities_status": "partial",
         "lifecycle": "unknown",
-        "methods": [],
+        "methods": [
+          "chat_completions",
+          "responses"
+        ],
         "output_modalities": [
           "text"
         ],
@@ -18847,9 +20772,10 @@
     ],
     "platform": "commandcode",
     "provider_profile": "native",
-    "revision": "ca7ed6d1fd2478fa",
+    "revision": "7a3853d9fadfa093",
     "source_refs": [
-      "https://commandcode.ai/docs/reference/cli/models"
+      "https://commandcode.ai/docs/reference/cli/models",
+      "https://api.commandcode.ai/provider/v1/models"
     ]
   },
   {

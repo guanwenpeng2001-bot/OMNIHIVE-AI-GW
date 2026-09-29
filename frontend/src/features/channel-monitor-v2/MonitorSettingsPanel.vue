@@ -280,6 +280,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
+import { getPlatformLabel } from '@/constants/platforms'
 import Icon from '@/components/icons/Icon.vue'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage, extractApiErrorCode } from '@/utils/apiError'
@@ -394,24 +395,13 @@ function categoryLabel(category: string) {
   return te(key) ? t(key) : category
 }
 
+// 监控面板可能保留已下线平台的历史条目（如 kiro），它们不在网关平台目录里，
+// 所以先走共享名表 admin.accounts.platforms.*，仍拿不到名字时才用本地面板兜底。
+const MONITOR_ONLY_PLATFORM_LABELS: Record<string, string> = { kiro: 'Kiro' }
+
 function platformLabel(value: string) {
-  if (['qianwen', 'commandcode', 'opencode_go'].includes(value)) return t(`monitorCommon.providers.${value}`)
-  return (
-    {
-      anthropic: 'Claude',
-      openai: 'OpenAI',
-      grok: 'Grok',
-      kiro: 'Kiro',
-      gemini: 'Gemini',
-      antigravity: 'Antigravity',
-      kimi: 'Kimi',
-      zhipu: 'Zhipu GLM',
-      deepseek: 'DeepSeek',
-      minimax: 'MiniMax',
-      cursor: 'Cursor',
-      composite: 'Composite',
-    } as Record<string, string>
-  )[value] || value
+  const sharedLabel = getPlatformLabel(value, t)
+  return sharedLabel === value ? MONITOR_ONLY_PLATFORM_LABELS[value] ?? value : sharedLabel
 }
 
 async function load() {

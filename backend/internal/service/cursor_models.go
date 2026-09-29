@@ -33,7 +33,7 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 		if err != nil {
 			return nil, fmt.Errorf("cursor: relay models unavailable")
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		if response.StatusCode != http.StatusOK {
 			return nil, &cursor.HTTPError{Status: response.StatusCode}
 		}

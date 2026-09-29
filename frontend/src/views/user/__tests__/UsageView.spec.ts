@@ -75,6 +75,8 @@ const messages: Record<string, string> = {
   'usage.preparingExport': 'Preparing export',
   'usage.exportSuccess': 'Export success',
   'usage.exportFailed': 'Export failed',
+  'usage.exportHistoryIncomplete': 'Usage history is incomplete',
+  'dashboard.rawRetainedFrom': 'Raw records retained from: {time}',
   'common.refresh': 'Refresh',
   'common.reset': 'Reset',
 }
@@ -546,6 +548,38 @@ describe('user UsageView', () => {
     expect(downloadUsageCsv).toHaveBeenCalledTimes(1)
     expect(downloadUsageCsv.mock.calls[0][0].params).toMatchObject({ billing_mode: 'image' })
     expect(query).not.toHaveBeenCalledWith(expect.objectContaining({ page: 2 }), expect.anything())
+    wrapper.unmount()
+  })
+
+  it('shows the precise history-incomplete reason instead of the generic export failure', async () => {
+    downloadUsageCsv.mockReset().mockRejectedValue({
+      status: 409,
+      code: 409,
+      reason: 'USAGE_HISTORY_INCOMPLETE',
+      message: 'Usage history is incomplete: raw history or a verified archive is unavailable',
+      metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+    })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+    await (wrapper.vm as any).exportToCSV()
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith(expect.stringContaining('Usage history is incomplete'))
+    expect(showError).toHaveBeenCalledWith(expect.stringContaining('Raw records retained from'))
+    expect(showError).not.toHaveBeenCalledWith('Export failed')
+    wrapper.unmount()
+  })
+
+  it('keeps the generic export failure for errors that are not a history gap', async () => {
+    downloadUsageCsv.mockReset().mockRejectedValue({ status: 500, reason: 'INTERNAL_ERROR', message: 'boom', metadata: {} })
+
+    const wrapper = mountUsageView()
+    await flushPromises()
+    await (wrapper.vm as any).exportToCSV()
+    await flushPromises()
+
+    expect(showError).toHaveBeenCalledWith('Export failed')
     wrapper.unmount()
   })
 })

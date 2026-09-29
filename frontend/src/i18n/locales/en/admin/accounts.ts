@@ -29,7 +29,8 @@ export default {
         "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
         "localUsage": "Local request/token/cost statistics are not upstream remaining balance. Generic provider-mapping pricing sync is unsupported; Qianwen has a separate Beijing-region CNY native pricing workflow.",
         "pricingUnsupported": "Generic provider-mapping pricing sync unsupported",
-        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic."
+        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic.",
+        "apiKeyOnlyAccountTypeDescription": "This platform has a single account type: an API Key (no OAuth or cloud service account); choose the protocol and site below."
 },
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',
       cursor: {
@@ -161,17 +162,7 @@ export default {
       failedToToggleSchedulable: 'Failed to toggle scheduling status',
       groupCountTotal: '{count} groups total',
       platforms: {
-      bedrock: 'Amazon Bedrock',
-      mistral: 'Mistral',
-      hunyuan: 'Tencent Hunyuan',
-      qianfan: 'Baidu Qianfan',
-      volcengine: 'Volcengine Ark',
-        qianwen: 'Qianwen AI',
-        commandcode: 'Command Code',
-        cursor: 'Cursor',
-        composite: 'Composite',
         anthropic: 'Anthropic',
-        claude: 'Claude',
         openai: 'OpenAI',
         gemini: 'Gemini',
         antigravity: 'Antigravity',
@@ -181,6 +172,22 @@ export default {
         deepseek: 'DeepSeek',
         minimax: 'MiniMax',
         opencode_go: 'OpenCode',
+        qianwen: 'Qianwen AI',
+        commandcode: 'Command Code',
+        bedrock: 'Amazon Bedrock',
+        vertex: 'Vertex AI',
+        mistral: 'Mistral',
+        hunyuan: 'Tencent Hunyuan',
+        qianfan: 'Baidu Qianfan',
+        volcengine: 'Volcengine Ark',
+        cursor: 'Cursor',
+        composite: 'Composite',
+        claude: 'Claude',
+      },
+      platformFamilies: {
+        anthropic: 'Anthropic / Amazon Bedrock',
+        google: 'Google / Vertex AI',
+        openaiCompatible: 'OpenAI-compatible / Other'
       },
       cnProviders: {
         commandCodeAlpha: 'Upstream alpha API; may change at any time.',
@@ -196,6 +203,12 @@ export default {
           paygDesc: 'Consumes account balance, billed per token. Auto-cools down on low balance and recovers after top-up.',
           coding: 'Coding Plan',
           codingDesc: 'Subscription coding package, rate-limited by 5-hour / weekly rolling usage windows; use the key from the matching plan.',
+          codingIsolatedDesc: 'Subscription coding package, rate-limited by 5-hour / weekly rolling usage windows. The plan and pay-as-you-go base URLs and keys are not interchangeable: mixing them bypasses the plan quota and incurs extra charges.',
+          paygOnlyNote: 'This platform currently offers pay-as-you-go only; it publishes no subscription endpoint.',
+        },
+        baseUrlPresets: {
+          qianfanTokenPlanEnterprise: 'Qianfan TokenPlan Enterprise',
+          qianfanTokenPlanEnterpriseAnthropic: 'Qianfan TokenPlan Enterprise Anthropic',
         },
         apiProtocol: {
           title: 'API Protocol',
@@ -657,6 +670,7 @@ export default {
       addMethod: 'Add Method',
       setupTokenLongLived: 'Setup Token (Long-lived)',
       baseUrl: 'Base URL',
+      baseUrlRequired: 'Base URL is required.',
       baseUrlHint: 'Leave default for official Anthropic API',
       platformBaseUrlHint: 'Leave blank to use the default API URL for the selected platform and account mode.',
       apiKeyRequired: 'API Key *',

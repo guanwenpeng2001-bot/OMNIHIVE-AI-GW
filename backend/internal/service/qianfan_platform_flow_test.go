@@ -19,7 +19,10 @@ func TestQianfanPlatformFlow(test *testing.T) {
 	account := &Account{ID: 101, Platform: PlatformQianfan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
 	require.Equal(test, PlatformQianfan, NormalizeOpenAICompatiblePlatform(account.Platform))
 	require.True(test, account.IsOpenAICompatible())
-	require.False(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
+	// The platform row publishes ResponsesPOST, so the capability gate admits the
+	// native Qianfan Responses API at {root}/responses; POST /v2/messages stays a
+	// hard conflict because no Anthropic Messages endpoint exists.
+	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
 	test.Run("complete empty malformed and partial discovery", func(test *testing.T) {
 		for _, scenario := range []struct {
 			name, body string
@@ -73,4 +76,28 @@ func TestQianfanPlatformFlow(test *testing.T) {
 		require.Equal(test, 5, result.Usage.InputTokens)
 		require.Equal(test, qianfanDefaultBaseURL+"/chat/completions", transport.lastReq.URL.String())
 	})
+}
+
+// The native Qianfan Responses API cell forwards on the shared trunk to the path
+// the official 创建模型响应 documentation fixes: POST {base}/responses with the
+// ModelBuilder bearer credential.
+func TestQianfanResponsesForwardUsesTheDocumentedV2Path(test *testing.T) {
+	account := &Account{ID: 101, Platform: PlatformQianfan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
+	body := []byte(`{"model":"ernie-fixture","input":"hello"}`)
+	transport := &httpUpstreamRecorder{resp: &http.Response{
+		StatusCode: http.StatusOK,
+		Header:     http.Header{"Content-Type": []string{"application/json"}},
+		Body:       io.NopCloser(strings.NewReader(`{"id":"resp_1","status":"completed","output":[{"type":"message","id":"m1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}],"usage":{"input_tokens":7,"output_tokens":3}}`)),
+	}}
+	gateway := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: transport}
+	recorder := httptest.NewRecorder()
+	requestContext, _ := gin.CreateTestContext(recorder)
+	requestContext.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", bytes.NewReader(body))
+	SetOpenAIClientTransport(requestContext, OpenAIClientTransportHTTP)
+
+	result, err := gateway.Forward(context.Background(), requestContext, account, body)
+	require.NoError(test, err)
+	require.NotNil(test, result)
+	require.Equal(test, qianfanDefaultBaseURL+"/responses", transport.lastReq.URL.String())
+	require.Equal(test, "Bearer fixture-key", transport.lastReq.Header.Get("Authorization"))
 }

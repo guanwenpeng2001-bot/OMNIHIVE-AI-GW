@@ -18,7 +18,11 @@ type PlatformDescriptor struct {
 	ProductPlatform   string `json:"productPlatform,omitempty"`
 	// ResponsesPOST describes an available protocol path; multi-protocol accounts resolve
 	// their actual native protocol in the existing account/model services.
-	ResponsesPOST                EndpointSupport `json:"responsesPost"`
+	ResponsesPOST EndpointSupport `json:"responsesPost"`
+	// MessagesPOST describes an available Anthropic Messages protocol path on the
+	// same trunk (TokenHub publishes POST {base}/v1/messages with x-api-key). It is
+	// the protocol fact a chat-only entry needs before its messages cell can bind.
+	MessagesPOST                 EndpointSupport `json:"messagesPost"`
 	ResponsesWS                  EndpointSupport `json:"responsesWS"`
 	ResponsesCompact             bool            `json:"responsesCompact"`
 	NativeMultiProtocolResponses bool            `json:"nativeMultiProtocolResponses"`
@@ -49,9 +53,21 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformVolcengine, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformQianfan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformHunyuan, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	// The late-platform rows keep the protocol facts they were adjudicated with: the
+	// plan (Coding Plan / Token Plan) data planes published by Ark, Qianfan and
+	// TokenHub change an account's default base URL by account_mode, not the
+	// protocol surface these descriptors declare. Official captures 2026-09-23:
+	// ark.cn-beijing.volces.com/api/coding/v3 (Ark Coding Plan, OpenAI-compatible;
+	// the Anthropic-compatible root is .../api/coding),
+	// qianfan.baidubce.com/v2/tokenplan/personal (Qianfan Token Plan 个人版),
+	// api.lkeap.cloud.tencent.com/coding/v3 and .../coding/anthropic (TokenHub
+	// Coding Plan). Evidence rows live in the three *_actions.go files.
+	{ID: PlatformVolcengine, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformQianfan, ResponsesPOST: EndpointNative, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
+	// TokenHub publishes Chat Completions, Responses and Anthropic Messages on the
+	// same site, so Hunyuan is a multi-protocol API-key entry whose base URL stays
+	// the OpenAI-shaped chat trunk the other two protocols share (1823/130078).
+	{ID: PlatformHunyuan, ResponsesPOST: EndpointNative, MessagesPOST: EndpointNative, MultiProtocol: true, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMistral, ChatOnly: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformBedrock, HostedAccountType: AccountTypeBedrock, ProductPlatform: PlatformAnthropic, ResponsesPOST: EndpointBridge, PassiveMonitor: true, ModelCatalog: true},
 }
@@ -117,7 +133,7 @@ type ActionDescriptor struct {
 }
 
 func GatewayActions() []string {
-	return []string{"chat", "messages", "responses", "responses.compact", "count_tokens", "generate_content", "embeddings", "rerank", "image.generate", "image.edit", "image.variation", "image.async", "image.batch", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.tts", "audio.stt", "audio.translate", "voice", "realtime", "search", "alpha_search", "live", "responses.websocket", "native"}
+	return []string{"chat", "messages", "responses", "responses.compact", "count_tokens", "generate_content", "embeddings", "rerank", "image.generate", "image.edit", "image.variation", "image.async", "image.batch", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "video.cancel", "audio.tts", "audio.stt", "audio.translate", "voice", "realtime", "search", "alpha_search", "live", "responses.websocket", "native"}
 }
 
 // PlatformAction resolves only adapters already present in the gateway. Missing
@@ -156,6 +172,17 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			descriptor.Status = ActionHardConflict
 			descriptor.Evidence = "Official OpenAI API specification (openai/openai-openapi@master, checked 2026-09-21) publishes no standalone search endpoint; web search exists only as a Responses API tool, already served by the responses action"
 			return descriptor
+		case "realtime":
+			// The adapter was published while no production handler existed: the
+			// ingress dispatch table (server/routes/gateway.go GatewayActionHandlers)
+			// registers no openai.realtime key, so GET /v1/realtime fails with 400
+			// action_not_implemented. The Codex Live ingress on
+			// /backend-api/codex/realtime/calls is a different endpoint, and
+			// service/openai_actions.go OpenOpenAIRealtime has no ingress in front of
+			// it. Reported by the independent final audit (2026-09-22) and re-checked
+			// against the registered routes and the handler-binding test.
+			descriptor.Evidence = "No production handler: routes/gateway.go registers no openai.realtime dispatch key, so /v1/realtime answers 400 action_not_implemented; the Live call ingress is the separate Codex route POST /backend-api/codex/realtime/calls and does not serve this cell (handler table and route table re-checked 2026-09-22); OpenOpenAIRealtime has no ingress"
+			return descriptor
 		}
 	}
 	if identity.HostedAccountType != "" {
@@ -164,7 +191,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
+			case "embeddings", "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
 				// Open-API data-plane actions are verified for first-party API keys
 				// only; Codex OAuth credentials do not grant these endpoints.
 				if identity.HostedAccountType != AccountTypeAPIKey {
@@ -194,7 +221,14 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 			adapter = "openai.chat"
 		}
 	case "messages", "responses", "count_tokens":
-		if !platform.ChatOnly {
+		// A chat-only entry is defined by its OpenAI-shaped chat trunk, so these
+		// text cells stay unbound unless the platform also publishes the native
+		// protocol the action executes on. That published protocol is the evidence
+		// a chat-only entry needs; the classification alone is not a permanent
+		// capability denial (the account and catalog gates read the same matrix).
+		publishedNativeProtocol := (action == "messages" && platform.MessagesPOST != EndpointRejected) ||
+			(action == "responses" && platform.ResponsesPOST != EndpointRejected)
+		if !platform.ChatOnly || publishedNativeProtocol {
 			adapter = "gateway." + action
 			if openAITrunk {
 				adapter = "openai." + action
@@ -273,7 +307,7 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 		}
 		if identity.Platform == PlatformOpenAI {
 			switch action {
-			case "video.generate", "video.edit", "video.extend", "video.status", "video.content", "realtime":
+			case "video.generate", "video.edit", "video.extend", "video.status", "video.content":
 				adapter = "openai." + action
 			}
 		}
@@ -300,6 +334,9 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	if identity.Platform == PlatformQianwen {
 		return qianwenActionDescriptor(descriptor, action, adapter)
 	}
+	if identity.Platform == PlatformKimi && action == "search" {
+		return kimiSearchActionDescriptor(descriptor)
+	}
 	if identity.Platform == PlatformQianfan {
 		return qianfanActionDescriptor(descriptor, action, adapter)
 	}
@@ -320,6 +357,16 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformHunyuan {
 		return hunyuanActionDescriptor(descriptor, action, adapter)
+	}
+	if identity.Platform == PlatformMistral {
+		// Mistral's protocol absences replace only an unbound cell, so the chat
+		// trunk keeps the generic resolution below. Every remaining cell is then
+		// finalized by the Mistral authority rows: a bound native adapter is
+		// implemented, everything else stays explicitly unverified.
+		if recorded, absent := mistralAbsentProtocolCell(descriptor, action, adapter); absent {
+			return recorded
+		}
+		return mistralActionDescriptor(descriptor, action, adapter)
 	}
 	if adapter == "" {
 		return descriptor
@@ -342,8 +389,8 @@ func PlatformAction(identity ActionIdentity, action string) ActionDescriptor {
 	}
 	if identity.Platform == PlatformOpenAI {
 		switch action {
-		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate", "realtime":
-			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio/realtime references checked 2026-09-21"
+		case "image.variation", "video.generate", "video.edit", "video.extend", "video.status", "video.content", "audio.translate":
+			descriptor.Evidence = "Native adapter in openai_actions.go/openai_video_jobs.go; official OpenAI API specification (openai/openai-openapi@master) and video/audio references checked 2026-09-21"
 			descriptor.CredentialPolicy = "OpenAI API key account only (open-API data plane); Codex OAuth credentials are not valid for this action"
 		}
 		if action == "video.status" || action == "video.content" {

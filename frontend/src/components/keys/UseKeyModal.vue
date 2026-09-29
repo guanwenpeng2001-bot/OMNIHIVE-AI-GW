@@ -287,6 +287,7 @@ import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
+import { getPlatformLabel } from '@/constants/platforms'
 import {
   findCodexCatalogModel,
   formatCodexReasoningEffortTomlLine,
@@ -1297,28 +1298,7 @@ function generateRoutedCodexFiles(
   }
   const preferredModel = preferredModels[platform] || ''
   const model = selectCodexCatalogModel(preferredModel)
-  const labels: Record<GroupPlatform, string> = {
-    anthropic: 'Anthropic',
-    openai: 'OpenAI',
-    gemini: 'Gemini',
-    antigravity: 'Antigravity',
-    grok: 'Grok',
-    kimi: 'Kimi',
-    zhipu: 'Zhipu',
-    deepseek: 'DeepSeek',
-    minimax: 'MiniMax',
-    opencode_go: 'OpenCode',
-    qianwen: '千问AI',
-    commandcode: 'Command Code',
-    volcengine: 'Volcengine Ark',
-    bedrock: 'Amazon Bedrock',
-    mistral: 'Mistral',
-    hunyuan: 'Hunyuan',
-    qianfan: 'Qianfan',
-    cursor: 'Cursor',
-    composite: 'Composite'
-  }
-  const label = labels[platform]
+  const label = getPlatformLabel(platform, t)
   const envContent = isWindows
     ? `$env:SUB2API_API_KEY="${apiKey}"`
     : `export SUB2API_API_KEY="${apiKey}"`

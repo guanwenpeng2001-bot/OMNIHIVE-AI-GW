@@ -13,9 +13,13 @@ import (
 func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 	// Adapters exist and are wire-tested; multimodal-ingress registered every
 	// dispatch key and lifted the chat-only platform lock, so these cells are
-	// executable by a Volcengine Ark API-key account now.
+	// executable by a Volcengine Ark API-key account now. The responses cell
+	// binds the shared OpenAI responses trunk on the native Ark Responses API;
+	// the messages cell stays a hard conflict because the Ark data plane
+	// publishes no Anthropic Messages endpoint for CN.
 	implemented := map[string]string{
 		"chat":           "openai.chat",
+		"responses":      "openai.responses",
 		"count_tokens":   "openai.count_tokens",
 		"embeddings":     "volcengine.embeddings",
 		"image.generate": "volcengine.images",
@@ -27,11 +31,12 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 		"video.content":  "volcengine.video.content",
 	}
 	hardConflict := []string{
-		"responses.compact", "generate_content", "image.variation", "image.async",
+		"messages", "responses.compact", "generate_content", "image.variation", "image.async",
 		"image.batch", "search", "alpha_search", "live", "responses.websocket",
 	}
 	unverified := []string{
-		"messages", "responses", "rerank", "audio.tts", "audio.stt",
+		"video.cancel",
+		"rerank", "audio.tts", "audio.stt",
 		"audio.translate", "voice", "realtime", "native",
 	}
 

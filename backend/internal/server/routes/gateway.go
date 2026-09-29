@@ -63,6 +63,7 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 		"qianfan.video.content":     h.OpenAIGateway.QianfanVideoContent,
 		"qianfan.audio.tts":         h.OpenAIGateway.QianfanAudioSpeech,
 		"qianfan.voice":             qianfanVoiceHandler(h.OpenAIGateway.QianfanVoiceCloneCreate, h.OpenAIGateway.QianfanVoiceCloneList),
+		"kimi.search":               h.OpenAIGateway.KimiSearch,
 		"qianfan.search":            h.OpenAIGateway.QianfanSearch,
 		"hunyuan.embeddings":        h.OpenAIGateway.HunyuanEmbeddings,
 		"hunyuan.images":            h.OpenAIGateway.HunyuanImageGeneration,
@@ -73,6 +74,10 @@ func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
 		"hunyuan.audio.tts":         h.OpenAIGateway.HunyuanAudioSpeech,
 		"hunyuan.audio.stt":         h.OpenAIGateway.HunyuanAudioTranscriptions,
 		"hunyuan.voice":             h.OpenAIGateway.HunyuanVoiceClone,
+		"mistral.embeddings":        h.OpenAIGateway.MistralEmbeddings,
+		"mistral.audio.stt":         h.OpenAIGateway.MistralAudioTranscriptions,
+		"mistral.audio.tts":         h.OpenAIGateway.MistralAudioSpeech,
+		"mistral.voice":             h.OpenAIGateway.MistralVoices,
 		"volcengine.embeddings":     h.OpenAIGateway.VolcengineEmbeddings,
 		"volcengine.images":         h.OpenAIGateway.VolcengineImages,
 		"volcengine.video.generate": h.OpenAIGateway.VolcengineVideoGeneration,
@@ -155,6 +160,26 @@ func RegisterGatewayRoutes(
 	gateway.Use(actionRequirement)
 	gateway.Use(requireGroupAnthropic)
 	{
+		// Standard resource contracts share the gateway authentication and body limits.
+		gateway.POST("/files", h.Resource.UploadFile)
+		gateway.GET("/files", h.Resource.ListFiles)
+		gateway.GET("/files/:file_id", h.Resource.GetFile)
+		gateway.GET("/files/:file_id/content", h.Resource.DownloadFileContent)
+		gateway.DELETE("/files/:file_id", h.Resource.DeleteFile)
+		gateway.POST("/batches", h.Resource.CreateBatch)
+		gateway.GET("/batches", h.Resource.ListBatches)
+		gateway.GET("/batches/:batch_id", h.Resource.GetBatch)
+		gateway.POST("/batches/:batch_id/cancel", h.Resource.CancelBatch)
+		gateway.POST("/moderations", h.Resource.Moderations)
+		gateway.POST("/messages/batches", h.Resource.CreateMessageBatch)
+		gateway.GET("/messages/batches", h.Resource.ListMessageBatches)
+		gateway.GET("/messages/batches/:message_batch_id", h.Resource.GetMessageBatch)
+		gateway.POST("/messages/batches/:message_batch_id/cancel", h.Resource.CancelMessageBatch)
+		gateway.DELETE("/messages/batches/:message_batch_id", h.Resource.DeleteMessageBatch)
+		gateway.GET("/messages/batches/:message_batch_id/results", h.Resource.MessageBatchResults)
+		gateway.POST("/tools/search", textBodyLimit, dispatch.Handler("search"))
+		gateway.POST("/tools/search_pro", textBodyLimit, dispatch.Handler("search"))
+		gateway.POST("/videos/:request_id/cancel", dispatch.Handler("video.cancel"))
 		// /v1/messages: auto-route based on group platform
 		gateway.POST("/messages", messagesHandler)
 		// /v1/messages/count_tokens: OpenAI bridges upstream, Grok estimates
@@ -261,6 +286,25 @@ func RegisterGatewayRoutes(
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
 		r.Handle(method, path, middleware.GatewayProtocol(), limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic, handler)
 	}
+	rootRoute(http.MethodPost, "/files", bodyLimit, h.Resource.UploadFile)
+	rootRoute(http.MethodGet, "/files", bodyLimit, h.Resource.ListFiles)
+	rootRoute(http.MethodGet, "/files/:file_id", bodyLimit, h.Resource.GetFile)
+	rootRoute(http.MethodGet, "/files/:file_id/content", bodyLimit, h.Resource.DownloadFileContent)
+	rootRoute(http.MethodDelete, "/files/:file_id", bodyLimit, h.Resource.DeleteFile)
+	rootRoute(http.MethodPost, "/batches", bodyLimit, h.Resource.CreateBatch)
+	rootRoute(http.MethodGet, "/batches", bodyLimit, h.Resource.ListBatches)
+	rootRoute(http.MethodGet, "/batches/:batch_id", bodyLimit, h.Resource.GetBatch)
+	rootRoute(http.MethodPost, "/batches/:batch_id/cancel", bodyLimit, h.Resource.CancelBatch)
+	rootRoute(http.MethodPost, "/moderations", bodyLimit, h.Resource.Moderations)
+	rootRoute(http.MethodPost, "/messages/batches", bodyLimit, h.Resource.CreateMessageBatch)
+	rootRoute(http.MethodGet, "/messages/batches", bodyLimit, h.Resource.ListMessageBatches)
+	rootRoute(http.MethodGet, "/messages/batches/:message_batch_id", bodyLimit, h.Resource.GetMessageBatch)
+	rootRoute(http.MethodPost, "/messages/batches/:message_batch_id/cancel", bodyLimit, h.Resource.CancelMessageBatch)
+	rootRoute(http.MethodDelete, "/messages/batches/:message_batch_id", bodyLimit, h.Resource.DeleteMessageBatch)
+	rootRoute(http.MethodGet, "/messages/batches/:message_batch_id/results", bodyLimit, h.Resource.MessageBatchResults)
+	rootRoute(http.MethodPost, "/tools/search", textBodyLimit, dispatch.Handler("search"))
+	rootRoute(http.MethodPost, "/tools/search_pro", textBodyLimit, dispatch.Handler("search"))
+	rootRoute(http.MethodPost, "/videos/:request_id/cancel", bodyLimit, dispatch.Handler("video.cancel"))
 	rootRoute(http.MethodPost, "/messages", bodyLimit, messagesHandler)
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
 	// /v1/sub2api/billing 在分组/白名单准入之前注册；根别名保持同一中间件序列。
@@ -397,7 +441,6 @@ func RegisterGatewayRoutes(
 func dispatchCodexModelsGateway(c *gin.Context, openAIHandler, generatedHandler gin.HandlerFunc) {
 	service.CodexModelsGateway(openAIHandler, generatedHandler)(c)
 }
-func getGroupPlatform(c *gin.Context) string { return service.GatewayTargetPlatform(c) }
 func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {
 	return service.CompositeTargetPlatformMiddleware(resolver)
 }
@@ -405,9 +448,6 @@ func compositeGeminiTargetPlatformMiddleware(resolver *service.CompositeRouteRes
 	return service.CompositeGeminiTargetPlatformMiddleware(resolver)
 }
 func grokCustomVoiceEndpoint(c *gin.Context) string { return service.GrokCustomVoiceEndpoint(c) }
-func compositeGeminiModelFromParams(c *gin.Context) string {
-	return service.CompositeGeminiModelFromParams(c)
-}
 func compositeRouteEndpointForPath(path string) string {
 	return service.CompositeRouteEndpointForPath(path)
 }
