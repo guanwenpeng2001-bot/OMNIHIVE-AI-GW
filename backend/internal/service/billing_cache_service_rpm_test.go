@@ -7,6 +7,7 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
@@ -21,6 +22,10 @@ type userRPMCacheStub struct {
 	userGroupErr    error
 	userCounts      []int
 	userErr         error
+
+	windowResetAt   time.Time
+	windowResetErr  error
+	windowResetCall int32
 }
 
 func (s *userRPMCacheStub) IncrementUserGroupRPM(_ context.Context, _, _ int64) (int, error) {
@@ -51,6 +56,14 @@ func (s *userRPMCacheStub) GetUserGroupRPM(_ context.Context, _, _ int64) (int, 
 
 func (s *userRPMCacheStub) GetUserRPM(_ context.Context, _ int64) (int, error) {
 	return 0, nil
+}
+
+func (s *userRPMCacheStub) WindowResetAt(_ context.Context) (time.Time, error) {
+	atomic.AddInt32(&s.windowResetCall, 1)
+	if s.windowResetErr != nil {
+		return time.Time{}, s.windowResetErr
+	}
+	return s.windowResetAt, nil
 }
 
 // rpmOverrideRepoStub 专用于 checkRPM 分支测试，只实现必要方法。
@@ -250,4 +263,69 @@ func TestBillingCacheService_CheckRPM_NilUserIsNoop(t *testing.T) {
 	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userGroupCalls))
 	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userCalls))
 	require.EqualValues(t, 0, atomic.LoadInt32(&repo.calls))
+}
+
+// --- T2-2.6 / T2-2.7 / T3-2.13：限额事实与计次口径 ---
+
+func TestBillingCacheService_CheckRPM_CountsOneLogicalRequestPerPlan(t *testing.T) {
+	cache := &userRPMCacheStub{userCounts: []int{1, 2, 3, 4, 5}}
+	svc := newBillingServiceForRPM(t, cache, nil)
+
+	user := &User{ID: 1, RPMLimit: 100}
+	group := &Group{ID: 10, RPMLimit: 100}
+
+	ctx, plan := captureGatewayRequestPlan(context.Background(), GatewayRequestSpec{APIKeyID: 1, UserID: 1}, nil, nil, nil)
+	require.NotNil(t, plan)
+
+	// 同一逻辑请求内的重试/账号切换/同组兜底都复用同一个计划。
+	require.NoError(t, svc.checkRPM(ctx, user, group))
+	require.NoError(t, svc.checkRPM(ctx, user, group))
+	require.NoError(t, svc.checkRPM(ctx, user, group))
+
+	require.EqualValues(t, 1, atomic.LoadInt32(&cache.userCalls),
+		"用户级 RPM 每个逻辑请求只计一次，重试不得重复计入")
+	require.EqualValues(t, 1, atomic.LoadInt32(&cache.userGroupCalls),
+		"同一分组内的重试不得重复计入分组计数")
+
+	// 兜底到另一个分组：那个分组的容量确实被占用，单独计一次。
+	fallback := &Group{ID: 11, RPMLimit: 100}
+	require.NoError(t, svc.checkRPM(ctx, user, fallback))
+	require.EqualValues(t, 2, atomic.LoadInt32(&cache.userGroupCalls))
+	require.EqualValues(t, 1, atomic.LoadInt32(&cache.userCalls))
+
+	// 新的逻辑请求（新计划）重新计数。
+	_, nextPlan := captureGatewayRequestPlan(context.Background(), GatewayRequestSpec{APIKeyID: 1, UserID: 1}, nil, nil, nil)
+	require.NotNil(t, nextPlan)
+	require.NoError(t, svc.checkRPM(WithGatewayRequestPlan(context.Background(), nextPlan), user, group))
+	require.EqualValues(t, 2, atomic.LoadInt32(&cache.userCalls))
+}
+
+func TestBillingCacheService_CheckRPM_RejectionCarriesTheRealWindowReset(t *testing.T) {
+	resetAt := time.Now().Add(30 * time.Second).Truncate(time.Second)
+	cache := &userRPMCacheStub{userCounts: []int{99}, windowResetAt: resetAt}
+	svc := newBillingServiceForRPM(t, cache, nil)
+
+	err := svc.checkRPM(context.Background(), &User{ID: 1, RPMLimit: 10}, nil)
+	require.ErrorIs(t, err, ErrUserRPMExceeded)
+
+	facts, ok := AdmissionRateLimitFacts(err)
+	require.True(t, ok, "an RPM rejection must carry its real window facts")
+	require.Equal(t, 10, facts.Limit)
+	require.Equal(t, 99, facts.Limit-0-facts.Remaining,
+		"remaining is derived from the counter that caused the rejection")
+	require.False(t, facts.ResetAt.IsZero())
+	require.WithinDuration(t, resetAt, facts.ResetAt, time.Second)
+}
+
+func TestBillingCacheService_CheckRPM_NoServerTimeMeansNoRetryAfter(t *testing.T) {
+	cache := &userRPMCacheStub{userCounts: []int{99}, windowResetErr: errors.New("redis down")}
+	svc := newBillingServiceForRPM(t, cache, nil)
+
+	err := svc.checkRPM(context.Background(), &User{ID: 1, RPMLimit: 10}, nil)
+	require.ErrorIs(t, err, ErrUserRPMExceeded)
+
+	facts, _ := AdmissionRateLimitFacts(err)
+	require.True(t, facts.ResetAt.IsZero(),
+		"without server time there is no trustworthy reset, so none is invented")
+	require.Equal(t, 0, RetryAfterSecondsUntil(facts.ResetAt, time.Now()))
 }

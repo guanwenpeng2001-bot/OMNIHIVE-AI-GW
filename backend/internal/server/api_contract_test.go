@@ -237,36 +237,75 @@ func TestAPIContracts(t *testing.T) {
 				"code": 0,
 				"message": "success",
 				"data": {
-					"id": 100,
-					"user_id": 1,
-					"key": "sk_custom_1234567890",
-					"name": "Key One",
-					"group_id": null,
-					"status": "active",
-					"ip_whitelist": null,
-					"ip_blacklist": null,
-					"last_used_at": null,
-					"last_used_ip": null,
-					"current_concurrency": 0,
-					"quota": 0,
-					"quota_used": 0,
-					"rate_limit_5h": 0,
-					"rate_limit_1d": 0,
-					"rate_limit_7d": 0,
-					"usage_5h": 0,
-					"usage_1d": 0,
-					"usage_7d": 0,
-					"window_5h_start": null,
-					"window_1d_start": null,
-					"window_7d_start": null,
-					"expires_at": null,
-					"created_at": "2025-01-02T03:04:05Z",
-					"updated_at": "2025-01-02T03:04:05Z"
+					"api_key": {
+						"id": 100,
+						"user_id": 1,
+						"key": "****7890",
+						"name": "Key One",
+						"group_id": null,
+						"status": "active",
+						"ip_whitelist": null,
+						"ip_blacklist": null,
+						"last_used_at": null,
+						"last_used_ip": null,
+						"current_concurrency": 0,
+						"quota": 0,
+						"quota_used": 0,
+						"rate_limit_5h": 0,
+						"rate_limit_1d": 0,
+						"rate_limit_7d": 0,
+						"usage_5h": 0,
+						"usage_1d": 0,
+						"usage_7d": 0,
+						"window_5h_start": null,
+						"window_1d_start": null,
+						"window_7d_start": null,
+						"expires_at": null,
+						"budget_period_mode": "off",
+						"budget_limit": 0,
+						"budget_used": 0,
+						"budget_reserved": 0,
+						"budget_remaining": 0,
+						"budget_overrun": 0,
+						"budget_timezone": "UTC",
+						"budget_enforced": false,
+						"created_at": "2025-01-02T03:04:05Z",
+						"updated_at": "2025-01-02T03:04:05Z"
+					},
+					"secret": "sk_custom_1234567890"
 				}
 			}`,
 		},
 		{
-			name: "GET /api/v1/keys (paginated)",
+			name: "POST /api/v1/keys/:id/credentials/rotate rejects another user's key",
+			setup: func(t *testing.T, deps *contractDeps) {
+				t.Helper()
+				deps.apiKeyRepo.MustSeed(&service.APIKey{
+					ID:        200,
+					UserID:    2,
+					Key:       "sk-someone-else",
+					Name:      "Not Mine",
+					Status:    service.StatusActive,
+					CreatedAt: deps.now,
+					UpdatedAt: deps.now,
+				})
+			},
+			method: http.MethodPost,
+			path:   "/api/v1/keys/200/credentials/rotate",
+			body:   `{}`,
+			headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			wantStatus: http.StatusNotFound,
+			wantJSON: `{
+				"code": 404,
+				"message": "API key not found",
+				"reason": "NOT_FOUND",
+				"metadata": {}
+			}`,
+		},
+		{
+			name: "POST /api/v1/keys/:id/credentials/revoke",
 			setup: func(t *testing.T, deps *contractDeps) {
 				t.Helper()
 				deps.apiKeyRepo.MustSeed(&service.APIKey{
@@ -277,6 +316,36 @@ func TestAPIContracts(t *testing.T) {
 					Status:    service.StatusActive,
 					CreatedAt: deps.now,
 					UpdatedAt: deps.now,
+				})
+			},
+			method: http.MethodPost,
+			path:   "/api/v1/keys/100/credentials/revoke",
+			body:   `{}`,
+			headers: map[string]string{
+				"Content-Type": "application/json",
+			},
+			wantStatus: http.StatusOK,
+			wantJSON: `{
+				"code": 0,
+				"message": "success",
+				"data": {
+					"revoked_credentials": 1
+				}
+			}`,
+		},
+		{
+			name: "GET /api/v1/keys (paginated)",
+			setup: func(t *testing.T, deps *contractDeps) {
+				t.Helper()
+				deps.apiKeyRepo.MustSeed(&service.APIKey{
+					ID:            100,
+					UserID:        1,
+					Key:           "sk_custom_1234567890",
+					DisplaySuffix: "7890",
+					Name:          "Key One",
+					Status:        service.StatusActive,
+					CreatedAt:     deps.now,
+					UpdatedAt:     deps.now,
 				})
 			},
 			method:     http.MethodGet,
@@ -290,7 +359,7 @@ func TestAPIContracts(t *testing.T) {
 						{
 							"id": 100,
 							"user_id": 1,
-							"key": "sk_custom_1234567890",
+							"key": "****7890",
 							"name": "Key One",
 							"group_id": null,
 							"status": "active",
@@ -299,6 +368,10 @@ func TestAPIContracts(t *testing.T) {
 							"last_used_at": null,
 							"last_used_ip": null,
 							"current_concurrency": 0,
+							"effective_rpm": {
+								"limits": [],
+								"priority": "user_group_override_then_group_then_user_ceiling"
+							},
 							"quota": 0,
 							"quota_used": 0,
 							"rate_limit_5h": 0,
@@ -311,6 +384,14 @@ func TestAPIContracts(t *testing.T) {
 							"window_1d_start": null,
 							"window_7d_start": null,
 							"expires_at": null,
+							"budget_period_mode": "off",
+							"budget_limit": 0,
+							"budget_used": 0,
+							"budget_reserved": 0,
+							"budget_remaining": 0,
+							"budget_overrun": 0,
+							"budget_timezone": "UTC",
+							"budget_enforced": false,
 							"created_at": "2025-01-02T03:04:05Z",
 							"updated_at": "2025-01-02T03:04:05Z"
 						}
@@ -1430,15 +1511,16 @@ func TestAPIContracts(t *testing.T) {
 }
 
 type contractDeps struct {
-	now         time.Time
-	router      http.Handler
-	cfg         *config.Config
-	apiKeyRepo  *stubApiKeyRepo
-	groupRepo   *stubGroupRepo
-	userSubRepo *stubUserSubscriptionRepo
-	usageRepo   *stubUsageLogRepo
-	settingRepo *stubSettingRepo
-	redeemRepo  *stubRedeemCodeRepo
+	now              time.Time
+	router           http.Handler
+	cfg              *config.Config
+	apiKeyRepo       *stubApiKeyRepo
+	groupRepo        *stubGroupRepo
+	userSubRepo      *stubUserSubscriptionRepo
+	usageRepo        *stubUsageLogRepo
+	settingRepo      *stubSettingRepo
+	redeemRepo       *stubRedeemCodeRepo
+	apiKeyCredential *stubAPIKeyCredentialRepo
 }
 
 func newContractDeps(t *testing.T) *contractDeps {
@@ -1481,6 +1563,8 @@ func newContractDeps(t *testing.T) *contractDeps {
 
 	userService := service.NewUserService(userRepo, nil, nil, nil)
 	apiKeyService := service.NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, nil, apiKeyCache, cfg)
+	apiKeyCredentials := &stubAPIKeyCredentialRepo{}
+	apiKeyService.SetCredentialRepository(apiKeyCredentials)
 
 	usageRepo := newStubUsageLogRepo()
 	usageService := service.NewUsageService(usageRepo, userRepo, nil, nil)
@@ -1494,7 +1578,7 @@ func newContractDeps(t *testing.T) *contractDeps {
 	settingRepo := newStubSettingRepo()
 	settingService := service.NewSettingService(settingRepo, cfg)
 
-	adminService := service.NewAdminService(nil, userRepo, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	adminService := service.NewAdminService(nil, userRepo, nil, groupRepo, &accountRepo, proxyRepo, apiKeyRepo, redeemRepo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	authHandler := handler.NewAuthHandler(cfg, nil, userService, settingService, nil, redeemService, nil, nil)
 	apiKeyHandler := handler.NewAPIKeyHandler(apiKeyService)
 	usageHandler := handler.NewUsageHandler(usageService, apiKeyService, nil, nil)
@@ -1530,6 +1614,8 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Keys.Use(jwtAuth)
 	v1Keys.GET("/keys", apiKeyHandler.List)
 	v1Keys.POST("/keys", apiKeyHandler.Create)
+	v1Keys.POST("/keys/:id/credentials/rotate", apiKeyHandler.RotateCredential)
+	v1Keys.POST("/keys/:id/credentials/revoke", apiKeyHandler.RevokeCredential)
 	v1Keys.GET("/groups/available", apiKeyHandler.GetAvailableGroups)
 
 	v1Usage := v1.Group("")
@@ -1551,15 +1637,16 @@ func newContractDeps(t *testing.T) *contractDeps {
 	v1Admin.POST("/accounts/bulk-update", adminAccountHandler.BulkUpdate)
 
 	return &contractDeps{
-		now:         now,
-		router:      r,
-		cfg:         cfg,
-		apiKeyRepo:  apiKeyRepo,
-		groupRepo:   groupRepo,
-		userSubRepo: userSubRepo,
-		usageRepo:   usageRepo,
-		settingRepo: settingRepo,
-		redeemRepo:  redeemRepo,
+		now:              now,
+		router:           r,
+		cfg:              cfg,
+		apiKeyRepo:       apiKeyRepo,
+		apiKeyCredential: apiKeyCredentials,
+		groupRepo:        groupRepo,
+		userSubRepo:      userSubRepo,
+		usageRepo:        usageRepo,
+		settingRepo:      settingRepo,
+		redeemRepo:       redeemRepo,
 	}
 }
 
@@ -2316,6 +2403,30 @@ func (stubUserSubscriptionRepo) IncrementUsage(ctx context.Context, id int64, co
 }
 func (stubUserSubscriptionRepo) BatchUpdateExpiredStatus(ctx context.Context) (int64, error) {
 	return 0, errors.New("not implemented")
+}
+
+// stubAPIKeyCredentialRepo records credential lifecycle calls without a database.
+type stubAPIKeyCredentialRepo struct {
+	digests    []string
+	revokeAll  int64
+	revokedAny int64
+}
+
+func (s *stubAPIKeyCredentialRepo) ListDigestsByAPIKeyID(ctx context.Context, apiKeyID int64) ([]string, error) {
+	return s.digests, nil
+}
+
+func (s *stubAPIKeyCredentialRepo) Rotate(ctx context.Context, rotation service.APIKeyCredentialRotation) error {
+	return nil
+}
+
+func (s *stubAPIKeyCredentialRepo) RevokeGrace(ctx context.Context, apiKeyID int64, now time.Time, actor service.ConfigurationAuditActor) (int64, error) {
+	s.revokedAny++
+	return 1, nil
+}
+
+func (s *stubAPIKeyCredentialRepo) RevokeAll(ctx context.Context, apiKeyID int64, now time.Time, actor service.ConfigurationAuditActor) (int64, error) {
+	return s.revokeAll, nil
 }
 
 type stubApiKeyRepo struct {

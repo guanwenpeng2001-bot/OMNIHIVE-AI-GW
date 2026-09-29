@@ -53,7 +53,9 @@ those errors or expand old protocols to make the table uniform.
 | POST | Responses /compact | Existing forwardable subpath and compact-account gate | OpenAI compact only; not equivalent to normal Responses |
 | POST | Responses /input_tokens | Existing token-count subpath; native/compatible handler dispatch | Input-token result, no normal generation claim |
 | POST | Responses other subpaths | IsForwardableOpenAIResponsesRequestPath | Unknown/action-unsafe paths reject before scheduling |
-| POST | /v1/embeddings; /embeddings | Existing OpenAI-only route qualification | No streaming/tools promise |
+| POST | /v1/embeddings; /embeddings | Platform action matrix: OpenAI, Bedrock, Qianwen, Qianfan, Hunyuan and Volcengine bind an embeddings adapter; every other platform rejects before scheduling | No streaming/tools promise |
+| POST | /v1/rerank; /rerank | Platform action matrix: Qianwen, Qianfan and Bedrock bind a rerank adapter; OpenAI and every other platform reject | Ranked results, no generation claim |
+| POST | /v1/images/variations; /images/variations | Platform action matrix: OpenAI and Bedrock bind a variation adapter; chat-only platforms reject | OpenAI variation shape only |
 | GET | /v1/models; /models | Existing membership and allowlist first | Optional capabilities below; no generation |
 | GET | /v1/models/:model; /models/:model | Exact visible entry or model_not_found | Same fields as listing |
 | GET | models with nonempty client_version; /backend-api/codex/models | Existing Codex manifest branch | Original manifest/ETag shape, no capabilities addition |
@@ -89,11 +91,11 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | POST | /v1/images/batches/:id/cancel | Existing cancellation lifecycle, no refund inference |
 | DELETE | /v1/images/batches/:id | Owned record deletion |
 | DELETE | /v1/images/batches/:id/outputs | Owned output deletion |
-| POST | /v1/videos; /v1/videos/generations | Grok or resolved Composite creation |
-| POST | /v1/videos/edits | Grok video edit; existing platform guard retained |
-| POST | /v1/videos/extensions | Grok video extension; existing platform guard retained |
-| GET | /v1/videos/:request_id | Grok/Composite status lookup |
-| GET | /v1/videos/:request_id/content | Grok/Composite content lookup |
+| POST | /v1/videos; /v1/videos/generations | Grok creation; OpenAI sora-2 job submission through the shared upstream job trunk |
+| POST | /v1/videos/edits | Grok video edit; OpenAI edit inherits the owner-checked source video |
+| POST | /v1/videos/extensions | Grok video extension; OpenAI extension bills the documented segment |
+| GET | /v1/videos/:request_id | Grok status lookup; owner-bound OpenAI durable job state |
+| GET | /v1/videos/:request_id/content | Grok content lookup; owner-bound OpenAI content stream |
 | GET | /v1/videos/generations/:request_id | Generation status |
 | GET | /v1/videos/generations/:request_id/content | Generation content |
 | GET | /v1/videos/edits/:request_id | Edit status |
@@ -102,6 +104,9 @@ are enumerated here. A wildcard registration never means all vendor APIs exist.
 | GET | /v1/videos/extensions/:request_id/content | Extension content |
 | POST | /v1/tts; /tts | Grok TTS, account-specific native transport |
 | POST | /v1/stt; /stt | Grok STT, account-specific native transport |
+| POST | /v1/audio/speech; /audio/speech | Platform action matrix: Hunyuan and Qianfan bind an OpenAI-shaped speech adapter; Qianwen keeps its DashScope native path, Grok keeps the native /v1/tts entry and OpenAI speech stays unverified |
+| POST | /v1/audio/transcriptions; /audio/transcriptions | Platform action matrix: Hunyuan speech recognition binds an adapter; OpenAI transcription stays unverified |
+| POST | /v1/audio/translations; /audio/translations | OpenAI audio translation adapter; every other platform rejects before scheduling |
 | POST | /v1/custom-voices; /custom-voices | Grok custom voice creation |
 | GET | /v1/custom-voices; /custom-voices | Grok custom voice list |
 | GET | /v1/custom-voices/:voice_id; /custom-voices/:voice_id | Grok voice metadata |
@@ -215,6 +220,8 @@ these methods. The action and platform tables above constrain it.
 | `DELETE /compatible-mode/v1/files` | DashScope exact action/resource gate; see individual actions above |
 | `DELETE /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `DELETE /custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
+| `DELETE /images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
+| `DELETE /images/batches/:id/outputs` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
 | `DELETE /v1/images/batches/:id/outputs` | Existing gateway handler; platform, account and endpoint qualification |
@@ -247,11 +254,22 @@ these methods. The action and platform tables above constrain it.
 | `GET /custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /custom-voices/:voice_id/audio` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/download` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/items` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/:id/items/:custom_id/content` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /images/batches/models` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /images/tasks/:task_id` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /live/:call_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /models` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /models/:model` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /models/catalog` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /models/catalog/:model` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /realtime` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /responses` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /sub2api/billing` | Existing gateway handler; platform, account and endpoint qualification |
+| `GET /usage` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices/:voice_id` | Existing gateway handler; platform, account and endpoint qualification |
 | `GET /v1/custom-voices/:voice_id/audio` | Existing gateway handler; platform, account and endpoint qualification |
@@ -327,6 +345,9 @@ these methods. The action and platform tables above constrain it.
 | `POST /api/v1/services/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `POST /api/v1/tasks` | DashScope exact action/resource gate; see individual actions above |
 | `POST /api/v1/tasks/*nativePath` | DashScope exact action/resource gate; see individual actions above |
+| `POST /audio/speech` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /audio/transcriptions` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /audio/translations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/alpha/search` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/realtime/calls` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /backend-api/codex/responses` | Existing gateway handler; platform, account and endpoint qualification |
@@ -338,17 +359,25 @@ these methods. The action and platform tables above constrain it.
 | `POST /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `POST /custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /embeddings` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/batches` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/batches/:id/cancel` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/edits` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/edits/async` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/generations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /images/generations/async` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /images/variations` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /live` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /messages` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /messages/count_tokens` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /rerank` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /responses` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /responses/*subpath` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /stt` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /tts` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/alpha/search` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/speech` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/transcriptions` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/audio/translations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/chat/completions` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/custom-voices` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/embeddings` | Existing gateway handler; platform, account and endpoint qualification |
@@ -358,9 +387,11 @@ these methods. The action and platform tables above constrain it.
 | `POST /v1/images/edits/async` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/images/generations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/images/generations/async` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/images/variations` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/live` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/messages` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/messages/count_tokens` | Existing gateway handler; platform, account and endpoint qualification |
+| `POST /v1/rerank` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/responses` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/responses/*subpath` | Existing gateway handler; platform, account and endpoint qualification |
 | `POST /v1/stt` | Existing gateway handler; platform, account and endpoint qualification |
@@ -396,6 +427,31 @@ these methods. The action and platform tables above constrain it.
 | `PUT /compatible-mode/v1/batches/*nativePath` | DashScope exact action/resource gate; see individual actions above |
 | `PUT /compatible-mode/v1/files` | DashScope exact action/resource gate; see individual actions above |
 | `PUT /compatible-mode/v1/files/*nativePath` | DashScope exact action/resource gate; see individual actions above |
+
+## Streaming interruption, terminal frames and the retry boundary
+
+No registered provider stream offers a universal resume. Once a streaming
+response has started, the gateway cannot switch upstream and continue the same
+client stream: the HTTP status is already committed as `200`.
+
+- When a stream breaks after the first committed byte (upstream read error,
+  failover exhaustion, deadline), the gateway appends a protocol-standard terminal
+  frame in place: `event: response.failed` for `/v1/responses` (with a `response`
+  object whose `status` is `failed`), `event: error` for OpenAI chat completions,
+  and the Anthropic-shaped `event: error`/`data: {"type":"error",...}` frame for
+  `/v1/messages`. The client must treat that frame as the end of the stream.
+- Partial output is never replayed as if it were the complete answer. A client
+  that wants the full response has to send a new request; the gateway cannot
+  promise that the upstream did not already bill the interrupted attempt.
+- `Idempotency-Key` on generation routes prevents *local* duplicate dispatch and
+  duplicate billing; it does not resurrect a provider-side stream. A retry with the
+  same key and the same body never starts a second generation: it returns `409`
+  with a stable machine code and an `X-Idempotency-State` header
+  (`interrupted` when the recorded execution stopped mid-stream, or
+  `stream_not_replayable` when a streaming body was already produced). A retry
+  with a different body under the same key is `409 IDEMPOTENCY_KEY_CONFLICT`.
+- The gateway does not buffer unbounded SSE to make interrupted streams replayable,
+  and it does not claim exactly-once upstream side effects.
 
 ## Public model catalog migration
 

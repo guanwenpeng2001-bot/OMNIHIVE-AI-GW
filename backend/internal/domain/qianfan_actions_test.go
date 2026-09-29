@@ -14,11 +14,13 @@ func TestQianfanActionMatrixIsFullyEvidenced(t *testing.T) {
 		"image.async", "video.edit", "video.extend", "alpha_search", "live",
 		"responses.websocket",
 	}
-	unverifiedWithAdapter := []string{
+	// Promoted by multimodal-ingress: dispatch key, catalog endpoint evidence and
+	// the evidence-driven chat-only gates landed together.
+	implementedWithAdapter := []string{
 		"embeddings", "rerank", "image.generate", "image.edit", "video.generate",
-		"video.status", "video.content", "audio.tts", "voice", "search",
+		"video.status", "video.content", "audio.tts", "voice", "search", "count_tokens",
 	}
-	unverifiedWithoutAdapter := []string{"responses", "count_tokens", "image.batch", "audio.stt", "audio.translate", "realtime", "native"}
+	unverifiedWithoutAdapter := []string{"responses", "image.batch", "audio.stt", "audio.translate", "realtime", "native"}
 
 	matrix := PlatformActionMatrix(ActionIdentity{Platform: PlatformQianfan})
 	if len(matrix) != len(GatewayActions()) {
@@ -55,15 +57,16 @@ func TestQianfanActionMatrixIsFullyEvidenced(t *testing.T) {
 		}
 	}
 
-	// Cells whose adapter exists in this branch must never read as a bare
-	// "unsupported": they name the adapter and the runtime gate blocking it.
-	for _, action := range unverifiedWithAdapter {
+	for _, action := range implementedWithAdapter {
 		cell := seen[action]
-		if cell.Status != ActionUnverified {
-			t.Fatalf("qianfan %s: got %s, want unverified while the chat-only classification blocks the bind", action, cell.Status)
+		if cell.Status != ActionImplemented {
+			t.Fatalf("qianfan %s: got %s, want implemented after the chat-only release", action, cell.Status)
 		}
-		if !strings.Contains(cell.Evidence, "chat-only") && !strings.Contains(cell.Evidence, "classification") {
-			t.Fatalf("qianfan %s must name the runtime gate that blocks the bind: %s", action, cell.Evidence)
+		if cell.Adapter != qianfanActionAdapters[action] {
+			t.Fatalf("qianfan %s adapter: got %q, want %q", action, cell.Adapter, qianfanActionAdapters[action])
+		}
+		if cell.CredentialPolicy == "" || cell.ModelPolicy == "" || cell.UsagePolicy == "" || cell.Lifecycle == "" {
+			t.Fatalf("qianfan %s lacks policy bindings: %+v", action, cell)
 		}
 		if !strings.Contains(cell.Evidence, "2026-09-21") {
 			t.Fatalf("qianfan %s lacks the dated verification anchor: %s", action, cell.Evidence)

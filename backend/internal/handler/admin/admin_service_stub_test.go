@@ -12,6 +12,8 @@ import (
 type stubAdminService struct {
 	users                               []service.User
 	apiKeys                             []service.APIKey
+	budgetPolicies                      map[int64]service.APIKeyBudgetPolicy
+	budgetAdjustments                   []service.KeyBudgetAdjustmentCommand
 	groups                              []service.Group
 	accounts                            []service.Account
 	accountSchedulerScoreFilterAccounts []service.Account
@@ -46,6 +48,9 @@ type stubAdminService struct {
 	updateAccountCalls                  int
 	updateAccountExtraCalls             int
 	checkMixedErr                       error
+	proxyStats                          map[int64]*service.ProxyStats
+	proxyStatsErr                       error
+	proxyStatsCalls                     []int64
 	lastMixedCheck                      struct {
 		accountID int64
 		platform  string
@@ -401,6 +406,10 @@ func (s *stubAdminService) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return s.apiKeys, int64(len(s.apiKeys)), nil
 }
 
+func (s *stubAdminService) GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error) {
+	return int64(len(s.apiKeys)), int64(len(s.apiKeys)), nil
+}
+
 func (s *stubAdminService) GetGroupRateMultipliers(_ context.Context, _ int64) ([]service.UserGroupRateEntry, error) {
 	return nil, nil
 }
@@ -678,6 +687,20 @@ func (s *stubAdminService) GetProxyAccounts(ctx context.Context, proxyID int64) 
 	return []service.ProxyAccountSummary{{ID: 1, Name: "account"}}, nil
 }
 
+func (s *stubAdminService) GetProxyStats(ctx context.Context, proxyID int64) (*service.ProxyStats, error) {
+	s.mu.Lock()
+	s.proxyStatsCalls = append(s.proxyStatsCalls, proxyID)
+	s.mu.Unlock()
+	if s.proxyStatsErr != nil {
+		return nil, s.proxyStatsErr
+	}
+	if stats, ok := s.proxyStats[proxyID]; ok {
+		clone := *stats
+		return &clone, nil
+	}
+	return &service.ProxyStats{ProxyID: proxyID}, nil
+}
+
 func (s *stubAdminService) CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error) {
 	return false, nil
 }
@@ -762,6 +785,53 @@ func (s *stubAdminService) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 				}
 			}
 			return &service.AdminUpdateAPIKeyGroupIDResult{APIKey: &k}, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminSetAPIKeyStatus(ctx context.Context, keyID int64, status string) (*service.APIKey, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys[i].Status = status
+			k := s.apiKeys[i]
+			return &k, nil
+		}
+	}
+	return nil, service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminDeleteAPIKey(ctx context.Context, keyID int64) error {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			s.apiKeys = append(s.apiKeys[:i], s.apiKeys[i+1:]...)
+			return nil
+		}
+	}
+	return service.ErrAPIKeyNotFound
+}
+
+func (s *stubAdminService) AdminSetAPIKeyBudgetPolicy(ctx context.Context, keyID int64, policy service.APIKeyBudgetPolicy) (service.APIKeyBudgetPolicy, error) {
+	if s.budgetPolicies == nil {
+		s.budgetPolicies = make(map[int64]service.APIKeyBudgetPolicy)
+	}
+	s.budgetPolicies[keyID] = policy
+	return policy, nil
+}
+
+func (s *stubAdminService) AdminAdjustAPIKeyBudgetUsage(ctx context.Context, cmd *service.KeyBudgetAdjustmentCommand) (*service.APIKeyBudgetState, error) {
+	if cmd == nil {
+		return nil, service.ErrAPIKeyBudgetInvalid
+	}
+	s.budgetAdjustments = append(s.budgetAdjustments, *cmd)
+	return &service.APIKeyBudgetState{UsedUSD: cmd.DeltaUSD}, nil
+}
+
+func (s *stubAdminService) AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*service.APIKeyCredentialIssue, error) {
+	for i := range s.apiKeys {
+		if s.apiKeys[i].ID == keyID {
+			k := s.apiKeys[i]
+			return &service.APIKeyCredentialIssue{APIKey: &k, Secret: "rotated-secret"}, nil
 		}
 	}
 	return nil, service.ErrAPIKeyNotFound

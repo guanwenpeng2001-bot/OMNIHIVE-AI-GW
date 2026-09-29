@@ -35,7 +35,73 @@
         <Select v-model="editGeminiTier" :options="geminiTierOptions" />
         <p class="input-hint">{{ t('admin.accounts.gemini.tier.hint') }}</p>
       </div>
-      <CursorKeyFields v-if="account.platform === 'cursor'" editing v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
+      <!-- Cursor 一级账号类型：本页类型由已有 account.type 回填，卡片只读，不得借重排允许账号类型互转。 -->
+      <div v-if="account.platform === 'cursor'">
+        <span id="edit-cursor-key-mode-label" class="input-label">{{ t('admin.accounts.accountType') }}</span>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-labelledby="edit-cursor-key-mode-label" data-testid="cursor-key-mode">
+          <button
+            v-for="option in cursorAccountTypeOptions"
+            :key="option.value"
+            type="button"
+            role="radio" :aria-checked="cursorKeyMode === option.value" :tabindex="cursorKeyMode === option.value ? 0 : -1"
+            :data-testid="`cursor-key-mode-${option.value}`"
+            disabled
+            :aria-pressed="cursorKeyMode === option.value"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50',
+              cursorKeyMode === option.value
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                : 'border-gray-200 dark:border-dark-600'
+            ]"
+          >
+            <div :class="[
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+              cursorKeyMode === option.value ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+            ]">
+              <Icon :name="option.icon" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cursor.${option.value}`) }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cursor.${option.value}Desc`) }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+      <!-- Cursor Relay 上游协议：先于凭据字段，只开放后端允许的 Adaptive / Chat Completions。 -->
+      <div v-if="isCursorRelay">
+        <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-testid="cursor-relay-protocol" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
+          <button
+            v-for="option in cursorRelayProtocolOptions"
+            :key="option.value"
+            type="button"
+            :data-testid="`cursor-relay-protocol-${option.value}`"
+            :aria-pressed="editApiProtocol === option.value"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              editApiProtocol === option.value
+                ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]"
+            @click="editApiProtocol = option.value" role="radio" :aria-checked="editApiProtocol === option.value" :tabindex="editApiProtocol === option.value ? 0 : -1"
+          >
+            <div :class="[
+              'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+              editApiProtocol === option.value ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+            ]">
+              <Icon :name="option.icon" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cnProviders.apiProtocol.${option.labelKey}`) }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(option.descriptionKey) }}</span>
+            </div>
+          </button>
+        </div>
+        <p v-if="editApiProtocol === null" role="alert" class="input-hint text-red-600" data-testid="cursor-relay-protocol-unsupported">
+          {{ t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: cursorStoredRelayProtocolLabel }) }}
+        </p>
+      </div>
+      <CursorKeyFields v-if="account.platform === 'cursor'" editing :mode="cursorKeyMode" v-model:auto-credentials="cursorAutoCredentials" v-model:api-key="editApiKey" v-model:base-url="editBaseUrl" v-model:client-version="cursorClientVersion" />
       <CursorBrowserAuthorization v-if="account.platform === 'cursor' && cursorKeyMode === 'auto'" :account-id="account.id" :client-version="cursorClientVersion" @busy="cursorAuthorizing = $event" @draft="cursorCredentialDraft = $event" />
       <!-- API Key fields (only for apikey type) -->
       <div v-if="account.type === 'apikey' && account.platform !== 'cursor'" class="space-y-4">
@@ -72,7 +138,7 @@
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="editAccountMode"
-            :protocol="editApiProtocol"
+            :protocol="cnApiProtocol"
             :current-url="editBaseUrl"
             @select="onCnPresetSelect"
           />
@@ -2419,7 +2485,7 @@ import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
-import { buildCursorCredentials } from './credentialsBuilder'
+import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
@@ -2489,6 +2555,7 @@ import {
   type CnApiProtocol,
   type CnNativeApiProtocol,
   type CnProviderPlatform,
+  type CursorRelayProtocol,
   type HeaderOverrideRow,
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
@@ -2598,10 +2665,29 @@ const submitting = ref(false)
 const editBaseUrl = ref('https://api.anthropic.com')
 const editApiKey = ref('')
 const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
+// Cursor 一级账号类型在本页只读：回填自已有 account.type，卡片仅展示当前类型。
+// 顺序与图标沿用创建页/字段组件原有的三张卡（Auto、官方 Key、Relay）。
+const cursorAccountTypeOptions = [
+  { value: 'auto', icon: 'bolt' },
+  { value: 'official', icon: 'key' },
+  { value: 'relay', icon: 'swap' }
+] as const
+// Cursor Relay 只开放后端允许的两个协议；存储值缺失/空值时默认 Adaptive，非空非法值不预选。
+const cursorRelayProtocolOptions = [
+  { value: 'adaptive', labelKey: 'adaptive', descriptionKey: 'admin.accounts.cursor.relayAdaptiveDesc', icon: 'swap' },
+  { value: 'chat_completions', labelKey: 'chatCompletions', descriptionKey: 'admin.accounts.cursor.relayChatCompletionsDesc', icon: 'chat' }
+] as const
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const cursorCredentialDraft = ref<AccountCredentialDraft | null>(null)
+const isCursorRelay = computed(() => props.account?.platform === 'cursor' && cursorKeyMode.value === 'relay')
+// 只读回显用的原始协议值（非法值只在提示文案里展示，不参与构造）。
+const cursorStoredRelayProtocol = computed(() => props.account?.credentials?.api_protocol)
+const cursorStoredRelayProtocolLabel = computed(() => {
+  const stored = cursorStoredRelayProtocol.value
+  return typeof stored === 'string' ? stored : String(stored)
+})
 const cursorDraftPreview = computed(() => cursorCredentialDraft.value ? {
   platform: 'cursor', type: 'oauth', credential_draft: cursorCredentialDraft.value.credential_draft,
   credential_draft_revision: cursorCredentialDraft.value.revision,
@@ -2630,7 +2716,47 @@ const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'co
   if (props.account?.platform === 'opencode_go') return 'opencode_go'
   return cnPresetPlatform.value
 })
-const editApiProtocol = ref<CnApiProtocol>('adaptive')
+const editApiProtocol = ref<CnApiProtocol | null>('adaptive')
+/**
+ * 后端 GetAPIProtocol 的平台回落：OpenCode / 千问 / CommandCode 回 Adaptive，
+ * 其余多协议平台（Kimi / 智谱 / DeepSeek / MiniMax）回 Chat Completions。
+ * 只用于缺失、空值或与平台不匹配的历史值，不改变显式合法值。
+ */
+function defaultMultiProtocolApiProtocol(platform: string): CnApiProtocol {
+  return platform === 'opencode_go' || platform === 'qianwen' || platform === 'commandcode'
+    ? 'adaptive'
+    : 'chat_completions'
+}
+/**
+ * 回填多协议 API Key 账号的协议：与后端 GetAPIProtocol 一致，显式合法值优先
+ * （responses 需平台支持原生端点，非字符串值按缺失处理），其余按平台回落解释。
+ * 返回的永远是合法已选值：只有 Cursor Relay 的存量非法值会停在“尚未选择”（null）。
+ */
+function resolveStoredMultiProtocolApiProtocol(platform: string, stored: unknown): CnApiProtocol {
+  const normalized = typeof stored === 'string' ? stored.trim() : stored
+  switch (normalized) {
+    case 'adaptive':
+    case 'chat_completions':
+    case 'anthropic':
+      return normalized
+    case 'responses':
+      return cnSupportsNativeResponses(platform) ? 'responses' : defaultMultiProtocolApiProtocol(platform)
+    default:
+      return defaultMultiProtocolApiProtocol(platform)
+  }
+}
+/**
+ * 国产多协议账号的协议状态：回填必然写入合法已选值（见存量兼容矩阵），
+ * 因此这里落到的 `??` 只是把“国产账号不会出现的 null”收敛到同一套平台回落，
+ * 而不是用一个固定协议掩盖缺省；Cursor Relay 的“尚未选择”在渲染与保存前单独处理。
+ */
+const cnApiProtocol = computed<CnApiProtocol>(() =>
+  editApiProtocol.value ?? defaultMultiProtocolApiProtocol(props.account?.platform ?? '')
+)
+// 当前 Cursor Relay 协议选择：null 表示“尚未选择”（仅存量非法值），不是默认协议。
+const selectedCursorRelayProtocol = computed<CursorRelayProtocol | null>(() =>
+  editApiProtocol.value === 'adaptive' || editApiProtocol.value === 'chat_completions' ? editApiProtocol.value : null
+)
 const editOpenCodeGoProtocolRules = ref<OpenCodeGoProtocolRule[]>(cloneOpenCodeGoProtocolRules())
 const editAccountMode = ref<CnAccountMode>('payg')
 const editOpenCodeAccountMode = ref<OpenCodeAccountMode>('go')
@@ -2684,14 +2810,18 @@ const editAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol;
   return opts
 })
 watch(editApiProtocol, (protocol, previousProtocol) => {
-  if (!isCNApiKeyAccount.value || syncingForm.value) return
+  if (!isCNApiKeyAccount.value || syncingForm.value || protocol === null) return
+  const previousNative: CnNativeApiProtocol | null =
+    previousProtocol === 'chat_completions' || previousProtocol === 'anthropic' || previousProtocol === 'responses'
+      ? previousProtocol
+      : null
   if (protocol === 'adaptive') {
     const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
     for (const item of editAdaptiveProtocolOptions.value) {
       if (!editAdaptiveBaseUrls.value[item.value]) editAdaptiveBaseUrls.value[item.value] = defaults[item.value]
     }
-    if (previousProtocol !== 'adaptive' && editBaseUrl.value.trim()) {
-      editAdaptiveBaseUrls.value[previousProtocol] = editBaseUrl.value.trim()
+    if (previousNative && editBaseUrl.value.trim()) {
+      editAdaptiveBaseUrls.value[previousNative] = editBaseUrl.value.trim()
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
     return
@@ -2701,7 +2831,7 @@ watch(editApiProtocol, (protocol, previousProtocol) => {
       defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
     return
   }
-  if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), previousProtocol)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
+  if (previousNative && (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), previousNative))) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, currentOpenCodeOrCNMode(), protocol)
 })
 watch(editAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || syncingForm.value) return
@@ -2723,7 +2853,7 @@ watch(editAccountMode, (mode, previousMode) => {
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
     return
   }
-  if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, previousMode, editApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, editApiProtocol.value)
+  if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl(props.account!.platform, previousMode, cnApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl(props.account!.platform, mode, cnApiProtocol.value)
 })
 watch(editOpenCodeAccountMode, (mode, previousMode) => {
   if (!isCNApiKeyAccount.value || props.account?.platform !== 'opencode_go' || syncingForm.value) return
@@ -2737,7 +2867,7 @@ watch(editOpenCodeAccountMode, (mode, previousMode) => {
     }
     editBaseUrl.value = editAdaptiveBaseUrls.value.chat_completions
   } else {
-    if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl('opencode_go', previousMode, editApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, editApiProtocol.value)
+    if (!editBaseUrl.value || editBaseUrl.value === defaultCNBaseUrl('opencode_go', previousMode, cnApiProtocol.value)) editBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, cnApiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(editOpenCodeGoProtocolRules.value) === previousRules) {
@@ -3275,7 +3405,7 @@ const defaultBaseUrl = computed(() => {
   if (
     props.account && isMultiProtocolApiKeyPlatform(props.account.platform)
   ) {
-    return defaultCNBaseUrl(props.account.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
+    return defaultCNBaseUrl(props.account.platform, currentOpenCodeOrCNMode(), cnApiProtocol.value)
   }
   return 'https://api.anthropic.com'
 })
@@ -3426,6 +3556,13 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
   cursorKeyMode.value = newAccount.type === 'oauth' ? 'auto' : newAccount.type === 'upstream' ? 'relay' : 'official'
+  if (newAccount.platform === 'cursor') {
+    // 一级类型只读回填（回填不等于用户动作，不触发切换才该有的清空）。协议状态只服务 Relay：
+    // 合法值原样回填，缺失/空值默认 Adaptive，非空非法值留空等待用户改选。
+    editApiProtocol.value = newAccount.type === 'upstream'
+      ? resolveCursorRelayProtocol(newAccount.credentials?.api_protocol)
+      : 'adaptive'
+  }
   cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
   form.concurrency = newAccount.concurrency
@@ -3686,17 +3823,10 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       } else {
         editAccountMode.value = ['qianwen', 'commandcode'].includes(newAccount.platform) ? 'payg' : credentials.account_mode === 'coding' ? 'coding' : 'payg'
       }
-      const storedProtocol = credentials.api_protocol
-      editApiProtocol.value =
-        storedProtocol === 'adaptive' ||
-        storedProtocol === 'chat_completions' ||
-        storedProtocol === 'anthropic' ||
-        storedProtocol === 'responses'
-          ? storedProtocol
-          : 'chat_completions'
-      if (!cnSupportsNativeResponses(newAccount.platform) && editApiProtocol.value === 'responses') {
-        editApiProtocol.value = 'chat_completions'
-      }
+      // 与后端 GetAPIProtocol 一致：显式合法值优先，缺失/空值/与平台不匹配按平台回落解释，
+      // 避免编辑保存把缺字段账号的有效路由改成另一套协议（创建默认不变）。
+      const hydratedProtocol = resolveStoredMultiProtocolApiProtocol(newAccount.platform, credentials.api_protocol)
+      editApiProtocol.value = hydratedProtocol
       const adaptiveDefaults = defaultCNAdaptiveBaseUrls(newAccount.platform, currentOpenCodeOrCNMode())
       const storedBaseUrls = (credentials.api_base_urls as Record<string, unknown> | undefined) || {}
       const legacyBaseUrl = typeof credentials.base_url === 'string' ? credentials.base_url.trim() : ''
@@ -3714,9 +3844,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         anthropic: storedAnthropicBaseUrl || adaptiveDefaults.anthropic,
         responses: storedResponsesBaseUrl || adaptiveDefaults.responses
       }
-      const legacyProtocol: CnNativeApiProtocol = editApiProtocol.value === 'anthropic'
+      const legacyProtocol: CnNativeApiProtocol = hydratedProtocol === 'anthropic'
         ? 'anthropic'
-        : editApiProtocol.value === 'responses'
+        : hydratedProtocol === 'responses'
           ? 'responses'
           : 'chat_completions'
       const storedLegacyBaseUrl = legacyProtocol === 'anthropic'
@@ -3747,9 +3877,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
           : newAccount.platform === 'grok'
             ? 'https://api.x.ai/v1'
             : isMultiProtocolApiKeyPlatform(newAccount.platform)
-              ? defaultCNBaseUrl(newAccount.platform, currentOpenCodeOrCNMode(), editApiProtocol.value)
+              ? defaultCNBaseUrl(newAccount.platform, currentOpenCodeOrCNMode(), cnApiProtocol.value)
               : 'https://api.anthropic.com'
-    editBaseUrl.value = isCNApiKeyAccount.value && editApiProtocol.value === 'adaptive'
+    editBaseUrl.value = isCNApiKeyAccount.value && cnApiProtocol.value === 'adaptive'
       ? editAdaptiveBaseUrls.value.chat_completions
       : (credentials.base_url as string) || platformDefaultUrl
 
@@ -4440,9 +4570,10 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
 
       // 国产供应商：模式与协议写入凭据（决定额度/余额探测与转发端点/格式）。
       if (isCNApiKeyAccount.value) {
+        const cnProtocol = cnApiProtocol.value
         newCredentials.account_mode = currentOpenCodeOrCNMode()
-        newCredentials.api_protocol = editApiProtocol.value
-        if (editApiProtocol.value === 'adaptive') {
+        newCredentials.api_protocol = cnProtocol
+        if (cnProtocol === 'adaptive') {
           const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
           const protocolBaseUrls: Record<string, string> = {}
           for (const item of editAdaptiveProtocolOptions.value) {
@@ -4794,8 +4925,16 @@ const handleSubmit = async (confirmation?: { payload: string }) => {
     }
     if (props.account.platform === 'cursor') {
       if (cursorAuthorizing.value) return
-      if (cursorKeyMode.value === 'relay' && !editBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
-      const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown> })
+      if (isCursorRelay.value) {
+        if (!editBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
+        // 保存前先按 builder 的合同预校验存量协议：非空非法值在用户明确改选前不发任何请求，
+        // 只改名称也不会静默换协议；builder 自身的拒绝只作为绕过此处的兜底。
+        if (selectedCursorRelayProtocol.value === null && resolveCursorRelayProtocol(cursorStoredRelayProtocol.value) === null) {
+          appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: cursorStoredRelayProtocolLabel.value }))
+          return
+        }
+      }
+      const cursorCredentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: editApiKey.value, baseUrl: editBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, existing: (updatePayload.credentials || props.account.credentials) as Record<string, unknown>, apiProtocol: selectedCursorRelayProtocol.value ?? undefined })
       if (cursorKeyMode.value === 'auto' && !cursorCredentialDraft.value && Object.entries(cursorAutoCredentials.value).some(([key, value]) => value.trim() && value.trim() !== String(props.account?.credentials?.[key] ?? ''))) {
         submitting.value = true
         try {

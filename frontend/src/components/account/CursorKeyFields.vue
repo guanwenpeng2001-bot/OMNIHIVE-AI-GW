@@ -1,10 +1,7 @@
 <script setup lang="ts">
 import { useI18n } from 'vue-i18n'
-import Icon from '@/components/icons/Icon.vue'
-import { navigateAccountChoices } from './accountChoiceNavigation'
 
-defineProps<{ editing?: boolean }>()
-const mode = defineModel<'official' | 'relay' | 'auto'>('mode', { required: true })
+defineProps<{ mode: 'official' | 'relay' | 'auto'; editing?: boolean }>()
 const autoCredentials = defineModel<Record<string, string>>('autoCredentials', { default: () => ({}) })
 const apiKey = defineModel<string>('apiKey', { required: true })
 const baseUrl = defineModel<string>('baseUrl', { required: true })
@@ -14,38 +11,6 @@ const { t } = useI18n()
 
 <template>
   <fieldset class="space-y-4">
-    <div>
-      <span id="cursor-key-mode-label" class="input-label">{{ t('admin.accounts.cursor.keyMode') }}</span>
-      <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" role="radiogroup" aria-labelledby="cursor-key-mode-label" data-testid="cursor-key-mode" @keydown="navigateAccountChoices">
-        <button
-          v-for="option in (['auto', 'official', 'relay'] as const)"
-          :key="option"
-          type="button"
-          role="radio" :aria-checked="mode === option" :tabindex="mode === option ? 0 : -1"
-          :data-testid="`cursor-key-mode-${option}`"
-          :disabled="editing"
-          :aria-pressed="mode === option"
-          :class="[
-            'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all disabled:cursor-not-allowed disabled:opacity-50',
-            mode === option
-              ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20'
-              : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-          ]"
-          @click="mode = option"
-        >
-          <div :class="[
-            'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
-            mode === option ? 'bg-primary-500 text-white' : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
-          ]">
-            <Icon :name="option === 'auto' ? 'bolt' : option === 'official' ? 'key' : 'swap'" size="sm" />
-          </div>
-          <div>
-            <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cursor.${option}`) }}</span>
-            <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cursor.${option}Desc`) }}</span>
-          </div>
-        </button>
-      </div>
-    </div>
     <p class="input-hint" data-testid="cursor-protocol-hint">{{ t(mode === 'relay' ? 'admin.accounts.cursor.relayProtocolHint' : 'admin.accounts.cursor.nativeProtocolHint') }}</p>
     <div v-if="mode === 'auto'" class="space-y-3">
       <p class="input-hint">{{ t('admin.accounts.cursor.autoHint') }}</p>

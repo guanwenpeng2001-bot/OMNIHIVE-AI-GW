@@ -15,7 +15,8 @@ const { authStore, enabledFlags, copyToClipboard } = vi.hoisted(() => ({
 }))
 const appStore = vi.hoisted(() => ({
   siteName: 'Sub2API', siteLogo: '', publicSettingsLoaded: true, cachedPublicSettings: { custom_menu_items: [] },
-  sidebarCollapsed: false, sidebarScrollTop: 0, backendModeEnabled: false, mobileOpen: false
+  sidebarCollapsed: false, sidebarScrollTop: 0, backendModeEnabled: false, mobileOpen: false,
+  apiBaseUrl: 'https://gateway.example/v1'
 }))
 const adminSettingsStore = vi.hoisted(() => ({ customMenuItems: [], fetch: vi.fn() }))
 const routerHarness = vi.hoisted(() => ({ options: null as RouterOptions | null, guard: null as NavigationGuard | null }))
@@ -55,8 +56,8 @@ function prepareMessages(messages: Record<string, unknown>): LocaleMessages<VueM
   ]))
 }
 const messages = {
-  en: prepareMessages({ helpGuide: en.helpGuide, nav: en.nav, common: en.common }),
-  zh: prepareMessages({ helpGuide: zh.helpGuide, nav: zh.nav, common: zh.common })
+  en: prepareMessages({ helpGuide: en.helpGuide, nav: en.nav, common: en.common, keyUsage: en.keyUsage }),
+  zh: prepareMessages({ helpGuide: zh.helpGuide, nav: zh.nav, common: zh.common, keyUsage: zh.keyUsage })
 }
 function mountGuide(locale: 'en' | 'zh' = 'zh') {
   const i18n = createI18n({ legacy: false, locale, messages })
@@ -118,7 +119,13 @@ describe('configuration manual', () => {
     await wrapper.get('#clients button[aria-label="复制 Text · Cursor"]').trigger('click')
     await flushPromises()
     expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining('Model: MODEL_ID_FROM_LIST'), '已复制到剪贴板')
+    expect(copyToClipboard).toHaveBeenCalledWith(expect.stringContaining('https://gateway.example/v1'), '已复制到剪贴板')
     expect(wrapper.get('#clients [role="status"]').text()).toBe('已复制到剪贴板')
+    // 新增客户端使用第一方文档里的字段名，且示例统一指向本站配置的地址。
+    const clients = wrapper.get('#clients').text()
+    expect(clients).toContain('OpenAI Compatible')
+    expect(clients).toContain('apiBase')
+    expect(clients).toContain('Providers & API keys')
   })
 
   it('preserves feature-gated links and simple-mode restrictions', async () => {
@@ -134,10 +141,12 @@ describe('configuration manual', () => {
     expect(destinations).not.toContain('/orders')
     expect(destinations).not.toContain('/subscriptions')
 
+    expect(destinations).toContain('/key-usage')
+
     authStore.isSimpleMode = true
     const simpleGuide = mountGuide().wrapper
     await flushPromises()
-    expect(simpleGuide.findAllComponents(RouterLinkStub).map(link => link.props('to'))).toEqual(['/keys', '/keys'])
+    expect(simpleGuide.findAllComponents(RouterLinkStub).map(link => link.props('to'))).toEqual(['/keys', '/keys', '/key-usage', '/key-usage'])
   })
 
   it.each([
@@ -178,6 +187,20 @@ describe('configuration manual', () => {
     next.mockClear()
     await routerHarness.guard!(to, to, next)
     expect(next).toHaveBeenCalledWith()
+  })
+
+  it('prompts explicitly and renders no example when no public API address is configured', async () => {
+    const configured = appStore.apiBaseUrl
+    appStore.apiBaseUrl = ''
+    try {
+      const { wrapper } = mountGuide()
+      await flushPromises()
+      expect(wrapper.text()).toContain('api_base_url')
+      expect(wrapper.findAll('pre')).toHaveLength(0)
+      expect(wrapper.text()).not.toContain('your-gateway.example')
+    } finally {
+      appStore.apiBaseUrl = configured
+    }
   })
 
   it('explains actual user key windows and Antigravity limitations in both languages', () => {

@@ -231,6 +231,13 @@ func IsUsageSettlementRecovery(ctx context.Context) bool {
 
 func (s *UsageSettlementService) Recover(ctx context.Context) error {
 	ctx = context.WithValue(ctx, usageSettlementRecoveryContextKey{}, true)
+	// Abandoned request holds (process death, lost client) are refunded before
+	// recovery so a crashed request cannot strand budget or balance.
+	if released, err := s.ReleaseExpiredKeyBudgetReservations(ctx, 100); err != nil {
+		slog.Error("release expired key budget reservations", "failure_category", billingFailureCategory(err))
+	} else if released > 0 {
+		slog.Info("released expired key budget reservations", "count", released)
+	}
 	var cursor int64
 	for {
 		rows, err := s.repo.ListPending(ctx, cursor, 100)
@@ -268,6 +275,14 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	if cmd == nil {
 		return ErrUsageBillingRequestIDRequired
 	}
+	// A request-level budget hold belongs to this settlement: consuming it keeps
+	// the estimated hold and the actual cost in one transaction. When the hold is
+	// gone (released/expired) the repository falls back to the ordinary deduction.
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if hold := plan.BudgetHold(); hold != nil {
+			cmd.BudgetReservationID = hold.ID
+		}
+	}
 	completion := "complete"
 	if interrupted {
 		completion = "interrupted"
@@ -284,8 +299,14 @@ func submitUsageSettlement(ctx context.Context, s *UsageSettlementService, usage
 	return s.Submit(ctx, receipt, func(ctx context.Context, result *UsageSettlementResult) {
 		// Preserve explicit constructor callers without the production invalidator.
 		if s.authCacheInvalidator == nil && result.Billing.APIKeyQuotaExhausted {
-			if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey.Key != "" {
-				invalidator.InvalidateAuthCacheByKey(ctx, p.APIKey.Key)
+			if invalidator, ok := p.APIKeyService.(apiKeyAuthCacheInvalidator); ok && p.APIKey.ID > 0 {
+				// The auth cache is keyed by credential digest, so evict every credential
+				// of the key through its identity instead of a presented plaintext secret.
+				if byID, ok := p.APIKeyService.(apiKeyAuthCacheInvalidatorByAPIKeyID); ok {
+					byID.InvalidateAuthCacheByAPIKeyID(ctx, p.APIKey.ID)
+				} else {
+					invalidator.InvalidateAuthCacheByKey(ctx, APIKeyCredentialDigest(p.APIKey.Key))
+				}
 			}
 		}
 		finalizePostUsageBilling(ctx, p, deps, result.Billing)

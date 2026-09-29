@@ -294,6 +294,11 @@ func (h *ProxyHandler) CheckQuality(c *gin.Context) {
 
 // GetStats handles getting proxy statistics
 // GET /api/v1/admin/proxies/:id/stats
+//
+// 真实观测：账号归属、账本保留窗口内的请求量、最近一次真实探测/质量检查结果。
+// 从未探测过时 average_latency / measured_at / probe_success 为 null——不再假填
+// 100% 成功率与 0 延迟；本地账本没有按代理归属的请求失败维度，success_rate
+// 因此不返回（未知就是未知）。
 func (h *ProxyHandler) GetStats(c *gin.Context) {
 	proxyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
 	if err != nil {
@@ -301,15 +306,32 @@ func (h *ProxyHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Return mock data for now
-	_ = proxyID
-	response.Success(c, gin.H{
-		"total_accounts":  0,
-		"active_accounts": 0,
-		"total_requests":  0,
-		"success_rate":    100.0,
-		"average_latency": 0,
-	})
+	stats, err := h.adminService.GetProxyStats(c.Request.Context(), proxyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	payload := gin.H{
+		"proxy_id":           stats.ProxyID,
+		"total_accounts":     stats.TotalAccounts,
+		"active_accounts":    stats.ActiveAccounts,
+		"average_latency":    stats.AverageLatencyMs,
+		"measured_at":        stats.MeasuredAt,
+		"probe_success":      stats.ProbeSuccess,
+		"quality_status":     stats.QualityStatus,
+		"quality_score":      stats.QualityScore,
+		"quality_grade":      stats.QualityGrade,
+		"quality_summary":    stats.QualitySummary,
+		"quality_checked_at": stats.QualityCheckedAt,
+	}
+	if stats.Usage != nil {
+		payload["total_requests"] = stats.Usage.Requests
+		payload["last_request_at"] = stats.Usage.LastRequestAt
+		payload["usage_window_start"] = stats.Usage.WindowStart.UTC().Format(time.RFC3339)
+		payload["usage_window_end"] = stats.Usage.WindowEnd.UTC().Format(time.RFC3339)
+	}
+	response.Success(c, payload)
 }
 
 // GetProxyAccounts handles getting accounts using a proxy

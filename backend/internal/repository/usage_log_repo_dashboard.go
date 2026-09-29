@@ -145,6 +145,79 @@ func (r *usageLogRepository) GetDashboardStatsWithRange(ctx context.Context, sta
 	return stats, nil
 }
 
+// GetGroupUsageTotals 返回单个分组在原始用量账本保留窗口内的真实累计用量。
+//
+// 请求数只能来自原始 usage_logs：usage_group_daily_rollups 只按自然日汇总实际费用，
+// 不保留请求数，所以这里不拼接 rollup 历史。为了让调用方不会把「保留窗口内累计」
+// 误当成「历史全量」，返回值一并带上窗口起点（dashboard 覆盖率水位 raw_retained_from）。
+func (r *usageLogRepository) GetGroupUsageTotals(ctx context.Context, groupID int64) (*service.GroupUsageTotals, error) {
+	query := `
+		WITH watermark AS (
+			SELECT COALESCE(
+				(SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id = 1),
+				TIMESTAMPTZ '1970-01-01 00:00:00+00'
+			) AS retained_from
+		)
+		SELECT
+			COUNT(ul.id) AS requests,
+			COALESCE(SUM(ul.total_cost), 0) AS total_cost,
+			COALESCE(SUM(ul.actual_cost), 0) AS actual_cost,
+			watermark.retained_from AS window_start
+		FROM watermark
+		LEFT JOIN usage_logs ul
+			ON ul.group_id = $1 AND ul.created_at >= watermark.retained_from
+		GROUP BY watermark.retained_from
+	`
+
+	totals := &service.GroupUsageTotals{}
+	if err := scanSingleRow(ctx, r.sql, query, []any{groupID},
+		&totals.Requests,
+		&totals.TotalCost,
+		&totals.ActualCost,
+		&totals.WindowStart,
+	); err != nil {
+		return nil, err
+	}
+	totals.WindowEnd = timezone.Now()
+	return totals, nil
+}
+
+// GetRealtimeWindowStats 返回短窗口内本地原始账本观测到的请求量与平均耗时。
+//
+// 窗口起点早于账本保留水位（raw_retained_from）时，窗口内的原始行已被清理，
+// 此时两个指标都返回 NULL——「没观测到」不等于「0 请求」，调用方必须能区分。
+func (r *usageLogRepository) GetRealtimeWindowStats(ctx context.Context, start, end time.Time) (*service.RealtimeWindowStats, error) {
+	query := `
+		WITH watermark AS (
+			SELECT COALESCE(
+				(SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id = 1),
+				TIMESTAMPTZ '1970-01-01 00:00:00+00'
+			) AS retained_from
+		)
+		SELECT
+			CASE WHEN watermark.retained_from <= $1::timestamptz THEN COUNT(ul.id) END AS requests,
+			CASE WHEN watermark.retained_from <= $1::timestamptz THEN AVG(ul.duration_ms) END AS avg_duration_ms,
+			watermark.retained_from AS window_start
+		FROM watermark
+		LEFT JOIN usage_logs ul
+			ON ul.created_at >= GREATEST($1::timestamptz, watermark.retained_from)
+			AND ul.created_at <= $2::timestamptz
+		GROUP BY watermark.retained_from
+	`
+
+	stats := &service.RealtimeWindowStats{WindowStart: start, WindowEnd: end}
+	var retainedFrom time.Time
+	if err := scanSingleRow(ctx, r.sql, query, []any{start, end},
+		&stats.Requests,
+		&stats.AverageResponseTimeMs,
+		&retainedFrom,
+	); err != nil {
+		return nil, err
+	}
+	stats.CoverageComplete = !retainedFrom.After(start)
+	return stats, nil
+}
+
 func (r *usageLogRepository) fillDashboardEntityStats(ctx context.Context, stats *DashboardStats, todayUTC, now time.Time) error {
 	userStatsQuery := `
 		SELECT

@@ -63,10 +63,11 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskError(c, service.ErrImageTaskForbidden)
 		return
 	}
-	platform := ""
-	if apiKey.Group != nil {
-		platform = apiKey.Group.Platform
-	}
+	// The async submit resolves its target platform exactly like the synchronous
+	// Images endpoint: a Composite group carries its resolved target in the
+	// request context, so rejecting on apiKey.Group.Platform would refuse every
+	// Composite task the synchronous route accepts.
+	platform := service.GatewayTargetPlatform(c)
 	if platform != service.PlatformOpenAI && platform != service.PlatformGrok {
 		imageTaskJSONError(c, http.StatusNotFound, "not_found_error", "Images API is not supported for this platform")
 		return

@@ -175,19 +175,9 @@ func (s *ProxyService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// TestConnection 测试代理连接（需要实现具体测试逻辑）
-func (s *ProxyService) TestConnection(ctx context.Context, id int64) error {
-	proxy, err := s.proxyRepo.GetByID(ctx, id)
-	if err != nil {
-		return fmt.Errorf("get proxy: %w", err)
-	}
-
-	// TODO: 实现代理连接测试逻辑
-	// 可以尝试通过代理发送测试请求
-	_ = proxy
-
-	return nil
-}
+// TestConnection 已删除：旧实现只查一次记录就返回成功（取到记录即成功），
+// 测的是「代理存在」而不是「代理可用」，属于假成功且没有任何调用方。
+// 代理连通性一律走 adminServiceImpl.TestProxy / CheckProxyQuality 的真实网络探测。
 
 // GetURL 获取代理URL
 func (s *ProxyService) GetURL(ctx context.Context, id int64) (string, error) {

@@ -1,6 +1,14 @@
 <template>
   <AppLayout>
-    <p role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
+    <div
+      v-if="blockedReason"
+      role="note"
+      data-test="channel-monitor-blocked"
+      class="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-200"
+    >
+      {{ blockedMessage }}
+    </div>
+    <p v-else role="note" class="mb-4 rounded-xl bg-blue-50 px-4 py-3 text-sm text-blue-800 dark:bg-blue-900/20 dark:text-blue-200">{{ t('channelMonitorV2.cursorProbeUnsupported') }}</p>
     <MonitorHero
       :overall-status="overallStatus"
       :interval-seconds="DEFAULT_INTERVAL_SECONDS"
@@ -33,7 +41,7 @@
 import { ref, reactive, computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorCode } from '@/utils/apiError'
 import {
   list as listChannelMonitorViews,
   status as fetchChannelMonitorDetail,
@@ -56,6 +64,12 @@ const appStore = useAppStore()
 // ── State ──
 const items = ref<UserMonitorView[]>([])
 const loading = ref(false)
+// 后端规范机器码（CHANNEL_MONITOR_DISABLED / CHANNEL_MONITOR_MODE_MISMATCH）：
+// 功能关闭或模式不符时展示真实原因，而不是空列表加一个泛化 toast。
+const blockedReason = ref<'disabled' | 'modeMismatch' | null>(null)
+const blockedMessage = computed(() =>
+  blockedReason.value === 'modeMismatch' ? t('channelStatus.modeMismatch') : t('channelStatus.disabled'),
+)
 const currentWindow = ref<MonitorWindow>('7d')
 const detailCache = reactive<Record<number, UserMonitorDetail>>({})
 const showDetail = ref(false)
@@ -95,10 +109,18 @@ async function reload(silent = false) {
   try {
     const res = await listChannelMonitorViews({ signal: ctrl.signal })
     if (ctrl.signal.aborted || abortController !== ctrl) return
+    blockedReason.value = null
     items.value = res.items || []
   } catch (err: unknown) {
     const e = err as { name?: string; code?: string }
     if (e?.name === 'AbortError' || e?.code === 'ERR_CANCELED') return
+    const reason = extractApiErrorCode(err)
+    if (reason === 'CHANNEL_MONITOR_DISABLED' || reason === 'CHANNEL_MONITOR_MODE_MISMATCH') {
+      blockedReason.value = reason === 'CHANNEL_MONITOR_MODE_MISMATCH' ? 'modeMismatch' : 'disabled'
+      items.value = []
+      autoRefresh.stop()
+      return
+    }
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.loadError')))
   } finally {
     if (abortController === ctrl) {
@@ -123,6 +145,11 @@ async function loadDetail(id: number, force = false) {
   try {
     detailCache[id] = await fetchChannelMonitorDetail(id)
   } catch (err: unknown) {
+    const reason = extractApiErrorCode(err)
+    if (reason === 'CHANNEL_MONITOR_DISABLED' || reason === 'CHANNEL_MONITOR_MODE_MISMATCH') {
+      blockedReason.value = reason === 'CHANNEL_MONITOR_MODE_MISMATCH' ? 'modeMismatch' : 'disabled'
+      return
+    }
     appStore.showError(extractApiErrorMessage(err, t('channelStatus.detailLoadError')))
   }
 }
@@ -165,6 +192,11 @@ onMounted(() => {
   if (appStore.cachedPublicSettings?.channel_monitor_enabled !== false) {
     autoRefresh.setEnabled(true)
   }
+})
+
+// 规范化错误一旦命中，不再无意义地轮询（避免每 30s 重复报同一个配置问题）。
+watch(blockedReason, (reason) => {
+  if (reason) autoRefresh.stop()
 })
 
 onBeforeUnmount(() => {

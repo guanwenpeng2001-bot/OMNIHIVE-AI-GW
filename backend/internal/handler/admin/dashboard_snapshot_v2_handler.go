@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -16,6 +17,10 @@ import (
 )
 
 var dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)
+
+// errInvalidBillingMode rejects an unknown billing mode instead of returning a
+// silently empty chart that disagrees with the table and the totals.
+var errInvalidBillingMode = errors.New("invalid billing_mode")
 
 type dashboardSnapshotV2Stats struct {
 	usagestats.DashboardStats
@@ -46,6 +51,7 @@ type dashboardSnapshotV2Filters struct {
 	Stream                *bool
 	NativeCompactionV2    *bool
 	BillingType           *int8
+	BillingMode           string
 	UpstreamModelMismatch *bool
 }
 
@@ -62,6 +68,7 @@ type dashboardSnapshotV2CacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 	IncludeStats          bool   `json:"include_stats"`
 	IncludeTrend          bool   `json:"include_trend"`
@@ -109,6 +116,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		Stream:                filters.Stream,
 		NativeCompactionV2:    filters.NativeCompactionV2,
 		BillingType:           filters.BillingType,
+		BillingMode:           filters.BillingMode,
 		UpstreamModelMismatch: filters.UpstreamModelMismatch,
 		IncludeStats:          includeStats,
 		IncludeTrend:          includeTrend,
@@ -196,6 +204,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -218,6 +227,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -239,6 +249,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
@@ -323,6 +334,12 @@ func parseDashboardSnapshotV2Filters(c *gin.Context) (*dashboardSnapshotV2Filter
 		bt := int8(v)
 		filters.BillingType = &bt
 	}
+
+	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	if billingMode != "" && !service.BillingMode(billingMode).IsValidUsageFilter() {
+		return nil, errInvalidBillingMode
+	}
+	filters.BillingMode = billingMode
 
 	if mismatchStr := strings.TrimSpace(c.Query("upstream_model_mismatch")); mismatchStr != "" {
 		value, err := strconv.ParseBool(mismatchStr)

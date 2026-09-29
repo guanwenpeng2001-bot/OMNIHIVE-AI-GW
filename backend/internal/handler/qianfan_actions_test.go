@@ -455,24 +455,26 @@ func TestQianfanImagesFlowModelRequired(t *testing.T) {
 	require.Contains(t, recorder.Body.String(), "model is required")
 }
 
-// Embeddings stays a chat-only capability mismatch: the scheduler requires
-// OpenAIEndpointCapabilityEmbeddings, which SupportsOpenAIEndpointCapability
-// denies for a chat-only platform entry. The adapter itself is covered by the
-// service-level TestForwardQianfanEmbeddings wire test.
-func TestQianfanEmbeddingsFlowChatOnlyCapabilityGate(t *testing.T) {
+// Embeddings is no longer a chat-only capability mismatch: multimodal-ingress
+// bound the qianfan.embeddings adapter in the action matrix, so
+// SupportsOpenAIEndpointCapability admits OpenAIEndpointCapabilityEmbeddings for
+// this API-key entry and the request reaches the documented /v2/embeddings
+// contract instead of being vetoed before any upstream call.
+func TestQianfanEmbeddingsFlowResolvesAfterTheChatOnlyRelease(t *testing.T) {
 	upstreamCalled := false
 	h := newQianfanFlowHarness(t, func(req *http.Request) *http.Response {
 		upstreamCalled = true
-		return qianfanFlowJSON(http.StatusOK, `{"object":"list","data":[]}`)
+		require.Equal(t, "https://qianfan.baidubce.com/v2/embeddings", req.URL.String())
+		require.Equal(t, "Bearer flow-upstream-key", req.Header.Get("Authorization"))
+		return qianfanFlowJSON(http.StatusOK, `{"id":"as-1","object":"list","data":[{"object":"embedding","index":0,"embedding":[0.1,0.2]}],"usage":{"prompt_tokens":3,"total_tokens":3}}`)
 	}, true)
 	defer h.cleanup()
 
 	recorder := h.serve(t, http.MethodPost, "/qianfan-adapter/emb",
 		`{"model":"embedding-v1","input":["White T-shirt"]}`, nil)
 
-	require.NotEqual(t, http.StatusOK, recorder.Code, "a chat-only entry must not serve embeddings")
-	require.Contains(t, recorder.Body.String(), "error")
-	require.False(t, upstreamCalled, "the capability gate must reject before any upstream call")
+	require.Equal(t, http.StatusOK, recorder.Code, recorder.Body.String())
+	require.True(t, upstreamCalled, "the released action must reach its documented upstream contract")
 }
 
 func TestQianfanRerankFlow(t *testing.T) {

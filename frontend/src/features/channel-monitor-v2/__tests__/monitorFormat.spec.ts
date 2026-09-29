@@ -8,6 +8,9 @@ import {
   formatMonitorRate,
   formatMonitorSuccessRate,
   formatMonitorSuccessRateFromError,
+  formatMonitorSuccessRateFromMetric,
+  hasMonitorTokenSplit,
+  monitorTokenSplitParts,
   formatMonitorThroughput,
   formatMonitorTokensPerSecond,
   healthScoreClass,
@@ -75,6 +78,36 @@ describe('monitorFormat accuracy', () => {
   it('derives success rate from error_rate without absolute counts', () => {
     expect(formatMonitorSuccessRateFromError(0.1)).toBe('90.0%')
     expect(formatMonitorSuccessRateFromError(0)).toBe('100.0%')
+  })
+
+  it('prefers the backend success_rate over 1 - error_rate when present', () => {
+    // ignored 错误分类：error_rate=0.1 但 success_rate=0.8（10% 被忽略的错误仍不算成功）
+    expect(formatMonitorSuccessRateFromMetric({ success_rate: 0.8, error_rate: 0.1 })).toBe('80.0%')
+    // 旧响应缺 success_rate 时才退回 1 - error_rate
+    expect(formatMonitorSuccessRateFromMetric({ error_rate: 0.1 })).toBe('90.0%')
+    // NaN/非数字不参与推导
+    expect(formatMonitorSuccessRateFromMetric({ success_rate: Number.NaN, error_rate: 0 })).toBe('100.0%')
+  })
+
+  it('detects and formats the optional token split', () => {
+    expect(hasMonitorTokenSplit({})).toBe(false)
+    expect(hasMonitorTokenSplit({ input_tokens: 0, output_tokens: 0 })).toBe(true)
+
+    const parts = monitorTokenSplitParts({
+      input_tokens: 1200,
+      output_tokens: 3400,
+      cache_read_tokens: 500,
+      cache_creation_tokens: 25,
+    })
+    expect(parts).toEqual({ input: '1.2K', output: '3.4K', cacheRead: '500', cacheCreation: '25' })
+
+    // 未下发的字段显示 '-'，不用 0 冒充
+    expect(monitorTokenSplitParts({ input_tokens: 10 })).toEqual({
+      input: '10',
+      output: '-',
+      cacheRead: '-',
+      cacheCreation: '-',
+    })
   })
 
   it('maps continuous scores to multi-stop bands', () => {

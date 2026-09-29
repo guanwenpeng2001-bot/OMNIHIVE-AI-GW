@@ -408,6 +408,83 @@ func (r *redeemCodeRepository) SumPositiveBalanceByUser(ctx context.Context, use
 	return result[0].Sum, nil
 }
 
+// GetStats 汇总兑换码真实分布：总数、可用、已用、已过期、已发放面值与按类型计数。
+// 「可用/已过期」口径与 ListWithFilters 的 status 过滤保持一致：
+// 未使用且（无到期时间或尚未到期）才算可用，未使用但已过期的计入过期。
+func (r *redeemCodeRepository) GetStats(ctx context.Context) (*service.RedeemCodeStats, error) {
+	now := time.Now()
+	stats := &service.RedeemCodeStats{ByType: map[string]int64{}}
+
+	var statusRows []struct {
+		Status string `json:"status"`
+		Count  int    `json:"count"`
+	}
+	if err := r.client.RedeemCode.Query().
+		GroupBy(redeemcode.FieldStatus).
+		Aggregate(dbent.Count()).
+		Scan(ctx, &statusRows); err != nil {
+		return nil, err
+	}
+	var unusedByStatus, expiredByStatus int64
+	for _, row := range statusRows {
+		stats.TotalCodes += int64(row.Count)
+		switch row.Status {
+		case service.StatusUsed:
+			stats.UsedCodes = int64(row.Count)
+		case service.StatusExpired:
+			expiredByStatus = int64(row.Count)
+		case service.StatusUnused:
+			unusedByStatus = int64(row.Count)
+		}
+	}
+
+	lapsedUnused, err := r.client.RedeemCode.Query().
+		Where(
+			redeemcode.StatusEQ(service.StatusUnused),
+			redeemcode.ExpiresAtNotNil(),
+			redeemcode.ExpiresAtLTE(now),
+		).
+		Count(ctx)
+	if err != nil {
+		return nil, err
+	}
+	stats.ExpiredCodes = expiredByStatus + int64(lapsedUnused)
+	stats.ActiveCodes = unusedByStatus - int64(lapsedUnused)
+
+	// SUM 在无已用兑换码时返回 NULL，必须 COALESCE，否则扫描进 float64 会失败。
+	usedValueSum := func(selector *entsql.Selector) string {
+		return entsql.As("COALESCE("+entsql.Sum(selector.C(redeemcode.FieldValue))+", 0)", "sum")
+	}
+	var valueRows []struct {
+		Sum float64 `json:"sum"`
+	}
+	if err := r.client.RedeemCode.Query().
+		Where(redeemcode.StatusEQ(service.StatusUsed)).
+		Aggregate(usedValueSum).
+		Scan(ctx, &valueRows); err != nil {
+		return nil, err
+	}
+	if len(valueRows) > 0 {
+		stats.TotalValueDistributed = valueRows[0].Sum
+	}
+
+	var typeRows []struct {
+		Type  string `json:"type"`
+		Count int    `json:"count"`
+	}
+	if err := r.client.RedeemCode.Query().
+		GroupBy(redeemcode.FieldType).
+		Aggregate(dbent.Count()).
+		Scan(ctx, &typeRows); err != nil {
+		return nil, err
+	}
+	for _, row := range typeRows {
+		stats.ByType[row.Type] = int64(row.Count)
+	}
+
+	return stats, nil
+}
+
 func redeemCodeEntityToService(m *dbent.RedeemCode) *service.RedeemCode {
 	if m == nil {
 		return nil

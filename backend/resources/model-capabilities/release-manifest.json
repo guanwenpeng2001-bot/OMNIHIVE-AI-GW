@@ -3,8 +3,8 @@
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
   "applicability": "reviewed-profile-model",
-  "approved_generation": 1789944119,
-  "catalog_sha256": "66fbb990e4731a7741f9b921253c03d844ee0ab367791776e76c03b2572bf6d8",
+  "approved_generation": 1790004404,
+  "catalog_sha256": "81385b1f1edb20bec51586fcff1e3f7cf0a1d0e8f67b5668915b37d70cb9c460",
   "code_versions": {
     "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
     "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
@@ -18,13 +18,13 @@
     "internal/service/model_registry_reload.go": "4b68005914e8d9d7ccb31609c766c35f214622b15c99d3c3ab907f7e69e92160",
     "internal/service/platform_model_catalog.go": "e880f9de3a3afa11f779c9896147c03c1fd59705e7a99091fff36e2054cc3457",
     "internal/service/upstream_models.go": "7a8f3f2b151103611a350d96a763c9b2c1f78d840485cadf495ab4645a1b8e12",
-    "internal/service/visible_model_resolver.go": "2ff1ed3d13c26b908632af643c1caa8ed77056ddba47b1074865219b01e9508e",
+    "internal/service/visible_model_resolver.go": "08762b4da14fd776ca9f36e8e64908b3f46e784c38be810dd2b6e4b887cfb357",
     "resources/model-capabilities/release.go": "162d39bad99e33835ea6e901edf07a418eb0fd734705e4325a1770dcde4417d0"
   },
   "inputs_sha256": "7dab1df7181d924eb89b8205d0970cade87aa3e6561cf8172a98ca067ca066b6",
   "presets_sha256": "5c7a9d4e0cf33297250c611d32db4561b8f5854a52db5312326666d934ae9ec2",
   "record_count": 296,
-  "review_sha256": "fca5649bcb5b8768836f6e541a4f18e652935c342b772c2438dd32a7982a1cb9",
+  "review_sha256": "b96930b68af9c88acea374e9e6ee21123822359025fdfba6bf0f3c983827d048",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

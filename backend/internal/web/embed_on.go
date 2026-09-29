@@ -46,7 +46,7 @@ type FrontendServer struct {
 
 // NewFrontendServer creates a new frontend server with settings injection
 func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer, error) {
-	distFS, err := fs.Sub(frontendFS, "dist")
+	distFS, err := embeddedFrontendDistFS(frontendFS)
 	if err != nil {
 		return nil, err
 	}
@@ -299,11 +299,13 @@ func replaceNoncePlaceholder(html []byte, nonce string) []byte {
 }
 
 // ServeEmbeddedFrontend returns a middleware for serving embedded frontend
-// This is the legacy function for backward compatibility when no settings provider is available
-func ServeEmbeddedFrontend() gin.HandlerFunc {
-	distFS, err := fs.Sub(frontendFS, "dist")
+// This is the legacy function for backward compatibility when no settings provider is available.
+// It reports an error when the embedded assets are unusable instead of panicking,
+// so the caller can fail startup with a recorded reason.
+func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
+	distFS, err := embeddedFrontendDistFS(frontendFS)
 	if err != nil {
-		panic("failed to get dist subdirectory: " + err.Error())
+		return nil, err
 	}
 	fileServer := http.FileServer(http.FS(distFS))
 	overrideDir := filepath.Join("data", "public")
@@ -334,7 +336,7 @@ func ServeEmbeddedFrontend() gin.HandlerFunc {
 		}
 
 		serveIndexHTML(c, distFS)
-	}
+	}, nil
 }
 
 // tryServeOverrideFile is a standalone version of tryServeOverride for legacy usage.

@@ -110,6 +110,16 @@
                     >
                       {{ route.upstream_model || route.public_model }}
                     </div>
+                    <div
+                      v-if="compositeRouteTargetCount(route) > 1"
+                      class="mt-1 text-xs text-gray-500 dark:text-gray-400"
+                    >
+                      {{
+                        t("admin.groups.compositeRoutes.targetCount", {
+                          count: compositeRouteTargetCount(route),
+                        })
+                      }}
+                    </div>
                   </td>
                   <td class="px-3 py-2">
                     <div class="text-gray-700 dark:text-gray-300">
@@ -201,43 +211,185 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <div>
-              <label class="input-label">{{
-                t("admin.groups.compositeRoutes.targetPlatform")
-              }}</label>
-              <Select
-                v-model="compositeRouteForm.target_platform"
-                :options="compositeRoutePlatformOptions"
-              />
-            </div>
-            <div>
-              <label class="input-label">{{
-                t("admin.groups.compositeRoutes.priority")
-              }}</label>
-              <input
-                v-model.number="compositeRouteForm.priority"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-              />
-            </div>
-          </div>
-
           <div>
             <label class="input-label">{{
-              t("admin.groups.compositeRoutes.upstreamModel")
+              t("admin.groups.compositeRoutes.priority")
             }}</label>
             <input
-              v-model.trim="compositeRouteForm.upstream_model"
-              type="text"
+              v-model.number="compositeRouteForm.priority"
+              type="number"
+              min="1"
+              step="1"
               class="input"
-              placeholder="gpt-5"
             />
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+          </div>
+
+          <div class="space-y-2">
+            <div class="flex items-center justify-between gap-2">
+              <label class="input-label">{{
+                t("admin.groups.compositeRoutes.targetsTitle")
+              }}</label>
+              <button
+                type="button"
+                class="btn btn-secondary btn-sm"
+                :disabled="
+                  compositeRouteForm.targets.length >= compositeRouteMaxTargets
+                "
+                @click="addCompositeRouteTarget"
+              >
+                <Icon name="plus" size="sm" class="mr-1" />
+                {{ t("admin.groups.compositeRoutes.addTarget") }}
+              </button>
+            </div>
+            <p class="text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.compositeRoutes.targetsHint") }}
+            </p>
+            <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t("admin.groups.compositeRoutes.upstreamModelHint") }}
             </p>
+
+            <div
+              v-for="(target, index) in compositeRouteForm.targets"
+              :key="index"
+              class="space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-600"
+            >
+              <div class="flex items-center justify-between gap-2">
+                <span
+                  class="flex items-center gap-1.5 text-xs font-semibold text-gray-700 dark:text-gray-300"
+                >
+                  {{
+                    t("admin.groups.compositeRoutes.targetLabel", {
+                      index: index + 1,
+                    })
+                  }}
+                  <span v-if="index === 0" class="badge badge-gray">
+                    {{ t("admin.groups.compositeRoutes.primaryTarget") }}
+                  </span>
+                </span>
+                <div class="flex items-center gap-1">
+                  <button
+                    type="button"
+                    class="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                    :disabled="index === 0"
+                    :title="t('admin.groups.compositeRoutes.moveTargetUp')"
+                    @click="moveCompositeRouteTarget(index, -1)"
+                  >
+                    <Icon name="chevronUp" size="sm" />
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-dark-700 dark:hover:text-primary-400"
+                    :disabled="index === compositeRouteForm.targets.length - 1"
+                    :title="t('admin.groups.compositeRoutes.moveTargetDown')"
+                    @click="moveCompositeRouteTarget(index, 1)"
+                  >
+                    <Icon name="chevronDown" size="sm" />
+                  </button>
+                  <button
+                    type="button"
+                    class="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 disabled:cursor-not-allowed disabled:opacity-40 dark:hover:bg-red-900/20 dark:hover:text-red-400"
+                    :disabled="compositeRouteForm.targets.length <= 1"
+                    :title="t('admin.groups.compositeRoutes.removeTarget')"
+                    @click="removeCompositeRouteTarget(index)"
+                  >
+                    <Icon name="trash" size="sm" />
+                  </button>
+                </div>
+              </div>
+
+              <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.targetPlatform")
+                  }}</span>
+                  <Select
+                    v-model="target.target_platform"
+                    :options="compositeRoutePlatformOptions"
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.upstreamModel")
+                  }}</span>
+                  <input
+                    v-model.trim="target.upstream_model"
+                    type="text"
+                    class="input"
+                    placeholder="gpt-5"
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.region")
+                  }}</span>
+                  <input
+                    v-model.trim="target.region"
+                    type="text"
+                    class="input"
+                    :placeholder="
+                      t('admin.groups.compositeRoutes.regionPlaceholder')
+                    "
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.provider")
+                  }}</span>
+                  <input
+                    v-model.trim="target.provider"
+                    type="text"
+                    class="input"
+                    :placeholder="
+                      t('admin.groups.compositeRoutes.providerPlaceholder')
+                    "
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.latencyPreference")
+                  }}</span>
+                  <Select
+                    v-model="target.latency_preference"
+                    :options="compositeRouteLatencyPreferenceOptions"
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.schedulingWeight")
+                  }}</span>
+                  <input
+                    v-model.number="target.scheduling_weight"
+                    type="number"
+                    min="1"
+                    step="1"
+                    class="input"
+                  />
+                </div>
+                <div>
+                  <span class="input-label">{{
+                    t("admin.groups.compositeRoutes.affinityTtl")
+                  }}</span>
+                  <input
+                    v-model.number="target.affinity_ttl_seconds"
+                    type="number"
+                    min="0"
+                    max="86400"
+                    step="60"
+                    class="input"
+                  />
+                </div>
+                <label
+                  class="flex items-center gap-2 self-end pb-2.5 text-sm text-gray-700 dark:text-gray-300"
+                >
+                  <input
+                    v-model="target.enabled"
+                    type="checkbox"
+                    class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
+                  />
+                  {{ t("admin.groups.compositeRoutes.enabled") }}
+                </label>
+              </div>
+            </div>
           </div>
 
           <div>
@@ -390,6 +542,8 @@ const {
   compositeRoutePlatformOptions,
   compositeRouteEndpointOptions,
   compositeRouteMatchOptions,
+  compositeRouteLatencyPreferenceOptions,
+  compositeRouteMaxTargets,
   showCompositeRoutesModal,
   compositeRoutesGroup,
   compositeRoutes,
@@ -405,10 +559,14 @@ const {
   formatCompositeEndpoint,
   formatCompositePlatform,
   compositeRouteSourceLabel,
+  compositeRouteTargetCount,
   resetCompositeRouteForm,
   loadCompositeRoutes,
   closeCompositeRoutesModal,
   editCompositeRoute,
+  addCompositeRouteTarget,
+  removeCompositeRouteTarget,
+  moveCompositeRouteTarget,
   saveCompositeRoute,
   deleteCompositeRoute,
   previewCompositeRoute,

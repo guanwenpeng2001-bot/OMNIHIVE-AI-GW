@@ -53,11 +53,16 @@ type modelPlazaTimePricing struct {
 
 // modelPlazaModel 广场模型条目：实收口径展示定价（白名单形态）。
 type modelPlazaModel struct {
-	// Compatibility shell only: reference pricing is no longer queried.
+	// Compatibility shell only: reference pricing is no longer queried, so this is
+	// always null. The panel shows a discount only when a reference price with a
+	// source exists in this field.
 	OfficialPricing any                        `json:"official_pricing"`
 	Name            string                     `json:"name"`
 	Platform        string                     `json:"platform"`
 	Pricing         *userSupportedModelPricing `json:"pricing"`
+	// Capabilities 该模型在当前分组下的有效观测（账号证据聚合）。
+	// 只在至少有一项可核实事实时返回；缺失/冲突的字段保持 unknown，不当作零值。
+	Capabilities *publicModelMetadata `json:"capabilities,omitempty"`
 	// LongContextBasis 多档时的计价基准："whole_request"（整单按档）| "marginal"（仅超出部分）。
 	LongContextBasis string `json:"long_context_basis,omitempty"`
 	// TimePricing 分时倍率时段，落在时段内的请求整单乘倍率；无分时省略。
@@ -182,6 +187,7 @@ func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) mo
 			Name:             m.Name,
 			Platform:         m.Platform,
 			Pricing:          toUserPricing(m.Pricing),
+			Capabilities:     plazaCapabilities(m.Capabilities),
 			LongContextBasis: string(m.LongContextBasis),
 			TimePricing:      toModelPlazaTimePricing(m.TimePricing),
 		})
@@ -223,4 +229,44 @@ func toModelPlazaTimePricing(p *service.TimePricingSchedule) *modelPlazaTimePric
 		})
 	}
 	return &modelPlazaTimePricing{Timezone: p.Timezone, WeekdaysOnly: p.WeekdaysOnly, Periods: periods}
+}
+
+// plazaCapabilities 把每个公开模型名下同一次可见性解析得到的账号观测投影为
+// 公开白名单。没有任何可核实事实时返回 nil，而不是一份全未知对象：前端看到
+// 缺字段就应该显示未提供，而不是把它当成零值或默认能力。
+func plazaCapabilities(observations []service.UpstreamModelMetadata) *publicModelMetadata {
+	if len(observations) == 0 {
+		return nil
+	}
+	facts := aggregatePublicMetadata(observations)
+	if !plazaCapabilityHasEvidence(facts) {
+		return nil
+	}
+	return &facts
+}
+
+func plazaCapabilityHasEvidence(facts publicModelMetadata) bool {
+	if plazaLimitHasEvidence(facts.InputContext) || plazaLimitHasEvidence(facts.TotalContext) ||
+		plazaLimitHasEvidence(facts.UnspecifiedContext) || plazaLimitHasEvidence(facts.MaxOutputTokens) {
+		return true
+	}
+	if plazaBooleanHasEvidence(facts.Reasoning) || plazaBooleanHasEvidence(facts.SupportsVision) ||
+		plazaBooleanHasEvidence(facts.SupportsFunctionCalling) || plazaBooleanHasEvidence(facts.SupportsPromptCaching) ||
+		plazaBooleanHasEvidence(facts.SupportsPDF) || plazaModalitiesHasEvidence(facts.InputModalities) ||
+		plazaModalitiesHasEvidence(facts.OutputModalities) {
+		return true
+	}
+	return facts.EmbeddingDimensions.Guaranteed != nil || len(facts.EmbeddingDimensions.Available) > 0
+}
+
+func plazaLimitHasEvidence(limit publicLimit) bool {
+	return limit.Guaranteed != nil || limit.ObservedMinimum != nil || len(limit.Available) > 0
+}
+
+func plazaBooleanHasEvidence(fact publicFact[bool]) bool {
+	return fact.Guaranteed != nil || len(fact.Available) > 0
+}
+
+func plazaModalitiesHasEvidence(modalities publicModalities) bool {
+	return modalities.Guaranteed != nil || len(modalities.Available) > 0
 }

@@ -28,8 +28,20 @@
           {{ platformDescription }}
         </p>
 
+        <!-- API base URL is required: the console origin is not the gateway address -->
+        <div
+          v-if="!hasBaseUrl"
+          data-testid="client-config-base-url-missing"
+          class="flex items-start gap-3 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+        >
+          <Icon name="exclamationCircle" size="md" class="text-amber-600 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-800 dark:text-amber-200">
+            {{ t('keys.useKeyModal.baseUrlMissing') }}
+          </p>
+        </div>
+
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+        <div v-if="clientTabs.length && hasBaseUrl" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
           <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" :aria-label="t('keys.useKeyModal.clientLabel')">
             <button
               v-for="tab in clientTabs"
@@ -134,7 +146,7 @@
         </div>
 
         <!-- Code Blocks (Stacked for multi-file platforms) -->
-        <div class="space-y-4">
+        <div v-if="hasBaseUrl" class="space-y-4">
           <div
             v-for="(file, index) in currentFiles"
             :key="index"
@@ -238,6 +250,18 @@
             {{ platformNote }}
           </p>
         </div>
+
+        <!-- Messages and other text/vision protocols are not generation entries. -->
+        <div
+          v-if="hasBaseUrl && activeClientTab !== 'opencode'"
+          data-testid="generation-endpoint-hint"
+          class="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800"
+        >
+          <Icon name="exclamationCircle" size="md" class="text-amber-600 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-800 dark:text-amber-200">
+            {{ t('keys.useKeyModal.generationEntryHint') }}
+          </p>
+        </div>
       </template>
     </div>
 
@@ -313,8 +337,12 @@ const codexModelManifestModelCount = ref(0)
 let codexModelManifestController: AbortController | null = null
 let codexModelManifestRequestID = 0
 
+/** A client config needs the address this deployment publishes; the console origin is never assumed. */
+const hasBaseUrl = computed(() => props.baseUrl.trim() !== '')
+
 const showCodexModelCatalog = computed(() =>
   props.show &&
+  hasBaseUrl.value &&
   (activeClientTab.value === 'codex' || activeClientTab.value === 'opencode' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
@@ -710,7 +738,9 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  const baseUrl = props.baseUrl || window.location.origin
+  const baseUrl = props.baseUrl.trim()
+  // Without a configured public API base URL there is nothing truthful to copy.
+  if (!baseUrl) return []
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
   const ensureV1 = (value: string) => {

@@ -4,11 +4,17 @@ import { nextTick } from 'vue'
 
 import KeyUsageView from '../KeyUsageView.vue'
 
-const { showInfo, showSuccess, showError, fetchPublicSettings } = vi.hoisted(() => ({
+const { showInfo, showSuccess, showError, fetchPublicSettings, authUser, listKeys, getKeyById, getDailyUsage, getBatchUsage } = vi.hoisted(() => ({
   showInfo: vi.fn(),
   showSuccess: vi.fn(),
   showError: vi.fn(),
   fetchPublicSettings: vi.fn(),
+  // Signed-out by default so the existing paste-a-key flow stays the subject of these tests.
+  authUser: { value: null as { id: number; role: string } | null },
+  listKeys: vi.fn(),
+  getKeyById: vi.fn(),
+  getDailyUsage: vi.fn(),
+  getBatchUsage: vi.fn(),
 }))
 
 const messages: Record<string, string> = {
@@ -67,11 +73,32 @@ const messages: Record<string, string> = {
   'keyUsage.querySuccess': 'Query successful',
   'keyUsage.queryFailed': 'Query failed',
   'keyUsage.queryFailedRetry': 'Query failed, please try again later',
+  'keyUsage.secretQuery.title': 'External key query (paste the full key)',
+  'keyUsage.sessionQuery.title': 'Query by key ID (signed-in session)',
+  'keyUsage.sessionQuery.description': 'Pick one of your own keys to read its quota, rate limits and daily usage without pasting a secret.',
+  'keyUsage.sessionQuery.keyLabel': 'My keys',
+  'keyUsage.sessionQuery.placeholder': 'Select a key',
+  'keyUsage.sessionQuery.noKeys': 'This account has no keys to query.',
+  'keyUsage.sessionQuery.noGroup': 'No group',
+  'keyUsage.sessionQuery.signedOutHint': 'Sign in to select your own key and query it by ID without pasting a secret.',
+  'keyUsage.panelModeNotice': 'These results come from the panel session and show what the panel knows; per-request token detail is not displayed here.',
   'home.viewDocs': 'Docs',
   'home.switchToLight': 'Light',
   'home.switchToDark': 'Dark',
   'home.footer.allRightsReserved': 'All rights reserved.',
 }
+
+vi.mock('@/api/keys', () => ({
+  keysAPI: {
+    list: listKeys,
+    getById: getKeyById,
+  },
+}))
+
+vi.mock('@/api/usage', () => ({
+  getMyApiKeyDailyUsage: getDailyUsage,
+  getDashboardApiKeysUsage: getBatchUsage,
+}))
 
 vi.mock('vue-i18n', async () => {
   const actual = await vi.importActual<typeof import('vue-i18n')>('vue-i18n')
@@ -89,6 +116,11 @@ const appStoreState = vi.hoisted(() => ({
 }))
 
 vi.mock('@/stores', () => ({
+  useAuthStore: () => ({
+    get user() {
+      return authUser.value
+    },
+  }),
   useAppStore: () => ({
     get cachedPublicSettings() {
       return appStoreState.cachedPublicSettings
@@ -236,6 +268,103 @@ describe('KeyUsageView daily detail', () => {
     expect(requestUrl).toContain('start_date=2026-07-13')
     expect(requestUrl).toContain('end_date=2026-07-13')
 
+    wrapper.unmount()
+  })
+})
+
+describe('KeyUsageView signed-in session query', () => {
+  beforeEach(() => {
+    showInfo.mockReset()
+    showSuccess.mockReset()
+    showError.mockReset()
+    fetchPublicSettings.mockReset()
+    listKeys.mockReset()
+    getKeyById.mockReset()
+    getDailyUsage.mockReset()
+    getBatchUsage.mockReset()
+    localStorage.clear()
+    authUser.value = { id: 7, role: 'user' }
+
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      value: vi.fn().mockReturnValue({ matches: false }),
+    })
+    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
+    vi.stubGlobal('fetch', vi.fn())
+  })
+
+  afterEach(() => {
+    authUser.value = null
+    vi.unstubAllGlobals()
+  })
+
+  const mountView = () => mount(KeyUsageView, {
+    global: {
+      stubs: { RouterLink: { template: '<a><slot /></a>' }, LocaleSwitcher: true, Icon: true },
+    },
+  })
+
+  it('queries the chosen key by ID through the panel without asking for a secret', async () => {
+    listKeys.mockResolvedValue({ items: [{ id: 42, name: 'laptop', group: { name: 'Text' }, status: 'active', group_id: 2 }], total: 1 })
+    getKeyById.mockResolvedValue({
+      id: 42,
+      name: 'laptop',
+      status: 'active',
+      quota: 10,
+      quota_used: 2,
+      expires_at: null,
+      rate_limit_5h: 5,
+      usage_5h: 1,
+      window_5h_start: null,
+      reset_5h_at: null,
+      rate_limit_1d: 0,
+      usage_1d: 0,
+      window_1d_start: null,
+      reset_1d_at: null,
+      rate_limit_7d: 0,
+      usage_7d: 0,
+      window_7d_start: null,
+      reset_7d_at: null,
+    })
+    getDailyUsage.mockResolvedValue({
+      items: [{
+        date: '2026-05-19', requests: 3, input_tokens: 10, output_tokens: 20,
+        cache_read_tokens: 0, cache_write_tokens: 1, total_tokens: 31, cost: 0.05, actual_cost: 0.04,
+      }],
+      days: 30, start_date: '2026-04-20', end_date: '2026-05-19',
+    })
+    getBatchUsage.mockResolvedValue({ stats: { 42: { api_key_id: 42, today_actual_cost: 0.01, total_actual_cost: 0.25 } } })
+
+    const wrapper = mountView()
+    await flushPromises()
+
+    // The key list only carries masked credentials and drives a selector, not a paste box.
+    expect(listKeys).toHaveBeenCalledTimes(1)
+    await wrapper.get('select').setValue(42)
+    await wrapper.findAll('button').find(button => button.text() === 'Query')!.trigger('click')
+    await flushPromises()
+
+    expect(getKeyById).toHaveBeenCalledWith(42)
+    expect(getDailyUsage).toHaveBeenCalledWith(42, 30)
+    expect(getBatchUsage).toHaveBeenCalledWith([42])
+    expect(vi.mocked(fetch)).not.toHaveBeenCalled()
+
+    const text = wrapper.text()
+    expect(text).toContain('panel session')
+    expect(text).toContain('Today Cost')
+    expect(text).toContain('$0.01')
+    expect(text).toContain('Total Cost')
+    expect(text).toContain('$0.25')
+    expect(text).toContain('2026-05-19')
+
+    wrapper.unmount()
+  })
+
+  it('tells signed-out visitors they can query by ID after signing in', async () => {
+    authUser.value = null
+    const wrapper = mountView()
+    expect(wrapper.text()).toContain('Sign in to select your own key')
+    expect(wrapper.find('select').exists()).toBe(false)
     wrapper.unmount()
   })
 })

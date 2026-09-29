@@ -41,6 +41,8 @@ const (
 	FieldEnabled = "enabled"
 	// FieldNotes holds the string denoting the notes field in the database.
 	FieldNotes = "notes"
+	// FieldOrderedTargets holds the string denoting the ordered_targets field in the database.
+	FieldOrderedTargets = "ordered_targets"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
 	// Table holds the table name of the compositemodelroute in the database.
@@ -70,6 +72,7 @@ var Columns = []string{
 	FieldPriority,
 	FieldEnabled,
 	FieldNotes,
+	FieldOrderedTargets,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).

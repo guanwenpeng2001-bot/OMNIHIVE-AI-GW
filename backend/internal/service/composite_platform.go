@@ -38,6 +38,10 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		return ctx
 	}
 	ctx = WithResolvedTargetPlatform(ctx, decision.TargetPlatform)
+	if len(decision.Targets) > 0 {
+		ctx = WithCompositeRouteTargets(ctx, decision.Targets)
+	}
+	ctx = WithCompositeSelectedTarget(ctx, decision.SelectedTarget)
 	requiredType := decision.AccountType
 	if requiredType == "" {
 		requiredType = domain.HostedAccountType(decision.TargetPlatform)
@@ -53,6 +57,51 @@ func WithCompositeRouteDecision(ctx context.Context, decision CompositeRouteDeci
 		ctx = context.WithValue(ctx, ctxkey.CompositeRouteSource, source)
 	}
 	return ctx
+}
+
+type compositeRouteTargetsKey struct{}
+
+type compositeSelectedTargetKey struct{}
+
+// WithCompositeRouteTargets records the ordered fallback targets resolved for
+// the request so schedulers and handlers can advance to the next target.
+func WithCompositeRouteTargets(ctx context.Context, targets []CompositeRouteTarget) context.Context {
+	if ctx == nil || len(targets) == 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, compositeRouteTargetsKey{}, append([]CompositeRouteTarget(nil), targets...))
+}
+
+// WithCompositeSelectedTarget pins the ordered target this attempt selected. It
+// cannot be derived from the platform alone: one route may declare several
+// targets of the same platform (for example one Bedrock target per region).
+func WithCompositeSelectedTarget(ctx context.Context, target *CompositeRouteTarget) context.Context {
+	if ctx == nil || target == nil {
+		return ctx
+	}
+	pinned := *target
+	return context.WithValue(ctx, compositeSelectedTargetKey{}, pinned)
+}
+
+func compositeSelectedTargetFromContext(ctx context.Context) (CompositeRouteTarget, bool) {
+	if ctx == nil {
+		return CompositeRouteTarget{}, false
+	}
+	target, ok := ctx.Value(compositeSelectedTargetKey{}).(CompositeRouteTarget)
+	return target, ok
+}
+
+// CompositeRouteTargetsFromContext returns the ordered fallback targets of the
+// current composite request, if one was resolved.
+func CompositeRouteTargetsFromContext(ctx context.Context) ([]CompositeRouteTarget, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	targets, ok := ctx.Value(compositeRouteTargetsKey{}).([]CompositeRouteTarget)
+	if !ok || len(targets) == 0 {
+		return nil, false
+	}
+	return targets, true
 }
 
 type hostedRouteAccountTypeKey struct{}
@@ -195,6 +244,18 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 	if group == nil || group.Platform != PlatformComposite {
 		return CompositeRouteDecision{}, false, nil
 	}
+	decision, matched, err := s.buildCompositeRouteDecision(ctx, group, requestedModel, endpoint)
+	if err != nil || !matched {
+		return decision, matched, err
+	}
+	selected, err := s.selectCompositeDecisionTarget(ctx, &group.ID, decision, requestedModel, gatewayRequiredAction(ctx))
+	if err != nil {
+		return selected, false, err
+	}
+	return selected, true, nil
+}
+
+func (s *GatewayService) buildCompositeRouteDecision(ctx context.Context, group *Group, requestedModel, endpoint string) (CompositeRouteDecision, bool, error) {
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
 		upstreamModel := requestedModel
 		if resolvedModel, modelOK := ResolvedUpstreamModelFromContext(ctx); modelOK {
@@ -204,7 +265,7 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 		if resolvedSource, sourceOK := CompositeRouteSourceFromContext(ctx); sourceOK {
 			source = resolvedSource
 		}
-		return CompositeRouteDecision{
+		decision := CompositeRouteDecision{
 			Matched:        true,
 			Source:         source,
 			GroupID:        group.ID,
@@ -213,7 +274,11 @@ func (s *GatewayService) resolveCompositeRouteDecision(ctx context.Context, grou
 			AccountType:    RequiredRouteAccountType(ctx),
 			UpstreamModel:  upstreamModel,
 			Endpoint:       normalizeCompositeRouteEndpoint(endpoint),
-		}, true, nil
+		}
+		if targets, ok := CompositeRouteTargetsFromContext(ctx); ok {
+			decision.Targets = targets
+		}
+		return decision, true, nil
 	}
 	decision, err := s.compositeResolver.Resolve(ctx, group.ID, requestedModel, endpoint)
 	if err != nil {

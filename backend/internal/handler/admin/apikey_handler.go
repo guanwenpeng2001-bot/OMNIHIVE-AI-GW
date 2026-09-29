@@ -2,9 +2,11 @@ package admin
 
 import (
 	"strconv"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
+	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -72,5 +74,163 @@ func (h *AdminAPIKeyHandler) UpdateGroup(c *gin.Context) {
 		GrantedGroupID:         result.GrantedGroupID,
 		GrantedGroupName:       result.GrantedGroupName,
 	}
+	response.Success(c, resp)
+}
+
+// AdminSetAPIKeyStatusRequest enables or disables a user's key.
+type AdminSetAPIKeyStatusRequest struct {
+	Status string `json:"status" binding:"required,oneof=active disabled"`
+}
+
+// SetStatus enables or disables any user's API key.
+// PUT /api/v1/admin/api-keys/:id/status
+func (h *AdminAPIKeyHandler) SetStatus(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	var req AdminSetAPIKeyStatusRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	key, err := h.adminService.AdminSetAPIKeyStatus(c.Request.Context(), keyID, req.Status)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.APIKeyFromService(key))
+}
+
+// Delete removes any user's API key and revokes its credentials.
+// DELETE /api/v1/admin/api-keys/:id
+func (h *AdminAPIKeyHandler) Delete(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	if err := h.adminService.AdminDeleteAPIKey(c.Request.Context(), keyID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"message": "API key deleted successfully"})
+}
+
+// AdminRotateAPIKeyCredentialRequest controls an admin credential rotation.
+type AdminRotateAPIKeyCredentialRequest struct {
+	GraceTTLHours  *int  `json:"grace_ttl_hours"`
+	RevokePrevious *bool `json:"revoke_previous"`
+}
+
+// RotateCredential rotates any user's key secret in place, keeping its identity.
+// POST /api/v1/admin/api-keys/:id/credentials/rotate
+func (h *AdminAPIKeyHandler) RotateCredential(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+	var req AdminRotateAPIKeyCredentialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.GraceTTLHours != nil && *req.GraceTTLHours < 0 {
+		response.BadRequest(c, "Invalid request: grace_ttl_hours must be non-negative")
+		return
+	}
+
+	var graceTTL time.Duration
+	if req.GraceTTLHours != nil {
+		graceTTL = time.Duration(*req.GraceTTLHours) * time.Hour
+	}
+	revokePrevious := req.RevokePrevious != nil && *req.RevokePrevious
+
+	issue, err := h.adminService.AdminRotateAPIKeyCredential(c.Request.Context(), keyID, graceTTL, revokePrevious)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.APIKeyCredentialIssue{
+		APIKey:     dto.APIKeyFromService(issue.APIKey),
+		Secret:     issue.Secret,
+		GraceUntil: issue.GraceUntil,
+	})
+}
+
+// AdminUpdateAPIKeyBudgetRequest 是管理端预算写请求。
+//
+// 两个字段都可选，但至少要提供一个：
+//   - Budget 整体替换周期预算策略，包含 budget_enforced 开关；
+//   - Adjustment 记录一次带原因的已消费金额调整（唯一的调账方式）。
+type AdminUpdateAPIKeyBudgetRequest struct {
+	Budget     *service.APIKeyBudgetPolicy  `json:"budget"`
+	Adjustment *AdminAPIKeyBudgetAdjustment `json:"adjustment"`
+}
+
+// AdminAPIKeyBudgetAdjustment 是一次管理端调账。
+type AdminAPIKeyBudgetAdjustment struct {
+	// DeltaUSD 为增量金额：正数增加已消费，负数退回已消费。不能为 0。
+	DeltaUSD float64 `json:"delta_usd"`
+	// Reason 必须非空，会随审计日志一起留痕。
+	Reason string `json:"reason"`
+}
+
+// AdminUpdateAPIKeyBudget 写入周期预算策略与/或调账。
+// PUT /api/v1/admin/api-keys/:id/budget
+//
+// 鉴权与审计与其它管理端写操作同源（admin 路由组上的 adminAuth + auditLog），
+// 因此这里不再自建任何额外校验/审批环节。
+func (h *AdminAPIKeyHandler) AdminUpdateAPIKeyBudget(c *gin.Context) {
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid API key ID")
+		return
+	}
+
+	var req AdminUpdateAPIKeyBudgetRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.Budget == nil && req.Adjustment == nil {
+		response.BadRequest(c, "budget or adjustment is required")
+		return
+	}
+
+	resp := struct {
+		Policy *service.APIKeyBudgetPolicy `json:"policy,omitempty"`
+		State  *service.APIKeyBudgetState  `json:"state,omitempty"`
+	}{}
+
+	if req.Budget != nil {
+		saved, err := h.adminService.AdminSetAPIKeyBudgetPolicy(c.Request.Context(), keyID, *req.Budget)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		resp.Policy = &saved
+	}
+
+	if req.Adjustment != nil {
+		actorID := int64(0)
+		if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
+			actorID = subject.UserID
+		}
+		state, err := h.adminService.AdminAdjustAPIKeyBudgetUsage(c.Request.Context(), &service.KeyBudgetAdjustmentCommand{
+			APIKeyID:    keyID,
+			ActorUserID: actorID,
+			DeltaUSD:    req.Adjustment.DeltaUSD,
+			Reason:      req.Adjustment.Reason,
+		})
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		resp.State = state
+	}
+
 	response.Success(c, resp)
 }

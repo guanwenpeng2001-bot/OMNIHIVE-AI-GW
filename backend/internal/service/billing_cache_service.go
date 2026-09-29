@@ -113,6 +113,8 @@ type BillingCacheService struct {
 	cfg                   *config.Config
 	circuitBreaker        *billingCircuitBreaker
 	userPlatformQuotaRepo UserPlatformQuotaRepository
+	// admissionGate 是本实例的准入闸门（inflight 上限 + 有界排队），未配置时为 nil。
+	admissionGate *GatewayAdmissionGate
 
 	cacheWriteChan     chan cacheWriteTask
 	cacheWriteWg       sync.WaitGroup
@@ -150,8 +152,23 @@ func NewBillingCacheService(
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
 	svc.circuitBreaker = newBillingCircuitBreaker(cfg.Billing.CircuitBreaker)
+	if cfg != nil {
+		svc.admissionGate = NewGatewayAdmissionGate(GatewayAdmissionConfig{
+			MaxInflight: cfg.Gateway.Admission.MaxInflight,
+			MaxWaiting:  cfg.Gateway.Admission.MaxWaiting,
+			WaitTimeout: cfg.Gateway.Admission.WaitTimeout,
+		})
+	}
 	svc.startCacheWriteWorkers()
 	return svc
+}
+
+// AdmissionGate 暴露本服务持有的准入闸门（未启用时为 nil），便于运维自检。
+func (s *BillingCacheService) AdmissionGate() *GatewayAdmissionGate {
+	if s == nil {
+		return nil
+	}
+	return s.admissionGate
 }
 
 // Stop 关闭缓存写入工作池
@@ -675,16 +692,32 @@ func (s *BillingCacheService) evaluateRateLimits(ctx context.Context, apiKey *AP
 	}
 
 	// Check limits
+	// 每个 USD 窗口都有真实的滚动重置点（窗口起点 + 窗口长度），命中限额时把它
+	// 带给客户端，Retry-After 因此来自真实窗口而不是本机时钟的猜测。
 	if apiKey.RateLimit5h > 0 && usage5h >= apiKey.RateLimit5h {
-		return ErrAPIKeyRateLimit5hExceeded
+		return withAPIKeyWindowReset(ErrAPIKeyRateLimit5hExceeded, w5h, RateLimitWindow5h)
 	}
 	if apiKey.RateLimit1d > 0 && usage1d >= apiKey.RateLimit1d {
-		return ErrAPIKeyRateLimit1dExceeded
+		return withAPIKeyWindowReset(ErrAPIKeyRateLimit1dExceeded, w1d, RateLimitWindow1d)
 	}
 	if apiKey.RateLimit7d > 0 && usage7d >= apiKey.RateLimit7d {
-		return ErrAPIKeyRateLimit7dExceeded
+		return withAPIKeyWindowReset(ErrAPIKeyRateLimit7dExceeded, w7d, RateLimitWindow7d)
 	}
 	return nil
+}
+
+// withAPIKeyWindowReset 用真实的窗口起点推算重置时刻。
+// 窗口起点缺失（无法证明窗口边界）时不附加 metadata，调用方必须省略 Retry-After，
+// 不允许用本机时钟编造一个看起来合理的重置时间。
+func withAPIKeyWindowReset(err error, windowStart *time.Time, window time.Duration) error {
+	if windowStart == nil {
+		return err
+	}
+	resetAt := windowStart.Add(window)
+	if RetryAfterSecondsUntil(resetAt, time.Now()) <= 0 {
+		return err
+	}
+	return withWindowResetsMetadata(err, resetAt)
 }
 
 // QueueUpdateAPIKeyRateLimitUsage asynchronously updates rate limit usage in the cache.
@@ -733,6 +766,13 @@ func (s *BillingCacheService) IncrementUserPlatformQuotaUsage(userID int64, plat
 // 订阅模式：检查缓存用量未超过限额（Group限额从参数传入）
 // platform 为请求的目标平台（如 "anthropic"），传空串 "" 时跳过 user × platform quota 检查。
 func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user *User, apiKey *APIKey, group *Group, subscription *UserSubscription, platform string) error {
+	// 实例级准入闸门：与计费模式无关，任何协议入口都先过这里。
+	// 未配置（max_inflight=0）时 admissionGate 为 nil，行为与加闸门前完全一致。
+	if s != nil && s.admissionGate != nil {
+		if err := s.admissionGate.AcquireForPlan(ctx, GatewayRequestPlanFromContext(ctx)); err != nil {
+			return err
+		}
+	}
 	// 简易模式：跳过所有计费检查
 	if s.cfg.RunMode == config.RunModeSimple {
 		return nil
@@ -785,10 +825,15 @@ func (s *BillingCacheService) CheckBillingEligibility(ctx context.Context, user 
 //
 // 与旧版"级联互斥"设计不同，新版确保 user.rpm_limit 作为全局天花板不会被 group 或 override 覆盖。
 // Redis 故障一律 fail-open（打 warning，不阻塞业务）。
+//
+// 计数口径（T3-2.13）：用户/组按**逻辑请求**计。同一逻辑请求内的重试、账号切换、
+// 分组兜底都复用同一个 GatewayRequestPlan，因此用户级计数器每个逻辑请求只加一次；
+// 分组维度按 (逻辑请求, 分组) 计一次，兜底到另一个分组时那个分组的容量确实被占用。
 func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *Group) error {
 	if s == nil || s.userRPMCache == nil || user == nil {
 		return nil
 	}
+	plan := GatewayRequestPlanFromContext(ctx)
 
 	// ── 第一层：分组级检查（override 或 group.rpm_limit） ──
 	if group != nil {
@@ -811,7 +856,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 
 		if override != nil {
 			// override=0 → 该用户在该分组免检（但 user 级仍会在下面检查）。
-			if *override > 0 {
+			if *override > 0 && plan.ClaimRateLimitScope(group.ID) {
 				count, incErr := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
 				if incErr != nil {
 					logger.LegacyPrintf(
@@ -821,28 +866,30 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 					)
 					// fail-open
 				} else if count > *override {
-					return ErrGroupRPMExceeded
+					return s.rpmExceeded(ctx, ErrGroupRPMExceeded, *override, count)
 				}
 			}
 			// override 命中后跳过 group.rpm_limit（override 替代 group），但不 return——继续检查 user 级。
 		} else if group.RPMLimit > 0 {
 			// 无 override，检查 group.rpm_limit。
-			count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
-			if err != nil {
-				logger.LegacyPrintf(
-					"service.billing_cache",
-					"Warning: rpm increment (group) failed for user=%d group=%d: %v",
-					user.ID, group.ID, err,
-				)
-				// fail-open
-			} else if count > group.RPMLimit {
-				return ErrGroupRPMExceeded
+			if plan.ClaimRateLimitScope(group.ID) {
+				count, err := s.userRPMCache.IncrementUserGroupRPM(ctx, user.ID, group.ID)
+				if err != nil {
+					logger.LegacyPrintf(
+						"service.billing_cache",
+						"Warning: rpm increment (group) failed for user=%d group=%d: %v",
+						user.ID, group.ID, err,
+					)
+					// fail-open
+				} else if count > group.RPMLimit {
+					return s.rpmExceeded(ctx, ErrGroupRPMExceeded, group.RPMLimit, count)
+				}
 			}
 		}
 	}
 
 	// ── 第二层：用户级全局硬上限（始终生效） ──
-	if user.RPMLimit > 0 {
+	if user.RPMLimit > 0 && plan.ClaimUserRateLimitCount() {
 		count, err := s.userRPMCache.IncrementUserRPM(ctx, user.ID)
 		if err != nil {
 			logger.LegacyPrintf(
@@ -853,11 +900,34 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 			return nil // fail-open
 		}
 		if count > user.RPMLimit {
-			return ErrUserRPMExceeded
+			return s.rpmExceeded(ctx, ErrUserRPMExceeded, user.RPMLimit, count)
 		}
 	}
 
 	return nil
+}
+
+// rpmExceeded 给 RPM 超限错误附加真实的窗口重置时刻与本次判定用的限额事实。
+// 时间来自 RPM 计数器的服务端时间源，与 key 口径同源；Redis 不可用时不附加，
+// 调用方据此省略 Retry-After 而不是编造退避时间。
+// limit/used 只回显该用户/组维度的限额，不涉及任何上游账号额度。
+func (s *BillingCacheService) rpmExceeded(ctx context.Context, err error, limit, used int) error {
+	appErr := infraerrors.FromError(err)
+	if appErr == nil {
+		return err
+	}
+	metadata := map[string]string{
+		AdmissionRateLimitLimitKey: strconv.Itoa(limit),
+		AdmissionRateLimitUsedKey:  strconv.Itoa(used),
+	}
+	if s != nil && s.userRPMCache != nil {
+		if resetAt, resetErr := s.userRPMCache.WindowResetAt(ctx); resetErr != nil {
+			logger.LegacyPrintf("service.billing_cache", "Warning: rpm window reset unavailable: %v", resetErr)
+		} else if RetryAfterSecondsUntil(resetAt, time.Now()) > 0 {
+			metadata[AdmissionWindowResetsAtMetadataKey] = resetAt.Format(time.RFC3339)
+		}
+	}
+	return appErr.WithMetadata(metadata)
 }
 
 func (s *BillingCacheService) minimumBalanceReserve() float64 {

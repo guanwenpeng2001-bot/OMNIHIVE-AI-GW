@@ -304,7 +304,23 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+// Deliberate gate-semantics change (2026-09-22): the OpenAI video ingress now
+// registers openai.video.generate/edit/extend/status/content, so an OpenAI
+// group's video requests are no longer rejected at the platform action gate with
+// action_not_implemented — they reach the OpenAI video adapter. The ledger items
+// this closes are P2 ("actual video actions") and P3 ("standard OpenAI audio");
+// the change is not a relaxation made to pass a test, and every route below is
+// still asserted to reach the handler instead of being rejected locally.
+//
+// This router carries no gateway, billing or job dependencies and no auth
+// subject, so the ingress answers with its own envelope (the missing-dependency
+// or missing-subject refusal) instead of the platform gate. Reaching the OpenAI
+// video ingress at all is what this case proves; the adapter itself is exercised
+// end to end by TestOpenAIVideoIngressSubmitsAndReadsOwnerBoundJob and the rest
+// of the handler wiring suite. Platforms that still have no video cell keep the
+// local rejection, which TestGatewayUnsupportedProtocolContracts proves cell by
+// cell.
+func TestGatewayRoutesOpenAIVideosReachTheOpenAIVideoIngress(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
@@ -342,8 +358,9 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusBadRequest, w.Code, "method=%s path=%s", tc.method, tc.path)
-		require.Contains(t, w.Body.String(), "action_not_implemented")
+		require.NotEqual(t, http.StatusBadRequest, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.NotContains(t, w.Body.String(), "action_not_implemented", "method=%s path=%s", tc.method, tc.path)
+		require.Contains(t, w.Body.String(), "\"error\"", "the OpenAI video ingress answers with the gateway error envelope: method=%s path=%s", tc.method, tc.path)
 	}
 }
 

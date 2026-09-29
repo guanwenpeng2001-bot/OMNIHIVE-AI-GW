@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -334,15 +335,34 @@ type UpdateGroupRequest struct {
 }
 
 type CompositeRouteRequest struct {
-	AccountType    *string `json:"account_type"`
-	PublicModel    string  `json:"public_model" binding:"required"`
-	MatchType      string  `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string  `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
-	UpstreamModel  string  `json:"upstream_model"`
-	Endpoint       string  `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
-	Priority       int     `json:"priority"`
-	Enabled        *bool   `json:"enabled"`
-	Notes          string  `json:"notes"`
+	AccountType    *string                        `json:"account_type"`
+	PublicModel    string                         `json:"public_model" binding:"required"`
+	MatchType      string                         `json:"match_type" binding:"omitempty,oneof=exact prefix"`
+	TargetPlatform string                         `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
+	UpstreamModel  string                         `json:"upstream_model"`
+	Endpoint       string                         `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	Priority       int                            `json:"priority"`
+	Enabled        *bool                          `json:"enabled"`
+	Notes          string                         `json:"notes"`
+	Targets        *[]CompositeRouteTargetRequest `json:"targets"`
+}
+
+// CompositeRouteTargetRequest is one admin-declared ordered fallback target.
+// Absent fields keep the documented defaults: weight 100, legacy latency
+// preference, legacy sticky-session TTL, enabled, and no region/provider
+// constraint. Platform validity is enforced by the service so the same rules
+// apply to every caller.
+type CompositeRouteTargetRequest struct {
+	Position           int     `json:"position"`
+	TargetPlatform     string  `json:"target_platform"`
+	AccountType        *string `json:"account_type"`
+	UpstreamModel      string  `json:"upstream_model"`
+	Region             string  `json:"region"`
+	Provider           string  `json:"provider"`
+	LatencyPreference  string  `json:"latency_preference"`
+	SchedulingWeight   *int    `json:"scheduling_weight"`
+	AffinityTTLSeconds *int    `json:"affinity_ttl_seconds"`
+	Enabled            *bool   `json:"enabled"`
 }
 
 type CompositeRoutePreviewRequest struct {
@@ -533,7 +553,46 @@ func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool
 		Priority:       req.Priority,
 		Enabled:        enabled,
 		Notes:          req.Notes,
+		Targets:        compositeRouteTargetsToInput(req.Targets),
 	}
+}
+
+func compositeRouteTargetsToInput(targets *[]CompositeRouteTargetRequest) []service.CompositeRouteTarget {
+	if targets == nil {
+		return nil
+	}
+	out := make([]service.CompositeRouteTarget, 0, len(*targets))
+	for index, target := range *targets {
+		accountType := ""
+		if target.AccountType != nil {
+			accountType = *target.AccountType
+		}
+		weight := 0
+		if target.SchedulingWeight != nil {
+			weight = *target.SchedulingWeight
+		}
+		affinityTTL := 0
+		if target.AffinityTTLSeconds != nil {
+			affinityTTL = *target.AffinityTTLSeconds
+		}
+		targetEnabled := true
+		if target.Enabled != nil {
+			targetEnabled = *target.Enabled
+		}
+		out = append(out, service.CompositeRouteTarget{
+			Position:           index,
+			TargetPlatform:     target.TargetPlatform,
+			AccountType:        accountType,
+			UpstreamModel:      target.UpstreamModel,
+			Region:             target.Region,
+			Provider:           target.Provider,
+			LatencyPreference:  target.LatencyPreference,
+			SchedulingWeight:   weight,
+			AffinityTTLSeconds: affinityTTL,
+			Enabled:            targetEnabled,
+		})
+	}
+	return out
 }
 
 func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {
@@ -931,14 +990,40 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Return mock data for now
+	ctx := c.Request.Context()
+	// 归属校验：先确认该分组存在，再按它聚合。少了这一步就会把 :id 丢掉，
+	// 返回与其他分组无关的数字（原实现恒返回 0）。
+	if _, err := h.adminService.GetGroup(ctx, groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.dashboardService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Group usage statistics are unavailable")
+		return
+	}
+
+	totals, err := h.dashboardService.GetGroupUsageTotals(ctx, groupID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to get group usage totals")
+		return
+	}
+	totalKeys, activeKeys, err := h.adminService.GetGroupAPIKeyCounts(ctx, groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
 	response.Success(c, gin.H{
-		"total_api_keys":  0,
-		"active_api_keys": 0,
-		"total_requests":  0,
-		"total_cost":      0.0,
+		"group_id":        groupID,
+		"total_api_keys":  totalKeys,
+		"active_api_keys": activeKeys,
+		"total_requests":  totals.Requests,
+		"total_cost":      totals.TotalCost,
+		"actual_cost":     totals.ActualCost,
+		// 请求数/标准计费只能回溯到原始账本保留窗口起点；调用方不得当成历史全量。
+		"usage_window_start": totals.WindowStart.UTC().Format(time.RFC3339),
+		"usage_window_end":   totals.WindowEnd.UTC().Format(time.RFC3339),
 	})
-	_ = groupID // TODO: implement actual stats
 }
 
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.

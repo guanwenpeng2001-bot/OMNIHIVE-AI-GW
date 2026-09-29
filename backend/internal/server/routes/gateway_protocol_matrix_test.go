@@ -146,26 +146,34 @@ func TestGatewayUnsupportedProtocolContracts(test *testing.T) {
 	test.Run("dashscope-resources", TestQianwenNativeUnsupportedFamilies)
 	test.Run("dashscope-owned-resource-gates", TestQianwenNativeResourceLifecycleRoutes)
 	test.Run("responses-actions", TestGatewayRoutesResponsesSubpathRejectsNonConformingSubpaths)
-	test.Run("other-platform-videos", TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate)
+	test.Run("other-platform-videos", TestGatewayRoutesOpenAIVideosReachTheOpenAIVideoIngress)
 	for _, platform := range service.ConcretePlatforms() {
 		router := protocolMatrixRouter(platform)
 		for _, feature := range []struct {
 			method, path string
-			platforms    []string
+			action       string
 		}{
-			{http.MethodPost, "/embeddings", []string{service.PlatformOpenAI}},
-			{http.MethodPost, "/images/generations", []string{service.PlatformOpenAI, service.PlatformGrok}},
-			{http.MethodPost, "/images/edits", []string{service.PlatformOpenAI, service.PlatformGrok}},
-			{http.MethodPost, "/videos/generations", []string{service.PlatformGrok}},
-			{http.MethodPost, "/videos/edits", []string{service.PlatformGrok}},
-			{http.MethodPost, "/videos/extensions", []string{service.PlatformGrok}},
-			{http.MethodPost, "/tts", []string{service.PlatformGrok}},
-			{http.MethodPost, "/stt", []string{service.PlatformGrok}},
-			{http.MethodPost, "/web_search", []string{service.PlatformGrok}},
-			{http.MethodPost, "/x_search", []string{service.PlatformGrok}},
-			{http.MethodGet, "/realtime", []string{service.PlatformGrok}},
+			{http.MethodPost, "/embeddings", "embeddings"},
+			{http.MethodPost, "/images/generations", "image.generate"},
+			{http.MethodPost, "/images/edits", "image.edit"},
+			{http.MethodPost, "/images/variations", "image.variation"},
+			{http.MethodPost, "/videos/generations", "video.generate"},
+			{http.MethodPost, "/videos/edits", "video.edit"},
+			{http.MethodPost, "/videos/extensions", "video.extend"},
+			{http.MethodPost, "/tts", "audio.tts"},
+			{http.MethodPost, "/stt", "audio.stt"},
+			{http.MethodPost, "/audio/speech", "audio.tts"},
+			{http.MethodPost, "/audio/transcriptions", "audio.stt"},
+			{http.MethodPost, "/audio/translations", "audio.translate"},
+			{http.MethodPost, "/web_search", "search"},
+			{http.MethodPost, "/x_search", "search"},
+			{http.MethodGet, "/realtime", "realtime"},
 		} {
-			if slices.Contains(feature.platforms, platform) {
+			// The allow list is the platform action matrix itself, not a second
+			// hand-maintained table: a platform whose cell binds an adapter must
+			// serve the route, and every other platform must still fail closed
+			// with the local 400 before scheduling, transport or billing.
+			if domain.PlatformAction(domain.ActionIdentity{Platform: platform}, feature.action).Status == domain.ActionImplemented {
 				continue
 			}
 			for _, prefix := range []string{"", "/v1"} {

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -311,6 +312,18 @@ func (r *contentModerationTestUserRepo) GetByIDIncludeDeleted(ctx context.Contex
 
 type contentModerationTestAuthCacheInvalidator struct {
 	userIDs []int64
+	// disabledKeyIDs records every API key disabled through the moderation path.
+	disabledKeyIDs []int64
+	// disableKeyErr makes SetAPIKeyStatus fail so the failure path is covered.
+	disableKeyErr error
+}
+
+func (i *contentModerationTestAuthCacheInvalidator) SetAPIKeyStatus(ctx context.Context, apiKeyID int64, status string) (*APIKey, error) {
+	if i.disableKeyErr != nil {
+		return nil, i.disableKeyErr
+	}
+	i.disabledKeyIDs = append(i.disabledKeyIDs, apiKeyID)
+	return &APIKey{ID: apiKeyID, Status: status}, nil
 }
 
 func (i *contentModerationTestAuthCacheInvalidator) InvalidateAuthCacheByKey(ctx context.Context, key string) {
@@ -1527,7 +1540,9 @@ func TestContentModerationCheck_HashBlockLogsDoNotIncreaseNextViolationCount(t *
 	require.Equal(t, 1, logs[1].ViolationCount)
 }
 
-func TestContentModerationAutoBanSkipsAdminAccount(t *testing.T) {
+// An admin owner keeps their session, but the key that produced the hit is still
+// retired: the key disposition does not depend on the owner's role.
+func TestContentModerationAdminOwnerKeepsSessionButLosesTriggeredKey(t *testing.T) {
 	var slogOutput bytes.Buffer
 	previousLogger := slog.Default()
 	slog.SetDefault(slog.New(slog.NewTextHandler(&slogOutput, nil)))
@@ -1535,6 +1550,39 @@ func TestContentModerationAutoBanSkipsAdminAccount(t *testing.T) {
 		slog.SetDefault(previousLogger)
 	})
 
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	apiKeyID := int64(77)
+	repo := &contentModerationTestRepo{}
+	require.NoError(t, repo.CreateLog(context.Background(), newContentModerationFlaggedLogWithKey(userID, apiKeyID)))
+	userRepo := &contentModerationTestUserRepo{user: &User{ID: userID, Role: RoleAdmin, Status: StatusActive}}
+	invalidator := &contentModerationTestAuthCacheInvalidator{}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, nil, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLogWithKey(userID, apiKeyID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 2)
+	require.Equal(t, 2, logs[1].ViolationCount)
+	require.Equal(t, StatusActive, userRepo.user.Status, "the admin session must survive")
+	require.Empty(t, userRepo.updated, "the admin account must not be written")
+	require.Empty(t, invalidator.userIDs, "the admin session cache must not be invalidated")
+	require.Equal(t, []int64{apiKeyID}, invalidator.disabledKeyIDs, "the triggering key must be disabled")
+	require.True(t, logs[1].AutoBanned, "the key disposition is recorded on the log")
+	require.Contains(t, slogOutput.String(), "content_moderation.autoban_admin_key_disabled")
+	require.Contains(t, slogOutput.String(), "user_id=1001")
+	require.Contains(t, slogOutput.String(), "role=admin")
+	require.Contains(t, slogOutput.String(), "count=2")
+	require.Contains(t, slogOutput.String(), "threshold=2")
+	require.Contains(t, slogOutput.String(), "api_key_id=77")
+	require.Contains(t, slogOutput.String(), "key_disabled=true")
+}
+
+// A flagged log without an API key identity cannot retire a key, and must not claim
+// that it did.
+func TestContentModerationAdminWithoutKeyIdentityDisablesNothing(t *testing.T) {
 	cfg := defaultContentModerationConfig()
 	cfg.BanThreshold = 2
 	cfg.ViolationWindowHours = 24
@@ -1549,16 +1597,34 @@ func TestContentModerationAutoBanSkipsAdminAccount(t *testing.T) {
 	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLog(userID), "", false, true)
 
 	logs := requireContentModerationLogCount(t, repo, 2)
-	require.Equal(t, 2, logs[1].ViolationCount)
 	require.False(t, logs[1].AutoBanned)
+	require.Empty(t, invalidator.disabledKeyIDs)
 	require.Equal(t, StatusActive, userRepo.user.Status)
 	require.Empty(t, userRepo.updated)
-	require.Empty(t, invalidator.userIDs)
-	require.Contains(t, slogOutput.String(), "content_moderation.autoban_skipped_admin")
-	require.Contains(t, slogOutput.String(), "user_id=1001")
-	require.Contains(t, slogOutput.String(), "role=admin")
-	require.Contains(t, slogOutput.String(), "count=2")
-	require.Contains(t, slogOutput.String(), "threshold=2")
+}
+
+// A key-disable failure must not be reported as a successful disposition, and must not
+// push the admin account into a ban.
+func TestContentModerationAdminKeyDisableFailureIsNotReportedAsDisposed(t *testing.T) {
+	cfg := defaultContentModerationConfig()
+	cfg.BanThreshold = 2
+	cfg.ViolationWindowHours = 24
+
+	userID := int64(1001)
+	apiKeyID := int64(78)
+	repo := &contentModerationTestRepo{}
+	require.NoError(t, repo.CreateLog(context.Background(), newContentModerationFlaggedLogWithKey(userID, apiKeyID)))
+	userRepo := &contentModerationTestUserRepo{user: &User{ID: userID, Role: RoleAdmin, Status: StatusActive}}
+	invalidator := &contentModerationTestAuthCacheInvalidator{disableKeyErr: errors.New("key update failed")}
+	svc := NewContentModerationService(nil, repo, nil, nil, userRepo, nil, invalidator, nil)
+
+	svc.persistContentModerationLog(context.Background(), cfg, newContentModerationFlaggedLogWithKey(userID, apiKeyID), "", false, true)
+
+	logs := requireContentModerationLogCount(t, repo, 2)
+	require.False(t, logs[1].AutoBanned)
+	require.Empty(t, invalidator.disabledKeyIDs)
+	require.Equal(t, StatusActive, userRepo.user.Status)
+	require.Empty(t, userRepo.updated)
 }
 
 func TestContentModerationAutoBanDisablesRegularUserAtThreshold(t *testing.T) {
@@ -1605,7 +1671,11 @@ func TestContentModerationAdminBelowBanThresholdRecordsViolationOnly(t *testing.
 }
 
 func newContentModerationFlaggedLog(userID int64) *ContentModerationLog {
-	return &ContentModerationLog{
+	return newContentModerationFlaggedLogWithKey(userID, 0)
+}
+
+func newContentModerationFlaggedLogWithKey(userID int64, apiKeyID int64) *ContentModerationLog {
+	log := &ContentModerationLog{
 		UserID:          &userID,
 		Action:          ContentModerationActionBlock,
 		Flagged:         true,
@@ -1613,6 +1683,10 @@ func newContentModerationFlaggedLog(userID int64) *ContentModerationLog {
 		HighestScore:    0.9,
 		CreatedAt:       time.Now(),
 	}
+	if apiKeyID > 0 {
+		log.APIKeyID = &apiKeyID
+	}
+	return log
 }
 
 func TestContentModerationCheck_PreBlockFlaggedWritesRedisHashCache(t *testing.T) {

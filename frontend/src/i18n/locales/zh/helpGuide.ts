@@ -7,7 +7,8 @@ export default {
   "copied": "已复制到剪贴板",
   "copyFailed": "复制失败，请选中代码后手动复制。",
   "next": "前往相关页面",
-  "placeholder": "示例使用占位地址与密钥，请替换为站点提供的 API 地址、你自己的密钥以及目录中返回的模型 ID。以下 curl 命令使用 Bash / zsh 语法；Windows 可在 WSL 或 Git Bash 中运行。",
+  "placeholder": "示例中的 API 地址取自本站配置（api_base_url），密钥请换成你自己的，model 请填写目录中返回的 id。以下 curl 命令使用 Bash / zsh 语法；Windows 可在 WSL 或 Git Bash 中运行。",
+  "apiBaseMissing": "本站尚未配置公开 API 地址（api_base_url），本页无法生成接入示例。请联系管理员配置后再查阅。",
   "quick": {
     "title": "快速开始",
     "steps": {
@@ -184,6 +185,41 @@ export default {
             "key": "env_key = \"SUB2API_API_KEY\"",
             "model": "model = \"MODEL_ID_FROM_CODEX_LIST\"",
             "notes": "在 ~/.codex/config.toml 配置 provider，密钥放环境变量；示例使用 HTTP Responses。"
+          },
+          "cline": {
+            "client": "Cline（VS Code）",
+            "base": "API Provider 选 OpenAI Compatible，Base URL 填本站 /v1",
+            "key": "填入本站创建的完整密钥",
+            "model": "MODEL_ID_FROM_LIST",
+            "notes": "在 Cline 设置面板（⚙️）配置；Base URL 填到 /v1 为止，不要填 /chat/completions。需工具调用的模型必须支持 OpenAI 工具协议。"
+          },
+          "roo": {
+            "client": "Roo Code（VS Code）",
+            "base": "API Provider 选 OpenAI Compatible，Base URL 填本站 /v1",
+            "key": "填入本站创建的完整密钥",
+            "model": "MODEL_ID_FROM_LIST",
+            "notes": "设置面板中同时选择 API Provider/Base URL/API Key/Model；Roo Code 只使用原生工具调用，模型不支持工具即不可用。"
+          },
+          "continue": {
+            "client": "Continue（VS Code / JetBrains）",
+            "base": "config.yaml 中 apiBase 填本站 /v1",
+            "key": "apiKey: sk-your-api-key",
+            "model": "model: MODEL_ID_FROM_LIST",
+            "notes": "provider 用 openai + apiBase 指向本站；需要控制上下文模型行为时再单独配 context 模型。"
+          },
+          "jetbrains": {
+            "client": "JetBrains AI Assistant",
+            "base": "Provider 选 OpenAI-compatible endpoint，URL 填本站 /v1",
+            "key": "填入本站创建的完整密钥",
+            "model": "选择识别到的模型 ID",
+            "notes": "Settings | Tools | AI Assistant | Providers & API keys 配置；聊天/代码辅助与 AI Completion 是两处独立设置。"
+          },
+          "windsurf": {
+            "client": "Windsurf",
+            "base": "官方文档未提供自定义 OpenAI 兼容地址",
+            "key": "—",
+            "model": "—",
+            "notes": "Windsurf 官方文档没有自定义第三方 OpenAI 兼容端点/自带密钥的配置说明；请在 Windsurf 内用 Cline、Roo Code 或 Continue 插件接入本站。"
           }
         }
       },
@@ -198,7 +234,7 @@ export default {
           "base": {
             "field": "base_url",
             "meaning": "通常为站点 API 根地址加 /v1，不要重复添加 /v1；以密钥页「使用」生成的对应客户端配置为准，特别是需要专用端点的分组。",
-            "example": "https://your-gateway.example/v1"
+            "example": "本站 api_base_url + /v1（如 https://api.your-domain.com/v1）"
           },
           "key": {
             "field": "api_key",
@@ -219,7 +255,9 @@ export default {
       }
     },
     "notes": {
-      "streaming": "流中断后先查看用量记录再决定是否重试。GET /v1/responses 支持 WebSocket 接入，但可用性取决于分组、账号和管理员 WS 模式；聊天 SSE 与 WebSocket 不同，未确认支持时使用 HTTP/SSE。",
+      "streaming": "供应商流没有通用断点续传：流已经开始（状态码已固化为 200）后，中断只会就地补一个标准终止帧（/v1/responses 为 response.failed，Messages 与 Chat Completions 为 error 帧），不会悄悄换上游续写，也不会把半截内容当成完整答案重放。中断后先查看用量记录，再用新请求重试；带 Idempotency-Key 的重试不会重复启动生成（会返回 409 与 X-Idempotency-State）。GET /v1/responses 支持 WebSocket 接入，但可用性取决于分组、账号和管理员 WS 模式；聊天 SSE 与 WebSocket 不同，未确认支持时使用 HTTP/SSE。",
+      "mediaEndpoints": "以上客户端配置都是文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请改用 /v1/images/generations、/v1/images/edits、/v1/videos/generations、/v1/tts、/v1/stt 等媒体入口；具体可用性取决于分组平台与分组开关。",
+      "clientSources": "新增客户端的字段名称取自各自第一方文档（Cline 文档：OpenAI Compatible；Roo Code 仓库文档：Using OpenAI Compatible Providers；Continue 文档：How to Configure OpenAI Models；JetBrains 帮助：Use third-party and local models）。Windsurf 官方文档未提供自定义 OpenAI 兼容端点，故列出为不可用说明。",
       "antigravity": "Antigravity 的协议与工具支持取决于实际模型和分组；混合客户端工具时，部分上游内置工具可能被省略，请勿依赖内置搜索或代码执行一定可用。"
     }
   },

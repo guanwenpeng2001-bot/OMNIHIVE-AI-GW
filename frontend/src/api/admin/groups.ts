@@ -242,19 +242,28 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 /**
  * Get group statistics
  * @param id - Group ID
- * @returns Group usage statistics
+ * @returns 按该分组真实聚合的统计；`usage_window_start/end` 是原始账本保留窗口，
+ *          请求数只能回溯到窗口起点，调用方不得当成历史全量。
  */
 export async function getStats(id: number): Promise<{
+  group_id: number
   total_api_keys: number
   active_api_keys: number
   total_requests: number
   total_cost: number
+  actual_cost: number
+  usage_window_start: string
+  usage_window_end: string
 }> {
   const { data } = await apiClient.get<{
+    group_id: number
     total_api_keys: number
     active_api_keys: number
     total_requests: number
     total_cost: number
+    actual_cost: number
+    usage_window_start: string
+    usage_window_end: string
   }>(`/admin/groups/${id}/stats`)
   return data
 }

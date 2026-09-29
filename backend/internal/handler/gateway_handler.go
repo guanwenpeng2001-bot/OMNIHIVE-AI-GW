@@ -258,11 +258,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 2. 【新增】Wait后二次检查余额/订阅
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		return
+	}
+
+	// 2.5 周期预算预留：预算不足直接拒绝，不进入上游（并发下不无条件透支）
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
 		return
 	}
 
@@ -277,8 +280,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}
 	sessionHash := h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsedReq, "")
 
-	// [DEBUG-STICKY] 打印会话 hash 生成结果
-	reqLog.Info("sticky.session_hash_generated",
+	// [DEBUG-STICKY] 逐请求身份信息只走 debug 级别：session_hash/账号绑定属现场排查细节，
+	// 默认 info 级别下每请求滚动会让日志量与会话关联被淹没；聚合指标仍见
+	// maybeLogCompatibilityFallbackMetrics 的采样日志。
+	reqLog.Debug("sticky.session_hash_generated",
 		zap.String("session_hash", sessionHash),
 		zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
 	)
@@ -301,8 +306,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	var sessionBoundAccountID int64
 	if sessionKey != "" {
 		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
-		// [DEBUG-STICKY] 打印粘性会话查询结果
-		reqLog.Info("sticky.cache_lookup",
+		// [DEBUG-STICKY] 打印粘性会话查询结果（逐请求 debug）
+		reqLog.Debug("sticky.cache_lookup",
 			zap.String("session_key", sessionKey),
 			zap.Int64("bound_account_id", sessionBoundAccountID),
 		)
@@ -315,7 +320,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			c.Request = c.Request.WithContext(ctx)
 		}
 	} else {
-		reqLog.Info("sticky.no_session_key", zap.String("session_hash", sessionHash))
+		reqLog.Debug("sticky.no_session_key", zap.String("session_hash", sessionHash))
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
@@ -655,13 +660,17 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// 选择支持该模型的账号
-			reqLog.Info("sticky.selecting_account",
+			reqLog.Debug("sticky.selecting_account",
 				zap.String("session_key", sessionKey),
 				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
 				zap.Bool("has_bound_session", hasBoundSession),
 				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
 			)
-			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
+			// 只有本主干会在每次尝试内把出站模型改写成被选中目标的模型，因此只有它
+			// 启用有序目标推进（见 service.WithCompositeTargetAdvancement）。
+			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
+				service.WithCompositeTargetAdvancement(c.Request.Context()),
+				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
@@ -703,9 +712,26 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
+			// 有序目标 fallback：后续计费/归属按本次尝试实际使用的目标平台计算。
+			if selection.CompositeTarget != nil && selection.CompositeTarget.TargetPlatform != "" {
+				platform = selection.CompositeTarget.TargetPlatform
+			}
+			// 受控脱敏暴露：只回传白名单字段（provider/region），不含账号身份与凭据。
+			for headerKey, headerValue := range service.CompositeTargetExposureHeaders(selection.CompositeTarget) {
+				c.Header(headerKey, headerValue)
+			}
+			// 日志同样只记录白名单事实，便于运维按 provider/region 定位实际上游
+			// （gateway trace 已由 request_id 记录），绝不记录账号身份或凭据。
+			if attribution, ok := service.CompositeTargetAttributionOf(selection.CompositeTarget); ok {
+				reqLog.Info("composite.target_selected",
+					zap.String("upstream_provider", attribution.Provider),
+					zap.String("upstream_region", attribution.Region),
+					zap.Int("target_position", selection.CompositeTarget.Position),
+				)
+			}
 
-			// [DEBUG-STICKY] 打印账号选择结果
-			reqLog.Info("sticky.account_selected",
+			// [DEBUG-STICKY] 打印账号选择结果（逐请求 debug）
+			reqLog.Debug("sticky.account_selected",
 				zap.Int64("selected_account_id", account.ID),
 				zap.String("account_name", account.Name),
 				zap.Bool("slot_acquired", selection.Acquired),
@@ -808,7 +834,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 等待路径保持既有 eager 绑定（无门时 helper 直接绑定）；调度器已
 			// 抢槽的直达路径无门时由选号内部绑定，这里只在门下补准入后绑定。
 			if selection.ProfitGateActive() || !selection.Acquired {
-				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(service.WithSelectionStickyTTL(admissionCtx, selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
@@ -866,6 +892,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 注入回调到 ParsedRequest：使用外层 wrapper 以便提前清理 AfterFunc
 			attemptParsedReq.OnUpstreamAccepted = queueRelease
 			// ===== 用户消息串行队列 END =====
+
+			// 有序目标 fallback：中间件只按首个目标改写过一次模型，换目标后必须
+			// 在渠道映射之前把本次尝试的模型改成被选中目标的 upstream 模型。
+			if selection.CompositeTarget != nil {
+				if targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel); targetModel != "" && targetModel != attemptParsedReq.Model {
+					attemptParsedReq.Model = targetModel
+					if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), targetModel)); err != nil {
+						h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+						return
+					}
+					reqModel = targetModel
+				}
+			}
 
 			// 渠道模型映射只作用于本次账号尝试，避免 failover 后污染原始 ParsedRequest。
 			if channelMapping.Mapped {
@@ -1011,10 +1050,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
 						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
-							status, code, message, retryAfter := billingErrorDetails(err)
-							if retryAfter > 0 {
-								c.Header("Retry-After", strconv.Itoa(retryAfter))
-							}
+							status, code, message, _ := billingErrorDetails(err)
+							writeAdmissionRejectionHeaders(c, err)
 							h.handleStreamingAwareError(c, status, code, message, streamStarted)
 							return
 						}
@@ -1107,7 +1144,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// - 粘性账号因负载/RPM 被跳过、选中了其他账号：不覆盖原绑定，
 			//   下次请求粘性账号恢复后仍可命中
 			if sessionKey != "" && (sessionBoundAccountID == 0 || sessionBoundAccountID == account.ID) {
-				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySession(service.WithSelectionStickyTTL(c.Request.Context(), selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
@@ -1464,10 +1501,9 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 
 // usageQuotaLimited 处理 quota_limited 模式的响应
 func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
-	resp := gin.H{
-		"mode":    "quota_limited",
-		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
-		"status":  apiKey.Status,
+	resp := gin.H{"mode": "quota_limited"}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 
 	// 总额度信息
@@ -1536,12 +1572,6 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		}
 	}
 
-	// 过期时间
-	if apiKey.ExpiresAt != nil {
-		resp["expires_at"] = apiKey.ExpiresAt
-		resp["days_until_expiry"] = apiKey.GetDaysUntilExpiry()
-	}
-
 	if usageData != nil {
 		resp["usage"] = usageData
 	}
@@ -1561,9 +1591,11 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
 			"mode":     "unrestricted",
-			"isValid":  true,
 			"planName": apiKey.Group.Name,
 			"unit":     "USD",
+		}
+		for key, value := range usageAvailabilityFields(apiKey) {
+			resp[key] = value
 		}
 
 		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
@@ -1605,11 +1637,13 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 
 	resp := gin.H{
 		"mode":      "unrestricted",
-		"isValid":   true,
 		"planName":  "钱包余额",
 		"remaining": latestUser.Balance,
 		"unit":      "USD",
 		"balance":   latestUser.Balance,
+	}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 	if usageData != nil {
 		resp["usage"] = usageData
@@ -1728,20 +1762,7 @@ func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCod
 }
 
 func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
-	switch statusCode {
-	case 401:
-		return http.StatusBadGateway, "upstream_error", "Upstream authentication failed, please contact administrator"
-	case 403:
-		return http.StatusBadGateway, "upstream_error", "Upstream access forbidden, please contact administrator"
-	case 429:
-		return http.StatusTooManyRequests, "rate_limit_error", "Upstream rate limit exceeded, please retry later"
-	case 529:
-		return http.StatusServiceUnavailable, "overloaded_error", "Upstream service overloaded, please retry later"
-	case 500, 502, 503, 504:
-		return http.StatusBadGateway, "upstream_error", "Upstream service temporarily unavailable"
-	default:
-		return http.StatusBadGateway, "upstream_error", "Upstream request failed"
-	}
+	return upstreamClientErrorMapping(statusCode, true)
 }
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
@@ -1950,10 +1971,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -2231,6 +2250,10 @@ func extractQuotaResetSeconds(err error) int {
 }
 
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
+	// 网关实例过载/排队超时：这是网关自身容量，不是上游账号容量，返回 503 让客户端重试。
+	if errors.Is(err, service.ErrGatewayOverloaded) || errors.Is(err, service.ErrGatewayAdmissionTimeout) {
+		return http.StatusServiceUnavailable, pkgerrors.Reason(err), pkgerrors.Message(err), 0
+	}
 	if errors.Is(err, service.ErrInsufficientBalance) {
 		return http.StatusTooManyRequests, "insufficient_quota", "Insufficient account balance", 0
 	}
@@ -2243,15 +2266,15 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit5hExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit1dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit7dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	// 用户/分组 RPM 超限统一映射为 HTTP 429；保留与其它 rate_limit 一致的错误码便于客户端分类。
 	// 仅使用真实窗口元数据；没有 Redis 窗口时间时不根据本机时钟伪造重置。
@@ -2304,52 +2327,19 @@ func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger
 }
 
 func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
-		return
-	}
-	task = wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
-		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
-			return
-		}
-		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
-		// 显式配置的 drop/sample 溢出丢弃仍按配置语义保留。
-		logger.L().With(
-			zap.String("component", "handler.gateway.messages"),
-		).Warn("gateway.usage_record_task_stopped_sync_fallback")
-	}
-	// 回退路径：worker 池未注入或已停止时同步执行，避免退回到无界 goroutine 模式。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.gateway.messages"),
-				zap.Any("panic", recovered),
-			).Error("gateway.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	submitUsageRecordTaskWithFallback(parent, h.usageRecordWorkerPool, task, usageRecordTaskLogger{
+		component:    "handler.gateway.messages",
+		stoppedEvent: "gateway.usage_record_task_stopped_sync_fallback",
+		panicEvent:   "gateway.usage_record_task_panic_recovered",
+	})
 }
 
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.
 func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil || !claimGatewayUsage(parent) {
-		return
-	}
-	task = wrapUsageRecordTaskContext(parent, task)
-	// Freeze and persist before any queue boundary; settlement owns the queue.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.gateway.usage"),
-				zap.Any("panic", recovered),
-			).Error("gateway.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	submitMandatoryUsageRecordTaskInline(parent, task, usageRecordTaskLogger{
+		component:  "handler.gateway.usage",
+		panicEvent: "gateway.usage_record_task_panic_recovered",
+	})
 }
 
 // getUserMsgQueueMode 获取当前请求的 UMQ 模式

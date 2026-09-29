@@ -77,6 +77,15 @@ func UserFromServiceAdmin(u *service.User) *AdminUser {
 	}
 }
 
+// MaskAPIKeyCredential renders a non-secret mask from the stored display suffix.
+// It never reconstructs a secret and is used on every read path.
+func MaskAPIKeyCredential(displaySuffix string) string {
+	if displaySuffix == "" {
+		return "****"
+	}
+	return "****" + displaySuffix
+}
+
 func APIKeyFromService(k *service.APIKey) *APIKey {
 	if k == nil {
 		return nil
@@ -84,7 +93,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 	out := &APIKey{
 		ID:                 k.ID,
 		UserID:             k.UserID,
-		Key:                k.Key,
+		Key:                MaskAPIKeyCredential(k.DisplaySuffix),
 		Name:               k.Name,
 		GroupID:            k.GroupID,
 		Status:             k.Status,
@@ -122,7 +131,46 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		t := k.Window7dStart.Add(service.RateLimitWindow7d)
 		out.Reset7dAt = &t
 	}
+	applyAPIKeyBudgetDTO(out, k)
 	return out
+}
+
+// applyAPIKeyBudgetDTO exposes the period budget as its own block. The legacy
+// 5h/1d/7d anchors are reported by name so the panel never has to guess which
+// window a duration belongs to.
+func applyAPIKeyBudgetDTO(out *APIKey, k *service.APIKey) {
+	if out == nil || k == nil {
+		return
+	}
+	policy := k.BudgetPolicy.Normalize()
+	out.BudgetPeriodMode = policy.Mode
+	out.BudgetLimit = policy.LimitUSD
+	out.BudgetEnforced = policy.Enforced
+	out.BudgetDurationSeconds = policy.DurationSeconds
+	out.BudgetCalendarUnit = policy.CalendarUnit
+	out.BudgetAnchor = policy.Anchor
+	out.BudgetTimezone = policy.EffectiveTimezoneName()
+	out.BudgetLegacyAnchor = service.LegacyBudgetAnchorForPolicy(policy)
+	out.BudgetPeriodDisplay = service.DescribeAPIKeyBudgetPolicy(policy)
+	if state := k.BudgetState; state != nil {
+		out.BudgetUsed = state.UsedUSD
+		out.BudgetReserved = state.ReservedUSD
+		out.BudgetRemaining = state.RemainingUSD
+		out.BudgetOverrun = state.OverrunUSD
+		out.BudgetPeriodStart = state.PeriodStart
+		out.BudgetPeriodEnd = state.PeriodEnd
+		if state.PeriodDisplay != "" {
+			out.BudgetPeriodDisplay = state.PeriodDisplay
+		}
+		if state.LegacyAnchor != "" {
+			out.BudgetLegacyAnchor = state.LegacyAnchor
+		}
+	} else if policy.IsActive() {
+		out.BudgetRemaining = -1
+	}
+	if policy.Mode == service.APIKeyBudgetModeOff {
+		out.BudgetRemaining = 0
+	}
 }
 
 func GroupFromServiceShallow(g *service.Group) *Group {

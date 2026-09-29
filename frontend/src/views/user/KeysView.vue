@@ -33,6 +33,31 @@
         </div>
       </dl>
       <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('keys.payAsYouGo.addressHint') }}</p>
+      <!-- Generation endpoints are a different entry from the Messages protocol: an
+           Anthropic-compatible /v1/messages key sends text and vision input, it does
+           not generate images, videos or audio. -->
+      <div class="mt-4 rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-900 dark:bg-amber-950/30">
+        <p class="text-sm font-medium text-amber-800 dark:text-amber-200">{{ t('keys.payAsYouGo.generationTitle') }}</p>
+        <p class="mt-1 text-xs text-amber-700 dark:text-amber-300">{{ t('keys.payAsYouGo.generationHint') }}</p>
+        <ul class="mt-2 space-y-1.5">
+          <li
+            v-for="endpoint in generationEndpoints"
+            :key="endpoint.path"
+            class="flex flex-wrap items-center gap-2"
+          >
+            <span class="text-xs font-medium text-amber-800 dark:text-amber-200">{{ t(endpoint.label) }}</span>
+            <code class="min-w-0 break-all text-xs text-amber-900 dark:text-amber-100">{{ endpoint.url }}</code>
+            <button
+              type="button"
+              class="rounded p-1 text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100"
+              :aria-label="t('keys.payAsYouGo.copyAddress', { protocol: t(endpoint.label) })"
+              @click="clipboardCopy(endpoint.url, t('keys.payAsYouGo.copied'))"
+            >
+              <Icon name="clipboard" size="sm" />
+            </button>
+          </li>
+        </ul>
+      </div>
     </section>
     <TablePageLayout>
       <template #filters>
@@ -128,30 +153,10 @@
             <span class="font-mono text-xs text-gray-500 dark:text-gray-400">#{{ value }}</span>
           </template>
 
-          <template #cell-key="{ value, row }">
-            <div class="flex items-center gap-2">
-              <code class="code text-xs">
-                {{ maskApiKey(value) }}
-              </code>
-              <button
-                @click="copyToClipboard(value, row.id)"
-                class="rounded-lg p-1 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700"
-                :class="
-                  copiedKeyId === row.id
-                    ? 'text-green-500'
-                    : 'text-gray-400 hover:text-gray-600 dark:hover:text-gray-300'
-                "
-                :title="copiedKeyId === row.id ? t('keys.copied') : t('keys.copyToClipboard')"
-              >
-                <Icon
-                  v-if="copiedKeyId === row.id"
-                  name="check"
-                  size="sm"
-                  :stroke-width="2"
-                />
-                <Icon v-else name="clipboard" size="sm" />
-              </button>
-            </div>
+          <template #cell-key="{ value }">
+            <code class="code text-xs">
+              {{ displayCredential(value) }}
+            </code>
           </template>
 
           <template #cell-name="{ value, row }">
@@ -266,7 +271,8 @@
           </template>
 
           <template #cell-rate_limit="{ row }">
-            <div v-if="row.rate_limit_5h > 0 || row.rate_limit_1d > 0 || row.rate_limit_7d > 0" class="space-y-1.5 min-w-[140px]">
+            <div class="space-y-2 min-w-[140px]">
+            <div v-if="row.rate_limit_5h > 0 || row.rate_limit_1d > 0 || row.rate_limit_7d > 0" class="space-y-1.5">
               <!-- 5h window -->
               <div v-if="row.rate_limit_5h > 0">
                 <div class="flex items-center justify-between text-xs">
@@ -351,18 +357,76 @@
                   ⟳ {{ formatResetTime(row.reset_7d_at) }}
                 </div>
               </div>
-              <!-- Reset button -->
-              <button
-                v-if="row.usage_5h > 0 || row.usage_1d > 0 || row.usage_7d > 0"
-                @click.stop="confirmResetRateLimitFromTable(row)"
-                class="mt-0.5 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-xs text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                :title="t('keys.resetRateLimitUsage')"
-              >
-                <Icon name="refresh" size="xs" />
-                {{ t('keys.resetUsage') }}
-              </button>
             </div>
             <span v-else class="text-sm text-gray-400 dark:text-dark-500">-</span>
+
+            <!-- Effective RPM: which dimension owns each limit, the limit value and
+                 the real reset of the current minute window. Deliberately separate
+                 from the USD windows above (money) and from the period budget below. -->
+            <div
+              v-if="row.effective_rpm && row.effective_rpm.limits.length > 0"
+              class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600"
+            >
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.effectiveRpmPriorityHint')">
+                  {{ t('keys.effectiveRpmTitle') }}
+                </span>
+              </div>
+              <div
+                v-for="limit in row.effective_rpm.limits"
+                :key="`${limit.source}-${limit.scope_id}`"
+                class="flex items-center justify-between gap-2 text-[11px] tabular-nums"
+              >
+                <span class="text-gray-400 dark:text-dark-500">{{ effectiveRpmSourceLabel(limit.source) }}</span>
+                <span class="font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('keys.effectiveRpmValue', { limit: limit.limit }) }}
+                </span>
+              </div>
+              <div
+                v-if="row.effective_rpm.window_resets_at && formatRpmReset(row.effective_rpm.window_resets_at)"
+                class="text-[10px] text-gray-400 dark:text-gray-500 tabular-nums"
+              >
+                ⟳ {{ t('keys.effectiveRpmResetsIn', { value: formatRpmReset(row.effective_rpm.window_resets_at) }) }}
+              </div>
+            </div>
+
+            <!-- Period budget (USD): a spend limit over one explicit period, kept
+                 visually separate from the RPM/TPM rate limits above. -->
+            <div v-if="row.budget_period_mode !== 'off' && row.budget_limit > 0" class="space-y-1 border-t border-gray-100 pt-1.5 dark:border-dark-600">
+              <div class="flex items-center justify-between gap-2 text-xs">
+                <span class="text-gray-500 dark:text-gray-400" :title="t('keys.budgetPeriodHint')">
+                  {{ t('keys.budgetColumn') }}
+                </span>
+                <span :class="[
+                  'font-medium tabular-nums',
+                  row.budget_remaining <= 0 ? 'text-red-500' :
+                  row.budget_remaining <= row.budget_limit * 0.2 ? 'text-yellow-500' :
+                  'text-gray-700 dark:text-gray-300'
+                ]">
+                  ${{ row.budget_used?.toFixed(2) || '0.00' }}/${{ row.budget_limit?.toFixed(2) || '0.00' }}
+                </span>
+              </div>
+              <div class="h-1 w-full overflow-hidden rounded-full bg-gray-200 dark:bg-dark-600">
+                <div
+                  :class="[
+                    'h-full rounded-full transition-all',
+                    row.budget_remaining <= 0 ? 'bg-red-500' :
+                    row.budget_remaining <= row.budget_limit * 0.2 ? 'bg-yellow-500' :
+                    'bg-sky-500'
+                  ]"
+                  :style="{ width: Math.min((row.budget_used / row.budget_limit) * 100, 100) + '%' }"
+                />
+              </div>
+              <div class="flex items-center justify-between gap-2 text-[10px] text-gray-400 dark:text-gray-500">
+                <span class="truncate" :title="row.budget_period_display">
+                  {{ row.budget_legacy_anchor || row.budget_period_display || row.budget_period_mode }}
+                </span>
+                <span v-if="row.budget_period_end && formatResetTime(row.budget_period_end)" class="tabular-nums">
+                  ⟳ {{ formatResetTime(row.budget_period_end) }}
+                </span>
+              </div>
+            </div>
+            </div>
           </template>
 
           <template #cell-expires_at="{ value }">
@@ -381,6 +445,7 @@
               value === 'active' ? 'badge-success' :
               value === 'quota_exhausted' ? 'badge-warning' :
               value === 'expired' ? 'badge-danger' :
+              value === 'disabled' ? 'badge-purple' :
               'badge-gray'
             ]">
               {{ t('keys.status.' + value) }}
@@ -437,6 +502,14 @@
                 <Icon v-if="row.status === 'active'" name="ban" size="sm" />
                 <Icon v-else name="checkCircle" size="sm" />
                 <span class="text-xs">{{ row.status === 'active' ? t('keys.disable') : t('keys.enable') }}</span>
+              </button>
+              <!-- Rotate Button -->
+              <button
+                @click="openRotateModal(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-purple-50 hover:text-purple-600 dark:hover:bg-purple-900/20 dark:hover:text-purple-400"
+              >
+                <Icon name="refresh" size="sm" />
+                <span class="text-xs">{{ t('keys.rotateKey') }}</span>
               </button>
               <!-- Edit Button -->
               <button
@@ -582,8 +655,12 @@
           <Select
             v-model="formData.status"
             :options="statusOptions"
+            :disabled="statusLockedByAdmin"
             :placeholder="t('keys.selectStatus')"
           />
+          <p v-if="statusLockedByAdmin" class="input-hint">
+            {{ t('keys.statusDisabledHint') }}
+          </p>
         </div>
 
         <!-- IP Restriction Section -->
@@ -685,15 +762,8 @@
                     ${{ selectedKey.quota?.toFixed(2) || '0.00' }}
                   </span>
                 </div>
-                <button
-                  type="button"
-                  @click="confirmResetQuota"
-                  class="btn btn-secondary text-sm"
-                  :title="t('keys.resetQuotaUsed')"
-                >
-                  {{ t('keys.reset') }}
-                </button>
               </div>
+              <p class="input-hint">{{ t('keys.usageSelfServiceHint') }}</p>
             </div>
           </div>
         </div>
@@ -859,15 +929,130 @@
               </div>
             </div>
 
-            <!-- Reset Rate Limit button (edit mode only) -->
-            <div v-if="showEditModal && selectedKey && (selectedKey.rate_limit_5h > 0 || selectedKey.rate_limit_1d > 0 || selectedKey.rate_limit_7d > 0)">
-              <button
-                type="button"
-                @click="confirmResetRateLimit"
-                class="btn btn-secondary text-sm"
-              >
-                {{ t('keys.resetRateLimitUsage') }}
-              </button>
+          </div>
+        </div>
+
+        <!-- Period Budget Section (USD, separate from RPM/TPM) -->
+        <div class="space-y-3">
+          <div class="flex items-center justify-between">
+            <label class="input-label mb-0">{{ t('keys.budgetSection') }}</label>
+            <button
+              type="button"
+              data-test="key-form-budget-toggle"
+              :disabled="formData.budget_enforced"
+              @click="formData.enable_budget = !formData.enable_budget"
+              :class="[
+                'relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
+                formData.budget_enforced ? 'cursor-not-allowed opacity-60' : 'cursor-pointer',
+                formData.enable_budget ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
+              ]"
+            >
+              <span
+                :class="[
+                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
+                  formData.enable_budget ? 'translate-x-4' : 'translate-x-0'
+                ]"
+              />
+            </button>
+          </div>
+
+          <p v-if="formData.budget_enforced" class="input-hint -mt-2 text-amber-600 dark:text-amber-400">
+            {{ t('keys.budgetEnforced') }}
+          </p>
+          <p v-else class="input-hint -mt-2">{{ t('keys.budgetHint') }}</p>
+
+          <div v-if="formData.enable_budget" class="space-y-4 pt-2">
+            <div>
+              <label class="input-label">{{ t('keys.budgetAmount') }}</label>
+              <div class="relative">
+                <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">$</span>
+                <input
+                  v-model.number="formData.budget_limit"
+                  data-test="key-form-budget-limit"
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  class="input pl-7"
+                  :disabled="formData.budget_enforced"
+                  placeholder="0"
+                />
+              </div>
+              <p class="input-hint">{{ t('keys.budgetAmountHint') }}</p>
+            </div>
+
+            <div>
+              <label class="input-label">{{ t('keys.budgetPeriod') }}</label>
+              <select v-model="formData.budget_period_kind" data-test="key-form-budget-period" class="input" :disabled="formData.budget_enforced">
+                <option value="legacy_5h">{{ t('keys.budgetPeriodLegacy5h') }}</option>
+                <option value="legacy_1d">{{ t('keys.budgetPeriodLegacy1d') }}</option>
+                <option value="legacy_7d">{{ t('keys.budgetPeriodLegacy7d') }}</option>
+                <option value="duration">{{ t('keys.budgetPeriodDuration') }}</option>
+                <option value="calendar_day">{{ t('keys.budgetPeriodCalendarDay') }}</option>
+                <option value="calendar_week">{{ t('keys.budgetPeriodCalendarWeek') }}</option>
+                <option value="calendar_month">{{ t('keys.budgetPeriodCalendarMonth') }}</option>
+              </select>
+              <p class="input-hint">{{ t('keys.budgetPeriodHint') }}</p>
+            </div>
+
+            <div v-if="formData.budget_period_kind === 'duration'" class="flex items-end gap-2">
+              <div class="flex-1">
+                <label class="input-label">{{ t('keys.budgetDurationValue') }}</label>
+                <input
+                  v-model.number="formData.budget_duration_value"
+                  data-test="key-form-budget-duration-value"
+                  type="number"
+                  min="1"
+                  step="1"
+                  class="input"
+                  :disabled="formData.budget_enforced"
+                />
+              </div>
+              <div class="w-32">
+                <label class="input-label">{{ t('keys.budgetDurationUnit') }}</label>
+                <select v-model="formData.budget_duration_unit" class="input" :disabled="formData.budget_enforced">
+                  <option value="minutes">{{ t('keys.budgetDurationMinutes') }}</option>
+                  <option value="hours">{{ t('keys.budgetDurationHours') }}</option>
+                  <option value="days">{{ t('keys.budgetDurationDays') }}</option>
+                </select>
+              </div>
+            </div>
+
+            <div v-if="formData.budget_period_kind.startsWith('calendar_')">
+              <label class="input-label">{{ t('keys.budgetTimezone') }}</label>
+              <input
+                v-model.trim="formData.budget_timezone"
+                type="text"
+                class="input"
+                :disabled="formData.budget_enforced"
+                placeholder="Asia/Shanghai"
+              />
+              <p class="input-hint">{{ t('keys.budgetTimezoneHint') }}</p>
+            </div>
+
+            <div v-if="showEditModal && selectedKey && selectedKey.budget_period_mode !== 'off'" class="space-y-1">
+              <label class="input-label">{{ t('keys.budgetUsage') }}</label>
+              <div class="rounded-lg bg-gray-100 px-3 py-2 text-sm dark:bg-dark-700">
+                <span class="font-medium text-gray-900 dark:text-white">
+                  ${{ selectedKey.budget_used?.toFixed(4) || '0.0000' }}
+                </span>
+                <span class="mx-2 text-gray-400">/</span>
+                <span class="text-gray-500 dark:text-gray-400">
+                  ${{ selectedKey.budget_limit?.toFixed(2) || '0.00' }}
+                </span>
+                <span v-if="selectedKey.budget_reserved > 0" class="ml-2 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('keys.budgetReserved') }} ${{ selectedKey.budget_reserved.toFixed(4) }}
+                </span>
+                <span v-if="selectedKey.budget_overrun > 0" class="ml-2 text-xs text-amber-600 dark:text-amber-400">
+                  {{ t('keys.budgetOverrun') }} ${{ selectedKey.budget_overrun.toFixed(4) }}
+                </span>
+              </div>
+              <p class="input-hint">
+                {{ selectedKey.budget_legacy_anchor || selectedKey.budget_period_display }}
+                <template v-if="selectedKey.budget_period_end">
+                  · {{ t('keys.budgetNextReset') }} {{ formatResetTime(selectedKey.budget_period_end) }}
+                </template>
+              </p>
+              <p class="input-hint">{{ t('keys.usageSelfServiceHint') }}</p>
             </div>
           </div>
         </div>
@@ -1001,38 +1186,30 @@
       @cancel="showDeleteDialog = false"
     />
 
-    <!-- Reset Quota Confirmation Dialog -->
-    <ConfirmDialog
-      :show="showResetQuotaDialog"
-      :title="t('keys.resetQuotaTitle')"
-      :message="t('keys.resetQuotaConfirmMessage', { name: selectedKey?.name, used: selectedKey?.quota_used?.toFixed(4) })"
-      :confirm-text="t('keys.reset')"
-      :cancel-text="t('common.cancel')"
-      :danger="true"
-      @confirm="resetQuotaUsed"
-      @cancel="showResetQuotaDialog = false"
-    />
-
-    <!-- Reset Rate Limit Confirmation Dialog -->
-    <ConfirmDialog
-      :show="showResetRateLimitDialog"
-      :title="t('keys.resetRateLimitTitle')"
-      :message="t('keys.resetRateLimitConfirmMessage', { name: selectedKey?.name })"
-      :confirm-text="t('keys.reset')"
-      :cancel-text="t('common.cancel')"
-      :danger="true"
-      @confirm="resetRateLimitUsage"
-      @cancel="showResetRateLimitDialog = false"
-    />
-
     <!-- Use Key Modal -->
     <UseKeyModal
       :show="showUseKeyModal"
-      :api-key="selectedKey?.key || ''"
+      :api-key="'<YOUR_API_KEY>'"
       :base-url="publicSettings?.api_base_url || ''"
       :platform="selectedKey?.group?.platform || null"
       :allow-messages-dispatch="selectedKey?.group?.allow_messages_dispatch || false"
       @close="closeUseKeyModal"
+    />
+
+    <!-- Key Rotation Dialog -->
+    <KeyRotationDialog
+      :show="showRotateModal"
+      :api-key="rotateTarget"
+      @close="showRotateModal = false"
+      @issued="onCredentialIssued"
+    />
+
+    <!-- One-time secret dialog -->
+    <KeySecretDialog
+      :show="showSecretDialog"
+      :secret="issuedSecret"
+      :grace-until="issuedGraceUntil"
+      @close="showSecretDialog = false"
     />
 
     <!-- CCS Client Selection Dialog for Antigravity -->
@@ -1179,10 +1356,12 @@ import TablePageLayout from '@/components/layout/TablePageLayout.vue'
 	import SearchInput from '@/components/common/SearchInput.vue'
 	import Icon from '@/components/icons/Icon.vue'
 	import UseKeyModal from '@/components/keys/UseKeyModal.vue'
+	import KeyRotationDialog from '@/components/keys/KeyRotationDialog.vue'
+	import KeySecretDialog from '@/components/keys/KeySecretDialog.vue'
 	import EndpointPopover from '@/components/keys/EndpointPopover.vue'
 	import GroupBadge from '@/components/common/GroupBadge.vue'
 	import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
-	import type { ApiKey, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
+	import type { ApiKey, ApiKeyEffectiveRPMLimit, ApiKeyPeriodBudgetRequest, Group, PublicSettings, SubscriptionType, GroupPlatform, UpdateApiKeyRequest } from '@/types'
 import type { Column } from '@/components/common/types'
 import type { BatchApiKeyUsageStats } from '@/api/usage'
 import { formatDateTime } from '@/utils/format'
@@ -1191,6 +1370,7 @@ import {
   buildCcSwitchImportDeeplink,
   type CcSwitchClientType
 } from '@/utils/ccswitchImport'
+import { keyVisibleModels } from '@/api/modelAccess'
 
 // Helper to format date for datetime-local input
 const formatDateTimeLocal = (isoDate: string): string => {
@@ -1220,6 +1400,22 @@ const { copyToClipboard: clipboardCopy } = useClipboard()
 const gatewayEndpoints = [
   { protocol: 'openai', label: 'keys.payAsYouGo.openai', path: '/v1' },
   { protocol: 'anthropic', label: 'keys.payAsYouGo.anthropic', path: '/v1/messages' }
+].map((endpoint) => ({
+  ...endpoint,
+  url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href
+}))
+
+// Copyable generation entries. Availability still depends on the key's group
+// platform and, for images, the group image-generation switch; the list never
+// claims they are enabled for this key.
+const generationEndpoints = [
+  { label: 'keys.payAsYouGo.imageGeneration', path: '/v1/images/generations' },
+  { label: 'keys.payAsYouGo.imageEdit', path: '/v1/images/edits' },
+  { label: 'keys.payAsYouGo.videoGeneration', path: '/v1/videos/generations' },
+  { label: 'keys.payAsYouGo.speech', path: '/v1/tts' },
+  { label: 'keys.payAsYouGo.transcription', path: '/v1/stt' },
+  { label: 'keys.payAsYouGo.embeddings', path: '/v1/embeddings' },
+  { label: 'keys.payAsYouGo.rerank', path: '/v1/rerank' }
 ].map((endpoint) => ({
   ...endpoint,
   url: new URL(buildGatewayUrl(endpoint.path), window.location.origin).href
@@ -1349,14 +1545,20 @@ const filterGroupId = ref<string | number>('')
 const showCreateModal = ref(false)
 const showEditModal = ref(false)
 const showDeleteDialog = ref(false)
-const showResetQuotaDialog = ref(false)
-const showResetRateLimitDialog = ref(false)
 const showUseKeyModal = ref(false)
+const showRotateModal = ref(false)
+const rotateTarget = ref<ApiKey | null>(null)
+const showSecretDialog = ref(false)
+const issuedSecret = ref('')
+const issuedGraceUntil = ref<string | null>(null)
 const showCcsClientSelect = ref(false)
 const showColumnDropdown = ref(false)
 const pendingCcsRow = ref<ApiKey | null>(null)
+// Plaintext credentials exist only in this session: the panel can no longer read
+// them back after creation or rotation, so config exports may only use them while
+// they are still held here.
+const sessionSecrets = new Map<number, string>()
 const selectedKey = ref<ApiKey | null>(null)
-const copiedKeyId = ref<number | null>(null)
 const groupSelectorKeyId = ref<number | null>(null)
 const publicSettings = ref<PublicSettings | null>(null)
 const dropdownRef = ref<HTMLElement | null>(null)
@@ -1398,6 +1600,21 @@ const formData = ref({
   rate_limit_5h: null as number | null,
   rate_limit_1d: null as number | null,
   rate_limit_7d: null as number | null,
+  // Period budget (USD): one explicit period, separate from rate limits.
+  enable_budget: false,
+  budget_limit: null as number | null,
+  budget_period_kind: 'legacy_5h' as
+    | 'legacy_5h'
+    | 'legacy_1d'
+    | 'legacy_7d'
+    | 'duration'
+    | 'calendar_day'
+    | 'calendar_week'
+    | 'calendar_month',
+  budget_duration_value: 12 as number | null,
+  budget_duration_unit: 'hours' as 'minutes' | 'hours' | 'days',
+  budget_timezone: 'UTC',
+  budget_enforced: false,
   enable_expiration: false,
   expiration_preset: '30' as '7' | '30' | '90' | 'custom',
   expiration_date: ''
@@ -1424,7 +1641,16 @@ const statusOptions = computed(() => [
   { value: 'inactive', label: t('common.inactive') }
 ])
 
+// 管理员（或风控）停用的密钥是管理侧决定：面板不能把它改回 active，
+// 状态控件直接锁死，编辑其它字段时也不提交 status。
+const statusLockedByAdmin = computed(() =>
+  showEditModal.value && selectedKey.value?.status === 'disabled'
+)
+
 const shouldSubmitEditStatus = (key: ApiKey, status: 'active' | 'inactive') => {
+  if (key.status === 'disabled') {
+    return false
+  }
   if (key.status === 'quota_exhausted' || key.status === 'expired') {
     return status === 'active'
   }
@@ -1442,6 +1668,7 @@ const statusFilterOptions = computed(() => [
   { value: '', label: t('keys.allStatus') },
   { value: 'active', label: t('keys.status.active') },
   { value: 'inactive', label: t('keys.status.inactive') },
+  { value: 'disabled', label: t('keys.status.disabled') },
   { value: 'quota_exhausted', label: t('keys.status.quota_exhausted') },
   { value: 'expired', label: t('keys.status.expired') }
 ])
@@ -1488,16 +1715,6 @@ const filteredGroupOptions = computed(() => {
       (opt.description && opt.description.toLowerCase().includes(query))
   })
 })
-
-const copyToClipboard = async (text: string, keyId: number) => {
-  const success = await clipboardCopy(text, t('keys.copied'))
-  if (success) {
-    copiedKeyId.value = keyId
-    setTimeout(() => {
-      copiedKeyId.value = null
-    }, 800)
-  }
-}
 
 const isAbortError = (error: unknown) => {
   if (!error || typeof error !== 'object') return false
@@ -1628,7 +1845,7 @@ const editKey = (key: ApiKey) => {
   formData.value = {
     name: key.name,
     group_id: key.group_id,
-    status: key.status === 'quota_exhausted' || key.status === 'expired' ? 'inactive' : key.status,
+    status: key.status === 'quota_exhausted' || key.status === 'expired' || key.status === 'disabled' ? 'inactive' : key.status,
     use_custom_key: false,
     custom_key: '',
     enable_ip_restriction: hasIPRestriction,
@@ -1640,6 +1857,13 @@ const editKey = (key: ApiKey) => {
     rate_limit_5h: key.rate_limit_5h || null,
     rate_limit_1d: key.rate_limit_1d || null,
     rate_limit_7d: key.rate_limit_7d || null,
+    enable_budget: (key.budget_period_mode || 'off') !== 'off' && key.budget_limit > 0,
+    budget_limit: key.budget_limit > 0 ? key.budget_limit : null,
+    budget_period_kind: budgetPeriodKindOf(key),
+    budget_duration_value: budgetDurationValueOf(key),
+    budget_duration_unit: budgetDurationUnitOf(key),
+    budget_timezone: key.budget_timezone || 'UTC',
+    budget_enforced: !!key.budget_enforced,
     enable_expiration: hasExpiration,
     expiration_preset: 'custom',
     expiration_date: key.expires_at ? formatDateTimeLocal(key.expires_at) : ''
@@ -1700,12 +1924,32 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
   if (key.group_id === newGroupId) return
 
   try {
-    await keysAPI.update(key.id, { group_id: newGroupId })
+    // group_id 0 is the explicit unbind value; null would mean "leave unchanged".
+    await keysAPI.update(key.id, { group_id: newGroupId ?? 0 })
     appStore.showSuccess(t('keys.groupChangedSuccess'))
     loadApiKeys()
   } catch (error) {
     appStore.showError(t('keys.failedToChangeGroup'))
   }
+}
+
+// The list response already carries a masked credential, so its display suffix stays
+// visible; a plaintext value from an older backend is masked before it is rendered.
+const displayCredential = (value: string) => (value?.startsWith('****') ? value : maskApiKey(value))
+
+const openRotateModal = (key: ApiKey) => {
+  rotateTarget.value = key
+  showRotateModal.value = true
+}
+
+const onCredentialIssued = (payload: { secret: string; graceUntil: string | null }) => {
+  if (rotateTarget.value && payload.secret) {
+    sessionSecrets.set(rotateTarget.value.id, payload.secret)
+  }
+  issuedSecret.value = payload.secret
+  issuedGraceUntil.value = payload.graceUntil
+  showSecretDialog.value = true
+  loadApiKeys()
 }
 
 const closeGroupSelector = (event: MouseEvent) => {
@@ -1723,6 +1967,87 @@ const closeGroupSelector = (event: MouseEvent) => {
 const confirmDelete = (key: ApiKey) => {
   selectedKey.value = key
   showDeleteDialog.value = true
+}
+
+// Period-budget form helpers. The legacy 5h/1d/7d anchors stay selectable and
+// are reported by name, so the panel never has to explain a raw duration.
+const budgetPeriodKindOf = (key: ApiKey): 'legacy_5h' | 'legacy_1d' | 'legacy_7d' | 'duration' | 'calendar_day' | 'calendar_week' | 'calendar_month' => {
+  if (key.budget_legacy_anchor === '5h') return 'legacy_5h'
+  if (key.budget_legacy_anchor === '1d') return 'legacy_1d'
+  if (key.budget_legacy_anchor === '7d') return 'legacy_7d'
+  if (key.budget_period_mode === 'calendar') {
+    if (key.budget_calendar_unit === 'week') return 'calendar_week'
+    if (key.budget_calendar_unit === 'month') return 'calendar_month'
+    return 'calendar_day'
+  }
+  return 'duration'
+}
+
+const budgetDurationValueOf = (key: ApiKey): number | null => {
+  if (!key.budget_duration_seconds || key.budget_duration_seconds <= 0) return null
+  if (key.budget_duration_seconds % 86400 === 0) return key.budget_duration_seconds / 86400
+  if (key.budget_duration_seconds % 3600 === 0) return key.budget_duration_seconds / 3600
+  return Math.max(1, Math.round(key.budget_duration_seconds / 60))
+}
+
+const budgetDurationUnitOf = (key: ApiKey): 'minutes' | 'hours' | 'days' => {
+  if (!key.budget_duration_seconds || key.budget_duration_seconds <= 0) return 'hours'
+  if (key.budget_duration_seconds % 86400 === 0) return 'days'
+  if (key.budget_duration_seconds % 3600 === 0) return 'hours'
+  return 'minutes'
+}
+
+const budgetDurationSeconds = (): number => {
+  const value = formData.value.budget_duration_value && formData.value.budget_duration_value > 0
+    ? formData.value.budget_duration_value
+    : 1
+  const unit = formData.value.budget_duration_unit
+  if (unit === 'days') return Math.round(value * 86400)
+  if (unit === 'hours') return Math.round(value * 3600)
+  return Math.round(value * 60)
+}
+
+// buildBudgetPayload renders the form into the create/update contract. It returns
+// null when the owner keeps an enforced budget untouched, and clear_budget when
+// the toggle is switched off.
+const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
+  if (formData.value.budget_enforced) {
+    return null
+  }
+  if (!formData.value.enable_budget) {
+    if (showEditModal.value && selectedKey.value && selectedKey.value.budget_period_mode !== 'off') {
+      return { clear_budget: true }
+    }
+    return null
+  }
+  const limit = formData.value.budget_limit && formData.value.budget_limit > 0 ? formData.value.budget_limit : 0
+  if (limit <= 0) {
+    return null
+  }
+  switch (formData.value.budget_period_kind) {
+    case 'legacy_5h':
+      return { legacy_budget_anchor: '5h', budget_limit: limit }
+    case 'legacy_1d':
+      return { legacy_budget_anchor: '1d', budget_limit: limit }
+    case 'legacy_7d':
+      return { legacy_budget_anchor: '7d', budget_limit: limit }
+    case 'calendar_day':
+    case 'calendar_week':
+    case 'calendar_month':
+      return {
+        budget_period_mode: 'calendar',
+        budget_calendar_unit: formData.value.budget_period_kind.replace('calendar_', ''),
+        budget_timezone: formData.value.budget_timezone || 'UTC',
+        budget_limit: limit
+      }
+    default:
+      return {
+        budget_period_mode: 'duration',
+        budget_duration_seconds: budgetDurationSeconds(),
+        budget_anchor: 'first_use',
+        budget_limit: limit
+      }
+  }
 }
 
 const handleSubmit = async () => {
@@ -1793,6 +2118,10 @@ const handleSubmit = async () => {
         rate_limit_1d: rateLimitData.rate_limit_1d,
         rate_limit_7d: rateLimitData.rate_limit_7d,
       }
+      const budgetPayload = buildBudgetPayload()
+      if (budgetPayload) {
+        Object.assign(updates, budgetPayload)
+      }
       if (shouldSubmitEditStatus(selectedKey.value, formData.value.status)) {
         updates.status = formData.value.status
       }
@@ -1800,7 +2129,7 @@ const handleSubmit = async () => {
       appStore.showSuccess(t('keys.keyUpdatedSuccess'))
     } else {
       const customKey = formData.value.use_custom_key ? formData.value.custom_key : undefined
-      await keysAPI.create(
+      const issue = await keysAPI.create(
         formData.value.name,
         formData.value.group_id,
         customKey,
@@ -1808,9 +2137,16 @@ const handleSubmit = async () => {
         ipBlacklist,
         quota,
         expiresInDays,
-        rateLimitData
+        rateLimitData,
+        buildBudgetPayload() ?? undefined
       )
       appStore.showSuccess(t('keys.keyCreatedSuccess'))
+      if (issue?.secret) {
+        sessionSecrets.set(issue.api_key.id, issue.secret)
+        issuedSecret.value = issue.secret
+        issuedGraceUntil.value = issue.grace_until ?? null
+        showSecretDialog.value = true
+      }
       // Only advance tour if active, on submit step, and creation succeeded
       if (onboardingStore.isCurrentStep('[data-tour="key-form-submit"]')) {
         onboardingStore.nextStep(500)
@@ -1866,15 +2202,17 @@ const closeModals = () => {
     rate_limit_5h: null,
     rate_limit_1d: null,
     rate_limit_7d: null,
+    enable_budget: false,
+    budget_limit: null,
+    budget_period_kind: 'legacy_5h',
+    budget_duration_value: 12,
+    budget_duration_unit: 'hours',
+    budget_timezone: 'UTC',
+    budget_enforced: false,
     enable_expiration: false,
     expiration_preset: '30',
     expiration_date: ''
   }
-}
-
-// Show reset quota confirmation dialog
-const confirmResetQuota = () => {
-  showResetQuotaDialog.value = true
 }
 
 // Set expiration date based on quick select days
@@ -1885,60 +2223,15 @@ const setExpirationDays = (days: number) => {
   formData.value.expiration_date = formatDateTimeLocal(expDate.toISOString())
 }
 
-// Reset quota used for an API key
-const resetQuotaUsed = async () => {
-  const key = selectedKey.value
-  if (!key) return
-  showResetQuotaDialog.value = false
-  try {
-    const updatedKey = await keysAPI.update(key.id, { reset_quota: true })
-    appStore.showSuccess(t('keys.quotaResetSuccess'))
-    key.quota_used = updatedKey.quota_used
-    if (key.status !== updatedKey.status) {
-      key.status = updatedKey.status
-      if (selectedKey.value?.id === key.id) {
-        formData.value.status = updatedKey.status === 'active' ? 'active' : 'inactive'
-      }
-    }
-  } catch (error: any) {
-    const errorMsg = extractApiErrorMessage(error, '') || t('keys.failedToResetQuota')
-    appStore.showError(errorMsg)
-  }
-}
-
-// Show reset rate limit confirmation dialog (from edit modal)
-const confirmResetRateLimit = () => {
-  showResetRateLimitDialog.value = true
-}
-
-// Show reset rate limit confirmation dialog (from table row)
-const confirmResetRateLimitFromTable = (row: ApiKey) => {
-  selectedKey.value = row
-  showResetRateLimitDialog.value = true
-}
-
-// Reset rate limit usage for an API key
-const resetRateLimitUsage = async () => {
-  if (!selectedKey.value) return
-  showResetRateLimitDialog.value = false
-  try {
-    await keysAPI.update(selectedKey.value.id, { reset_rate_limit_usage: true })
-    appStore.showSuccess(t('keys.rateLimitResetSuccess'))
-    // Refresh key data
-    await loadApiKeys()
-    // Update the editing key with fresh data
-    const refreshedKey = apiKeys.value.find(k => k.id === selectedKey.value!.id)
-    if (refreshedKey) {
-      selectedKey.value = refreshedKey
-    }
-  } catch (error: any) {
-    const errorMsg = extractApiErrorMessage(error, '') || t('keys.failedToResetRateLimit')
-    appStore.showError(errorMsg)
-  }
-}
-
 const importToCcswitch = (row: ApiKey) => {
   const platform = row.group?.platform || 'anthropic'
+
+  // A masked credential cannot configure a client. Import needs the one-time
+  // secret from this session; never write the list's mask into a deep link.
+  if (!sessionSecrets.get(row.id)) {
+    appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
+    return
+  }
 
   // For antigravity platform, show client selection dialog
   if (platform === 'antigravity') {
@@ -1948,11 +2241,20 @@ const importToCcswitch = (row: ApiKey) => {
   }
 
   // For other platforms, execute directly
-  executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
+  void executeCcsImport(row, platform === 'gemini' ? 'gemini' : 'claude')
 }
 
-const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
-  const baseUrl = publicSettings.value?.api_base_url || window.location.origin
+const executeCcsImport = async (row: ApiKey, clientType: CcSwitchClientType) => {
+  const secret = sessionSecrets.get(row.id)
+  if (!secret) {
+    appStore.showInfo(t('keys.ccSwitchSecretUnavailable'))
+    return
+  }
+  const baseUrl = publicSettings.value?.api_base_url
+  if (!baseUrl) {
+    appStore.showError(t('keys.ccSwitchBaseUrlMissing'))
+    return
+  }
   const platform = row.group?.platform || 'anthropic'
 
   const usageScript = `({
@@ -1971,14 +2273,18 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
       };
     }
   })`
+  // The import model must come from this Key's visible set. When the server
+  // cannot answer, the deep link simply carries no model.
+  const visible = await keyVisibleModels(row.id)
   const providerName = (publicSettings.value?.site_name || 'sub2api').trim() || 'sub2api'
   const deeplink = buildCcSwitchImportDeeplink({
     baseUrl,
     platform,
     clientType,
     providerName,
-    apiKey: row.key,
-    usageScript
+    apiKey: secret,
+    usageScript,
+    visibleModels: visible?.models ?? null
   })
 
   try {
@@ -1998,7 +2304,7 @@ const executeCcsImport = (row: ApiKey, clientType: CcSwitchClientType) => {
 
 const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
   if (pendingCcsRow.value) {
-    executeCcsImport(pendingCcsRow.value, clientType)
+    void executeCcsImport(pendingCcsRow.value, clientType)
   }
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
@@ -2007,6 +2313,26 @@ const handleCcsClientSelect = (clientType: CcSwitchClientType) => {
 const closeCcsClientSelect = () => {
   showCcsClientSelect.value = false
   pendingCcsRow.value = null
+}
+
+function effectiveRpmSourceLabel(source: ApiKeyEffectiveRPMLimit['source']): string {
+  switch (source) {
+    case 'user_group_override':
+      return t('keys.effectiveRpmSourceUserGroupOverride')
+    case 'group':
+      return t('keys.effectiveRpmSourceGroup')
+    default:
+      return t('keys.effectiveRpmSourceUser')
+  }
+}
+
+// RPM windows are minutes long, so the shared day/hour formatter would always
+// print "0m". Show the real countdown to the window boundary.
+function formatRpmReset(resetAt: string | null | undefined): string {
+  if (!resetAt) return ''
+  const diff = new Date(resetAt).getTime() - now.value.getTime()
+  if (diff <= 0) return t('keys.resetNow')
+  return `${Math.max(1, Math.ceil(diff / 1000))}s`
 }
 
 function formatResetTime(resetAt: string | null): string {

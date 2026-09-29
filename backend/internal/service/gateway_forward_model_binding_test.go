@@ -24,12 +24,17 @@ type forwardCatalogRepo struct {
 }
 
 func TestRequestPlanMediaUsesActualCapabilityAndPreservesTextBridge(t *testing.T) {
-	for _, scenario := range []struct{ protocol, endpoint string }{
-		{"images", "images"}, {"media", "grok_media_generation"}, {"embeddings", "embeddings"},
-		{"search", "alpha_search"}, {"live", "live"}, {"chat_completions", "responses"},
+	for _, scenario := range []struct{ protocol, platform, endpoint string }{
+		{"images", PlatformOpenAI, "images"},
+		{"media", PlatformOpenAI, "images"},
+		{"media", PlatformGrok, string(OpenAIEndpointCapabilityGrokMediaGeneration)},
+		{"embeddings", PlatformOpenAI, "embeddings"},
+		{"search", PlatformOpenAI, "alpha_search"},
+		{"live", PlatformOpenAI, "live"},
+		{"chat_completions", PlatformOpenAI, "responses"},
 	} {
-		t.Run(scenario.protocol, func(t *testing.T) {
-			account := catalogEvidenceAccount(1, PlatformOpenAI, "fixture")
+		t.Run(scenario.platform+"/"+scenario.protocol, func(t *testing.T) {
+			account := catalogEvidenceAccount(1, scenario.platform, "fixture")
 			snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
 			snapshot.EligibleModels[0].Endpoints = []string{scenario.endpoint}
 			ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Protocol: scenario.protocol, Model: "fixture"}))

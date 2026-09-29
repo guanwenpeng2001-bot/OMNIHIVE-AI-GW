@@ -75,7 +75,14 @@ func SetupRouter(
 		frontendServer, err := web.NewFrontendServer(settingService) //nolint:staticcheck // SA4023: the !embed stub always errors; embed builds can return nil
 		if err != nil {                                              //nolint:staticcheck // SA4023: see above
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
-			r.Use(web.ServeEmbeddedFrontend())
+			legacyHandler, legacyErr := web.ServeEmbeddedFrontend()
+			if legacyErr != nil {
+				// Assets are unusable: keep serving API endpoints and say so, rather
+				// than failing every panel route while looking healthy.
+				log.Printf("Error: embedded frontend assets are unusable: %v; serving API endpoints only", legacyErr)
+			} else {
+				r.Use(legacyHandler)
+			}
 			settingService.SetOnUpdateCallback(refreshFrameOrigins)
 		} else {
 			// Register combined callback: invalidate HTML cache + refresh frame origins

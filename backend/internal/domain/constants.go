@@ -16,6 +16,14 @@ const (
 	RoleUser  = "user"
 )
 
+// API key credential status constants. A rotated key keeps one current
+// credential plus, during the grace window, one previous credential.
+const (
+	CredentialStatusCurrent = "current"
+	CredentialStatusGrace   = "grace"
+	CredentialStatusRevoked = "revoked"
+)
+
 // Platform constants
 const (
 	PlatformAnthropic   = "anthropic"

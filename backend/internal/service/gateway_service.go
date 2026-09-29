@@ -106,19 +106,20 @@ var (
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
 
-	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
 	// userPlatformQuotaDBIncrErrorTotal 统计 finalizePostUsageBilling 异步 goroutine
 	// 中 IncrementUsageWithReset 失败次数。Redis 已成功累加 + DB 写失败意味着
 	// Redis cache TTL 过期或被清后该笔 cost 会丢失（与实际消费偏差）。
-	// oncall 通过 GatewayUserPlatformQuotaIncrStats() 暴露给 ops 面板做阈值告警。
+	//
+	// 退役条件（不是日期）：database.user_platform_quota_flusher_enabled 成为默认写路径
+	// （当前 viper 默认 false，见 internal/config/config.go）后，本条直写路径不再执行，
+	// 才能连同 GatewayUserPlatformQuotaIncrStats 一起删除。翻转默认值的变更负责人负责退役。
+	// 现状：本仓库内暂无调用 GatewayUserPlatformQuotaIncrStats 的 ops/health 面板接线，
+	// 真正的现场告警仍依赖下方 ALERT 日志；面板接线人需同时决定保留或退役本计数器。
 	userPlatformQuotaDBIncrErrorTotal atomic.Int64
-	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
-	// userPlatformQuotaDBIncrLegacyErrorTotal 统计 legacy postUsageBilling
-	// （applyUsageBilling 在 repo==nil 时 fallback）路径下的失败次数；
-	// 与 DB Incr 失败分开计数，便于区分"主路径暂时故障"vs"基础设施长期未配齐"。
-	userPlatformQuotaDBIncrLegacyErrorTotal atomic.Int64
 	// userPlatformQuotaSentinelSetCacheErrorTotal 统计 checkUserPlatformQuotaEligibility
 	// 在 DB 无行时回填 sentinel cache entry 写 Redis 失败的次数（phase A）。
+	// 与 userPlatformQuotaDBIncrErrorTotal 同为 flusher 关闭（当前默认）路径上的活计数器，
+	// 退役条件与责任相同。
 	userPlatformQuotaSentinelSetCacheErrorTotal atomic.Int64
 )
 
@@ -142,14 +143,14 @@ func GatewayModelsListCacheStats() (cacheHit, cacheMiss, store int64) {
 	return modelsListCacheHitTotal.Load(), modelsListCacheMissTotal.Load(), modelsListCacheStoreTotal.Load()
 }
 
-// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, legacyPathErr, sentinelSetErr)。
+// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, sentinelSetErr)。
 // mainPathErr：finalizePostUsageBilling 异步 goroutine 写 DB 失败累计次数；
-// legacyPathErr：postUsageBilling fallback 路径写 DB 失败累计次数；
 // sentinelSetErr：DB 无行时回填 sentinel cache entry 写 Redis 失败累计次数。
-// ops 监控面板可以按"持续上升斜率"做告警阈值。
-func GatewayUserPlatformQuotaIncrStats() (mainPathErr, legacyPathErr, sentinelSetErr int64) {
+// 两者都只在 flusher 关闭（当前默认）的直写路径上增长，供 ops 斜率告警使用。
+// 当前仓库内没有调用方：ops/health 面板尚未接线，接线人或 flusher 转正变更负责人
+// 必须决定保留还是退役，不能仅凭历史注释里的日期删除。
+func GatewayUserPlatformQuotaIncrStats() (mainPathErr, sentinelSetErr int64) {
 	return userPlatformQuotaDBIncrErrorTotal.Load(),
-		userPlatformQuotaDBIncrLegacyErrorTotal.Load(),
 		userPlatformQuotaSentinelSetCacheErrorTotal.Load()
 }
 
@@ -581,6 +582,10 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// CompositeTarget 是本次选号实际使用的有序目标（单目标兼容路由也有值）。
+	// handler 用它把出站请求的 upstream 模型改写到被选中目标的模型，并把目标
+	// 声明的亲和性 TTL 应用到本次请求。
+	CompositeTarget *CompositeRouteTarget
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -900,7 +905,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
 		if uid != nil && uid.SessionID != "" {
-			slog.Info("sticky.hash_source",
+			slog.Debug("sticky.hash_source",
 				"source", "metadata_user_id",
 				"session_id", uid.SessionID,
 				"device_id", uid.DeviceID,
@@ -908,7 +913,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			)
 			return uid.SessionID
 		}
-		slog.Info("sticky.hash_metadata_parse_failed",
+		slog.Debug("sticky.hash_metadata_parse_failed",
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
@@ -918,7 +923,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	cacheableContent := s.extractCacheableContent(parsed)
 	if cacheableContent != "" {
 		hash := s.hashContent(cacheableContent)
-		slog.Info("sticky.hash_source",
+		slog.Debug("sticky.hash_source",
 			"source", "cacheable_content",
 			"hash", hash,
 		)
@@ -954,7 +959,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	}
 	if combined.Len() > 0 {
 		hash := s.hashContent(combined.String())
-		slog.Info("sticky.hash_source",
+		slog.Debug("sticky.hash_source",
 			"source", "message_content_fallback",
 			"hash", hash,
 			"content_len", combined.Len(),
@@ -965,12 +970,62 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
+type stickySessionTTLKey struct{}
+
+// WithStickySessionTTL overrides the sticky-session TTL for the current request.
+// A non-positive duration keeps the legacy default, so older callers and routes
+// without a configured affinity TTL keep the exact previous behavior.
+func WithStickySessionTTL(ctx context.Context, ttl time.Duration) context.Context {
+	if ctx == nil || ttl <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stickySessionTTLKey{}, ttl)
+}
+
+// WithCompositeTargetStickyTTL applies the active ordered target's configured
+// affinity TTL to the request context. It is a no-op when the request has no
+// ordered composite target or the target keeps the legacy default.
+func WithCompositeTargetStickyTTL(ctx context.Context) context.Context {
+	target, ok := ActiveCompositeTargetFromContext(ctx)
+	if !ok {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, target.AffinityTTLDuration())
+}
+
+// WithSelectionStickyTTL applies the affinity TTL declared by the ordered target
+// that produced this selection, keeping the legacy default when it is unset.
+func WithSelectionStickyTTL(ctx context.Context, result *AccountSelectionResult) context.Context {
+	if result == nil || result.CompositeTarget == nil {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, result.CompositeTarget.AffinityTTLDuration())
+}
+
+// stickySessionTTLForRequestWithDefault returns the affinity TTL declared for the
+// current request, or the caller's existing default when the request declares
+// none. Two trunks keep different legacy defaults (the Anthropic trunk uses
+// stickySessionTTL, the OpenAI trunk its own constant), so the default stays a
+// parameter instead of being unified here.
+func stickySessionTTLForRequestWithDefault(ctx context.Context, fallback time.Duration) time.Duration {
+	if ctx != nil {
+		if ttl, ok := ctx.Value(stickySessionTTLKey{}).(time.Duration); ok && ttl > 0 {
+			return ttl
+		}
+	}
+	return fallback
+}
+
+func stickySessionTTLForRequest(ctx context.Context) time.Duration {
+	return stickySessionTTLForRequestWithDefault(ctx, stickySessionTTL)
+}
+
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTLForRequest(ctx))
 }
 
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky
@@ -994,8 +1049,11 @@ func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Conte
 	if IsV2AffinityKey(sessionHash) {
 		_, _ = s.GetCachedSessionAccountID(ctx, groupID, sessionHash)
 		group := derefGroupID(groupID)
+		// 延迟绑定在准入点由另一条 ctx 执行，请求级亲和性 TTL 必须一并带过去，
+		// 否则有序目标声明的 TTL 只对直接绑定生效。
+		requestTTL := stickySessionTTLForRequest(ctx)
 		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
-			return s.BindStickySession(admitted, &group, sessionHash, accountID)
+			return s.BindStickySession(WithStickySessionTTL(admitted, requestTTL), &group, sessionHash, accountID)
 		})
 		return nil
 	}

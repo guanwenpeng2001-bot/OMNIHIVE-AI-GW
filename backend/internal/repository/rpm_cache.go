@@ -7,7 +7,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -41,7 +40,7 @@ type RPMCacheImpl struct {
 }
 
 // NewRPMCache 创建 RPM 计数器缓存
-func NewRPMCache(rdb *redis.Client) service.RPMCache {
+func NewRPMCache(rdb *redis.Client) *RPMCacheImpl {
 	return &RPMCacheImpl{rdb: rdb}
 }
 
@@ -53,7 +52,7 @@ func (c *RPMCacheImpl) currentMinuteKey(ctx context.Context, accountID int64) (s
 		return "", fmt.Errorf("redis TIME: %w", err)
 	}
 	minuteTS := serverTime.Unix() / 60
-	return fmt.Sprintf("%s%d:%d", rpmKeyPrefix, accountID, minuteTS), nil
+	return accountRPMKey(accountID, minuteTS), nil
 }
 
 // currentMinuteSuffix 获取当前分钟时间戳后缀（供批量操作使用）
@@ -74,10 +73,19 @@ func (c *RPMCacheImpl) IncrementRPM(ctx context.Context, accountID int64) (int, 
 	if err != nil {
 		return 0, fmt.Errorf("rpm increment: %w", err)
 	}
+	count, err := incrementAccountRPM(ctx, c.rdb, key)
+	if err != nil {
+		return 0, err
+	}
+	return count, nil
+}
 
+// incrementAccountRPM 是账号级分钟计数器唯一的写入实现，供 RPM 缓存与
+// 并发缓存（账号槽位授予即计一次 attempt）共用，避免两处各写一套 key/TTL 口径。
+func incrementAccountRPM(ctx context.Context, rdb *redis.Client, key string) (int, error) {
 	// 使用 TxPipeline (MULTI/EXEC) 保证 INCR + EXPIRE 原子执行
 	// EXPIRE 幂等，每次都设置不影响正确性
-	pipe := c.rdb.TxPipeline()
+	pipe := rdb.TxPipeline()
 	incrCmd := pipe.Incr(ctx, key)
 	pipe.Expire(ctx, key, rpmKeyTTL)
 
@@ -86,6 +94,11 @@ func (c *RPMCacheImpl) IncrementRPM(ctx context.Context, accountID int64) (int, 
 	}
 
 	return int(incrCmd.Val()), nil
+}
+
+// accountRPMKey 返回账号在给定分钟时间戳下的计数器 key。
+func accountRPMKey(accountID int64, minuteTS int64) string {
+	return fmt.Sprintf("%s%d:%d", rpmKeyPrefix, accountID, minuteTS)
 }
 
 // GetRPM 获取当前分钟的 RPM 计数

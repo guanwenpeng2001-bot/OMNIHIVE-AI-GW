@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log/slog"
+	"math"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,13 @@ type GatewayRequestPlan struct {
 	state            GatewayRequestState
 	leases           map[*gatewayPlanLease]struct{}
 	usage            atomic.Bool
+	// rateLimitCounted 是本逻辑请求的用户级 RPM 计数名额；rateLimitScopes 是已经
+	// 计过数的分组维度。重试/账号切换/同组兜底复用同一个请求计划，因此不会把
+	// 同一个逻辑请求重复计成多次（T3-2.13）。
+	rateLimitCounted atomic.Bool
+	rateLimitScopes  map[int64]struct{}
+	budgetHold       *KeyBudgetReservation
+	budgetAdmitted   bool
 	catalogRepo      AccountRepository
 	affinityState    *AffinityBindingState
 	bindingAccountID int64
@@ -139,10 +147,181 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	p.state.ClientCommitted = p.state.ClientCommitted || committed
 	leases := p.leases
 	p.leases = make(map[*gatewayPlanLease]struct{})
+	hold := p.budgetHold
+	settled := p.state.ReceiptState == UsageSettlementSettled
 	p.mu.Unlock()
 	for lease := range leases {
 		lease.once.Do(lease.release)
 	}
+	// A hold that never settled must be refunded here; the expiry sweep is only
+	// the crash fallback. A settled receipt already consumed its hold.
+	if hold != nil && !settled {
+		p.releaseBudgetHold(hold)
+	}
+}
+
+// releaseBudgetHold refunds an unconsumed request hold with a detached context:
+// the request context is usually already canceled at this point.
+func (p *GatewayRequestPlan) releaseBudgetHold(hold *KeyBudgetReservation) {
+	if p == nil || hold == nil || p.settlement == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.settlement.ReleaseKeyBudgetReservation(ctx, hold.APIKeyID, hold.RequestID); err != nil {
+		slog.Warn("release request budget hold", "api_key_id", hold.APIKeyID, "request_id", hold.RequestID, "error", err)
+	}
+}
+
+// RequestBudgetEstimate is the bounded cost estimate used to reserve budget
+// before a request is forwarded. Token counts are upper bounds, never usage.
+type RequestBudgetEstimate struct {
+	Model          string
+	InputTokens    int
+	OutputTokens   int
+	RateMultiplier float64
+	// SkipBalanceHold keeps the reservation on the period budget only.
+	SkipBalanceHold bool
+}
+
+// Conservative token bounds keep the reservation meaningful when a caller
+// cannot supply a bound; settlement still adjusts to the real cost.
+const (
+	defaultBudgetEstimateInputTokens  = 1024
+	defaultBudgetEstimateOutputTokens = 4096
+)
+
+// NormalizeBudgetEstimateBounds 把调用方给出的估算收敛成预留用的有界上界。
+//
+// 这些是**上界**，不是用量：媒体/音频/异步 job 请求没有 token 用量，调用方给出的
+// 上界为 0 时使用文档化的默认上界，绝不允许把图片/视频参数折算成 token 数冒充用量。
+// 真正的计费始终来自结算阶段的实际上游用量。
+func NormalizeBudgetEstimateBounds(estimate RequestBudgetEstimate) (inputTokens, outputTokens int, multiplier float64) {
+	inputTokens = estimate.InputTokens
+	if inputTokens <= 0 {
+		inputTokens = defaultBudgetEstimateInputTokens
+	}
+	outputTokens = estimate.OutputTokens
+	if outputTokens <= 0 {
+		outputTokens = defaultBudgetEstimateOutputTokens
+	}
+	multiplier = estimate.RateMultiplier
+	if multiplier <= 0 {
+		multiplier = 1
+	}
+	return inputTokens, outputTokens, multiplier
+}
+
+// ClaimUserRateLimitCount 领取本逻辑请求的用户级 RPM 计数名额。
+// 同一个请求计划只成功一次：重试、账号切换、分组兜底都不会把用户的逻辑请求
+// 重复计进用户级计数器。没有请求计划（如单测/非网关调用）时返回 true，
+// 保持既有的一次一计语义。
+func (p *GatewayRequestPlan) ClaimUserRateLimitCount() bool {
+	if p == nil {
+		return true
+	}
+	return p.rateLimitCounted.CompareAndSwap(false, true)
+}
+
+// ClaimRateLimitScope 领取 (逻辑请求, 分组) 维度的 RPM 计数名额。
+// 兜底到另一个分组时那个分组的容量确实被占用，所以按分组分别计数；
+// 同一分组内的重试不会重复计数。
+func (p *GatewayRequestPlan) ClaimRateLimitScope(groupID int64) bool {
+	if p == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.rateLimitScopes == nil {
+		p.rateLimitScopes = make(map[int64]struct{}, 1)
+	}
+	if _, counted := p.rateLimitScopes[groupID]; counted {
+		return false
+	}
+	p.rateLimitScopes[groupID] = struct{}{}
+	return true
+}
+
+// BudgetHold returns the live request hold, if any. The settlement path reads it
+// to consume the hold instead of deducting the balance twice.
+func (p *GatewayRequestPlan) BudgetHold() *KeyBudgetReservation {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.budgetHold
+}
+
+// BudgetAdmitted reports whether admission was already decided for this plan.
+func (p *GatewayRequestPlan) BudgetAdmitted() bool {
+	if p == nil {
+		return true
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.budgetAdmitted
+}
+
+// ReserveBudget admits one request against the key's period budget and payer
+// balance. It is idempotent per plan: failover retries reuse the first hold.
+//
+// The estimate is priced with the plan's frozen pricing snapshot, so a price
+// reload cannot change what this request reserved.
+func (p *GatewayRequestPlan) ReserveBudget(ctx context.Context, estimate RequestBudgetEstimate) error {
+	if p == nil {
+		return nil
+	}
+	p.mu.Lock()
+	if p.budgetAdmitted {
+		p.mu.Unlock()
+		return nil
+	}
+	p.mu.Unlock()
+	if p.settlement == nil {
+		return ErrAPIKeyBudgetUnavailable
+	}
+	spec := p.Snapshot()
+	if spec.APIKeyID <= 0 || spec.UserID <= 0 || strings.TrimSpace(spec.ExecutionID) == "" {
+		return ErrAPIKeyBudgetUnavailable
+	}
+	hold := p.estimateBudgetHold(estimate)
+	outcome, err := p.settlement.ReserveKeyBudget(ctx, &KeyBudgetReservationCommand{
+		RequestID:       spec.ExecutionID,
+		APIKeyID:        spec.APIKeyID,
+		UserID:          spec.UserID,
+		HoldAmount:      hold,
+		SkipBalanceHold: estimate.SkipBalanceHold,
+	})
+	if err != nil {
+		return err
+	}
+	p.mu.Lock()
+	p.budgetAdmitted = true
+	if outcome != nil {
+		p.budgetHold = outcome.Reservation
+	}
+	p.mu.Unlock()
+	return nil
+}
+
+// estimateBudgetHold prices the request bound with the frozen snapshot. An
+// unpriced model yields no hold: the existing pricing-error path owns that case
+// and must not be replaced by an admission error here.
+func (p *GatewayRequestPlan) estimateBudgetHold(estimate RequestBudgetEstimate) float64 {
+	if p.billing == nil {
+		return 0
+	}
+	input, output, multiplier := NormalizeBudgetEstimateBounds(estimate)
+	cost, err := p.billing.CalculateCost(estimate.Model, UsageTokens{InputTokens: input, OutputTokens: output}, multiplier)
+	if err != nil || cost == nil {
+		return 0
+	}
+	hold := cost.ActualCost
+	if hold < 0 || math.IsNaN(hold) || math.IsInf(hold, 0) {
+		return 0
+	}
+	return QuantizeUsageBillingAmount(hold)
 }
 
 func (p *GatewayRequestPlan) Finalize(clientCommitted bool) { p.finish(false, clientCommitted) }

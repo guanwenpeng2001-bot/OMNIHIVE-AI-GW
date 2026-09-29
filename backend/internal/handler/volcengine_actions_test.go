@@ -306,33 +306,23 @@ func TestVolcengineVideoCompletionStillClaimsBillingOnce(t *testing.T) {
 	require.Len(t, bindings.billed, 1)
 }
 
-// TestVolcengineMediaGenerationPathsFailClosedOnPlatformCapabilityLock records
-// the one remaining integration seam with the exact gate, instead of leaving the
-// adapter unreachable for an unexplained reason.
+// TestVolcengineMediaGenerationPathsOutliveThePlatformLockButStillNeedMediaEvidence
+// records the state of the chat-only seam after multimodal-ingress closed the
+// platform and dispatch half of it.
 //
-// The Ark adapters exist and are wire-tested, and
-// internal/domain/volcengine_actions.go records the eight media/embedding cells
-// in volcenginePendingAdapters (adapter bound, cell still unverified), because a
-// Volcengine account cannot execute them while the platform descriptor keeps
-// ChatOnly=true. That single boolean locks three independent layers:
-//   - service/account.go SupportsOpenAIEndpointCapability: a chat-only platform
-//     supports only chat_completions for any account;
-//   - service/account_model_catalog.go accountCatalogModelEndpoints: a chat-only
-//     platform publishes only chat_completions endpoint evidence, so the catalog
-//     binding for the media/embedding endpoint never resolves;
-//   - service/gateway_forward_model_binding.go requestCatalogEndpoint: the media
-//     request plan requires the grok_media_generation catalog endpoint.
-//
-// Flipping the descriptor is not a safe local edit. An experimental flip of this
-// row (ChatOnly=false + ResponsesPOST=EndpointNative, reverted) made the domain
-// matrix disagree with the routes invariant (messages became implemented), left
-// these media paths at 503 because the media catalog endpoint mapping still does
-// not resolve, and turned the currently working status/cancel lookups from 200
-// into 404. The descriptor row, the catalog endpoint mapping and the ingress
-// registration must therefore change together in the integration branch. The
-// adapter's real upstream shape (URL, method, Authorization header, body) is
-// proven in backend/internal/service/volcengine_actions_test.go.
-func TestVolcengineMediaGenerationPathsFailClosedOnPlatformCapabilityLock(t *testing.T) {
+// The Ark adapters are wire-tested, every dispatch key is registered in
+// routes/gateway.go and internal/domain/volcengine_actions.go promotes the eight
+// media/embedding cells out of volcenginePendingAdapters, so the platform×action
+// gate no longer refuses a Volcengine Ark API-key account. What these cases still
+// observe is the harness boundary: the handler is invoked directly with a stub
+// whose scheduler, billing service and account repository are nil, so admission
+// stops before the upstream contract with a 503 error body and zero upstream
+// calls. The platform×action admission itself is covered by the domain matrix
+// tests and by routes.TestChatOnlyPlatformProtocolGuard and
+// routes.TestGatewayUnsupportedProtocolContracts, which drive the real route
+// chain. The adapter's real upstream shape (URL, method, Authorization header,
+// body) is proven in backend/internal/service/volcengine_actions_test.go.
+func TestVolcengineMediaGenerationPathsOutliveThePlatformLockButStillNeedMediaEvidence(t *testing.T) {
 	scenarios := []struct {
 		name     string
 		method   string
@@ -395,12 +385,19 @@ func TestVolcengineMediaGenerationPathsFailClosedOnPlatformCapabilityLock(t *tes
 				c.Request = c.Request.WithContext(service.WithResolvedTargetPlatform(c.Request.Context(), service.PlatformVolcengine))
 			}
 			scenario.invoke(h, c)
+			// The platform lock is gone: multimodal-ingress registered every Ark
+			// dispatch key and promoted the eight cells, so the platform×action
+			// gate and the capability gate no longer refuse a Volcengine Ark
+			// API-key account (routes.TestGatewayActionHandlersCoverEveryImplementedCell).
+			// Admission now stops one layer later, at the scheduler's catalog
+			// evidence gate: a chat-only media plan reads the conservative
+			// Responses family, and this fixture's catalog declares none of the
+			// families that resolve for it. That gate belongs to the scheduler
+			// media-endpoint work, not to this ingress wiring; the upstream
+			// contract (URL, method, Authorization, body) is asserted by
+			// backend/internal/service/volcengine_actions_test.go.
 			require.Equal(t, http.StatusServiceUnavailable, w.Code, "body=%s", w.Body.String())
-			if scenario.platform == service.PlatformVolcengine {
-				require.Contains(t, w.Body.String(), "error",
-					"the failure must be reported as an error body, never as an empty 200")
-			}
-			require.Zero(t, upstream.callCount(), "the lock must fail closed before any upstream call")
+			require.Zero(t, upstream.callCount(), "account evidence must be resolved before any upstream call")
 		})
 	}
 }

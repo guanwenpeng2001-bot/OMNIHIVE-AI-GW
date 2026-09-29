@@ -85,9 +85,12 @@ vi.mock('vue-i18n', async () => {
 
 import CreateAccountModal from '../CreateAccountModal.vue'
 import { apiClient } from '@/api/client'
+import { accountsAPI } from '@/api/admin/accounts'
+import zhAdminAccounts from '@/i18n/locales/zh/admin/accounts'
 import type { CreateAccountRequest } from '@/types'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import CursorKeyFields from '../CursorKeyFields.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import CursorBrowserAuthorization from '../CursorBrowserAuthorization.vue'
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
@@ -267,7 +270,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   it('retains the Cursor browser authorization receipt for saved model configuration without applying', async () => {
     const wrapper = mountModal()
     await selectButtonByText(wrapper, 'Cursor')
-    ;(wrapper.vm as unknown as { cursorKeyMode: string }).cursorKeyMode = 'auto'
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
     await flushPromises()
     createAccountMock.mockResolvedValueOnce({ id: 93, platform: 'cursor' })
     wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('draft', { credential_draft: 'browser-draft', revision: 'initial', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' })
@@ -1152,6 +1155,325 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await flushPromises()
     expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', upstream_billing_probe_enabled: true })
     expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+  })
+
+  it('renders one account type entry before protocol and credentials', async () => {
+    const wrapper = mountModal()
+    // Cursor：三张一级卡先于协议与凭据，字段组件不再持有类型选择
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    const cursorEntry = wrapper.get('[data-tour="account-form-type"]')
+    expect(cursorEntry.attributes('role')).toBe('radiogroup')
+    const cursorCards = cursorEntry.findAll('button[role="radio"]')
+    expect(cursorCards.map(card => card.attributes('data-testid'))).toEqual(['cursor-key-mode-auto', 'cursor-key-mode-official', 'cursor-key-mode-relay'])
+    expect(cursorCards.map(card => card.attributes('aria-checked'))).toEqual(['false', 'true', 'false'])
+    expect(wrapper.findAll('[data-testid^="cursor-key-mode-"]')).toHaveLength(3)
+    expect(wrapper.getComponent(CursorKeyFields).findAll('[data-testid^="cursor-key-mode-"]')).toHaveLength(0)
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    expect(wrapper.get('[data-testid="account-protocol-choices"]').findAll('button[role="radio"]').map(card => card.attributes('data-testid')))
+      .toEqual(['cursor-relay-protocol-adaptive', 'cursor-relay-protocol-chat_completions'])
+    const orderedTargets = [...wrapper.get('form#create-account-form').element.querySelectorAll('[data-tour="account-form-type"], [data-testid="account-protocol-choices"], [data-testid="cursor-api-key"]')]
+    expect(orderedTargets.map(element => element.getAttribute('data-tour') ?? element.getAttribute('data-testid')))
+      .toEqual(['account-form-type', 'account-protocol-choices', 'cursor-api-key'])
+    // 四个双模式平台：模式卡就是唯一一组一级选择，没有重复的模式入口或只读摘要卡
+    for (const platform of ['kimi', 'zhipu', 'minimax', 'opencode_go']) {
+      await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+      await flushPromises()
+      const entries = wrapper.findAll('[data-tour="account-form-type"]')
+      expect(entries).toHaveLength(1)
+      expect(entries[0]!.findAll('button[role="radio"]')).toHaveLength(2)
+      expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="account-type-summary"]').exists()).toBe(false)
+    }
+    // DeepSeek 保留单项 PayG 展示与旧模式锚点，不制造 Coding
+    await wrapper.get('[data-testid="deepseek-platform"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-tour="account-form-mode"]').findAll('button[role="radio"]')).toHaveLength(1)
+    expect(wrapper.find('[data-tour="account-form-type"]').exists()).toBe(false)
+    // Command Code：一张只读说明卡，无可操作的假 radio
+    await wrapper.get('[data-testid="commandcode-platform"]').trigger('click')
+    await flushPromises()
+    const commandCodeEntry = wrapper.get('[data-tour="account-form-type"]')
+    expect(commandCodeEntry.findAll('button')).toHaveLength(0)
+    expect(commandCodeEntry.findAll('[role="radio"]')).toHaveLength(0)
+    expect(commandCodeEntry.get('[data-testid="commandcode-account-type-card"]').exists()).toBe(true)
+    // 千问：维持没有账号类型选择区的现状，不为引导造卡
+    await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-tour="account-form-type"]').exists()).toBe(false)
+    expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="commandcode-account-type-card"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['auto', 'oauth'],
+    ['official', 'apikey'],
+    ['relay', 'upstream'],
+  ] as const)('aligns Cursor category preview and submitted type (%s)', async (mode, expectedType) => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get(`[data-testid="cursor-key-mode-${mode}"]`).trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(`Cursor ${mode}`)
+    if (mode === 'auto') {
+      for (const [field, value] of Object.entries({ access_token: 'synthetic-access', refresh_token: 'synthetic-refresh', machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64) })) {
+        await wrapper.get(`[data-testid="cursor-${field}"]`).setValue(value)
+      }
+    } else {
+      await wrapper.get('[data-testid="cursor-api-key"]').setValue('crsr_test')
+    }
+    if (mode === 'relay') await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    // 原生模式没有 Relay 协议控件；Relay 首次进入为 Adaptive
+    expect(wrapper.find('[data-testid="cursor-relay-protocol-adaptive"]').exists()).toBe(mode === 'relay')
+    expect(wrapper.find('[data-testid="cursor-relay-protocol-chat_completions"]').exists()).toBe(mode === 'relay')
+    if (mode === 'relay') expect(wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
+    await openReview(wrapper)
+    await flushPromises()
+    // 预览连接输入与最终创建读同一个实际类型
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({ platform: 'cursor', type: expectedType })
+    await confirmReview(wrapper)
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'cursor', type: expectedType })
+    if (expectedType === 'upstream') {
+      expect(payload.credentials).toMatchObject({ api_protocol: 'adaptive', base_url: 'https://relay.example/v1' })
+    } else {
+      expect(payload.credentials).not.toHaveProperty('api_protocol')
+      expect(payload.credentials).not.toHaveProperty('base_url')
+      expect(payload.credentials).not.toHaveProperty('api_base_urls')
+    }
+    // 切换后等待渲染，派生类型仍与预览/创建一致
+    await flushPromises()
+    expect((wrapper.vm as unknown as { form: { type: string } }).form.type).toBe(expectedType)
+    wrapper.unmount()
+  })
+
+  it.each(['adaptive', 'chat_completions'] as const)('creates and previews Cursor relays with the selected protocol (%s)', async (protocol) => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor relay')
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('relay-key')
+    await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    await wrapper.get(`[data-testid="cursor-relay-protocol-${protocol}"]`).trigger('click')
+    await flushPromises()
+    // 同一 Relay 内切协议保留 URL/Key
+    expect((wrapper.get('[data-testid="cursor-api-key"]').element as HTMLInputElement).value).toBe('relay-key')
+    expect((wrapper.get('[data-testid="cursor-base-url"]').element as HTMLInputElement).value).toBe('https://relay.example/v1')
+    await openReview(wrapper)
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({
+      platform: 'cursor', type: 'upstream', base_url: 'https://relay.example/v1', api_key: 'relay-key',
+      credentials: { api_protocol: protocol, base_url: 'https://relay.example/v1' }
+    })
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({
+      platform: 'cursor', type: 'upstream',
+      credentials: { api_protocol: protocol, base_url: 'https://relay.example/v1', api_key: 'relay-key' }
+    })
+    wrapper.unmount()
+  })
+
+  it('ignores relay preview results from an earlier protocol', async () => {
+    const previewMock = vi.mocked(accountsAPI.syncUpstreamModelsPreview)
+    previewMock.mockClear()
+    const wrapper = mountModal([], true)
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Cursor relay preview')
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('relay-key')
+    await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    await openReview(wrapper)
+
+    let resolvePreview!: (value: unknown) => void
+    previewMock.mockImplementationOnce(() => new Promise(resolve => { resolvePreview = resolve }))
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(previewMock).toHaveBeenCalledTimes(1)
+    expect(previewMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', credentials: { api_protocol: 'adaptive' } })
+
+    // 切协议产生新的连接输入：在途结果不得被展示成当前连接验证成功
+    await wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').trigger('click')
+    await flushPromises()
+    resolvePreview({ candidate_models: ['late-adaptive-model'], models: ['late-adaptive-model'], discovery_complete: true, complete: true })
+    await flushPromises()
+    expect(wrapper.text()).not.toContain('late-adaptive-model')
+    expect(wrapper.find('[data-testid="add-preview-models"]').exists()).toBe(false)
+    expect((wrapper.get('[data-testid="cursor-api-key"]').element as HTMLInputElement).value).toBe('relay-key')
+    expect((wrapper.get('[data-testid="cursor-base-url"]').element as HTMLInputElement).value).toBe('https://relay.example/v1')
+
+    // 返回表单重新提交后，预览与创建都使用改选后的协议
+    await wrapper.findAll('button').find(button => button.text() === 'common.back')!.trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="account-review"]').exists()).toBe(false)
+    await openReview(wrapper)
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    expect(previewMock.mock.calls.at(-1)?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', credentials: { api_protocol: 'chat_completions' } })
+    await confirmReview(wrapper)
+    await flushPromises()
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'upstream', credentials: { api_protocol: 'chat_completions' } })
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['kimi', 'admin.accounts.cnProviders.accountMode.payg', 'payg'],
+    ['kimi', 'admin.accounts.cnProviders.accountMode.coding', 'coding'],
+    ['zhipu', 'admin.accounts.cnProviders.accountMode.coding', 'coding'],
+    ['minimax', 'admin.accounts.cnProviders.accountMode.coding', 'coding'],
+    ['zhipu', 'admin.accounts.cnProviders.accountMode.payg', 'payg'],
+    ['opencode_go', 'admin.accounts.opencodeGo.accountMode.zen', 'zen'],
+    ['opencode_go', 'admin.accounts.opencodeGo.accountMode.go', 'go'],
+  ] as const)('creates package and metered accounts with existing mode values (%s %s)', async (platform, modeLabel, expectedMode) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+    await selectButtonByText(wrapper, modeLabel)
+    // 智谱团队版字段只走原有 Coding 分支
+    if (platform === 'zhipu' && expectedMode === 'coding') {
+      await wrapper.get('input[placeholder="admin.accounts.cnProviders.zhipuTeam.organizationPlaceholder"]').setValue('team-org')
+      await wrapper.get('input[placeholder="admin.accounts.cnProviders.zhipuTeam.projectPlaceholder"]').setValue('team-project')
+    }
+    if (platform === 'zhipu' && expectedMode === 'payg') {
+      await selectButtonByText(wrapper, 'admin.accounts.cnProviders.accountMode.coding')
+      await wrapper.get('input[placeholder="admin.accounts.cnProviders.zhipuTeam.organizationPlaceholder"]').setValue('team-org')
+      await selectButtonByText(wrapper, 'admin.accounts.cnProviders.accountMode.payg')
+    }
+    await wrapper.get('form#create-account-form input[type="text"]').setValue(`${platform} ${expectedMode}`)
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform, type: 'apikey', credentials: { account_mode: expectedMode, api_protocol: 'adaptive', api_key: 'fixture-key' } })
+    expect(Object.keys(payload.credentials.api_base_urls ?? {}).length).toBeGreaterThan(0)
+    if (platform === 'zhipu' && expectedMode === 'coding') {
+      expect(payload.credentials).toMatchObject({ zhipu_organization: 'team-org', zhipu_project: 'team-project' })
+    } else {
+      expect(payload.credentials).not.toHaveProperty('zhipu_organization')
+      expect(payload.credentials).not.toHaveProperty('zhipu_project')
+    }
+    // 原协议选项能力不变：智谱/CommandCode 不新增原生 Responses；Kimi/MiniMax/OpenCode 保持四项
+    const protocolCount = wrapper.findAll('[data-testid="account-protocol-choices"] > button[role="radio"]').length
+    expect(protocolCount).toBe(platform === 'zhipu' ? 3 : 4)
+    wrapper.unmount()
+  })
+
+  it('preserves intentional defaults while changing platforms', async () => {
+    const wrapper = mountModal()
+    const state = wrapper.vm as unknown as { accountMode: string; openCodeAccountMode: string; form: { type: string } }
+    // Kimi Coding 在智谱继续有效
+    await wrapper.get('[data-testid="kimi-platform"]').trigger('click')
+    await selectButtonByText(wrapper, 'admin.accounts.cnProviders.accountMode.coding')
+    await wrapper.get('[data-testid="zhipu-platform"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-tour="account-form-type"]').get('button[aria-checked="true"]').text()).toContain('admin.accounts.cnProviders.accountMode.coding')
+    // 千问 / DeepSeek 固定 PayG
+    await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+    await flushPromises()
+    expect(state.accountMode).toBe('payg')
+    await wrapper.get('[data-testid="deepseek-platform"]').trigger('click')
+    await flushPromises()
+    expect(state.accountMode).toBe('payg')
+    // OpenCode 进入即默认 Zen
+    await wrapper.get('[data-testid="opencode_go-platform"]').trigger('click')
+    await flushPromises()
+    expect(state.openCodeAccountMode).toBe('zen')
+    // 回到 Kimi 选定 Coding，准备验证 Relay 草稿不会跨平台泄漏
+    await wrapper.get('[data-testid="kimi-platform"]').trigger('click')
+    await selectButtonByText(wrapper, 'admin.accounts.cnProviders.accountMode.coding')
+    await flushPromises()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('relay-key')
+    await wrapper.get('[data-testid="cursor-base-url"]').setValue('https://relay.example/v1')
+    // 重复点击已选项不清空输入
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await flushPromises()
+    expect((wrapper.get('[data-testid="cursor-api-key"]').element as HTMLInputElement).value).toBe('relay-key')
+    expect((wrapper.get('[data-testid="cursor-base-url"]').element as HTMLInputElement).value).toBe('https://relay.example/v1')
+    // Relay → 其他平台：upstream 分类被清除，目标平台端点不被晚到的 Cursor 清理覆盖
+    await wrapper.get('[data-testid="kimi-platform"]').trigger('click')
+    await flushPromises()
+    expect(state.form.type).toBe('apikey')
+    expect((wrapper.get('[data-testid="cn-adaptive-base-url-chat_completions"]').element as HTMLInputElement).value).toBe('https://api.kimi.com/coding/v1')
+    // 回到 Cursor 为官方 Key，不泄漏 upstream 分类或 Relay 协议
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="cursor-key-mode-official"]').attributes('aria-checked')).toBe('true')
+    expect(state.form.type).toBe('apikey')
+    expect(wrapper.find('[data-testid="cursor-relay-protocol-chat_completions"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="cursor-base-url"]').exists()).toBe(false)
+    // 重新进入 Relay 回到 Adaptive，不跨模式保存 Relay 草稿
+    await wrapper.get('[data-testid="cursor-key-mode-relay"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
+    expect((wrapper.get('[data-testid="cursor-api-key"]').element as HTMLInputElement).value).toBe('')
+    expect((wrapper.get('[data-testid="cursor-base-url"]').element as HTMLInputElement).value).toBe('')
+    wrapper.unmount()
+  })
+
+  it('finishes Cursor browser authorization without a second create', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="cursor-platform"]').trigger('click')
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
+    await flushPromises()
+    // 手动 Auto 与浏览器授权并存，手动 Token 输入不依赖浏览器
+    expect(wrapper.find('[data-testid="cursor-access_token"]').exists()).toBe(true)
+    const authorization = wrapper.getComponent(CursorBrowserAuthorization)
+    createAccountMock.mockResolvedValueOnce({ id: 93, platform: 'cursor' })
+    authorization.vm.$emit('draft', { credential_draft: 'browser-draft', revision: 'initial', platform: 'cursor', type: 'oauth', expires_at: '2099-01-01T00:00:00Z' })
+    await flushPromises()
+    // 授权成功只登记一次复核，不额外调用创建接口
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(wrapper.findAll('[data-testid="account-model-configuration"]')).toHaveLength(1)
+    expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toMatchObject({ type: 'oauth', credential_draft: 'browser-draft', credential_draft_revision: 'initial' })
+    // 已保存账号 ID 事件不触发第二次创建；切换模式真实卸载浏览器授权且旧结果不污染新表单
+    authorization.vm.$emit('success', 93)
+    await wrapper.get('[data-testid="cursor-key-mode-official"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.findComponent(CursorBrowserAuthorization).exists()).toBe(false)
+    await wrapper.get('[data-testid="cursor-key-mode-auto"]').trigger('click')
+    await flushPromises()
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(wrapper.findAll('[data-testid="account-model-configuration"]')).toHaveLength(1)
+    await confirmReview(wrapper)
+    await flushPromises()
+    // 整个授权流程只创建一次，已保存账号 ID 只登记一次
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'cursor', type: 'oauth', credential_draft: 'browser-draft', credential_draft_revision: 'reviewed' })
+    const saved = wrapper.get('[data-testid="created-catalog-accounts"]')
+    expect(saved.findAll('h3')).toHaveLength(1)
+    expect(saved.text()).toContain('#93')
+    wrapper.unmount()
+  })
+
+  it('describes CommandCode windows without changing its credential contract', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="commandcode-platform"]').trigger('click')
+    const entry = wrapper.get('[data-tour="account-form-type"]')
+    const card = entry.get('[data-testid="commandcode-account-type-card"]')
+    expect(card.attributes('role')).toBe('note')
+    expect(card.text()).toContain('admin.accounts.platformDetails.commandcodeAccountTypeTitle')
+    expect(card.text()).toContain('admin.accounts.platformDetails.commandcodeAccountTypeDescription')
+    expect(card.findAll('button')).toHaveLength(0)
+    expect(entry.findAll('[role="radio"]')).toHaveLength(0)
+    expect(wrapper.find('[data-tour="account-form-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="account-type-summary"]').exists()).toBe(false)
+    // 说明含上游条件、5 小时/周窗口与本地回落，不承诺固定额度
+    const description = zhAdminAccounts.accounts.platformDetails.commandcodeAccountTypeDescription
+    for (const phrase of ['上游返回有效数据', '5 小时', '本地统计', '不代表剩余额度']) expect(description).toContain(phrase)
+    expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+    // 兼容载荷与探测行为不变
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Command Code')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('sk-commandcode')
+    await openReview(wrapper)
+    await confirmReview(wrapper)
+    await flushPromises()
+    const payload = createAccountMock.mock.calls[0]?.[0]
+    expect(payload).toMatchObject({ platform: 'commandcode', type: 'apikey', upstream_billing_probe_enabled: true, credentials: { account_mode: 'payg', api_protocol: 'adaptive', api_key: 'sk-commandcode' } })
+    expect(payload.credentials.protocol_rules).toEqual([{ pattern: 'claude-*', protocol: 'anthropic' }, { pattern: 'anthropic/claude-*', protocol: 'anthropic' }])
+    expect(probeUpstreamBillingMock).toHaveBeenCalledWith(42)
+    wrapper.unmount()
   })
 
 })

@@ -32,6 +32,7 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -59,6 +60,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 			platform = decision.TargetPlatform
 			requestedModel = decision.UpstreamModel
 			ctx = WithCompositeRouteDecision(ctx, decision)
+			ctx = WithCompositeTargetStickyTTL(ctx)
 		}
 	} else {
 		// 无分组时只使用原生 anthropic 平台
@@ -98,6 +100,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	ctx = WithCompositeExcludedAccounts(ctx, excludedIDs)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -140,8 +143,8 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 	}
 
-	// [DEBUG-STICKY] 调度器入口日志
-	slog.Info("sticky.scheduler_entry",
+	// [DEBUG-STICKY] 调度器入口日志：逐请求，默认只在 debug 级别输出
+	slog.Debug("sticky.scheduler_entry",
 		"group_id", derefGroupID(groupID),
 		"session_hash", shortSessionHash(sessionHash),
 		"sticky_account_id", stickyAccountID,
@@ -222,6 +225,11 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 		}
 		if matched {
 			ctx = WithCompositeRouteDecision(ctx, decision)
+			ctx = WithCompositeTargetStickyTTL(ctx)
+			// 多目标有序 fallback：本次尝试使用被选中的目标模型做候选过滤。
+			if len(decision.Targets) > 1 {
+				requestedModel = decision.UpstreamModel
+			}
 		}
 	}
 	preferOAuth := platform == PlatformGemini
@@ -592,7 +600,7 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 								"result", "slot_acquired",
 							)
 							if s.cache != nil {
-								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTL)
+								_ = s.cache.RefreshSessionTTL(ctx, derefGroupID(groupID), sessionHash, stickySessionTTLForRequest(ctx))
 							}
 							return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
 						}
@@ -715,10 +723,16 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	}
 
 	accountLoads := make([]AccountWithConcurrency, 0, len(candidates))
+	// 有序目标权重只调节软负载分母，硬并发仍由 account.Concurrency 在
+	// tryAcquireAccountSlot 中强制执行（见 compositeTargetLoadDenominator）。
+	targetWeight := CompositeTargetDefaultWeight
+	if target, ok := ActiveCompositeTargetFromContext(ctx); ok && target.SchedulingWeight > 0 {
+		targetWeight = target.SchedulingWeight
+	}
 	for _, acc := range candidates {
 		accountLoads = append(accountLoads, AccountWithConcurrency{
 			ID:             acc.ID,
-			MaxConcurrency: acc.EffectiveLoadFactor(),
+			MaxConcurrency: compositeTargetLoadDenominator(acc.EffectiveLoadFactor(), targetWeight),
 		})
 	}
 
@@ -829,17 +843,7 @@ func (s *GatewayService) tryAcquireByLegacyOrder(ctx context.Context, candidates
 }
 
 func (s *GatewayService) schedulingConfig() config.GatewaySchedulingConfig {
-	if s.cfg != nil {
-		return s.cfg.Gateway.Scheduling
-	}
-	return config.GatewaySchedulingConfig{
-		StickySessionMaxWaiting:  3,
-		StickySessionWaitTimeout: 45 * time.Second,
-		FallbackWaitTimeout:      30 * time.Second,
-		FallbackMaxWaiting:       100,
-		LoadBatchEnabled:         true,
-		SlotCleanupInterval:      30 * time.Second,
-	}
+	return gatewaySchedulingConfig(s.cfg)
 }
 
 func (s *GatewayService) withGroupContext(ctx context.Context, group *Group) context.Context {
@@ -1188,10 +1192,7 @@ func (s *GatewayService) isAccountInGroup(account *Account, groupID *int64) bool
 }
 
 func (s *GatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
-	if s.concurrencyService == nil {
-		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, nil
-	}
-	return s.concurrencyService.AcquireAccountSlot(ctx, accountID, maxConcurrency)
+	return acquireAccountSlot(ctx, s.concurrencyService, accountID, maxConcurrency)
 }
 
 type usageLogWindowStatsBatchProvider interface {
@@ -1561,10 +1562,7 @@ func (s *GatewayService) filterAccountsBySchedulingThreshold(ctx context.Context
 }
 
 func (s *GatewayService) isAccountBlockedBySchedulingThreshold(ctx context.Context, account *Account) bool {
-	if s == nil || s.rateLimitService == nil || account == nil {
-		return false
-	}
-	return s.rateLimitService.ApplyAccountSchedulingThreshold(ctx, account)
+	return accountBlockedBySchedulingThreshold(ctx, s.rateLimitService, account)
 }
 
 func (s *GatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
@@ -1586,12 +1584,16 @@ func (s *GatewayService) newSelectionResult(ctx context.Context, account *Accoun
 	if err != nil {
 		return nil, err
 	}
-	return attachSelectionProfitGate(ctx, &AccountSelectionResult{
+	result := &AccountSelectionResult{
 		Account:     hydrated,
 		Acquired:    acquired,
 		ReleaseFunc: release,
 		WaitPlan:    waitPlan,
-	}), nil
+	}
+	if target, ok := ActiveCompositeTargetFromContext(ctx); ok {
+		result.CompositeTarget = &target
+	}
+	return attachSelectionProfitGate(ctx, result), nil
 }
 
 // filterByMinPriority 过滤出优先级最小的账号集合

@@ -83,6 +83,22 @@
               >
                 {{ t('modelPlaza.table.maxReasoningMultiplierBadge', { multiplier: m.pricing.max_reasoning_effort_multiplier }) }}
               </span>
+              <!-- 有效规格：只展示同一次账号目录读取中已核实的上下文与能力，无依据不展示。 -->
+              <span
+                v-if="contextChip(m)"
+                class="rounded-md bg-sky-50 px-1.5 py-0.5 text-[10px] font-medium text-sky-700 dark:bg-sky-900/20 dark:text-sky-300"
+                :title="contextChipHint(m)"
+              >
+                {{ contextChip(m) }}
+              </span>
+              <span
+                v-for="capability in capabilityChips(m)"
+                :key="capability.key"
+                class="rounded-md bg-gray-100 px-1.5 py-0.5 text-[10px] font-medium text-gray-600 dark:bg-dark-700/70 dark:text-dark-200"
+                :title="capability.hint"
+              >
+                {{ capability.label }}
+              </span>
             </div>
           </td>
 
@@ -96,10 +112,20 @@
                   class="whitespace-nowrap text-xs leading-5"
                 >
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500" :title="tierHint(m)">{{ tierLabel(iv) }}</span>
-                  {{ paidPerMillion(iv.input_price, period) }}
+                  <span
+                    v-if="referencePerMillion(m, 'input')"
+                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                    :title="t('modelPlaza.table.referenceTitle')"
+                  >{{ referencePerMillion(m, 'input') }}</span>{{ paidPerMillion(iv.input_price, period) }}
                 </div>
               </template>
-              <template v-else>{{ paidPerMillion(m.pricing?.input_price, period) }}</template>
+              <template v-else>
+                <span
+                  v-if="referencePerMillion(m, 'input')"
+                  class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                  :title="t('modelPlaza.table.referenceTitle')"
+                >{{ referencePerMillion(m, 'input') }}</span>{{ paidPerMillion(m.pricing?.input_price, period) }}
+              </template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle font-mono font-semibold text-gray-900 dark:text-gray-50">
               <template v-if="tokenIntervals(m).length">
@@ -109,10 +135,20 @@
                   class="whitespace-nowrap text-xs leading-5"
                   :title="tierHint(m)"
                 >
-                  {{ paidPerMillion(iv.output_price, period) }}
+                  <span
+                    v-if="referencePerMillion(m, 'output')"
+                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                    :title="t('modelPlaza.table.referenceTitle')"
+                  >{{ referencePerMillion(m, 'output') }}</span>{{ paidPerMillion(iv.output_price, period) }}
                 </div>
               </template>
-              <template v-else>{{ paidPerMillion(m.pricing?.output_price, period) }}</template>
+              <template v-else>
+                <span
+                  v-if="referencePerMillion(m, 'output')"
+                  class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                  :title="t('modelPlaza.table.referenceTitle')"
+                >{{ referencePerMillion(m, 'output') }}</span>{{ paidPerMillion(m.pricing?.output_price, period) }}
+              </template>
             </td>
             <td class="pz-cell px-3 py-2.5 align-middle">
               <template v-if="hasTierCachePricing(tokenIntervals(m))">
@@ -124,13 +160,21 @@
                 >
                   <template v-if="iv.cache_write_price != null || iv.cache_write_1h_price != null || iv.cache_read_price != null">
                     <span class="font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheWriteShort') }}</span>
-                    {{ paidPerMillion(iv.cache_write_price, period) }}
+                    <span
+                      v-if="referencePerMillion(m, 'cache_write')"
+                      class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                      :title="t('modelPlaza.table.referenceTitle')"
+                    >{{ referencePerMillion(m, 'cache_write') }}</span>{{ paidPerMillion(iv.cache_write_price, period) }}
                     <template v-if="iv.cache_write_1h_price != null"
                       ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(iv.cache_write_1h_price, period)
                       }}<span class="font-sans font-normal text-gray-400 dark:text-dark-500">)</span></template
                     >
                     <span class="ml-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheReadShort') }}</span>
-                    {{ paidPerMillion(iv.cache_read_price, period) }}
+                    <span
+                      v-if="referencePerMillion(m, 'cache_read')"
+                      class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                      :title="t('modelPlaza.table.referenceTitle')"
+                    >{{ referencePerMillion(m, 'cache_read') }}</span>{{ paidPerMillion(iv.cache_read_price, period) }}
                   </template>
                   <span v-else class="text-gray-400 dark:text-dark-500">-</span>
                 </div>
@@ -141,7 +185,11 @@
               >
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheWrite') }}</span>
-                  {{ paidPerMillion(m.pricing?.cache_write_price, period)
+                  <span
+                    v-if="referencePerMillion(m, 'cache_write')"
+                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                    :title="t('modelPlaza.table.referenceTitle')"
+                  >{{ referencePerMillion(m, 'cache_write') }}</span>{{ paidPerMillion(m.pricing?.cache_write_price, period)
                   }}<template v-if="m.pricing?.cache_write_1h_price != null"
                     ><span class="font-sans font-normal text-gray-400 dark:text-dark-500"> (1h </span>{{ paidPerMillion(m.pricing.cache_write_1h_price, period)
                     }}<span class="font-sans font-normal text-gray-400 dark:text-dark-500">)</span></template
@@ -149,7 +197,11 @@
                 </div>
                 <div>
                   <span class="mr-1 font-sans font-normal text-gray-400 dark:text-dark-500">{{ t('modelPlaza.table.cacheRead') }}</span>
-                  {{ paidPerMillion(m.pricing?.cache_read_price, period) }}
+                  <span
+                    v-if="referencePerMillion(m, 'cache_read')"
+                    class="mr-1 text-gray-400 line-through dark:text-dark-500"
+                    :title="t('modelPlaza.table.referenceTitle')"
+                  >{{ referencePerMillion(m, 'cache_read') }}</span>{{ paidPerMillion(m.pricing?.cache_read_price, period) }}
                 </div>
               </div>
               <span v-else class="text-gray-400 dark:text-dark-500">-</span>
@@ -186,8 +238,7 @@
           <!-- 折扣倍率(分时时段行展示 生效倍率×时段倍率;生图独立倍率行展示独立倍率;专属倍率划线展示原倍率) -->
           <td
             class="border-l border-gray-100 py-2.5 pl-3 pr-5 text-right align-middle font-mono text-xs dark:border-dark-700/60"
-          >
-            <span
+          >            <span
               v-if="period"
               class="font-bold text-primary-600 dark:text-primary-400"
               :title="t('modelPlaza.table.timePricingRateHint', { rate: effectiveRate, multiplier: period.multiplier })"
@@ -220,7 +271,7 @@ import {
   BILLING_MODE_IMAGE,
   type BillingMode
 } from '@/constants/channel'
-import type { PlazaModel, PlazaTimePricingPeriod } from '@/api/modelPlaza'
+import type { PlazaFact, PlazaModel, PlazaTimePricingPeriod } from '@/api/modelPlaza'
 import type { UserPricingInterval } from '@/api/channels'
 
 const props = defineProps<{
@@ -335,6 +386,132 @@ function perUnitSuffix(m: PlazaModel): string {
 
 function hasCachePricing(m: PlazaModel): boolean {
   return m.pricing?.cache_write_price != null || m.pricing?.cache_write_1h_price != null || m.pricing?.cache_read_price != null
+}
+
+/**
+ * 有来源的参考价单价（$/1M token）。服务端没有提供参考价，或该单位没有值时
+ * 返回空串：此时界面不会展示任何划线价/折扣。
+ */
+function referencePerMillion(m: PlazaModel, unit: 'input' | 'output' | 'cache_write' | 'cache_read'): string {
+  const reference = m.official_pricing
+  if (!reference) return ''
+  const value = unit === 'input'
+    ? reference.input_price
+    : unit === 'output'
+      ? reference.output_price
+      : unit === 'cache_write'
+        ? reference.cache_write_price
+        : reference.cache_read_price
+  if (value == null) return ''
+  return formatScaled(value, PER_MILLION, MIN_DECIMALS)
+}
+
+/** token 数值压缩成 128K / 1M 形式；无依据返回空串。 */
+function formatTokenLimit(value: number | null | undefined): string {
+  if (value == null || value <= 0) return ''
+  if (value >= 1_000_000) {
+    const millions = value / 1_000_000
+    return `${Number.isInteger(millions) ? millions : millions.toFixed(1)}M`
+  }
+  if (value >= 1000) {
+    const thousands = value / 1000
+    return `${Number.isInteger(thousands) ? thousands : thousands.toFixed(1)}K`
+  }
+  return String(value)
+}
+
+/**
+ * 有效上下文：优先 input → total → unspecified 的保证值，都没有时用观测最小值
+ * （标上“至少”），仍无依据则不展示。绝不假设缺省上下文。
+ */
+function contextChip(m: PlazaModel): string {
+  const capabilities = m.capabilities
+  if (!capabilities) return ''
+  for (const limit of [capabilities.input_context, capabilities.total_context, capabilities.unspecified_context]) {
+    const text = formatTokenLimit(limit?.guaranteed)
+    if (text) return `${text} ${t('modelPlaza.table.contextShort')}`
+  }
+  for (const limit of [capabilities.input_context, capabilities.total_context, capabilities.unspecified_context]) {
+    const text = formatTokenLimit(limit?.observed_minimum)
+    if (text) return `≥${text} ${t('modelPlaza.table.contextShort')}`
+  }
+  return ''
+}
+
+function contextChipHint(m: PlazaModel): string {
+  const capabilities = m.capabilities
+  if (!capabilities) return ''
+  const candidates = [
+    { limit: capabilities.input_context, fallback: 'input' },
+    { limit: capabilities.total_context, fallback: 'total' },
+    { limit: capabilities.unspecified_context, fallback: 'unspecified' }
+  ]
+  for (const candidate of candidates) {
+    if (!formatTokenLimit(candidate.limit?.guaranteed)) continue
+    const kind = candidate.limit?.kind || candidate.fallback
+    return kind === 'input' || kind === 'total'
+      ? t(`modelPlaza.table.contextHint.${kind}`)
+      : t('modelPlaza.table.contextHint.unspecified')
+  }
+  return t('modelPlaza.table.contextHint.observedMinimum')
+}
+
+interface PlazaCapabilityChip {
+  key: string
+  label: string
+  hint: string
+}
+
+/** 只展示已核实为 true 的能力与非文本模态；unknown 不展示为否。 */
+function capabilityChips(m: PlazaModel): PlazaCapabilityChip[] {
+  const capabilities = m.capabilities
+  if (!capabilities) return []
+  const chips: PlazaCapabilityChip[] = []
+  const booleanChips: Array<[keyof typeof capabilities, string]> = [
+    ['supports_vision', 'vision'],
+    ['supports_function_calling', 'functionCalling'],
+    ['supports_prompt_caching', 'promptCaching'],
+    ['supports_pdf', 'pdf'],
+    ['reasoning', 'reasoning']
+  ]
+  for (const [field, labelKey] of booleanChips) {
+    const fact = capabilities[field] as PlazaFact<boolean> | undefined
+    if (fact?.guaranteed === true || (fact?.available?.length === 1 && fact.available[0] === true)) {
+      chips.push({
+        key: labelKey,
+        label: t(`modelPlaza.table.capability.${labelKey}`),
+        hint: t(`modelPlaza.table.capabilityHint.${labelKey}`)
+      })
+    }
+  }
+  const dimensions = capabilities.embedding_dimensions
+  const dimensionValue = dimensions?.guaranteed ?? (dimensions?.available?.length === 1 ? dimensions.available[0] : null)
+  if (dimensionValue) {
+    chips.push({
+      key: 'embeddingDimensions',
+      label: t('modelPlaza.table.capability.embeddingDimensions', { dimensions: dimensionValue }),
+      hint: t('modelPlaza.table.capabilityHint.embeddingDimensions')
+    })
+  }
+  for (const modality of ['image', 'audio', 'video', 'pdf']) {
+    if (capabilities.input_modalities?.available?.includes(modality) && !capabilities.input_modalities?.guaranteed?.includes(modality)) {
+      chips.push({
+        key: `input-${modality}`,
+        label: t('modelPlaza.table.capability.inputModalityPartial', { modality: t(`modelPlaza.table.modality.${modality}`) }),
+        hint: t('modelPlaza.table.capabilityHint.inputModalityPartial')
+      })
+    }
+  }
+  for (const modality of ['image', 'audio', 'video', 'embedding', 'score']) {
+    if (capabilities.output_modalities?.available?.includes(modality)) {
+      chips.push({
+        key: `output-${modality}`,
+        label: t('modelPlaza.table.capability.outputModality', { modality: t(`modelPlaza.table.modality.${modality}`) }),
+        hint: t('modelPlaza.table.capabilityHint.outputModality')
+      })
+    }
+  }
+  return chips
 }
 
 

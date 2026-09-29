@@ -12,9 +12,11 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/schema/mixins"
 	"github.com/Wei-Shaw/sub2api/ent/user"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 
@@ -43,9 +45,18 @@ func (r *apiKeyRepository) activeQuery() *dbent.APIKeyQuery {
 }
 
 func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) error {
-	builder := r.client.APIKey.Create().
+	// The plaintext is used only to derive the digest; it is never persisted. The
+	// key row and its first credential land in one transaction so a duplicate
+	// custom secret cannot leave an orphaned key without a credential.
+	secret := key.Key
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	builder := tx.Client().APIKey.Create().
 		SetUserID(key.UserID).
-		SetKey(key.Key).
 		SetName(key.Name).
 		SetStatus(key.Status).
 		SetNillableGroupID(key.GroupID).
@@ -65,14 +76,36 @@ func (r *apiKeyRepository) Create(ctx context.Context, key *service.APIKey) erro
 	}
 
 	created, err := builder.Save(ctx)
-	if err == nil {
-		key.ID = created.ID
-		key.WorkspaceID = created.WorkspaceID
-		key.LastUsedAt = created.LastUsedAt
-		key.CreatedAt = created.CreatedAt
-		key.UpdatedAt = created.UpdatedAt
+	if err != nil {
+		return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
 	}
-	return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+
+	// Timestamps come from Go rather than a database function so the statement stays
+	// portable across the Postgres deployment and the SQLite-backed unit tests.
+	createdAt := time.Now().UTC()
+	if _, err := tx.Client().ExecContext(ctx, `
+		INSERT INTO api_key_credentials (workspace_id, api_key_id, credential_digest, display_suffix, status, created_at, updated_at)
+		VALUES ($1, $2, $3, $4, $5, $6, $6)`,
+		created.WorkspaceID,
+		created.ID,
+		service.APIKeyCredentialDigest(secret),
+		service.APIKeyCredentialDisplaySuffix(secret),
+		domain.CredentialStatusCurrent,
+		createdAt,
+	); err != nil {
+		return translatePersistenceError(err, nil, service.ErrAPIKeyExists)
+	}
+
+	if err := tx.Commit(); err != nil {
+		return err
+	}
+
+	key.ID = created.ID
+	key.WorkspaceID = created.WorkspaceID
+	key.LastUsedAt = created.LastUsedAt
+	key.CreatedAt = created.CreatedAt
+	key.UpdatedAt = created.UpdatedAt
+	return nil
 }
 
 func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIKey, error) {
@@ -87,7 +120,16 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	apiKey := apiKeyEntityToService(m)
+	displayKey := []service.APIKey{*apiKey}
+	if err := r.attachCredentialDisplaySuffixes(ctx, displayKey); err != nil {
+		return nil, err
+	}
+	apiKey.DisplaySuffix = displayKey[0].DisplaySuffix
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{apiKey}); err != nil {
+		return nil, err
+	}
+	return apiKey, nil
 }
 
 // GetKeyAndOwnerID 根据 API Key ID 获取其 key 与所有者（用户）ID。
@@ -98,7 +140,7 @@ func (r *apiKeyRepository) GetByID(ctx context.Context, id int64) (*service.APIK
 func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (string, int64, error) {
 	m, err := r.activeQuery().
 		Where(apikey.IDEQ(id)).
-		Select(apikey.FieldKey, apikey.FieldUserID).
+		Select(apikey.FieldUserID).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -106,12 +148,19 @@ func (r *apiKeyRepository) GetKeyAndOwnerID(ctx context.Context, id int64) (stri
 		}
 		return "", 0, err
 	}
-	return m.Key, m.UserID, nil
+	return "", m.UserID, nil
 }
 
+// GetByKey resolves a presented secret through its credential digest and returns the
+// full key projection. The plaintext column is never read: after the digest migration
+// it holds no credential, and every lookup goes through the credential table.
 func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.APIKey, error) {
+	resolution, err := r.resolveCredentialByDigest(ctx, key)
+	if err != nil {
+		return nil, err
+	}
 	m, err := r.activeQuery().
-		Where(apikey.KeyEQ(key)).
+		Where(apikey.IDEQ(resolution.apiKeyID)).
 		WithUser(func(q *dbent.UserQuery) {
 			q.WithAllowedGroups(func(gq *dbent.GroupQuery) {
 				gq.Select(group.FieldID)
@@ -125,12 +174,17 @@ func (r *apiKeyRepository) GetByKey(ctx context.Context, key string) (*service.A
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	apiKey := apiKeyEntityToService(m)
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{apiKey}); err != nil {
+		return nil, err
+	}
+	return apiKey, nil
 }
 
-func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*service.APIKey, error) {
-	m, err := r.activeQuery().
-		Where(apikey.KeyEQ(key)).
+// authProjectionQuery selects the minimal fields the auth path needs, including the
+// group projections that drive scheduling and pricing gates.
+func (r *apiKeyRepository) authProjectionQuery() *dbent.APIKeyQuery {
+	return r.activeQuery().
 		Select(
 			apikey.FieldID,
 			apikey.FieldWorkspaceID,
@@ -234,7 +288,133 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 				group.FieldProfitMinMargin,
 				group.FieldProfitSafetyBuffer,
 			)
-		}).
+		})
+}
+
+// apiKeyCredentialResolution is the digest lookup result: which key a presented
+// secret belongs to and, for a graceful credential, when it stops working.
+type apiKeyCredentialResolution struct {
+	apiKeyID   int64
+	validUntil *time.Time
+}
+
+// resolveCredentialByDigest resolves a presented secret to its credential. The
+// credential status is decided here rather than in SQL because an expired graceful
+// credential must be retired with an audit record before it is rejected.
+func (r *apiKeyRepository) resolveCredentialByDigest(ctx context.Context, secret string) (*apiKeyCredentialResolution, error) {
+	digest := service.APIKeyCredentialDigest(secret)
+	row, found, err := r.lookupCredentialRow(ctx, digest)
+	if err != nil {
+		return nil, err
+	}
+	if !found || row.revokedAt.Valid {
+		return nil, service.ErrAPIKeyNotFound
+	}
+
+	now := time.Now().UTC()
+	switch row.status {
+	case domain.CredentialStatusCurrent:
+		// The current credential has no time bound.
+		return &apiKeyCredentialResolution{apiKeyID: row.apiKeyID}, nil
+	case domain.CredentialStatusGrace:
+		if row.validUntil.Valid {
+			if !now.Before(row.validUntil.Time) {
+				// Grace deadline passed: retire the credential once and audit the expiry,
+				// which is also what makes the deadline effective on every instance. The
+				// lookup above has already released its connection, so the retirement
+				// transaction cannot wait on this read.
+				r.retireExpiredCredential(ctx, digest, row.apiKeyID, now)
+				return nil, service.ErrAPIKeyNotFound
+			}
+			validUntil := row.validUntil.Time
+			return &apiKeyCredentialResolution{apiKeyID: row.apiKeyID, validUntil: &validUntil}, nil
+		}
+		// A graceful credential without a deadline stays valid until it is revoked.
+		return &apiKeyCredentialResolution{apiKeyID: row.apiKeyID}, nil
+	default:
+		return nil, service.ErrAPIKeyNotFound
+	}
+}
+
+// apiKeyCredentialRow is one credential row as read by digest.
+type apiKeyCredentialRow struct {
+	apiKeyID   int64
+	status     string
+	validUntil sql.NullTime
+	revokedAt  sql.NullTime
+}
+
+// lookupCredentialRow reads the single credential row for a digest and releases the
+// connection before returning, so callers may open a transaction afterwards.
+func (r *apiKeyRepository) lookupCredentialRow(ctx context.Context, digest string) (apiKeyCredentialRow, bool, error) {
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT api_key_id, status, valid_until, revoked_at
+		FROM api_key_credentials
+		WHERE credential_digest = $1
+		LIMIT 1`, digest)
+	if err != nil {
+		return apiKeyCredentialRow{}, false, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	if !rows.Next() {
+		return apiKeyCredentialRow{}, false, rows.Err()
+	}
+	var row apiKeyCredentialRow
+	if err := rows.Scan(&row.apiKeyID, &row.status, &row.validUntil, &row.revokedAt); err != nil {
+		return apiKeyCredentialRow{}, false, err
+	}
+	if err := rows.Err(); err != nil {
+		return apiKeyCredentialRow{}, false, err
+	}
+	return row, true, nil
+}
+
+// retireExpiredCredential marks one expired graceful credential as revoked and
+// records the expiry on the audit channel. The conditional update makes the whole
+// operation idempotent: only the first presentation of an expired credential writes.
+func (r *apiKeyRepository) retireExpiredCredential(ctx context.Context, digest string, apiKeyID int64, now time.Time) {
+	tx, err := r.client.Tx(ctx)
+	if err != nil {
+		return
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// The caller established that this row's deadline has passed from the same row, so the
+	// statement only needs to guard against a concurrent revoke. It deliberately avoids a
+	// second timestamp comparison in SQL, which would depend on the dialect's literal format.
+	result, err := tx.Client().ExecContext(ctx, `
+		UPDATE api_key_credentials
+		SET status = $3, revoked_at = $2, updated_at = $2
+		WHERE credential_digest = $1 AND revoked_at IS NULL AND status = $4`,
+		digest, now, domain.CredentialStatusRevoked, domain.CredentialStatusGrace)
+	if err != nil {
+		return
+	}
+	affected, err := result.RowsAffected()
+	if err != nil || affected == 0 {
+		return
+	}
+	if err := insertAPIKeyCredentialAudit(ctx, tx.Client(), service.ConfigurationAuditActor{Role: auditActorRoleSystem},
+		auditActionAPIKeyCredentialExpire, apiKeyID, map[string]any{
+			"api_key_id": apiKeyID,
+			"credential": "grace",
+			"expired_at": now.Unix(),
+		}); err != nil {
+		return
+	}
+	_ = tx.Commit()
+}
+
+// GetByKeyForAuth resolves a presented secret through its credential digest to the
+// stable API key, then loads the auth projection for that key.
+func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*service.APIKey, error) {
+	resolution, err := r.resolveCredentialByDigest(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	m, err := r.authProjectionQuery().
+		Where(apikey.IDEQ(resolution.apiKeyID)).
 		Only(ctx)
 	if err != nil {
 		if dbent.IsNotFound(err) {
@@ -242,7 +422,14 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 		}
 		return nil, err
 	}
-	return apiKeyEntityToService(m), nil
+	out := apiKeyEntityToService(m)
+	out.CredentialValidUntil = resolution.validUntil
+	// The period budget is part of the auth projection: the gateway must know
+	// whether a request has to reserve budget without an extra round trip.
+	if err := r.attachBudgetStates(ctx, []*service.APIKey{out}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fields service.APIKeyUpdateFields) error {
@@ -348,12 +535,9 @@ func (r *apiKeyRepository) Update(ctx context.Context, key *service.APIKey, fiel
 }
 
 func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
-	// 存在唯一键约束 生成tombstone key 用来释放原key，长度远小于 128，满足 schema 限制
-	tombstoneKey := fmt.Sprintf("__deleted__%d__%d", id, time.Now().UnixNano())
 	// 显式软删除：避免依赖 Hook 行为，确保 deleted_at 一定被设置。
 	affected, err := r.client.APIKey.Update().
 		Where(apikey.IDEQ(id), apikey.DeletedAtIsNil()).
-		SetKey(tombstoneKey).
 		SetDeletedAt(time.Now()).
 		Save(ctx)
 	if err != nil {
@@ -377,14 +561,12 @@ func (r *apiKeyRepository) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// DeleteWithAudit keeps the legacy method name for rolling-upgrade compatibility.
-// It atomically tombstones and soft-deletes the key without retaining credential
-// material. Tombstoning releases the unique key value for safe reuse.
+// DeleteWithAudit keeps the legacy method name for rolling-upgrade compatibility. It
+// soft-deletes the key without writing any credential material: the secret now lives
+// only as a digest in api_key_credentials and is revoked by the caller.
 func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error {
-	tombstoneKey := fmt.Sprintf("__deleted__%d__%d", id, time.Now().UnixNano())
-
 	if existingTx := dbent.TxFromContext(ctx); existingTx != nil {
-		return r.deleteWithTombstone(ctx, existingTx.Client(), id, tombstoneKey)
+		return r.softDeleteAPIKey(ctx, existingTx.Client(), id)
 	}
 
 	tx, err := r.client.Tx(ctx)
@@ -397,7 +579,7 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 		exec = tx.Client()
 	}
 
-	if err := r.deleteWithTombstone(ctx, exec, id, tombstoneKey); err != nil {
+	if err := r.softDeleteAPIKey(ctx, exec, id); err != nil {
 		return err
 	}
 
@@ -407,11 +589,12 @@ func (r *apiKeyRepository) DeleteWithAudit(ctx context.Context, id int64) error 
 	return nil
 }
 
-func (r *apiKeyRepository) deleteWithTombstone(ctx context.Context, exec *dbent.Client, id int64, tombstoneKey string) error {
+func (r *apiKeyRepository) softDeleteAPIKey(ctx context.Context, exec *dbent.Client, id int64) error {
+	now := time.Now().UTC()
 	res, err := exec.ExecContext(ctx, `
 		UPDATE api_keys
-		SET key = $1, deleted_at = NOW(), updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL`, tombstoneKey, id)
+		SET deleted_at = $2, updated_at = $2
+		WHERE id = $1 AND deleted_at IS NULL`, id, now)
 	if err != nil {
 		return err
 	}
@@ -486,6 +669,12 @@ func (r *apiKeyRepository) ListByUserID(ctx context.Context, userID int64, param
 	if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
 		return nil, nil, err
 	}
+	if err := r.attachCredentialDisplaySuffixes(ctx, outKeys); err != nil {
+		return nil, nil, err
+	}
+	if err := r.attachBudgetStates(ctx, apiKeyPointers(outKeys)); err != nil {
+		return nil, nil, err
+	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
 }
@@ -506,7 +695,58 @@ func (r *apiKeyRepository) ListAllByUserID(ctx context.Context, userID int64, fi
 	if err := r.attachLastUsedIPs(ctx, outKeys); err != nil {
 		return nil, err
 	}
+	if err := r.attachCredentialDisplaySuffixes(ctx, outKeys); err != nil {
+		return nil, err
+	}
+	if err := r.attachBudgetStates(ctx, apiKeyPointers(outKeys)); err != nil {
+		return nil, err
+	}
 	return outKeys, nil
+}
+
+// apiKeyPointers adapts a value slice for helpers that fill extra fields.
+func apiKeyPointers(keys []service.APIKey) []*service.APIKey {
+	out := make([]*service.APIKey, 0, len(keys))
+	for i := range keys {
+		out = append(out, &keys[i])
+	}
+	return out
+}
+
+// attachCredentialDisplaySuffixes fills the non-secret tail of each key's current
+// credential in one query, so list responses can render a masked value without ever
+// reading a secret. It stays on the Ent builder so the statement is valid on every
+// dialect the repository is exercised against.
+func (r *apiKeyRepository) attachCredentialDisplaySuffixes(ctx context.Context, keys []service.APIKey) error {
+	if len(keys) == 0 || r.client == nil {
+		return nil
+	}
+	apiKeyIDs := make([]int64, 0, len(keys))
+	for i := range keys {
+		apiKeyIDs = append(apiKeyIDs, keys[i].ID)
+	}
+	var rows []struct {
+		APIKeyID      int64  `sql:"api_key_id"`
+		DisplaySuffix string `sql:"display_suffix"`
+	}
+	if err := r.client.APIKeyCredential.Query().
+		Where(
+			apikeycredential.APIKeyIDIn(apiKeyIDs...),
+			apikeycredential.StatusEQ(domain.CredentialStatusCurrent),
+			apikeycredential.RevokedAtIsNil(),
+		).
+		Select(apikeycredential.FieldAPIKeyID, apikeycredential.FieldDisplaySuffix).
+		Scan(ctx, &rows); err != nil {
+		return err
+	}
+	suffixes := make(map[int64]string, len(rows))
+	for _, row := range rows {
+		suffixes[row.APIKeyID] = row.DisplaySuffix
+	}
+	for i := range keys {
+		keys[i].DisplaySuffix = suffixes[keys[i].ID]
+	}
+	return nil
 }
 
 func (r *apiKeyRepository) attachLastUsedIPs(ctx context.Context, keys []service.APIKey) error {
@@ -618,8 +858,21 @@ func (r *apiKeyRepository) CountByUserID(ctx context.Context, userID int64) (int
 }
 
 func (r *apiKeyRepository) ExistsByKey(ctx context.Context, key string) (bool, error) {
-	count, err := r.activeQuery().Where(apikey.KeyEQ(key)).Count(ctx)
-	return count > 0, err
+	rows, err := r.sql.QueryContext(ctx, `
+		SELECT EXISTS (SELECT 1 FROM api_key_credentials WHERE credential_digest = $1)`,
+		service.APIKeyCredentialDigest(key))
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var exists bool
+	if rows.Next() {
+		if err := rows.Scan(&exists); err != nil {
+			return false, err
+		}
+	}
+	return exists, rows.Err()
 }
 
 func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, params pagination.PaginationParams) ([]service.APIKey, *pagination.PaginationResult, error) {
@@ -646,6 +899,9 @@ func (r *apiKeyRepository) ListByGroupID(ctx context.Context, groupID int64, par
 	outKeys := make([]service.APIKey, 0, len(keys))
 	for i := range keys {
 		outKeys = append(outKeys, *apiKeyEntityToService(keys[i]))
+	}
+	if err := r.attachCredentialDisplaySuffixes(ctx, outKeys); err != nil {
+		return nil, nil, err
 	}
 
 	return outKeys, paginationResultFromTotal(int64(total), params), nil
@@ -735,26 +991,30 @@ func (r *apiKeyRepository) CountByGroupID(ctx context.Context, groupID int64) (i
 	return int64(count), err
 }
 
-func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) ([]string, error) {
-	keys, err := r.activeQuery().
-		Where(apikey.UserIDEQ(userID)).
-		Select(apikey.FieldKey).
-		Strings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return keys, nil
+// CountByGroupIDAndStatus 获取分组内指定状态的 API Key 数量。
+// 分组统计要区分「全部 Key」与「启用中的 Key」，只按分组计数会把停用 Key 也报成活跃。
+func (r *apiKeyRepository) CountByGroupIDAndStatus(ctx context.Context, groupID int64, status string) (int64, error) {
+	count, err := r.activeQuery().Where(apikey.GroupIDEQ(groupID), apikey.StatusEQ(status)).Count(ctx)
+	return int64(count), err
 }
 
+// ListKeysByUserID returns the credential digests of a user's keys. Digests are the
+// auth cache identifiers, so callers invalidate cache entries with them directly.
+func (r *apiKeyRepository) ListKeysByUserID(ctx context.Context, userID int64) ([]string, error) {
+	return queryStringColumn(ctx, r.sql, `
+		SELECT c.credential_digest
+		FROM api_key_credentials c
+		JOIN api_keys a ON a.id = c.api_key_id
+		WHERE a.user_id = $1 AND a.deleted_at IS NULL AND c.revoked_at IS NULL`, userID)
+}
+
+// ListKeysByGroupID returns the credential digests of a group's keys.
 func (r *apiKeyRepository) ListKeysByGroupID(ctx context.Context, groupID int64) ([]string, error) {
-	keys, err := r.activeQuery().
-		Where(apikey.GroupIDEQ(groupID)).
-		Select(apikey.FieldKey).
-		Strings(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return keys, nil
+	return queryStringColumn(ctx, r.sql, `
+		SELECT c.credential_digest
+		FROM api_key_credentials c
+		JOIN api_keys a ON a.id = c.api_key_id
+		WHERE a.group_id = $1 AND a.deleted_at IS NULL AND c.revoked_at IS NULL`, groupID)
 }
 
 // IncrementQuotaUsed 使用 Ent 原子递增 quota_used 字段并返回新值

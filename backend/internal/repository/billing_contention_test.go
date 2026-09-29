@@ -189,7 +189,7 @@ func TestBillingFinancialRowLockOrder(t *testing.T) {
 		mock.ExpectQuery(`SELECT id FROM ` + table + ` WHERE id=\$1 AND deleted_at IS NULL FOR NO KEY UPDATE`).WithArgs(int64(i + 1)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(i + 1))
 	}
 	subscription := int64(2)
-	require.NoError(t, lockUsageBillingEffects(context.Background(), tx, &service.UsageBillingCommand{UserID: 1, SubscriptionID: &subscription, APIKeyID: 3, AccountID: 4, AccountType: service.AccountTypeAPIKey, BalanceCost: 1, SubscriptionCost: 1, APIKeyQuotaCost: 1, AccountQuotaCost: 1}))
+	require.NoError(t, lockUsageBillingEffects(context.Background(), tx, &service.UsageBillingCommand{UserID: 1, SubscriptionID: &subscription, APIKeyID: 3, AccountID: 4, AccountType: service.AccountTypeAPIKey, BalanceCost: 1, SubscriptionCost: 1, APIKeyQuotaCost: 1, AccountQuotaCost: 1}, false))
 	mock.ExpectRollback()
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, mock.ExpectationsWereMet())

@@ -11,13 +11,12 @@ import (
 // only be implemented when a Volcengine account can actually execute it
 // (routes/gateway_protocol_matrix_test.go enforces the same invariant).
 func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
+	// Adapters exist and are wire-tested; multimodal-ingress registered every
+	// dispatch key and lifted the chat-only platform lock, so these cells are
+	// executable by a Volcengine Ark API-key account now.
 	implemented := map[string]string{
-		"chat": "openai.chat",
-	}
-	// Adapters exist and are wire-tested, but the ChatOnly platform lock keeps
-	// every non-chat endpoint out of account selection, so these cells stay
-	// unverified until the descriptor change lands with the ingress wiring.
-	pending := map[string]string{
+		"chat":           "openai.chat",
+		"count_tokens":   "openai.count_tokens",
 		"embeddings":     "volcengine.embeddings",
 		"image.generate": "volcengine.images",
 		"image.edit":     "volcengine.images",
@@ -32,7 +31,7 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 		"image.batch", "search", "alpha_search", "live", "responses.websocket",
 	}
 	unverified := []string{
-		"messages", "responses", "count_tokens", "rerank", "audio.tts", "audio.stt",
+		"messages", "responses", "rerank", "audio.tts", "audio.stt",
 		"audio.translate", "voice", "realtime", "native",
 	}
 
@@ -73,16 +72,13 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 			t.Fatalf("volcengine %s evidence lacks a dated first-party document: %s", action, cell.Evidence)
 		}
 	}
-	for action, adapter := range pending {
+	for action, adapter := range implemented {
 		cell := seen[action]
-		if cell.Status != ActionUnverified || cell.Adapter != "" {
-			t.Fatalf("volcengine %s: got %s/%s, want unverified while the platform lock is in place", action, cell.Status, cell.Adapter)
+		if cell.Status != ActionImplemented || cell.Adapter != adapter {
+			t.Fatalf("volcengine %s: got %s/%s, want implemented/%s", action, cell.Status, cell.Adapter, adapter)
 		}
-		if !strings.Contains(cell.Evidence, adapter) {
-			t.Fatalf("volcengine %s pending evidence must name the adapter %s: %s", action, adapter, cell.Evidence)
-		}
-		if !strings.Contains(cell.Evidence, "ChatOnly") || !strings.Contains(cell.Evidence, "docs/82379/") {
-			t.Fatalf("volcengine %s pending evidence must record the blocking gate and its document: %s", action, cell.Evidence)
+		if !strings.Contains(cell.Evidence, "docs/82379/") || !strings.Contains(cell.Evidence, "2026-09-21") {
+			t.Fatalf("volcengine %s evidence lacks a dated first-party document: %s", action, cell.Evidence)
 		}
 	}
 	for _, action := range hardConflict {
@@ -109,22 +105,18 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 	for _, action := range GatewayActions() {
 		cell := seen[action]
 		_, isImplemented := implemented[action]
-		_, isPending := volcenginePendingAdapters[action]
 		_, isConflict := volcengineHardConflicts[action]
 		_, isUnverified := volcengineUnverifiedReasons[action]
-		if isImplemented && isPending {
-			t.Fatalf("volcengine %s is both implemented and pending", action)
-		}
 		if cell.Status == ActionImplemented && !isImplemented {
 			t.Fatalf("volcengine %s is implemented without a bound adapter row", action)
 		}
 		if cell.Status == ActionHardConflict && !isConflict {
 			t.Fatalf("volcengine %s claims a hard conflict without a recorded row", action)
 		}
-		if cell.Status == ActionUnverified && !isPending && !isUnverified {
+		if cell.Status == ActionUnverified && !isUnverified {
 			t.Fatalf("volcengine %s is unverified without a recorded reason", action)
 		}
-		if !isImplemented && !isPending && !isConflict && !isUnverified {
+		if !isImplemented && !isConflict && !isUnverified {
 			t.Fatalf("volcengine %s has no recorded evidence row", action)
 		}
 	}
@@ -140,9 +132,9 @@ func TestVolcengineActionMatrixIsFullyTriStated(t *testing.T) {
 		}
 	}
 
-	// An unknown supplier still resolves to unverified: this file must not leak
-	// Volcengine adapters into other platforms.
-	other := PlatformAction(ActionIdentity{Platform: PlatformQianfan}, "image.generate")
+	// A platform without a landed adapter branch still resolves to unverified:
+	// this file must not leak Volcengine adapters into other platforms.
+	other := PlatformAction(ActionIdentity{Platform: PlatformMistral}, "image.generate")
 	if other.Status != ActionUnverified || other.Adapter != "" {
 		t.Fatalf("volcengine adapters leaked into another platform: %+v", other)
 	}

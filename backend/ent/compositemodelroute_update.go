@@ -4,12 +4,14 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/group"
@@ -208,6 +210,24 @@ func (_u *CompositeModelRouteUpdate) ClearNotes() *CompositeModelRouteUpdate {
 	return _u
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdate {
+	_u.mutation.SetOrderedTargets(v)
+	return _u
+}
+
+// AppendOrderedTargets appends value to the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) AppendOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdate {
+	_u.mutation.AppendOrderedTargets(v)
+	return _u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) ClearOrderedTargets() *CompositeModelRouteUpdate {
+	_u.mutation.ClearOrderedTargets()
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdate) SetGroup(v *Group) *CompositeModelRouteUpdate {
 	return _u.SetGroupID(v.ID)
@@ -357,6 +377,17 @@ func (_u *CompositeModelRouteUpdate) sqlSave(ctx context.Context) (_node int, er
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedOrderedTargets(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldOrderedTargets, value)
+		})
+	}
+	if _u.mutation.OrderedTargetsCleared() {
+		_spec.ClearField(compositemodelroute.FieldOrderedTargets, field.TypeJSON)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -586,6 +617,24 @@ func (_u *CompositeModelRouteUpdateOne) ClearNotes() *CompositeModelRouteUpdateO
 	return _u
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetOrderedTargets(v)
+	return _u
+}
+
+// AppendOrderedTargets appends value to the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) AppendOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdateOne {
+	_u.mutation.AppendOrderedTargets(v)
+	return _u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) ClearOrderedTargets() *CompositeModelRouteUpdateOne {
+	_u.mutation.ClearOrderedTargets()
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdateOne) SetGroup(v *Group) *CompositeModelRouteUpdateOne {
 	return _u.SetGroupID(v.ID)
@@ -765,6 +814,17 @@ func (_u *CompositeModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *Com
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedOrderedTargets(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldOrderedTargets, value)
+		})
+	}
+	if _u.mutation.OrderedTargetsCleared() {
+		_spec.ClearField(compositemodelroute.FieldOrderedTargets, field.TypeJSON)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{

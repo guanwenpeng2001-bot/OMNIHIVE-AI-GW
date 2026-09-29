@@ -1,6 +1,5 @@
 /**
- * Admin API Keys API endpoints
- * Handles API key management for administrators
+ * Inspect and manage a user's API keys as an administrator.
  */
 
 import { apiClient } from '../client'
@@ -11,6 +10,17 @@ export interface UpdateApiKeyGroupResult {
   auto_granted_group_access: boolean
   granted_group_id?: number
   granted_group_name?: string
+}
+
+export interface AdminApiKeyCredentialIssue {
+  api_key: ApiKey
+  secret: string
+  grace_until?: string | null
+}
+
+export interface AdminRotateApiKeyOptions {
+  grace_ttl_hours?: number
+  revoke_previous?: boolean
 }
 
 /**
@@ -26,8 +36,47 @@ export async function updateApiKeyGroup(id: number, groupId: number | null): Pro
   return data
 }
 
+/**
+ * Enable or disable any user's API key.
+ * @param id - API Key ID
+ * @param status - active or disabled
+ */
+export async function setApiKeyStatus(id: number, status: 'active' | 'disabled'): Promise<ApiKey> {
+  const { data } = await apiClient.put<ApiKey>(`/admin/api-keys/${id}/status`, { status })
+  return data
+}
+
+/**
+ * Delete any user's API key.
+ * @param id - API Key ID
+ */
+export async function deleteApiKey(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/api-keys/${id}`)
+  return data
+}
+
+/**
+ * Rotate any user's API key secret, keeping its identity and history.
+ * @param id - API Key ID
+ * @param options - Optional grace window and immediate-revoke flag
+ */
+export async function rotateApiKey(id: number, options?: AdminRotateApiKeyOptions): Promise<AdminApiKeyCredentialIssue> {
+  const payload: AdminRotateApiKeyOptions = {}
+  if (options?.grace_ttl_hours !== undefined) {
+    payload.grace_ttl_hours = options.grace_ttl_hours
+  }
+  if (options?.revoke_previous !== undefined) {
+    payload.revoke_previous = options.revoke_previous
+  }
+  const { data } = await apiClient.post<AdminApiKeyCredentialIssue>(`/admin/api-keys/${id}/credentials/rotate`, payload)
+  return data
+}
+
 export const apiKeysAPI = {
-  updateApiKeyGroup
+  updateApiKeyGroup,
+  setApiKeyStatus,
+  deleteApiKey,
+  rotateApiKey
 }
 
 export default apiKeysAPI

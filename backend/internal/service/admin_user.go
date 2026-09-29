@@ -16,6 +16,8 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
 // User management implementations
@@ -392,11 +394,8 @@ func (s *adminServiceImpl) DeleteUser(ctx context.Context, id int64) error {
 	}
 
 	if s.authCacheInvalidator != nil {
-		for _, key := range apiKeys {
-			if keyValue := strings.TrimSpace(key.Key); keyValue != "" {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, keyValue)
-			}
-		}
+		// Per-credential entries are dropped by the user-wide invalidation below,
+		// which resolves every credential digest of the user's keys.
 		s.authCacheInvalidator.InvalidateAuthCacheByUserID(ctx, id)
 	}
 	return nil
@@ -650,50 +649,113 @@ func (s *adminServiceImpl) GetUserRPMStatus(ctx context.Context, userID int64) (
 			logger.LegacyPrintf("service.admin", "failed to get user group rpm: user_id=%d group_id=%d err=%v", userID, groupID, getErr)
 		}
 
-		entry := UserGroupRPMStatus{
-			GroupID: groupID,
-			Used:    used,
-		}
-
+		groupRPMLimit := 0
+		groupName := ""
 		if s.groupRepo != nil {
 			if group, groupErr := s.groupRepo.GetByIDLite(ctx, groupID); groupErr == nil && group != nil {
-				entry.GroupName = group.Name
-				entry.Limit = group.RPMLimit
-				entry.Source = "group"
+				groupName = group.Name
+				groupRPMLimit = group.RPMLimit
 			} else if groupErr != nil {
 				logger.LegacyPrintf("service.admin", "failed to get group rpm status metadata: group_id=%d err=%v", groupID, groupErr)
 			}
 		}
 
+		var override *int
 		if s.userGroupRateRepo != nil {
-			override, overrideErr := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID)
+			dbOverride, overrideErr := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID)
 			if overrideErr != nil {
 				logger.LegacyPrintf("service.admin", "failed to get rpm override: user_id=%d group_id=%d err=%v", userID, groupID, overrideErr)
-			} else if override != nil {
-				entry.Limit = *override
-				entry.Source = "override"
+			} else {
+				override = dbOverride
 			}
+		}
+
+		// 与请求判定共用同一份优先级解析：覆盖替代分组容量，用户级上限始终列出。
+		entry := UserGroupRPMStatus{
+			GroupID:        groupID,
+			GroupName:      groupName,
+			Used:           used,
+			UserCeilingRPM: user.RPMLimit,
+		}
+		for _, effective := range ResolveEffectiveRPMLimits(user.RPMLimit, userID, groupID, groupRPMLimit, override) {
+			if effective.Source == AdmissionRateLimitSourceUser {
+				continue
+			}
+			entry.Limit = effective.Limit
+			entry.Source = effective.Source
 		}
 
 		perGroup = append(perGroup, entry)
 	}
 
-	return &UserRPMStatus{
+	status := &UserRPMStatus{
 		UserRPMUsed:  userRPMUsed,
 		UserRPMLimit: user.RPMLimit,
+		Priority:     EffectiveRPMPriority,
 		PerGroup:     perGroup,
+	}
+	// 重置时间来自 RPM 计数器的服务端时间源；拿不到就留空，不用本机时钟凑。
+	if resetAt, resetErr := s.userRPMCache.WindowResetAt(ctx); resetErr == nil {
+		status.WindowResetsAt = &resetAt
+	} else {
+		logger.LegacyPrintf("service.admin", "failed to get rpm window reset: user_id=%d err=%v", userID, resetErr)
+	}
+	return status, nil
+}
+
+// GetUserUsageStats aggregates the real usage rows of one user for the admin
+// user detail view. The window follows the admin usage page period selector
+// (today/week/month, half-open [start, end)); the response carries the resolved
+// window and an explicit availability flag so a caller can tell "no usage in the
+// window" from "not measured".
+func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error) {
+	if s.usageLogRepo == nil {
+		return nil, infraerrors.InternalServer("USER_USAGE_STATS_UNAVAILABLE", "user usage statistics are not available")
+	}
+	startTime, endTime := adminUserUsageWindow(period, time.Now())
+	stats, err := s.usageLogRepo.GetStatsWithFilters(ctx, usagestats.UsageLogFilters{
+		UserID:    userID,
+		StartTime: &startTime,
+		EndTime:   &endTime,
+	})
+	if err != nil {
+		return nil, err
+	}
+	accountCost := 0.0
+	if stats.TotalAccountCost != nil {
+		accountCost = *stats.TotalAccountCost
+	}
+	return map[string]any{
+		"period":             period,
+		"start_time":         startTime.UTC(),
+		"end_time":           endTime.UTC(),
+		"available":          true,
+		"total_requests":     stats.TotalRequests,
+		"total_tokens":       stats.TotalTokens,
+		"input_tokens":       stats.TotalInputTokens,
+		"output_tokens":      stats.TotalOutputTokens,
+		"cache_read_tokens":  stats.TotalCacheReadTokens,
+		"total_cost":         stats.TotalCost,
+		"total_actual_cost":  stats.TotalActualCost,
+		"total_account_cost": accountCost,
+		"avg_duration_ms":    stats.AverageDurationMs,
 	}, nil
 }
 
-func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, period string) (any, error) {
-	// Return mock data for now
-	return map[string]any{
-		"period":          period,
-		"total_requests":  0,
-		"total_cost":      0.0,
-		"total_tokens":    0,
-		"avg_duration_ms": 0,
-	}, nil
+// adminUserUsageWindow maps the period selector onto a half-open window. It
+// mirrors the convention used by the admin usage page and the user usage page
+// instead of introducing a second period parser.
+func adminUserUsageWindow(period string, now time.Time) (time.Time, time.Time) {
+	switch strings.TrimSpace(period) {
+	case "today":
+		return timezone.StartOfDayInUserLocation(now, ""), now
+	case "week":
+		return now.AddDate(0, 0, -7), now
+	case "month":
+		return now.AddDate(0, -1, 0), now
+	default:
+		return now.AddDate(0, -1, 0), now
+	}
 }
 
 // GetUserBalanceHistory returns paginated balance/concurrency change records for a user.

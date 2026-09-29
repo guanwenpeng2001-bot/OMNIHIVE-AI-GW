@@ -87,8 +87,8 @@ func (s *ClaudeOAuthServiceSuite) TestGetOrganizationUUID() {
 				tt.handler(w, r)
 			}), nil)
 
-			client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
-			require.True(s.T(), ok, "type assertion failed")
+			client := NewClaudeOAuthClient()
+			require.NotNil(s.T(), client)
 			s.client = client
 			s.client.baseURL = "http://in-process"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
@@ -165,8 +165,8 @@ func (s *ClaudeOAuthServiceSuite) TestGetAuthorizationCode() {
 				tt.handler(w, r)
 			}), nil)
 
-			client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
-			require.True(s.T(), ok, "type assertion failed")
+			client := NewClaudeOAuthClient()
+			require.NotNil(s.T(), client)
 			s.client = client
 			s.client.baseURL = "http://in-process"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
@@ -270,8 +270,8 @@ func (s *ClaudeOAuthServiceSuite) TestExchangeCodeForToken() {
 				tt.handler(w, r)
 			}), nil)
 
-			client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
-			require.True(s.T(), ok, "type assertion failed")
+			client := NewClaudeOAuthClient()
+			require.NotNil(s.T(), client)
 			s.client = client
 			s.client.tokenURL = "http://in-process/token"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }
@@ -366,8 +366,8 @@ func (s *ClaudeOAuthServiceSuite) TestRefreshToken() {
 				tt.handler(w, r)
 			}), nil)
 
-			client, ok := NewClaudeOAuthClient().(*claudeOAuthService)
-			require.True(s.T(), ok, "type assertion failed")
+			client := NewClaudeOAuthClient()
+			require.NotNil(s.T(), client)
 			s.client = client
 			s.client.tokenURL = "http://in-process/token"
 			s.client.clientFactory = func(string) (*req.Client, error) { return newTestReqClient(rt), nil }

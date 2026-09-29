@@ -13,6 +13,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/predicate"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
@@ -83,6 +84,12 @@ func (_u *APIKeyUpdate) SetNillableKey(v *string) *APIKeyUpdate {
 	if v != nil {
 		_u.SetKey(*v)
 	}
+	return _u
+}
+
+// ClearKey clears the value of the "key" field.
+func (_u *APIKeyUpdate) ClearKey() *APIKeyUpdate {
+	_u.mutation.ClearKey()
 	return _u
 }
 
@@ -463,6 +470,21 @@ func (_u *APIKeyUpdate) AddUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddCredentialIDs adds the "credentials" edge to the APIKeyCredential entity by IDs.
+func (_u *APIKeyUpdate) AddCredentialIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.AddCredentialIDs(ids...)
+	return _u
+}
+
+// AddCredentials adds the "credentials" edges to the APIKeyCredential entity.
+func (_u *APIKeyUpdate) AddCredentials(v ...*APIKeyCredential) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_u *APIKeyUpdate) Mutation() *APIKeyMutation {
 	return _u.mutation
@@ -499,6 +521,27 @@ func (_u *APIKeyUpdate) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdate {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearCredentials clears all "credentials" edges to the APIKeyCredential entity.
+func (_u *APIKeyUpdate) ClearCredentials() *APIKeyUpdate {
+	_u.mutation.ClearCredentials()
+	return _u
+}
+
+// RemoveCredentialIDs removes the "credentials" edge to APIKeyCredential entities by IDs.
+func (_u *APIKeyUpdate) RemoveCredentialIDs(ids ...int64) *APIKeyUpdate {
+	_u.mutation.RemoveCredentialIDs(ids...)
+	return _u
+}
+
+// RemoveCredentials removes "credentials" edges to APIKeyCredential entities.
+func (_u *APIKeyUpdate) RemoveCredentials(v ...*APIKeyCredential) *APIKeyUpdate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialIDs(ids...)
 }
 
 // Save executes the query and returns the number of nodes affected by the update operation.
@@ -589,6 +632,9 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
+	}
+	if _u.mutation.KeyCleared() {
+		_spec.ClearField(apikey.FieldKey, field.TypeString)
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
@@ -799,6 +845,51 @@ func (_u *APIKeyUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 		}
 		_spec.Edges.Add = append(_spec.Edges.Add, edge)
 	}
+	if _u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialsIDs(); len(nodes) > 0 && !_u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
 	if _node, err = sqlgraph.UpdateNodes(ctx, _u.driver, _spec); err != nil {
 		if _, ok := err.(*sqlgraph.NotFoundError); ok {
 			err = &NotFoundError{apikey.Label}
@@ -870,6 +961,12 @@ func (_u *APIKeyUpdateOne) SetNillableKey(v *string) *APIKeyUpdateOne {
 	if v != nil {
 		_u.SetKey(*v)
 	}
+	return _u
+}
+
+// ClearKey clears the value of the "key" field.
+func (_u *APIKeyUpdateOne) ClearKey() *APIKeyUpdateOne {
+	_u.mutation.ClearKey()
 	return _u
 }
 
@@ -1250,6 +1347,21 @@ func (_u *APIKeyUpdateOne) AddUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 	return _u.AddUsageLogIDs(ids...)
 }
 
+// AddCredentialIDs adds the "credentials" edge to the APIKeyCredential entity by IDs.
+func (_u *APIKeyUpdateOne) AddCredentialIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.AddCredentialIDs(ids...)
+	return _u
+}
+
+// AddCredentials adds the "credentials" edges to the APIKeyCredential entity.
+func (_u *APIKeyUpdateOne) AddCredentials(v ...*APIKeyCredential) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.AddCredentialIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_u *APIKeyUpdateOne) Mutation() *APIKeyMutation {
 	return _u.mutation
@@ -1286,6 +1398,27 @@ func (_u *APIKeyUpdateOne) RemoveUsageLogs(v ...*UsageLog) *APIKeyUpdateOne {
 		ids[i] = v[i].ID
 	}
 	return _u.RemoveUsageLogIDs(ids...)
+}
+
+// ClearCredentials clears all "credentials" edges to the APIKeyCredential entity.
+func (_u *APIKeyUpdateOne) ClearCredentials() *APIKeyUpdateOne {
+	_u.mutation.ClearCredentials()
+	return _u
+}
+
+// RemoveCredentialIDs removes the "credentials" edge to APIKeyCredential entities by IDs.
+func (_u *APIKeyUpdateOne) RemoveCredentialIDs(ids ...int64) *APIKeyUpdateOne {
+	_u.mutation.RemoveCredentialIDs(ids...)
+	return _u
+}
+
+// RemoveCredentials removes "credentials" edges to APIKeyCredential entities.
+func (_u *APIKeyUpdateOne) RemoveCredentials(v ...*APIKeyCredential) *APIKeyUpdateOne {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _u.RemoveCredentialIDs(ids...)
 }
 
 // Where appends a list predicates to the APIKeyUpdate builder.
@@ -1406,6 +1539,9 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 	}
 	if value, ok := _u.mutation.Key(); ok {
 		_spec.SetField(apikey.FieldKey, field.TypeString, value)
+	}
+	if _u.mutation.KeyCleared() {
+		_spec.ClearField(apikey.FieldKey, field.TypeString)
 	}
 	if value, ok := _u.mutation.Name(); ok {
 		_spec.SetField(apikey.FieldName, field.TypeString, value)
@@ -1609,6 +1745,51 @@ func (_u *APIKeyUpdateOne) sqlSave(ctx context.Context) (_node *APIKey, err erro
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(usagelog.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Add = append(_spec.Edges.Add, edge)
+	}
+	if _u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.RemovedCredentialsIDs(); len(nodes) > 0 && !_u.mutation.CredentialsCleared() {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges.Clear = append(_spec.Edges.Clear, edge)
+	}
+	if nodes := _u.mutation.CredentialsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
 			},
 		}
 		for _, k := range nodes {

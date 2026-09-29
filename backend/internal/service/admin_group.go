@@ -176,17 +176,19 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, ro
 	} else if !ok {
 		return nil, ErrCompositeRouteNotFound
 	}
+	existing, err := s.findCompositeRoute(ctx, groupID, routeID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrCompositeRouteNotFound
+	}
 	if !input.AccountTypeSet && input.AccountType == "" {
-		routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
-		if err != nil {
-			return nil, err
-		}
-		for _, existing := range routes {
-			if existing.ID == routeID {
-				input.AccountType = existing.AccountType
-				break
-			}
-		}
+		input.AccountType = existing.AccountType
+	}
+	// 未提供 targets 时保留已配置的有序目标；空数组显式清空回单目标兼容模式。
+	if input.Targets == nil {
+		input.Targets = existing.Targets
 	}
 	route, err := compositeRouteFromInput(groupID, input)
 	if err != nil {
@@ -247,20 +249,33 @@ func (s *adminServiceImpl) requireCompositeGroup(ctx context.Context, groupID in
 }
 
 func (s *adminServiceImpl) compositeRouteBelongsToGroup(ctx context.Context, groupID, routeID int64) (bool, error) {
-	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	route, err := s.findCompositeRoute(ctx, groupID, routeID)
 	if err != nil {
 		return false, err
 	}
+	return route != nil, nil
+}
+
+func (s *adminServiceImpl) findCompositeRoute(ctx context.Context, groupID, routeID int64) (*CompositeModelRoute, error) {
+	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	if err != nil {
+		return nil, err
+	}
 	for i := range routes {
 		if routes[i].ID == routeID {
-			return true, nil
+			route := routes[i]
+			return &route, nil
 		}
 	}
-	return false, nil
+	return nil, nil
 }
 
 func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
-	input = normalizeCompositeRouteInput(input)
+	normalized, err := normalizeCompositeRouteInput(input)
+	if err != nil {
+		return nil, err
+	}
+	input = normalized
 	if input.PublicModel == "" {
 		return nil, fmt.Errorf("public_model is required")
 	}
@@ -284,6 +299,7 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 		Priority:       input.Priority,
 		Enabled:        input.Enabled,
 		Notes:          input.Notes,
+		Targets:        input.Targets,
 	}, nil
 }
 
@@ -1231,6 +1247,31 @@ func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return keys, result.Total, nil
 }
 
+// groupAPIKeyStatusCounter 由仓储层按状态计数；未实现时分组统计必须显式失败，
+// 而不是把「启用中的 Key」写成 0。
+type groupAPIKeyStatusCounter interface {
+	CountByGroupIDAndStatus(ctx context.Context, groupID int64, status string) (int64, error)
+}
+
+// GetGroupAPIKeyCounts 返回分组内全部与启用中的 API Key 数量。
+func (s *adminServiceImpl) GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error) {
+	total, err := s.apiKeyRepo.CountByGroupID(ctx, groupID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count group api keys: %w", err)
+	}
+	counter, ok := s.apiKeyRepo.(groupAPIKeyStatusCounter)
+	if !ok {
+		return 0, 0, infraerrors.New(http.StatusInternalServerError,
+			"GROUP_API_KEY_STATUS_COUNT_UNAVAILABLE",
+			"api key repository does not support status counts")
+	}
+	active, err := counter.CountByGroupIDAndStatus(ctx, groupID, StatusAPIKeyActive)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count active group api keys: %w", err)
+	}
+	return total, active, nil
+}
+
 func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error) {
 	if err := s.ValidateSimpleModeGroupOperation(AdminGroupOperationMultiplier); err != nil {
 		return nil, err
@@ -1395,7 +1436,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 			// 失效认证缓存（在事务提交后执行）
 			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+				invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 			}
 
 			result.APIKey = apiKey
@@ -1410,7 +1451,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 	// 失效认证缓存
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 
 	result.APIKey = apiKey
@@ -1433,7 +1474,7 @@ func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, k
 		return nil, fmt.Errorf("reset api key rate limit usage: %w", err)
 	}
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 	if s.billingCacheService != nil {
 		_ = s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)

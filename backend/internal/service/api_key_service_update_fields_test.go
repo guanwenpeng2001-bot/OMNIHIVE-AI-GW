@@ -94,7 +94,9 @@ func TestAPIKeyUpdate_OnlyDeclaresRequestedColumns(t *testing.T) {
 }
 
 // 显式重置仍需声明对应的列，避免收窄写入列时把功能改坏。
-func TestAPIKeyUpdate_DeclaresUsageColumnsOnExplicitReset(t *testing.T) {
+// 面板不能再把已消费额度/用量清零（T2-2.1）：重置请求必须被拒绝，
+// 且不能对任何用量列发起写入；管理员改用审计化调整（AdjustBudgetUsage）。
+func TestAPIKeyUpdate_RejectsOwnerFacingUsageReset(t *testing.T) {
 	reset := true
 	svc, repo := newUpdateFieldsAPIKeyService(&APIKey{
 		ID: 1, UserID: 7, Key: "sk-test", Status: StatusActive, Quota: 100, QuotaUsed: 30, Usage5h: 12,
@@ -104,8 +106,8 @@ func TestAPIKeyUpdate_DeclaresUsageColumnsOnExplicitReset(t *testing.T) {
 		ResetQuota:          &reset,
 		ResetRateLimitUsage: &reset,
 	})
-	require.NoError(t, err)
-	require.Equal(t, []APIKeyUpdateFields{{QuotaUsed: true, RateLimitUsage: true}}, repo.updateFields)
+	require.ErrorIs(t, err, ErrAPIKeyUsageResetForbidden)
+	require.Empty(t, repo.updateFields)
 }
 
 // 配额扩容会顺带把 quota_exhausted 复活为 active，此时必须声明 status。

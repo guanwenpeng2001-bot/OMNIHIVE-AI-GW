@@ -12,6 +12,7 @@ import (
 	"entgo.io/ent/dialect/sql/sqlgraph"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/apikey"
+	"github.com/Wei-Shaw/sub2api/ent/apikeycredential"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/usagelog"
 	"github.com/Wei-Shaw/sub2api/ent/user"
@@ -90,6 +91,14 @@ func (_c *APIKeyCreate) SetUserID(v int64) *APIKeyCreate {
 // SetKey sets the "key" field.
 func (_c *APIKeyCreate) SetKey(v string) *APIKeyCreate {
 	_c.mutation.SetKey(v)
+	return _c
+}
+
+// SetNillableKey sets the "key" field if the given value is not nil.
+func (_c *APIKeyCreate) SetNillableKey(v *string) *APIKeyCreate {
+	if v != nil {
+		_c.SetKey(*v)
+	}
 	return _c
 }
 
@@ -346,6 +355,21 @@ func (_c *APIKeyCreate) AddUsageLogs(v ...*UsageLog) *APIKeyCreate {
 	return _c.AddUsageLogIDs(ids...)
 }
 
+// AddCredentialIDs adds the "credentials" edge to the APIKeyCredential entity by IDs.
+func (_c *APIKeyCreate) AddCredentialIDs(ids ...int64) *APIKeyCreate {
+	_c.mutation.AddCredentialIDs(ids...)
+	return _c
+}
+
+// AddCredentials adds the "credentials" edges to the APIKeyCredential entity.
+func (_c *APIKeyCreate) AddCredentials(v ...*APIKeyCredential) *APIKeyCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddCredentialIDs(ids...)
+}
+
 // Mutation returns the APIKeyMutation object of the builder.
 func (_c *APIKeyCreate) Mutation() *APIKeyMutation {
 	return _c.mutation
@@ -453,9 +477,6 @@ func (_c *APIKeyCreate) check() error {
 	}
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "APIKey.user_id"`)}
-	}
-	if _, ok := _c.mutation.Key(); !ok {
-		return &ValidationError{Name: "key", err: errors.New(`ent: missing required field "APIKey.key"`)}
 	}
 	if v, ok := _c.mutation.Key(); ok {
 		if err := apikey.KeyValidator(v); err != nil {
@@ -670,6 +691,22 @@ func (_c *APIKeyCreate) createSpec() (*APIKey, *sqlgraph.CreateSpec) {
 		}
 		_spec.Edges = append(_spec.Edges, edge)
 	}
+	if nodes := _c.mutation.CredentialsIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   apikey.CredentialsTable,
+			Columns: []string{apikey.CredentialsColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikeycredential.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
 	return _node, _spec
 }
 
@@ -773,6 +810,12 @@ func (u *APIKeyUpsert) SetKey(v string) *APIKeyUpsert {
 // UpdateKey sets the "key" field to the value that was provided on create.
 func (u *APIKeyUpsert) UpdateKey() *APIKeyUpsert {
 	u.SetExcluded(apikey.FieldKey)
+	return u
+}
+
+// ClearKey clears the value of the "key" field.
+func (u *APIKeyUpsert) ClearKey() *APIKeyUpsert {
+	u.SetNull(apikey.FieldKey)
 	return u
 }
 
@@ -1196,6 +1239,13 @@ func (u *APIKeyUpsertOne) SetKey(v string) *APIKeyUpsertOne {
 func (u *APIKeyUpsertOne) UpdateKey() *APIKeyUpsertOne {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateKey()
+	})
+}
+
+// ClearKey clears the value of the "key" field.
+func (u *APIKeyUpsertOne) ClearKey() *APIKeyUpsertOne {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearKey()
 	})
 }
 
@@ -1837,6 +1887,13 @@ func (u *APIKeyUpsertBulk) SetKey(v string) *APIKeyUpsertBulk {
 func (u *APIKeyUpsertBulk) UpdateKey() *APIKeyUpsertBulk {
 	return u.Update(func(s *APIKeyUpsert) {
 		s.UpdateKey()
+	})
+}
+
+// ClearKey clears the value of the "key" field.
+func (u *APIKeyUpsertBulk) ClearKey() *APIKeyUpsertBulk {
+	return u.Update(func(s *APIKeyUpsert) {
+		s.ClearKey()
 	})
 }
 

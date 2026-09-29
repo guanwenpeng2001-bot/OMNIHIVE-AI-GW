@@ -28,7 +28,10 @@ func TestVolcenginePlatformFlow(test *testing.T) {
 	require.Equal(test, account.Platform, NormalizeOpenAICompatiblePlatform(account.Platform))
 	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityChatCompletions))
 	require.False(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityResponses))
-	require.False(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
+	// The embeddings cell is bound by multimodal-ingress, so the capability gate
+	// now admits the documented {root}/embeddings contract; Responses stays
+	// denied because the platform row still records ResponsesPOST as rejected.
+	require.True(test, account.SupportsOpenAIEndpointCapability(OpenAIEndpointCapabilityEmbeddings))
 	declared := catalogEvidenceAccount(42, PlatformVolcengine, "native")
 	declared.Credentials["model_mapping"] = map[string]any{"alias": "ep-target"}
 	delete(declared.Extra, UpstreamModelCatalogExtraKey)

@@ -11,6 +11,81 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// GatewayActionHandlers is the adapter-name to handler binding the gateway
+// ingress registers. It is exposed so the wiring invariant ("every implemented
+// platform×action cell resolves to a registered handler") can be asserted
+// against the authoritative action matrix instead of a copied table.
+func GatewayActionHandlers(h *handler.Handlers) service.GatewayActionHandlers {
+	return service.GatewayActionHandlers{
+		"gateway.chat":              h.Gateway.ChatCompletions,
+		"openai.chat":               h.OpenAIGateway.ChatCompletions,
+		"gateway.messages":          h.Gateway.Messages,
+		"openai.messages":           h.OpenAIGateway.Messages,
+		"gateway.responses":         h.Gateway.Responses,
+		"openai.responses":          h.OpenAIGateway.Responses,
+		"gateway.count_tokens":      h.Gateway.CountTokens,
+		"gateway.generate_content":  h.Gateway.GeminiV1BetaModels,
+		"openai.count_tokens":       h.OpenAIGateway.CountTokens,
+		"cursor.count_tokens":       h.OpenAIGateway.CursorCountTokens,
+		"grok.count_tokens":         h.OpenAIGateway.GrokCountTokens,
+		"openai.embeddings":         h.OpenAIGateway.Embeddings,
+		"openai.images":             h.OpenAIGateway.Images,
+		"openai.image.variation":    h.OpenAIGateway.Images,
+		"grok.images":               h.OpenAIGateway.GrokImages,
+		"grok.video.generate":       h.OpenAIGateway.GrokVideoGeneration,
+		"grok.video.edit":           h.OpenAIGateway.GrokVideoEdit,
+		"grok.video.extend":         h.OpenAIGateway.GrokVideoExtension,
+		"grok.video.status":         h.OpenAIGateway.GrokVideoStatus,
+		"grok.video.content":        h.OpenAIGateway.GrokVideoContent,
+		"grok.realtime":             h.OpenAIGateway.GrokRealtime,
+		"openai.video.generate":     h.OpenAIGateway.OpenAIVideoGeneration,
+		"openai.video.edit":         h.OpenAIGateway.OpenAIVideoEdit,
+		"openai.video.extend":       h.OpenAIGateway.OpenAIVideoExtension,
+		"openai.video.status":       h.OpenAIGateway.OpenAIVideoStatus,
+		"openai.video.content":      h.OpenAIGateway.OpenAIVideoContent,
+		"openai.audio.translate":    h.OpenAIGateway.OpenAIAudioTranslations,
+		"antigravity.images":        h.Gateway.AntigravityImages,
+		"bedrock.embeddings":        h.Gateway.BedrockEmbeddings,
+		"bedrock.rerank":            h.Gateway.BedrockRerank,
+		"bedrock.images":            h.Gateway.BedrockImages,
+		"bedrock.image.variation":   h.Gateway.BedrockImages,
+		"qianwen.embeddings":        h.OpenAIGateway.QianwenEmbeddings,
+		"qianwen.rerank":            h.OpenAIGateway.QianwenRerank,
+		"qianwen.images":            h.OpenAIGateway.QianwenImages,
+		"qianwen.native":            h.OpenAIGateway.QianwenNative,
+		"qianfan.embeddings":        h.OpenAIGateway.QianfanEmbeddings,
+		"qianfan.rerank":            h.OpenAIGateway.QianfanRerank,
+		"qianfan.images":            h.OpenAIGateway.QianfanImages,
+		"qianfan.image.edit":        h.OpenAIGateway.QianfanImageEdit,
+		"qianfan.video.generate":    h.OpenAIGateway.QianfanVideoGeneration,
+		"qianfan.video.status":      h.OpenAIGateway.QianfanVideoStatus,
+		"qianfan.video.cancel":      h.OpenAIGateway.QianfanVideoCancel,
+		"qianfan.video.content":     h.OpenAIGateway.QianfanVideoContent,
+		"qianfan.audio.tts":         h.OpenAIGateway.QianfanAudioSpeech,
+		"qianfan.voice":             qianfanVoiceHandler(h.OpenAIGateway.QianfanVoiceCloneCreate, h.OpenAIGateway.QianfanVoiceCloneList),
+		"qianfan.search":            h.OpenAIGateway.QianfanSearch,
+		"hunyuan.embeddings":        h.OpenAIGateway.HunyuanEmbeddings,
+		"hunyuan.images":            h.OpenAIGateway.HunyuanImageGeneration,
+		"hunyuan.image.edit":        h.OpenAIGateway.HunyuanImageEdit,
+		"hunyuan.video.generate":    h.OpenAIGateway.HunyuanVideoGeneration,
+		"hunyuan.video.status":      h.OpenAIGateway.HunyuanVideoStatus,
+		"hunyuan.video.content":     h.OpenAIGateway.HunyuanVideoContent,
+		"hunyuan.audio.tts":         h.OpenAIGateway.HunyuanAudioSpeech,
+		"hunyuan.audio.stt":         h.OpenAIGateway.HunyuanAudioTranscriptions,
+		"hunyuan.voice":             h.OpenAIGateway.HunyuanVoiceClone,
+		"volcengine.embeddings":     h.OpenAIGateway.VolcengineEmbeddings,
+		"volcengine.images":         h.OpenAIGateway.VolcengineImages,
+		"volcengine.video.generate": h.OpenAIGateway.VolcengineVideoGeneration,
+		"volcengine.video.edit":     h.OpenAIGateway.VolcengineVideoEdit,
+		"volcengine.video.extend":   h.OpenAIGateway.VolcengineVideoExtend,
+		"volcengine.video.status":   h.OpenAIGateway.VolcengineVideoStatus,
+		"volcengine.video.content":  h.OpenAIGateway.VolcengineVideoContent,
+		"opencode.generate_content": h.Gateway.OpenCodeGenerateContent,
+		"image.async":               h.AsyncImage.Submit,
+		"image.batch":               h.BatchImage.Submit,
+	}
+}
+
 // RegisterGatewayRoutes 注册 API 网关路由（Claude/OpenAI/Gemini 兼容）
 func RegisterGatewayRoutes(
 	r *gin.Engine,
@@ -43,27 +118,7 @@ func RegisterGatewayRoutes(
 	groupModelAllowlist := middleware.GroupModelAllowlist()
 	actionRequirement := h.Gateway.ActionRequirement
 
-	dispatch := service.NewGatewayActionDispatch(service.GatewayActionHandlers{
-		"gateway.chat":         h.Gateway.ChatCompletions,
-		"openai.chat":          h.OpenAIGateway.ChatCompletions,
-		"gateway.messages":     h.Gateway.Messages,
-		"openai.messages":      h.OpenAIGateway.Messages,
-		"gateway.responses":    h.Gateway.Responses,
-		"openai.responses":     h.OpenAIGateway.Responses,
-		"gateway.count_tokens": h.Gateway.CountTokens,
-		"openai.count_tokens":  h.OpenAIGateway.CountTokens,
-		"cursor.count_tokens":  h.OpenAIGateway.CursorCountTokens,
-		"grok.count_tokens":    h.OpenAIGateway.GrokCountTokens,
-		"openai.embeddings":    h.OpenAIGateway.Embeddings,
-		"openai.images":        h.OpenAIGateway.Images,
-		"grok.images":          h.OpenAIGateway.GrokImages,
-		"grok.video.generate":  h.OpenAIGateway.GrokVideoGeneration,
-		"grok.video.edit":      h.OpenAIGateway.GrokVideoEdit,
-		"grok.video.extend":    h.OpenAIGateway.GrokVideoExtension,
-		"grok.video.status":    h.OpenAIGateway.GrokVideoStatus,
-		"grok.video.content":   h.OpenAIGateway.GrokVideoContent,
-		"grok.realtime":        h.OpenAIGateway.GrokRealtime,
-	})
+	dispatch := service.NewGatewayActionDispatch(GatewayActionHandlers(h))
 	messagesHandler := dispatch.Handler("messages")
 	countTokensHandler := dispatch.Handler("count_tokens")
 	codexModelsHandler := service.CodexModelsGateway(h.OpenAIGateway.CodexModels, h.Gateway.CodexModels)
@@ -74,6 +129,15 @@ func RegisterGatewayRoutes(
 	videoExtensionHandler := dispatch.Handler("video.extend")
 	videoStatusHandler := dispatch.Handler("video.status")
 	videoContentHandler := dispatch.Handler("video.content")
+	// Standard OpenAI audio paths: the action matrix resolves each one to the
+	// platform's own adapter, so the same routes serve the platforms whose cell
+	// binds an OpenAI-shaped audio adapter (Hunyuan, Qianfan) and reject a platform
+	// without that cell before scheduling. Speech synthesis is a JSON body and
+	// keeps the tighter text limit; recognition and translation carry uploads.
+	audioSpeechHandler := dispatch.Handler("audio.tts")
+	audioTranscriptionsHandler := dispatch.Handler("audio.stt")
+	audioTranslationsHandler := dispatch.Handler("audio.translate")
+	rerankHandler := dispatch.Handler("rerank")
 	guardResponsesSubpath := func(next gin.HandlerFunc) gin.HandlerFunc {
 		return service.GuardResponsesSubpath(next, h.OpenAIGateway.ResponsesInputTokens)
 	}
@@ -117,8 +181,10 @@ func RegisterGatewayRoutes(
 		// OpenAI Chat Completions API: auto-route based on group platform
 		gateway.POST("/chat/completions", dispatch.Handler("chat"))
 		gateway.POST("/embeddings", textBodyLimit, dispatch.Handler("embeddings"))
+		gateway.POST("/rerank", textBodyLimit, rerankHandler)
 		gateway.POST("/images/generations", imagesHandler)
 		gateway.POST("/images/edits", imagesHandler)
+		gateway.POST("/images/variations", imagesHandler)
 		gateway.POST("/images/generations/async", h.AsyncImage.Submit)
 		gateway.POST("/images/edits/async", h.AsyncImage.Submit)
 		gateway.GET("/images/tasks/:task_id", h.AsyncImage.Get)
@@ -146,6 +212,9 @@ func RegisterGatewayRoutes(
 		gateway.GET("/videos/extensions/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id", videoStatusHandler)
 		gateway.GET("/videos/:request_id/content", videoContentHandler)
+		gateway.POST("/audio/speech", textBodyLimit, audioSpeechHandler)
+		gateway.POST("/audio/transcriptions", bodyLimit, audioTranscriptionsHandler)
+		gateway.POST("/audio/translations", bodyLimit, audioTranslationsHandler)
 
 		// xAI Voice APIs (Grok platform only): HTTP TTS/STT + Realtime WS.
 		// Not part of the creation-center product surface — gateway relay only.
@@ -182,7 +251,7 @@ func RegisterGatewayRoutes(
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		gemini.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
 		// Gin treats ":" as a param marker, but Gemini uses "{model}:{action}" in the same segment.
-		gemini.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		gemini.POST("/models/*modelAction", dispatch.Handler("generate_content"))
 	}
 
 	// OpenAI Responses API（不带v1前缀的别名）— auto-route based on group platform
@@ -194,6 +263,8 @@ func RegisterGatewayRoutes(
 	}
 	rootRoute(http.MethodPost, "/messages", bodyLimit, messagesHandler)
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
+	// /v1/sub2api/billing 在分组/白名单准入之前注册；根别名保持同一中间件序列。
+	r.GET("/sub2api/billing", middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), h.Gateway.KeyBillingInfo)
 	// Native DashScope uses the same authenticated, allowlisted composite route
 	// chain. Unknown families are explicitly rejected by the native handler.
 	for _, method := range []string{http.MethodPost, http.MethodGet, http.MethodPut, http.MethodDelete, http.MethodPatch} {
@@ -211,6 +282,21 @@ func RegisterGatewayRoutes(
 	})
 	rootRoute(http.MethodGet, "/models", bodyLimit, modelsHandler)
 	rootRoute(http.MethodGet, "/models/:model", bodyLimit, h.Gateway.Models)
+	rootRoute(http.MethodGet, "/models/catalog", bodyLimit, h.Gateway.ModelCatalog)
+	rootRoute(http.MethodGet, "/models/catalog/:model", bodyLimit, h.Gateway.ModelCatalog)
+	rootRoute(http.MethodGet, "/usage", bodyLimit, h.Gateway.Usage)
+	rootRoute(http.MethodPost, "/images/batches", bodyLimit, h.BatchImage.Submit)
+	rootRoute(http.MethodGet, "/images/batches", bodyLimit, h.BatchImage.List)
+	rootRoute(http.MethodGet, "/images/batches/models", bodyLimit, h.BatchImage.Models)
+	rootRoute(http.MethodGet, "/images/batches/:id", bodyLimit, h.BatchImage.Get)
+	rootRoute(http.MethodGet, "/images/batches/:id/items", bodyLimit, h.BatchImage.Items)
+	rootRoute(http.MethodGet, "/images/batches/:id/items/:custom_id/content", bodyLimit, h.BatchImage.ItemContent)
+	rootRoute(http.MethodGet, "/images/batches/:id/download", bodyLimit, h.BatchImage.Download)
+	rootRoute(http.MethodPost, "/images/batches/:id/cancel", bodyLimit, h.BatchImage.Cancel)
+	rootRoute(http.MethodDelete, "/images/batches/:id", bodyLimit, h.BatchImage.DeleteRecord)
+	rootRoute(http.MethodDelete, "/images/batches/:id/outputs", bodyLimit, h.BatchImage.DeleteOutputs)
+	rootRoute(http.MethodPost, "/live", bodyLimit, h.OpenAIGateway.Live)
+	rootRoute(http.MethodGet, "/live/:call_id", bodyLimit, h.OpenAIGateway.LiveSideband)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
 	codexDirect.Use(middleware.GatewayProtocol(), bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, actionRequirement, requireGroupAnthropic)
@@ -228,8 +314,10 @@ func RegisterGatewayRoutes(
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	rootRoute(http.MethodPost, "/chat/completions", bodyLimit, dispatch.Handler("chat"))
 	rootRoute(http.MethodPost, "/embeddings", textBodyLimit, dispatch.Handler("embeddings"))
+	rootRoute(http.MethodPost, "/rerank", textBodyLimit, rerankHandler)
 	rootRoute(http.MethodPost, "/images/generations", bodyLimit, imagesHandler)
 	rootRoute(http.MethodPost, "/images/edits", bodyLimit, imagesHandler)
+	rootRoute(http.MethodPost, "/images/variations", bodyLimit, imagesHandler)
 	rootRoute(http.MethodPost, "/images/generations/async", bodyLimit, h.AsyncImage.Submit)
 	rootRoute(http.MethodPost, "/images/edits/async", bodyLimit, h.AsyncImage.Submit)
 	rootRoute(http.MethodGet, "/images/tasks/:task_id", bodyLimit, h.AsyncImage.Get)
@@ -245,6 +333,9 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/videos/extensions/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id", bodyLimit, videoStatusHandler)
 	rootRoute(http.MethodGet, "/videos/:request_id/content", bodyLimit, videoContentHandler)
+	rootRoute(http.MethodPost, "/audio/speech", textBodyLimit, audioSpeechHandler)
+	rootRoute(http.MethodPost, "/audio/transcriptions", bodyLimit, audioTranscriptionsHandler)
+	rootRoute(http.MethodPost, "/audio/translations", bodyLimit, audioTranslationsHandler)
 
 	rootVoiceHandler := func(endpoint string) gin.HandlerFunc {
 		return service.GatewayVoiceHandler(h.OpenAIGateway.GrokVoice, func(*gin.Context) string { return endpoint })
@@ -298,7 +389,7 @@ func RegisterGatewayRoutes(
 	{
 		antigravityV1Beta.GET("/models", h.Gateway.GeminiV1BetaListModels)
 		antigravityV1Beta.GET("/models/:model", h.Gateway.GeminiV1BetaGetModel)
-		antigravityV1Beta.POST("/models/*modelAction", h.Gateway.GeminiV1BetaModels)
+		antigravityV1Beta.POST("/models/*modelAction", dispatch.Handler("generate_content"))
 	}
 
 }
@@ -319,4 +410,16 @@ func compositeGeminiModelFromParams(c *gin.Context) string {
 }
 func compositeRouteEndpointForPath(path string) string {
 	return service.CompositeRouteEndpointForPath(path)
+}
+
+// qianfanVoiceHandler serves both voice actions on one dispatch key: voice
+// enrollment is a POST and the owner-scoped voice list is a GET.
+func qianfanVoiceHandler(create, list gin.HandlerFunc) gin.HandlerFunc {
+	return func(requestContext *gin.Context) {
+		if requestContext.Request.Method == http.MethodGet {
+			list(requestContext)
+			return
+		}
+		create(requestContext)
+	}
 }

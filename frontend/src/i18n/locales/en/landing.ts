@@ -117,11 +117,25 @@ export default {
   // Key Usage Query Page
   keyUsage: {
     title: 'API Key Usage',
-    subtitle: 'Enter your API Key to view real-time spending and usage status',
-    placeholder: 'sk-ant-mirror-xxxxxxxxxxxx',
+    subtitle: 'Signed in, query your own keys by ID; or paste a key you hold externally to check its usage and status',
+    placeholder: 'Paste your API key (keys on this site start with sk-)',
     query: 'Query',
     querying: 'Querying...',
-    privacyNote: 'Your Key is processed locally in the browser and will not be stored',
+    privacyNote: 'A pasted key is used only as the header of this /v1/usage request and is not written to browser storage; the query is sent to this site.',
+    secretQuery: {
+      title: 'External key query (paste the full key)'
+    },
+    sessionQuery: {
+      title: 'Query by key ID (signed-in session)',
+      description: 'Pick one of your own keys to read its quota, rate limits and daily usage without pasting a secret.',
+      keyLabel: 'My keys',
+      placeholder: 'Select a key',
+      noKeys: 'This account has no keys to query.',
+      noGroup: 'No group',
+      signedOutHint: 'Sign in to select your own key and query it by ID without pasting a secret.'
+    },
+    panelModeNotice:
+      'These results come from the signed-in session and show the quota, rate limits, expiry and daily usage the panel knows. Per-request token detail still requires the key itself (shown only once at creation or rotation) and is not displayed here; subscription windows live under My subscriptions.',
     dateRange: 'Date Range:',
     dateRangeToday: 'Today',
     dateRange7d: '7 Days',

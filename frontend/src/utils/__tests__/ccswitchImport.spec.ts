@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
-  GROK_CC_SWITCH_MODEL,
-  OPENAI_CC_SWITCH_CODEX_MODEL,
-  buildCcSwitchImportDeeplink
+  buildCcSwitchImportDeeplink,
+  preferredCcSwitchModel
 } from '@/utils/ccswitchImport'
 import type { GroupPlatform } from '@/types'
 
@@ -11,35 +10,58 @@ function paramsFromDeeplink(deeplink: string): URLSearchParams {
   return new URLSearchParams(query)
 }
 
+const baseInput = {
+  baseUrl: 'https://api.example.com',
+  providerName: 'Sub2API',
+  apiKey: 'sk-test',
+  usageScript: 'return true'
+}
+
 describe('ccswitchImport utils', () => {
-  it('defaults OpenAI CC Switch imports to the current Codex model', () => {
-    expect(OPENAI_CC_SWITCH_CODEX_MODEL).toBe('gpt-5.5')
+  it('picks a Codex-family model from the key visible set', () => {
+    expect(preferredCcSwitchModel(['text-embedding-3-large', 'gpt-5.5', 'gpt-5-mini'], 'codex')).toBe('gpt-5.5')
   })
 
-  it('defaults Grok Build imports to the current Grok model', () => {
-    expect(GROK_CC_SWITCH_MODEL).toBe('grok-4.5')
+  it('picks a Grok model from the key visible set', () => {
+    expect(preferredCcSwitchModel(['grok-imagine-video', 'grok-4.5'], 'grok')).toBe('grok-4.5')
   })
 
-  const baseInput = {
-    baseUrl: 'https://api.example.com',
-    providerName: 'Sub2API',
-    apiKey: 'sk-test',
-    usageScript: 'return true'
-  }
+  // Negative case: no visible model means no model parameter, never a constant.
+  it.each([
+    { name: 'empty list', models: [] as string[] },
+    { name: 'null', models: null },
+    { name: 'only media/utility models', models: ['text-embedding-3-large', 'tts-1', 'grok-imagine-image'] },
+    { name: 'only other vendors', models: ['gemini-3-pro', 'claude-sonnet-4-6'] }
+  ])('omits the model for $name', ({ models }) => {
+    expect(preferredCcSwitchModel(models, 'codex')).toBeUndefined()
+    expect(preferredCcSwitchModel(models, 'grok')).toBeUndefined()
 
-  it('adds the Codex model parameter for OpenAI imports', () => {
     const params = paramsFromDeeplink(
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'openai',
-        clientType: 'claude'
+        clientType: 'claude',
+        visibleModels: models
+      })
+    )
+    expect(params.has('model')).toBe(false)
+  })
+
+  it('adds the key-visible Codex model parameter for OpenAI imports', () => {
+    const params = paramsFromDeeplink(
+      buildCcSwitchImportDeeplink({
+        ...baseInput,
+        platform: 'openai',
+        clientType: 'claude',
+        visibleModels: ['gpt-5.5']
       })
     )
 
     expect(params.get('resource')).toBe('provider')
     expect(params.get('app')).toBe('codex')
     expect(params.get('endpoint')).toBe(baseInput.baseUrl)
-    expect(params.get('model')).toBe(OPENAI_CC_SWITCH_CODEX_MODEL)
+    expect(params.get('model')).toBe('gpt-5.5')
+    expect(params.get('apiKey')).toBe(baseInput.apiKey)
     expect(atob(params.get('usageScript') || '')).toBe(baseInput.usageScript)
   })
 
@@ -54,13 +76,14 @@ describe('ccswitchImport utils', () => {
         ...baseInput,
         baseUrl,
         platform: 'grok',
-        clientType: 'claude'
+        clientType: 'claude',
+        visibleModels: ['grok-4.5']
       })
     )
 
     expect(params.get('app')).toBe('grokbuild')
     expect(params.get('endpoint')).toBe('https://api.example.com/v1')
-    expect(params.get('model')).toBe(GROK_CC_SWITCH_MODEL)
+    expect(params.get('model')).toBe('grok-4.5')
   })
 
   it.each([
@@ -71,7 +94,8 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform,
-        clientType
+        clientType,
+        visibleModels: ['gpt-5.5', 'grok-4.5']
       })
     )
 
@@ -85,7 +109,8 @@ describe('ccswitchImport utils', () => {
       buildCcSwitchImportDeeplink({
         ...baseInput,
         platform: 'antigravity',
-        clientType: 'gemini'
+        clientType: 'gemini',
+        visibleModels: ['gemini-3-pro']
       })
     )
 
