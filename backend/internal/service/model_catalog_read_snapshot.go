@@ -18,6 +18,7 @@ type ModelCatalogBatchAccountRepository interface {
 }
 
 type catalogReadEvidence struct {
+	bindings    accountBindingMemo
 	implemented map[string][][]string
 	discovered  map[string]bool
 	catalog     *AccountModelCatalogSnapshot
@@ -32,8 +33,9 @@ type catalogGroupSnapshot struct {
 	groups   map[int64]*Group
 }
 
-// Only private, immutable evidence is shared. Key policy, subscription expiry,
-// user prices, protocol decisions and endpoint eligibility are evaluated anew.
+// Only private evidence and its bounded computations are shared. Key policy,
+// subscription expiry, user prices, input requirements and live availability
+// are evaluated anew; endpoint computations are keyed by the request options.
 func prepareCatalogReadAccount(account *Account, parent *Account) {
 	account.modelCatalogCredentialAccount = parent
 	evidence := &catalogReadEvidence{

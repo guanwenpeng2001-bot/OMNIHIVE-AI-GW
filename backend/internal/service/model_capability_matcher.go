@@ -1,7 +1,6 @@
 package service
 
 import (
-	"net/url"
 	"regexp"
 	"strings"
 )
@@ -39,7 +38,7 @@ func resolveCapabilityProfile(account *Account) string {
 		return "bedrock"
 	}
 	baseURL := upstreamModelRegistryBaseURL(account)
-	host := modelRegistryHostname(baseURL)
+	host := account.modelRegistryHostname(baseURL)
 	// Regional hosting domains must be matched on DNS-label boundaries.
 	if strings.HasSuffix(host, ".aiplatform.googleapis.com") || strings.HasSuffix(host, "-aiplatform.googleapis.com") || host == "aiplatform.googleapis.com" {
 		if account.Type == AccountTypeServiceAccount {
@@ -79,7 +78,7 @@ func resolveCapabilityProfile(account *Account) string {
 	case "api.deepseek.com":
 		return "deepseek"
 	case "api.moonshot.cn", "api.moonshot.ai":
-		parsed, err := url.Parse(baseURL)
+		parsed, err := account.parsedBaseURL(baseURL)
 		if err == nil && account.GetAccountMode() != AccountModeCoding {
 			switch strings.TrimRight(parsed.Path, "/") {
 			case "", "/v1", "/anthropic":
@@ -87,7 +86,7 @@ func resolveCapabilityProfile(account *Account) string {
 			}
 		}
 	case "api.kimi.com":
-		parsed, err := url.Parse(baseURL)
+		parsed, err := account.parsedBaseURL(baseURL)
 		if err == nil && account.GetAccountMode() != AccountModePayG {
 			switch strings.TrimRight(parsed.Path, "/") {
 			case "/coding", "/coding/v1":
@@ -103,7 +102,7 @@ func resolveCapabilityProfile(account *Account) string {
 	case "opencode.ai":
 		return "opencode-go"
 	}
-	return "custom:" + normalizeModelRegistryBaseURL(baseURL)
+	return "custom:" + account.normalizeModelRegistryBaseURL(baseURL)
 }
 
 // Match service.region.partition exactly: AWS tenant resources (S3, EC2,
