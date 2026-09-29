@@ -4,11 +4,14 @@ package middleware
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/gin-gonic/gin"
@@ -34,13 +37,42 @@ func TestRecovery_PanicLogContainsInfo(t *testing.T) {
 
 	w := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodGet, "/panic", nil)
+	req = req.WithContext(context.WithValue(req.Context(), ctxkey.RequestID, "panic-correlation-id"))
 	r.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 
 	logOutput := buf.String()
-	require.Contains(t, logOutput, "custom panic message for test", "日志应包含 panic 信息")
+	require.NotContains(t, logOutput, "custom panic message for test")
+	require.Contains(t, logOutput, "type=string")
+	require.Contains(t, logOutput, `request_id="panic-correlation-id"`)
 	require.Contains(t, logOutput, "recovery_test.go", "日志应包含堆栈跟踪文件名")
+}
+
+func TestRecovery_DoesNotLogPanicCredentials(t *testing.T) {
+	for _, panicValue := range []any{
+		"Authorization: Bearer synthetic-bearer",
+		`{"headers":{"Authorization":"Bearer synthetic-json"}}`,
+		"Cookie: session=synthetic-cookie",
+		http.Header{"Authorization": {"Bearer synthetic-map"}},
+		"token: synthetic-first synthetic-tail",
+	} {
+		t.Run(fmt.Sprintf("%T_%v", panicValue, panicValue), func(t *testing.T) {
+			var output bytes.Buffer
+			originalWriter := gin.DefaultErrorWriter
+			gin.DefaultErrorWriter = &output
+			t.Cleanup(func() { gin.DefaultErrorWriter = originalWriter })
+			router := gin.New()
+			router.Use(Recovery())
+			router.GET("/panic", func(*gin.Context) { panic(panicValue) })
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/panic", nil))
+			require.Equal(t, http.StatusInternalServerError, recorder.Code)
+			require.NotContains(t, output.String(), "synthetic-")
+			require.NotContains(t, recorder.Body.String(), "synthetic-")
+			require.Contains(t, output.String(), "recovery_test.go")
+		})
+	}
 }
 
 func TestRecovery_DoesNotLogRequestCredentials(t *testing.T) {

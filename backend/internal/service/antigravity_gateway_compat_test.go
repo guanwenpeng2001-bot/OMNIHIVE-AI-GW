@@ -698,7 +698,115 @@ func TestAntigravityCompatStreamErrorCommitsSingleTerminalFrame(t *testing.T) {
 	require.Error(t, err)
 	require.Nil(t, result)
 	require.True(t, IsResponseCommitted(c))
-	require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: error"))
+	require.True(t, c.GetBool(apicompat.ResponsesTerminalSentKey))
+	requireAntigravityResponsesFailure(t, recorder.Body.String(), "stream_read_error")
+}
+
+func requireAntigravityResponsesFailure(t *testing.T, stream, reason string) {
+	t.Helper()
+	previousSequence := -1
+	responseID := ""
+	failedCount := 0
+	for _, line := range strings.Split(stream, "\n") {
+		if !strings.HasPrefix(line, "data:") {
+			continue
+		}
+		payload := strings.TrimSpace(strings.TrimPrefix(line, "data:"))
+		var event struct {
+			Type           string                       `json:"type"`
+			SequenceNumber *int                         `json:"sequence_number"`
+			Response       *apicompat.ResponsesResponse `json:"response"`
+		}
+		require.NoError(t, json.Unmarshal([]byte(payload), &event))
+		require.Zero(t, failedCount, "no frames may follow a failed terminal event")
+		require.NotNil(t, event.SequenceNumber, "every frame must carry sequence_number")
+		require.Greater(t, *event.SequenceNumber, previousSequence)
+		previousSequence = *event.SequenceNumber
+		require.NotEqual(t, "error", event.Type)
+		require.NotEqual(t, "response.completed", event.Type)
+		require.NotEqual(t, "response.incomplete", event.Type)
+		if event.Type == "response.created" {
+			require.NotNil(t, event.Response)
+			responseID = event.Response.ID
+			require.NotEmpty(t, responseID)
+		}
+		if event.Type == "response.failed" {
+			failedCount++
+			require.NotNil(t, event.Response)
+			require.NotEmpty(t, responseID)
+			require.Equal(t, responseID, event.Response.ID)
+			require.Equal(t, "response", event.Response.Object)
+			require.Positive(t, event.Response.CreatedAt)
+			require.Equal(t, "gemini-3.1-pro-high", event.Response.Model)
+			require.Equal(t, "failed", event.Response.Status)
+			require.NotNil(t, event.Response.Output)
+			require.NotNil(t, event.Response.Error)
+			require.Equal(t, "server_error", event.Response.Error.Code)
+			require.Equal(t, reason, event.Response.Error.Message)
+		}
+	}
+	require.Equal(t, 1, failedCount)
+}
+
+func TestAntigravityResponsesFailurePreventsFurtherEvents(t *testing.T) {
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
+	writer := newAntigravityClientWriter(c.Writer, c.Writer, "test")
+	adapter := newAntigravityResponsesStreamAdapter("gemini-3.1-pro-high")
+	session := newAntigravityCompatStreamSession("gemini-3.1-pro-high", time.Now(), adapter, writer)
+	session.consume(`data: {"response":{"responseId":"resp_partial","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}`)
+	writeAntigravityCompatStreamError(c, adapter, writer, "stream_read_error")
+	writeAntigravityCompatStreamError(c, adapter, writer, "duplicate")
+	result := session.finish()
+	require.Equal(t, 8, result.usage.InputTokens)
+	require.Equal(t, 1, result.usage.OutputTokens)
+	require.True(t, IsResponseCommitted(c))
+	require.True(t, c.GetBool(apicompat.ResponsesTerminalSentKey))
+	requireAntigravityResponsesFailure(t, recorder.Body.String(), "stream_read_error")
+}
+
+func TestAntigravityResponsesTimeoutEmitsFailedTerminal(t *testing.T) {
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 1}, nil)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
+	reader, writer := io.Pipe()
+	t.Cleanup(func() { _ = writer.Close(); _ = reader.Close() })
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: reader}
+	type outcome struct {
+		result *antigravityStreamResult
+		err    error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+		done <- outcome{result: result, err: err}
+	}()
+	_, err := io.WriteString(writer, `data: {"response":{"responseId":"resp_partial","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}`+"\n\n")
+	require.NoError(t, err)
+	select {
+	case got := <-done:
+		require.Error(t, got.err)
+		require.NotNil(t, got.result)
+		require.Equal(t, 8, got.result.usage.InputTokens)
+		require.Equal(t, 1, got.result.usage.OutputTokens)
+		require.True(t, IsResponseCommitted(c))
+		require.True(t, c.GetBool(apicompat.ResponsesTerminalSentKey))
+		requireAntigravityResponsesFailure(t, recorder.Body.String(), "stream_timeout")
+	case <-time.After(3 * time.Second):
+		t.Fatal("compat stream did not time out")
+	}
+}
+
+func TestAntigravityResponsesOversizedLineEmitsFailedTerminal(t *testing.T) {
+	svc := newAntigravityCompatService(config.GatewayConfig{MaxLineSize: 65536}, nil)
+	c, recorder := newAntigravityCompatContext(http.MethodPost, "/v1/responses", nil)
+	body := `data: {"response":{"responseId":"resp_partial","candidates":[{"content":{"parts":[{"text":"partial"}]}}],"usageMetadata":{"promptTokenCount":8,"candidatesTokenCount":1}}}` + "\n\n" + strings.Repeat("x", 65537)
+	resp := &http.Response{StatusCode: http.StatusOK, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(body))}
+	result, err := svc.handleResponsesStreamingFromAntigravity(c, resp, time.Now(), "gemini-3.1-pro-high")
+	require.Error(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, 8, result.usage.InputTokens)
+	require.Equal(t, 1, result.usage.OutputTokens)
+	require.True(t, IsResponseCommitted(c))
+	requireAntigravityResponsesFailure(t, recorder.Body.String(), "response_too_large")
 }
 
 func TestAntigravityCompatKeepaliveAfterFirstEvent(t *testing.T) {

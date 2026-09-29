@@ -80,6 +80,9 @@ func newAntigravityResponsesStreamAdapter(model string) *antigravityResponsesStr
 }
 
 func (a *antigravityResponsesStreamAdapter) Emit(event *apicompat.AnthropicStreamEvent, writer *antigravityClientWriter) {
+	if a.anthropicState.CompletedSent {
+		return
+	}
 	for _, responseEvent := range apicompat.AnthropicEventToResponsesEvents(event, a.anthropicState) {
 		a.emitResponseEvent(responseEvent, writer)
 	}
@@ -92,7 +95,26 @@ func (a *antigravityResponsesStreamAdapter) Finalize(writer *antigravityClientWr
 }
 
 func (a *antigravityResponsesStreamAdapter) WriteError(writer *antigravityClientWriter, reason string) {
-	writer.Fprintf("event: error\ndata: {\"type\":\"error\",\"error\":{\"type\":\"upstream_error\",\"message\":%q}}\n\n", reason)
+	state := a.anthropicState
+	if state.CompletedSent {
+		return
+	}
+	state.CompletedSent = true
+	event := apicompat.ResponsesStreamEvent{
+		Type:           "response.failed",
+		SequenceNumber: state.SequenceNumber,
+		Response: &apicompat.ResponsesResponse{
+			ID:        state.ResponseID,
+			Object:    "response",
+			CreatedAt: state.Created,
+			Model:     state.Model,
+			Status:    "failed",
+			Output:    []apicompat.ResponsesOutput{},
+			Error:     &apicompat.ResponsesError{Code: "server_error", Message: reason},
+		},
+	}
+	state.SequenceNumber++
+	a.emitResponseEvent(event, writer)
 }
 
 func (a *antigravityResponsesStreamAdapter) emitResponseEvent(event apicompat.ResponsesStreamEvent, writer *antigravityClientWriter) {
@@ -428,6 +450,9 @@ func writeAntigravityCompatStreamError(
 	reason string,
 ) {
 	adapter.WriteError(writer, reason)
+	if _, responses := adapter.(*antigravityResponsesStreamAdapter); responses {
+		c.Set(apicompat.ResponsesTerminalSentKey, true)
+	}
 	MarkResponseCommitted(c)
 }
 

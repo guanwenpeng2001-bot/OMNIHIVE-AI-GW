@@ -995,9 +995,7 @@ var _ service.BatchImageRepository = (*batchImageRepository)(nil)
 // ListRecoverableBatchImageJobs uses keyset pagination so blocked jobs cannot
 // starve later receipts. The committed job row is the durable queue source.
 func (r *batchImageRepository) ListRecoverableBatchImageJobs(ctx context.Context, after string, limit int) ([]string, error) {
-	if limit <= 0 || limit > 1000 {
-		limit = 100
-	}
+	limit = service.NormalizeBatchImageRecoveryLimit(limit)
 	rows, err := r.sql.QueryContext(ctx, `SELECT batch_id FROM batch_image_jobs
  WHERE batch_id > $1 AND (status IN ('submitted', 'running', 'indexing', 'settling')
  OR (status IN ('failed', 'cancelled') AND COALESCE(hold_amount, estimated_cost, 0) > 0
@@ -1009,7 +1007,7 @@ func (r *batchImageRepository) ListRecoverableBatchImageJobs(ctx context.Context
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var ids []string
 	for rows.Next() {
 		var id string

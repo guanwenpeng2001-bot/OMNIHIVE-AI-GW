@@ -110,10 +110,17 @@ func normalizeBatchImageWorkerOptions(opts BatchImageWorkerOptions) BatchImageWo
 	if opts.DelayedMoveLimit <= 0 {
 		opts.DelayedMoveLimit = defaultBatchImageWorkerDelayedMoveLimit
 	}
-	if opts.RecoverLimit <= 0 {
-		opts.RecoverLimit = defaultBatchImageWorkerRecoverLimit
-	}
+	opts.RecoverLimit = NormalizeBatchImageRecoveryLimit(opts.RecoverLimit)
 	return opts
+}
+
+// NormalizeBatchImageRecoveryLimit keeps the recovery cursor and SQL page size
+// on the same bounded contract, including callers that bypass config validation.
+func NormalizeBatchImageRecoveryLimit(limit int) int {
+	if limit <= 0 || limit > 1000 {
+		return defaultBatchImageWorkerRecoverLimit
+	}
+	return limit
 }
 
 func (w *BatchImageWorker) Run(ctx context.Context) {
