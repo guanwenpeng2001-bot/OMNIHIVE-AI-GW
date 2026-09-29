@@ -1532,7 +1532,7 @@ const submitting = ref(false)
 const now = ref(new Date())
 let resetTimer: ReturnType<typeof setInterval> | null = null
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({})
-const usageState = ref<'loading' | 'known' | 'unknown'>('loading')
+const usageState = ref<'loading' | 'known' | 'unknown' | 'error'>('loading')
 const usageHistoryGap = ref<HistoryGap | null>(null)
 const userGroupRates = ref<Record<number, number>>({})
 
@@ -1779,7 +1779,7 @@ const loadApiKeys = async () => {
         if (isCurrentRequest() && !isAbortError(e)) {
           usageStats.value = {}
           usageHistoryGap.value = historyGapFromError(e)
-          usageState.value = 'unknown'
+          usageState.value = usageHistoryGap.value ? 'unknown' : 'error'
           if (!usageHistoryGap.value) console.error('Failed to load usage stats:', e)
         }
       }

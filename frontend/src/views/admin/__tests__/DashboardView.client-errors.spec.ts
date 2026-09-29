@@ -28,12 +28,14 @@ const adapter: AxiosAdapter = async config => {
 describe('real client to dashboard error chain', () => {
   beforeEach(() => { window.history.replaceState({}, '', '/login'); apiClient.defaults.adapter = adapter; status = 409; reason = 'USAGE_HISTORY_INCOMPLETE'; showError.mockReset() })
   afterEach(() => { apiClient.defaults.adapter = originalAdapter })
-  it.each(['en', 'zh'])('renders a truthful history warning and retained start in %s', async locale => {
+  it.each(['en', 'zh'])('renders neutral unknown without coverage details in %s', async locale => {
     const wrapper = mount(DashboardView, { global: { plugins: [createI18n({ messageCompiler: message => new Function('return ' + baseCompile(message as string).code)(), legacy: false, locale, missingWarn: false, fallbackWarn: false, messages: { en, zh } })], stubs: { AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true, Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true, TokenUsageTrend: true, Line: true } } })
     await flushPromises()
-    expect(wrapper.get('[data-testid="history-gap"]').text()).toContain('2026-03-05T00:00:00Z')
-    expect(wrapper.get('[data-testid="history-gap"]').text()).toContain(locale === 'en' ? 'No statistics were returned' : '未返回统计结果')
-    expect(wrapper.get('[data-testid="coverage-incomplete"]').text()).toContain('raw_history_unavailable')
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="coverage-incomplete"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('—')
+    expect(wrapper.html()).not.toContain('raw_history_unavailable')
+    expect(wrapper.text()).not.toContain('2026-03-05T00:00:00Z')
     expect(showError).not.toHaveBeenCalled()
     wrapper.unmount()
   })

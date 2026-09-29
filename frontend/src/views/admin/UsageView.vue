@@ -2,11 +2,6 @@
   <AppLayout>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-        <p>{{ t('dashboard.historyUnavailable') }}</p>
-        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
-        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
-      </div>
       <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" />
       <UsageSettlementStatus />
       <!-- Charts Section -->
@@ -30,7 +25,7 @@
           </div>
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <ModelDistributionChart
+          <ModelDistributionChart :model-unknown="modelState === 'unknown'" :model-error="modelState === 'error'"
             v-model:source="modelDistributionSource"
             v-model:metric="modelDistributionMetric"
             :model-stats="requestedModelStats"
@@ -43,32 +38,38 @@
             :end-date="endDate"
             :filters="breakdownFilters"
           />
-          <GroupDistributionChart
-            v-model:metric="groupDistributionMetric"
-            :group-stats="groupStats"
-            :loading="chartsLoading"
-            :show-metric-toggle="true"
-            :start-date="startDate"
-            :end-date="endDate"
-            :filters="breakdownFilters"
-          />
+          <UsageStatsState :state="historyGap ? 'unknown' : chartError ? 'error' : 'known'">
+            <GroupDistributionChart
+              v-model:metric="groupDistributionMetric"
+              :group-stats="groupStats"
+              :loading="chartsLoading"
+              :show-metric-toggle="true"
+              :start-date="startDate"
+              :end-date="endDate"
+              :filters="breakdownFilters"
+            />
+          </UsageStatsState>
         </div>
         <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-          <EndpointDistributionChart
-            v-model:source="endpointDistributionSource"
-            v-model:metric="endpointDistributionMetric"
-            :endpoint-stats="inboundEndpointStats"
-            :upstream-endpoint-stats="upstreamEndpointStats"
-            :endpoint-path-stats="endpointPathStats"
-            :loading="endpointStatsLoading"
-            :show-source-toggle="true"
-            :show-metric-toggle="true"
-            :title="t('usage.endpointDistribution')"
-            :start-date="startDate"
-            :end-date="endDate"
-            :filters="breakdownFilters"
-          />
-          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+          <UsageStatsState :state="statsHistoryGap ? 'unknown' : statsError ? 'error' : 'known'">
+            <EndpointDistributionChart
+              v-model:source="endpointDistributionSource"
+              v-model:metric="endpointDistributionMetric"
+              :endpoint-stats="inboundEndpointStats"
+              :upstream-endpoint-stats="upstreamEndpointStats"
+              :endpoint-path-stats="endpointPathStats"
+              :loading="endpointStatsLoading"
+              :show-source-toggle="true"
+              :show-metric-toggle="true"
+              :title="t('usage.endpointDistribution')"
+              :start-date="startDate"
+              :end-date="endDate"
+              :filters="breakdownFilters"
+            />
+          </UsageStatsState>
+          <UsageStatsState :state="historyGap ? 'unknown' : chartError ? 'error' : 'known'">
+            <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+          </UsageStatsState>
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
@@ -130,18 +131,20 @@
         </UsageFilters>
 
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
-          <UsageTable :time-zone="reportTimeZone"
-            flat
-            :data="usageLogs"
-            :loading="loading"
-            :columns="visibleColumns"
-            :server-side-sort="true"
-            :default-sort-key="'created_at'"
-            :default-sort-order="'desc'"
-            @sort="handleSort"
-            @userClick="handleUserClick"
-            @ipGeoBatchFailed="handleIpGeoBatchFailed"
-          />
+          <UsageStatsState :state="logsState">
+            <UsageTable :time-zone="reportTimeZone"
+              flat
+              :data="usageLogs"
+              :loading="loading"
+              :columns="visibleColumns"
+              :server-side-sort="true"
+              :default-sort-key="'created_at'"
+              :default-sort-order="'desc'"
+              @sort="handleSort"
+              @userClick="handleUserClick"
+              @ipGeoBatchFailed="handleIpGeoBatchFailed"
+            />
+          </UsageStatsState>
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
@@ -211,6 +214,7 @@ const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
 
+import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, usageExportFailureMessage, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { extractApiErrorCode } from '@/utils/apiError'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
@@ -243,6 +247,9 @@ import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat,
 const { t } = useI18n()
 const historyGap = ref<HistoryGap | null>(null)
 const statsError = ref(false)
+const chartError = ref(false)
+const modelState = ref<'known' | 'unknown' | 'error'>('known')
+const logsState = ref<'known' | 'unknown' | 'error'>('known')
 const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
@@ -422,15 +429,27 @@ const buildUsageListParams = (
 }
 
 const loadLogs = async () => {
-  abortController?.abort(); const c = new AbortController(); abortController = c; loading.value = true
+  abortController?.abort()
+  const controller = new AbortController()
+  abortController = controller
+  loading.value = true
+  logsState.value = 'known'
+  usageLogs.value = []
+  pagination.total = 0
   try {
-    const res = await adminAPI.usage.list(
-      buildUsageListParams(pagination.page, pagination.page_size, false),
-      { signal: c.signal }
-    )
-    if(!c.signal.aborted) { usageLogs.value = res.items; pagination.total = res.total }
-  } catch (error: any) { if(error?.name !== 'AbortError') console.error('Failed to load usage logs:', error) } finally { if(abortController === c) loading.value = false }
+    const response = await adminAPI.usage.list(buildUsageListParams(pagination.page, pagination.page_size, false), { signal: controller.signal })
+    if (controller.signal.aborted || abortController !== controller) return
+    usageLogs.value = response.items
+    pagination.total = response.total
+  } catch (error: any) {
+    if (controller.signal.aborted || abortController !== controller || error?.name === 'AbortError' || error?.code === 'ERR_CANCELED') return
+    logsState.value = historyGapFromError(error) ? 'unknown' : 'error'
+    if (logsState.value === 'error') appStore.showError(t('usage.failedToLoad'))
+  } finally {
+    if (abortController === controller) loading.value = false
+  }
 }
+
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
   usageStats.value = null
@@ -473,12 +492,14 @@ const invalidateModelStatsCache = () => {
 }
 
 const loadModelStats = async (source: ModelDistributionSource, force = false) => {
+  const seq = ++modelStatsReqSeq
   if (!force && loadedModelSources[source]) {
+    modelState.value = 'known'
+    modelStatsLoading.value = false
     return
   }
-
-  const seq = ++modelStatsReqSeq
   modelStatsLoading.value = true
+  modelState.value = 'known'
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
@@ -513,6 +534,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
     loadedModelSources[source] = true
   } catch (error) {
     if (seq !== modelStatsReqSeq) return
+    modelState.value = historyGapFromError(error) ? 'unknown' : 'error'
     console.error('Failed to load model stats:', error)
     if (source === 'requested') {
       requestedModelStats.value = []
@@ -530,6 +552,8 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
 const loadChartData = async () => {
   const seq = ++chartReqSeq
   chartsLoading.value = true
+  chartError.value = false
+  historyGap.value = null
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
@@ -561,6 +585,7 @@ const loadChartData = async () => {
   } catch (error) {
     if (seq !== chartReqSeq) return
     historyGap.value = historyGapFromError(error)
+    chartError.value = !historyGap.value
     trendData.value = []
     groupStats.value = []
     console.error('Failed to load chart data:', error)
@@ -974,7 +999,14 @@ onMounted(() => {
   loadSavedErrColumns()
   document.addEventListener('click', handleColumnClickOutside)
 })
-onUnmounted(() => { abortController?.abort(); exportAbortController?.abort(); document.removeEventListener('click', handleColumnClickOutside) })
+onUnmounted(() => {
+  chartReqSeq++
+  statsReqSeq++
+  modelStatsReqSeq++
+  abortController?.abort()
+  exportAbortController?.abort()
+  document.removeEventListener('click', handleColumnClickOutside)
+})
 
 watch(modelDistributionSource, (source) => {
   void loadModelStats(source)

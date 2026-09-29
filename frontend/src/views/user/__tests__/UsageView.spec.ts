@@ -233,17 +233,53 @@ describe('user UsageView', () => {
     getAvailable.mockResolvedValue([{ id: 1, name: 'default' }])
   })
 
+  it.each([
+    [{ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' }, 'unknown'],
+    [{ status: 409, reason: 'OTHER_CONFLICT' }, 'error'],
+    [{ status: 401 }, 'error'], [{ status: 403 }, 'error'], [{ status: 500 }, 'error'],
+  ])('clears stale records and distinguishes list failure %j', async (failure, expectedState) => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    page.usageLogs = [{ id: 99 }]
+    query.mockRejectedValueOnce(failure)
+    await page.loadLogs()
+    expect(page.logsState).toBe(expectedState)
+    expect(page.usageLogs).toEqual([])
+    expect(wrapper.findComponent({ name: 'UsageTable' }).exists()).toBe(false)
+    query.mockResolvedValueOnce({ items: [], total: 0 })
+    await page.loadLogs()
+    expect(page.logsState).toBe('known')
+    wrapper.unmount()
+  })
+
+  it('ignores a superseded list rejection after a newer successful empty response', async () => {
+    const wrapper = mountUsageView()
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (error: unknown) => void
+    query.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadLogs()
+    query.mockResolvedValueOnce({ items: [], total: 0 })
+    await page.loadLogs()
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.logsState).toBe('known')
+    expect(page.usageLogs).toEqual([])
+    wrapper.unmount()
+  })
+
   it('renders unknown on first stats failure and recovers to known zero', async () => {
     getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
     const wrapper = mountUsageView()
 
     await flushPromises()
     const cards = wrapper.getComponent(UsageStatsCards)
-    expect(cards.text()).toContain('usage.statsUnknown')
+    expect(cards.text()).toContain('—')
     expect(cards.text()).not.toContain('0ms')
     getStats.mockResolvedValueOnce({ total_requests: 0 })
     await (wrapper.vm as any).loadStats()
-    expect(cards.text()).not.toContain('usage.statsUnknown')
+    expect(cards.text()).not.toContain('—')
     expect(cards.text()).toContain('0')
     wrapper.unmount()
   })
@@ -264,7 +300,7 @@ describe('user UsageView', () => {
     expect(cards.text()).toContain('common.loading')
     getStats.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
     await page.loadStats()
-    expect(cards.text()).toContain('usage.statsUnknown')
+    expect(cards.text()).toContain('—')
     resolveOld({ total_requests: 777 })
     await old
     expect(cards.text()).not.toContain('777')
@@ -278,7 +314,7 @@ describe('user UsageView', () => {
     expect(cards.text()).toContain('123')
     getStats.mockRejectedValueOnce(new Error('network'))
     await page.loadStats()
-    expect(cards.text()).toContain('usage.statsUnavailable')
+    expect(cards.text()).toContain(messages['usage.failedToLoad'])
     expect(cards.text()).not.toContain('123')
     wrapper.unmount()
   })
@@ -293,7 +329,8 @@ describe('user UsageView', () => {
     await page.loadChartData()
     expect(page.trendData).toEqual([])
     expect(page.groupStats).toEqual([])
-    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('—')
     getDashboardSnapshotV2.mockResolvedValueOnce({ trend: [], groups: [] })
     await page.loadChartData()
     expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
@@ -551,7 +588,7 @@ describe('user UsageView', () => {
     wrapper.unmount()
   })
 
-  it('shows the precise history-incomplete reason instead of the generic export failure', async () => {
+  it('uses the generic export failure without downloading or revealing coverage', async () => {
     downloadUsageCsv.mockReset().mockRejectedValue({
       status: 409,
       code: 409,
@@ -565,9 +602,9 @@ describe('user UsageView', () => {
     await (wrapper.vm as any).exportToCSV()
     await flushPromises()
 
-    expect(showError).toHaveBeenCalledWith(expect.stringContaining('Usage history is incomplete'))
-    expect(showError).toHaveBeenCalledWith(expect.stringContaining('Raw records retained from'))
-    expect(showError).not.toHaveBeenCalledWith('Export failed')
+    expect(showError).toHaveBeenCalledWith(messages['usage.exportFailed'])
+    expect(showError).toHaveBeenCalledTimes(1)
+    expect(showError).not.toHaveBeenCalledWith(expect.stringContaining('2026-03-05'))
     wrapper.unmount()
   })
 

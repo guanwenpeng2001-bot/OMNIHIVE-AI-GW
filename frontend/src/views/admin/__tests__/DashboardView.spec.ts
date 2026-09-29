@@ -119,6 +119,50 @@ describe('admin DashboardView', () => {
     })
   })
 
+  it('hides unverified historical totals and keeps independently returned entities and today values', async () => {
+    getSnapshotV2.mockResolvedValueOnce({ stats: { ...createDashboardStats(), total_users: 345, total_api_keys: 678,
+      total_requests: 987654, total_tokens: 765432, total_cost: 456.78, total_actual_cost: 456.78,
+      today_requests: 23, today_actual_cost: 1.25,
+      coverage: { complete: false, reason: 'history_after_origin_unavailable', raw_retained_from: '2026-09-01T00:00:00Z' } }, trend: [], models: [] })
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    expect(wrapper.text()).toContain('345')
+    expect(wrapper.text()).toContain('678')
+    expect(wrapper.text()).toContain('23')
+    expect(wrapper.text()).toContain('USD 1.25')
+    expect(wrapper.text()).not.toContain('987,654')
+    expect(wrapper.text()).not.toContain('456.78')
+    expect(wrapper.html()).not.toContain('history_after_origin_unavailable')
+    expect(wrapper.html()).not.toContain('2026-09-01')
+    expect(wrapper.text()).toContain('—')
+    wrapper.unmount()
+  })
+
+  it('keeps model and ranking request states independent', async () => {
+    getUserSpendingRanking.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const chart = wrapper.getComponent({ name: 'ModelDistributionChart' })
+    expect(chart.props('rankingUnknown')).toBe(true)
+    expect(chart.props('rankingError')).toBe(false)
+    expect(chart.props('modelUnknown')).toBe(false)
+    const page = wrapper.vm as any
+    await page.loadUserSpendingRanking()
+    getSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await page.loadDashboardSnapshot(false)
+    expect(chart.props('modelUnknown')).toBe(true)
+    expect(chart.props('rankingUnknown')).toBe(false)
+    wrapper.unmount()
+  })
+
   it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('shares explicit %s and projects user chart gaps without another read', async timeZone => {
     getUserUsageTrend.mockResolvedValue({ trend: [
       { date: '2026-11-01 01:00', user_id: 1, username: 'first', tokens: 7 },
@@ -159,7 +203,8 @@ describe('admin DashboardView', () => {
     await page.loadDashboardSnapshot(false)
     expect(page.trendData).toEqual([])
     expect(page.modelStats).toEqual([])
-    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('—')
     await page.loadDashboardSnapshot(false)
     expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
     wrapper.unmount()

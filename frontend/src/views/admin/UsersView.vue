@@ -1290,7 +1290,7 @@ const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undef
   return attributeDefinitions.value.find(d => d.id === attrId)
 }
 const usageStats = ref<Record<string, BatchUserUsageStats>>({})
-const usageState = ref<'loading' | 'known' | 'unknown'>('loading')
+const usageState = ref<'loading' | 'known' | 'unknown' | 'error'>('loading')
 const usageHistoryGap = ref<HistoryGap | null>(null)
 const platformQuotaStats = ref<Record<number, PlatformQuotaItem[]>>({})
 
@@ -1470,7 +1470,7 @@ const loadUsersSecondaryData = async (
           if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
           usageStats.value = {}
           usageHistoryGap.value = historyGapFromError(e)
-          usageState.value = 'unknown'
+          usageState.value = usageHistoryGap.value ? 'unknown' : 'error'
           if (!usageHistoryGap.value) console.error('Failed to load usage stats:', e)
         }
       })()
