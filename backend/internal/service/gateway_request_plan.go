@@ -68,7 +68,11 @@ type gatewayPlanLease struct {
 }
 
 func NewGatewayRequestPlan(spec GatewayRequestSpec) *GatewayRequestPlan {
-	snapshot := NewModelRegistry().Snapshot()
+	return newGatewayRequestPlanWithRegistry(spec, NewModelRegistry())
+}
+
+func newGatewayRequestPlanWithRegistry(spec GatewayRequestSpec, registry *ModelRegistry) *GatewayRequestPlan {
+	snapshot := registry.Snapshot()
 	spec.ModelVersion = snapshot.Version()
 	return &GatewayRequestPlan{registrySnapshot: snapshot, spec: spec, leases: make(map[*gatewayPlanLease]struct{})}
 }

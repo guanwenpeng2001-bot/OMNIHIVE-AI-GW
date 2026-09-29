@@ -55,7 +55,7 @@ func TestModelRegistryApprovedAtomicReload(t *testing.T) {
 	directory, pin := registryTestPackage(t, baseline.Generation()+1)
 	registry := &ModelRegistry{trustedPin: pin}
 	registry.current.Store(baseline)
-	plan := NewGatewayRequestPlan(GatewayRequestSpec{})
+	plan := newGatewayRequestPlanWithRegistry(GatewayRequestSpec{}, registry)
 	ctx := WithGatewayRequestPlan(context.Background(), plan)
 	var workers sync.WaitGroup
 	for worker := 0; worker < 8; worker++ {
@@ -78,6 +78,13 @@ func TestModelRegistryApprovedAtomicReload(t *testing.T) {
 	require.Same(t, baseline, ModelRegistrySnapshotFromContext(ctx))
 	require.Same(t, baseline, plan.ModelRegistrySnapshot())
 	lastGood := registry.Snapshot()
+	newPlan := newGatewayRequestPlanWithRegistry(GatewayRequestSpec{}, registry)
+	newCtx := WithGatewayRequestPlan(context.Background(), newPlan)
+	require.NotSame(t, baseline, lastGood)
+	require.Same(t, lastGood, newPlan.ModelRegistrySnapshot())
+	require.Same(t, lastGood, ModelRegistrySnapshotFromContext(newCtx))
+	require.Equal(t, baseline.Version(), plan.Snapshot().ModelVersion)
+	require.Equal(t, lastGood.Version(), newPlan.Snapshot().ModelVersion)
 	for _, name := range []string{"catalog.json", "release-manifest.json", "platform_model_presets.json"} {
 		path := filepath.Join(directory, name)
 		original, err := os.ReadFile(path)
@@ -86,6 +93,9 @@ func TestModelRegistryApprovedAtomicReload(t *testing.T) {
 		_, err = registry.ReloadApprovedLocalPackage(directory)
 		require.Error(t, err)
 		require.Same(t, lastGood, registry.Snapshot())
+		require.Same(t, baseline, ModelRegistrySnapshotFromContext(ctx))
+		require.Same(t, lastGood, ModelRegistrySnapshotFromContext(newCtx))
+		require.Same(t, lastGood, newGatewayRequestPlanWithRegistry(GatewayRequestSpec{}, registry).ModelRegistrySnapshot())
 		require.NoError(t, os.WriteFile(path, original, 0600))
 	}
 	// A fresh instance with the same separately deployed pin accepts exactly the
