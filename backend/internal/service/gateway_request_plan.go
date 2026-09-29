@@ -252,6 +252,28 @@ func (s *OpenAIGatewayService) CaptureRequestPlan(ctx context.Context, spec Gate
 	return ctx, plan
 }
 
+// CaptureAsyncImageTaskPlan transfers an accepted task out of its submission
+// request. Only this handoff creates a new root; retries retain the task's plan
+// and allowance, and detached transports still obey the task's cancellation.
+func (s *OpenAIGatewayService) CaptureAsyncImageTaskPlan(ctx context.Context, spec GatewayRequestSpec, timeout time.Duration) (context.Context, context.CancelFunc) {
+	ctx = context.WithoutCancel(ctx)
+	ctx = context.WithValue(ctx, attemptBudgetKey{}, (*AttemptBudget)(nil))
+	ctx = WithGatewayRequestPlan(ctx, nil)
+	ctx = context.WithValue(ctx, affinityBindingStateKey{}, &AffinityBindingState{})
+	ctx, cancel := WithAttemptBudget(ctx, 1+max(0, spec.MaxAccountSwitches), timeout)
+	spec.ExecutionKind = "job"
+	ctx, plan := s.CaptureRequestPlan(ctx, spec)
+	stop := context.AfterFunc(ctx, plan.Cancel)
+	return ctx, func() {
+		stop()
+		if ctx.Err() != nil {
+			plan.Cancel()
+		}
+		plan.Finalize(false)
+		cancel()
+	}
+}
+
 func (s *BillingService) forGatewayRequest(ctx context.Context) *BillingService {
 	if p := GatewayRequestPlanFromContext(ctx); p != nil && p.billing != nil {
 		return p.billing
