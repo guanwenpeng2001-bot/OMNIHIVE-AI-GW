@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
 )
@@ -228,7 +229,7 @@ func (s *GatewayService) CatalogModelIDs(ctx context.Context, groupID *int64, pl
 	}
 	platforms := []string{platform}
 	if platform == "" || platform == PlatformComposite {
-		platforms = nil
+		platforms = domain.ConcretePlatforms()
 	}
 	accounts, err := reader.ListModelCatalogAccounts(ctx, groupID, platforms, s.cfg != nil && s.cfg.RunMode == "simple")
 	if err != nil {

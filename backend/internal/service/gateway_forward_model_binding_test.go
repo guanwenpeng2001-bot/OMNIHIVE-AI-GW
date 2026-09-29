@@ -3,6 +3,9 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
@@ -13,10 +16,11 @@ import (
 
 type forwardCatalogRepo struct {
 	AccountRepository
-	current *Account
-	parent  *Account
-	err     error
-	reads   int
+	current     *Account
+	parent      *Account
+	err         error
+	reads       int
+	assertScope func(*int64, []string, bool)
 }
 
 func (r *forwardCatalogRepo) GetModelCatalogAccount(_ context.Context, id int64) (*Account, error) {
@@ -29,7 +33,8 @@ func (r *forwardCatalogRepo) GetModelCatalogAccount(_ context.Context, id int64)
 	}
 	return r.current, nil
 }
-func (r *forwardCatalogRepo) ListModelCatalogAccounts(context.Context, *int64, []string, bool) ([]Account, error) {
+func (r *forwardCatalogRepo) ListModelCatalogAccounts(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	r.assertScope(groupID, platforms, includeGrouped)
 	if r.err != nil {
 		return nil, r.err
 	}
@@ -79,7 +84,11 @@ func TestForwardModelMissingCatalogNeverAdmits(t *testing.T) {
 func TestForwardModelPublicCatalogUsesSameEligibility(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "native")
 	account.Credentials["model_mapping"] = map[string]any{"alias": "native", "unsupported": "missing"}
-	repo := &forwardCatalogRepo{current: &account}
+	repo := &forwardCatalogRepo{current: &account, assertScope: func(groupID *int64, platforms []string, includeGrouped bool) {
+		require.Nil(t, groupID)
+		require.Equal(t, []string{PlatformOpenAI}, platforms)
+		require.False(t, includeGrouped)
+	}}
 	svc := &GatewayService{accountRepo: repo}
 	ids, err := svc.CatalogModelIDs(context.Background(), nil, PlatformOpenAI)
 	require.NoError(t, err)
@@ -116,7 +125,13 @@ func TestAffinityRequestPlanPreservesTransientBinding(t *testing.T) {
 
 func TestForwardModelPublicCompositeAliasesUseExistingResolver(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "gpt-5.1")
-	repo := &forwardCatalogRepo{current: &account}
+	repo := &forwardCatalogRepo{current: &account, assertScope: func(groupID *int64, platforms []string, includeGrouped bool) {
+		require.NotNil(t, groupID)
+		require.Equal(t, int64(3), *groupID)
+		require.Equal(t, domain.ConcretePlatforms(), platforms)
+		require.NotContains(t, platforms, PlatformComposite)
+		require.False(t, includeGrouped)
+	}}
 	routes := compositeRouteRepoStub{routes: []CompositeModelRoute{{ID: 1, GroupID: 3, Enabled: true, MatchType: CompositeRouteMatchExact, PublicModel: "company", TargetPlatform: PlatformOpenAI, UpstreamModel: "gpt-5.1", Endpoint: CompositeRouteEndpointAny}}}
 	resolver := NewCompositeRouteResolver(routes)
 	resolver.SetModelOwnershipResolver(func(context.Context, int64, string) (CompositeModelOwnership, error) {
@@ -127,4 +142,26 @@ func TestForwardModelPublicCompositeAliasesUseExistingResolver(t *testing.T) {
 	ids, err := svc.CatalogModelIDs(context.Background(), &group, PlatformComposite)
 	require.NoError(t, err)
 	require.Equal(t, []string{"company"}, ids, "explicit route wins; ambiguous implicit model remains hidden")
+}
+
+func TestForwardModelPublicCatalogAllPlatformsScope(t *testing.T) {
+	for _, simple := range []bool{false, true} {
+		t.Run(fmt.Sprint(simple), func(t *testing.T) {
+			account := catalogEvidenceAccount(1, PlatformOpenAI, "native")
+			repo := &forwardCatalogRepo{current: &account, assertScope: func(groupID *int64, platforms []string, includeGrouped bool) {
+				require.Nil(t, groupID)
+				require.Equal(t, domain.ConcretePlatforms(), platforms)
+				require.NotContains(t, platforms, PlatformComposite)
+				require.Equal(t, simple, includeGrouped)
+			}}
+			cfg := &config.Config{}
+			if simple {
+				cfg.RunMode = "simple"
+			}
+			svc := &GatewayService{accountRepo: repo, cfg: cfg}
+			ids, err := svc.CatalogModelIDs(context.Background(), nil, "")
+			require.NoError(t, err)
+			require.Equal(t, []string{"native"}, ids)
+		})
+	}
 }
