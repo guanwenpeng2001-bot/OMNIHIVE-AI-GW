@@ -15,14 +15,6 @@ const (
 	oauthRefreshLockKeyPrefix = "oauth:refresh_lock:"
 )
 
-// Compare and delete atomically: an expired holder must not remove a newer lease.
-var releaseOAuthRefreshLockScript = redis.NewScript(`
-if redis.call("GET", KEYS[1]) == ARGV[1] then
-    return redis.call("DEL", KEYS[1])
-end
-return 0
-`)
-
 type geminiTokenCache struct {
 	rdb *redis.Client
 }
@@ -59,5 +51,5 @@ func (c *geminiTokenCache) ReleaseRefreshLock(ctx context.Context, cacheKey stri
 		return fmt.Errorf("oauth refresh lock owner is empty")
 	}
 	key := fmt.Sprintf("%s%s", oauthRefreshLockKeyPrefix, cacheKey)
-	return releaseOAuthRefreshLockScript.Run(ctx, c.rdb, []string{key}, owner).Err()
+	return compareAndDelete(ctx, c.rdb, key, owner)
 }
