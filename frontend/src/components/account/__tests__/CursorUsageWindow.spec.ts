@@ -1,5 +1,5 @@
 import { mount } from '@vue/test-utils'
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CursorUsageWindow from '../CursorUsageWindow.vue'
 import type { CursorMonthlyUsage } from '@/types'
 
@@ -11,6 +11,15 @@ const monthly: CursorMonthlyUsage = {
 const render = (props = {}) => mount(CursorUsageWindow, { props, global: { stubs: { UsageProgressBar: { props: ['utilization'], template: '<div data-test="progress">{{ utilization }}</div>' } } } })
 
 describe('Cursor monthly usage', () => {
+  beforeEach(() => {
+    // Keep the fixture's billing period current regardless of the wall clock.
+    vi.useFakeTimers({ toFake: ['Date'] })
+    vi.setSystemTime(new Date('2026-09-01T00:00:00Z'))
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
   it('uses official plan percentages instead of dividing legacy spend and preserves a zero percent', () => {
     const wrapper = render({ monthly: { ...monthly, plan_usage: { autoPercentUsed: 0, apiPercentUsed: 100, totalSpend: 49512, limit: 2000 }, limit_status: { isInSlowPool: true } } })
     expect(wrapper.findAll('[data-test="progress"]').map(bar => bar.text())).toEqual(['0', '100'])
