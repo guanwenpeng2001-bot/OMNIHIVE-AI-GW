@@ -23,10 +23,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorhistory"
 	"github.com/Wei-Shaw/sub2api/ent/channelmonitorrequesttemplate"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
+	"github.com/Wei-Shaw/sub2api/ent/credentialsecret"
 	"github.com/Wei-Shaw/sub2api/ent/errorpassthroughrule"
 	"github.com/Wei-Shaw/sub2api/ent/group"
 	"github.com/Wei-Shaw/sub2api/ent/idempotencyrecord"
 	"github.com/Wei-Shaw/sub2api/ent/identityadoptiondecision"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessgroup"
+	"github.com/Wei-Shaw/sub2api/ent/modelaccessrule"
 	"github.com/Wei-Shaw/sub2api/ent/paymentauditlog"
 	"github.com/Wei-Shaw/sub2api/ent/paymentorder"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -48,6 +51,8 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent/userattributevalue"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
 	"github.com/Wei-Shaw/sub2api/ent/usersubscription"
+	"github.com/Wei-Shaw/sub2api/ent/workspace"
+	"github.com/Wei-Shaw/sub2api/ent/workspacemember"
 )
 
 // The Query interface represents an operation that queries a graph.
@@ -511,6 +516,33 @@ func (f TraverseCompositeModelRoute) Traverse(ctx context.Context, q ent.Query) 
 	return fmt.Errorf("unexpected query type %T. expect *ent.CompositeModelRouteQuery", q)
 }
 
+// The CredentialSecretFunc type is an adapter to allow the use of ordinary function as a Querier.
+type CredentialSecretFunc func(context.Context, *ent.CredentialSecretQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f CredentialSecretFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.CredentialSecretQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.CredentialSecretQuery", q)
+}
+
+// The TraverseCredentialSecret type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseCredentialSecret func(context.Context, *ent.CredentialSecretQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseCredentialSecret) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseCredentialSecret) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.CredentialSecretQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.CredentialSecretQuery", q)
+}
+
 // The ErrorPassthroughRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
 type ErrorPassthroughRuleFunc func(context.Context, *ent.ErrorPassthroughRuleQuery) (ent.Value, error)
 
@@ -617,6 +649,60 @@ func (f TraverseIdentityAdoptionDecision) Traverse(ctx context.Context, q ent.Qu
 		return f(ctx, q)
 	}
 	return fmt.Errorf("unexpected query type %T. expect *ent.IdentityAdoptionDecisionQuery", q)
+}
+
+// The ModelAccessGroupFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ModelAccessGroupFunc func(context.Context, *ent.ModelAccessGroupQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ModelAccessGroupFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ModelAccessGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessGroupQuery", q)
+}
+
+// The TraverseModelAccessGroup type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseModelAccessGroup func(context.Context, *ent.ModelAccessGroupQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseModelAccessGroup) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseModelAccessGroup) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ModelAccessGroupQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessGroupQuery", q)
+}
+
+// The ModelAccessRuleFunc type is an adapter to allow the use of ordinary function as a Querier.
+type ModelAccessRuleFunc func(context.Context, *ent.ModelAccessRuleQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f ModelAccessRuleFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.ModelAccessRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessRuleQuery", q)
+}
+
+// The TraverseModelAccessRule type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseModelAccessRule func(context.Context, *ent.ModelAccessRuleQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseModelAccessRule) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseModelAccessRule) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.ModelAccessRuleQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.ModelAccessRuleQuery", q)
 }
 
 // The PaymentAuditLogFunc type is an adapter to allow the use of ordinary function as a Querier.
@@ -1159,6 +1245,60 @@ func (f TraverseUserSubscription) Traverse(ctx context.Context, q ent.Query) err
 	return fmt.Errorf("unexpected query type %T. expect *ent.UserSubscriptionQuery", q)
 }
 
+// The WorkspaceFunc type is an adapter to allow the use of ordinary function as a Querier.
+type WorkspaceFunc func(context.Context, *ent.WorkspaceQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f WorkspaceFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.WorkspaceQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.WorkspaceQuery", q)
+}
+
+// The TraverseWorkspace type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseWorkspace func(context.Context, *ent.WorkspaceQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseWorkspace) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseWorkspace) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.WorkspaceQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.WorkspaceQuery", q)
+}
+
+// The WorkspaceMemberFunc type is an adapter to allow the use of ordinary function as a Querier.
+type WorkspaceMemberFunc func(context.Context, *ent.WorkspaceMemberQuery) (ent.Value, error)
+
+// Query calls f(ctx, q).
+func (f WorkspaceMemberFunc) Query(ctx context.Context, q ent.Query) (ent.Value, error) {
+	if q, ok := q.(*ent.WorkspaceMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return nil, fmt.Errorf("unexpected query type %T. expect *ent.WorkspaceMemberQuery", q)
+}
+
+// The TraverseWorkspaceMember type is an adapter to allow the use of ordinary function as Traverser.
+type TraverseWorkspaceMember func(context.Context, *ent.WorkspaceMemberQuery) error
+
+// Intercept is a dummy implementation of Intercept that returns the next Querier in the pipeline.
+func (f TraverseWorkspaceMember) Intercept(next ent.Querier) ent.Querier {
+	return next
+}
+
+// Traverse calls f(ctx, q).
+func (f TraverseWorkspaceMember) Traverse(ctx context.Context, q ent.Query) error {
+	if q, ok := q.(*ent.WorkspaceMemberQuery); ok {
+		return f(ctx, q)
+	}
+	return fmt.Errorf("unexpected query type %T. expect *ent.WorkspaceMemberQuery", q)
+}
+
 // NewQuery returns the generic Query interface for the given typed query.
 func NewQuery(q ent.Query) (Query, error) {
 	switch q := q.(type) {
@@ -1192,6 +1332,8 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.ChannelMonitorRequestTemplateQuery, predicate.ChannelMonitorRequestTemplate, channelmonitorrequesttemplate.OrderOption]{typ: ent.TypeChannelMonitorRequestTemplate, tq: q}, nil
 	case *ent.CompositeModelRouteQuery:
 		return &query[*ent.CompositeModelRouteQuery, predicate.CompositeModelRoute, compositemodelroute.OrderOption]{typ: ent.TypeCompositeModelRoute, tq: q}, nil
+	case *ent.CredentialSecretQuery:
+		return &query[*ent.CredentialSecretQuery, predicate.CredentialSecret, credentialsecret.OrderOption]{typ: ent.TypeCredentialSecret, tq: q}, nil
 	case *ent.ErrorPassthroughRuleQuery:
 		return &query[*ent.ErrorPassthroughRuleQuery, predicate.ErrorPassthroughRule, errorpassthroughrule.OrderOption]{typ: ent.TypeErrorPassthroughRule, tq: q}, nil
 	case *ent.GroupQuery:
@@ -1200,6 +1342,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.IdempotencyRecordQuery, predicate.IdempotencyRecord, idempotencyrecord.OrderOption]{typ: ent.TypeIdempotencyRecord, tq: q}, nil
 	case *ent.IdentityAdoptionDecisionQuery:
 		return &query[*ent.IdentityAdoptionDecisionQuery, predicate.IdentityAdoptionDecision, identityadoptiondecision.OrderOption]{typ: ent.TypeIdentityAdoptionDecision, tq: q}, nil
+	case *ent.ModelAccessGroupQuery:
+		return &query[*ent.ModelAccessGroupQuery, predicate.ModelAccessGroup, modelaccessgroup.OrderOption]{typ: ent.TypeModelAccessGroup, tq: q}, nil
+	case *ent.ModelAccessRuleQuery:
+		return &query[*ent.ModelAccessRuleQuery, predicate.ModelAccessRule, modelaccessrule.OrderOption]{typ: ent.TypeModelAccessRule, tq: q}, nil
 	case *ent.PaymentAuditLogQuery:
 		return &query[*ent.PaymentAuditLogQuery, predicate.PaymentAuditLog, paymentauditlog.OrderOption]{typ: ent.TypePaymentAuditLog, tq: q}, nil
 	case *ent.PaymentOrderQuery:
@@ -1240,6 +1386,10 @@ func NewQuery(q ent.Query) (Query, error) {
 		return &query[*ent.UserPlatformQuotaQuery, predicate.UserPlatformQuota, userplatformquota.OrderOption]{typ: ent.TypeUserPlatformQuota, tq: q}, nil
 	case *ent.UserSubscriptionQuery:
 		return &query[*ent.UserSubscriptionQuery, predicate.UserSubscription, usersubscription.OrderOption]{typ: ent.TypeUserSubscription, tq: q}, nil
+	case *ent.WorkspaceQuery:
+		return &query[*ent.WorkspaceQuery, predicate.Workspace, workspace.OrderOption]{typ: ent.TypeWorkspace, tq: q}, nil
+	case *ent.WorkspaceMemberQuery:
+		return &query[*ent.WorkspaceMemberQuery, predicate.WorkspaceMember, workspacemember.OrderOption]{typ: ent.TypeWorkspaceMember, tq: q}, nil
 	default:
 		return nil, fmt.Errorf("unknown query type %T", q)
 	}

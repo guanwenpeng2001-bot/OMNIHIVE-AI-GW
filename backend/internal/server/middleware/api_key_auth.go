@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -117,6 +118,17 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
 		// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
+		workspaceID := apiKey.WorkspaceID
+		if workspaceID == 0 {
+			workspaceID = domain.DefaultWorkspaceID
+		}
+		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), workspaceID))
+		policyContext, policyErr := apiKeyService.AttachModelAccessPolicy(c.Request.Context(), apiKey.ID)
+		if policyErr != nil {
+			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"type": "service_unavailable", "message": "Model access policy unavailable"}})
+			return
+		}
+		c.Request = c.Request.WithContext(policyContext)
 
 		// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 

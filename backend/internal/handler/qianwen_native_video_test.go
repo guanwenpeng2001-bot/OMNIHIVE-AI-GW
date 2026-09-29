@@ -3,7 +3,10 @@
 package handler
 
 import (
+	"bytes"
 	"context"
+	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -97,6 +100,56 @@ func TestQianwenNativeVideoUnavailableBeforeAdmission(t *testing.T) {
 			require.False(t, selected)
 		}
 	}
+}
+
+func TestQianwenNativeVideoContentOwnerOnlyDownload(t *testing.T) {
+	video := []byte("mp4-bytes")
+	opener := qianwenVideoContentOpener
+	qianwenVideoContentOpener = func(_ context.Context, rawURL string) (*http.Response, error) {
+		if rawURL != "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.mp4" {
+			return nil, service.ErrUpstreamJobNotFound
+		}
+		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": []string{"video/mp4"}}, ContentLength: int64(len(video)), Body: io.NopCloser(bytes.NewReader(video))}, nil
+	}
+	t.Cleanup(func() { qianwenVideoContentOpener = opener })
+	repo := &videoJobReadRepository{job: &service.UpstreamJob{PublicRequestID: "public-1", UpstreamTaskID: "secret-upstream", UserID: 1, APIKeyID: 2, Platform: service.PlatformQianwen, Family: "video", Status: "succeeded", ResultRef: "https://dashscope-result-bj.oss-cn-beijing.aliyuncs.com/out.mp4"}}
+	h := &OpenAIGatewayHandler{upstreamJobs: service.NewUpstreamJobService(repo, nil, nil)}
+	for _, tc := range []struct {
+		key    int64
+		status int
+	}{
+		{2, 200}, {3, 404},
+	} {
+		w := httptest.NewRecorder()
+		c, _ := gin.CreateTestContext(w)
+		c.Request = httptest.NewRequest("GET", "/api/v1/tasks/public-1/content", nil)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: tc.key, UserID: 1, Group: &service.Group{}})
+		h.QianwenNative(c)
+		require.Equal(t, tc.status, w.Code)
+		if tc.status == 200 {
+			require.Equal(t, video, w.Body.Bytes())
+			require.Equal(t, "video/mp4", w.Header().Get("Content-Type"))
+		} else {
+			require.NotContains(t, w.Body.String(), "mp4-bytes")
+			require.NotContains(t, w.Body.String(), "secret-upstream")
+		}
+	}
+	// Non-video families and unsettled jobs never expose content.
+	repo.job.Family = "3d"
+	w := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/tasks/public-1/content", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, Group: &service.Group{}})
+	h.QianwenNative(c)
+	require.Equal(t, 404, w.Code)
+	repo.job.Family = "video"
+	repo.job.Status = "running"
+	w = httptest.NewRecorder()
+	c, _ = gin.CreateTestContext(w)
+	c.Request = httptest.NewRequest("GET", "/api/v1/tasks/public-1/content", nil)
+	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 2, UserID: 1, Group: &service.Group{}})
+	h.QianwenNative(c)
+	require.Equal(t, 409, w.Code)
 }
 
 func TestQianwenNativeAsyncDoesNotClaimOtherFamilies(t *testing.T) {

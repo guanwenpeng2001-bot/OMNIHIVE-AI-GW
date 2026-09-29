@@ -23,6 +23,15 @@ func persistAccountCredentials(ctx context.Context, repo AccountRepository, acco
 		return nil
 	}
 
+	if updater, ok := any(repo).(interface {
+		UpdateCredentialsCAS(context.Context, *Account, map[string]any) error
+	}); ok {
+		if err := updater.UpdateCredentialsCAS(ctx, account, credentials); err != nil {
+			return err
+		}
+		account.Credentials = shallowCopyMap(credentials)
+		return nil
+	}
 	account.Credentials = shallowCopyMap(credentials)
 	if updater, ok := any(repo).(accountCredentialsUpdater); ok {
 		return updater.UpdateCredentials(ctx, account.ID, account.Credentials)

@@ -986,6 +986,31 @@ export default {
         "saveFailed": "此次变更未能保存，当前视图中的已保存证据未被替换。",
         "conflict": "配置已变化，请重新读取已保存声明并再次检查确认。"
 },
+      credentialSecret: {
+        "title": "凭据加密引用",
+        "hint": "将本账号的敏感凭据存储为加密、带版本的引用。网关读取保持透明；不提供明文导出。",
+        "inlineState": "凭据当前以 inline 形式存储。转换必须显式进行，绝不自动批量改写。",
+        "reference": "引用",
+        "version": "版本",
+        "updatedAt": "更新时间",
+        "revokedState": "该引用已被撤销。在所属流程提供新凭据之前，此账号不可再使用。",
+        "convert": "转换为加密引用",
+        "rotate": "轮换密钥",
+        "revoke": "撤销引用",
+        "rotatePayload": "新的敏感字段（JSON，仅限敏感键）",
+        "rotatePlaceholder": "refresh_token: ...",
+        "invalidJSON": "负载不是合法 JSON。",
+        "invalidPayload": "请提供非空 JSON 对象，且只包含敏感凭据键。",
+        "loadFailed": "无法读取凭据引用状态，请重试加载。",
+        "saveFailed": "变更未能保存，已存储凭据未被替换。",
+        "conflict": "凭据版本已变化，已重新加载最新状态，请检查后再次确认。",
+        "confirmTitle": "确认凭据引用变更",
+        "confirm": {
+          "convert": "将本账号的敏感凭据移入加密引用？既有 inline 值保持可读，仅新写入使用引用形式。",
+          "rotate": "用提交的字段替换加密密钥？版本号递增，并发写入者将失败。",
+          "revoke": "永久撤销此引用？加密负载将被擦除，运行时读取显式报错，且不提供历史明文恢复。"
+        }
+},
       modelSync: {
           previousPreview: "以下为历史预览，本次请求尚未取得成功结果。",
           applyConfirmation: "将这份已预览的快照应用到已保存账号？移除的模型将不再通过此快照提供，账号别名保持不变。",

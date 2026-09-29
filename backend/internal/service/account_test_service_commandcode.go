@@ -78,6 +78,13 @@ func (s *AccountTestService) testCommandCodeAccountConnection(c *accountProbeCon
 			if isCommandCodeInvalidCredential(resp.StatusCode, responseBody) && s.accountRepo != nil {
 				_ = s.accountRepo.SetError(c.ctx, account.ID, fmt.Sprintf("Command Code authentication failed (%d)", resp.StatusCode))
 			}
+			// 文档化的错误契约给出可读原因与机器码；未文档化的状态码保留原始报文。
+			if kind, documented := commandCodeProviderError(resp.StatusCode, responseBody); documented {
+				if kind.Code != "" {
+					return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code inference rejected the request (%d %s): %s", resp.StatusCode, kind.Code, kind.ClientMessage))
+				}
+				return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code inference rejected the request (%d): %s", resp.StatusCode, kind.ClientMessage))
+			}
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Command Code inference returned %d: %s", resp.StatusCode, responseBody))
 		}
 		defer func() { _ = resp.Body.Close() }()

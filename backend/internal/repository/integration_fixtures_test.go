@@ -49,7 +49,9 @@ func cleanupRepositoryRows(t *testing.T) {
 	// Explicit dependency order, reviewed against pg_constraint. No schema scan or
 	// TRUNCATE CASCADE: new restrictive dependencies fail here instead of silently
 	// broadening the set. These children all belong to disposable users/accounts.
+	// model_access_rules/groups come first: their change trigger writes scheduler_outbox.
 	tables := []string{
+		"model_access_rules", "model_access_groups",
 		"upstream_jobs", "billing_usage_entries", "usage_logs",
 		"usage_dashboard_hourly_users", "usage_dashboard_daily_users",
 		"usage_dashboard_hourly", "usage_dashboard_daily", "scheduler_outbox",
@@ -59,7 +61,7 @@ func cleanupRepositoryRows(t *testing.T) {
 		"pending_auth_sessions", "announcement_reads", "promo_code_usages",
 		"passkey_credentials", "passkey_user_handles", "user_affiliates",
 		"user_attribute_values", "user_avatars", "user_group_rate_multipliers",
-		"user_platform_quotas", "user_provider_default_grants", "users",
+		"user_platform_quotas", "user_provider_default_grants", "workspace_members", "users",
 		"scheduled_test_results", "scheduled_test_plans", "account_groups",
 	}
 	// Bound the reviewed FK closure, including references that keep their rows
@@ -68,7 +70,7 @@ func cleanupRepositoryRows(t *testing.T) {
 	dependents := append(append([]string{}, parents...),
 		"announcements", "content_moderation_logs", "prompt_audit_events", "prompt_audit_jobs",
 		"redeem_codes", "sub2api_plugin_installations", "channel_monitors",
-		"channel_groups", "composite_model_routes")
+		"channel_groups", "composite_model_routes", "model_access_groups")
 	var unreviewed int
 	require.NoError(t, tx.QueryRowContext(ctx, `SELECT count(*) FROM pg_constraint
  WHERE contype = 'f' AND confrelid = ANY($1::regclass[])

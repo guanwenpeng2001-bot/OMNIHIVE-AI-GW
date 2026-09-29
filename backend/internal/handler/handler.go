@@ -43,10 +43,13 @@ type AdminHandlers struct {
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
+	CredentialSecret       *admin.CredentialSecretHandler
 }
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	ModelAccess      *ModelAccessHandler
+	Workspace        *WorkspaceHandler
 	Auth             *AuthHandler
 	User             *UserHandler
 	APIKey           *APIKeyHandler

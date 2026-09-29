@@ -51,7 +51,7 @@ func (r *batchImageRepository) CreateBatchImageJob(ctx context.Context, params s
 }
 
 func (r *batchImageRepository) GetBatchImageJobByBatchID(ctx context.Context, batchID string) (*service.BatchImageJob, error) {
-	job, err := scanBatchImageJob(r.sql.QueryRowContext(ctx, batchImageJobSelectSQL+" WHERE batch_id = $1", batchID))
+	job, err := scanBatchImageJob(r.sql.QueryRowContext(ctx, batchImageJobSelectSQL+" WHERE batch_id = $1 AND "+workspaceUsagePredicate(ctx, "api_key_id"), batchID))
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrBatchImageJobNotFound, nil)
 	}
@@ -60,7 +60,7 @@ func (r *batchImageRepository) GetBatchImageJobByBatchID(ctx context.Context, ba
 
 func (r *batchImageRepository) GetBatchImageJobByIdempotencyKey(ctx context.Context, userID, apiKeyID int64, key string) (*service.BatchImageJob, error) {
 	job, err := scanBatchImageJob(r.sql.QueryRowContext(ctx, batchImageJobSelectSQL+`
- WHERE user_id = $1 AND api_key_id = $2 AND idempotency_key = $3
+ WHERE user_id = $1 AND api_key_id = $2 AND idempotency_key = $3 AND `+workspaceUsagePredicate(ctx, "api_key_id")+`
  ORDER BY id DESC LIMIT 1`, userID, apiKeyID, key))
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrBatchImageJobNotFound, nil)
@@ -70,7 +70,7 @@ func (r *batchImageRepository) GetBatchImageJobByIdempotencyKey(ctx context.Cont
 
 func (r *batchImageRepository) GetBatchImageJobByBatchIDForOwner(ctx context.Context, userID, apiKeyID int64, batchID string) (*service.BatchImageJob, error) {
 	job, err := scanBatchImageJob(r.sql.QueryRowContext(ctx, batchImageJobSelectSQL+`
- WHERE batch_id = $1 AND user_id = $2 AND api_key_id = $3 AND user_deleted_at IS NULL`, batchID, userID, apiKeyID))
+ WHERE batch_id = $1 AND user_id = $2 AND api_key_id = $3 AND user_deleted_at IS NULL AND `+workspaceUsagePredicate(ctx, "api_key_id"), batchID, userID, apiKeyID))
 	if err != nil {
 		return nil, translatePersistenceError(err, service.ErrBatchImageJobNotFound, nil)
 	}
@@ -86,7 +86,7 @@ func (r *batchImageRepository) ListBatchImageJobsForOwner(ctx context.Context, u
 		filter.Offset = 0
 	}
 
-	query := batchImageJobSelectSQL + " WHERE user_id = $1 AND api_key_id = $2"
+	query := batchImageJobSelectSQL + " WHERE user_id = $1 AND api_key_id = $2 AND " + workspaceUsagePredicate(ctx, "api_key_id")
 	args := []any{userID, apiKeyID}
 	if filter.ExcludeDeleted {
 		query += " AND user_deleted_at IS NULL"
@@ -249,29 +249,49 @@ WHERE batch_id = $1`, params.BatchID, params.ProviderJobName, params.ProviderInp
 	return appendBatchImageEventWithSQL(ctx, sqlq, params.BatchID, "provider_submitted", params.EventPayload)
 }
 
-func (r *batchImageRepository) RecordBatchImageJobSubmitFailure(ctx context.Context, batchID, code, message string, markFailed bool) error {
-	now := time.Now()
-	statusSQL := "status"
-	if markFailed {
-		statusSQL = "'failed'"
+// RecordBatchImageJobSubmitFailure fences stale submitters before recording evidence.
+// Terminal/settling jobs can never be failed by a delayed submission callback.
+func (r *batchImageRepository) RecordBatchImageJobSubmitFailure(ctx context.Context, batchID, code, message string, markFailed bool, expectedVersion int) error {
+	if r.db == nil {
+		return recordBatchImageSubmitFailure(ctx, r.sql, batchID, code, message, markFailed, expectedVersion)
 	}
-	_, err := r.sql.ExecContext(ctx, `
-UPDATE batch_image_jobs
-SET status = `+statusSQL+`,
-    last_error_code = $2,
-    last_error_message = $3,
-    finished_at = CASE WHEN `+statusSQL+` = 'failed' AND finished_at IS NULL THEN $4 ELSE finished_at END,
-    updated_at = $4,
-    version = version + 1
-WHERE batch_id = $1`, batchID, code, message, now)
+	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err
+	}
+	defer tx.Rollback()
+	if err := recordBatchImageSubmitFailure(ctx, tx, batchID, code, message, markFailed, expectedVersion); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func recordBatchImageSubmitFailure(ctx context.Context, executor batchImageSQLExecutor, batchID, code, message string, markFailed bool, expectedVersion int) error {
+	result, err := executor.ExecContext(ctx, `
+UPDATE batch_image_jobs
+SET status = CASE WHEN $5 THEN 'failed' ELSE status END,
+ last_error_code = $2, last_error_message = $3,
+ finished_at = CASE WHEN $5 AND finished_at IS NULL THEN $4 ELSE finished_at END,
+ updated_at = $4, version = version + 1
+WHERE batch_id = $1 AND version = $6 AND settled_at IS NULL
+ AND (($5 AND status IN ('created','uploading'))
+   OR (NOT $5 AND status IN ('created','uploading','submitted')))
+`, batchID, code, message, time.Now(), markFailed, expectedVersion)
+	if err != nil {
+		return err
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if affected != 1 {
+		return service.ErrBatchImageInvalidTransition
 	}
 	eventType := "submit_failed"
 	if !markFailed {
 		eventType = "queue_failed"
 	}
-	return appendBatchImageEventWithSQL(ctx, r.sql, batchID, eventType, map[string]any{"error_code": code})
+	return appendBatchImageEventWithSQL(ctx, executor, batchID, eventType, map[string]any{"error_code": code})
 }
 
 func (r *batchImageRepository) MarkBatchImageJobSettled(ctx context.Context, params service.MarkBatchImageJobSettledParams) error {

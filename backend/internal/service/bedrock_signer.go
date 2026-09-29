@@ -57,8 +57,19 @@ func NewBedrockSignerFromAccount(account *Account) (*BedrockSigner, error) {
 // 签名验证可能失败。litellm 通过 _filter_headers_for_aws_signature 实现头过滤，
 // 当前实现中 buildUpstreamRequestBedrock 仅设置了 Content-Type 和 Accept，因此是安全的。
 func (s *BedrockSigner) SignRequest(ctx context.Context, req *http.Request, body []byte) error {
+	return s.SignRequestForService(ctx, req, body, "bedrock")
+}
+
+// SignRequestForService 使用指定 SigV4 服务名签名。Amazon Bedrock Runtime 与
+// Agents for Amazon Bedrock Runtime 的官方签名名同为 "bedrock"（botocore service-2
+// metadata signingName，2026-09-21 核对），因此媒体/向量动作仍复用 SignRequest；
+// 需要跨服务（如视频产出所在的 S3）时才显式传入服务名。
+func (s *BedrockSigner) SignRequestForService(ctx context.Context, req *http.Request, body []byte, service string) error {
+	if service == "" {
+		return fmt.Errorf("bedrock signer requires a service name")
+	}
 	payloadHash := sha256Hash(body)
-	return s.signer.SignHTTP(ctx, s.credentials, req, payloadHash, "bedrock", s.region, time.Now())
+	return s.signer.SignHTTP(ctx, s.credentials, req, payloadHash, service, s.region, time.Now())
 }
 
 func sha256Hash(data []byte) string {

@@ -12,6 +12,7 @@ import (
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -234,4 +235,60 @@ func TestAsyncImageHandlerTaskDeadlineBlocksDetachedSend(t *testing.T) {
 		task, err := tasks.Get(context.Background(), service.ImageTaskOwner{UserID: 7, APIKeyID: 9}, accepted.ID)
 		return err == nil && task.Status == service.ImageTaskStatusFailed
 	}, time.Second, time.Millisecond)
+}
+
+// A full execution pool must reject the submission: no 202 is returned and the
+// admitted task receipt is finished with an explicit queue_full error instead
+// of being left processing forever (BE-unbounded-async-image-goroutines).
+func TestAsyncImageHandlerQueueFullReturns503Not202(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	store := &asyncImageMemoryStore{tasks: make(map[string]*service.ImageTaskRecord)}
+	tasks := service.NewImageTaskServiceWithUploader(store, nil, time.Hour, time.Minute)
+	h := &AsyncImageHandler{tasks: tasks}
+	h.execute = func(_ string, c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"created": 123, "data": []gin.H{{"url": "https://example.test/image.png"}}})
+	}
+	// One worker, no queue slots: occupying the worker makes the next
+	// TrySubmit fail deterministically.
+	pool := pond.NewPool(1, pond.WithQueueSize(0))
+	workerStarted := make(chan struct{})
+	releaseWorker := make(chan struct{})
+	pool.Submit(func() {
+		close(workerStarted)
+		<-releaseWorker
+	})
+	<-workerStarted
+	h.pool = pool
+	t.Cleanup(func() {
+		close(releaseWorker)
+		pool.StopAndWait()
+	})
+
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		groupID := int64(3)
+		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
+			ID:      9,
+			UserID:  7,
+			GroupID: &groupID,
+			Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, AllowImageGeneration: true},
+		})
+		c.Next()
+	})
+	router.POST("/v1/images/generations/async", h.Submit)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/images/generations/async", strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+	require.NotEqual(t, http.StatusAccepted, w.Code, "enqueue failure must not be acknowledged as accepted")
+	require.Equal(t, http.StatusServiceUnavailable, w.Code)
+
+	// The created receipt is settled as failed exactly once, never left pending.
+	require.Len(t, store.tasks, 1)
+	for _, record := range store.tasks {
+		require.Equal(t, service.ImageTaskStatusFailed, record.Status)
+		require.Equal(t, http.StatusServiceUnavailable, record.HTTPStatus)
+		require.Contains(t, string(record.Error), "queue_full")
+	}
 }

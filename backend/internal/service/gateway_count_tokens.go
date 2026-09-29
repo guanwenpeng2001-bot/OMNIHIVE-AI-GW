@@ -34,10 +34,11 @@ func (s *GatewayService) ForwardCountTokens(ctx context.Context, c *gin.Context,
 		return s.forwardCountTokensAnthropicAPIKeyPassthrough(ctx, c, account, passthroughBody)
 	}
 
-	// Bedrock 不支持 count_tokens 端点
+	// Bedrock 具备原生 CountTokens 操作（POST /model/{modelId}/count-tokens），
+	// 由 bedrock 适配器按 serving family 选择 invokeModel/converse 成员转发；
+	// 该分支同样覆盖 anthropic 平台上的 bedrock 托管凭据账号。
 	if account != nil && account.IsBedrock() {
-		s.countTokensError(c, http.StatusNotFound, "not_found_error", "count_tokens endpoint is not supported for Bedrock")
-		return nil
+		return s.ForwardBedrockCountTokens(ctx, c, account, parsed)
 	}
 
 	body := parsed.Body.Bytes()

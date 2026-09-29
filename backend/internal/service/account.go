@@ -20,12 +20,14 @@ import (
 )
 
 type Account struct {
+	WorkspaceID             int64
 	ID                      int64
 	Name                    string
 	Notes                   *string
 	Platform                string
 	Type                    string
 	Credentials             map[string]any
+	CredentialRevision      string
 	Extra                   map[string]any
 	ProxyID                 *int64
 	ProxyFallbackOriginID   *int64

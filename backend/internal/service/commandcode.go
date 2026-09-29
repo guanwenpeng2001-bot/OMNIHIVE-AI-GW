@@ -21,13 +21,22 @@ func DefaultCommandCodeModelIDs() []string {
 func DefaultCommandCodeProtocolRules() []ModelProtocolRule {
 	return []ModelProtocolRule{{Pattern: "claude-*", Protocol: APIProtocolAnthropic}, {Pattern: "anthropic/claude-*", Protocol: APIProtocolAnthropic}}
 }
+
+// CommandCodeModelProtocol 返回内置端点表下模型被服务的上游协议。
+// 官方的 Anthropic 原生端点只服务 Claude 模型，其余目录模型在 Chat Completions 上服务。
 func CommandCodeModelProtocol(model string) string {
-	return matchModelProtocolRules(normalizeCommandCodeModelID(model), DefaultCommandCodeProtocolRules())
+	if CommandCodeModelEndpoint(model) == CommandCodeEndpointMessages {
+		return APIProtocolAnthropic
+	}
+	return APIProtocolChatCompletions
 }
 
-// Responses is never a native endpoint, even when stale credentials request it.
-// Explicit Chat/Messages pins are advanced overrides; adaptive rules otherwise
-// select by the fully mapped model ID without stripping vendor prefixes.
+// 官方端点表（2026-09-21）把 Responses 与 Messages 列为两个独立端点。Claude 模型的
+// Messages 端点由内置表选中；Responses 端点由该模型自己的 supported_endpoints 决定，
+// 静态规则证明不了，所以 adaptive 下显式 Responses 规则仍落回该模型被服务的端点，
+// 而不是把非 Responses 模型送到 /responses 换一个 400。
+// 显式 Chat/Messages 固定值是高级覆写；adaptive 规则按完整映射后的模型 ID 匹配，
+// 不剥离供应商前缀。
 func (a *Account) ResolveCommandCodeUpstreamProtocol(model string) string {
 	if !a.IsCommandCode() {
 		return ""

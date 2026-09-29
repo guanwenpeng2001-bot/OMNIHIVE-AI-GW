@@ -755,7 +755,7 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 		rows, err := r.sql.QueryContext(ctx, `
 			SELECT id
 			FROM groups
-			WHERE status = $1
+			WHERE `+workspacePredicate(ctx, "workspace_id")+` AND status = $1
 			  AND deleted_at IS NULL
 			ORDER BY sort_order ASC, id ASC
 		`, service.StatusActive)
@@ -928,7 +928,7 @@ func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEm
 
 	// Lock the group row to avoid concurrent writes while we cascade.
 	// 这里使用 exec.QueryContext 手动扫描，确保同一事务内加锁并能区分"未找到"与其他错误。
-	rows, err := exec.QueryContext(ctx, "SELECT id, subscription_type FROM groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", id)
+	rows, err := exec.QueryContext(ctx, "SELECT id, subscription_type FROM groups WHERE id = $1 AND deleted_at IS NULL AND "+workspacePredicate(ctx, "workspace_id")+" FOR UPDATE", id)
 	if err != nil {
 		return nil, err
 	}
@@ -1207,7 +1207,7 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
-		`SELECT COUNT(*) FROM groups WHERE deleted_at IS NULL AND id = ANY($1)`,
+		`SELECT COUNT(*) FROM groups WHERE deleted_at IS NULL AND id = ANY($1) AND `+workspacePredicate(ctx, "workspace_id"),
 		[]any{pq.Array(groupIDs)},
 		&existingCount,
 	); err != nil {
@@ -1233,7 +1233,7 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 			%s
 			ELSE sort_order
 		END
-		WHERE deleted_at IS NULL AND id = ANY($%d)
+		WHERE deleted_at IS NULL AND id = ANY($%d) AND `+workspacePredicate(ctx, "workspace_id")+`
 	`, strings.Join(caseClauses, "\n\t\t\t"), placeholder)
 
 	result, err := r.sql.ExecContext(ctx, query, args...)

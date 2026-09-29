@@ -95,7 +95,7 @@ func TestGetMyAPIKeyDailyUsageRejectsCrossUserAccess(t *testing.T) {
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
 
-	require.Equal(t, http.StatusForbidden, rec.Code)
+	require.Equal(t, http.StatusNotFound, rec.Code)
 	require.False(t, usageRepo.called)
 }
 

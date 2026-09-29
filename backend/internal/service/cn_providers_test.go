@@ -522,8 +522,7 @@ func TestCNProviderQuotaSnapshotReset(t *testing.T) {
 }
 
 // TestNormalizeOpenAICompatiblePlatform_SchedulerExactMatch 回归保护：
-// grok 与国产供应商原样保留，其余归一为 openai —— 保证 kimi/zhipu/deepseek 分组请求
-// 精确匹配同名账号（与 openai/grok 当前行为一致），不会错误并入 openai 池。
+// 所有显式目标原样保留，只有缺失的旧调用目标回退 OpenAI。
 func TestNormalizeOpenAICompatiblePlatform_SchedulerExactMatch(t *testing.T) {
 	t.Parallel()
 	require.Equal(t, PlatformGrok, NormalizeOpenAICompatiblePlatform(PlatformGrok))
@@ -531,10 +530,10 @@ func TestNormalizeOpenAICompatiblePlatform_SchedulerExactMatch(t *testing.T) {
 	require.Equal(t, PlatformZhipu, NormalizeOpenAICompatiblePlatform(PlatformZhipu))
 	require.Equal(t, PlatformDeepseek, NormalizeOpenAICompatiblePlatform(PlatformDeepseek))
 	require.Equal(t, PlatformOpenCodeGo, NormalizeOpenAICompatiblePlatform(PlatformOpenCodeGo))
-	// 其他平台（含空、anthropic、未知）一律归一为 openai。
+	// Anthropic 和未知目标不允许漂移到 OpenAI 池。
 	require.Equal(t, PlatformOpenAI, NormalizeOpenAICompatiblePlatform(""))
-	require.Equal(t, PlatformOpenAI, NormalizeOpenAICompatiblePlatform(PlatformAnthropic))
-	require.Equal(t, PlatformOpenAI, NormalizeOpenAICompatiblePlatform("something-else"))
+	require.Equal(t, PlatformAnthropic, NormalizeOpenAICompatiblePlatform(PlatformAnthropic))
+	require.Equal(t, "something-else", NormalizeOpenAICompatiblePlatform("something-else"))
 }
 
 // TestGetOpenAIProtocolAPIKey_CNProviders 验证 OpenAI 协议族密钥读取覆盖国产供应商，

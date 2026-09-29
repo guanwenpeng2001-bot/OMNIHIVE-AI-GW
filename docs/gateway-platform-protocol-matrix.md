@@ -416,3 +416,11 @@ headers. After that date it is an ordinary list query parameter. User-Agent does
 not select a manifest. A pinned Codex manifest does not establish ordinary model
 visibility. Gemini keeps native query `key` authentication on `/v1beta/`; header
 `x-goog-api-key` is recommended. Query keys are unsupported on `/v1`.
+
+A public ID containing `/` must encode that delimiter as `%2F` in the single
+model-ID path segment, for example `/v1/models/provider%2Fmodel` or
+`/v1/models/catalog/provider%2Fmodel`. Literal `/` continues to separate route
+segments. Gin matches the raw encoded path and then decodes parameter values;
+this engine-wide rule also applies to non-model path parameters. Static route
+segments must use their documented canonical spelling (write `/models`, not
+`/mo%64els`). Resource handlers retain their existing ID validation.

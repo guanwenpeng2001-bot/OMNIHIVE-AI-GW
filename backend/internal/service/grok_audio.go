@@ -57,6 +57,14 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 			return nil, fmt.Errorf("invalid grok voice endpoint path")
 		}
 	}
+	if baseEndpoint == "tts" && c != nil && c.Request != nil && strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/audio/speech") {
+		converted, err := prepareGrokSpeechBody(body)
+		if err != nil {
+			writeGrokMediaErrorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+		body, contentType = converted, "application/json"
+	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, err

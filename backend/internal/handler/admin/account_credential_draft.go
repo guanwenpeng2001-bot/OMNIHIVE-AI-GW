@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"net/http"
 	"strconv"
 	"strings"
@@ -95,7 +96,11 @@ func credentialDraftBinding(ctx *gin.Context, initialize bool) (string, error) {
 		}
 		browser = hex.EncodeToString(entropy)
 		ctx.SetSameSite(http.SameSiteStrictMode)
-		ctx.SetCookie(credentialDraftBrowserCookie, browser, 0, "/api/v1/admin", "", ctx.Request.TLS != nil || strings.EqualFold(ctx.GetHeader("X-Forwarded-Proto"), "https"), true)
+		cookiePath := "/api/v1/admin"
+		if workspaceID, scoped := domain.WorkspaceScope(ctx.Request.Context()); scoped {
+			cookiePath = "/api/v1/workspaces/" + strconv.FormatInt(workspaceID, 10)
+		}
+		ctx.SetCookie(credentialDraftBrowserCookie, browser, 0, cookiePath, "", ctx.Request.TLS != nil || strings.EqualFold(ctx.GetHeader("X-Forwarded-Proto"), "https"), true)
 	}
 	// The ambient bearer credential remains the authorization boundary. The
 	// HttpOnly random browser proof additionally prevents reference copying.

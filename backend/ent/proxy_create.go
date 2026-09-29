@@ -51,6 +51,20 @@ func (_c *ProxyCreate) SetNillableUpdatedAt(v *time.Time) *ProxyCreate {
 	return _c
 }
 
+// SetWorkspaceID sets the "workspace_id" field.
+func (_c *ProxyCreate) SetWorkspaceID(v int64) *ProxyCreate {
+	_c.mutation.SetWorkspaceID(v)
+	return _c
+}
+
+// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
+func (_c *ProxyCreate) SetNillableWorkspaceID(v *int64) *ProxyCreate {
+	if v != nil {
+		_c.SetWorkspaceID(*v)
+	}
+	return _c
+}
+
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *ProxyCreate) SetDeletedAt(v time.Time) *ProxyCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -273,6 +287,10 @@ func (_c *ProxyCreate) defaults() error {
 		v := proxy.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		v := proxy.DefaultWorkspaceID
+		_c.mutation.SetWorkspaceID(v)
+	}
 	if _, ok := _c.mutation.Status(); !ok {
 		v := proxy.DefaultStatus
 		_c.mutation.SetStatus(v)
@@ -295,6 +313,9 @@ func (_c *ProxyCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Proxy.updated_at"`)}
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "Proxy.workspace_id"`)}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Proxy.name"`)}
@@ -386,6 +407,10 @@ func (_c *ProxyCreate) createSpec() (*Proxy, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.UpdatedAt(); ok {
 		_spec.SetField(proxy.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
+	}
+	if value, ok := _c.mutation.WorkspaceID(); ok {
+		_spec.SetField(proxy.FieldWorkspaceID, field.TypeInt64, value)
+		_node.WorkspaceID = value
 	}
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(proxy.FieldDeletedAt, field.TypeTime, value)
@@ -743,6 +768,9 @@ func (u *ProxyUpsertOne) UpdateNewValues() *ProxyUpsertOne {
 	u.create.conflict = append(u.create.conflict, sql.ResolveWith(func(s *sql.UpdateSet) {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(proxy.FieldCreatedAt)
+		}
+		if _, exists := u.create.mutation.WorkspaceID(); exists {
+			s.SetIgnore(proxy.FieldWorkspaceID)
 		}
 	}))
 	return u
@@ -1184,6 +1212,9 @@ func (u *ProxyUpsertBulk) UpdateNewValues() *ProxyUpsertBulk {
 		for _, b := range u.create.builders {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(proxy.FieldCreatedAt)
+			}
+			if _, exists := b.mutation.WorkspaceID(); exists {
+				s.SetIgnore(proxy.FieldWorkspaceID)
 			}
 		}
 	}))

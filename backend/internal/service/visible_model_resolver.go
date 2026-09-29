@@ -44,6 +44,15 @@ func visibleModelPolicyAllows(ctx context.Context, model string) bool {
 	if ctx == nil {
 		return true
 	}
+	snapshot, _ := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot)
+	if !snapshot.KeyGroup.Allows(model) {
+		return false
+	}
+	for _, excluded := range snapshot.KeyExclude {
+		if excluded == model {
+			return false
+		}
+	}
 	policy, _ := ctx.Value(visibleModelPolicyKey{}).([]string)
 	if policy == nil {
 		return true
@@ -76,7 +85,19 @@ func (r *VisibleModelResolver) freeze(ctx context.Context) (context.Context, err
 	if err != nil {
 		return ctx, err
 	}
+	if _, loaded := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); !loaded {
+		if reader, ok := r.gateway.accountRepo.(ModelAccessPolicyReader); ok {
+			snapshot, readErr := reader.ReadModelAccessSnapshot(ctx, 0)
+			if readErr != nil {
+				return ctx, readErr
+			}
+			ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
+		}
+	}
 	ctx = WithModelRegistrySnapshot(ctx, ModelRegistrySnapshotFromContext(ctx))
+	if snapshot, ok := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); ok && snapshot.RevisionKnown && snapshot.Generation != generation {
+		return ctx, ErrVisibleModelRevisionChanged
+	}
 	return context.WithValue(ctx, visibleModelRevisionKey{}, visibleModelRevision{generation, authoritative}), nil
 }
 

@@ -487,6 +487,7 @@
       width="normal"
       @close="closeModals"
     >
+      <ModelAccessRuleEditor v-if="showEditModal && selectedKey" :key="selectedKey.id" :path="`/keys/${selectedKey.id}`" />
       <form id="key-form" @submit.prevent="handleSubmit" class="space-y-5">
         <div>
           <label class="input-label">{{ t('keys.nameLabel') }}</label>
@@ -1155,6 +1156,7 @@
 <script setup lang="ts">
 import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
+import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
 	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'

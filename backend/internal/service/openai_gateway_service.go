@@ -297,6 +297,9 @@ type OpenAIForwardResult struct {
 	SearchCount int
 	// AudioUsage carries Voice billing units when present.
 	AudioUsage *AudioUsage
+	// QianwenVoiceCloneUSDPerClone is the per-clone unit price resolved with the
+	// account's operator FX provenance before a voice enrollment create call.
+	QianwenVoiceCloneUSDPerClone *float64
 
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool

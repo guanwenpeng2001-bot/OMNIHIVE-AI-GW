@@ -430,6 +430,9 @@ func (h *AccountHandler) importDataInTransaction(ctx context.Context, req DataIm
 		}
 
 		enrichCredentialsFromIDToken(&item)
+		// 引用标识是本部署内的本地绑定，不随备份/导入跨账号迁移；备份中的
+		// resolved 明文保留，导入条目按 inline 形式落地（与既有备份口径一致）。
+		service.StripCredentialReferenceKeys(item.Credentials)
 
 		accountInput := &service.CreateAccountInput{
 			SkipMixedChannelCheck: req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk,

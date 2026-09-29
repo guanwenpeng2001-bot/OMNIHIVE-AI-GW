@@ -242,7 +242,7 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
 		} else if hit {
-			return derefAccounts(cached), useMixed, nil
+			return workspaceSchedulableAccounts(ctx, derefAccounts(cached)), useMixed, nil
 		}
 		token, err := s.cache.CaptureBucketWriteToken(ctx, bucket)
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -275,7 +275,8 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		return nil, useMixed, ctxErr
 	}
 
-	if s.cache != nil && canPublish {
+	_, workspaceScoped := domain.WorkspaceScope(ctx)
+	if s.cache != nil && canPublish && !workspaceScoped {
 		if err := s.cache.SetSnapshot(fallbackCtx, bucket, writeToken, accounts); err != nil {
 			if errors.Is(err, ErrSchedulerBucketRetired) || errors.Is(err, ErrSchedulerBucketWriteFenced) {
 				slog.Debug("[Scheduler] cache publish fenced", "bucket", bucket.String())
@@ -285,7 +286,25 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	return accounts, useMixed, nil
+	return workspaceSchedulableAccounts(ctx, accounts), useMixed, nil
+}
+
+func workspaceSchedulableAccounts(ctx context.Context, accounts []Account) []Account {
+	workspaceID, scoped := domain.WorkspaceScope(ctx)
+	if !scoped {
+		return accounts
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		owner := account.WorkspaceID
+		if owner == 0 {
+			owner = domain.DefaultWorkspaceID
+		}
+		if owner == workspaceID {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -303,6 +322,12 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache read failed: id=%d err=%v", accountID, err)
 		} else if account != nil {
+			if len(workspaceSchedulableAccounts(ctx, []Account{*account})) == 0 {
+				return nil, ErrAccountNotFound
+			}
+			if _, referenced := CredentialReference(account.Credentials); referenced {
+				return s.accountRepo.GetByID(ctx, accountID)
+			}
 			return account, nil
 		}
 	}

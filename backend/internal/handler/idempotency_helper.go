@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"strconv"
 	"time"
 
@@ -36,9 +37,10 @@ func executeUserIdempotentJSON(
 	if subject, ok := middleware2.GetAuthSubjectFromContext(c); ok {
 		actorScope = "user:" + strconv.FormatInt(subject.UserID, 10)
 	}
+	actorScope = domain.WorkspaceActorScope(c.Request.Context(), actorScope)
 
 	result, err := coordinator.Execute(c.Request.Context(), service.IdempotencyExecuteOptions{
-		Scope:          scope,
+		Scope:          domain.WorkspaceActorScope(c.Request.Context(), scope),
 		ActorScope:     actorScope,
 		Method:         c.Request.Method,
 		Route:          c.FullPath(),

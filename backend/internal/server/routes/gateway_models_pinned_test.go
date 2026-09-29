@@ -157,3 +157,85 @@ func TestPublicCatalogStaticRoutesPrecedeModelLookup(t *testing.T) {
 		require.Equal(t, "private, no-store", recorder.Header().Get("Cache-Control"))
 	}
 }
+
+type qualifiedModelsRoutesRepository struct {
+	service.AccountRepository
+	account service.Account
+}
+
+func (repo *qualifiedModelsRoutesRepository) GetModelCatalogAccount(context.Context, int64) (*service.Account, error) {
+	return &repo.account, nil
+}
+func (repo *qualifiedModelsRoutesRepository) ListModelCatalogAccounts(context.Context, *int64, []string, bool) ([]service.Account, error) {
+	return []service.Account{repo.account}, nil
+}
+
+func TestPublicModelRetrieveAcceptsEscapedQualifiedID(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repo := &qualifiedModelsRoutesRepository{account: service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture", "base_url": "https://api.openai.com", "model_mapping": map[string]any{"provider/public-model": "gpt-native"}}, Extra: map[string]any{service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{Complete: true, Revision: 1, DiscoveredModels: []string{"gpt-native"}, EligibleModels: []service.AccountCatalogModel{{ID: "gpt-native", Endpoints: []string{"responses"}, EvidenceKind: "synthetic-contract"}}}}}}
+	gateway := service.NewGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	cfg := &config.Config{RunMode: config.RunModeSimple}
+	handlers := &handler.Handlers{Gateway: handler.NewGatewayHandler(gateway, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, cfg, nil), OpenAIGateway: &handler.OpenAIGatewayHandler{}, AsyncImage: handler.NewAsyncImageHandler(nil, nil)}
+	group := &service.Group{ID: 1, Platform: service.PlatformOpenAI}
+	router := gin.New()
+	RegisterGatewayRoutes(router, handlers, servermiddleware.APIKeyAuthMiddleware(func(ctx *gin.Context) {
+		ctx.Set(string(servermiddleware.ContextKeyAPIKey), &service.APIKey{ID: 1, GroupID: &group.ID, Group: group})
+		ctx.Next()
+	}), nil, nil, nil, nil, nil, cfg)
+	for _, path := range []string{"/v1/models/provider%2Fpublic-model", "/v1/models/catalog/provider%2Fpublic-model"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
+		require.Equal(t, 200, recorder.Code, recorder.Body.String())
+		require.Contains(t, recorder.Body.String(), "provider/public-model")
+		require.NotContains(t, recorder.Body.String(), "gpt-native")
+	}
+	for _, path := range []string{"/v1/models/provider/public-model", "/v1/models/catalog/provider/public-model"} {
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
+		require.Equal(t, 404, recorder.Code)
+		require.Contains(t, recorder.Body.String(), `"code":"not_found_error"`)
+	}
+
+}
+
+func TestGatewayRawPathPreservesCanonicalRouteFamilies(t *testing.T) {
+	router := newGatewayRoutesTestRouterWithGroup(&service.Group{ID: 1, Platform: service.PlatformOpenAI})
+	for _, scenario := range []struct{ method, path, body string }{
+		{"GET", "/v1/models", ""},
+		{"POST", "/v1/chat/completions", `{"model":"fixture","messages":[]}`},
+		{"POST", "/v1/messages", `{"model":"fixture","max_tokens":8,"messages":[]}`},
+		{"POST", "/v1/images/generations", `{"model":"gpt-image-1","prompt":"fixture"}`},
+	} {
+		request := func(rawPath bool) *httptest.ResponseRecorder {
+			router.UseRawPath = rawPath
+			recorder := httptest.NewRecorder()
+			req := httptest.NewRequest(scenario.method, scenario.path, strings.NewReader(scenario.body))
+			req.Header.Set("Content-Type", "application/json")
+			router.ServeHTTP(recorder, req)
+			return recorder
+		}
+		before, after := request(false), request(true)
+		require.Equal(t, before.Code, after.Code, scenario.path)
+		require.Equal(t, before.Body.String(), after.Body.String(), scenario.path)
+		require.NotEqual(t, 404, after.Code, scenario.path)
+	}
+}
+func TestGatewayRawPathDocumentsEngineWideEncodedMatching(t *testing.T) {
+	router := newGatewayRoutesTestRouterWithGroup(&service.Group{ID: 1, Platform: service.PlatformOpenAI})
+	router.GET("/api/v1/admin/probe/:id", func(ctx *gin.Context) { ctx.String(200, ctx.Param("id")) })
+	request := func(path string, rawPath bool) *httptest.ResponseRecorder {
+		router.UseRawPath = rawPath
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest("GET", path, nil))
+		return recorder
+	}
+	require.Equal(t, 200, request("/api/v1/admin/probe/123", false).Code)
+	require.Equal(t, 200, request("/api/v1/admin/probe/123", true).Code)
+	require.Equal(t, 404, request("/api/v1/admin/probe/a%2Fb", false).Code)
+	encoded := request("/api/v1/admin/probe/a%2Fb", true)
+	require.Equal(t, 200, encoded.Code)
+	require.Equal(t, "a/b", encoded.Body.String())
+	require.Equal(t, 404, request("/api/v1/admin/probe/a/b", true).Code)
+	require.Equal(t, 200, request("/api/v1/admin/pr%6Fbe/123", false).Code)
+	require.Equal(t, 404, request("/api/v1/admin/pr%6Fbe/123", true).Code, "static route segments must use canonical spelling")
+}

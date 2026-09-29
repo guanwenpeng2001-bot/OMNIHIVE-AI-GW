@@ -18,6 +18,7 @@ import {
   advanceAuthSession, AUTH_SESSION_EVENT, type AuthSessionSnapshot
 } from './tokenRefresh'
 import { getAPIBaseURL } from './url'
+import { workspaceRequestURL } from './workspaceScope'
 export { buildApiUrl, buildGatewayUrl } from './url'
 
 // ==================== Axios Instance Configuration ====================
@@ -50,6 +51,7 @@ const getUserTimezone = (): string => {
 
 apiClient.interceptors.request.use(
   (config: SessionRequest) => {
+    config.url = workspaceRequestURL(config.url, window.location.pathname)
     if (config._authSession && !isAuthSessionCurrent(config._authSession)) {
       return Promise.reject(authSessionChangedError())
     }

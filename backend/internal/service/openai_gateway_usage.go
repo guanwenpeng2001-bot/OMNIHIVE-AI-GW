@@ -451,6 +451,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	}
 	usageLog.AccountRateMultiplier = &accountRateMultiplier
 	recordQianwenNativeAudioUnits(usageLog, result)
+	recordQianwenVoiceEnrollmentUnits(usageLog, result)
 	usageLog.BillingType = billingType
 	usageLog.Stream = result.Stream
 	if input.CyberBlocked {
@@ -589,6 +590,9 @@ func (s *OpenAIGatewayService) calculateOpenAIRecordUsageCost(
 	billingModel := firstUsageBillingModel(billingModels)
 	if isQianwenNativeAudioResult(result) {
 		return s.calculateQianwenNativeAudioCost(ctx, result, apiKey, webSearchMultiplier)
+	}
+	if isQianwenVoiceEnrollmentResult(result) {
+		return s.calculateQianwenVoiceEnrollmentCost(result, webSearchMultiplier)
 	}
 	if result != nil && result.WebSearchCalls > 0 {
 		// Codex alpha/search 网页搜索按次计费：上游不返回 usage/token 字段，单价只取

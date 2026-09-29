@@ -26,6 +26,7 @@ import (
 	dbgroup "github.com/Wei-Shaw/sub2api/ent/group"
 	dbpredicate "github.com/Wei-Shaw/sub2api/ent/predicate"
 	dbproxy "github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -43,8 +44,9 @@ import (
 //   - sql: 原生 SQL 执行器，用于复杂查询和批量操作
 //   - schedulerCache: 调度器缓存，用于在账号状态变更时同步快照
 type accountRepository struct {
-	client *dbent.Client // Ent ORM 客户端
-	sql    sqlExecutor   // 原生 SQL 执行接口
+	credentialEncryptor service.SecretEncryptor
+	client              *dbent.Client // Ent ORM 客户端
+	sql                 sqlExecutor   // 原生 SQL 执行接口
 	// schedulerCache 用于在账号状态变更时主动同步快照到缓存，
 	// 确保粘性会话能及时感知账号不可用状态。
 	// Used to proactively sync account snapshot to cache when status changes,
@@ -207,6 +209,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	}
 
 	account.ID = created.ID
+	account.WorkspaceID = created.WorkspaceID
 	if account.Platform == service.PlatformBedrock || account.Platform == "vertex" {
 		identity, readErr := client.Account.Query().Where(dbaccount.IDEQ(created.ID)).Select(dbaccount.FieldID, dbaccount.FieldPlatform, dbaccount.FieldExtra).Only(ctx)
 		if readErr != nil {
@@ -605,12 +608,16 @@ func (r *accountRepository) updateLockedAccount(
 		schedulable = false
 	}
 
+	persistedCredentials, err := prepareReferencedCredentials(ctx, client, r.credentialEncryptor, account.ID, current.WorkspaceID, current.Credentials, account.Credentials)
+	if err != nil {
+		return nil, err
+	}
 	builder := client.Account.UpdateOneID(account.ID).
 		SetName(account.Name).
 		SetNillableNotes(account.Notes).
 		SetPlatform(account.Platform).
 		SetType(account.Type).
-		SetCredentials(normalizeJSONMap(account.Credentials)).
+		SetCredentials(normalizeJSONMap(persistedCredentials)).
 		SetExtra(extra).
 		SetConcurrency(account.Concurrency).
 		SetPriority(account.Priority).
@@ -917,10 +924,6 @@ func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
 
 func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, credentials map[string]any) error {
 	defer invalidateCatalogAfterWrite(ctx)
-	payload, err := json.Marshal(normalizeJSONMap(credentials))
-	if err != nil {
-		return err
-	}
 	baseCtx := ctx
 	contextTx := dbent.TxFromContext(ctx)
 	client := r.client
@@ -938,6 +941,17 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 			ctx = dbent.NewTxContext(ctx, tx)
 			client = tx.Client()
 		}
+	}
+	if r.credentialEncryptor != nil || service.ExpectedCredentialRevision(ctx) != "" {
+		var err error
+		credentials, err = r.prepareCredentialUpdate(ctx, client, id, credentials)
+		if err != nil {
+			return err
+		}
+	}
+	payload, err := json.Marshal(normalizeJSONMap(credentials))
+	if err != nil {
+		return err
 	}
 	result, err := client.ExecContext(ctx, `
 		UPDATE accounts
@@ -996,6 +1010,11 @@ func (r *accountRepository) UpdateCredentials(ctx context.Context, id int64, cre
 }
 
 func (r *accountRepository) Delete(ctx context.Context, id int64) error {
+	if _, scoped := domain.WorkspaceScope(ctx); scoped {
+		if _, err := r.GetByID(ctx, id); err != nil {
+			return err
+		}
+	}
 	groupIDs, err := r.loadAccountGroupIDs(ctx, id)
 	if err != nil {
 		return err
@@ -1345,6 +1364,7 @@ func (r *accountRepository) ListOAuthRefreshCandidatePage(ctx context.Context, o
 			AND schedulable = TRUE
 			AND platform = ANY($1)
 			AND id > $2`
+	query += workspaceClause(ctx, "workspace_id")
 	if options.ActiveOnly {
 		query += `
 			AND status = 'active'`
@@ -1570,6 +1590,12 @@ func (r *accountRepository) SetGrokOAuthErrorIfCredentialsUnchanged(
 	expectedCredentials map[string]any,
 	errorMsg string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, nil, false,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1631,6 +1657,9 @@ func (r *accountRepository) UpdateGrokOAuthCredentialsIfUnchanged(
 	expectedProxyID *int64,
 	credentials map[string]any,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.updateReferencedOAuthCredentials(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true, credentials)
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1692,6 +1721,12 @@ func (r *accountRepository) SetGrokOAuthRefreshErrorIfCredentialsUnchanged(
 	expectedProxyID *int64,
 	errorMsg string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthErrorLocked(lockedCtx, id, errorMsg, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -1753,6 +1788,12 @@ func (r *accountRepository) SetGrokOAuthRefreshTempUnschedulableIfCredentialsUnc
 	until time.Time,
 	reason string,
 ) (bool, error) {
+	if _, referenced := service.CredentialReference(expectedCredentials); referenced {
+		return r.mutateReferencedOAuthIfUnchanged(ctx, id, service.PlatformGrok, expectedCredentials, expectedProxyID, true,
+			func(lockedCtx context.Context, repository *accountRepository, _ *service.Account) (bool, error) {
+				return repository.markOAuthTempUnschedulableLocked(lockedCtx, id, until, reason, true)
+			})
+	}
 	if r == nil || r.sql == nil {
 		return false, errors.New("account repository SQL executor is not configured")
 	}
@@ -2334,7 +2375,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
- FROM accounts a WHERE a.deleted_at IS NULL AND
+ FROM accounts a WHERE `+workspacePredicate(ctx, "a.workspace_id")+` AND a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
  AND (a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))
@@ -3243,6 +3284,9 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	setClauses = append(setClauses, "updated_at = NOW()")
 
 	whereClause := " WHERE id = ANY($" + itoa(idx) + ") AND deleted_at IS NULL"
+	if _, scoped := domain.WorkspaceScope(ctx); scoped {
+		whereClause += " AND " + workspacePredicate(ctx, "workspace_id")
+	}
 	args = append(args, pq.Array(ids))
 	idx++
 	if updates.ProbeEnabled != nil {
@@ -3429,6 +3473,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		out := accountEntityToService(acc)
 		if out == nil {
 			continue
+		}
+		if err := r.resolveAccountCredentials(ctx, r.client, out); err != nil {
+			return nil, err
 		}
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
@@ -3652,6 +3699,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 
 	return &service.Account{
 		ID:                      m.ID,
+		WorkspaceID:             m.WorkspaceID,
 		Name:                    m.Name,
 		Notes:                   m.Notes,
 		Platform:                m.Platform,
@@ -3796,7 +3844,7 @@ func (r *accountRepository) ListDueUpstreamBillingProbeAccounts(ctx context.Cont
 				extra #>> '{upstream_billing_probe,status}' AS probe_status,
 				extra #>> '{upstream_billing_probe,next_probe_at}' AS next_probe_at
 			FROM accounts
-			WHERE deleted_at IS NULL
+			WHERE deleted_at IS NULL`+workspaceClause(ctx, "workspace_id")+`
 				AND status = 'active'
 				AND (type = 'apikey' OR (platform = 'cursor' AND type = 'upstream'))
 				AND extra @> '{"upstream_billing_probe_enabled": true}'::jsonb

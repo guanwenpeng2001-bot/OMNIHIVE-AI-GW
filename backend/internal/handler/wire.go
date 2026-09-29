@@ -47,6 +47,7 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	credentialSecretHandler *admin.CredentialSecretHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
 	authService *service.AuthService,
@@ -97,6 +98,7 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
+		CredentialSecret:       credentialSecretHandler,
 	}
 }
 
@@ -185,6 +187,8 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	modelAccessHandler *ModelAccessHandler,
+	workspaceHandler *WorkspaceHandler,
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
 	apiKeyHandler *APIKeyHandler,
@@ -211,6 +215,8 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		ModelAccess:      modelAccessHandler,
+		Workspace:        workspaceHandler,
 		Auth:             authHandler,
 		User:             userHandler,
 		APIKey:           apiKeyHandler,
@@ -240,6 +246,8 @@ var ProviderSet = wire.NewSet(
 	// Top-level handlers
 	ProvideAuthHandler,
 	NewUserHandler,
+	NewModelAccessHandler,
+	NewWorkspaceHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,
@@ -295,6 +303,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewCredentialSecretHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

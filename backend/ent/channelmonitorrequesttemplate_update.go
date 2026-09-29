@@ -172,7 +172,9 @@ func (_u *ChannelMonitorRequestTemplateUpdate) RemoveMonitors(v ...*ChannelMonit
 
 // Save executes the query and returns the number of nodes affected by the update operation.
 func (_u *ChannelMonitorRequestTemplateUpdate) Save(ctx context.Context) (int, error) {
-	_u.defaults()
+	if err := _u.defaults(); err != nil {
+		return 0, err
+	}
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -199,11 +201,15 @@ func (_u *ChannelMonitorRequestTemplateUpdate) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_u *ChannelMonitorRequestTemplateUpdate) defaults() {
+func (_u *ChannelMonitorRequestTemplateUpdate) defaults() error {
 	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		if channelmonitorrequesttemplate.UpdateDefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized channelmonitorrequesttemplate.UpdateDefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := channelmonitorrequesttemplate.UpdateDefaultUpdatedAt()
 		_u.mutation.SetUpdatedAt(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.
@@ -499,7 +505,9 @@ func (_u *ChannelMonitorRequestTemplateUpdateOne) Select(field string, fields ..
 
 // Save executes the query and returns the updated ChannelMonitorRequestTemplate entity.
 func (_u *ChannelMonitorRequestTemplateUpdateOne) Save(ctx context.Context) (*ChannelMonitorRequestTemplate, error) {
-	_u.defaults()
+	if err := _u.defaults(); err != nil {
+		return nil, err
+	}
 	return withHooks(ctx, _u.sqlSave, _u.mutation, _u.hooks)
 }
 
@@ -526,11 +534,15 @@ func (_u *ChannelMonitorRequestTemplateUpdateOne) ExecX(ctx context.Context) {
 }
 
 // defaults sets the default values of the builder before save.
-func (_u *ChannelMonitorRequestTemplateUpdateOne) defaults() {
+func (_u *ChannelMonitorRequestTemplateUpdateOne) defaults() error {
 	if _, ok := _u.mutation.UpdatedAt(); !ok {
+		if channelmonitorrequesttemplate.UpdateDefaultUpdatedAt == nil {
+			return fmt.Errorf("ent: uninitialized channelmonitorrequesttemplate.UpdateDefaultUpdatedAt (forgotten import ent/runtime?)")
+		}
 		v := channelmonitorrequesttemplate.UpdateDefaultUpdatedAt()
 		_u.mutation.SetUpdatedAt(v)
 	}
+	return nil
 }
 
 // check runs all checks and user-defined validators on the builder.

@@ -9,20 +9,26 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
+	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
 type AsyncImageHandler struct {
-	tasks   *service.ImageTaskService
-	openAI  *OpenAIGatewayHandler
-	execute func(platform string, c *gin.Context)
+	poolOnce sync.Once
+	pool     pond.Pool
+	tasks    *service.ImageTaskService
+	openAI   *OpenAIGatewayHandler
+	execute  func(platform string, c *gin.Context)
 }
 
 func NewAsyncImageHandler(tasks *service.ImageTaskService, openAI *OpenAIGatewayHandler) *AsyncImageHandler {
@@ -100,7 +106,13 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
+	publicModel := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body).Model
+	if platform == service.PlatformOpenAI && h.openAI != nil && h.openAI.gatewayService != nil {
+		if parsed, parseErr := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body); parseErr == nil {
+			publicModel = parsed.Model
+		}
+	}
+	task, err := h.tasks.Create(c.Request.Context(), imageTaskOwner(apiKey), publicModel)
 	if err != nil {
 		imageTaskError(c, err)
 		return
@@ -121,6 +133,24 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 	executionCtx, cancel := gateway.CaptureAsyncImageTaskPlan(c.Request.Context(), spec, h.tasks.ExecutionTimeout())
 	taskCtx, recorder := newAsyncImageContext(c, body, executionCtx)
 
+	h.poolOnce.Do(func() {
+		if h.pool == nil {
+			h.pool = pond.NewPool(8, pond.WithQueueSize(32))
+		}
+	})
+	if _, accepted := h.pool.TrySubmit(func() {
+		if taskCtx.Request.Context().Err() != nil {
+			cancel()
+			h.failTask(task.ID, http.StatusGatewayTimeout, imageTaskErrorPayload("timeout_error", "image task expired before execution"))
+			return
+		}
+		h.run(task.ID, platform, taskCtx, recorder, cancel)
+	}); !accepted {
+		cancel()
+		h.failTask(task.ID, http.StatusServiceUnavailable, imageTaskErrorPayload("queue_full", "image task queue is full"))
+		imageTaskError(c, service.ErrImageTaskUnavailable)
+		return
+	}
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
 	c.Header("Cache-Control", "no-store")
 	c.Header("Location", pollURL)
@@ -135,7 +165,6 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		"poll_url":   pollURL,
 	})
 
-	go h.run(task.ID, platform, taskCtx, recorder, cancel)
 }
 
 func (h *AsyncImageHandler) checkSecurityAuditBeforeSubmit(c *gin.Context, apiKey *service.APIKey, platform string, body []byte) bool {
@@ -188,7 +217,7 @@ func (h *AsyncImageHandler) Get(c *gin.Context) {
 		imageTaskError(c, service.ErrImageTaskForbidden)
 		return
 	}
-	task, err := h.tasks.Get(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID}, c.Param("task_id"))
+	task, err := h.tasks.Get(c.Request.Context(), imageTaskOwner(apiKey), c.Param("task_id"))
 	if err != nil {
 		imageTaskError(c, err)
 		return
@@ -257,7 +286,13 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 			h.failTask(taskID, http.StatusBadGateway, imageTaskErrorPayload("api_error", "upstream returned an invalid image response"))
 			return
 		}
-		if err := h.tasks.Complete(context.Background(), taskID, statusCode, json.RawMessage(body)); err != nil {
+		var accountID int64
+		if plan := service.GatewayRequestPlanFromContext(taskCtx.Request.Context()); plan != nil {
+			accountID = plan.Snapshot().UpstreamAccountID
+		}
+		persistCtx, persistCancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer persistCancel()
+		if err := h.tasks.Complete(persistCtx, taskID, statusCode, json.RawMessage(body), accountID); err != nil {
 			logger.L().Error("image_task.complete_store_failed", zap.String("task_id", taskID), zap.Error(err))
 		}
 		return
@@ -266,7 +301,9 @@ func (h *AsyncImageHandler) run(taskID, platform string, taskCtx *gin.Context, r
 }
 
 func (h *AsyncImageHandler) failTask(taskID string, statusCode int, taskErr json.RawMessage) {
-	if err := h.tasks.Fail(context.Background(), taskID, statusCode, taskErr); err != nil {
+	persistCtx, persistCancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer persistCancel()
+	if err := h.tasks.Fail(persistCtx, taskID, statusCode, taskErr); err != nil {
 		logger.L().Error("image_task.failure_store_failed", zap.String("task_id", taskID), zap.Error(err))
 	}
 }
@@ -339,4 +376,12 @@ func imageTaskError(c *gin.Context, err error) {
 func imageTaskJSONError(c *gin.Context, status int, code, message string) {
 	c.Header("Cache-Control", "no-store")
 	c.JSON(status, gin.H{"error": gin.H{"type": code, "code": code, "message": message}})
+}
+
+func imageTaskOwner(apiKey *service.APIKey) service.ImageTaskOwner {
+	workspaceID := apiKey.WorkspaceID
+	if workspaceID <= 0 {
+		workspaceID = domain.DefaultWorkspaceID
+	}
+	return service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID, WorkspaceID: workspaceID}
 }

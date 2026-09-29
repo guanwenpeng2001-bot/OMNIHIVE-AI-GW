@@ -69,7 +69,7 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		return
 	}
 
-	if apiKey.Group == nil || apiKey.Group.Platform != "grok" {
+	if apiKey.Group == nil || service.GatewayTargetPlatform(c) != service.PlatformGrok {
 		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
 			"type":    "invalid_request_error",
 			"message": searchLabel + " is only supported for grok groups",
