@@ -105,7 +105,7 @@ describe('descriptor-backed provider previews', () => {
     expect(syncUpstreamModelsPreview.mock.calls).toEqual([[credentials]])
     expect(wrapper.getComponent(ModelCatalogDetails).props('result')).toEqual(result)
     expect(wrapper.text()).toContain('admin.accounts.modelSync.incomplete')
-    expect(wrapper.get('[data-testid="capability-sets"]').text()).toContain('D 1 · M 0 · U 1 · E 0')
+    expect(wrapper.get('[data-testid="catalog-diagnostics"]').text()).toContain('D 1 · M 0 · U 1 · E 0')
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([result.candidate_models])
     expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
@@ -949,6 +949,21 @@ it.each(['zh', 'en'] as const)('labels candidate progress and keeps the folded s
   await details.trigger('toggle')
   expect(search.element.value).toBe('provider/model-9')
   expect(getAvailableModels).toHaveBeenCalledTimes(reads)
+  wrapper.unmount()
+  realLocale = null
+})
+
+
+it.each(['zh', 'en'] as const)('describes empty exact selection without claiming unrestricted or saved scope (%s)', async locale => {
+  realLocale = locale
+  const wrapper = mountSelector({ modelValue: [], modelMappings: Array.from({ length: 51 }, (_, index) => ({ from: `alias-${index}`, to: `target-${index}` })) })
+  await flushPromises()
+  const expected = locale === 'zh' ? '未添加精确模型；实际范围仍受映射和其他限制影响' : 'No exact models added; the actual scope is still subject to mappings and other restrictions'
+  expect(wrapper.text()).toContain(expected)
+  expect(wrapper.text()).not.toContain(locale === 'zh' ? '未设置账号限制' : 'No account restriction')
+  expect(expected).not.toMatch(/已保存|saved/i)
+  await wrapper.setProps({ modelValue: ['exact-model'] })
+  expect(wrapper.text()).not.toContain(expected)
   wrapper.unmount()
   realLocale = null
 })

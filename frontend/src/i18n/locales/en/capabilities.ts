@@ -7,6 +7,8 @@ export default {
   binding: 'The server generates confirmed_by, confirmed_at and identity information. After an identity change, verify the deployment facts and remove the old identity_fingerprint before previewing and saving to reconfirm. reasoning_control.kind supports none / effort / toggle / budget / adaptive / fixed / unknown; declare only controls the deployment actually supports.'
 },
   capabilityCatalog: {
+  countSummary: "Discovered upstream: {discovered} models · Mapping targets: {mapped} · Merged catalog: {merged} · Routing eligible: {eligible}",
+  eligibilityHint: "Complete capability information does not grant routing eligibility, and eligibility does not guarantee a successful call.",
   progress: "Showing {shown} models out of {matched} matches",
   candidateProgress: "Showing {shown} candidates out of {matched} matches",
   coverageSummary: "Complete information for {complete} of {total} models; estimated information for {estimated}; incomplete or unavailable information for {incomplete} models",

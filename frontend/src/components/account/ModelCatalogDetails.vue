@@ -1,23 +1,23 @@
 <template>
   <section v-if="result || summary" class="mb-3 min-w-0 break-words space-y-2 rounded-lg border border-gray-200 p-3 text-sm text-gray-700 dark:border-dark-500 dark:text-gray-200" :aria-label="t('admin.accounts.modelSync.title')">
     <p v-if="summary?.staleness === 'stale' && result?.applied !== true" role="alert" class="font-semibold text-amber-700 dark:text-amber-400">{{ t('admin.accounts.modelCatalog.stale') }}</p>
-    <p v-if="summary && !result">{{ summary.warnings.includes('identity_changed') ? reasonText('identity_changed') : t(`admin.accounts.modelSync.${summary.synced ? (summary.last_error ? 'failedPrevious' : summary.eligible_count ? 'synced' : 'syncedEmpty') : 'notSynced'}`) }}</p>
+    <p v-if="summary && !result">{{ identityChangedStatus ? reasonText('identity_changed') : t(`admin.accounts.modelSync.${summary.synced ? (summary.last_error ? 'failedPrevious' : summary.eligible_count ? 'synced' : 'syncedEmpty') : 'notSynced'}`) }}</p>
     <p v-if="result">{{ t(`admin.accounts.modelSync.${result.applied === true ? (eligibleCount ? 'synced' : 'syncedEmpty') : 'previewOnly'}`) }}</p>
     <p v-if="result && (result.discovery_complete ?? result.complete) !== true">{{ t('admin.accounts.modelSync.incomplete') }}</p>
-    <p v-for="warning in result?.warnings ?? summary?.warnings ?? []" :key="modelSyncWarningCode(warning)">{{ reasonText(modelSyncWarningCode(warning)) }}</p>
-    <p v-if="summary?.last_error">{{ reasonText(summary.last_error) }}</p>
+    <p v-for="warning in visibleWarnings" :key="warning">{{ reasonText(warning) }}</p>
+    <p v-if="summary?.last_error && !visibleWarnings.includes(summary.last_error) && !(identityChangedStatus && summary.last_error === 'identity_changed')">{{ reasonText(summary.last_error) }}</p>
     <p v-if="result && !result.applied">{{ t('admin.accounts.modelSync.previewCount', { count: (result.candidate_models ?? result.discovered_models ?? result.models ?? []).length }) }}</p>
     <p v-if="!stale && result?.diff?.removed?.length" role="alert">{{ t('admin.accounts.modelSync.removalRisk', { count: (result.diff.removed?.length ?? 0) }) }}</p>
     <p v-if="result?.invalid_aliases?.length" role="alert">{{ t('admin.accounts.modelSync.invalidAliases') }}: {{ result.invalid_aliases.join(', ') }}</p>
     <div v-if="result" data-testid="capability-sets" class="space-y-1">
-      <p>{{ labels.sets }}: D {{ discoveredCount }} · M {{ mappingCount }} · U {{ unionCount }} · E {{ stale ? '—' : eligibleCount }}</p>
-      <p>{{ labels.setsHint }}</p>
+      <p>{{ t('capabilityCatalog.countSummary', { discovered: discoveredCount, mapped: mappingCount, merged: unionCount, eligible: stale ? '—' : eligibleCount }) }}</p>
+      <p>{{ t('capabilityCatalog.eligibilityHint') }}</p>
       <p role="status" data-testid="capability-state">{{ capabilityState }}</p>
       <p>{{ t('capabilityCatalog.coverageSummary', { complete: completeCount, total: metadataRows.length, estimated: estimatedCount, incomplete: metadataRows.length - completeCount - estimatedCount }) }}</p>
     </div>
     <div v-else-if="summary?.synced" data-testid="capability-sets" class="space-y-1">
-      <p>{{ labels.sets }}: D {{ summary.discovered_count }} · M {{ savedCapabilities?.mapping_targets ?? '—' }} · U {{ savedCapabilities?.total ?? '—' }} · E {{ stale ? '—' : summary.eligible_count }}</p>
-      <p>{{ labels.setsHint }}</p>
+      <p>{{ t('capabilityCatalog.countSummary', { discovered: summary.discovered_count, mapped: savedCapabilities?.mapping_targets ?? '—', merged: savedCapabilities?.total ?? '—', eligible: stale ? '—' : summary.eligible_count }) }}</p>
+      <p>{{ t('capabilityCatalog.eligibilityHint') }}</p>
       <p v-if="savedCapabilities">{{ t('capabilityCatalog.coverageSummary', { complete: savedCapabilities.complete, total: savedCapabilities.total, estimated: savedCapabilities.estimated, incomplete: savedCapabilities.incomplete }) }}</p>
     </div>
     <details v-if="metadataRows.length" class="space-y-2" data-testid="capability-details" :aria-label="labels.title">
@@ -65,6 +65,13 @@
     <details data-testid="catalog-diagnostics">
       <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.modelSync.technicalDetails') }}</summary>
       <div class="max-h-[min(16rem,40vh)] space-y-2 overflow-y-auto break-all">
+        <template v-if="result">
+          <p>{{ labels.sets }}: D {{ discoveredCount }} · M {{ mappingCount }} · U {{ unionCount }} · E {{ stale ? '—' : eligibleCount }}</p>
+        </template>
+        <template v-else-if="summary?.synced">
+          <p>{{ labels.sets }}: D {{ summary.discovered_count }} · M {{ savedCapabilities?.mapping_targets ?? '—' }} · U {{ savedCapabilities?.total ?? '—' }} · E {{ stale ? '—' : summary.eligible_count }}</p>
+        </template>
+        <p v-if="result || summary?.synced">{{ labels.setsHint }}</p>
         <dl class="grid grid-cols-2 gap-2">
           <div><dt>{{ t('admin.accounts.modelSync.platformCandidates') }}</dt><dd>{{ candidateCount ?? '—' }}</dd></div>
           <div><dt>{{ t('admin.accounts.modelSync.nativeDiscovered') }}</dt><dd>{{ result?.discovered_models?.length ?? (summary?.synced ? summary.discovered_count : '—') }}</dd></div>
@@ -130,6 +137,9 @@ const labels = computed(() => ({
   noSources: t('capabilityCatalog.noSources'),
   stale: t('capabilityCatalog.stale')
 }))
+const identityChangedStatus = computed(() => !props.result && !!props.summary?.warnings.includes('identity_changed'))
+const visibleWarnings = computed(() => [...new Set((props.result?.warnings ?? props.summary?.warnings ?? []).map(modelSyncWarningCode))]
+  .filter(warning => !(identityChangedStatus.value && warning === 'identity_changed')))
 const eligibleCount = computed(() => props.result?.eligible_models?.length ?? props.result?.models?.length ?? 0)
 const savedCapabilities = computed(() => props.summary?.snapshot?.capability_summary)
 const mappingTargets = computed(() => [...new Set((props.mappingTargets ?? []).map(id => id.trim()).filter(id => id && !/[*?]/.test(id)))])
