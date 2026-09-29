@@ -66,7 +66,7 @@ func TestModelCatalogScopeQueryParameters(t *testing.T) {
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
  WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'hosted_bedrock_runtime','mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
- FROM accounts a WHERE a.deleted_at IS NULL AND
+ FROM accounts a WHERE TRUE AND a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable
  AND (a.platform = ANY($2::text[])
  OR (a.platform = 'bedrock' AND a.type = 'bedrock' AND 'anthropic' = ANY($2::text[]))

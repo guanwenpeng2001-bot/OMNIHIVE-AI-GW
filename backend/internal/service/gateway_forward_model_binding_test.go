@@ -51,7 +51,9 @@ func (r *forwardCatalogRepo) GetModelCatalogAccount(_ context.Context, id int64)
 	return r.current, nil
 }
 func (r *forwardCatalogRepo) ListModelCatalogAccounts(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
-	r.assertScope(groupID, platforms, includeGrouped)
+	if r.assertScope != nil {
+		r.assertScope(groupID, platforms, includeGrouped)
+	}
 	if r.err != nil {
 		return nil, r.err
 	}
