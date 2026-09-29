@@ -9,7 +9,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
-	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -92,7 +91,8 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", "streaming image requests cannot be submitted as asynchronous tasks")
 		return
 	}
-	if err := h.validateRequest(c, platform, body); err != nil {
+	model, err := h.validateRequest(c, platform, body)
+	if err != nil {
 		imageTaskJSONError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
@@ -100,13 +100,26 @@ func (h *AsyncImageHandler) Submit(c *gin.Context) {
 		return
 	}
 
-	taskCtx, recorder, cancel := newAsyncImageContext(c, body, h.tasks.ExecutionTimeout())
 	task, err := h.tasks.Create(c.Request.Context(), service.ImageTaskOwner{UserID: apiKey.UserID, APIKeyID: apiKey.ID})
 	if err != nil {
-		cancel()
 		imageTaskError(c, err)
 		return
 	}
+	spec := service.GatewayRequestSpec{UserID: apiKey.UserID, APIKeyID: apiKey.ID, Model: model,
+		Route: strings.TrimSuffix(c.Request.URL.Path, "/async"), Protocol: "images", ExecutionID: task.ID}
+	if platform == service.PlatformGrok {
+		spec.Protocol = "media"
+	}
+	if apiKey.GroupID != nil {
+		spec.BillingGroupID = *apiKey.GroupID
+	}
+	var gateway *service.OpenAIGatewayService
+	if h.openAI != nil {
+		gateway = h.openAI.gatewayService
+		spec.MaxAccountSwitches = h.openAI.maxAccountSwitches
+	}
+	executionCtx, cancel := gateway.CaptureAsyncImageTaskPlan(c.Request.Context(), spec, h.tasks.ExecutionTimeout())
+	taskCtx, recorder := newAsyncImageContext(c, body, executionCtx)
 
 	pollURL := imageTaskPollURL(c.Request.URL.Path, task.ID)
 	c.Header("Cache-Control", "no-store")
@@ -187,25 +200,25 @@ func (h *AsyncImageHandler) Get(c *gin.Context) {
 	c.JSON(http.StatusOK, task)
 }
 
-func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, body []byte) error {
+func (h *AsyncImageHandler) validateRequest(c *gin.Context, platform string, body []byte) (string, error) {
 	if h.openAI == nil || h.openAI.gatewayService == nil {
-		return nil
+		return service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body).Model, nil
 	}
 	if platform == service.PlatformGrok {
 		parsed := service.ParseGrokMediaRequest(c.GetHeader("Content-Type"), body)
 		if strings.TrimSpace(parsed.Model) == "" {
-			return errors.New("model is required")
+			return "", errors.New("model is required")
 		}
-		return nil
+		return parsed.Model, nil
 	}
 	parsed, err := h.openAI.gatewayService.ParseOpenAIImagesRequest(c, body)
 	if err != nil {
-		return err
+		return "", err
 	}
 	if parsed.Stream {
-		return errors.New("streaming image requests cannot be submitted as asynchronous tasks")
+		return "", errors.New("streaming image requests cannot be submitted as asynchronous tasks")
 	}
-	return nil
+	return parsed.Model, nil
 }
 
 func (h *AsyncImageHandler) executeWithGateway(platform string, c *gin.Context) {
@@ -258,9 +271,7 @@ func (h *AsyncImageHandler) failTask(taskID string, statusCode int, taskErr json
 	}
 }
 
-func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Duration) (*gin.Context, *httptest.ResponseRecorder, context.CancelFunc) {
-	base := context.WithoutCancel(c.Request.Context())
-	executionCtx, cancel := context.WithTimeout(base, timeoutDuration)
+func newAsyncImageContext(c *gin.Context, body []byte, executionCtx context.Context) (*gin.Context, *httptest.ResponseRecorder) {
 	request := c.Request.Clone(executionCtx)
 	request.Body = io.NopCloser(bytes.NewReader(body))
 	request.GetBody = func() (io.ReadCloser, error) {
@@ -274,7 +285,7 @@ func newAsyncImageContext(c *gin.Context, body []byte, timeoutDuration time.Dura
 	recorderCtx, _ := gin.CreateTestContext(recorder)
 	taskCtx.Writer = recorderCtx.Writer
 	taskCtx.Request = request
-	return taskCtx, recorder, cancel
+	return taskCtx, recorder
 }
 
 func asyncImageRequestStreams(contentType string, body []byte) bool {
