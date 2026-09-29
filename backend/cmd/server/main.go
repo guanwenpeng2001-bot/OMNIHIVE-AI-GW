@@ -9,6 +9,7 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	// #nosec G108 -- pprof exposure is opt-in via SUB2API_PPROF and bound to 127.0.0.1:6060 only.
 	_ "net/http/pprof"
 	"os"
 	"os/signal"

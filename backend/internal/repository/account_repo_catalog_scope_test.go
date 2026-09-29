@@ -24,6 +24,8 @@ type catalogScopeFixture struct {
 }
 
 func (f catalogScopeFixture) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
+	// #nosec G701 -- the test executes the production query verbatim against a
+	// read-only jsonb_to_recordset CTE fixture; no user input reaches the SQL.
 	return f.DB.QueryContext(ctx, `WITH accounts AS (
  SELECT * FROM jsonb_to_recordset($5::jsonb) AS a(
  id bigint, platform text, type text, status text, schedulable boolean,

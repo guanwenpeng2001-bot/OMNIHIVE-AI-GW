@@ -151,30 +151,6 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 	})
 }
 
-// filterPlazaVisibleGroups 按登录态裁剪分组可见性。
-// allowedGroups == nil 表示匿名（仅非专属）；非 nil 包含普通授权及有效订阅分组。
-// restrictPublicGroups 为 true 且授权集合非空时，公开分组也必须落在集合内。
-// 无授权用户仍可浏览公开分组；专属分组始终需要授权。
-func filterPlazaVisibleGroups(
-	groups []service.PlazaGroup,
-	allowedGroups map[int64]struct{},
-	restrictPublicGroups bool,
-) []service.PlazaGroup {
-	visible := make([]service.PlazaGroup, 0, len(groups))
-	for _, g := range groups {
-		if g.IsExclusive || (restrictPublicGroups && len(allowedGroups) > 0) {
-			if allowedGroups == nil {
-				continue
-			}
-			if _, ok := allowedGroups[g.ID]; !ok {
-				continue
-			}
-		}
-		visible = append(visible, g)
-	}
-	return visible
-}
-
 // toModelPlazaGroupDTO 将 service 层广场分组映射为白名单 DTO,并合并用户专属倍率。
 func toModelPlazaGroupDTO(g *service.PlazaGroup, userRates map[int64]float64) modelPlazaGroup {
 	models := make([]modelPlazaModel, 0, len(g.Models))

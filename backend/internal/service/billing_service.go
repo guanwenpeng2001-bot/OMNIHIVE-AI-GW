@@ -1405,7 +1405,7 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 
 // CostInput 统一计费输入
 type CostInput struct {
-	Mode                      BillingMode // explicit unit for variant price cards
+	Mode BillingMode // explicit unit for variant price cards
 	// displayProbe omits unused audit serialization, never billing validation.
 	displayProbe              bool
 	Provider                  string // final outbound provider; especially required for Composite

@@ -72,7 +72,7 @@ func (r *usageLogRepository) getAllGroupUsageSummaryFromRollups(ctx context.Cont
 		if err != nil {
 			return nil, err
 		}
-		defer transaction.Rollback()
+		defer func() { _ = transaction.Rollback() }()
 		reader := &usageLogRepository{sql: transaction}
 		results, err := reader.getAllGroupUsageSummaryFromRollups(ctx, todayStart)
 		if err != nil {

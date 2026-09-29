@@ -26,7 +26,8 @@ func TestWebSocketKeepaliveDisconnectPersistsObservedUsage(t *testing.T) {
 		response.Header().Set("Content-Type", "text/event-stream")
 		fmt.Fprint(response, "data: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_heartbeat\",\"model\":\"gpt-5.1\",\"usage\":{\"input_tokens\":7,\"output_tokens\":2}}}\n\n")
 		fmt.Fprint(response, "data: {\"type\":\"keepalive\"}\n\n")
-		response.(http.Flusher).Flush()
+		flusher, _ := response.(http.Flusher)
+		flusher.Flush()
 		<-request.Context().Done()
 		canceled <- struct{}{}
 	}))
@@ -79,7 +80,7 @@ func TestWebSocketContextWindowRolloverReceiptIsolation(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer connection.CloseNow()
+		defer func() { _ = connection.CloseNow() }()
 		for turn := 1; turn <= 3; turn++ {
 			_, payload, readErr := connection.Read(request.Context())
 			if readErr != nil {

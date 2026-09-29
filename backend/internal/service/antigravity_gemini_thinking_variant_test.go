@@ -11,7 +11,7 @@ import (
 func approvedAntigravityVariantAccount() *Account {
 	account := catalogEvidenceAccount(73, PlatformAntigravity, "gemini-3-flash-low", "gemini-3-flash-medium", "gemini-3-flash-high")
 	account.Type = AccountTypeOAuth
-	snapshot := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
 	for index := range snapshot.EligibleModels {
 		snapshot.EligibleModels[index].Endpoints = []string{"generate_content"}
 	}

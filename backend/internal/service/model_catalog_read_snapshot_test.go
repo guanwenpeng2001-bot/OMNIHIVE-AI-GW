@@ -274,7 +274,7 @@ func TestCatalogBatchIncludesUnboundCredentialOwner(tester *testing.T) {
 	shadow := catalogEvidenceAccount(12, PlatformOpenAI, "public")
 	shadow.ParentAccountID = &parent.ID
 	shadow.GroupIDs = []int64{1}
-	catalog := shadow.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	catalog, _ := shadow.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
 	catalog.CredentialAccountID = parent.ID
 	repository := &catalogBatchTestRepository{accounts: []Account{shadow, parent}}
 	groups := []Group{{ID: 1, Platform: PlatformOpenAI}}
@@ -284,7 +284,7 @@ func TestCatalogBatchIncludesUnboundCredentialOwner(tester *testing.T) {
 	require.NoError(tester, err)
 	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
 	require.NoError(tester, err)
-	batch := frozen.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot)
+	batch, _ := frozen.Value(catalogGroupSnapshotKey{}).(*catalogGroupSnapshot)
 	require.Len(tester, batch.accounts[1], 1)
 	require.NotNil(tester, batch.accounts[1][0].modelCatalogCredentialAccount)
 	require.Equal(tester, parent.ID, batch.accounts[1][0].modelCatalogCredentialAccount.ID)

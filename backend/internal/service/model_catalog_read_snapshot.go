@@ -119,7 +119,8 @@ func (gateway *GatewayService) catalogReadAccounts(ctx context.Context, key stri
 		return load()
 	}
 	if cached, found := gateway.modelsListCache.Get(cacheKey); found {
-		return append([]Account(nil), cached.([]Account)...), nil
+		cachedAccounts, _ := cached.([]Account)
+		return append([]Account(nil), cachedAccounts...), nil
 	}
 	result := gateway.catalogSnapshotFlight.DoChan(cacheKey, func() (any, error) {
 		if cached, found := gateway.modelsListCache.Get(cacheKey); found {
@@ -152,7 +153,8 @@ func (gateway *GatewayService) catalogReadAccounts(ctx context.Context, key stri
 		if completed.Err != nil {
 			return nil, completed.Err
 		}
-		return append([]Account(nil), completed.Val.([]Account)...), nil
+		completedAccounts, _ := completed.Val.([]Account)
+		return append([]Account(nil), completedAccounts...), nil
 	}
 }
 

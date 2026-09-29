@@ -164,7 +164,8 @@ func TestVisibleModelsGeminiMethodEvidenceStaysWithExecutableBinding(t *testing.
 	gemini := catalogEvidenceAccount(2, PlatformGemini, "private-gemini")
 	chat.GroupIDs = []int64{9}
 	gemini.GroupIDs = []int64{9}
-	gemini.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot).EligibleModels[0].Endpoints = []string{"generate_content"}
+	geminiSnapshot, _ := gemini.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+	geminiSnapshot.EligibleModels[0].Endpoints = []string{"generate_content"}
 	gemini.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
 		"private-gemini": {ProviderProfile: resolveCapabilityProfile(&gemini), ModelVersion: "001", SupportedMethods: []string{"generateContent", "streamGenerateContent", "countTokens"}},
 	}})
