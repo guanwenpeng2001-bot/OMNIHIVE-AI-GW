@@ -35,7 +35,7 @@ func TestUsageDashboardPostgres(t *testing.T) {
 		require.NoError(t, err)
 	}
 	exec(`TRUNCATE usage_settlement_receipts, users, accounts, api_keys, usage_logs, usage_dashboard_hourly, usage_dashboard_daily, usage_dashboard_hourly_users, usage_dashboard_daily_users RESTART IDENTITY CASCADE`)
-	exec(`UPDATE usage_dashboard_aggregation_watermark SET last_aggregated_at='1970-01-01',raw_retained_from='1970-01-01',hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name=$1`, timezone.Name())
+	exec(`UPDATE usage_dashboard_aggregation_watermark SET history_known_empty_before=NULL,last_aggregated_at='1970-01-01',raw_retained_from='1970-01-01',hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name=$1`, timezone.Name())
 	var user, key, account int64
 	require.NoError(t, db.QueryRow(`INSERT INTO users(email,password_hash,balance) VALUES('stats-p112@example.test','test',100) RETURNING id`).Scan(&user))
 	require.NoError(t, db.QueryRow(`INSERT INTO api_keys(user_id,key,name) VALUES($1,'stats-p112','stats') RETURNING id`, user).Scan(&key))
@@ -201,7 +201,7 @@ func TestUsageDashboardPostgres(t *testing.T) {
 	_, _, err = repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, UsageLogFilters{StartTime: &start, EndTime: &cutoff})
 	require.ErrorIs(t, err, ErrUsageHistoryUnavailable)
 	_, _, err = repo.ListWithFilters(ctx, pagination.PaginationParams{Page: 1, PageSize: 10}, UsageLogFilters{})
-	require.ErrorIs(t, err, ErrUsageHistoryUnavailable, "unbounded list/export does not silently claim complete history")
+	require.NoError(t, err, "omitting StartTime keeps the existing retained-window list contract")
 	require.ErrorIs(t, agg.AggregateRange(ctx, start, cutoff), ErrUsageHistoryUnavailable)
 	assertTrend(start, cutoff, "day", 4)
 	require.NoError(t, repo.fillDashboardClosedAndRaw(ctx, stats, cutoff, cutoff.Add(time.Hour)))
@@ -231,7 +231,7 @@ func TestUsageDashboardPostgres(t *testing.T) {
 		hours := int64(next.Sub(day) / time.Hour)
 		require.Contains(t, []int64{23, 25}, hours)
 		exec(`TRUNCATE usage_logs, usage_dashboard_hourly, usage_dashboard_daily, usage_dashboard_hourly_users, usage_dashboard_daily_users CASCADE`)
-		exec(`UPDATE usage_dashboard_aggregation_watermark SET last_aggregated_at='1970-01-01',raw_retained_from='1970-01-01',hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name=$1`, timezone.Name())
+		exec(`UPDATE usage_dashboard_aggregation_watermark SET history_known_empty_before=NULL,last_aggregated_at='1970-01-01',raw_retained_from='1970-01-01',hourly_retained_from=NULL,daily_retained_from=NULL,dirty_from=NULL,timezone_name=$1`, timezone.Name())
 		for at := day; at.Before(next); at = at.Add(time.Hour) {
 			insert(at.Add(10 * time.Minute))
 		}

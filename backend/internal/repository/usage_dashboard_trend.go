@@ -32,10 +32,12 @@ func dashboardTrendQuery(granularity string) string {
    SELECT CASE WHEN timezone_name=$3 AND projection_version=2
      THEN LEAST(last_aggregated_at,COALESCE(dirty_from,last_aggregated_at))
      ELSE TIMESTAMPTZ '1970-01-01' END AS watermark,
-     COALESCE(%[6]s_retained_from,$2::timestamptz) AS retained_from
+     COALESCE(%[6]s_retained_from,$2::timestamptz) AS retained_from, history_known_empty_before
    FROM usage_dashboard_aggregation_watermark WHERE id=1
  ), bounds AS (
-   SELECT GREATEST(retained_from,CASE WHEN $1::timestamptz = date_trunc('%[1]s',$1::timestamptz AT TIME ZONE %[5]s) AT TIME ZONE %[5]s
+   SELECT GREATEST(retained_from,CASE WHEN $1::timestamptz <= history_known_empty_before
+     THEN date_trunc('%[1]s',history_known_empty_before AT TIME ZONE %[5]s) AT TIME ZONE %[5]s
+     WHEN $1::timestamptz = date_trunc('%[1]s',$1::timestamptz AT TIME ZONE %[5]s) AT TIME ZONE %[5]s
      THEN $1::timestamptz
      ELSE (date_trunc('%[1]s',$1::timestamptz AT TIME ZONE %[5]s) + INTERVAL '1 %[1]s') AT TIME ZONE %[5]s END) AS first_bucket,
      date_trunc('%[1]s',LEAST(watermark,$2::timestamptz) AT TIME ZONE %[5]s) AT TIME ZONE %[5]s AS closed_before

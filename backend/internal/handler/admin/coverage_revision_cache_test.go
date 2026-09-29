@@ -113,3 +113,30 @@ func TestDashboardBatchCacheCoverageRevision(t *testing.T) {
 		})
 	}
 }
+
+func TestUsageStatsOriginRevisionCache(test *testing.T) {
+	original := usageStatsCache
+	usageStatsCache = newSnapshotCache(time.Minute)
+	test.Cleanup(func() { usageStatsCache = original })
+	repository := &coverageCacheRepo{revision: "origin-declared"}
+	handler := &UsageHandler{usageService: service.NewUsageService(repository, nil, nil, nil)}
+	start, end := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC), time.Date(2026, 3, 2, 0, 0, 0, 0, time.UTC)
+	filters := usagestats.UsageLogFilters{StartTime: &start, EndTime: &end}
+	_, hit, err := handler.getStatsCached(context.Background(), filters)
+	require.NoError(test, err)
+	require.False(test, hit)
+	_, hit, err = handler.getStatsCached(context.Background(), filters)
+	require.NoError(test, err)
+	require.True(test, hit)
+	repository.revision = "origin-revoked"
+	repository.failure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "history unavailable")
+	_, hit, err = handler.getStatsCached(context.Background(), filters)
+	require.Error(test, err)
+	require.False(test, hit)
+	repository.revision = "origin-reconfirmed"
+	repository.failure = nil
+	_, hit, err = handler.getStatsCached(context.Background(), filters)
+	require.NoError(test, err)
+	require.False(test, hit)
+	require.Equal(test, 3, repository.statsCalls)
+}

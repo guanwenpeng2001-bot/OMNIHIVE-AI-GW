@@ -55,3 +55,67 @@ func TestUsageCoverageDirtyBoundaryUsesCalendarBeforeHourRounding(t *testing.T) 
 	c := dashboardCoverage{raw: next, published: next.AddDate(0, 0, 1), daily: sql.NullTime{Time: day, Valid: true}, dirty: sql.NullTime{Time: next.Add(10 * time.Minute), Valid: true}, zone: "Asia/Kolkata", version: 2}
 	require.NoError(t, c.requireTrend(day, next, "day"), "a dirty event after local midnight must not invalidate the clean preceding day in a half-hour timezone")
 }
+
+func TestUsageCoverageKnownEmptyPrefix(test *testing.T) {
+	origin := time.Date(2026, 3, 1, 10, 15, 0, 0, time.UTC)
+	coverage := dashboardCoverage{raw: origin, historyKnownEmptyBefore: sql.NullTime{Time: origin, Valid: true}}
+	for _, scenario := range []struct {
+		name       string
+		start, end time.Time
+	}{
+		{"before", origin.Add(-time.Hour), origin.Add(-time.Minute)},
+		{"ends_at_origin", origin.Add(-time.Hour), origin},
+		{"crosses_origin", origin.Add(-time.Hour), origin.Add(time.Minute)},
+		{"starts_at_origin", origin, origin.Add(time.Minute)},
+	} {
+		test.Run(scenario.name, func(test *testing.T) { require.NoError(test, coverage.requireRaw(scenario.start, scenario.end)) })
+	}
+	require.True(test, coverage.rawHistoryComplete())
+	require.Equal(test, origin, *coverage.metadata().HistoryKnownEmptyBefore)
+	coverage.raw = origin.Add(time.Hour)
+	require.NoError(test, coverage.requireRaw(origin.Add(-time.Hour), origin))
+	require.ErrorIs(test, coverage.requireRaw(origin.Add(-time.Hour), origin.Add(time.Minute)), ErrUsageHistoryUnavailable)
+	require.False(test, coverage.rawHistoryComplete())
+	require.Equal(test, "history_after_origin_unavailable", coverage.metadata().Reason)
+	coverage.historyKnownEmptyBefore = sql.NullTime{}
+	require.ErrorIs(test, coverage.requireRaw(origin.Add(-time.Hour), origin), ErrUsageHistoryUnavailable)
+	require.Nil(test, coverage.metadata().HistoryKnownEmptyBefore)
+	require.Equal(test, "history_before_coverage_floor_unverified", coverage.metadata().Reason)
+}
+
+func TestUsageCoverageOriginBucketsAndPublication(test *testing.T) {
+	previous := timezone.Name()
+	test.Cleanup(func() { require.NoError(test, timezone.Init(previous)) })
+	for _, zone := range []string{"UTC", "Asia/Shanghai", "Asia/Kolkata", "Asia/Kathmandu", "America/New_York"} {
+		test.Run(zone, func(test *testing.T) {
+			require.NoError(test, timezone.Init(zone))
+			day := time.Date(2026, 11, 1, 0, 0, 0, 0, timezone.Location())
+			origin := day.Add(10*time.Hour + 15*time.Minute)
+			end := day.AddDate(0, 0, 1)
+			coverage := dashboardCoverage{raw: origin, historyKnownEmptyBefore: sql.NullTime{Time: origin, Valid: true}, zone: zone, version: dashboardProjectionVersion}
+			first, _ := dashboardPublicationWindow(coverage, time.Unix(0, 0), end)
+			require.True(test, first.Equal(day))
+			emptyStart, emptyEnd := dashboardPublicationWindow(coverage, day.AddDate(0, 0, -20), origin.Add(-time.Hour))
+			require.Equal(test, emptyEnd, emptyStart, "an entirely empty prefix does not publish facts or advance coverage")
+			coverage.raw = origin.Add(time.Minute)
+			first, _ = dashboardPublicationWindow(coverage, origin, end.AddDate(0, 0, 1))
+			require.True(test, first.Equal(end), "a real gap after origin cannot publish the first day")
+			coverage.raw = end
+			coverage.daily = sql.NullTime{Time: day, Valid: true}
+			coverage.hourly = sql.NullTime{Time: bucketFloor(origin, "hour"), Valid: true}
+			coverage.published = end
+			for _, granularity := range []string{"day", "hour"} {
+				require.NoError(test, coverage.requireTrend(origin, bucketFloor(end, granularity), granularity))
+				require.NoError(test, coverage.requireTrend(day.AddDate(0, 0, -10), bucketFloor(end, granularity), granularity))
+				require.ErrorIs(test, coverage.requireTrend(origin.Add(time.Minute), end, granularity), ErrUsageHistoryUnavailable)
+				require.ErrorIs(test, coverage.requireTrend(origin, origin.Add(time.Minute), granularity), ErrUsageHistoryUnavailable)
+			}
+			require.True(test, coverage.summaryComplete(end, end.Add(time.Hour)))
+			require.False(test, coverage.summaryComplete(day, end.Add(time.Hour)), "today's distinct users require raw")
+			coverage.dirty = sql.NullTime{Time: origin, Valid: true}
+			require.False(test, coverage.summaryComplete(end, end.Add(time.Hour)))
+			coverage.raw = origin
+			require.True(test, coverage.summaryComplete(end, end.Add(time.Hour)), "dirty archive may fall back to complete raw")
+		})
+	}
+}

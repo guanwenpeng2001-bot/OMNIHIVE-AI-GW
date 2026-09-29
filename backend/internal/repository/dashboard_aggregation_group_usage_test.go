@@ -307,7 +307,7 @@ func setGroupUsageRollupTestTimezone(t *testing.T) {
 }
 
 func expectDashboardCoverage(mock sqlmock.Sqlmock) {
-	mock.ExpectQuery(`SELECT raw_retained_from.*FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"raw", "hourly", "daily", "published", "dirty", "zone", "version"}).AddRow(time.Unix(0, 0), time.Unix(0, 0), time.Unix(0, 0), time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), nil, "Asia/Shanghai", 2))
+	mock.ExpectQuery(`SELECT raw_retained_from.*FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"raw", "hourly", "daily", "published", "dirty", "zone", "version", "origin"}).AddRow(time.Unix(0, 0), time.Unix(0, 0), time.Unix(0, 0), time.Date(2030, 1, 1, 0, 0, 0, 0, time.UTC), nil, "Asia/Shanghai", 2, nil))
 }
 func expectDashboardRebuildCoverage(mock sqlmock.Sqlmock) {
 	mock.ExpectQuery(`SELECT id FROM usage_group_rollup_state.*FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(1))

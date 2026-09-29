@@ -155,6 +155,7 @@ func TestUsageDashboardUpgradePreservesHistory(test *testing.T) {
 	fixture.exec(test, `INSERT INTO usage_dashboard_daily(bucket_date,total_requests,actual_cost) SELECT created_at::date,count(*),sum(actual_cost) FROM usage_logs GROUP BY 1`)
 	fixture.exec(test, `UPDATE usage_dashboard_aggregation_watermark SET last_aggregated_at=$1`, fixture.end)
 	fixture.migrate(test, "258_usage_dashboard_coverage.sql")
+	fixture.migrate(test, "279_usage_history_origin.sql")
 	var historicalRequests int64
 	require.NoError(test, fixture.database.QueryRow(`SELECT sum(total_requests) FROM usage_dashboard_daily`).Scan(&historicalRequests))
 	require.EqualValues(test, usagePressureRows, historicalRequests)
@@ -175,6 +176,7 @@ func TestUsageDashboardUpgradePreservesHistory(test *testing.T) {
 func TestUsageDashboardRebuildPressure(test *testing.T) {
 	fixture := newUsagePressureFixture(test)
 	fixture.migrate(test, "258_usage_dashboard_coverage.sql")
+	fixture.migrate(test, "279_usage_history_origin.sql")
 	fixture.calibrate(test)
 	before := fixture.financialState(test)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
