@@ -34,7 +34,11 @@ func newProxyRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *proxyRep
 }
 
 func (r *proxyRepository) Create(ctx context.Context, proxyIn *service.Proxy) error {
-	builder := r.client.Proxy.Create().
+	client := r.client
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		client = transaction.Client()
+	}
+	builder := client.Proxy.Create().
 		SetName(proxyIn.Name).
 		SetProtocol(proxyIn.Protocol).
 		SetHost(proxyIn.Host).
@@ -63,7 +67,11 @@ func (r *proxyRepository) Create(ctx context.Context, proxyIn *service.Proxy) er
 }
 
 func (r *proxyRepository) GetByID(ctx context.Context, id int64) (*service.Proxy, error) {
-	m, err := r.client.Proxy.Get(ctx, id)
+	client := r.client
+	if transaction := dbent.TxFromContext(ctx); transaction != nil {
+		client = transaction.Client()
+	}
+	m, err := client.Proxy.Get(ctx, id)
 	if err != nil {
 		if dbent.IsNotFound(err) {
 			return nil, service.ErrProxyNotFound
@@ -478,6 +486,56 @@ func (r *proxyRepository) CountAccountsByProxyID(ctx context.Context, proxyID in
 	return count, nil
 }
 
+// CountAccountsByProxyIDAndStatus 统计绑定到该代理且处于指定状态的账号数。
+// 代理统计要区分「全部账号」与「启用中的账号」，只按代理计数会把停用/报错
+// 账号也报成活跃。
+func (r *proxyRepository) CountAccountsByProxyIDAndStatus(ctx context.Context, proxyID int64, status string) (int64, error) {
+	var count int64
+	if err := scanSingleRow(ctx, r.sql,
+		"SELECT COUNT(*) FROM accounts WHERE proxy_id = $1 AND deleted_at IS NULL AND status = $2",
+		[]any{proxyID, status}, &count); err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+// GetProxyUsageTotals 汇总代理名下账号在原始用量账本保留窗口内的真实请求量。
+// 账号可能随时改绑代理，这里按「当前绑定到该代理的账号」归属请求；账本保留窗口
+// 起点取自 dashboard 覆盖率水位（raw_retained_from），随返回值一并交给调用方，
+// 避免把窗口内累计当成历史全量。
+func (r *proxyRepository) GetProxyUsageTotals(ctx context.Context, proxyID int64) (*service.ProxyUsageTotals, error) {
+	query := `
+		WITH watermark AS (
+			SELECT COALESCE(
+				(SELECT raw_retained_from FROM usage_dashboard_aggregation_watermark WHERE id = 1),
+				TIMESTAMPTZ '1970-01-01 00:00:00+00'
+			) AS retained_from
+		)
+		SELECT
+			COUNT(ul.id) AS requests,
+			MAX(ul.created_at) AS last_request_at,
+			watermark.retained_from AS window_start
+		FROM watermark
+		LEFT JOIN usage_logs ul
+			ON ul.created_at >= watermark.retained_from
+			AND ul.account_id IN (
+				SELECT id FROM accounts WHERE proxy_id = $1 AND deleted_at IS NULL
+			)
+		GROUP BY watermark.retained_from
+	`
+
+	totals := &service.ProxyUsageTotals{}
+	if err := scanSingleRow(ctx, r.sql, query, []any{proxyID},
+		&totals.Requests,
+		&totals.LastRequestAt,
+		&totals.WindowStart,
+	); err != nil {
+		return nil, err
+	}
+	totals.WindowEnd = time.Now()
+	return totals, nil
+}
+
 func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, proxyID int64) ([]service.ProxyAccountSummary, error) {
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id, name, platform, type, notes
@@ -522,7 +580,7 @@ func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, pro
 
 // GetAccountCountsForProxies returns a map of proxy ID to account count for all proxies
 func (r *proxyRepository) GetAccountCountsForProxies(ctx context.Context) (counts map[int64]int64, err error) {
-	rows, err := r.sql.QueryContext(ctx, "SELECT proxy_id, COUNT(*) AS count FROM accounts WHERE proxy_id IS NOT NULL AND deleted_at IS NULL GROUP BY proxy_id")
+	rows, err := r.sql.QueryContext(ctx, "SELECT proxy_id, COUNT(*) AS count FROM accounts WHERE proxy_id IS NOT NULL AND deleted_at IS NULL AND "+workspacePredicate(ctx, "workspace_id")+" GROUP BY proxy_id")
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +692,7 @@ func (r *proxyRepository) ListAllForFallback(ctx context.Context) ([]service.Pro
 // 全部代理处理完后若有账号被改投，再统一 enqueue 一次 account_bulk_changed 事件——该 enqueue 在子事务之外
 // （走 r.sql、失败仅记日志、由调度器周期性 full rebuild 兜底），故「改投 → 失效」整体并非原子。
 func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time) (int64, error) {
-	// 快照读（事务前）：允许脏读不影响正确性，事务内已加锁写。
+	// 快照用于选择候选；事务内条件更新再次校验有效期、状态及回退配置。
 	all, err := r.ListAllForFallback(ctx)
 	if err != nil {
 		return 0, err
@@ -658,7 +716,7 @@ func (r *proxyRepository) SweepExpiredProxies(ctx context.Context, now time.Time
 			logger.LegacyPrintf("repository.proxy", "[ProxyExpiry] proxy %d expired but fallback chain unresolved (cycle/all-expired); accounts kept", p.ID)
 		}
 
-		changedAccountIDs, sweepErr := r.sweepOneExpiredProxy(ctx, p.ID, target, change)
+		changedAccountIDs, sweepErr := r.sweepOneExpiredProxy(ctx, p, now, target, change)
 		if sweepErr != nil {
 			return totalChanged, sweepErr
 		}
@@ -696,7 +754,7 @@ func sortedUniqueAccountIDs(accountIDs []int64) []int64 {
 
 // sweepOneExpiredProxy 在单事务内原子执行：标记代理 expired + 改投绑定账号。
 // 若 r.client 已绑定事务（测试注入场景），直接在 r.sql 上执行，由外层事务保证原子性。
-func (r *proxyRepository) sweepOneExpiredProxy(ctx context.Context, proxyID int64, target *int64, change bool) ([]int64, error) {
+func (r *proxyRepository) sweepOneExpiredProxy(ctx context.Context, snapshot service.Proxy, now time.Time, target *int64, change bool) ([]int64, error) {
 	// 尝试开启子事务；若 r.client 已是事务 client，则返回 ErrTxStarted，退回使用 r.sql。
 	tx, txErr := r.client.Tx(ctx)
 	if txErr != nil {
@@ -704,13 +762,13 @@ func (r *proxyRepository) sweepOneExpiredProxy(ctx context.Context, proxyID int6
 			return nil, txErr
 		}
 		// 已在外层事务中（集成测试场景），直接用 r.sql 执行
-		return r.sweepOneExpiredProxyOnExec(ctx, r.sql, proxyID, target, change)
+		return r.sweepOneExpiredProxyOnExec(ctx, r.sql, snapshot, now, target, change)
 	}
 
 	// 使用新事务执行
 	var accountIDs []int64
 	var err error
-	accountIDs, err = r.sweepOneExpiredProxyOnExec(ctx, tx, proxyID, target, change)
+	accountIDs, err = r.sweepOneExpiredProxyOnExec(ctx, tx, snapshot, now, target, change)
 	if err != nil {
 		_ = tx.Rollback()
 		return nil, err
@@ -722,11 +780,27 @@ func (r *proxyRepository) sweepOneExpiredProxy(ctx context.Context, proxyID int6
 }
 
 // sweepOneExpiredProxyOnExec 在给定的 sqlExecutor 上执行：标记 expired + 改投账号。
-func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec sqlExecutor, proxyID int64, target *int64, change bool) ([]int64, error) {
-	if _, err := exec.ExecContext(ctx,
-		`UPDATE proxies SET status=$1, updated_at=NOW() WHERE id=$2 AND deleted_at IS NULL`,
-		service.StatusExpired, proxyID); err != nil {
+func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec sqlExecutor, snapshot service.Proxy, now time.Time, target *int64, change bool) ([]int64, error) {
+	proxyID := snapshot.ID
+	// The UPDATE locks the row and rechecks its predicates after concurrent writes.
+	// If an administrator renewed, disabled or reconfigured the proxy after the
+	// snapshot, leave its accounts untouched and reconsider it on the next sweep.
+	result, err := exec.ExecContext(ctx, `
+		UPDATE proxies SET status=$1, updated_at=NOW()
+		WHERE id=$2 AND deleted_at IS NULL AND status=$3
+		  AND expires_at <= $4 AND expires_at = $5
+		  AND fallback_mode=$6 AND backup_proxy_id IS NOT DISTINCT FROM $7`,
+		service.StatusExpired, proxyID, service.StatusActive, now, snapshot.ExpiresAt,
+		snapshot.FallbackMode, snapshot.BackupProxyID)
+	if err != nil {
 		return nil, err
+	}
+	changed, err := result.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if changed == 0 {
+		return nil, nil
 	}
 	if !change {
 		accountIDs, err := invalidateProxyProbeSnapshots(ctx, exec, proxyID)
@@ -738,10 +812,7 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 		}
 		return nil, nil
 	}
-	var (
-		rows *sql.Rows
-		err  error
-	)
+	var rows *sql.Rows
 	// Match the current proxy even after an earlier fallback. Keep the first
 	// origin so manual revert still restores the originally assigned proxy.
 	if target == nil {

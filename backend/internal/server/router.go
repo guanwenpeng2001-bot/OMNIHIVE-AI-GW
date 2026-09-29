@@ -75,7 +75,14 @@ func SetupRouter(
 		frontendServer, err := web.NewFrontendServer(settingService) //nolint:staticcheck // SA4023: the !embed stub always errors; embed builds can return nil
 		if err != nil {                                              //nolint:staticcheck // SA4023: see above
 			log.Printf("Warning: Failed to create frontend server with settings injection: %v, using legacy mode", err)
-			r.Use(web.ServeEmbeddedFrontend())
+			legacyHandler, legacyErr := web.ServeEmbeddedFrontend()
+			if legacyErr != nil {
+				// Assets are unusable: keep serving API endpoints and say so, rather
+				// than failing every panel route while looking healthy.
+				log.Printf("Error: embedded frontend assets are unusable: %v; serving API endpoints only", legacyErr)
+			} else {
+				r.Use(legacyHandler)
+			}
 			settingService.SetOnUpdateCallback(refreshFrameOrigins)
 		} else {
 			// Register combined callback: invalidate HTML cache + refresh frame origins
@@ -128,6 +135,7 @@ func registerRoutes(
 	routes.RegisterUserRoutes(v1, h, jwtAuth, auditLog, settingService, panelRateLimiter)
 	routes.RegisterModelPlazaRoutes(v1, h, optionalJWTAuth, settingService, panelRateLimiter)
 	routes.RegisterAdminRoutes(v1, h, adminAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
+	routes.RegisterWorkspaceRoutes(v1, h, jwtAuth, auditLog, stepUpAuth, settingService, panelRateLimiter)
 	routes.RegisterGatewayRoutes(r, h, apiKeyAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg)
 	routes.RegisterPaymentRoutes(v1, h.Payment, h.PaymentWebhook, h.Admin.Payment, jwtAuth, adminAuth, auditLog, settingService, panelRateLimiter)
 

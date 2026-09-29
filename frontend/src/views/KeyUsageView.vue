@@ -47,6 +47,32 @@
 
       <!-- Input Section -->
       <div class="max-w-xl mx-auto mb-14">
+        <!-- Signed-in users query their own keys by ID through the panel session,
+             so no secret has to be pasted into a page. -->
+        <div v-if="authStore.user" class="mb-4 rounded-xl border border-gray-200 bg-white p-4 dark:border-dark-700 dark:bg-dark-900">
+          <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('keyUsage.sessionQuery.title') }}</p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.sessionQuery.description') }}</p>
+          <div class="mt-3 flex flex-wrap items-end gap-3">
+            <label class="min-w-56 flex-1 text-xs text-gray-600 dark:text-dark-300">
+              {{ t('keyUsage.sessionQuery.keyLabel') }}
+              <select
+                v-model="selectedKeyID"
+                class="input-ring mt-1 h-11 w-full rounded-xl border border-gray-200 bg-white px-3 text-sm text-gray-900 dark:border-dark-700 dark:bg-dark-900 dark:text-white"
+              >
+                <option :value="null">{{ t('keyUsage.sessionQuery.placeholder') }}</option>
+                <option v-for="key in sessionKeys" :key="key.id" :value="key.id">{{ key.name }} · {{ key.group }}</option>
+              </select>
+            </label>
+            <button
+              class="h-11 rounded-xl bg-primary-500 px-6 text-sm font-medium text-white transition-all hover:bg-primary-600 disabled:opacity-60"
+              :disabled="isQuerying || !selectedKeyID"
+              @click="querySelectedKey"
+            >{{ isQuerying ? t('keyUsage.querying') : t('keyUsage.query') }}</button>
+          </div>
+          <p v-if="sessionKeysLoaded && !sessionKeys.length" class="mt-2 text-xs text-gray-500 dark:text-dark-400">{{ t('keyUsage.sessionQuery.noKeys') }}</p>
+        </div>
+
+        <p v-if="authStore.user" class="mb-2 text-xs font-medium text-gray-500 dark:text-dark-400">{{ t('keyUsage.secretQuery.title') }}</p>
         <div class="flex gap-3">
           <div class="flex-1 relative">
             <div class="absolute left-4 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500">
@@ -91,6 +117,9 @@
         </div>
         <p class="text-xs text-gray-400 dark:text-dark-500 mt-3 text-center">
           {{ t('keyUsage.privacyNote') }}
+        </p>
+        <p v-if="!authStore.user" class="mt-1 text-center text-xs text-gray-400 dark:text-dark-500">
+          {{ t('keyUsage.sessionQuery.signedOutHint') }}
         </p>
 
         <!-- Date Range Picker -->
@@ -154,6 +183,15 @@
 
         <!-- Result Content -->
         <div v-else-if="resultData" class="space-y-6">
+          <!-- Panel-session results carry the facts the panel owns; per-request
+               token detail still requires the key itself. -->
+          <div
+            v-if="panelQuery"
+            class="rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700 dark:border-blue-800 dark:bg-blue-900/20 dark:text-blue-200"
+            role="status"
+          >
+            {{ t('keyUsage.panelModeNotice') }}
+          </div>
           <!-- Status Badge -->
           <div v-if="statusInfo" class="fade-up flex items-center justify-center mb-2">
             <div class="inline-flex items-center gap-2 px-5 py-2.5 rounded-full border border-gray-200 bg-white/90 shadow-sm backdrop-blur-sm dark:border-dark-700 dark:bg-dark-900/90">
@@ -417,18 +455,24 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import type { KeyUsageResponse } from '@/types/user'
+import { ref, computed, onMounted, onUnmounted, nextTick, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores'
+import { useAppStore, useAuthStore } from '@/stores'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
 import LocaleSwitcher from '@/components/common/LocaleSwitcher.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildGatewayUrl } from '@/api/client'
+import { keysAPI } from '@/api/keys'
+import { getDashboardApiKeysUsage, getMyApiKeyDailyUsage, type ApiKeyDailyUsagePoint } from '@/api/usage'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import type { ApiKey } from '@/types'
 import { formatDateLocalInput } from '@/utils/format'
 import { sanitizeUrl } from '@/utils/url'
 
 const { t, locale } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.subscription))
 
 // ==================== Site Settings (same as HomeView) ====================
@@ -458,9 +502,18 @@ const isQuerying = ref(false)
 const showResults = ref(false)
 const showLoading = ref(false)
 const showDatePicker = ref(false)
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const resultData = ref<any>(null)
+const resultData = ref<KeyUsageResponse | null>(null)
 const now = ref(new Date())
+
+// Panel-session query (signed-in users, by key ID).
+const sessionKeys = ref<{ id: number; name: string; group: string }[]>([])
+const sessionKeysLoaded = ref(false)
+const selectedKeyID = ref<number | null>(null)
+// True when the shown result came from the authenticated panel instead of the
+// gateway payload, which changes what the page can truthfully display.
+const panelQuery = ref(false)
+// Settled cost the panel already aggregates for this key (today / all time).
+const panelCosts = ref<{ today: number; total: number } | null>(null)
 let resetTimer: ReturnType<typeof setInterval> | null = null
 
 // ==================== Date Range State ====================
@@ -520,7 +573,10 @@ function getDateParams(): string {
 function setDailyUsageDays(days: 7 | 30 | 90) {
   if (dailyUsageDays.value === days) return
   dailyUsageDays.value = days
-  if (resultData.value && apiKey.value.trim()) {
+  // 重新按新窗口查询：面板会话模式按 Key ID，粘贴模式按密钥。
+  if (resultData.value && panelQuery.value && selectedKeyID.value) {
+    void querySelectedKey()
+  } else if (resultData.value && apiKey.value.trim()) {
     queryKey()
   }
 }
@@ -555,13 +611,36 @@ function getRingOffset(ring: RingItem): number {
   return CIRCUMFERENCE - (Math.min(ring.pct, 100) / 100) * CIRCUMFERENCE
 }
 
+// 环形动画的句柄：组件卸载时必须取消，否则残留的定时器会在环境销毁后继续回调。
+let ringFrame = 0
+let ringTimer: ReturnType<typeof setTimeout> | null = null
+let ringDisposed = false
+
+function cancelRingAnimation() {
+  ringDisposed = true
+  if (ringTimer !== null) {
+    clearTimeout(ringTimer)
+    ringTimer = null
+  }
+  if (ringFrame) {
+    cancelAnimationFrame(ringFrame)
+    ringFrame = 0
+  }
+}
+
 function triggerRingAnimation(items: RingItem[]) {
+  cancelRingAnimation()
+  ringDisposed = false
   ringAnimated.value = false
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
-    requestAnimationFrame(() => {
-      setTimeout(() => {
+    if (ringDisposed) return
+    ringFrame = requestAnimationFrame(() => {
+      if (ringDisposed) return
+      ringTimer = setTimeout(() => {
+        ringTimer = null
+        if (ringDisposed) return
         ringAnimated.value = true
 
         // Animate percentage numbers
@@ -570,13 +649,14 @@ function triggerRingAnimation(items: RingItem[]) {
         const targets = items.map(item => item.isBalance ? 0 : item.pct)
 
         function tick() {
+          if (ringDisposed) return
           const elapsed = performance.now() - startTime
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)
           displayPcts.value = targets.map(target => Math.round(ease * target))
-          if (p < 1) requestAnimationFrame(tick)
+          if (p < 1) ringFrame = requestAnimationFrame(tick)
         }
-        requestAnimationFrame(tick)
+        ringFrame = requestAnimationFrame(tick)
       }, 50)
     })
   })
@@ -608,7 +688,6 @@ const statusInfo = computed(() => {
     isActive: true,
   }
 })
-
 const ringItems = computed<RingItem[]>(() => {
   const data = resultData.value
   if (!data) return []
@@ -690,6 +769,16 @@ const detailRows = computed<DetailRow[]>(() => {
   const ICON_CHECK = '<polyline points="20 6 9 17 4 12"/>'
 
   if (data.mode === 'quota_limited') {
+    if (panelCosts.value) {
+      rows.push({
+        iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_DOLLAR,
+        label: t('keyUsage.todayCost'), value: usd(panelCosts.value.today), valueClass: '',
+      })
+      rows.push({
+        iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-500', iconSvg: ICON_DOLLAR,
+        label: t('keyUsage.totalCost'), value: usd(panelCosts.value.total), valueClass: '',
+      })
+    }
     if (data.quota) {
       const remainColor = data.quota.remaining <= 0 ? 'text-rose-500'
         : data.quota.remaining < data.quota.limit * 0.1 ? 'text-amber-500'
@@ -737,21 +826,21 @@ const detailRows = computed<DetailRow[]>(() => {
 
     if (data.subscription) {
       const sub = data.subscription
-      if (sub.daily_limit_usd > 0) {
+      if (sub.daily_limit_usd != null && sub.daily_limit_usd > 0) {
         const pct = (sub.daily_usage_usd / sub.daily_limit_usd) * 100
         rows.push({
           iconBg: 'bg-primary-500/10', iconColor: 'text-primary-500', iconSvg: ICON_DOLLAR,
           label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '日' : 'D'})`, value: `${usd(sub.daily_usage_usd)} / ${usd(sub.daily_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
-      if (sub.weekly_limit_usd > 0) {
+      if (sub.weekly_limit_usd != null && sub.weekly_limit_usd > 0) {
         const pct = (sub.weekly_usage_usd / sub.weekly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-indigo-500/10', iconColor: 'text-indigo-500', iconSvg: ICON_DOLLAR,
           label: `${t('keyUsage.usedQuota')} (${locale.value === 'zh' ? '周' : 'W'})`, value: `${usd(sub.weekly_usage_usd)} / ${usd(sub.weekly_limit_usd)}`, valueClass: getUsageColor(pct),
         })
       }
-      if (sub.monthly_limit_usd > 0) {
+      if (sub.monthly_limit_usd != null && sub.monthly_limit_usd > 0) {
         const pct = (sub.monthly_usage_usd / sub.monthly_limit_usd) * 100
         rows.push({
           iconBg: 'bg-emerald-500/10', iconColor: 'text-emerald-500', iconSvg: ICON_DOLLAR,
@@ -787,8 +876,8 @@ const usageStatCells = computed<StatCell[]>(() => {
   const usage = resultData.value?.usage
   if (!usage) return []
 
-  const today = usage.today || {}
-  const total = usage.total || {}
+  const today = usage.today
+  const total = usage.total
 
   return [
     { label: t('keyUsage.todayRequests'), value: fmtNum(today.requests) },
@@ -810,8 +899,7 @@ const usageStatCells = computed<StatCell[]>(() => {
   ]
 })
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-const modelStats = computed<any[]>(() => resultData.value?.model_stats || [])
+const modelStats = computed(() => resultData.value?.model_stats || [])
 
 interface DailyUsageRow {
   date: string
@@ -860,7 +948,7 @@ function getBrowserTimezone(): string {
 
 // ==================== API Query ====================
 
-async function fetchUsage(key: string) {
+async function fetchUsage(key: string): Promise<KeyUsageResponse> {
   const dateParams = getDateParams()
   const url = buildGatewayUrl('/v1/usage') + (dateParams ? '?' + dateParams : '')
   const res = await fetch(url, {
@@ -882,6 +970,8 @@ async function queryKey() {
     return
   }
 
+  panelQuery.value = false
+  panelCosts.value = null
   isQuerying.value = true
   showResults.value = true
   showLoading.value = true
@@ -908,7 +998,119 @@ async function queryKey() {
   }
 }
 
+// ==================== Panel-session query ====================
+
+// Lists the signed-in user's keys so they can query by ID without pasting a
+// secret into the page. The list response only carries masked credentials.
+async function loadSessionKeys() {
+  if (!authStore.user) return
+  try {
+    const result = await keysAPI.list(1, 100)
+    sessionKeys.value = result.items.map((key) => ({
+      id: key.id,
+      name: key.name,
+      group: key.group?.name ?? t('keyUsage.sessionQuery.noGroup')
+    }))
+  } catch {
+    sessionKeys.value = []
+  } finally {
+    sessionKeysLoaded.value = true
+  }
+}
+
+// The panel owns quota, rate limits, expiry and daily usage for a key, so these
+// are read through the authenticated endpoints. Today/total actual cost comes
+// from the same dashboard aggregation the keys page uses.
+async function querySelectedKey() {
+  if (isQuerying.value || !selectedKeyID.value) return
+  isQuerying.value = true
+  showResults.value = true
+  showLoading.value = true
+  resultData.value = null
+  panelQuery.value = true
+  panelCosts.value = null
+  try {
+    const keyID = selectedKeyID.value
+    const key = await keysAPI.getById(keyID)
+    const [daily, stats] = await Promise.all([
+      getMyApiKeyDailyUsage(keyID, dailyUsageDays.value),
+      getDashboardApiKeysUsage([keyID])
+    ])
+    resultData.value = buildPanelResult(key, daily.items, stats.stats?.[String(keyID)])
+    showLoading.value = false
+    showDatePicker.value = false
+    nextTick(() => {
+      triggerRingAnimation(ringItems.value)
+    })
+    appStore.showSuccess(t('keyUsage.querySuccess'))
+  } catch (err) {
+    showResults.value = false
+    showLoading.value = false
+    resultData.value = null
+    appStore.showError(extractApiErrorMessage(err, '') || t('keyUsage.queryFailedRetry'))
+  } finally {
+    isQuerying.value = false
+  }
+}
+
+// Maps panel facts into the page's existing display shape. Fields the panel
+// cannot answer (per-request token detail, subscription windows) stay absent so
+// the page keeps showing "-" instead of an invented number.
+function buildPanelResult(
+  key: ApiKey,
+  daily: ApiKeyDailyUsagePoint[],
+  stats: { today_actual_cost: number; total_actual_cost: number } | undefined
+): KeyUsageResponse {
+  const rateLimits: NonNullable<Extract<KeyUsageResponse, { mode: 'quota_limited' }>['rate_limits']> = []
+  const windows: Array<{ window: '5h' | '1d' | '7d'; limit: number; used: number; start?: string | null; reset?: string | null }> = [
+    { window: '5h', limit: key.rate_limit_5h, used: key.usage_5h, start: key.window_5h_start, reset: key.reset_5h_at },
+    { window: '1d', limit: key.rate_limit_1d, used: key.usage_1d, start: key.window_1d_start, reset: key.reset_1d_at },
+    { window: '7d', limit: key.rate_limit_7d, used: key.usage_7d, start: key.window_7d_start, reset: key.reset_7d_at }
+  ]
+  for (const window of windows) {
+    if (!(window.limit > 0)) continue
+    rateLimits.push({
+      window: window.window,
+      limit: window.limit,
+      used: window.used,
+      remaining: Math.max(window.limit - window.used, 0),
+      window_start: window.start ?? null,
+      reset_at: window.reset ?? undefined
+    })
+  }
+  const quota = key.quota > 0
+    ? { limit: key.quota, used: key.quota_used, remaining: Math.max(key.quota - key.quota_used, 0), unit: 'USD' }
+    : undefined
+  panelCosts.value = stats ? { today: stats.today_actual_cost, total: stats.total_actual_cost } : null
+  return {
+    isValid: key.status === 'active',
+    mode: 'quota_limited',
+    status: key.status,
+    quota,
+    rate_limits: rateLimits.length ? rateLimits : undefined,
+    expires_at: key.expires_at ?? undefined,
+    daily_usage: daily.map((row) => ({
+      date: row.date,
+      requests: row.requests,
+      input_tokens: row.input_tokens,
+      output_tokens: row.output_tokens,
+      cache_read_tokens: row.cache_read_tokens,
+      cache_write_tokens: row.cache_write_tokens,
+      cost: row.cost,
+      actual_cost: row.actual_cost
+    }))
+  }
+}
+
 // ==================== Lifecycle ====================
+
+// Auth state can resolve after mount, so the key list follows the signed-in user.
+watch(() => authStore.user?.id, () => {
+  sessionKeys.value = []
+  sessionKeysLoaded.value = false
+  selectedKeyID.value = null
+  void loadSessionKeys()
+})
 
 function initTheme() {
   const savedTheme = localStorage.getItem('theme')
@@ -935,10 +1137,12 @@ onMounted(() => {
   if (!appStore.publicSettingsLoaded) {
     appStore.fetchPublicSettings()
   }
+  void loadSessionKeys()
   resetTimer = setInterval(() => { now.value = new Date() }, 60000)
 })
 
 onUnmounted(() => {
+  cancelRingAnimation()
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>

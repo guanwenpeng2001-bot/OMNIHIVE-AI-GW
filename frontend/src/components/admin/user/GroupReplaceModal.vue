@@ -45,7 +45,7 @@
           </div>
           <div class="flex-1">
             <span class="font-medium text-gray-900 dark:text-white">{{ group.name }}</span>
-            <span :title="group.platform" class="ml-2 text-xs text-gray-400">{{ platformLabel(group.platform) }}</span>
+            <span :title="group.platform" class="ml-2 text-xs text-gray-400">{{ getPlatformLabel(group.platform, t) }}</span>
           </div>
         </label>
       </div>
@@ -76,11 +76,12 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import type { AdminUser, AdminGroup } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -124,6 +125,7 @@ const handleReplace = async () => {
     emit('success')
     emit('close')
   } catch (error) {
+    appStore.showError(extractApiErrorMessage(error, t('common.error')))
     console.error('Failed to replace group:', error)
   } finally {
     submitting.value = false

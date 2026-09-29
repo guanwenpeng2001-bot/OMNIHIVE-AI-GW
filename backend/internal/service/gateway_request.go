@@ -15,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
 )
@@ -51,6 +52,12 @@ type SessionContext struct {
 	ClientIP  string
 	UserAgent string
 	APIKeyID  int64
+
+	// Authenticated routing scope for opt-in affinity; IP and UA are legacy only.
+	OwnerID                int64
+	RouteScope             string
+	AffinityHMACKey        []byte
+	AffinityHMACKeyVersion string
 }
 
 type jsonRange struct {
@@ -182,8 +189,11 @@ func parseGatewayRequestCurrentBody(parsed *ParsedRequest, protocol string) erro
 	}
 
 	bodyBytes := parsed.Body.Bytes()
-	if !gjson.ValidBytes(bodyBytes) {
-		return DescribeInvalidJSON(bodyBytes)
+	if err := requestmodel.ValidateJSON(bodyBytes); err != nil {
+		if !json.Valid(bodyBytes) {
+			return DescribeInvalidJSON(bodyBytes)
+		}
+		return err
 	}
 
 	// 只在当前函数内零拷贝读取 JSON 字段；ReplaceBody 后必须重新进入本函数刷新派生状态。
@@ -379,22 +389,6 @@ func (p *ParsedRequest) MessagesRaw() []byte {
 
 func (p *ParsedRequest) InputRaw() []byte {
 	return p.raw(p.inputRange)
-}
-
-func (p *ParsedRequest) DecodeSystem(dst any) error {
-	raw := p.SystemRaw()
-	if len(raw) == 0 {
-		return nil
-	}
-	return json.Unmarshal(raw, dst)
-}
-
-func (p *ParsedRequest) DecodeMessages(dst any) error {
-	raw := p.MessagesRaw()
-	if len(raw) == 0 {
-		return nil
-	}
-	return json.Unmarshal(raw, dst)
 }
 
 func (p *ParsedRequest) SystemValue() (any, bool) {

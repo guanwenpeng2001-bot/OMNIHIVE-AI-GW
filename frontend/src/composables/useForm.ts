@@ -1,3 +1,4 @@
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 
@@ -27,7 +28,7 @@ export function useForm<T>(options: UseFormOptions<T>) {
         appStore.showSuccess(successMsg)
       }
     } catch (error: any) {
-      const detail = error.response?.data?.detail || error.response?.data?.message || error.message
+      const detail = extractApiErrorMessage(error, '')
       appStore.showError(errorMsg || detail)
       // 继续抛出错误，让组件有机会进行局部处理（如验证错误显示）
       throw error

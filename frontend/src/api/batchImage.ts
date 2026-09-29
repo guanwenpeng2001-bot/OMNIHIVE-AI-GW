@@ -113,17 +113,17 @@ async function parseBatchImageError(response: Response): Promise<Error> {
   try {
     const body = await response.json()
     const message = body?.error?.message || body?.message || response.statusText
-    const error = new Error(message)
-    ;(error as any).code = body?.error?.code || response.status
-    ;(error as any).status = response.status
-    ;(error as any).requestId = response.headers.get('X-Request-Id') || ''
-    return error
+    return Object.assign(new Error(message), {
+      code: body?.error?.code || response.status,
+      status: response.status,
+      requestId: response.headers.get('X-Request-Id') || ''
+    })
   } catch {
-    const error = new Error(response.statusText || `HTTP ${response.status}`)
-    ;(error as any).code = response.status
-    ;(error as any).status = response.status
-    ;(error as any).requestId = response.headers.get('X-Request-Id') || ''
-    return error
+    return Object.assign(new Error(response.statusText || `HTTP ${response.status}`), {
+      code: response.status,
+      status: response.status,
+      requestId: response.headers.get('X-Request-Id') || ''
+    })
   }
 }
 

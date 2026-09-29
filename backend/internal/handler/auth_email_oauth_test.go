@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/ent/pendingauthsession"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -60,7 +61,7 @@ func TestEmailOAuthCallbackRequiresPendingRegistrationWhenInvitationEnabled(t *t
 	require.NoError(t, err)
 	require.Zero(t, userCount)
 
-	session, err := client.PendingAuthSession.Query().Only(ctx)
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Only(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "github", session.ProviderType)
 	require.Equal(t, "github", session.ProviderKey)
@@ -114,10 +115,12 @@ func TestEmailOAuthCallbackExistingEmailLogsInWhenInvitationEnabled(t *testing.T
 
 	require.Equal(t, http.StatusFound, recorder.Code)
 	location := recorder.Header().Get("Location")
-	require.Contains(t, location, "access_token=")
-	require.Contains(t, location, "redirect=%252Fdashboard")
+	require.Contains(t, location, "code=")
+	require.NotContains(t, location, "access_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.Contains(t, location, "redirect=")
 
-	sessionCount, err := client.PendingAuthSession.Query().Count(ctx)
+	sessionCount, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, sessionCount)
 
@@ -169,7 +172,7 @@ func TestEmailOAuthCallbackCreatesPasswordRegistrationSessionForNewEmail(t *test
 	require.Empty(t, affiliateRepo.ensureUserIDs)
 	require.Empty(t, affiliateRepo.bindCalls)
 
-	session, err := client.PendingAuthSession.Query().Only(ctx)
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Only(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "aff-user@example.com", session.ResolvedEmail)
 	require.Equal(t, "AFF123", pendingSessionStringValue(session.UpstreamIdentityClaims, "aff_code"))
@@ -222,7 +225,7 @@ func TestEmailOAuthStartPreservesPromoCodeInPendingSession(t *testing.T) {
 	})
 
 	require.Equal(t, http.StatusFound, callbackRecorder.Code)
-	session, err := client.PendingAuthSession.Query().Only(ctx)
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Only(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "WELCOME2024", pendingOAuthPromoCode(session))
 }

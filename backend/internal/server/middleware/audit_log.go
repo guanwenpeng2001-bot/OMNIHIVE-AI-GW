@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -109,15 +110,14 @@ func truncateAuditExtraString(value string, limit int) string {
 
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
-	"GET /api/v1/admin/accounts/data":             "admin.accounts.export",
-	"GET /api/v1/admin/proxies/data":              "admin.proxies.export",
-	"GET /api/v1/admin/redeem-codes/export":       "admin.redeem_codes.export",
-	"GET /api/v1/admin/backups/:id/download-url":  "admin.backups.download",
-	"GET /api/v1/admin/settings/admin-api-key":    "admin.admin_api_key.read",
-	"GET /api/v1/admin/users/:id/api-keys":        "admin.users.api_keys.read",
-	"GET /api/v1/admin/groups/:id/api-keys":       "admin.groups.api_keys.read",
-	"GET /api/v1/admin/backups/s3-config":         "admin.backups.s3_config.read",
-	"GET /api/v1/admin/data-management/s3/config": "admin.data_management.s3_config.read",
+	"GET /api/v1/admin/accounts/data":            "admin.accounts.export",
+	"GET /api/v1/admin/proxies/data":             "admin.proxies.export",
+	"GET /api/v1/admin/redeem-codes/export":      "admin.redeem_codes.export",
+	"GET /api/v1/admin/backups/:id/download-url": "admin.backups.download",
+	"GET /api/v1/admin/settings/admin-api-key":   "admin.admin_api_key.read",
+	"GET /api/v1/admin/users/:id/api-keys":       "admin.users.api_keys.read",
+	"GET /api/v1/admin/groups/:id/api-keys":      "admin.groups.api_keys.read",
+	"GET /api/v1/admin/backups/s3-config":        "admin.backups.s3_config.read",
 }
 
 // auditActionOverrides 变更类请求的动作名精确映射（未命中时自动推导）。
@@ -190,12 +190,14 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 		// 只读取脱敏解析上限内的字节，超出部分与已读部分拼接回填，
 		// 避免大体积导入请求被完整复制进内存两次。
 		var bodyRedacted string
+		var submittedDiff []service.ConfigurationFieldDiff
 		if _, omit := auditBodyOmittedRoutes[routeKey]; omit {
 			bodyRedacted = "<credential-bearing body omitted>"
 		} else if c.Request.Body != nil && c.Request.Method != "GET" {
 			orig := c.Request.Body
 			raw, err := io.ReadAll(io.LimitReader(orig, service.AuditRequestBodyCaptureLimit+1))
 			if err == nil {
+				submittedDiff = service.SubmittedConfigurationDiff(raw)
 				c.Request.Body = &restoredBody{
 					Reader: io.MultiReader(bytes.NewReader(raw), orig),
 					closer: orig,
@@ -204,6 +206,15 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 			}
 		}
 
+		actor := service.ConfigurationAuditActor{Role: c.GetString("user_role")}
+		if subject, ok := GetAuthSubjectFromContext(c); ok {
+			actor.UserID = subject.UserID
+		}
+		if role, ok := GetUserRoleFromContext(c); ok {
+			actor.Role = role
+		}
+		actor.RequestID, _ = c.Request.Context().Value(ctxkey.RequestID).(string)
+		c.Request = c.Request.WithContext(service.WithConfigurationAuditActor(c.Request.Context(), actor))
 		start := time.Now()
 		c.Next()
 
@@ -271,6 +282,12 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 		entry.CredentialMasked = MaskedRequestCredential(c)
 
 		extra := map[string]any{}
+		if len(submittedDiff) > 0 {
+			extra["submitted_diff"] = submittedDiff
+		}
+		if workspaceID, scoped := domain.WorkspaceScope(c.Request.Context()); scoped {
+			extra["workspace_id"] = workspaceID
+		}
 		if value, ok := c.Get(auditCtxKeyExtra); ok {
 			if details, ok := value.(map[string]any); ok {
 				for key, item := range details {

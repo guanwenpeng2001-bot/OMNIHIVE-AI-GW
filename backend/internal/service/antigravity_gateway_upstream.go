@@ -79,7 +79,7 @@ func (s *AntigravityGatewayService) ForwardUpstream(ctx context.Context, c *gin.
 	}
 
 	// 发送请求
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	resp, err := doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, req, proxyURL, account)
 	if err != nil {
 		logger.LegacyPrintf("service.antigravity_gateway", "%s upstream request failed: %v", prefix, err)
 		return nil, fmt.Errorf("upstream request failed: %w", err)
@@ -235,8 +235,14 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 	flusher, _ := c.Writer.(http.Flusher)
 	cw := newAntigravityClientWriter(c.Writer, flusher, "antigravity upstream")
 
+	defer func() { _ = resp.Body.Close() }()
 	for {
+		if cw.Disconnected() || c.Request.Context().Err() != nil {
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
+		}
 		select {
+		case <-c.Request.Context().Done():
+			return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
 		case ev, ok := <-events:
 			if !ok {
 				return &antigravityStreamResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: cw.Disconnected()}
@@ -290,7 +296,7 @@ func (s *AntigravityGatewayService) streamUpstreamResponse(c *gin.Context, resp 
 			// SSE ping 事件：Anthropic 原生格式，客户端会正确处理，
 			// 同时保持连接活跃防止 Cloudflare Tunnel 等代理断开
 			if !cw.Fprintf("event: ping\ndata: {\"type\": \"ping\"}\n\n") {
-				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity upstream), continuing to drain upstream for billing")
+				logger.LegacyPrintf("service.antigravity_gateway", "Client disconnected during keepalive ping (antigravity upstream), canceling upstream with observed usage")
 				continue
 			}
 		}

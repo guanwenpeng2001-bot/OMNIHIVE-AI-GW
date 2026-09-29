@@ -1,3 +1,4 @@
+import type { PlatformModelPreset } from '@/api/admin/platformModelPresets'
 import { validateModelRestrictions } from '../useModelWhitelist'
 import { describe, expect, it, vi } from 'vitest'
 
@@ -5,66 +6,18 @@ vi.mock('@/api/admin/accounts', () => ({
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
-import { buildModelMappingObject, getModelsByPlatform, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
+import { buildModelMappingObject, getModelsByPlatform, modelCandidateKey, getPresetMappingsByPlatform, splitModelMappingObject } from '../useModelWhitelist'
 
 describe('useModelWhitelist', () => {
-  it('openai 模型列表包含 GPT-5.4 官方快照', () => {
-    const models = getModelsByPlatform('openai')
-
-    expect(models).toContain('gpt-5.4')
-    expect(models).toContain('gpt-5.4-mini')
-    expect(models).toContain('gpt-5.4-2026-03-05')
-    expect(models).toContain('codex-auto-review')
-    expect(models).toContain('gpt-5.6')
-    expect(models).toContain('gpt-6')
-    expect(models).toContain('gpt-6-astra')
-  })
-
-  it('openai 预设映射包含 GPT-6 别名和 Astra', () => {
-    expect(getPresetMappingsByPlatform('openai')).toEqual(expect.arrayContaining([
-      expect.objectContaining({ label: 'GPT-6', from: 'gpt-6', to: 'gpt-6' }),
-      expect.objectContaining({ label: 'GPT-6 Astra', from: 'gpt-6-astra', to: 'gpt-6-astra' })
-    ]))
-  })
-
-  it('openai 模型列表不再暴露已下线的 ChatGPT 登录 Codex 模型', () => {
-    const models = getModelsByPlatform('openai')
-
-    expect(models).not.toContain('gpt-5')
-    expect(models).not.toContain('gpt-5.1')
-    expect(models).not.toContain('gpt-5.1-codex')
-    expect(models).not.toContain('gpt-5.1-codex-max')
-    expect(models).not.toContain('gpt-5.1-codex-mini')
-    expect(models).not.toContain('gpt-5.2-codex')
-  })
-
-  it('antigravity 模型列表包含图片模型兼容项', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models).toContain('gemini-3-pro-image')
-  })
-
-  it('Claude 模型列表包含新发布的 Claude 模型', () => {
-    expect(getModelsByPlatform('claude')).toContain('claude-fable-5-1')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5-1')
-    expect(getModelsByPlatform('claude')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-fable-5')
-    expect(getModelsByPlatform('claude')).toContain('claude-opus-4-8')
-    expect(getModelsByPlatform('antigravity')).toContain('claude-opus-4-8')
-  })
-
-  it('xAI 模型列表包含 Grok 4.5 官方模型和别名', () => {
-    const models = getModelsByPlatform('grok')
-
-    expect(models).toContain('grok-4.6')
-    expect(models).toContain('grok-4.6-latest')
-    expect(models).toContain('grok-4.5')
-    expect(models).toContain('grok-4.5-latest')
-    expect(models).toContain('grok-build-latest')
-    expect(models).toContain('grok-imagine-image-2.0')
-    expect(models).toContain('grok-imagine-video-1.5')
+  it('projects server candidates without inventing IDs or aliases', () => {
+    const presets = [{ platform: 'openai', provider_profile: 'native', models: [{ id: 'server-model', display_name: 'Server model' }] }] as PlatformModelPreset[]
+    expect(getModelsByPlatform('openai', {}, presets)).toEqual(['server-model'])
+    expect(getPresetMappingsByPlatform('openai', {}, presets)).toEqual([
+      expect.objectContaining({ label: 'Server model', from: 'server-model', to: 'server-model' })
+    ])
+    expect(getModelsByPlatform('gemini', {}, presets)).toEqual([])
+    expect(getModelsByPlatform('openai', {}, [])).toEqual([])
+    expect(getPresetMappingsByPlatform('openai', {}, [])).toEqual([])
   })
 
   it('combined 模式支持 Grok 4.5 官方别名映射', () => {
@@ -84,36 +37,6 @@ describe('useModelWhitelist', () => {
       'grok-4.5-latest': 'grok-4.5',
       'grok-build-latest': 'grok-4.5'
     })
-  })
-
-  it('grok 模型列表包含 Composer 默认项和兼容别名', () => {
-    const models = getModelsByPlatform('grok')
-
-    expect(models).toContain('grok-composer-2.5-fast')
-    expect(models).not.toContain('grok-composer')
-    expect(models).toContain('composer-2.5')
-  })
-
-  it('gemini 模型列表包含原生生图模型', () => {
-    const models = getModelsByPlatform('gemini')
-
-    expect(models).toContain('gemini-2.5-flash-image')
-    expect(models).toContain('gemini-3.1-flash-image')
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.0-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-  })
-
-  it('antigravity 模型列表会把新的 Gemini 图片模型排在前面', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models.indexOf('gemini-3.1-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash'))
-    expect(models.indexOf('gemini-2.5-flash-image')).toBeLessThan(models.indexOf('gemini-2.5-flash-lite'))
-  })
-
-  it('antigravity 模型列表包含 Gemini 3.1 Pro 通用别名', () => {
-    const models = getModelsByPlatform('antigravity')
-
-    expect(models).toContain('gemini-3.1-pro')
   })
 
   it('whitelist 模式会忽略通配符条目', () => {
@@ -180,9 +103,27 @@ describe('restriction validation', () => {
     [[], [{ from: 'source', to: 'one' }, { from: 'source', to: 'two' }]],
     [['source'], [{ from: 'source', to: 'other' }]]
   ])('reports the offending row for %j / %j', (allowed, mappings) => {
-    expect(validateModelRestrictions('combined', allowed, mappings)[0]).toMatch(/row \d+/)
+    expect(validateModelRestrictions('combined', allowed, mappings)[0]).toMatchObject({ row: expect.any(Number), code: expect.any(String) })
   })
   it('accepts case-sensitive identities and aliases', () => {
     expect(validateModelRestrictions('combined', ['Model'], [{ from: 'model-*', to: 'Model' }])).toEqual([])
+  })
+})
+
+
+describe('identity-scoped model candidates', () => {
+  it.each(['volcengine', 'qianfan', 'bedrock', 'unknown'])('never falls back to Claude for %s', platform => {
+    expect(getModelsByPlatform(platform)).toEqual([])
+    if (platform !== 'bedrock') expect(getPresetMappingsByPlatform(platform)).toEqual([])
+  })
+  it.each(['bedrock', 'service_account'])('does not use native Anthropic candidates for hosted type %s', type => {
+    expect(getModelsByPlatform('anthropic', { type })).toEqual([])
+    expect(getPresetMappingsByPlatform('anthropic', { type })).toEqual([])
+  })
+  it('keys every identity dimension independently', () => {
+    const identity = { host: 'https://native.example', type: 'apikey', profile: 'native', region: 'east', mode: 'payg' }
+    const baseline = modelCandidateKey('anthropic', identity)
+    for (const field of Object.keys(identity)) expect(modelCandidateKey('anthropic', { ...identity, [field]: 'changed' })).not.toBe(baseline)
+    expect(modelCandidateKey('other', identity)).not.toBe(baseline)
   })
 })

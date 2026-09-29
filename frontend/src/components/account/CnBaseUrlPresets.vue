@@ -1,32 +1,19 @@
 <template>
-  <div class="flex flex-wrap gap-2">
-    <button
-      v-for="preset in presets"
-      :key="preset.mode + ':' + preset.protocol + ':' + preset.url"
-      type="button"
-      data-testid="cn-base-url-preset"
-      :class="[
-        'rounded-lg px-3 py-1 text-xs transition-colors',
-        isActive(preset)
-          ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-          : 'bg-gray-100 text-gray-700 hover:bg-primary-50 hover:text-primary-700 dark:bg-dark-600 dark:text-gray-300 dark:hover:bg-primary-900/30 dark:hover:text-primary-400'
-      ]"
-      @click="emit('select', preset)"
-    >
-      {{ preset.label }} ({{ displayUrl(preset.url) }})
-    </button>
-  </div>
+  <AccountEndpointPresets :presets="presets" :current-url="currentUrl" test-id="cn-base-url-preset" @select="emit('select', $event)" />
 </template>
 
 <script setup lang="ts">
 import { computed } from 'vue'
-import { CN_BASE_URL_PRESETS, type CnProviderPlatform, type CnBaseUrlPreset } from './credentialsBuilder'
+import { useI18n } from 'vue-i18n'
+import AccountEndpointPresets from './AccountEndpointPresets.vue'
+import { CN_BASE_URL_PRESETS, type CnBaseUrlPresetPlatform, type CnBaseUrlPreset } from './credentialsBuilder'
 
-// 国产供应商快捷端点：点击把预设地址（及对应账号类型/协议）回填到调用方。
-// 与 Grok 预设一致，仅作快速填充，输入框仍接受任意第三方转发地址。
-// 传入 protocol 时只显示该协议档的预设（协议 × 账号类型正交分档）。
+// 国产供应商与后加四家（混元 / 火山方舟 / 千帆 / Mistral）的官方站点快捷填充：点击回填地址
+// （及对应账号类型/协议）。与 Grok 预设一致，仅作快速填充，输入框仍接受任意第三方转发地址。
+// 传入 mode / protocol 时只显示该档的预设：套餐与按量付费的 Base URL 与 Key 互不通用，
+// 混在同一列表里点错就会打到错的计费口径（火山方舟明确：用按量地址不会消耗套餐额度，而是额外计费）。
 const props = defineProps<{
-  platform: CnProviderPlatform
+  platform: CnBaseUrlPresetPlatform
   /** 当前已选账号类型，用于过滤和高亮匹配的预设 */
   mode?: 'payg' | 'coding'
   /** 当前已选 API 协议，用于过滤和高亮匹配的预设 */
@@ -39,15 +26,13 @@ const emit = defineEmits<{
   (e: 'select', preset: CnBaseUrlPreset): void
 }>()
 
-const presets = computed(() => {
+const { t } = useI18n()
+
+const presets = computed<CnBaseUrlPreset[]>(() => {
   const all = CN_BASE_URL_PRESETS[props.platform] ?? []
-  // 只按协议过滤：同协议下 payg/coding 两档都展示，点击即同时切换账号类型。
-  if (props.protocol == null) return all
-  return all.filter(p => p.protocol === props.protocol)
+  const byMode = props.mode == null ? all : all.filter(preset => preset.mode === props.mode)
+  const matched = props.protocol == null ? byMode : byMode.filter(preset => preset.protocol === props.protocol)
+  // labelKey 只用于需要按语言展示的档位名（千帆套餐的企业版），专有名词仍走 label。
+  return matched.map(preset => (preset.labelKey ? { ...preset, label: t(preset.labelKey) } : preset))
 })
-
-const isActive = (preset: CnBaseUrlPreset) =>
-  (props.mode != null && preset.mode === props.mode) || preset.url === props.currentUrl
-
-const displayUrl = (url: string) => url.replace(/^https?:\/\//i, '')
 </script>

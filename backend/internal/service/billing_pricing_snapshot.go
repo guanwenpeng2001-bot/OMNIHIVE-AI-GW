@@ -27,6 +27,9 @@ var ErrInvalidBillingAmount = errors.New("invalid billing amount or quantity")
 // Amounts remain raw for the historical fingerprint; ChargedAmount is the
 // canonical eight-place amount to use for every customer effect and usage log.
 type PricingSnapshot struct {
+	// displayProbe skips serialization only after the ordinary amount/rate checks.
+	displayProbe                  bool
+	ProxyCacheDiscountInputTokens int                    `json:"proxy_cache_discount_input_tokens,omitempty"`
 	PricingAt                     time.Time              `json:"pricing_at,omitzero"`
 	PricingState                  PricingState           `json:"pricing_state"`
 	QuantizeQuoteBeforeMultiplier bool                   `json:"quantize_quote_before_multiplier,omitempty"`
@@ -128,6 +131,9 @@ func freezePricing(cost *CostBreakdown, snapshot PricingSnapshot) error {
 	}
 	if free && cost.TotalCost == 0 {
 		cost.PricingState = PricingStateFree
+	}
+	if snapshot.displayProbe {
+		return nil
 	}
 	snapshot.PricingState = cost.PricingState
 	snapshot.TotalCost, snapshot.ActualCost = cost.TotalCost, cost.ActualCost

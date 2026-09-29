@@ -71,7 +71,7 @@
           </tr>
         </thead>
         <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-transparent">
-          <tr v-if="loading"><td colspan="8" class="px-4 py-12 text-center text-gray-500" aria-busy="true">{{ t('common.loading') }}</td></tr>
+          <tr v-if="loading"><td colspan="8" class="px-4 py-12 text-center text-gray-500" aria-busy="true"><LoadingSpinner /></td></tr>
           <tr v-else-if="events.length === 0"><td colspan="8" class="px-4 py-12 text-center text-gray-500">{{ t('admin.promptAudit.events.empty') }}</td></tr>
           <tr v-for="event in events" v-else :key="event.id" :data-test="`event-${event.id}`" class="align-top hover:bg-gray-50/70 dark:hover:bg-dark-800/70">
             <td class="px-3 py-3"><input type="checkbox" :checked="selectedIds.includes(event.id)" :aria-label="t('admin.promptAudit.events.selectEvent', { id: event.id })" @change="toggleOne(event.id)" /></td>
@@ -104,6 +104,7 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { computed, defineComponent, h, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Pagination from '@/components/common/Pagination.vue'
@@ -152,7 +153,7 @@ const CopyLine = defineComponent({
       h('span', { class: 'w-16 flex-none text-gray-500 dark:text-dark-400' }, componentProps.label),
       h('span', { class: 'min-w-0 flex-1 truncate text-gray-800 dark:text-dark-100' }, componentProps.value || '—'),
       componentProps.value ? h('button', {
-        type: 'button', class: 'text-primary-600 hover:underline', 'aria-label': `${t('common.copy')} ${componentProps.label}`,
+        type: 'button', class: 'text-primary-700 dark:text-primary-400 hover:underline', 'aria-label': `${t('common.copy')} ${componentProps.label}`,
         onClick: () => navigator.clipboard?.writeText(componentProps.value),
       }, t('common.copy')) : null,
     ])

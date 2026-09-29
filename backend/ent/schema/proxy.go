@@ -25,6 +25,7 @@ func (Proxy) Annotations() []schema.Annotation {
 func (Proxy) Mixin() []ent.Mixin {
 	return []ent.Mixin{
 		mixins.TimeMixin{},
+		mixins.WorkspaceMixin{},
 		mixins.SoftDeleteMixin{},
 	}
 }

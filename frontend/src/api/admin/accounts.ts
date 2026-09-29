@@ -1,3 +1,6 @@
+import { validateTpmLimit } from '@/utils/tpmLimit'
+import { postIdempotentCreate } from '../idempotency'
+import type { ModelCategoryMetadata } from '@/utils/modelCategories'
 /**
  * Admin Accounts API endpoints
  * Handles AI platform account management for administrators
@@ -9,10 +12,8 @@ import type {
   AccountListItem,
   CreateAccountRequest,
   UpdateAccountRequest,
-  PaginatedResponse,
   AccountUsageInfo,
   WindowStats,
-  ClaudeModel,
   AccountUsageStatsResponse,
   TempUnschedulableStatus,
   AdminDataPayload,
@@ -28,8 +29,31 @@ import type {
   OllamaCloudUsageSettings,
   OllamaCloudUsageState,
   GrokMediaEligibilityMode,
-  GrokMediaEligibilityState
-} from '@/types'
+  GrokMediaEligibilityState,
+} from '@/types/admin'
+import type {
+  AccountModelCatalog,
+  AccountModelCatalogDetails,
+  UpdateModelAllowlistRequest,
+  UpdateModelAllowlistResponse,
+  AvailableAccountModel,
+} from '@/types/model'
+import type { PaginatedResponse } from '@/types/common'
+
+/** Wire filters shared by list, conditional list and billing snapshots. */
+export interface AccountListFilters {
+  // Query accepts historical/platform search values as well as current account platforms.
+  platform?: string
+  type?: import('@/types/admin').AccountType | ''
+  status?: import('@/types/admin').AccountStatus | 'rate_limited' | 'temp_unschedulable' | 'unschedulable' | ''
+  group?: string
+  search?: string
+  privacy_mode?: string
+  lite?: '0' | '1' | 'true' | 'false'
+  include_scheduler_score?: '0' | '1' | 'true' | 'false'
+  sort_by?: string
+  sort_order?: 'asc' | 'desc'
+}
 
 /**
  * List all accounts with pagination
@@ -41,18 +65,7 @@ import type {
 export async function list(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    lite?: string
-    include_scheduler_score?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
   }
@@ -83,16 +96,7 @@ export interface AccountUpstreamBillingRatesWithEtagResult {
 export async function getUpstreamBillingRatesWithEtag(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
     etag?: string | null
@@ -116,18 +120,7 @@ export async function getUpstreamBillingRatesWithEtag(
 export async function listWithEtag(
   page: number = 1,
   pageSize: number = 20,
-  filters?: {
-    platform?: string
-    type?: string
-    status?: string
-    group?: string
-    search?: string
-    privacy_mode?: string
-    lite?: string
-    include_scheduler_score?: string
-    sort_by?: string
-    sort_order?: 'asc' | 'desc'
-  },
+  filters?: AccountListFilters,
   options?: {
     signal?: AbortSignal
     etag?: string | null
@@ -181,8 +174,8 @@ export async function getById(id: number): Promise<Account> {
  * @returns Created account
  */
 export async function create(accountData: CreateAccountRequest): Promise<Account> {
-  const { data } = await apiClient.post<Account>('/admin/accounts', accountData)
-  return data
+  validateTpmLimit(accountData.tpm_limit)
+  return postIdempotentCreate<Account>('/admin/accounts', accountData)
 }
 
 /**
@@ -236,6 +229,7 @@ export async function duplicate(id: number): Promise<Account> {
  * @returns Updated account
  */
 export async function update(id: number, updates: UpdateAccountRequest): Promise<Account> {
+  validateTpmLimit(updates.tpm_limit)
   const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, updates)
   return data
 }
@@ -289,24 +283,6 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 }
 
 /**
- * Test account connectivity
- * @param id - Account ID
- * @returns Test result
- */
-export async function testAccount(id: number): Promise<{
-  success: boolean
-  message: string
-  latency_ms?: number
-}> {
-  const { data } = await apiClient.post<{
-    success: boolean
-    message: string
-    latency_ms?: number
-  }>(`/admin/accounts/${id}/test`)
-  return data
-}
-
-/**
  * Refresh account credentials
  * @param id - Account ID
  * @returns Updated account
@@ -333,6 +309,8 @@ export async function applyOAuthCredentials(
   id: number,
   payload: {
     type: 'oauth' | 'setup-token'
+    credential_draft?: string
+    credential_draft_revision?: string
     credentials: Record<string, unknown>
     extra?: Record<string, unknown>
   }
@@ -486,17 +464,19 @@ export async function exchangeCode(
  * @param accounts - Array of account data
  * @returns Results of batch creation
  */
-export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
+export type BatchCreateAccountResult =
+  | { name: string; success: true; id: number }
+  | { name: string; success: false; error: string }
+
+export interface BatchCreateAccountsResponse {
   success: number
   failed: number
-  results: Array<{ success: boolean; account?: Account; error?: string }>
-}> {
-  const { data } = await apiClient.post<{
-    success: number
-    failed: number
-    results: Array<{ success: boolean; account?: Account; error?: string }>
-  }>('/admin/accounts/batch', { accounts })
-  return data
+  results: BatchCreateAccountResult[]
+}
+
+export async function batchCreate(accounts: CreateAccountRequest[]): Promise<BatchCreateAccountsResponse> {
+  accounts.forEach(account => validateTpmLimit(account.tpm_limit))
+  return postIdempotentCreate<BatchCreateAccountsResponse>('/admin/accounts/batch', { accounts })
 }
 
 /**
@@ -507,7 +487,7 @@ export async function batchCreate(accounts: CreateAccountRequest[]): Promise<{
 export async function batchUpdateCredentials(request: {
   account_ids: number[]
   field: string
-  value: any
+  value: unknown
 }): Promise<{
   success: number
   failed: number
@@ -544,6 +524,7 @@ export async function bulkUpdate(
         ...(updates ?? {})
       }
     : accountIdsOrPayload
+  validateTpmLimit(payload.tpm_limit)
   const { data } = await apiClient.post<{
     success: number
     failed: number
@@ -599,23 +580,38 @@ export async function setSchedulable(id: number, schedulable: boolean): Promise<
  * @param id - Account ID
  * @returns List of available models for this account
  */
-export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
-  const { data } = await apiClient.get<ClaudeModel[]>(`/admin/accounts/${id}/models`)
+export async function getAvailableModels(id: number): Promise<AvailableAccountModel[]> {
+  const { data } = await apiClient.get<AvailableAccountModel[]>(`/admin/accounts/${id}/models`)
   return data
 }
 
-export interface SyncUpstreamModelsResult {
-  models: string[]
-  metadata?: Record<string, UpstreamModelMetadata>
-  warnings?: UpstreamModelSyncWarning[]
+/** Account-scoped holder declaration. Confirmation and identity fields are server-generated. */
+export interface ModelCapabilityDefaults {
+  schema_version: 1
+  reason: string
+  models: Record<string, Pick<Partial<UpstreamModelMetadata>,
+    'display_name' | 'task_type' | 'category' | 'context_window' | 'context_limit_kind' | 'max_output_tokens' |
+    'input_modalities' | 'input_modalities_status' | 'output_modalities' | 'reasoning' | 'reasoning_control' |
+    'supports_function_calling' | 'supports_prompt_caching' | 'embedding_dimensions' | 'task_limits'> & {
+      max_input_tokens?: number
+      tools?: { function_calling?: boolean }
+    }>
+  confirmed_by?: string
+  confirmed_at?: string
+  identity_revision?: string
+  identity_fingerprint?: string
 }
+
+export type SyncUpstreamModelsResult = AccountModelCatalog
 
 export interface UpstreamModelSyncWarning {
   code: string
   message: string
 }
 
-export interface UpstreamModelMetadata {
+export interface UpstreamModelMetadata extends ModelCategoryMetadata {
+  evidence_kind?: string
+  evidence_observed_at?: string
   id: string
   display_name?: string
   description?: string
@@ -626,31 +622,83 @@ export interface UpstreamModelMetadata {
   context_window?: number
   max_context_window?: number
   max_output_tokens?: number
+  context_limit_kind?: string
+  supports_function_calling?: boolean
+  supports_prompt_caching?: boolean
+  input_modalities_status?: string
+  endpoint_status?: string
+  provider_profile?: string
+  embedding_dimensions?: number
+  task_limits?: Record<string, unknown>
+  context_hint?: string
+  family_hint?: string
+  metadata_status?: 'complete' | 'estimated' | 'incomplete'
+  missing_fields?: string[]
+  estimated_fields?: string[]
+  conflicts?: string[]
+  reasoning_control?: {
+    kind: 'none' | 'effort' | 'toggle' | 'budget' | 'adaptive' | 'fixed' | 'unknown'
+    supported_kinds?: string[]
+    toggle_values?: boolean[]
+    adaptive?: boolean
+    effort_values?: string[]
+    budget_min?: number
+    budget_max?: number
+    default?: unknown
+  }
+  field_evidence?: Record<string, {
+    source: string
+    source_version?: string
+    content_hash?: string
+    provider_profile?: string
+    matched_model_id?: string
+    match_rule?: string
+    observed_at?: string
+    confidence?: string
+  }>
 }
 
 /**
  * Sync live supported models from the account's upstream model-list endpoint
  * @param id - Account ID
- * @returns List of model IDs returned by the upstream
+ * @returns Discovery, selectable candidates, routing eligibility and capability status separately.
  */
-export async function syncUpstreamModels(id: number, apply = true): Promise<SyncUpstreamModelsResult> {
-  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, undefined, { params: { apply } })
+export async function syncUpstreamModels(id: number, apply = false, expectedRulesRevision?: string, modelCapabilityDefaults?: Record<string, unknown> | null, review?: AccountModelCatalog['review']): Promise<SyncUpstreamModelsResult> {
+  if (apply && !review) throw new Error('A complete catalog review is required')
+  const body = apply ? { review } : modelCapabilityDefaults === undefined ? undefined : { model_capability_defaults: modelCapabilityDefaults }
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, body, { params: { apply, ...(expectedRulesRevision !== undefined ? { expected_rules_revision: expectedRulesRevision } : {}) } })
+  return data
+}
+
+/** Explicit account restriction with optimistic concurrency and an operator reason. */
+export async function updateModelAllowlist(id: number, request: UpdateModelAllowlistRequest): Promise<UpdateModelAllowlistResponse> {
+  const { data } = await apiClient.put<UpdateModelAllowlistResponse>(`/admin/accounts/${id}/models/allowlist`, request)
+  return data
+}
+
+// The management capability contract is this catalog resource's display_metadata;
+// HTTP failures (including 404) propagate without probing a second capabilities API.
+export async function getModelCatalog(id: number): Promise<AccountModelCatalogDetails> {
+  const { data } = await apiClient.get<AccountModelCatalogDetails>(`/admin/accounts/${id}/models/catalog`)
   return data
 }
 
 export interface SyncUpstreamPreviewParams {
+  credential_draft?: string
+  credential_draft_revision?: string
   platform: string
   type: string
   base_url?: string
   api_key?: string
   credentials?: Record<string, unknown>
   model_mapping?: Record<string, string>
+  model_capability_defaults?: Record<string, unknown> | null
 }
 
 /**
  * Preview upstream models without a saved account (create-flow)
  * @param params - Connection credentials
- * @returns List of model IDs returned by the upstream
+ * @returns Discovery, selectable candidates, routing eligibility and capability status separately.
  */
 export async function syncUpstreamModelsPreview(params: SyncUpstreamPreviewParams): Promise<SyncUpstreamModelsResult> {
   const { data } = await apiClient.post<SyncUpstreamModelsResult>('/admin/accounts/models/sync-upstream-preview', params)
@@ -754,6 +802,7 @@ export async function exportData(options?: {
 export async function importData(payload: {
   data: AdminDataPayload
   skip_default_group_bind?: boolean
+  confirm_mixed_channel_risk?: boolean
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
     data: payload.data,
@@ -762,8 +811,12 @@ export async function importData(payload: {
   return data
 }
 
-export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
-  const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload, {
+export type CodexSessionDraftResult = CodexSessionImportResult & {
+  ready?: Array<{ account: CreateAccountRequest & { credential_draft: string; credential_draft_revision: string; existing_account_id?: number } }>
+}
+
+export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionDraftResult> {
+  const { data } = await apiClient.post<CodexSessionDraftResult>('/admin/accounts/import/codex-session', payload, {
     timeout: 120000 // 120s timeout for large session imports
   })
   return data
@@ -1085,7 +1138,6 @@ export const accountsAPI = {
   checkMixedChannelRisk,
   delete: deleteAccount,
   toggleStatus,
-  testAccount,
   refreshCredentials,
   applyOAuthCredentials,
   getStats,
@@ -1101,6 +1153,8 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getModelCatalog,
+  updateModelAllowlist,
   syncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,

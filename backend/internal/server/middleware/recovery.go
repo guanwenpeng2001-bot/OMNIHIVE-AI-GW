@@ -2,11 +2,14 @@ package middleware
 
 import (
 	"errors"
+	"log"
 	"net"
 	"net/http"
 	"os"
+	"runtime/debug"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/gin-gonic/gin"
@@ -17,7 +20,18 @@ import (
 // It preserves Gin's broken-pipe handling by not attempting to write a response
 // when the client connection is already gone.
 func Recovery() gin.HandlerFunc {
-	return gin.CustomRecoveryWithWriter(gin.DefaultErrorWriter, func(c *gin.Context, recovered any) {
+	panicLogger := log.New(gin.DefaultErrorWriter, "[Recovery] ", log.LstdFlags)
+	// Gin's default debug/broken-pipe logger dumps the request URL and headers
+	// while masking only Authorization. Never send cookies, API keys, or query
+	// credentials to that writer. Panic values are arbitrary, potentially secret
+	// data too: log only their type, the correlation ID, and the stack.
+	return gin.CustomRecoveryWithWriter(nil, func(c *gin.Context, recovered any) {
+		if recovered == http.ErrAbortHandler {
+			panic(recovered)
+		}
+		requestID, _ := c.Request.Context().Value(ctxkey.RequestID).(string)
+		panicLogger.Printf("panic recovered: type=%T request_id=%q\n%s",
+			recovered, requestID, debug.Stack())
 		recoveredErr, _ := recovered.(error)
 
 		if isBrokenPipe(recoveredErr) {

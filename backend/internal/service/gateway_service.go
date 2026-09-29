@@ -20,6 +20,7 @@ import (
 	"unsafe"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
@@ -105,19 +106,20 @@ var (
 	modelsListCacheMissTotal  atomic.Int64
 	modelsListCacheStoreTotal atomic.Int64
 
-	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
 	// userPlatformQuotaDBIncrErrorTotal 统计 finalizePostUsageBilling 异步 goroutine
 	// 中 IncrementUsageWithReset 失败次数。Redis 已成功累加 + DB 写失败意味着
 	// Redis cache TTL 过期或被清后该笔 cost 会丢失（与实际消费偏差）。
-	// oncall 通过 GatewayUserPlatformQuotaIncrStats() 暴露给 ops 面板做阈值告警。
+	//
+	// 退役条件（不是日期）：database.user_platform_quota_flusher_enabled 成为默认写路径
+	// （当前 viper 默认 false，见 internal/config/config.go）后，本条直写路径不再执行，
+	// 才能连同 GatewayUserPlatformQuotaIncrStats 一起删除。翻转默认值的变更负责人负责退役。
+	// 现状：本仓库内暂无调用 GatewayUserPlatformQuotaIncrStats 的 ops/health 面板接线，
+	// 真正的现场告警仍依赖下方 ALERT 日志；面板接线人需同时决定保留或退役本计数器。
 	userPlatformQuotaDBIncrErrorTotal atomic.Int64
-	// Deprecated: flusher_enabled=true 后不再增长(仅 flag=false 降级直写路径使用);新主路径见 FlusherMetrics。remove after 2026-09。
-	// userPlatformQuotaDBIncrLegacyErrorTotal 统计 legacy postUsageBilling
-	// （applyUsageBilling 在 repo==nil 时 fallback）路径下的失败次数；
-	// 与 DB Incr 失败分开计数，便于区分"主路径暂时故障"vs"基础设施长期未配齐"。
-	userPlatformQuotaDBIncrLegacyErrorTotal atomic.Int64
 	// userPlatformQuotaSentinelSetCacheErrorTotal 统计 checkUserPlatformQuotaEligibility
 	// 在 DB 无行时回填 sentinel cache entry 写 Redis 失败的次数（phase A）。
+	// 与 userPlatformQuotaDBIncrErrorTotal 同为 flusher 关闭（当前默认）路径上的活计数器，
+	// 退役条件与责任相同。
 	userPlatformQuotaSentinelSetCacheErrorTotal atomic.Int64
 )
 
@@ -141,14 +143,14 @@ func GatewayModelsListCacheStats() (cacheHit, cacheMiss, store int64) {
 	return modelsListCacheHitTotal.Load(), modelsListCacheMissTotal.Load(), modelsListCacheStoreTotal.Load()
 }
 
-// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, legacyPathErr, sentinelSetErr)。
+// GatewayUserPlatformQuotaIncrStats 返回 (mainPathErr, sentinelSetErr)。
 // mainPathErr：finalizePostUsageBilling 异步 goroutine 写 DB 失败累计次数；
-// legacyPathErr：postUsageBilling fallback 路径写 DB 失败累计次数；
 // sentinelSetErr：DB 无行时回填 sentinel cache entry 写 Redis 失败累计次数。
-// ops 监控面板可以按"持续上升斜率"做告警阈值。
-func GatewayUserPlatformQuotaIncrStats() (mainPathErr, legacyPathErr, sentinelSetErr int64) {
+// 两者都只在 flusher 关闭（当前默认）的直写路径上增长，供 ops 斜率告警使用。
+// 当前仓库内没有调用方：ops/health 面板尚未接线，接线人或 flusher 转正变更负责人
+// 必须决定保留还是退役，不能仅凭历史注释里的日期删除。
+func GatewayUserPlatformQuotaIncrStats() (mainPathErr, sentinelSetErr int64) {
 	return userPlatformQuotaDBIncrErrorTotal.Load(),
-		userPlatformQuotaDBIncrLegacyErrorTotal.Load(),
 		userPlatformQuotaSentinelSetCacheErrorTotal.Load()
 }
 
@@ -580,6 +582,10 @@ type AccountSelectionResult struct {
 	Acquired    bool
 	ReleaseFunc func()
 	WaitPlan    *AccountWaitPlan // nil means no wait allowed
+	// CompositeTarget 是本次选号实际使用的有序目标（单目标兼容路由也有值）。
+	// handler 用它把出站请求的 upstream 模型改写到被选中目标的模型，并把目标
+	// 声明的亲和性 TTL 应用到本次请求。
+	CompositeTarget *CompositeRouteTarget
 	// profitGate 携带本次选号真实生效的利润门（无门为 nil）。门安装在调度栈的
 	// 局部 ctx 上，handler 必须经 ContextWithSelectionProfitGate 重放后才能在
 	// 调度栈之外做抢槽后终检与准入后粘性绑定。
@@ -684,6 +690,7 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	TPM                      *TPMLimitExceeded
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
@@ -702,6 +709,13 @@ type UpstreamFailoverError struct {
 	ClientMessage            string
 }
 
+func (e *UpstreamFailoverError) Unwrap() error {
+	if e == nil || e.TPM == nil {
+		return nil
+	}
+	return e.TPM
+}
+
 func (e *UpstreamFailoverError) Error() string {
 	if e != nil && e.Stage == GatewayFailureStageAccountAuth {
 		return fmt.Sprintf("credential failure: %s (failover)", e.Reason)
@@ -710,7 +724,7 @@ func (e *UpstreamFailoverError) Error() string {
 }
 
 func (e *UpstreamFailoverError) ShouldRetryNextAccount() bool {
-	return e != nil && e.NextAccountAction != NextAccountStop
+	return gatewayFailoverCanReplay(e)
 }
 
 func (e *UpstreamFailoverError) IsCredentialFailure() bool {
@@ -724,7 +738,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	return !e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount
+	return e.TPM == nil && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
 }
 
 // sseStreamErrorEventError 表示上游 SSE 流体内出现 event:error 帧。
@@ -785,6 +799,7 @@ type GatewayService struct {
 	userGroupRateResolver *userGroupRateResolver
 	userGroupRateCache    *gocache.Cache
 	userGroupRateSF       singleflight.Group
+	catalogSnapshotFlight singleflight.Group
 	modelsListCache       *gocache.Cache
 	modelsListCacheTTL    time.Duration
 	settingService        *SettingService
@@ -868,6 +883,9 @@ func NewGatewayService(
 		balanceNotifyService:  balanceNotifyService,
 		userPlatformQuotaRepo: userPlatformQuotaRepo,
 	}
+	if channelService != nil {
+		channelService.visibleModels = &VisibleModelResolver{gateway: svc}
+	}
 	if compositeResolver != nil {
 		compositeResolver.SetModelOwnershipResolver(svc.resolveCompositeModelOwnership)
 	}
@@ -896,7 +914,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	if parsed.MetadataUserID != "" {
 		uid := ParseMetadataUserID(parsed.MetadataUserID)
 		if uid != nil && uid.SessionID != "" {
-			slog.Info("sticky.hash_source",
+			slog.Debug("sticky.hash_source",
 				"source", "metadata_user_id",
 				"session_id", uid.SessionID,
 				"device_id", uid.DeviceID,
@@ -904,7 +922,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 			)
 			return uid.SessionID
 		}
-		slog.Info("sticky.hash_metadata_parse_failed",
+		slog.Debug("sticky.hash_metadata_parse_failed",
 			"metadata_user_id", parsed.MetadataUserID,
 			"parsed_nil", uid == nil,
 		)
@@ -914,7 +932,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	cacheableContent := s.extractCacheableContent(parsed)
 	if cacheableContent != "" {
 		hash := s.hashContent(cacheableContent)
-		slog.Info("sticky.hash_source",
+		slog.Debug("sticky.hash_source",
 			"source", "cacheable_content",
 			"hash", hash,
 		)
@@ -950,7 +968,7 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	}
 	if combined.Len() > 0 {
 		hash := s.hashContent(combined.String())
-		slog.Info("sticky.hash_source",
+		slog.Debug("sticky.hash_source",
 			"source", "message_content_fallback",
 			"hash", hash,
 			"content_len", combined.Len(),
@@ -961,12 +979,62 @@ func (s *GatewayService) GenerateSessionHash(parsed *ParsedRequest) string {
 	return ""
 }
 
+type stickySessionTTLKey struct{}
+
+// WithStickySessionTTL overrides the sticky-session TTL for the current request.
+// A non-positive duration keeps the legacy default, so older callers and routes
+// without a configured affinity TTL keep the exact previous behavior.
+func WithStickySessionTTL(ctx context.Context, ttl time.Duration) context.Context {
+	if ctx == nil || ttl <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, stickySessionTTLKey{}, ttl)
+}
+
+// WithCompositeTargetStickyTTL applies the active ordered target's configured
+// affinity TTL to the request context. It is a no-op when the request has no
+// ordered composite target or the target keeps the legacy default.
+func WithCompositeTargetStickyTTL(ctx context.Context) context.Context {
+	target, ok := ActiveCompositeTargetFromContext(ctx)
+	if !ok {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, target.AffinityTTLDuration())
+}
+
+// WithSelectionStickyTTL applies the affinity TTL declared by the ordered target
+// that produced this selection, keeping the legacy default when it is unset.
+func WithSelectionStickyTTL(ctx context.Context, result *AccountSelectionResult) context.Context {
+	if result == nil || result.CompositeTarget == nil {
+		return ctx
+	}
+	return WithStickySessionTTL(ctx, result.CompositeTarget.AffinityTTLDuration())
+}
+
+// stickySessionTTLForRequestWithDefault returns the affinity TTL declared for the
+// current request, or the caller's existing default when the request declares
+// none. Two trunks keep different legacy defaults (the Anthropic trunk uses
+// stickySessionTTL, the OpenAI trunk its own constant), so the default stays a
+// parameter instead of being unified here.
+func stickySessionTTLForRequestWithDefault(ctx context.Context, fallback time.Duration) time.Duration {
+	if ctx != nil {
+		if ttl, ok := ctx.Value(stickySessionTTLKey{}).(time.Duration); ok && ttl > 0 {
+			return ttl
+		}
+	}
+	return fallback
+}
+
+func stickySessionTTLForRequest(ctx context.Context) time.Duration {
+	return stickySessionTTLForRequestWithDefault(ctx, stickySessionTTL)
+}
+
 // BindStickySession sets session -> account binding with standard TTL.
 func (s *GatewayService) BindStickySession(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
-	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTL)
+	return s.cache.SetSessionAccountID(ctx, derefGroupID(groupID), sessionHash, accountID, stickySessionTTLForRequest(ctx))
 }
 
 // bindGatewayStickySessionDuringSelection preserves the normal eager sticky
@@ -987,6 +1055,18 @@ func (s *GatewayService) bindGatewayStickySessionDuringSelection(ctx context.Con
 // account remains bound and automatically becomes eligible again if its
 // account rate recovers.
 func (s *GatewayService) BindStickySessionAfterProfitAdmission(ctx context.Context, groupID *int64, sessionHash string, accountID int64) error {
+	if IsV2AffinityKey(sessionHash) {
+		_, _ = s.GetCachedSessionAccountID(ctx, groupID, sessionHash)
+		group := derefGroupID(groupID)
+		// 延迟绑定在准入点由另一条 ctx 执行，请求级亲和性 TTL 必须一并带过去，
+		// 否则有序目标声明的 TTL 只对直接绑定生效。
+		requestTTL := stickySessionTTLForRequest(ctx)
+		deferGatewayRequestBinding(ctx, accountID, func(admitted context.Context) error {
+			return s.BindStickySession(WithStickySessionTTL(admitted, requestTTL), &group, sessionHash, accountID)
+		})
+		return nil
+	}
+
 	if sessionHash == "" || accountID <= 0 || s.cache == nil {
 		return nil
 	}
@@ -1147,32 +1227,6 @@ func appendFirstUserTextFromRaw(builder *strings.Builder, raw []byte) {
 			})
 		}
 		return false
-	})
-}
-
-func appendMessageTextsFromRaw(builder *strings.Builder, raw []byte) {
-	if builder == nil || len(raw) == 0 {
-		return
-	}
-	messages := parseRawJSONView(raw)
-	if !messages.IsArray() {
-		return
-	}
-	messages.ForEach(func(_, msg gjson.Result) bool {
-		if content := msg.Get("content"); content.Exists() {
-			_, _ = builder.WriteString(extractTextFromContentRaw(content))
-			return true
-		}
-		parts := msg.Get("parts")
-		if parts.IsArray() {
-			parts.ForEach(func(_, part gjson.Result) bool {
-				if text := part.Get("text").String(); text != "" {
-					_, _ = builder.WriteString(text)
-				}
-				return true
-			})
-		}
-		return true
 	})
 }
 
@@ -1398,7 +1452,7 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
 	}
-	resp, err := s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+	resp, err := generationDo(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency)
 	if err != nil {
 		return nil, &UpstreamFailoverError{StatusCode: http.StatusBadGateway, Reason: GatewayFailureReason("grok_search_transport")}
 	}
@@ -1424,12 +1478,20 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 }
 
 func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64, platform string) []string {
-	cacheKey := modelsListCacheKey(groupID, platform)
-	if s.modelsListCache != nil {
+	models, _ := s.GetAvailableModelsChecked(ctx, groupID, platform)
+	return models
+}
+
+func (s *GatewayService) GetAvailableModelsChecked(ctx context.Context, groupID *int64, platform string) ([]string, error) {
+	if models, err := s.CatalogModelIDs(ctx, groupID, platform); models != nil || err != nil {
+		return models, err
+	}
+	cacheKey, versionErr := catalogVersionedCacheKey(ctx, s.accountRepo, modelsListCacheKey(groupID, platform))
+	if s.modelsListCache != nil && versionErr == nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if models, ok := cached.([]string); ok {
 				modelsListCacheHitTotal.Add(1)
-				return cloneStringSlice(models)
+				return cloneStringSlice(models), nil
 			}
 		}
 	}
@@ -1444,8 +1506,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		accounts, err = s.accountRepo.ListSchedulable(ctx)
 	}
 
-	if err != nil || len(accounts) == 0 {
-		return nil
+	if err != nil {
+		return nil, err
+	}
+	if len(accounts) == 0 {
+		return []string{}, nil
 	}
 
 	// Filter by platform if specified
@@ -1468,11 +1533,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		// mapping on any eligible passthrough account therefore cannot define the
 		// public whitelist; return nil so the handler uses its default model set.
 		if platform == PlatformOpenAI && acc.IsOpenAIPassthroughEnabled() {
-			if s.modelsListCache != nil {
+			if s.modelsListCache != nil && versionErr == nil {
 				s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 				modelsListCacheStoreTotal.Add(1)
 			}
-			return nil
+			return nil, nil
 		}
 
 		mapping := acc.GetModelMapping()
@@ -1486,11 +1551,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 
 	// If no account has model_mapping, return nil (use default)
 	if !hasAnyMapping {
-		if s.modelsListCache != nil {
+		if s.modelsListCache != nil && versionErr == nil {
 			s.modelsListCache.Set(cacheKey, []string(nil), s.modelsListCacheTTL)
 			modelsListCacheStoreTotal.Add(1)
 		}
-		return nil
+		return nil, nil
 	}
 
 	// Convert to slice
@@ -1504,11 +1569,11 @@ func (s *GatewayService) GetAvailableModels(ctx context.Context, groupID *int64,
 		models = supplementUnmappedOpenAIModels(accounts, models)
 	}
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && versionErr == nil {
 		s.modelsListCache.Set(cacheKey, cloneStringSlice(models), s.modelsListCacheTTL)
 		modelsListCacheStoreTotal.Add(1)
 	}
-	return cloneStringSlice(models)
+	return cloneStringSlice(models), nil
 }
 
 func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, groupID int64, model string) (CompositeModelOwnership, error) {
@@ -1517,8 +1582,8 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		return CompositeModelOwnership{}, nil
 	}
 
-	cacheKey := compositeModelOwnershipCacheKey(groupID, model)
-	if s.modelsListCache != nil {
+	cacheKey, versionErr := catalogVersionedCacheKey(ctx, s.accountRepo, compositeModelOwnershipCacheKey(groupID, model))
+	if s.modelsListCache != nil && versionErr == nil {
 		if cached, found := s.modelsListCache.Get(cacheKey); found {
 			if ownership, ok := cached.(CompositeModelOwnership); ok {
 				return ownership, nil
@@ -1531,26 +1596,30 @@ func (s *GatewayService) resolveCompositeModelOwnership(ctx context.Context, gro
 		return CompositeModelOwnership{}, err
 	}
 
-	platforms := make(map[string]struct{})
+	platforms := make(map[CompositeModelOwnership]struct{})
 	for _, account := range accounts {
-		platform := strings.TrimSpace(account.Platform)
+		platform := domain.CanonicalPlatform(strings.TrimSpace(account.Platform))
 		if !isConcreteRequestPlatform(platform) || !explicitModelMappingClaims(account, model) {
 			continue
 		}
-		platforms[platform] = struct{}{}
+		accountType := ""
+		if account.IsBedrock() || account.IsVertexServiceAccount() {
+			accountType = account.Type
+		}
+		platforms[CompositeModelOwnership{TargetPlatform: platform, AccountType: accountType}] = struct{}{}
 	}
 
 	ownership := CompositeModelOwnership{}
 	if len(platforms) == 1 {
-		for platform := range platforms {
-			ownership.TargetPlatform = platform
+		for identity := range platforms {
+			ownership = identity
 		}
 		ownership.Matched = true
 	} else if len(platforms) > 1 {
 		ownership.Ambiguous = true
 	}
 
-	if s.modelsListCache != nil {
+	if s.modelsListCache != nil && versionErr == nil {
 		s.modelsListCache.Set(cacheKey, ownership, s.modelsListCacheTTL)
 	}
 	return ownership, nil

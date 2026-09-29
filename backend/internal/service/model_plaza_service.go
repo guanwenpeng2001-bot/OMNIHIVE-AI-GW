@@ -3,32 +3,23 @@ package service
 import (
 	"context"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"sort"
 	"strings"
 )
 
-// PlazaOfficialPricing 模型广场展示用的官方参考价（USD per token），与计费同源：
-// LiteLLM → 内置兜底价卡 → 模型策略。字段为 nil 表示该项缺失（0 视为未配置）。
-type PlazaOfficialPricing struct {
-	InputPrice        *float64
-	OutputPrice       *float64
-	CacheWritePrice   *float64 // 5m 缓存写入（= LiteLLM cache_creation）
-	CacheWrite1hPrice *float64 // 1h 缓存写入，仅计费会区分 5m/1h 时给出
-	CacheReadPrice    *float64
-	// Intervals 官方长上下文阶梯（多档时给出），不受分组开关影响。
-	Intervals []PricingInterval
-}
-
-// PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价 + 官方参考价。
+// PlazaModel 模型广场中单个模型条目：按实收口径合成的展示定价。
 type PlazaModel struct {
-	Name            string
-	Platform        string
-	Pricing         *ChannelModelPricing
-	OfficialPricing *PlazaOfficialPricing
+	Name     string
+	Platform string
+	Pricing  *ChannelModelPricing
 	// LongContextBasis 多档时的计价基准（整单 / 仅超出部分），单档为空。
 	LongContextBasis ContextPricingBasis
 	// TimePricing 计费会生效的分时倍率时段；无分时为 nil。
 	TimePricing *TimePricingSchedule
+	// Capabilities 该分组下这个公开模型的实际观测规格（可能为空 = 无依据）。
+	// 内部字段，只给 handler 做公开白名单投影；不参与可见集合判断，也不对外序列化。
+	Capabilities []UpstreamModelMetadata
 }
 
 // PlazaGroup 模型广场中以分组为顶层的条目。
@@ -52,6 +43,9 @@ type PlazaGroup struct {
 	// = 档位价 × ImageRateMultiplier，不乘分组/用户专属倍率（与计费口径一致）。
 	ImageRateIndependent bool
 	ImageRateMultiplier  float64
+	// 视频独立倍率与图片独立倍率分别配置，开启时覆盖分组/用户专属倍率。
+	VideoRateIndependent bool
+	VideoRateMultiplier  float64
 	// LongContextPricingEnabled 分组是否按上下文长度应用阶梯价；关闭时模型展示的是最低档。
 	LongContextPricingEnabled bool
 	Models                    []PlazaModel
@@ -94,12 +88,37 @@ func NewModelPlazaService(
 //   - 同分组同名模型「先见者胜」，仅当已存条目无定价而新条目有定价时升级替换；
 //   - token 模型的单价与阶梯按实收口径合成（见 ResolveContextPricingSchedule），
 //     图片计费模型的档位价按实收口径合成（见 plazaImageDisplayPricing）；
-//   - 每个模型附带官方参考价（查不到为 nil）；
+//   - 不读取或返回目录参考价；
 //   - 只返回 Models 非空的分组；分组按 RateMultiplier 升序（同倍率按名称），
 //     组内模型按名称排序。
 //
 // 可见性过滤（专属分组）不在此层做，由 handler 按登录态裁剪。
 func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error) {
+	return s.listGroups(ctx, nil)
+}
+
+// ListVisibleGroups applies the freshly read user's group visibility before
+// loading accounts or computing prices. nil allowedGroups denotes anonymous.
+func (service *ModelPlazaService) ListVisibleGroups(ctx context.Context, allowedGroups map[int64]struct{}, restrictPublicGroups bool) ([]PlazaGroup, error) {
+	return service.listGroups(ctx, func(group Group) bool {
+		if group.IsExclusive || (restrictPublicGroups && len(allowedGroups) > 0) {
+			_, allowed := allowedGroups[group.ID]
+			return allowed
+		}
+		return true
+	})
+}
+
+func (s *ModelPlazaService) listGroups(ctx context.Context, permitted func(Group) bool) ([]PlazaGroup, error) {
+	var visibility *VisibleModelResolver
+	if s.resolver != nil && s.resolver.channelService != nil {
+		visibility = s.resolver.channelService.visibleModels
+	}
+	var err error
+	ctx, err = visibility.freeze(ctx)
+	if err != nil {
+		return nil, err
+	}
 	channels, err := s.channelRepo.ListAll(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
@@ -107,6 +126,21 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 	groups, err := s.groupRepo.ListActive(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("list active groups: %w", err)
+	}
+
+	if permitted != nil {
+		filtered := make([]Group, 0, len(groups))
+		for _, group := range groups {
+			if permitted(group) {
+				filtered = append(filtered, group)
+			}
+		}
+		groups = filtered
+	}
+
+	ctx, visible, observations, err := plazaVisibleModelsForGroups(ctx, visibility, groups)
+	if err != nil {
+		return nil, err
 	}
 
 	sort.SliceStable(channels, func(i, j int) bool {
@@ -132,6 +166,8 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			IsExclusive:               g.IsExclusive,
 			ImageRateIndependent:      g.ImageRateIndependent,
 			ImageRateMultiplier:       g.ImageRateMultiplier,
+			VideoRateIndependent:      g.VideoRateIndependent,
+			VideoRateMultiplier:       g.VideoRateMultiplier,
 			LongContextPricingEnabled: g.LongContextPricingEnabled,
 		}
 		groupEnt[g.ID] = g
@@ -150,8 +186,6 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			continue
 		}
 		ch.normalizeBillingModelSource()
-		supported := ch.SupportedModels()
-		fillGlobalPricingFallback(s.pricingService, supported)
 
 		for _, gid := range ch.GroupIDs {
 			pg, ok := byGroup[gid]
@@ -160,16 +194,21 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 			}
 			idx := modelIdx[gid]
 			if idx == nil {
-				idx = make(map[modelKey]int, len(supported))
+				idx = make(map[modelKey]int, 0)
 				modelIdx[gid] = idx
 			}
+			supported := PlazaVisibleModels(ch, gid)
+			fillGlobalPricingFallback(s.pricingService, supported)
 			for j := range supported {
 				m := supported[j]
+				if !panelModelVisible(ctx, groupEnt[gid], m.Name, visible) {
+					continue
+				}
 				if pg.Platform == PlatformComposite {
 					if !isConcreteRequestPlatform(m.Platform) {
 						continue
 					}
-				} else if m.Platform != pg.Platform {
+				} else if !domain.MatchesPlatformIdentity(m.Platform, domain.HostedAccountType(m.Platform), groupEnt[gid].Platform, groupEnt[gid].RequiredAccountType()) {
 					continue
 				}
 				key := modelKey{platform: m.Platform, name: m.Name}
@@ -182,15 +221,15 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 				}
 				idx[key] = len(pg.Models)
 				pg.Models = append(pg.Models, PlazaModel{
-					Name:     m.Name,
-					Platform: m.Platform,
-					Pricing:  m.Pricing,
+					Name:         m.Name,
+					Platform:     m.Platform,
+					Pricing:      m.Pricing,
+					Capabilities: observations[gid][m.Name],
 				})
 			}
 		}
 	}
 
-	officialMemo := make(map[string]*PlazaOfficialPricing)
 	out := make([]PlazaGroup, 0, len(order))
 	for _, gid := range order {
 		pg := byGroup[gid]
@@ -206,7 +245,6 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		g := groupEnt[gid]
 		for j := range pg.Models {
 			s.fillDisplayPricing(ctx, &pg.Models[j], g)
-			pg.Models[j].OfficialPricing = s.lookupOfficialPricing(ctx, pg.Models[j].Name, officialMemo)
 		}
 		out = append(out, *pg)
 	}
@@ -217,7 +255,43 @@ func (s *ModelPlazaService) ListGroups(ctx context.Context) ([]PlazaGroup, error
 		}
 		return out[i].Name < out[j].Name
 	})
+	if err := visibility.validate(ctx); err != nil {
+		return nil, err
+	}
 	return out, nil
+}
+
+// plazaVisibleModelsForGroups mirrors visibleModelsForGroups but also keeps the
+// per-model account observations from the same resolution pass. The plaza shows
+// exactly the evidence the gateway list uses and never performs a second read.
+func plazaVisibleModelsForGroups(ctx context.Context, resolver *VisibleModelResolver, groups []Group) (context.Context, map[int64]map[string]bool, map[int64]map[string][]UpstreamModelMetadata, error) {
+	frozen, err := resolver.freeze(ctx)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	visible := make(map[int64]map[string]bool)
+	observations := make(map[int64]map[string][]UpstreamModelMetadata)
+	if resolver == nil {
+		return frozen, visible, observations, nil
+	}
+	frozen, err = resolver.preloadCatalogGroups(frozen, groups)
+	if err != nil {
+		return ctx, nil, nil, err
+	}
+	for _, group := range groups {
+		metadata := make(map[string][]UpstreamModelMetadata)
+		view, err := resolver.resolve(frozen, &group.ID, group.Platform, metadata)
+		if err != nil {
+			return ctx, nil, nil, err
+		}
+		members := make(map[string]bool, len(view.Models))
+		for _, model := range view.Models {
+			members[model] = true
+		}
+		visible[group.ID] = members
+		observations[group.ID] = metadata
+	}
+	return frozen, visible, observations, nil
 }
 
 // fillDisplayPricing 把模型的展示定价换成实收口径：
@@ -340,41 +414,4 @@ func plazaImageDisplayPricing(p *ChannelModelPricing, g *Group) *ChannelModelPri
 		})
 	}
 	return &clone
-}
-
-// lookupOfficialPricing 查询模型的官方参考价（与计费同源：LiteLLM → 内置兜底 → 模型策略），
-// 带 memo 避免同名模型重复解析。官方阶梯按无分组、无渠道的口径查阶梯表。
-// billingService 为 nil（测试场景）或查不到时返回 nil。
-func (s *ModelPlazaService) lookupOfficialPricing(ctx context.Context, modelName string, memo map[string]*PlazaOfficialPricing) *PlazaOfficialPricing {
-	if s.billingService == nil {
-		return nil
-	}
-	if cached, ok := memo[modelName]; ok {
-		return cached
-	}
-	var result *PlazaOfficialPricing
-	if mp, err := s.billingService.GetModelPricing(modelName); err == nil && mp != nil {
-		result = &PlazaOfficialPricing{
-			InputPrice:      nonZeroPtr(mp.InputPricePerToken),
-			OutputPrice:     nonZeroPtr(mp.OutputPricePerToken),
-			CacheWritePrice: nonZeroPtr(mp.CacheCreationPricePerToken),
-			CacheReadPrice:  nonZeroPtr(mp.CacheReadPricePerToken),
-		}
-		// 计费只在支持 5m/1h 分档时使用 1h 价，其余情况 1h 价对用户无意义。
-		if mp.SupportsCacheBreakdown {
-			result.CacheWrite1hPrice = nonZeroPtr(mp.CacheCreation1hPrice)
-		}
-		if s.resolver != nil {
-			sched, schedErr := s.billingService.ResolveContextPricingSchedule(ctx, s.resolver, ContextPricingScheduleInput{Model: modelName})
-			if schedErr == nil && sched != nil && len(sched.Tiers) > 1 {
-				result.Intervals = plazaIntervalsFromTiers(sched.Tiers)
-			}
-		}
-		if result.InputPrice == nil && result.OutputPrice == nil && result.CacheWritePrice == nil &&
-			result.CacheWrite1hPrice == nil && result.CacheReadPrice == nil && len(result.Intervals) == 0 {
-			result = nil
-		}
-	}
-	memo[modelName] = result
-	return result
 }

@@ -100,10 +100,10 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		router.ServeHTTP(w, req)
 
 		require.Equal(t, http.StatusUnauthorized, w.Code)
-		require.Contains(t, w.Body.String(), "TOKEN_REVOKED")
+		require.Contains(t, w.Body.String(), "INVALID_WS_TICKET")
 	})
 
-	t.Run("websocket_token_version_match_allows", func(t *testing.T) {
+	t.Run("websocket_main_session_token_rejected", func(t *testing.T) {
 		token, err := authService.GenerateToken(context.Background(), &service.User{
 			ID:           admin.ID,
 			Email:        admin.Email,
@@ -119,7 +119,8 @@ func TestAdminAuthJWTValidatesTokenVersion(t *testing.T) {
 		req.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin, jwt."+token)
 		router.ServeHTTP(w, req)
 
-		require.Equal(t, http.StatusOK, w.Code)
+		require.Equal(t, http.StatusUnauthorized, w.Code)
+		require.Contains(t, w.Body.String(), "INVALID_WS_TICKET")
 	})
 }
 

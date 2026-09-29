@@ -91,6 +91,30 @@ describe('API Client', () => {
       expect(config.params).toHaveProperty('timezone')
     })
 
+    it.each(['object', 'search', 'tuples'])('preserves explicit timezone for %s params', async shape => {
+      const entries = [['timezone', 'America/Los_Angeles'], ['page', '2']]
+      const params = shape === 'object' ? Object.fromEntries(entries) : shape === 'search' ? new URLSearchParams(entries) : entries
+      const adapter = vi.fn().mockImplementation(config => Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }))
+      apiClient.defaults.adapter = adapter
+      await apiClient.get('/test', { params })
+      const actual = adapter.mock.calls[0][0].params
+      const query = actual instanceof URLSearchParams ? actual : new URLSearchParams(actual)
+      expect(query.get('timezone')).toBe('America/Los_Angeles')
+      expect(query.get('page')).toBe('2')
+    })
+
+    it.each(['object', 'search', 'tuples'])('adds missing timezone for %s params without mutating the caller', async shape => {
+      const entries = [['page', '2']]
+      const params = shape === 'object' ? Object.fromEntries(entries) : shape === 'search' ? new URLSearchParams(entries) : entries
+      const adapter = vi.fn().mockImplementation(config => Promise.resolve({ data: {}, status: 200, statusText: 'OK', headers: {}, config }))
+      apiClient.defaults.adapter = adapter
+      await apiClient.get('/test', { params })
+      const actual = adapter.mock.calls[0][0].params
+      const query = actual instanceof URLSearchParams ? actual : new URLSearchParams(actual)
+      expect(query.get('timezone')).toBe(Intl.DateTimeFormat().resolvedOptions().timeZone)
+      expect(new URLSearchParams(params).has('timezone')).toBe(false)
+    })
+
     it('POST 请求不附加 timezone 参数', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,
@@ -254,13 +278,29 @@ describe('API Client', () => {
 
       await expect(apiClient.get('/test')).rejects.toEqual(
         expect.objectContaining({
-          code: 1001,
+          code: 200,
           message: '参数错误',
         })
       )
     })
 
-    it('部署与运营合规未确认时广播事件且保留登录态', async () => {
+    it.each(['legacy', 'current'])('preserves mixed-channel confirmation metadata through the interceptor (%s)', async (format) => {
+      const metadata = { group_id: 27, group_name: 'Mixed group', current_platform: 'Anthropic', other_platform: 'Antigravity' }
+      apiClient.defaults.adapter = vi.fn().mockRejectedValue({
+        response: { status: 409, data: {
+          ...(format === 'legacy' ? { error: 'mixed_channel_warning', details: metadata } : { code: 409, reason: 'mixed_channel_warning', metadata }),
+          message: 'Confirm mixed group',
+        } },
+        config: { url: '/admin/accounts', headers: {} },
+        code: 'ERR_BAD_REQUEST',
+        message: 'Request failed with status code 409',
+      })
+      await expect(apiClient.post('/admin/accounts', {})).rejects.toEqual({
+        code: 409, status: 409, reason: 'mixed_channel_warning', message: 'Confirm mixed group', metadata,
+      })
+    })
+
+    it.each(['legacy', 'current'])('部署与运营合规未确认时广播事件且保留登录态 (%s)', async (format) => {
       localStorage.setItem('auth_token', 'admin-token')
       const listener = vi.fn()
       window.addEventListener('admin-compliance-required', listener)
@@ -269,7 +309,7 @@ describe('API Client', () => {
         response: {
           status: 423,
           data: {
-            code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+            ...(format === 'legacy' ? { code: 'ADMIN_COMPLIANCE_ACK_REQUIRED' } : { code: 423, reason: 'ADMIN_COMPLIANCE_ACK_REQUIRED' }),
             message: 'administrator compliance acknowledgement is required',
             metadata: {
               version: 'v2026.06.10',
@@ -289,7 +329,8 @@ describe('API Client', () => {
       await expect(apiClient.get('/admin/users')).rejects.toEqual(
         expect.objectContaining({
           status: 423,
-          code: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
+          code: 423,
+          reason: 'ADMIN_COMPLIANCE_ACK_REQUIRED',
           metadata: expect.objectContaining({
             version: 'v2026.06.10',
           }),
@@ -414,7 +455,7 @@ describe('API Client', () => {
       apiClient.defaults.adapter = adapter
 
       await expect(apiClient.get('/test')).rejects.toMatchObject({
-        status, code: 'TOKEN_REFRESH_UNAVAILABLE',
+        status, code: status, reason: 'TOKEN_REFRESH_UNAVAILABLE',
         message: status ? 'Please try again later' : 'Refresh unavailable',
       })
       expect(adapter).toHaveBeenCalledTimes(1)
@@ -442,7 +483,7 @@ describe('API Client', () => {
         config: { url: '/test', headers: { Authorization: 'Bearer expired-token' } },
       })
 
-      await expect(apiClient.get('/test')).rejects.toMatchObject({ status: 401, code: 'TOKEN_REFRESH_FAILED' })
+      await expect(apiClient.get('/test')).rejects.toMatchObject({ status: 401, code: 401, reason: 'TOKEN_REFRESH_FAILED' })
       for (const key of ['auth_token', 'refresh_token', 'auth_user', 'token_expires_at']) {
         expect(localStorage.getItem(key)).toBeNull()
       }
@@ -491,6 +532,87 @@ describe('API Client', () => {
     })
   })
 
+  describe('request identity snapshots', () => {
+    function seed(id: number, token: string, refresh = true) {
+      localStorage.setItem('auth_user', JSON.stringify({ id }))
+      localStorage.setItem('auth_token', token)
+      if (refresh) localStorage.setItem('refresh_token', `refresh-${token}`)
+      else localStorage.removeItem('refresh_token')
+      localStorage.setItem('token_expires_at', String(Date.now() + 3600_000))
+    }
+
+    it.each([true, false])('never replays a late write under a new user (refresh=%s)', async refresh => {
+      seed(1, 'a', refresh)
+      const refreshModule = await import('@/api/tokenRefresh')
+      const refreshSpy = vi.spyOn(refreshModule, 'refreshAuthTokens')
+      const adapter = vi.fn(async config => {
+        seed(2, 'b', refresh)
+        throw { config, response: { status: 401, data: {} } }
+      })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.put('/user', { username: 'for-a' })).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(refreshSpy).not.toHaveBeenCalled()
+      expect(localStorage.getItem('auth_token')).toBe('b')
+      expect(sessionStorage.getItem('auth_expired')).toBeNull()
+    })
+
+    it('allows a same-session peer rotation before the 401 arrives', async () => {
+      seed(1, 'a')
+      const adapter = vi.fn(async config => {
+        if (config.headers.Authorization === 'Bearer a') {
+          seed(1, 'rotated')
+          throw { config, response: { status: 401, data: {} } }
+        }
+        return { config, status: 200, data: { code: 0, data: 'ok' }, headers: {}, statusText: 'OK' }
+      })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.get('/user')).resolves.toMatchObject({ data: 'ok' })
+      expect(adapter).toHaveBeenCalledTimes(2)
+      expect(adapter.mock.calls[1][0].headers.Authorization).toBe('Bearer rotated')
+    })
+
+    it('checks identity again after refresh succeeds and before replay', async () => {
+      seed(1, 'a')
+      const refreshModule = await import('@/api/tokenRefresh')
+      vi.spyOn(refreshModule, 'refreshAuthTokens').mockImplementationOnce(async () => {
+        seed(2, 'b')
+        return { access_token: 'b', refresh_token: 'refresh-b', expires_in: 3600, token_type: 'Bearer' }
+      })
+      const adapter = vi.fn(async config => { throw { config, response: { status: 401, data: {} } } })
+      apiClient.defaults.adapter = adapter
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(adapter).toHaveBeenCalledTimes(1)
+      expect(localStorage.getItem('auth_token')).toBe('b')
+    })
+
+    it('cancels in-flight requests on peer logout and preserves caller cancellation', async () => {
+      seed(1, 'a')
+      apiClient.defaults.adapter = async config => {
+        const signal = config.signal!
+        localStorage.clear()
+        window.dispatchEvent(new StorageEvent('storage', { key: null }))
+        expect(signal.aborted).toBe(true)
+        throw new axios.CanceledError('canceled', config)
+      }
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      const controller = new AbortController()
+      controller.abort()
+      await expect(apiClient.get('/user', { signal: controller.signal })).rejects.toMatchObject({ code: 'ERR_CANCELED' })
+    })
+
+    it('rejects same-user requests from a previous login generation', async () => {
+      seed(1, 'a')
+      const { advanceAuthSession } = await import('@/api/tokenRefresh')
+      apiClient.defaults.adapter = async config => {
+        advanceAuthSession()
+        throw { config, response: { status: 401, data: {} } }
+      }
+      await expect(apiClient.get('/user')).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+      expect(localStorage.getItem('auth_token')).toBe('a')
+    })
+  })
+
   // --- 网络错误 ---
 
   describe('网络错误', () => {
@@ -526,6 +648,53 @@ describe('API Client', () => {
       await expect(
         apiClient.get('/test', { cancelToken: source.token })
       ).rejects.toBeDefined()
+    })
+  })
+
+  // --- 二进制错误正文（导出用 responseType: 'blob'）---
+
+  describe('二进制错误正文', () => {
+    const conflict = {
+      code: 409,
+      reason: 'USAGE_HISTORY_INCOMPLETE',
+      message: 'Usage history is incomplete',
+      metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+    }
+
+    it('对象正文的 409 信封保留 reason 与 metadata（对照）', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw { config, message: 'Request failed with status code 409', response: { status: 409, data: conflict } }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({
+        status: 409,
+        reason: 'USAGE_HISTORY_INCOMPLETE',
+        metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+      })
+    })
+
+    it('同一个 409 信封作为 Blob 时也保留 reason 与 metadata', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw {
+          config,
+          message: 'Request failed with status code 409',
+          response: { status: 409, data: new Blob([JSON.stringify(conflict)], { type: 'application/json' }) },
+        }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({
+        status: 409,
+        reason: 'USAGE_HISTORY_INCOMPLETE',
+        metadata: { raw_retained_from: '2026-03-05T00:00:00Z' },
+      })
+    })
+
+    it('解不开的二进制错误正文不让错误处理本身失败', async () => {
+      apiClient.defaults.adapter = async config => {
+        throw { config, message: 'Bad gateway', response: { status: 502, data: new Blob(['<html>bad gateway</html>']) } }
+      }
+
+      await expect(apiClient.get('/admin/usage/export', { responseType: 'blob' })).rejects.toMatchObject({ status: 502 })
     })
   })
 })

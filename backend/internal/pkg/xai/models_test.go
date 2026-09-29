@@ -17,6 +17,8 @@ func TestDefaultModelMappingExcludesCrossClientWildcards(t *testing.T) {
 	require.Equal(t, "grok-build-0.1", mapping["grok-build"])
 	require.Equal(t, "grok-build-0.1", mapping["grok-build-latest"])
 	require.Equal(t, DefaultImagineImageQualityModel, mapping["grok-imagine-edit"])
+	require.Equal(t, DefaultImagineImage20Model, mapping[DefaultImagineImage20Model])
+	require.Equal(t, DefaultImagineImage20Model, mapping["xai/"+DefaultImagineImage20Model])
 	require.Equal(t, DefaultImagineVideo15Model, mapping["grok-imagine-video-1.5"])
 	require.Equal(t, DefaultImagineVideo15Model, mapping["grok-imagine-video-1.5-preview"])
 	require.Equal(t, "grok-4.6", mapping["xai/grok"])
@@ -68,10 +70,8 @@ func TestIsGrokImagineModel(t *testing.T) {
 	require.False(t, IsGrokImagineModel("grok-build-0.1"))
 }
 
-func TestDefaultModelsIncludesGrok46(t *testing.T) {
+func TestProtocolAliasesIncludeGrok46(t *testing.T) {
 	t.Parallel()
-	ids := DefaultModelIDs()
-	require.Contains(t, ids, "grok-4.6")
 	require.Equal(t, "grok-4.6", ResolveGrokTextResponsesModelID("grok-4.6"))
 	require.Equal(t, "grok-4.6", ResolveGrokTextResponsesModelID("grok-4.6-latest"))
 }

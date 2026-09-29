@@ -7,7 +7,10 @@ import (
 )
 
 func ProvideUpstreamJobService(repo UpstreamJobRepository, gateway *OpenAIGatewayService, wheel *TimingWheelService, billing *BillingCacheService, keys *APIKeyService) *UpstreamJobService {
-	svc := NewUpstreamJobService(repo, gateway.PollQianwenAsyncJob, QianwenAsyncJobCharge)
+	// The resource families added by the standard resource actions join the same
+	// bounded poller and settlement path; provider families that already own a
+	// poller keep it (see GatewayResourcePollJob / GatewayResourceJobCharge).
+	svc := NewUpstreamJobService(repo, GatewayResourcePollJob(gateway), GatewayResourceJobCharge)
 	svc.afterSettle = func(ctx context.Context, j *UpstreamJob) {
 		if err := billing.InvalidateUserBalance(ctx, j.UserID); err != nil {
 			logJobEvent(ctx, j, "cache_invalidation_failed")

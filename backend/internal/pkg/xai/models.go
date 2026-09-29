@@ -82,24 +82,6 @@ func (o ModelMappingOptions) defaultText() string {
 	return DefaultTextModel
 }
 
-var defaultModels = []Model{
-	// Text
-	{ID: "grok-4.6", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.6"},
-	{ID: "grok-4.5", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.5"},
-	{ID: "grok-4.3", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.3"},
-	{ID: "grok-build-0.1", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Build 0.1"},
-	{ID: "grok-composer-2.5-fast", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Composer 2.5 Fast"},
-	{ID: "grok-4.20-0309-reasoning", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Reasoning"},
-	{ID: "grok-4.20-0309-non-reasoning", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Non Reasoning"},
-	{ID: "grok-4.20-multi-agent-0309", Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok 4.20 Multi Agent"},
-	// Imagine
-	{ID: DefaultImagineImageQualityModel, Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Image Quality"},
-	{ID: DefaultImagineImageFastModel, Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Image"},
-	{ID: DefaultImagineImage20Model, Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Image 2.0"},
-	{ID: DefaultImagineVideoModel, Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Video"},
-	{ID: DefaultImagineVideo15Model, Object: "model", Type: "model", OwnedBy: "xai", DisplayName: "Grok Imagine Video 1.5"},
-}
-
 // grokTextResponsesModelAliases is the source of truth for Grok text models
 // accepted by the Responses path: client-facing / undated aliases → canonical
 // upstream ID. Used by DefaultModelMapping and IsGrokTextResponsesModelID.
@@ -129,21 +111,6 @@ var grokTextResponsesModelAliases = map[string]string{
 	"grok-4.20-multi-agent-0309":   "grok-4.20-multi-agent-0309",
 }
 
-func DefaultModels() []Model {
-	out := make([]Model, len(defaultModels))
-	copy(out, defaultModels)
-	return out
-}
-
-func DefaultModelIDs() []string {
-	models := DefaultModels()
-	ids := make([]string, 0, len(models))
-	for _, model := range models {
-		ids = append(ids, model.ID)
-	}
-	return ids
-}
-
 // DefaultModelMapping returns native Grok/Imagine identity + aliases, using
 // runtime options (default text model / optional cross-client wildcards).
 // Does NOT enable gpt-*/claude-* unless SetRuntimeModelMappingOptions enables them.
@@ -155,10 +122,7 @@ func DefaultModelMapping() map[string]string {
 // cross-client wildcards and a configurable default text model.
 func ModelMappingWithOptions(opts ModelMappingOptions) map[string]string {
 	defaultText := opts.defaultText()
-	mapping := make(map[string]string, len(defaultModels)+len(grokTextResponsesModelAliases)+48)
-	for _, model := range defaultModels {
-		mapping[model.ID] = model.ID
-	}
+	mapping := make(map[string]string, len(grokTextResponsesModelAliases)+48)
 	for alias, canonical := range grokTextResponsesModelAliases {
 		// Remap aliases that pointed at DefaultTextModel constant to runtime default.
 		if (alias == "grok" || alias == "grok-latest") && canonical == DefaultTextModel {
@@ -175,6 +139,7 @@ func ModelMappingWithOptions(opts ModelMappingOptions) map[string]string {
 	mapping["grok-imagine-edit"] = DefaultImagineImageQualityModel
 	mapping["grok-imagine-image"] = DefaultImagineImageFastModel
 	mapping["grok-imagine-image-quality"] = DefaultImagineImageQualityModel
+	mapping[DefaultImagineImage20Model] = DefaultImagineImage20Model
 	// Keep official IDs as identity so client-requested model strings are not
 	// rewritten on the wire (pricing still canonicalizes 1.5* via CanonicalImagineVideoModel).
 	mapping["grok-imagine-video"] = DefaultImagineVideoModel

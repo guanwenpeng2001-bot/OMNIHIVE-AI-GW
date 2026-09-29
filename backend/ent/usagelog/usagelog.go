@@ -50,6 +50,26 @@ const (
 	FieldPriceSource = "price_source"
 	// FieldPriceCardVersion holds the string denoting the price_card_version field in the database.
 	FieldPriceCardVersion = "price_card_version"
+	// FieldRequestType holds the string denoting the request_type field in the database.
+	FieldRequestType = "request_type"
+	// FieldOpenaiWsMode holds the string denoting the openai_ws_mode field in the database.
+	FieldOpenaiWsMode = "openai_ws_mode"
+	// FieldServiceTier holds the string denoting the service_tier field in the database.
+	FieldServiceTier = "service_tier"
+	// FieldReasoningEffort holds the string denoting the reasoning_effort field in the database.
+	FieldReasoningEffort = "reasoning_effort"
+	// FieldRequestedReasoningEffort holds the string denoting the requested_reasoning_effort field in the database.
+	FieldRequestedReasoningEffort = "requested_reasoning_effort"
+	// FieldInboundEndpoint holds the string denoting the inbound_endpoint field in the database.
+	FieldInboundEndpoint = "inbound_endpoint"
+	// FieldUpstreamEndpoint holds the string denoting the upstream_endpoint field in the database.
+	FieldUpstreamEndpoint = "upstream_endpoint"
+	// FieldUpstreamRequestID holds the string denoting the upstream_request_id field in the database.
+	FieldUpstreamRequestID = "upstream_request_id"
+	// FieldSessionID holds the string denoting the session_id field in the database.
+	FieldSessionID = "session_id"
+	// FieldNativeCompactionV2 holds the string denoting the native_compaction_v2 field in the database.
+	FieldNativeCompactionV2 = "native_compaction_v2"
 	// FieldInputTokens holds the string denoting the input_tokens field in the database.
 	FieldInputTokens = "input_tokens"
 	// FieldOutputTokens holds the string denoting the output_tokens field in the database.
@@ -62,6 +82,14 @@ const (
 	FieldCacheCreation5mTokens = "cache_creation_5m_tokens"
 	// FieldCacheCreation1hTokens holds the string denoting the cache_creation_1h_tokens field in the database.
 	FieldCacheCreation1hTokens = "cache_creation_1h_tokens"
+	// FieldImageOutputTokens holds the string denoting the image_output_tokens field in the database.
+	FieldImageOutputTokens = "image_output_tokens"
+	// FieldImageOutputCost holds the string denoting the image_output_cost field in the database.
+	FieldImageOutputCost = "image_output_cost"
+	// FieldImageInputTokens holds the string denoting the image_input_tokens field in the database.
+	FieldImageInputTokens = "image_input_tokens"
+	// FieldImageInputCost holds the string denoting the image_input_cost field in the database.
+	FieldImageInputCost = "image_input_cost"
 	// FieldInputCost holds the string denoting the input_cost field in the database.
 	FieldInputCost = "input_cost"
 	// FieldOutputCost holds the string denoting the output_cost field in the database.
@@ -80,6 +108,8 @@ const (
 	FieldLongContextBillingApplied = "long_context_billing_applied"
 	// FieldAccountRateMultiplier holds the string denoting the account_rate_multiplier field in the database.
 	FieldAccountRateMultiplier = "account_rate_multiplier"
+	// FieldAccountStatsCost holds the string denoting the account_stats_cost field in the database.
+	FieldAccountStatsCost = "account_stats_cost"
 	// FieldBillingType holds the string denoting the billing_type field in the database.
 	FieldBillingType = "billing_type"
 	// FieldStream holds the string denoting the stream field in the database.
@@ -184,12 +214,26 @@ var Columns = []string{
 	FieldThinkingEnabled,
 	FieldPriceSource,
 	FieldPriceCardVersion,
+	FieldRequestType,
+	FieldOpenaiWsMode,
+	FieldServiceTier,
+	FieldReasoningEffort,
+	FieldRequestedReasoningEffort,
+	FieldInboundEndpoint,
+	FieldUpstreamEndpoint,
+	FieldUpstreamRequestID,
+	FieldSessionID,
+	FieldNativeCompactionV2,
 	FieldInputTokens,
 	FieldOutputTokens,
 	FieldCacheCreationTokens,
 	FieldCacheReadTokens,
 	FieldCacheCreation5mTokens,
 	FieldCacheCreation1hTokens,
+	FieldImageOutputTokens,
+	FieldImageOutputCost,
+	FieldImageInputTokens,
+	FieldImageInputCost,
 	FieldInputCost,
 	FieldOutputCost,
 	FieldCacheCreationCost,
@@ -199,6 +243,7 @@ var Columns = []string{
 	FieldRateMultiplier,
 	FieldLongContextBillingApplied,
 	FieldAccountRateMultiplier,
+	FieldAccountStatsCost,
 	FieldBillingType,
 	FieldStream,
 	FieldDurationMs,
@@ -245,6 +290,26 @@ var (
 	BillingTierValidator func(string) error
 	// BillingModeValidator is a validator for the "billing_mode" field. It is called by the builders before save.
 	BillingModeValidator func(string) error
+	// DefaultRequestType holds the default value on creation for the "request_type" field.
+	DefaultRequestType int16
+	// DefaultOpenaiWsMode holds the default value on creation for the "openai_ws_mode" field.
+	DefaultOpenaiWsMode bool
+	// ServiceTierValidator is a validator for the "service_tier" field. It is called by the builders before save.
+	ServiceTierValidator func(string) error
+	// ReasoningEffortValidator is a validator for the "reasoning_effort" field. It is called by the builders before save.
+	ReasoningEffortValidator func(string) error
+	// RequestedReasoningEffortValidator is a validator for the "requested_reasoning_effort" field. It is called by the builders before save.
+	RequestedReasoningEffortValidator func(string) error
+	// InboundEndpointValidator is a validator for the "inbound_endpoint" field. It is called by the builders before save.
+	InboundEndpointValidator func(string) error
+	// UpstreamEndpointValidator is a validator for the "upstream_endpoint" field. It is called by the builders before save.
+	UpstreamEndpointValidator func(string) error
+	// UpstreamRequestIDValidator is a validator for the "upstream_request_id" field. It is called by the builders before save.
+	UpstreamRequestIDValidator func(string) error
+	// SessionIDValidator is a validator for the "session_id" field. It is called by the builders before save.
+	SessionIDValidator func(string) error
+	// DefaultNativeCompactionV2 holds the default value on creation for the "native_compaction_v2" field.
+	DefaultNativeCompactionV2 bool
 	// DefaultInputTokens holds the default value on creation for the "input_tokens" field.
 	DefaultInputTokens int
 	// DefaultOutputTokens holds the default value on creation for the "output_tokens" field.
@@ -257,6 +322,14 @@ var (
 	DefaultCacheCreation5mTokens int
 	// DefaultCacheCreation1hTokens holds the default value on creation for the "cache_creation_1h_tokens" field.
 	DefaultCacheCreation1hTokens int
+	// DefaultImageOutputTokens holds the default value on creation for the "image_output_tokens" field.
+	DefaultImageOutputTokens int
+	// DefaultImageOutputCost holds the default value on creation for the "image_output_cost" field.
+	DefaultImageOutputCost float64
+	// DefaultImageInputTokens holds the default value on creation for the "image_input_tokens" field.
+	DefaultImageInputTokens int
+	// DefaultImageInputCost holds the default value on creation for the "image_input_cost" field.
+	DefaultImageInputCost float64
 	// DefaultInputCost holds the default value on creation for the "input_cost" field.
 	DefaultInputCost float64
 	// DefaultOutputCost holds the default value on creation for the "output_cost" field.
@@ -399,6 +472,56 @@ func ByPriceCardVersion(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldPriceCardVersion, opts...).ToFunc()
 }
 
+// ByRequestType orders the results by the request_type field.
+func ByRequestType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestType, opts...).ToFunc()
+}
+
+// ByOpenaiWsMode orders the results by the openai_ws_mode field.
+func ByOpenaiWsMode(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldOpenaiWsMode, opts...).ToFunc()
+}
+
+// ByServiceTier orders the results by the service_tier field.
+func ByServiceTier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldServiceTier, opts...).ToFunc()
+}
+
+// ByReasoningEffort orders the results by the reasoning_effort field.
+func ByReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldReasoningEffort, opts...).ToFunc()
+}
+
+// ByRequestedReasoningEffort orders the results by the requested_reasoning_effort field.
+func ByRequestedReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldRequestedReasoningEffort, opts...).ToFunc()
+}
+
+// ByInboundEndpoint orders the results by the inbound_endpoint field.
+func ByInboundEndpoint(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldInboundEndpoint, opts...).ToFunc()
+}
+
+// ByUpstreamEndpoint orders the results by the upstream_endpoint field.
+func ByUpstreamEndpoint(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamEndpoint, opts...).ToFunc()
+}
+
+// ByUpstreamRequestID orders the results by the upstream_request_id field.
+func ByUpstreamRequestID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldUpstreamRequestID, opts...).ToFunc()
+}
+
+// BySessionID orders the results by the session_id field.
+func BySessionID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldSessionID, opts...).ToFunc()
+}
+
+// ByNativeCompactionV2 orders the results by the native_compaction_v2 field.
+func ByNativeCompactionV2(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldNativeCompactionV2, opts...).ToFunc()
+}
+
 // ByInputTokens orders the results by the input_tokens field.
 func ByInputTokens(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldInputTokens, opts...).ToFunc()
@@ -427,6 +550,26 @@ func ByCacheCreation5mTokens(opts ...sql.OrderTermOption) OrderOption {
 // ByCacheCreation1hTokens orders the results by the cache_creation_1h_tokens field.
 func ByCacheCreation1hTokens(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldCacheCreation1hTokens, opts...).ToFunc()
+}
+
+// ByImageOutputTokens orders the results by the image_output_tokens field.
+func ByImageOutputTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageOutputTokens, opts...).ToFunc()
+}
+
+// ByImageOutputCost orders the results by the image_output_cost field.
+func ByImageOutputCost(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageOutputCost, opts...).ToFunc()
+}
+
+// ByImageInputTokens orders the results by the image_input_tokens field.
+func ByImageInputTokens(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageInputTokens, opts...).ToFunc()
+}
+
+// ByImageInputCost orders the results by the image_input_cost field.
+func ByImageInputCost(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldImageInputCost, opts...).ToFunc()
 }
 
 // ByInputCost orders the results by the input_cost field.
@@ -472,6 +615,11 @@ func ByLongContextBillingApplied(opts ...sql.OrderTermOption) OrderOption {
 // ByAccountRateMultiplier orders the results by the account_rate_multiplier field.
 func ByAccountRateMultiplier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAccountRateMultiplier, opts...).ToFunc()
+}
+
+// ByAccountStatsCost orders the results by the account_stats_cost field.
+func ByAccountStatsCost(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountStatsCost, opts...).ToFunc()
 }
 
 // ByBillingType orders the results by the billing_type field.

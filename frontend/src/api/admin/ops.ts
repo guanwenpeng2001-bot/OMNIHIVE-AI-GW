@@ -5,7 +5,7 @@
  */
 
 import { apiClient, buildGatewayUrl } from '../client'
-import type { PaginatedResponse } from '@/types'
+import type { PaginatedResponse } from '@/types/common'
 
 export type OpsQueryMode = 'auto' | 'raw' | 'preagg'
 
@@ -340,7 +340,7 @@ export interface OpsUserConcurrencyStatsResponse {
 }
 
 export async function getConcurrencyStats(platform?: string, groupId?: number | null): Promise<OpsConcurrencyStatsResponse> {
-  const params: Record<string, any> = {}
+  const params: Record<string, unknown> = {}
   if (platform) {
     params.platform = platform
   }
@@ -402,7 +402,7 @@ export interface OpsAccountAvailabilityStatsResponse {
 }
 
 export async function getAccountAvailabilityStats(platform?: string, groupId?: number | null): Promise<OpsAccountAvailabilityStatsResponse> {
-  const params: Record<string, any> = {}
+  const params: Record<string, unknown> = {}
   if (platform) {
     params.platform = platform
   }
@@ -440,7 +440,7 @@ export async function getRealtimeTrafficSummary(
   platform?: string,
   groupId?: number | null
 ): Promise<OpsRealtimeTrafficSummaryResponse> {
-  const params: Record<string, any> = { window }
+  const params: Record<string, unknown> = { window }
   if (platform) {
     params.platform = platform
   }
@@ -457,7 +457,7 @@ export async function getRealtimeTrafficSummary(
  *
  * Note: browsers cannot set Authorization headers for WebSockets.
  * We authenticate via Sec-WebSocket-Protocol using a prefixed token item:
- *   ["sub2api-admin", "jwt.<token>"]
+ *   ["sub2api-admin", "ticket.<one-time-ticket>"]
  */
 export interface SubscribeQPSOptions {
   token?: string | null
@@ -505,7 +505,7 @@ export const OPS_WS_CLOSE_CODES = {
 
 const OPS_WS_BASE_PROTOCOL = 'sub2api-admin'
 
-export function subscribeQPS(onMessage: (data: any) => void, options: SubscribeQPSOptions = {}): () => void {
+export function subscribeQPS(onMessage: (data: unknown) => void, options: SubscribeQPSOptions = {}): () => void {
   let ws: WebSocket | null = null
   let reconnectAttempts = 0
   const maxReconnectAttempts = Number.isFinite(options.maxReconnectAttempts as number)
@@ -586,7 +586,7 @@ export function subscribeQPS(onMessage: (data: any) => void, options: SubscribeQ
     setStatus('offline')
   }
 
-  const connect = () => {
+  const connect = async () => {
     if (!shouldReconnect) return
     if (isConnecting) return
     if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) return
@@ -599,14 +599,17 @@ export function subscribeQPS(onMessage: (data: any) => void, options: SubscribeQ
       ? new URL(`${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${wsBaseUrl}/api/v1/admin/ops/ws/qps`)
       : new URL(buildGatewayUrl('/api/v1/admin/ops/ws/qps').replace(/^http/, 'ws'))
 
-    // Do NOT put admin JWT in the URL query string (it can leak via access logs, proxies, etc).
-    // Browsers cannot set Authorization headers for WebSockets, so we pass the token via
-    // Sec-WebSocket-Protocol (subprotocol list): ["sub2api-admin", "jwt.<token>"].
-    const rawToken = String(options.token ?? localStorage.getItem('auth_token') ?? '').trim()
-    const protocols: string[] = [OPS_WS_BASE_PROTOCOL]
-    if (rawToken) protocols.push(`jwt.${rawToken}`)
-
-    ws = new WebSocket(wsURL.toString(), protocols)
+    let ticket: string
+    try {
+      const { data } = await apiClient.post<{ ticket: string }>('/auth/admin-ws-ticket')
+      ticket = data.ticket
+    } catch {
+      isConnecting = false
+      scheduleReconnect()
+      return
+    }
+    if (!shouldReconnect) { isConnecting = false; return }
+    ws = new WebSocket(wsURL.toString(), [OPS_WS_BASE_PROTOCOL, `ticket.${ticket}`])
 
     ws.onopen = () => {
       reconnectAttempts = 0
@@ -704,7 +707,7 @@ export interface AlertRule {
   severity: OpsSeverity
   cooldown_minutes: number
   notify_email: boolean
-  filters?: Record<string, any>
+  filters?: Record<string, unknown>
   created_at?: string
   updated_at?: string
   last_triggered_at?: string | null
@@ -719,7 +722,7 @@ export interface AlertEvent {
   description?: string
   metric_value?: number
   threshold_value?: number
-  dimensions?: Record<string, any>
+  dimensions?: Record<string, unknown>
   fired_at: string
   resolved_at?: string | null
   email_sent: boolean
@@ -841,7 +844,7 @@ export interface OpsSystemLog {
   account_id?: number | null
   platform?: string
   model?: string
-  extra?: Record<string, any>
+  extra?: Record<string, unknown>
 }
 
 export type OpsSystemLogListResponse = PaginatedResponse<OpsSystemLog>
@@ -1163,7 +1166,7 @@ export async function listRequestErrorUpstreamErrors(
   params: OpsErrorListQueryParams = {},
   options: { include_detail?: boolean } = {}
 ): Promise<PaginatedResponse<OpsErrorDetail>> {
-  const query: Record<string, any> = { ...params }
+  const query: Record<string, unknown> = { ...params }
   if (options.include_detail) query.include_detail = '1'
   const { data } = await apiClient.get<PaginatedResponse<OpsErrorDetail>>(`/admin/ops/request-errors/${id}/upstream-errors`, { params: query })
   return data

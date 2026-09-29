@@ -136,6 +136,7 @@ func (s *schedulerCacheRecorder) SetOutboxWatermark(ctx context.Context, id int6
 }
 
 func (s *AccountRepoSuite) SetupTest() {
+	prepareRepositoryFixtures(s.T())
 	s.ctx = context.Background()
 	tx := testEntTx(s.T())
 	s.client = tx.Client()
@@ -327,14 +328,16 @@ func (s *AccountRepoSuite) TestListOAuthRefreshCandidatePage_GrokCursorAndExclus
 			"expires_at":    now.Add(30 * time.Minute).Format(time.RFC3339),
 		},
 	})
-	unschedulable := mustCreateAccount(s.T(), s.client, &service.Account{
-		Name:        "grok-oauth-unschedulable-excluded",
+	// Paused but active OAuth accounts (schedulable=false) must remain refresh
+	// candidates so their stored access_token does not silently expire.
+	paused := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name:        "grok-oauth-paused-included",
 		Platform:    service.PlatformGrok,
 		Type:        service.AccountTypeOAuth,
 		Status:      service.StatusActive,
-		Credentials: map[string]any{"refresh_token": "refresh-unschedulable"},
+		Credentials: map[string]any{"refresh_token": "refresh-paused"},
 	})
-	s.Require().NoError(s.client.Account.UpdateOneID(unschedulable.ID).SetSchedulable(false).Exec(s.ctx))
+	s.Require().NoError(s.client.Account.UpdateOneID(paused.ID).SetSchedulable(false).Exec(s.ctx))
 	mustCreateAccount(s.T(), s.client, &service.Account{
 		Name:     "grok-api-key-excluded",
 		Platform: service.PlatformGrok,
@@ -393,15 +396,14 @@ func (s *AccountRepoSuite) TestListOAuthRefreshCandidatePage_GrokCursorAndExclus
 	s.Require().NoError(err)
 	first := firstPage.Accounts
 	s.Require().Len(first, 2)
-	s.Require().Equal([]int64{valid1.ID, valid2.ID}, []int64{first[0].ID, first[1].ID})
-	s.Require().NotContains([]int64{first[0].ID, first[1].ID}, unschedulable.ID)
+	s.Require().Equal([]int64{valid1.ID, paused.ID}, []int64{first[0].ID, first[1].ID})
 
 	options.AfterID = first[len(first)-1].ID
 	secondPage, err := s.repo.ListOAuthRefreshCandidatePage(s.ctx, options)
 	s.Require().NoError(err)
 	second := secondPage.Accounts
-	s.Require().Len(second, 1)
-	s.Require().Equal(valid3.ID, second[0].ID)
+	s.Require().Len(second, 2)
+	s.Require().Equal([]int64{valid2.ID, valid3.ID}, []int64{second[0].ID, second[1].ID})
 	s.Require().NotContains([]int64{first[0].ID, first[1].ID}, second[0].ID)
 }
 
@@ -1054,14 +1056,14 @@ func (s *AccountRepoSuite) TestSetTempUnschedulableSkipsOutboxWhenWindowDoesNotE
 	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, account.ID, until, "first"))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 
 	s.Require().NoError(s.repo.SetTempUnschedulable(s.ctx, account.ID, until.Add(-5*time.Minute), "older"))
 
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -1532,7 +1534,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerNeutralSkipsOutboxAndSyncsFr
 	s.Require().Equal(0.42, got.Extra["session_window_utilization"])
 
 	var outboxCount int
-	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &outboxCount))
+	s.Require().NoError(scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &outboxCount))
 	s.Require().Zero(outboxCount)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
 	s.Require().NotNil(cacheRecorder.accounts[account.ID])
@@ -1594,7 +1596,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_ExhaustedCodexSnapshotSyncsSchedulerC
 	}))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(0, count)
 	s.Require().Len(cacheRecorder.setAccounts, 1)
@@ -1618,7 +1620,7 @@ func (s *AccountRepoSuite) TestUpdateExtra_SchedulerRelevantStillEnqueuesOutbox(
 	}))
 
 	var count int
-	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox", nil, &count)
+	err = scanSingleRow(s.ctx, s.repo.sql, "SELECT COUNT(*) FROM scheduler_outbox WHERE event_type <> 'model_catalog_changed'", nil, &count)
 	s.Require().NoError(err)
 	s.Require().Equal(1, count)
 }

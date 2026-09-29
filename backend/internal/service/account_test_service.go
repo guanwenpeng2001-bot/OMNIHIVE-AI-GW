@@ -136,26 +136,40 @@ func normalizeGrokAccountTestMode(mode string) string {
 
 // AccountTestService handles account testing operations
 type AccountTestService struct {
-	cursorGatewayService      *CursorGatewayService
-	accountRepo               AccountRepository
-	geminiTokenProvider       *GeminiTokenProvider
-	claudeTokenProvider       *ClaudeTokenProvider
-	grokTokenProvider         *GrokTokenProvider
-	antigravityGatewayService *AntigravityGatewayService
-	httpUpstream              HTTPUpstream
-	cfg                       *config.Config
-	settingService            *SettingService
-	tlsFPProfileService       *TLSFingerprintProfileService
-	modelMetadataRegistryMu   sync.Mutex
-	modelMetadataRegistry     map[string]modelsDevProvider
-	modelMetadataRegistryAt   time.Time
-	pluginManager             *PluginManager
-	openaiGatewayService      *OpenAIGatewayService
-	agentIdentityTaskMu       sync.Mutex
-	agentIdentityWS           agentIdentityWSConnectionInvalidator
+	modelCapabilityProvider    ModelCapabilityProvider
+	capabilityReadOnlyEnricher *CapabilityReadOnlyEnricher
+	cursorGatewayService       *CursorGatewayService
+	accountRepo                AccountRepository
+	geminiTokenProvider        *GeminiTokenProvider
+	claudeTokenProvider        *ClaudeTokenProvider
+	grokTokenProvider          *GrokTokenProvider
+	antigravityGatewayService  *AntigravityGatewayService
+	httpUpstream               HTTPUpstream
+	cfg                        *config.Config
+	settingService             *SettingService
+	tlsFPProfileService        *TLSFingerprintProfileService
+	modelMetadataRegistryMu    sync.Mutex
+	catalogInFlight            sync.Map
+	catalogApplyOnce           sync.Once
+	catalogApplyBudget         chan struct{}
+	modelMetadataRegistry      map[string]modelsDevProvider
+	modelMetadataRegistryAt    time.Time
+	modelMetadataRegistryKey   string
+	pluginManager              *PluginManager
+	openaiGatewayService       *OpenAIGatewayService
+	agentIdentityTaskMu        sync.Mutex
+	agentIdentityWS            agentIdentityWSConnectionInvalidator
 	// grokWSDialer is optional; realtime account tests use the default OpenAI-style
 	// WS dialer when nil (supports proxy + coder/websocket handshake).
 	grokWSDialer openAIWSClientDialer
+}
+
+// SetModelCapabilityProvider allows fixed snapshots in tests. Configure before
+// serving requests, like the other dependency setters.
+func (s *AccountTestService) SetModelCapabilityProvider(provider ModelCapabilityProvider) {
+	if s != nil {
+		s.modelCapabilityProvider = provider
+	}
 }
 
 func (s *AccountTestService) SetSettingService(settingService *SettingService) {
@@ -217,7 +231,7 @@ func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, accou
 		for _, model := range payload.Data {
 			seen[model.ID] = true
 		}
-		for _, model := range openai.DefaultModels {
+		for _, model := range OpenAIPresetModels() {
 			if IsGPTImageGenerationModel(model.ID) && account.IsModelSupported(model.ID) && !seen[model.ID] {
 				model.CatalogSource = "preset"
 				payload.Data = append(payload.Data, model)
@@ -385,6 +399,16 @@ func (s *AccountTestService) probeTestAccountConnection(c *accountProbeContext, 
 		return s.probeTestOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
+	// chat-only 平台（qianfan / hunyuan / mistral / volcengine）在数据面走
+	// OpenAI 兼容的 /v1/chat/completions 直转路径：判定与数据面同源，
+	// IsChatOnlyPlatform 与 GetOpenAIProtocolAPIKey / GetOpenAIBaseURL 都已为它们
+	// 开路（见 SupportsOpenAIEndpointCapability、forwardAsChatCompletions）。
+	// 因此测试连接沿用国产供应商同一条 chat completions 探测，而不是落到
+	// "probe unsupported"。
+	if IsChatOnlyPlatform(account.Platform) {
+		return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
+	}
+
 	if account.IsCursor() {
 		return s.probeTestCursorAccountConnection(c, account, modelID, mode)
 	}
@@ -452,6 +476,10 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *accountProbeCo
 	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
 }
 
+// testCNProviderChatCompletionsConnection probes the OpenAI-compatible
+// /v1/chat/completions trunk shared by every API-key provider that forwards on
+// it: the CN providers and the chat-only platforms
+// (qianfan / hunyuan / mistral / volcengine).
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *accountProbeContext, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
@@ -2074,6 +2102,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	req.Header.Set("Authorization", "Bearer "+authToken)
 
 	// 账号级请求头覆写：测试请求与真实转发保持一致的最终头
+	applyOpenCodeUpstreamUserAgent(account, apiURL, req.Header)
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(nil, account, apiURL, req.Header, payloadBytes)
 

@@ -114,10 +114,13 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 			Credentials: map[string]any{"access_token": "token-2"},
 		},
 	}
+	for index := range accounts {
+		accounts[index] = preparedGatewayFixtureAccount(accounts[index])
+	}
 	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
 	upstream := &openAIImagesFailoverHTTPUpstream{}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		nil,
 		nil,
@@ -139,8 +142,7 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 		nil,
 		nil,
 		nil,
-		nil,
-	)
+		nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
 	concurrencyService := service.NewConcurrencyService(nil)
@@ -188,9 +190,9 @@ func TestOpenAIGatewayHandlerImages_ServerErrorFailsOverAndReturnsClearErrorWhen
 	require.Equal(t, "1536x1024", loggedFields["img_size"])
 	require.NotContains(t, loggedFields, "prompt")
 
-	require.Equal(t, []int64{1, 2}, upstream.calls())
+	require.Equal(t, []int64{1, 2}, upstream.calls(), rec.Body.String())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, "server_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 	require.Equal(t, "Upstream service temporarily unavailable", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 
 	rawEvents, ok := c.Get(service.OpsUpstreamErrorsKey)

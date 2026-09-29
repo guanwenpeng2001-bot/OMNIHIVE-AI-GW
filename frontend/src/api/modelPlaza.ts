@@ -1,23 +1,49 @@
 /**
  * Model Plaza API（公开端点，可匿名访问）
- * 以分组为中心的模型价目：分组信息 + 模型渠道定价 + LiteLLM 官方参考价。
+ * 以分组为中心的模型价目：分组信息 + 模型渠道定价。
  * 带 token 请求时后端会额外返回专属分组与用户专属倍率。
  */
 
 import { apiClient } from './client'
-import type { UserPricingInterval, UserSupportedModelPricing } from './channels'
+import type { UserSupportedModelPricing } from './channels'
 
-/** 官方参考价（USD per token，与计费目录同源；字段缺失 = 目录未覆盖）。 */
-export interface PlazaOfficialPricing {
-  input_price: number | null
-  output_price: number | null
-  /** 5m 缓存写入（= LiteLLM cache_creation）。 */
-  cache_write_price: number | null
-  /** 1h 缓存写入（LiteLLM cache_creation_above_1hr），多数模型缺失。 */
-  cache_write_1h_price?: number | null
-  cache_read_price: number | null
-  /** 官方长上下文阶梯（多档模型才有），不受分组开关影响。 */
-  intervals?: UserPricingInterval[]
+/** 单个观测事实：guaranteed = 所有观测一致时的保证值；available = 出现的取值集合；unknown = 无依据。 */
+export interface PlazaFact<Value> {
+  guaranteed: Value | null
+  available: Value[]
+  unknown: boolean
+}
+
+/** 上下文/长度类事实：kind 说明这个上限的含义（input/total/unspecified）。 */
+export interface PlazaLimit extends PlazaFact<number> {
+  kind?: string
+  observed_minimum: number | null
+}
+
+/** 模态集合：available 为出现过的模态，guaranteed 为所有观测一致时的交集。 */
+export interface PlazaModalities {
+  guaranteed: string[] | null
+  available: string[]
+  unknown: boolean
+}
+
+/**
+ * 该模型在当前分组下的有效规格：来自与 /v1/models 同一次账号目录读取的观测聚合。
+ * 缺失或互相冲突的字段保持 unknown，不当作 0/false。
+ */
+export interface PlazaModelCapabilities {
+  input_context: PlazaLimit
+  total_context: PlazaLimit
+  unspecified_context: PlazaLimit
+  max_output_tokens: PlazaLimit
+  embedding_dimensions: PlazaFact<number>
+  reasoning: PlazaFact<boolean>
+  supports_vision: PlazaFact<boolean>
+  supports_function_calling: PlazaFact<boolean>
+  supports_prompt_caching: PlazaFact<boolean>
+  supports_pdf: PlazaFact<boolean>
+  input_modalities: PlazaModalities
+  output_modalities: PlazaModalities
 }
 
 /**
@@ -48,7 +74,8 @@ export interface PlazaModel {
   platform: string
   /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
   pricing: UserSupportedModelPricing | null
-  official_pricing: PlazaOfficialPricing | null
+  /** 有效规格（上下文/模态/能力）；服务端无任何可核实事实时省略。 */
+  capabilities?: PlazaModelCapabilities
   /** 仅多档模型返回。 */
   long_context_basis?: PlazaLongContextBasis
   /** 仅配置了分时倍率的模型返回。 */
@@ -73,7 +100,9 @@ export interface ModelPlazaGroup {
   /** 生图独立倍率：true 时图片计费模型的实付倍率取 image_rate_multiplier，不取分组/专属倍率。 */
   image_rate_independent: boolean
   image_rate_multiplier: number
-  /** 分组是否启用长上下文阶梯计费；false 时实付列只展示最低档，官方阶梯仅供参考。 */
+  video_rate_independent: boolean
+  video_rate_multiplier: number
+  /** 分组是否启用长上下文阶梯计费；false 时实付列只展示最低档。 */
   long_context_pricing_enabled: boolean
   models: PlazaModel[]
 }

@@ -128,6 +128,7 @@ type OpenAIAccountScheduler interface {
 }
 
 type openAIAccountSchedulerMetrics struct {
+	mu                     sync.RWMutex // Keep related counters coherent during concurrent snapshots.
 	selectTotal            atomic.Int64
 	stickyPreviousHitTotal atomic.Int64
 	stickySessionHitTotal  atomic.Int64
@@ -164,6 +165,9 @@ func (m *openAIAccountSchedulerMetrics) recordSelect(decision OpenAIAccountSched
 	if m == nil {
 		return
 	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	updateOpsDiagnostics(func(v *OpsDiagnosticsSnapshot) { v.OpenAISelections++ })
 	m.selectTotal.Add(1)
 	m.latencyMsTotal.Add(decision.LatencyMs)
 	m.loadSkewMilliTotal.Add(int64(math.Round(decision.LoadSkew * 1000)))
@@ -504,7 +508,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 	accountID := req.StickyAccountID
 	clearBinding := func() {
 		if !req.PreserveStickyBinding {
-			_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, sessionHash)
+			_ = s.service.clearRequestStickySession(ctx, req.GroupID, sessionHash)
 		}
 	}
 	if accountID <= 0 {
@@ -961,15 +965,15 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 	}
 
-	// Reset 因子（use-it-or-lose-it）：在拥有「未来会话窗口结束时间」的账号中，
+	// Reset 因子（use-it-or-lose-it）：优先读取 Codex 5h 重置时间，回退到会话窗口。
 	// 剩余时间越短 → 因子越接近 1（越早重置越优先用尽）。无活跃窗口的账号因子为 0。
 	// 仅在 weights.Reset > 0 时计算，默认关闭不影响原有行为。
 	minResetRemaining, maxResetRemaining := 0.0, 0.0
 	hasResetSample := false
 	if weights.Reset > 0 {
 		for _, candidate := range candidates {
-			end := candidate.account.SessionWindowEnd
-			if end == nil || !now.Before(*end) {
+			end, ok := openAISchedulingResetWindowEnd(candidate.account, now)
+			if !ok {
 				continue
 			}
 			remaining := end.Sub(now).Seconds()
@@ -1002,7 +1006,7 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		}
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
-			if end := item.account.SessionWindowEnd; end != nil && now.Before(*end) {
+			if end, ok := openAISchedulingResetWindowEnd(item.account, now); ok {
 				if maxResetRemaining > minResetRemaining {
 					resetFactor = 1 - clamp01((end.Sub(now).Seconds()-minResetRemaining)/(maxResetRemaining-minResetRemaining))
 				} else {
@@ -1210,7 +1214,11 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			release(result)
 			break
 		}
-		fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+		fresh, recheckErr := s.service.recheckSelectedOpenAIAccountFromDBErr(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+		if recheckErr != nil {
+			release(result)
+			return nil, compactBlocked, recheckErr
+		}
 		if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 			release(result)
 			continue
@@ -1292,13 +1300,13 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		account = s.service.recheckSelectedOpenAIAccountFromDB(ctx, account, req.GroupID, req.Platform, req.RequestedModel, req.RequireCompact, req.RequiredCapability)
 		if account == nil {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
-				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+				_ = s.service.clearRequestStickySession(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
 		}
 		if !s.service.openAIAccountMatchesSchedulingGroup(account, req.GroupID) {
 			if accountID == req.StickyAccountID && strings.TrimSpace(req.SessionHash) != "" {
-				_ = s.service.deleteStickySessionAccountID(ctx, req.GroupID, req.SessionHash)
+				_ = s.service.clearRequestStickySession(ctx, req.GroupID, req.SessionHash)
 			}
 			continue
 		}
@@ -1432,10 +1440,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		accounts = modelFiltered
 	}
 
-	// require_privacy_set: 获取分组信息
+	// require_privacy_set: 获取分组配置。GetByID 会聚合账号计数，选号不能走它。
 	var schedGroup *Group
 	if req.GroupID != nil && s.service.schedulerSnapshot != nil {
-		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByID(ctx, *req.GroupID)
+		schedGroup, _ = s.service.schedulerSnapshot.GetGroupByIDLite(ctx, *req.GroupID)
 	}
 
 	filterStats := openAISelectionFilterStats{pool: len(accounts)}
@@ -1485,6 +1493,12 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	if len(filtered) == 0 {
 		return nil, 0, 0, 0, noAvailableOpenAISelectionError(req.RequestedModel, false, filterStats.summary(""))
 	}
+	// 候选池一次载入：后续逐个候选的 DB 复核只读这份快照，不再每人一次 GetByID。
+	recheckBatch, err := s.service.loadOpenAIAccountRecheckBatch(ctx, filtered)
+	if err != nil {
+		return nil, 0, 0, 0, err
+	}
+	ctx = withOpenAIAccountRecheckBatch(ctx, recheckBatch)
 
 	loadMap := map[int64]*AccountLoadInfo{}
 	if s.service.concurrencyService != nil {
@@ -1714,7 +1728,10 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 			if !s.consumeOpenAISelectionDBRecheck(budget) {
 				return nil, candidateCount, topK, loadSkew, noAvailableOpenAISelectionError(req.RequestedModel, compactBlocked, filterStats.summary("selection_order_exhausted"))
 			}
-			fresh = s.service.recheckSelectedOpenAIAccountFromDB(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+			fresh, recheckErr := s.service.recheckSelectedOpenAIAccountFromDBErr(ctx, fresh, req.GroupID, req.Platform, req.RequestedModel, false, req.RequiredCapability)
+			if recheckErr != nil {
+				return nil, candidateCount, topK, loadSkew, recheckErr
+			}
 			if fresh == nil || !s.isAccountTransportCompatible(fresh, req.RequiredTransport) || !s.isAccountRequestCompatible(ctx, fresh, req) {
 				continue
 			}
@@ -1807,6 +1824,9 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	}) {
 		return false, "shadow_parent_unhealthy"
 	}
+	if req.RequestedModel != "" && GatewayRequestPlanFromContext(ctx) != nil && !s.service.supportsOpenAIAccountModel(ctx, account, req.RequestedModel, req.RequiredCapability) {
+		return false, "model_not_supported"
+	}
 	if req.RequestedModel != "" && !account.IsModelSupported(req.RequestedModel) {
 		return false, "model_not_supported"
 	}
@@ -1844,6 +1864,8 @@ func (s *defaultOpenAIAccountScheduler) SnapshotMetrics() OpenAIAccountScheduler
 	if s == nil {
 		return OpenAIAccountSchedulerMetricsSnapshot{}
 	}
+	s.metrics.mu.RLock()
+	defer s.metrics.mu.RUnlock()
 
 	selectTotal := s.metrics.selectTotal.Load()
 	prevHit := s.metrics.stickyPreviousHitTotal.Load()
@@ -2214,7 +2236,8 @@ func (s *OpenAIGatewayService) loadOpenAIGroupRequiresPrivacySet(ctx context.Con
 	if s == nil || groupID == nil || s.schedulerSnapshot == nil {
 		return false
 	}
-	group, err := s.schedulerSnapshot.GetGroupByID(ctx, *groupID)
+	// GetByID 会聚合账号计数；隐私开关只在分组行上。
+	group, err := s.schedulerSnapshot.GetGroupByIDLite(ctx, *groupID)
 	if err != nil {
 		return true
 	}
@@ -2732,8 +2755,8 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 	}
 	if weights.Reset > 0 {
 		for _, candidate := range candidates {
-			end := candidate.account.SessionWindowEnd
-			if end == nil || !now.Before(*end) {
+			end, ok := openAISchedulingResetWindowEnd(candidate.account, now)
+			if !ok {
 				continue
 			}
 			remaining := end.Sub(now).Seconds()
@@ -2763,7 +2786,7 @@ func buildOpenAIAccountSchedulerScoreSnapshot(
 		ttftFactor := 0.5
 		resetFactor := 0.0
 		if weights.Reset > 0 && hasResetSample {
-			if end := candidate.account.SessionWindowEnd; end != nil && now.Before(*end) {
+			if end, ok := openAISchedulingResetWindowEnd(candidate.account, now); ok {
 				if maxResetRemaining > minResetRemaining {
 					resetFactor = 1 - clamp01((end.Sub(now).Seconds()-minResetRemaining)/(maxResetRemaining-minResetRemaining))
 				} else {
@@ -2952,20 +2975,87 @@ func openAIQuotaHeadroomFactor(account *Account, now time.Time) float64 {
 	if account == nil || len(account.Extra) == 0 || openAIQuotaHeadroomSnapshotStale(account.Extra, now) {
 		return openAIQuotaHeadroomNeutralFactor
 	}
-	primaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_primary_used_percent", "codex_7d_used_percent")
-	if !ok || openAIQuotaWindowResetAny(account.Extra, now, "primary", "7d") {
+	window5h, window7d := openAICanonicalQuotaWindows(account.Extra, now)
+	if !window7d.hasUsed || window7d.reset {
 		return openAIQuotaHeadroomNeutralFactor
 	}
 
-	factor := 1 - clamp01(primaryUsedPercent/100)
-	if secondaryUsedPercent, ok := resolveAccountExtraNumber(account.Extra, "codex_secondary_used_percent", "codex_5h_used_percent"); ok &&
-		!openAIQuotaWindowResetAny(account.Extra, now, "secondary", "5h") {
-		secondaryRemaining := 1 - clamp01(secondaryUsedPercent/100)
-		if secondaryRemaining < openAIQuotaHeadroomSecondaryLowRemain {
+	factor := 1 - clamp01(window7d.usedPercent/100)
+	if window5h.hasUsed && !window5h.reset {
+		remaining := 1 - clamp01(window5h.usedPercent/100)
+		if remaining < openAIQuotaHeadroomSecondaryLowRemain {
 			factor *= openAIQuotaHeadroomNeutralFactor
 		}
 	}
 	return factor
+}
+
+type openAICanonicalQuotaWindow struct {
+	usedPercent float64
+	hasUsed     bool
+	reset       bool
+}
+
+// 规范字段优先；历史原始字段复用写入端 Normalize 的窗口分类，不能固定把 primary 当作 7d。
+func openAICanonicalQuotaWindows(extra map[string]any, now time.Time) (window5h, window7d openAICanonicalQuotaWindow) {
+	if used, ok := resolveAccountExtraNumber(extra, "codex_5h_used_percent"); ok {
+		window5h = openAICanonicalQuotaWindow{usedPercent: used, hasUsed: true, reset: openAIQuotaWindowReset(extra, "5h", now)}
+	}
+	if used, ok := resolveAccountExtraNumber(extra, "codex_7d_used_percent"); ok {
+		window7d = openAICanonicalQuotaWindow{usedPercent: used, hasUsed: true, reset: openAIQuotaWindowReset(extra, "7d", now)}
+	}
+	if window5h.hasUsed && window7d.hasUsed {
+		return window5h, window7d
+	}
+
+	snapshot := &OpenAICodexUsageSnapshot{}
+	if used, ok := resolveAccountExtraNumber(extra, "codex_primary_used_percent"); ok {
+		snapshot.PrimaryUsedPercent = &used
+	}
+	if used, ok := resolveAccountExtraNumber(extra, "codex_secondary_used_percent"); ok {
+		snapshot.SecondaryUsedPercent = &used
+	}
+	if minutes := parseExtraInt(extra["codex_primary_window_minutes"]); minutes > 0 {
+		snapshot.PrimaryWindowMinutes = &minutes
+	}
+	if minutes := parseExtraInt(extra["codex_secondary_window_minutes"]); minutes > 0 {
+		snapshot.SecondaryWindowMinutes = &minutes
+	}
+	normalized := snapshot.Normalize()
+	if normalized == nil {
+		return window5h, window7d
+	}
+	fromRaw := func(used *float64) openAICanonicalQuotaWindow {
+		if used == nil {
+			return openAICanonicalQuotaWindow{}
+		}
+		// Normalize 保留原始字段指针，据此配对同一个窗口的用量和重置时间。
+		window := "secondary"
+		if used == snapshot.PrimaryUsedPercent {
+			window = "primary"
+		}
+		return openAICanonicalQuotaWindow{usedPercent: *used, hasUsed: true, reset: openAIQuotaWindowReset(extra, window, now)}
+	}
+	if !window5h.hasUsed {
+		window5h = fromRaw(normalized.Used5hPercent)
+	}
+	if !window7d.hasUsed {
+		window7d = fromRaw(normalized.Used7dPercent)
+	}
+	return window5h, window7d
+}
+
+func openAISchedulingResetWindowEnd(account *Account, now time.Time) (time.Time, bool) {
+	if account == nil {
+		return time.Time{}, false
+	}
+	if end, ok := openAICodexWindowResetAt(account.Extra, "5h"); ok && now.Before(end) && !openAIQuotaHeadroomSnapshotStale(account.Extra, now) {
+		return end, true
+	}
+	if end := account.SessionWindowEnd; end != nil && now.Before(*end) {
+		return *end, true
+	}
+	return time.Time{}, false
 }
 
 func openAIQuotaHeadroomSnapshotStale(extra map[string]any, now time.Time) bool {
@@ -2977,16 +3067,7 @@ func openAIQuotaHeadroomSnapshotStale(extra map[string]any, now time.Time) bool 
 	if err != nil {
 		return true
 	}
-	return now.Sub(updatedAt) >= openAIQuotaHeadroomSnapshotStaleAfter
-}
-
-func openAIQuotaWindowResetAny(extra map[string]any, now time.Time, windows ...string) bool {
-	for _, window := range windows {
-		if openAIQuotaWindowReset(extra, window, now) {
-			return true
-		}
-	}
-	return false
+	return now.Before(updatedAt) || now.Sub(updatedAt) >= openAIQuotaHeadroomSnapshotStaleAfter
 }
 
 func clamp01(value float64) float64 {

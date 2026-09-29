@@ -183,7 +183,8 @@ type AnthropicUsage struct {
 
 // AnthropicStreamEvent is a single SSE event in the Anthropic streaming protocol.
 type AnthropicStreamEvent struct {
-	Type string `json:"type"`
+	Type  string                `json:"type"`
+	Error *AnthropicStreamError `json:"error,omitempty"`
 
 	// message_start
 	Message *AnthropicResponse `json:"message,omitempty"`
@@ -197,6 +198,11 @@ type AnthropicStreamEvent struct {
 
 	// message_delta
 	Usage *AnthropicUsage `json:"usage,omitempty"`
+}
+
+type AnthropicStreamError struct {
+	Type    string `json:"type"`
+	Message string `json:"message"`
 }
 
 // AnthropicDelta carries incremental content in streaming events.
@@ -261,7 +267,7 @@ type ResponsesText struct {
 // The Type field determines which other fields are populated.
 type ResponsesInputItem struct {
 	// Common
-	Type string `json:"type,omitempty"` // "" for role-based messages
+	Type string `json:"type,omitempty"` // "message" for role-based messages
 
 	// Role-based messages (developer/system/user/assistant)
 	Role    string          `json:"role,omitempty"`
@@ -643,7 +649,8 @@ type ResponsesStreamEvent struct {
 	Param string `json:"param,omitempty"`
 
 	// Sequence number for ordering events
-	SequenceNumber int `json:"sequence_number,omitempty"`
+	SequenceNumber  int `json:"sequence_number"`
+	sequencePresent bool
 }
 
 // ---------------------------------------------------------------------------

@@ -146,7 +146,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import { useCallbackLifetime } from '@/composables/useCallbackLifetime'
+
+import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import { useClipboard } from '@/composables/useClipboard'
@@ -170,6 +173,7 @@ const { t } = useI18n()
 const { copyToClipboard } = useClipboard()
 const appStore = useAppStore()
 const authStore = useAuthStore()
+const { isActive, waitForCallback } = useCallbackLifetime()
 const isProcessing = ref(false)
 const isSubmitting = ref(false)
 const needsRegistrationCompletion = ref(false)
@@ -195,9 +199,6 @@ type EmailOAuthPendingCompletion = Partial<OAuthTokenResponse> & {
 
 const code = computed(() => (route.query.code as string) || '')
 const state = computed(() => (route.query.state as string) || '')
-const error = computed(
-  () => (route.query.error as string) || (route.query.error_description as string) || ''
-)
 
 const fullUrl = computed(() => {
   if (typeof window === 'undefined') return ''
@@ -222,22 +223,10 @@ const canSubmitRegistration = computed(() => {
 function parseFragmentParams(): URLSearchParams {
   const raw = typeof window !== 'undefined' ? window.location.hash : ''
   const hash = raw.startsWith('#') ? raw.slice(1) : raw
+  if (hash) window.history.replaceState(null, '', window.location.pathname + window.location.search)
   return new URLSearchParams(hash)
 }
 
-function readTokenResponse(params: URLSearchParams): OAuthTokenResponse | null {
-  const accessToken = params.get('access_token')?.trim() || ''
-  if (!accessToken) return null
-
-  const response: OAuthTokenResponse = { access_token: accessToken }
-  const refreshToken = params.get('refresh_token')?.trim() || ''
-  if (refreshToken) response.refresh_token = refreshToken
-  const expiresIn = Number.parseInt(params.get('expires_in')?.trim() || '', 10)
-  if (Number.isFinite(expiresIn) && expiresIn > 0) response.expires_in = expiresIn
-  const tokenType = params.get('token_type')?.trim() || ''
-  if (tokenType) response.token_type = tokenType
-  return response
-}
 
 function sanitizeRedirectPath(path: string | null | undefined): string {
   if (!path) return '/dashboard'
@@ -273,7 +262,7 @@ function redirectProviderCallbackToBackend(provider: 'github' | 'google'): void 
 
 async function finalizeTokenResponse(tokenResponse: OAuthTokenResponse, redirect: string) {
   persistOAuthTokenContext(tokenResponse)
-  await authStore.setToken(tokenResponse.access_token)
+  await waitForCallback(authStore.setToken(tokenResponse.access_token))
   if (typeof window !== 'undefined') {
     window.sessionStorage.removeItem(EMAIL_OAUTH_PENDING_PROVIDER_KEY)
   }
@@ -286,10 +275,10 @@ function hasOAuthTokenResponse(value: Partial<OAuthTokenResponse>): value is OAu
   return typeof value.access_token === 'string' && value.access_token.trim() !== ''
 }
 
-async function resumePendingEmailOAuth() {
+async function resumePendingEmailOAuth(code?: string) {
   isProcessing.value = true
   try {
-    const completion = await exchangePendingOAuthCompletion() as EmailOAuthPendingCompletion
+    const completion = await waitForCallback(exchangePendingOAuthCompletion(undefined, code)) as EmailOAuthPendingCompletion
     const completionRedirect = completion.redirect || '/dashboard'
     if (hasOAuthTokenResponse(completion)) {
       await finalizeTokenResponse(completion, completionRedirect)
@@ -312,18 +301,20 @@ async function resumePendingEmailOAuth() {
 
     appStore.showError(completion.error || t('auth.loginFailed'))
   } catch (e: unknown) {
+    if (!isActive()) return
     const err = e as { message?: string; response?: { data?: { message?: string } } }
-    const message = err.response?.data?.message || err.message || t('auth.loginFailed')
+    const message = extractApiErrorMessage(err, '') || t('auth.loginFailed')
     appStore.showError(message)
     invalidCallback.value = true
   } finally {
-    if (!needsRegistrationCompletion.value) {
+    if (isActive() && !needsRegistrationCompletion.value) {
       isProcessing.value = false
     }
   }
 }
 
 async function handleSubmitRegistration() {
+  if (!isActive() || isSubmitting.value) return
   registrationError.value = ''
   if (!registrationEmail.value.trim()) {
     registrationError.value = t('auth.emailRequired')
@@ -353,58 +344,42 @@ async function handleSubmitRegistration() {
       `/auth/oauth/${pendingProvider.value}/complete-registration`,
       payload
     )
+    if (!isActive()) return
     await finalizeTokenResponse(data, redirectTo.value)
   } catch (e: unknown) {
+    if (!isActive()) return
     const err = e as { message?: string; response?: { data?: { message?: string } } }
     registrationError.value =
-      err.response?.data?.message || err.message || t('auth.oidc.completeRegistrationFailed')
+      extractApiErrorMessage(err, '') || t('auth.oidc.completeRegistrationFailed')
   } finally {
-    isSubmitting.value = false
+    if (isActive()) isSubmitting.value = false
   }
 }
 
 onMounted(async () => {
   const params = parseFragmentParams()
-  const tokenResponse = readTokenResponse(params)
-  const fragmentError = params.get('error') || ''
+  if (params.has('access_token') || params.has('refresh_token')) {
+    invalidCallback.value = true
+    isProcessing.value = false
+    return
+  }
+  const fragmentError = params.get('error') || (route.query.error as string) || (route.query.error_description as string) || ''
   const fragmentErrorDescription =
-    params.get('error_description') || params.get('error_message') || ''
+    params.get('error_description') || params.get('error_message') || (route.query.error_description as string) || ''
 
   if (fragmentError) {
     appStore.showError(fragmentErrorDescription || fragmentError)
     return
   }
-  if (!tokenResponse) {
-    if (route.path === '/auth/oauth/callback') {
-      const pendingEmailOAuthProvider = readPendingEmailOAuthProvider()
-      if (pendingEmailOAuthProvider && code.value && state.value) {
-        redirectProviderCallbackToBackend(pendingEmailOAuthProvider)
-        return
-      }
-      await resumePendingEmailOAuth()
+  if (route.path === '/auth/oauth/callback') {
+    const pendingEmailOAuthProvider = readPendingEmailOAuthProvider()
+    if (pendingEmailOAuthProvider && code.value && state.value) {
+      redirectProviderCallbackToBackend(pendingEmailOAuthProvider)
+      return
     }
-    return
-  }
-
-  isProcessing.value = true
-  try {
-    await finalizeTokenResponse(tokenResponse, params.get('redirect') || '/dashboard')
-  } catch (error: unknown) {
-    const message = (error as { message?: string })?.message || t('auth.loginFailed')
-    appStore.showError(message)
-    isProcessing.value = false
+    await resumePendingEmailOAuth(params.get('code') || undefined)
   }
 })
-
-watch(
-  error,
-  (message) => {
-    if (message) {
-      appStore.showError(message)
-    }
-  },
-  { immediate: true }
-)
 
 const copy = (value: string) => {
   if (!value) return

@@ -342,6 +342,8 @@ type UserLoadInfo struct {
 func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
 	// If maxConcurrency is 0 or negative, no limit
 	if maxConcurrency <= 0 {
+		// 账号槽位没有被并发限制拦住，但这仍然是一次真实的账号尝试。
+		s.countAccountAttempt(ctx, accountID)
 		return &AcquireResult{
 			Acquired:    true,
 			ReleaseFunc: func() {}, // no-op
@@ -357,6 +359,9 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	}
 
 	if acquired {
+		// 槽位被授予 = 这次请求真的要用这个账号，按 attempt 计入账号级 RPM。
+		// 调度器直达与等待后拿到槽位走的都是这里，因此两条路径口径一致。
+		s.countAccountAttempt(ctx, accountID)
 		return &AcquireResult{
 			Acquired: true,
 			ReleaseFunc: func() {
@@ -557,6 +562,27 @@ func (s *ConcurrencyService) GetAccountWaitingCount(ctx context.Context, account
 		return 0, nil
 	}
 	return s.cache.GetAccountWaitingCount(ctx, accountID)
+}
+
+// accountAttemptCounter 是并发缓存的窄扩展口：缓存实现顺带提供账号级 RPM 计数时，
+// 账号槽位被授予即记一次 attempt（T3-2.13：用户/组按逻辑请求计，账号按实际 attempt 计）。
+// 未实现该口时计数静默跳过，不影响并发语义。
+type accountAttemptCounter interface {
+	CountAccountAttempt(ctx context.Context, accountID int64) error
+}
+
+// countAccountAttempt 记一次账号维度的 attempt；失败只告警不阻断（RPM 是软限）。
+func (s *ConcurrencyService) countAccountAttempt(ctx context.Context, accountID int64) {
+	if s == nil || s.cache == nil || accountID <= 0 {
+		return
+	}
+	counter, ok := s.cache.(accountAttemptCounter)
+	if !ok {
+		return
+	}
+	if err := counter.CountAccountAttempt(ctx, accountID); err != nil {
+		logger.LegacyPrintf("service.concurrency", "Warning: account rpm attempt count failed for %d: %v", accountID, err)
+	}
 }
 
 // CalculateMaxWait calculates the maximum wait queue size for a user

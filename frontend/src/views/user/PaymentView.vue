@@ -2,7 +2,7 @@
   <AppLayout>
     <div class="mx-auto max-w-4xl space-y-6">
       <div v-if="loading" class="flex items-center justify-center py-20">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
+        <LoadingSpinner size="md" color="primary" />
       </div>
       <template v-else>
         <!-- Tab Switcher (hide during payment and subscription confirm) -->
@@ -90,7 +90,7 @@
             </div>
             <button :class="['btn w-full py-3 text-base font-medium', paymentButtonClass]" :disabled="!canSubmit || submitting" @click="handleSubmitRecharge">
               <span v-if="submitting" class="flex items-center justify-center gap-2">
-                <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                <LoadingSpinner size="sm" color="white" />
                 {{ t('common.processing') }}
               </span>
               <span v-else>{{ t('payment.createOrder') }} {{ formatSelectedPaymentAmount(totalAmount) }}</span>
@@ -105,7 +105,7 @@
                 <!-- Header: platform badge + plan name -->
                 <div class="mb-3 flex flex-wrap items-center gap-2">
                   <span :class="['rounded-md border px-2 py-0.5 text-xs font-medium', planBadgeClass]">
-                    {{ platformLabel(selectedPlan.group_platform || '') }}
+                    {{ getPlatformLabel(selectedPlan.group_platform || '', i18n.t) }}
                   </span>
                   <h3 class="text-lg font-bold text-gray-900 dark:text-white">{{ selectedPlan.name }}</h3>
                 </div>
@@ -178,7 +178,7 @@
               </div>
               <button :class="['btn w-full py-3 text-base font-medium', paymentButtonClass]" :disabled="!canSubmitSubscription || submitting" @click="confirmSubscribe">
                 <span v-if="submitting" class="flex items-center justify-center gap-2">
-                  <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
+                  <LoadingSpinner size="sm" color="white" />
                   {{ t('common.processing') }}
                 </span>
                 <span v-else>{{ t('payment.createOrder') }} {{ formatSelectedPaymentAmount(subTotalAmount) }}</span>
@@ -204,7 +204,7 @@
                     <div class="min-w-0 flex-1">
                       <div class="flex items-center gap-1.5">
                         <span class="truncate text-xs font-semibold text-gray-900 dark:text-white">{{ sub.group?.name || t('payment.groupFallback', { id: sub.group_id }) }}</span>
-                        <span :class="['shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium', platformBadgeLightClass(sub.group?.platform || '')]">{{ platformLabel(sub.group?.platform || '') }}</span>
+                        <span :class="['shrink-0 rounded-full px-1.5 py-0.5 text-[9px] font-medium', platformBadgeLightClass(sub.group?.platform || '')]">{{ getPlatformLabel(sub.group?.platform || '', i18n.t) }}</span>
                       </div>
                       <div class="flex flex-wrap gap-x-3 text-[11px] text-gray-400 dark:text-gray-500">
                         <span>{{ t('payment.planCard.rate') }}: ×{{ sub.group?.rate_multiplier ?? 1 }}</span>
@@ -260,6 +260,7 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'
@@ -287,11 +288,13 @@ import {
   decidePaymentLaunch,
   getVisibleMethods,
   normalizeVisibleMethod,
-  readPaymentRecoverySnapshot,
+  usePaymentPageLifecycle,
+  readOwnedPaymentRecoverySnapshot,
   type PaymentRecoverySnapshot,
   writePaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
-import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass, platformLabel } from '@/utils/platformColors'
+import { platformAccentBarClass, platformBadgeLightClass, platformBadgeClass, platformTextClass } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import PaymentStatusPanel from '@/components/payment/PaymentStatusPanel.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -309,6 +312,9 @@ const authStore = useAuthStore()
 const paymentStore = usePaymentStore()
 const subscriptionStore = useSubscriptionStore()
 const appStore = useAppStore()
+const lifecycle = usePaymentPageLifecycle(() => route.path, () => {
+  paymentStore.clearCurrentOrder()
+})
 
 const user = computed(() => authStore.user)
 const activeSubscriptions = computed(() => subscriptionStore.activeSubscriptions)
@@ -404,6 +410,7 @@ function waitForWeixinJSBridge(timeoutMs = 4000): Promise<WeixinJSBridgeLike | n
 
 async function invokeWechatJsapiPayment(payload: Record<string, unknown>): Promise<Record<string, unknown>> {
   const bridge = await waitForWeixinJSBridge()
+  if (!lifecycle.isCurrent()) throw new Error('Payment page changed')
   if (!bridge) {
     throw new Error('WECHAT_JSAPI_UNAVAILABLE')
   }
@@ -425,12 +432,14 @@ function removeRecoverySnapshot() {
 }
 
 function resetPayment() {
+  if (!lifecycle.isCurrent()) return
   paymentPhase.value = 'select'
   paymentState.value = emptyPaymentState()
   removeRecoverySnapshot()
 }
 
 async function redirectToPaymentResult(state: PaymentRecoverySnapshot): Promise<void> {
+  if (!lifecycle.isCurrent()) return
   const query: Record<string, string | undefined> = {}
   if (state.orderId > 0) {
     query.order_id = String(state.orderId)
@@ -485,6 +494,7 @@ function buildWechatOAuthAuthorizeUrl(
 }
 
 function onPaymentDone() {
+  if (!lifecycle.isCurrent()) return
   const wasSubscription = paymentState.value.orderType === 'subscription'
   resetPayment()
   selectedPlan.value = null
@@ -494,6 +504,7 @@ function onPaymentDone() {
 }
 
 async function onPaymentSuccess() {
+  if (!lifecycle.isCurrent()) return
   const completedPayment = { ...paymentState.value }
   removeRecoverySnapshot()
   authStore.refreshUser()
@@ -504,6 +515,7 @@ async function onPaymentSuccess() {
 }
 
 function onPaymentSettled() {
+  if (!lifecycle.isCurrent()) return
   removeRecoverySnapshot()
 }
 
@@ -790,6 +802,7 @@ async function confirmSubscribe() {
 }
 
 async function createOrder(orderAmount: number, orderType: OrderType, planId?: number, options: CreateOrderOptions = {}) {
+  if (!lifecycle.isCurrent()) return
   submitting.value = true
   errorMessage.value = ''
   errorHintMessage.value = ''
@@ -814,6 +827,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
 
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
+    if (!lifecycle.isCurrent()) return
     const openWindow = (url: string) => {
       const win = window.open(url, 'paymentPopup', getPaymentPopupFeatures())
       if (!win || win.closed) {
@@ -893,6 +907,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     if (decision.kind === 'wechat_jsapi' && decision.jsapi) {
       try {
         const jsapiResult = await invokeWechatJsapiPayment(decision.jsapi as Record<string, unknown>)
+        if (!lifecycle.isCurrent()) return
         const errMsg = String(jsapiResult.err_msg || '').toLowerCase()
         if (errMsg.includes('cancel')) {
           appStore.showInfo(t('payment.qr.cancelled'))
@@ -918,6 +933,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
           await redirectToPaymentResult(resultState)
         }
       } catch (err: unknown) {
+        if (!lifecycle.isCurrent()) return
         resetPayment()
         const fallbackApplied = await attemptMobileQrFallback(err, {
           orderAmount,
@@ -940,6 +956,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
       openWindow(decision.paymentState.payUrl)
     }
   } catch (err: unknown) {
+    if (!lifecycle.isCurrent()) return
     const apiErr = err as Record<string, unknown>
     if (apiErr.reason === 'TOO_MANY_PENDING') {
       const metadata = apiErr.metadata as Record<string, unknown> | undefined
@@ -957,6 +974,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     })) {
       return
     } else {
+      if (!lifecycle.isCurrent()) return
       const handled = applyScenarioError(
         err,
         normalizeVisibleMethod(options.paymentType || selectedMethod.value) || selectedMethod.value,
@@ -971,7 +989,7 @@ async function createOrder(orderAmount: number, orderType: OrderType, planId?: n
     }
     appStore.showError(buildPaymentErrorToastMessage(errorMessage.value, errorHintMessage.value))
   } finally {
-    submitting.value = false
+    if (lifecycle.isCurrent()) submitting.value = false
   }
 }
 
@@ -1017,6 +1035,7 @@ function shouldFallbackToDesktopQr(err: unknown, paymentMethod: string, attempte
 }
 
 async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackContext): Promise<boolean> {
+  if (!lifecycle.isCurrent()) return false
   if (!shouldFallbackToDesktopQr(err, context.paymentType, context.attempted)) {
     return false
   }
@@ -1033,6 +1052,7 @@ async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackCo
       isWechatBrowser: false,
     })
     const result = await paymentStore.createOrder(payload) as CreateOrderResult & { resume_token?: string }
+    if (!lifecycle.isCurrent()) return false
     const stripeMethod = visibleMethod === 'wxpay' ? 'wechat_pay' : 'alipay'
     const stripeRouteUrl = result.client_secret
       ? router.resolve({
@@ -1071,6 +1091,7 @@ async function attemptMobileQrFallback(err: unknown, context: MobileQrFallbackCo
 }
 
 function applyScenarioError(err: unknown, paymentMethod: string): boolean {
+  if (!lifecycle.isCurrent()) return false
   const descriptor = describePaymentScenarioError(err, {
     paymentMethod,
     isMobile: isMobileDevice(),
@@ -1103,6 +1124,7 @@ async function resumeWechatPaymentFromQuery() {
 
   await router.replace({ path: route.path, query: stripWechatResumeQuery(route.query) })
 
+  if (!lifecycle.isCurrent()) return
   if (resume.wechatResumeToken) {
     await createOrder(0, resume.orderType, resume.planId, {
       wechatResumeToken: resume.wechatResumeToken,
@@ -1124,6 +1146,7 @@ async function resumeWechatPaymentFromQuery() {
 onMounted(async () => {
   try {
     const res = await paymentAPI.getCheckoutInfo()
+    if (!lifecycle.isCurrent()) return
     checkout.value = res.data
     if (enabledMethods.value.length) {
       const order: readonly string[] = METHOD_ORDER
@@ -1143,7 +1166,7 @@ onMounted(async () => {
         : typeof route.query.wechat_resume_token === 'string'
           ? route.query.wechat_resume_token
           : undefined
-      const restored = readPaymentRecoverySnapshot(
+      const restored = readOwnedPaymentRecoverySnapshot(
         window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
         { resumeToken: routeResumeToken },
       )
@@ -1160,6 +1183,7 @@ onMounted(async () => {
       }
     }
     await resumeWechatPaymentFromQuery()
+    if (!lifecycle.isCurrent()) return
     // balance_disabled → the tabs watcher above moves activeTab to the subscription tab (when enabled).
     // Handle renewal navigation: ?tab=subscription&group=123 (ignored when subscriptions are disabled)
     if (route.query.tab === 'subscription' && subscriptionEnabled.value) {
@@ -1175,10 +1199,10 @@ onMounted(async () => {
         }
       }
     }
-  } catch (err: unknown) { appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error'))) }
-  finally { loading.value = false }
+  } catch (err: unknown) { if (lifecycle.isCurrent()) appStore.showError(extractI18nErrorMessage(err, t, 'payment.errors', t('common.error'))) }
+  finally { if (lifecycle.isCurrent()) loading.value = false }
   // Fetch active subscriptions (uses cache, non-blocking); skipped when the subscription feature is off
-  if (subscriptionEnabled.value) {
+  if (lifecycle.isCurrent() && subscriptionEnabled.value) {
     subscriptionStore.fetchActiveSubscriptions().catch(() => {})
   }
 })

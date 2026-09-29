@@ -92,7 +92,7 @@ func TestOpenAIHandleStreamingAwareError_JSONEscaping(t *testing.T) {
 			// 验证结构
 			errorObj, ok := parsed["error"].(map[string]any)
 			require.True(t, ok, "应包含 error 对象")
-			assert.Equal(t, tt.errType, errorObj["type"])
+			assert.Equal(t, "server_error", errorObj["type"])
 			assert.Equal(t, tt.message, errorObj["message"])
 		})
 	}
@@ -117,7 +117,7 @@ func TestOpenAIHandleStreamingAwareErrorWithCode_EmitsStableClassification(t *te
 
 	body := w.Body.String()
 	require.Contains(t, body, "event: error\n")
-	require.Equal(t, "upstream_error", gjson.Get(body[strings.Index(body, "{"):], "error.type").String())
+	require.Equal(t, "server_error", gjson.Get(body[strings.Index(body, "{"):], "error.type").String())
 	require.Equal(t, service.OpenAIUpstreamHTTP2StreamErrorCode, gjson.Get(body[strings.Index(body, "{"):], "error.code").String())
 	require.NotContains(t, body, "stream ID")
 
@@ -254,7 +254,7 @@ func TestOpenAIHandleStreamingAwareError_NonStreaming(t *testing.T) {
 	require.NoError(t, err)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "test error", errorObj["message"])
 }
 
@@ -296,7 +296,7 @@ func TestOpenAIEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testin
 	require.NoError(t, err)
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -427,7 +427,7 @@ func TestOpenAIEnsureForwardErrorResponse_ImageJSONKeepaliveWritesSingleJSONFall
 	var payload map[string]any
 	require.NoError(t, decoder.Decode(&payload))
 	require.ErrorIs(t, decoder.Decode(&payload), io.EOF)
-	require.Equal(t, "upstream_error", gjson.Get(w.Body.String(), "error.type").String())
+	require.Equal(t, "server_error", gjson.Get(w.Body.String(), "error.type").String())
 	require.Equal(t, "Upstream request failed", gjson.Get(w.Body.String(), "error.message").String())
 }
 
@@ -546,7 +546,7 @@ func TestOpenAIRecoverResponsesPanic_WritesFallbackResponse(t *testing.T) {
 
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -1923,6 +1923,7 @@ type openAIResponsesWSUsageLogCase struct {
 	secondPayload             string
 	userAgent                 *string
 	ingressMode               string
+	affinityEnabled           bool
 	channelMapping            map[string]string
 	billingModelSource        string
 	accountModelMapping       map[string]any
@@ -1931,11 +1932,13 @@ type openAIResponsesWSUsageLogCase struct {
 	group *service.Group
 	// firstFrameCloseExpected：首帧即被拒（连接被 1008 关闭），不期待任何响应帧。
 	firstFrameCloseExpected bool
+	expectedCloseReason     string
 	// secondTurnCloseExpected：第二个 turn 被拒（连接被 1008 关闭）。
 	secondTurnCloseExpected bool
 }
 
 type openAIResponsesWSUsageLogResult struct {
+	plans                []*service.GatewayRequestPlan
 	log                  *service.UsageLog
 	logs                 []*service.UsageLog
 	upstreamFirstPayload []byte
@@ -1952,7 +1955,7 @@ func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByPlatform(ctx cont
 	if s.account.Platform != platform {
 		return nil, nil
 	}
-	return []service.Account{s.account}, nil
+	return []service.Account{preparedGatewayFixtureAccount(s.account)}, nil
 }
 
 func (s *openAIWSUsageHandlerAccountRepoStub) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]service.Account, error) {
@@ -1963,7 +1966,7 @@ func (s *openAIWSUsageHandlerAccountRepoStub) GetByID(ctx context.Context, id in
 	if s.account.ID != id {
 		return nil, nil
 	}
-	account := s.account
+	account := preparedGatewayFixtureAccount(s.account)
 	return &account, nil
 }
 
@@ -2065,7 +2068,7 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableByPlatform(ctx c
 	out := make([]service.Account, 0, len(s.accounts))
 	for _, account := range s.accounts {
 		if account.Platform == platform && account.IsSchedulable() {
-			out = append(out, account)
+			out = append(out, preparedGatewayFixtureAccount(account))
 		}
 	}
 	return out, nil
@@ -2082,7 +2085,7 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) ListSchedulableUngroupedByPlatf
 func (s *openAIWSFailoverHandlerAccountRepoStub) GetByID(ctx context.Context, id int64) (*service.Account, error) {
 	for _, account := range s.accounts {
 		if account.ID == id {
-			acc := account
+			acc := preparedGatewayFixtureAccount(account)
 			return &acc, nil
 		}
 	}
@@ -2104,9 +2107,13 @@ func (s *openAIWSFailoverHandlerAccountRepoStub) SetRateLimited(ctx context.Cont
 type openAIWSUsageHandlerUsageLogRepoStub struct {
 	service.UsageLogRepository
 	created chan *service.UsageLog
+	plans   chan *service.GatewayRequestPlan
 }
 
 func (s *openAIWSUsageHandlerUsageLogRepoStub) Create(ctx context.Context, log *service.UsageLog) (bool, error) {
+	if s.plans != nil {
+		s.plans <- service.GatewayRequestPlanFromContext(ctx)
+	}
 	if s.created != nil {
 		s.created <- log
 	}
@@ -2206,7 +2213,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 	upstream := &openAIHTTPPassthroughFailoverUpstream{}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		nil,
 		nil,
@@ -2228,8 +2235,7 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 		nil,
 		nil,
 		nil,
-		nil,
-	)
+		nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
 		service.NewConcurrencyService(nil),
@@ -2255,10 +2261,10 @@ func TestOpenAIResponses_APIKeyPassthroughPool5xxRetriesThenExhaustsMaxSwitches(
 
 	h.Responses(c)
 
-	require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
+	require.Equal(t, []int64{9910, 9910}, upstream.calls())
 	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
-	require.Equal(t, "Upstream service temporarily unavailable", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
+	require.Equal(t, "server_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, "Upstream request failed", gjson.GetBytes(rec.Body.Bytes(), "error.message").String())
 }
 
 func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHealthyAccount(t *testing.T) {
@@ -2307,7 +2313,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
 			billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 			t.Cleanup(billingCacheSvc.Stop)
-			gatewaySvc := service.NewOpenAIGatewayService(
+			gatewaySvc := service.ProvideOpenAIGatewayService(
 				accountRepo,
 				nil,
 				nil,
@@ -2329,8 +2335,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 				nil,
 				nil,
 				nil,
-				nil,
-			)
+				nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 			h := NewOpenAIGatewayHandler(
 				gatewaySvc,
 				service.NewConcurrencyService(nil),
@@ -2354,6 +2359,7 @@ func TestOpenAIResponses_APIKeyPassthroughPoolAuthFailureRetriesThenSwitchesToHe
 			})
 			c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: 1703, Concurrency: 0})
 
+			h.maxAccountSwitches = 2 // Initial + repair + healthy account share three sends.
 			h.Responses(c)
 
 			require.Equal(t, []int64{9910, 9910, 9911}, upstream.calls())
@@ -2389,7 +2395,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 	upstream := &openAIHTTPPassthroughSSERateLimitUpstream{}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCacheSvc.Stop)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		nil,
 		nil,
@@ -2411,8 +2417,7 @@ func TestOpenAIResponses_APIKeyPassthroughSSERateLimitUsesConfiguredPoolRetry(t 
 		nil,
 		nil,
 		nil,
-		nil,
-	)
+		nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	h := NewOpenAIGatewayHandler(
 		gatewaySvc,
 		service.NewConcurrencyService(nil),
@@ -2549,7 +2554,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		nil,
 		nil,
@@ -2571,8 +2576,7 @@ func TestOpenAIResponsesWebSocket_FailoverOnUpstreamUsageLimitEvent(t *testing.T
 		nil,
 		nil,
 		nil,
-		nil,
-	)
+		nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
@@ -2757,11 +2761,10 @@ func TestOpenAIResponsesWebSocket_FirstOutputTimeoutWithoutDownstreamReusesClien
 	accountRepo := &openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}
 	rateLimitSvc := service.NewRateLimitService(accountRepo, nil, cfg, nil, nil)
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), rateLimitSvc, billingCacheSvc,
-		nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) {
@@ -2898,6 +2901,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 				turn,
 				gjson.GetBytes(payload, "model").String(),
 			)
+			if gjson.GetBytes(payload, "type").String() == "session.update" {
+				response = `{"type":"session.updated"}`
+			}
 			writeCtx, cancelWrite := context.WithTimeout(r.Context(), 3*time.Second)
 			writeErr := conn.Write(writeCtx, coderws.MessageText, []byte(response))
 			cancelWrite()
@@ -2934,6 +2940,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 
 	cfg := &config.Config{}
+	cfg.Gateway.SessionAffinityEnabled = tc.affinityEnabled
 	cfg.RunMode = config.RunModeSimple
 	cfg.Default.RateMultiplier = 1
 	cfg.Security.URLAllowlist.Enabled = false
@@ -2947,7 +2954,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
 	accountRepo := &openAIWSUsageHandlerAccountRepoStub{account: account}
-	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, turnCount)}
+	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, turnCount), plans: make(chan *service.GatewayRequestPlan, turnCount)}
 
 	if len(tc.channelMapping) > 0 {
 		channelSvc = service.NewChannelService(&openAIWSUsageHandlerChannelRepoStub{
@@ -2964,7 +2971,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-	gatewaySvc := service.NewOpenAIGatewayService(
+	gatewaySvc := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		usageRepo,
 		nil,
@@ -2987,6 +2994,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		nil,
 		nil,
 		nil, // userPlatformQuotaRepo
+		service.NewUsageSettlementService(&openAIWSUsageReceiptRepoStub{usage: usageRepo}, nil, nil),
 	)
 
 	cache := &concurrencyCacheMock{
@@ -2998,6 +3006,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		},
 	}
 	h := &OpenAIGatewayHandler{
+		cfg:                 cfg,
 		gatewayService:      gatewaySvc,
 		billingCacheService: billingCacheSvc,
 		apiKeyService:       &service.APIKeyService{},
@@ -3006,6 +3015,7 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 	apiKey := &service.APIKey{
 		ID:      1801,
+		UserID:  1701,
 		GroupID: &groupID,
 		User:    &service.User{ID: 1701, Status: service.StatusActive},
 	}
@@ -3051,7 +3061,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		var closeErr coderws.CloseError
 		require.ErrorAs(t, readErr, &closeErr)
 		require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
-		require.Contains(t, closeErr.Reason, "not available for this group")
+		reason := tc.expectedCloseReason
+		if reason == "" {
+			reason = "not available for this group"
+		}
+		require.Contains(t, closeErr.Reason, reason)
 		_ = clientConn.CloseNow()
 		return openAIResponsesWSUsageLogResult{}
 	}
@@ -3071,7 +3085,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		err = clientConn.Write(writeCtx, coderws.MessageText, []byte(tc.midPayload))
 		cancelWrite()
 		require.NoError(t, err)
-		readCompleted()
+		readCtx, cancelRead := context.WithTimeout(context.Background(), 3*time.Second)
+		_, event, readErr := clientConn.Read(readCtx)
+		cancelRead()
+		require.NoError(t, readErr)
+		require.Equal(t, "session.updated", gjson.GetBytes(event, "type").String())
 	}
 	if strings.TrimSpace(tc.secondPayload) != "" && (turnCount >= 2) {
 		writeCtx, cancelWrite = context.WithTimeout(context.Background(), 3*time.Second)
@@ -3086,7 +3104,11 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 			var closeErr coderws.CloseError
 			require.ErrorAs(t, readErr, &closeErr)
 			require.Equal(t, coderws.StatusPolicyViolation, closeErr.Code)
-			require.Contains(t, closeErr.Reason, "not available for this group")
+			reason := tc.expectedCloseReason
+			if reason == "" {
+				reason = "not available for this group"
+			}
+			require.Contains(t, closeErr.Reason, reason)
 			_ = clientConn.CloseNow()
 			return openAIResponsesWSUsageLogResult{}
 		}
@@ -3094,8 +3116,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	}
 	_ = clientConn.Close(coderws.StatusNormalClosure, "done")
 
-	usageLogs := make([]*service.UsageLog, 0, turnCount)
-	for len(usageLogs) < turnCount {
+	usageCount := turnCount
+	if strings.TrimSpace(tc.midPayload) != "" {
+		usageCount--
+	}
+	usageLogs := make([]*service.UsageLog, 0, usageCount)
+	for len(usageLogs) < usageCount {
 		select {
 		case usageLog := <-usageRepo.created:
 			require.NotNil(t, usageLog)
@@ -3122,7 +3148,12 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		t.Fatal("等待上游 WebSocket 结束超时")
 	}
 
+	plans := make([]*service.GatewayRequestPlan, 0, len(usageLogs))
+	for range usageLogs {
+		plans = append(plans, <-usageRepo.plans)
+	}
 	return openAIResponsesWSUsageLogResult{
+		plans:                plans,
 		log:                  usageLogs[0],
 		logs:                 usageLogs,
 		upstreamFirstPayload: upstreamPayloads[0],
@@ -3198,4 +3229,17 @@ data: {"type":"response.failed","error":{"message":"This content was flagged"}}
 
 		require.False(t, openAIForwardErrorAlreadyCommunicated(c, c.Writer.Size(), errors.New("openai cyber_policy: blocked")))
 	})
+}
+
+// Review receipts expose their observed evidence to the WS fixture channel too.
+// This does not assert that a needs-review receipt has a settled usage_logs row.
+type openAIWSUsageReceiptRepoStub struct {
+	unlimitedTPMRepository
+	service.UsageSettlementReceiptRepository
+	usage *openAIWSUsageHandlerUsageLogRepoStub
+}
+
+func (s *openAIWSUsageReceiptRepoStub) Persist(ctx context.Context, receipt *service.UsageSettlementReceipt) (*service.UsageSettlementReceipt, error) {
+	_, err := s.usage.Create(ctx, &receipt.Usage)
+	return receipt, err
 }

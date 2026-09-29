@@ -69,11 +69,11 @@ func (c *grokTokenCacheForProviderTest) DeleteAccessToken(_ context.Context, key
 	return c.deleteErr
 }
 
-func (c *grokTokenCacheForProviderTest) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (c *grokTokenCacheForProviderTest) AcquireRefreshLock(context.Context, string, string, time.Duration) (bool, error) {
 	return c.lockResult, nil
 }
 
-func (c *grokTokenCacheForProviderTest) ReleaseRefreshLock(context.Context, string) error {
+func (c *grokTokenCacheForProviderTest) ReleaseRefreshLock(context.Context, string, string) error {
 	c.releaseCalls++
 	return nil
 }
@@ -118,7 +118,7 @@ func TestGrokTokenProviderRefreshesExpiredTokenOnRequestPath(t *testing.T) {
 	require.Equal(t, "new-access-token", repo.accountsByID[54].GetGrokAccessToken())
 	require.Equal(t, "refresh-token", repo.accountsByID[54].GetGrokRefreshToken())
 	require.Equal(t, xai.DefaultCLIBaseURL, repo.accountsByID[54].GetGrokBaseURL())
-	require.Equal(t, "grok:account:54", cache.setKey)
+	require.Equal(t, GrokTokenCacheKey(repo.accountsByID[54]), cache.setKey)
 	require.Equal(t, "new-access-token", cache.setToken)
 	require.Greater(t, cache.setTTL, time.Duration(0))
 	require.Equal(t, 1, cache.releaseCalls)

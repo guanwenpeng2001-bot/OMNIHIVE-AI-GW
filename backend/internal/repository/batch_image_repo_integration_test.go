@@ -284,12 +284,105 @@ func TestBatchImageRepository_MarkBatchImageJobSettled(t *testing.T) {
 	require.Equal(t, 0.5, *job.ActualCost)
 	require.Equal(t, "manifest-hash", batchImageDerefTest(job.ManifestHash))
 	require.NotNil(t, job.SettledAt)
-	require.Equal(t, now, *job.SettledAt)
+	require.True(t, now.Equal(*job.SettledAt), "settlement timestamp must preserve the exact instant")
 
 	var eventCount int
 	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM batch_image_events WHERE job_id = $1 AND event_type = 'settlement_completed'`, batchID).Scan(&eventCount)
 	require.NoError(t, err)
 	require.Equal(t, 1, eventCount)
+}
+
+// Submit-failure recording is a compare-and-set on status and expected version:
+// a stale submitter is rejected without touching status, version or events
+// (BE-batch-image-fail-without-version-predicate).
+func TestBatchImageRepository_RecordSubmitFailureRequiresExpectedVersion(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+	batchID := batchImageTestID(t, "submit-failure-cas")
+
+	created, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+		BatchID:   batchID,
+		UserID:    1001,
+		Provider:  service.BatchImageProviderGeminiAPI,
+		Model:     "gemini-image",
+		ItemCount: 1,
+	})
+	require.NoError(t, err)
+
+	err = repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "UPLOAD_TRANSITION_FAILED", "stale writer", true, created.Version+5)
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition)
+	unchanged, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, service.BatchImageJobStatusCreated, unchanged.Status)
+	require.Equal(t, created.Version, unchanged.Version)
+
+	require.NoError(t, repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "UPLOAD_TRANSITION_FAILED", "upload lost", true, created.Version))
+	failed, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, service.BatchImageJobStatusFailed, failed.Status)
+	require.Equal(t, created.Version+1, failed.Version)
+	require.NotNil(t, failed.FinishedAt)
+
+	// A terminal job is fenced: even the now-current version cannot fail it again.
+	err = repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "UPLOAD_TRANSITION_FAILED", "late writer", true, failed.Version)
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition)
+	err = repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "QUEUE_FAILED", "late writer", false, failed.Version)
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition)
+
+	var submitFailedEvents int
+	err = tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM batch_image_events WHERE job_id = $1 AND event_type = 'submit_failed'`, batchID).Scan(&submitFailedEvents)
+	require.NoError(t, err)
+	require.Equal(t, 1, submitFailedEvents, "exactly one accepted submit failure appends exactly one event")
+}
+
+// A settled job can never be moved back to failed by a delayed submission
+// callback, even when the callback presents the current version.
+func TestBatchImageRepository_SettledJobCannotBeFailed(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+	batchID := batchImageTestID(t, "settled-fenced")
+	apiKeyID := int64(2001)
+	accountID := int64(3001)
+	providerJob := "providers/job"
+	outputRef := "files/output"
+
+	_, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+		BatchID:           batchID,
+		UserID:            1001,
+		APIKeyID:          &apiKeyID,
+		AccountID:         &accountID,
+		Provider:          service.BatchImageProviderGeminiAPI,
+		Model:             "gemini-image",
+		Status:            service.BatchImageJobStatusSettling,
+		ProviderJobName:   &providerJob,
+		ProviderOutputRef: &outputRef,
+		ItemCount:         2,
+		SuccessCount:      2,
+	})
+	require.NoError(t, err)
+	require.NoError(t, repo.MarkBatchImageJobSettled(ctx, service.MarkBatchImageJobSettledParams{
+		BatchID:      batchID,
+		ActualCost:   0.25,
+		ManifestHash: "manifest-hash",
+		EventPayload: map[string]any{"request_id": "batch_image_settlement:" + batchID},
+	}))
+
+	settled, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, service.BatchImageJobStatusCompleted, settled.Status)
+	require.NotNil(t, settled.SettledAt)
+
+	err = repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "SUBMISSION_UNKNOWN", "delayed callback", true, settled.Version)
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition)
+	err = repo.RecordBatchImageJobSubmitFailure(ctx, batchID, "QUEUE_FAILED", "delayed callback", false, settled.Version)
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition)
+
+	after, err := repo.GetBatchImageJobByBatchID(ctx, batchID)
+	require.NoError(t, err)
+	require.Equal(t, service.BatchImageJobStatusCompleted, after.Status)
+	require.Equal(t, settled.Version, after.Version)
 }
 
 func TestBatchImageRepository_SetBatchImageJobSettlementFailed(t *testing.T) {
@@ -350,6 +443,45 @@ func batchImageTestID(t *testing.T, prefix string) string {
 	safePrefix := batchImageSafeTestIDSegment(prefix, 20)
 	sum := sha1.Sum([]byte(t.Name()))
 	return "imgbatch_" + safePrefix + "_" + hex.EncodeToString(sum[:])[:16]
+}
+
+func TestBatchImageRepository_RecoveryScanAndStaleClaim(t *testing.T) {
+	ctx := context.Background()
+	tx := testTx(t)
+	repo := newBatchImageRepositoryWithSQL(tx)
+	for _, status := range []string{"created", "uploading", "submitted", "settling", "failed"} {
+		id := batchImageTestID(t, status)
+		_, err := repo.CreateBatchImageJob(ctx, service.CreateBatchImageJobParams{
+			BatchID: id, UserID: 1001, Provider: service.BatchImageProviderVertex,
+			Model: "gemini-2.5-flash-image", ItemCount: 1, Status: status,
+		})
+		require.NoError(t, err)
+		_, err = tx.ExecContext(ctx, `UPDATE batch_image_jobs SET hold_amount=1, updated_at=NOW()-INTERVAL '1 hour' WHERE batch_id=$1`, id)
+		require.NoError(t, err)
+	}
+	ids, err := repo.ListRecoverableBatchImageJobs(ctx, "", 100)
+	require.NoError(t, err)
+	require.Contains(t, ids, batchImageTestID(t, "submitted"))
+	require.Contains(t, ids, batchImageTestID(t, "settling"))
+	require.Contains(t, ids, batchImageTestID(t, "failed"))
+	require.NotContains(t, ids, batchImageTestID(t, "uploading"))
+	first, err := repo.ListRecoverableBatchImageJobs(ctx, "", 1)
+	require.NoError(t, err)
+	require.Len(t, first, 1)
+	next, err := repo.ListRecoverableBatchImageJobs(ctx, first[0], 100)
+	require.NoError(t, err)
+	require.NotContains(t, next, first[0])
+	applied, err := repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "uploading"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.False(t, applied, "missing receipt cannot authorize refund after submission started")
+	err = repo.TransitionBatchImageJobStatus(ctx, batchImageTestID(t, "uploading"), service.BatchImageJobStatusCancelled, service.BatchImageTransitionOptions{})
+	require.ErrorIs(t, err, service.ErrBatchImageInvalidTransition, "cancel must recheck a concurrent submission claim")
+	applied, err = repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "created"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.True(t, applied)
+	applied, err = repo.FailStaleUnsubmittedBatchImageJob(ctx, batchImageTestID(t, "created"), time.Now(), "stale", "stale")
+	require.NoError(t, err)
+	require.False(t, applied, "claim must be idempotent")
 }
 
 func batchImageSafeTestIDSegment(v string, maxLen int) string {

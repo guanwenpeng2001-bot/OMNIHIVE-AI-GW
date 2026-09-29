@@ -83,6 +83,9 @@ func captureBatchImageBalanceHold(ctx context.Context, repo UsageBillingReposito
 	if err != nil {
 		return err
 	}
+	if err := checkBatchImageLease(ctx); err != nil {
+		return err
+	}
 	if _, err := repo.CaptureBatchImageBalance(ctx, cmd); err != nil {
 		return ErrBatchImageSettlementBillingFailed.WithCause(err)
 	}
@@ -93,12 +96,20 @@ func releaseBatchImageBalanceHold(ctx context.Context, repo UsageBillingReposito
 	if repo == nil || job == nil {
 		return nil
 	}
+	// Historical local recovery failures are not provider terminal evidence.
+	code := batchImageDerefString(job.LastErrorCode)
+	if strings.HasPrefix(code, "SETTLEMENT_") || strings.HasPrefix(code, "INDEX_") || code == "DUPLICATE_CUSTOM_ID_IN_OUTPUT" || code == "SUBMISSION_UNKNOWN" {
+		return ErrBatchImageBillingHoldFailed
+	}
 	cmd, err := buildBatchImageHoldCommand(job, BatchImageReleaseRequestID(job.BatchID), 0, payloadHash)
 	if err != nil {
 		return err
 	}
 	if cmd.HoldAmount <= 0 {
 		return nil
+	}
+	if err := checkBatchImageLease(ctx); err != nil {
+		return err
 	}
 	if _, err := repo.ReleaseBatchImageBalance(ctx, cmd); err != nil {
 		// 同一 release request id 出现指纹冲突，说明此前已有一次携带不同

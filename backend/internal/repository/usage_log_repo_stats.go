@@ -18,6 +18,11 @@ import (
 
 // GetUserStatsAggregated returns aggregated usage statistics for a user using database-level aggregation
 func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*usagestats.UsageStats, error) {
+			return snapshot.GetUserStatsAggregated(ctx, userID, startTime, endTime)
+		})
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
@@ -57,6 +62,11 @@ func (r *usageLogRepository) GetUserStatsAggregated(ctx context.Context, userID 
 
 // GetAPIKeyStatsAggregated returns aggregated usage statistics for an API key using database-level aggregation
 func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKeyID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*usagestats.UsageStats, error) {
+			return snapshot.GetAPIKeyStatsAggregated(ctx, apiKeyID, startTime, endTime)
+		})
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
@@ -106,6 +116,11 @@ func (r *usageLogRepository) GetAPIKeyStatsAggregated(ctx context.Context, apiKe
 // 2. 只返回单行聚合结果，大幅减少数据传输量
 // 3. 利用数据库索引优化聚合查询性能
 func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, accountID int64, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*usagestats.UsageStats, error) {
+			return snapshot.GetAccountStatsAggregated(ctx, accountID, startTime, endTime)
+		})
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
@@ -146,6 +161,11 @@ func (r *usageLogRepository) GetAccountStatsAggregated(ctx context.Context, acco
 // GetModelStatsAggregated 使用 SQL 聚合统计模型使用数据
 // 性能优化：数据库层聚合计算，避免应用层循环统计
 func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelName string, startTime, endTime time.Time) (*usagestats.UsageStats, error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*usagestats.UsageStats, error) {
+			return snapshot.GetModelStatsAggregated(ctx, modelName, startTime, endTime)
+		})
+	}
 	query := fmt.Sprintf(`
 		SELECT
 			COUNT(*) as total_requests,
@@ -186,6 +206,11 @@ func (r *usageLogRepository) GetModelStatsAggregated(ctx context.Context, modelN
 // GetDailyStatsAggregated 使用 SQL 聚合统计用户的每日使用数据
 // 性能优化：使用 GROUP BY 在数据库层按日期分组聚合，避免应用层循环分组统计
 func (r *usageLogRepository) GetDailyStatsAggregated(ctx context.Context, userID int64, startTime, endTime time.Time) (result []map[string]any, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]map[string]any, error) {
+			return snapshot.GetDailyStatsAggregated(ctx, userID, startTime, endTime)
+		})
+	}
 	tzName := resolveUsageStatsTimezone()
 	query := `
 		SELECT
@@ -486,6 +511,11 @@ func (r *usageLogRepository) GetBatchUserUsageStats(ctx context.Context, userIDs
 	if endTime.IsZero() {
 		endTime = time.Now()
 	}
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (map[int64]*BatchUserUsageStats, error) {
+			return snapshot.GetBatchUserUsageStats(ctx, userIDs, startTime, endTime)
+		})
+	}
 
 	for _, id := range normalizedUserIDs {
 		result[id] = &BatchUserUsageStats{UserID: id}
@@ -563,6 +593,11 @@ func (r *usageLogRepository) GetBatchAPIKeyUsageStats(ctx context.Context, apiKe
 	if endTime.IsZero() {
 		endTime = time.Now()
 	}
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (map[int64]*BatchAPIKeyUsageStats, error) {
+			return snapshot.GetBatchAPIKeyUsageStats(ctx, apiKeyIDs, startTime, endTime)
+		})
+	}
 
 	for _, id := range normalizedAPIKeyIDs {
 		result[id] = &BatchAPIKeyUsageStats{APIKeyID: id}
@@ -620,6 +655,11 @@ func resolveEndpointColumn(endpointType string) string {
 
 // GetGlobalStats gets usage statistics for all users within a time range
 func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endTime time.Time) (*UsageStats, error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*UsageStats, error) {
+			return snapshot.GetGlobalStats(ctx, startTime, endTime)
+		})
+	}
 	query := `
 		SELECT
 			COUNT(*) as total_requests,
@@ -655,7 +695,19 @@ func (r *usageLogRepository) GetGlobalStats(ctx context.Context, startTime, endT
 
 // GetStatsWithFilters gets usage statistics with optional filters
 func (r *usageLogRepository) GetStatsWithFilters(ctx context.Context, filters UsageLogFilters) (*UsageStats, error) {
-	conditions := make([]string, 0, 9)
+	if needsUsageSnapshot(r) {
+		start, end := time.Unix(0, 0), time.Now()
+		if filters.StartTime != nil {
+			start = *filters.StartTime
+		}
+		if filters.EndTime != nil {
+			end = *filters.EndTime
+		}
+		return rawUsageReadSnapshot(ctx, r, start, end, func(snapshot *usageLogRepository) (*UsageStats, error) {
+			return snapshot.GetStatsWithFilters(ctx, filters)
+		})
+	}
+	conditions := workspaceUsageConditions(ctx)
 	args := make([]any, 0, 9)
 
 	if filters.UserID > 0 {
@@ -837,6 +889,11 @@ type AccountUsageStatsResponse = usagestats.AccountUsageStatsResponse
 type EndpointStat = usagestats.EndpointStat
 
 func (r *usageLogRepository) getEndpointStatsByColumnWithFilters(ctx context.Context, endpointColumn string, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string) (results []EndpointStat, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]EndpointStat, error) {
+			return snapshot.getEndpointStatsByColumnWithFilters(ctx, endpointColumn, startTime, endTime, userID, apiKeyID, accountID, groupID, model, modelSource, requestType, stream, billingType, billingMode)
+		})
+	}
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
 		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
@@ -916,6 +973,11 @@ func (r *usageLogRepository) GetUpstreamEndpointStatsWithFilters(ctx context.Con
 
 // GetAccountUsageStats returns comprehensive usage statistics for an account over a time range
 func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID int64, startTime, endTime time.Time) (resp *AccountUsageStatsResponse, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*AccountUsageStatsResponse, error) {
+			return snapshot.GetAccountUsageStats(ctx, accountID, startTime, endTime)
+		})
+	}
 	daysCount := int(endTime.Sub(startTime).Hours()/24) + 1
 	if daysCount <= 0 {
 		daysCount = 30
@@ -923,7 +985,7 @@ func (r *usageLogRepository) GetAccountUsageStats(ctx context.Context, accountID
 
 	query := `
 		SELECT
-			TO_CHAR(created_at, 'YYYY-MM-DD') as date,
+			` + usageTrendDateSQL("created_at", "day") + ` as date,
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens), 0) as tokens,
 			COALESCE(SUM(total_cost), 0) as cost,

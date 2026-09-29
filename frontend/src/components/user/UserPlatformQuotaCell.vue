@@ -9,7 +9,7 @@
       :key="row.platform"
       class="flex items-center gap-2 whitespace-nowrap"
     >
-      <span :title="row.platform" class="min-w-20 shrink-0 text-gray-700 dark:text-gray-300">{{ platformLabel(row.platform) }}</span>
+      <span :title="row.platform" class="min-w-20 shrink-0 text-gray-700 dark:text-gray-300">{{ getPlatformLabel(row.platform, t) }}</span>
       <span class="text-gray-500 dark:text-gray-400">
         {{ t('admin.users.platformQuota.windowDaily') }}
         <span class="text-gray-900 dark:text-white">{{ fmtUsd(row.daily_usage_usd) }}/{{ fmtLimit(row.daily_limit_usd) }}</span>
@@ -27,8 +27,8 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { getPlatformLabel } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PlatformQuotaItem, PlatformQuotaPlatform } from '@/api/admin/users'
@@ -36,7 +36,7 @@ import type { PlatformQuotaItem, PlatformQuotaPlatform } from '@/api/admin/users
 const props = defineProps<{ quotas?: PlatformQuotaItem[] }>()
 const { t } = useI18n()
 
-const PLATFORM_ORDER: PlatformQuotaPlatform[] = CONCRETE_PLATFORM_OPTIONS.map(option => option.value)
+const PLATFORM_ORDER: PlatformQuotaPlatform[] = QUOTA_PLATFORM_OPTIONS.map(option => option.value)
 
 // 仅展示「至少一档限额非空」的平台（配额列，非用量列）
 const configured = computed(() => {

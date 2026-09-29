@@ -22,7 +22,7 @@ type grokImportProber interface {
 }
 
 type grokImportProbeTask struct {
-	prober    grokImportProber
+	execute   func(context.Context)
 	accountID int64
 }
 
@@ -35,6 +35,9 @@ type grokImportProbeScheduler struct {
 	workers     int
 	maxWorkers  int
 	timeout     time.Duration
+	context     context.Context
+	cancel      context.CancelFunc
+	closed      bool
 }
 
 var defaultGrokImportProbeScheduler = newGrokImportProbeScheduler(
@@ -49,7 +52,9 @@ func newGrokImportProbeScheduler(concurrency int, timeout time.Duration) *grokIm
 	if timeout <= 0 {
 		timeout = grokImportProbeTimeout
 	}
+	schedulerContext, cancel := context.WithCancel(context.Background())
 	return &grokImportProbeScheduler{
+		context: schedulerContext, cancel: cancel,
 		concurrency: concurrency,
 		timeout:     timeout,
 		pending:     make(map[int64]struct{}),
@@ -65,22 +70,37 @@ func (s *grokImportProbeScheduler) schedule(prober grokImportProber, account *se
 		return
 	}
 
+	s.scheduleTask(prober, account.ID)
+}
+
+func (s *grokImportProbeScheduler) scheduleTask(prober grokImportProber, accountID int64) {
+	s.scheduleProbe(accountID, func(ctx context.Context) { runGrokImportProbe(ctx, prober, accountID) })
+}
+
+func (s *grokImportProbeScheduler) scheduleProbe(accountID int64, execute func(context.Context)) {
+	if s == nil || accountID <= 0 || execute == nil {
+		return
+	}
 	s.mu.Lock()
-	if _, exists := s.pending[account.ID]; exists {
+	if s.closed {
 		s.mu.Unlock()
 		return
 	}
-	if _, exists := s.inFlight[account.ID]; exists {
+	if _, exists := s.pending[accountID]; exists {
+		s.mu.Unlock()
+		return
+	}
+	if _, exists := s.inFlight[accountID]; exists {
 		s.mu.Unlock()
 		return
 	}
 	if len(s.queue) >= grokImportProbeQueueLimit {
 		s.mu.Unlock()
-		slog.Debug("grok_import_active_probe_dropped", "account_id", account.ID, "reason", "queue_full")
+		slog.Debug("account_import_active_probe_dropped", "account_id", accountID, "reason", "queue_full")
 		return
 	}
-	s.queue = append(s.queue, grokImportProbeTask{prober: prober, accountID: account.ID})
-	s.pending[account.ID] = struct{}{}
+	s.queue = append(s.queue, grokImportProbeTask{execute: execute, accountID: accountID})
+	s.pending[accountID] = struct{}{}
 	if s.workers < s.concurrency {
 		s.workers++
 		if s.workers > s.maxWorkers {
@@ -97,7 +117,7 @@ func (s *grokImportProbeScheduler) worker() {
 		if !ok {
 			return
 		}
-		s.run(task.prober, task.accountID)
+		s.run(task)
 		s.finish(task.accountID)
 	}
 }
@@ -126,19 +146,25 @@ func (s *grokImportProbeScheduler) finish(accountID int64) {
 	s.mu.Unlock()
 }
 
-func (s *grokImportProbeScheduler) run(prober grokImportProber, accountID int64) {
+func (s *grokImportProbeScheduler) run(task grokImportProbeTask) {
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			slog.Error(
 				"grok_import_active_probe_panic",
-				"account_id", accountID,
+				"account_id", task.accountID,
 				"recovery_type", panicType(recovered),
 			)
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), s.timeout)
+	ctx, cancel := context.WithTimeout(s.context, s.timeout)
 	defer cancel()
+	if ctx.Err() == nil {
+		task.execute(ctx)
+	}
+}
+
+func runGrokImportProbe(ctx context.Context, prober grokImportProber, accountID int64) {
 	result, err := prober.QueryQuota(ctx, accountID)
 	if err != nil {
 		slog.Warn(
@@ -185,13 +211,6 @@ func (h *AccountHandler) scheduleGrokImportProbe(account *service.Account) {
 	defaultGrokImportProbeScheduler.schedule(h.grokImportProber, account)
 }
 
-func (h *GrokOAuthHandler) scheduleGrokImportProbe(account *service.Account) {
-	if h == nil {
-		return
-	}
-	defaultGrokImportProbeScheduler.schedule(h.importProber, account)
-}
-
 // ProvideAccountHandler injects the Grok active prober for production while
 // keeping NewAccountHandler convenient for focused unit tests.
 func ProvideAccountHandler(
@@ -233,4 +252,22 @@ func ProvideAccountHandler(
 	handler.cursorSessions = cursorSessions
 	handler.cfg = cfg
 	return handler
+}
+
+// close drops queued work and cancels active probes. Workers exit when the queue empties.
+func (s *grokImportProbeScheduler) close() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.closed = true
+	s.queue = nil
+	clear(s.pending)
+	s.cancel()
+}
+
+var defaultOpenAIImportProbeScheduler = newGrokImportProbeScheduler(grokImportProbeConcurrency, grokImportProbeTimeout)
+
+// StopImportProbes cancels active imports and releases queued work during shutdown.
+func StopImportProbes() {
+	defaultGrokImportProbeScheduler.close()
+	defaultOpenAIImportProbeScheduler.close()
 }

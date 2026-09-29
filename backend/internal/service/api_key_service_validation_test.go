@@ -12,9 +12,9 @@ import (
 func TestValidateCreateAPIKeyRequestNumericLimits(t *testing.T) {
 	positiveExpiry := 1
 	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{
-		Quota: 1e100, RateLimit5h: 1e100, ExpiresInDays: &positiveExpiry,
+		GroupID: int64Ptr(1), Quota: 1e100, RateLimit5h: 1e100, ExpiresInDays: &positiveExpiry,
 	}))
-	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{}))
+	require.NoError(t, validateCreateAPIKeyRequest(CreateAPIKeyRequest{GroupID: int64Ptr(1)}))
 
 	invalidExpiry := 0
 	tests := []CreateAPIKeyRequest{
@@ -27,6 +27,7 @@ func TestValidateCreateAPIKeyRequestNumericLimits(t *testing.T) {
 		{ExpiresInDays: &invalidExpiry},
 	}
 	for _, req := range tests {
+		req.GroupID = int64Ptr(1)
 		require.Error(t, validateCreateAPIKeyRequest(req))
 	}
 }

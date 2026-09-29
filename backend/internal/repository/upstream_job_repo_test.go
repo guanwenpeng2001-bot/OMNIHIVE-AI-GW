@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/google/uuid"
@@ -299,6 +300,42 @@ func TestUpstreamJobPostgres(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, "expired", j.Status)
 		checkMoney(t, j, 0, 100)
+	})
+	t.Run("workspace_owner_binding_and_cross_tenant_reads", func(t *testing.T) {
+		input := fixture(t)
+		svc := service.NewUpstreamJobService(repo, nil, service.QianwenVideoJobCharge)
+		job, err := svc.Submit(ctx, input, []byte(`{"model":"wan2.6-t2v"}`), func(context.Context) (service.UpstreamJobUpdate, error) {
+			return service.UpstreamJobUpdate{TaskID: "upstream-1", Status: "submitted"}, nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, int64(1), job.WorkspaceID, "owner workspace is resolved from the persisted key, never the caller")
+		require.Positive(t, job.Version)
+
+		foreign := domain.WithWorkspaceScope(ctx, 424242)
+		_, err = svc.Get(foreign, job.PublicRequestID, input.UserID, input.APIKeyID)
+		require.ErrorIs(t, err, service.ErrUpstreamJobNotFound, "a foreign workspace scope must not read the task")
+
+		scoped := domain.WithWorkspaceScope(ctx, 1)
+		_, err = svc.Get(scoped, job.PublicRequestID, input.UserID, input.APIKeyID)
+		require.NoError(t, err)
+
+		// Ownership, upstream binding and workspace are immutable after insert.
+		_, err = db.Exec(`UPDATE upstream_jobs SET workspace_id=2 WHERE id=$1`, job.ID)
+		require.Error(t, err, "workspace reassignment is rejected")
+		_, err = db.Exec(`UPDATE upstream_jobs SET account_id=account_id+1 WHERE id=$1`, job.ID)
+		require.Error(t, err, "upstream account binding is immutable")
+		_, err = db.Exec(`UPDATE upstream_jobs SET api_key_id=api_key_id+1 WHERE id=$1`, job.ID)
+		require.Error(t, err, "owner key binding is immutable")
+
+		// The version predicate fences a stale lock holder even inside the row lock.
+		stale, err := repo.Get(ctx, job.PublicRequestID, input.UserID, input.APIKeyID)
+		require.NoError(t, err)
+		fresh, err := repo.WithLocked(ctx, job.PublicRequestID, func(j *service.UpstreamJob, _ service.UpstreamJobTx) error {
+			j.AttemptCount++
+			return nil
+		})
+		require.NoError(t, err)
+		require.Equal(t, stale.Version+1, fresh.Version)
 	})
 	t.Log("isolated PostgreSQL: migration replay, concurrent claims, row-lock settlement, ownership, rollback, terminal replay, backoff and expiry passed", time.Now().UTC())
 }

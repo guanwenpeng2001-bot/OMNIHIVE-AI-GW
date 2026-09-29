@@ -126,6 +126,11 @@ func (s *OpenAIGatewayService) FetchPinnedCodexModelsManifest(ctx context.Contex
 		if err := ApplyPinnedCodexModelsMapping(manifest, account, group); err != nil {
 			return nil, err
 		}
+		manifest.Body, err = filterCatalogModelsBody(ctx, s.accountRepo, account, manifest.Body, true)
+		if err != nil {
+			return nil, err
+		}
+		manifest.ETag = codexModelsManifestBodyETag(manifest.Body)
 		return manifest, nil
 	})
 	if err != nil {

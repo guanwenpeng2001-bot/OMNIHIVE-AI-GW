@@ -71,6 +71,9 @@ func (s *OpenAIGatewayService) forwardAsChatCompletions(
 	defaultMappedModel string,
 	compatPromptCacheTenantIsolated bool,
 ) (*OpenAIForwardResult, error) {
+	if IsChatOnlyPlatform(account.Platform) {
+		return s.forwardAsRawChatCompletions(ctx, c, account, body, defaultMappedModel)
+	}
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -753,6 +756,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			UpstreamResponseModel:         observedUpstreamResponseModel(c),
 			UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 			UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+			ClientDisconnect:              clientDisconnected,
 			Stream:                        true,
 			Duration:                      time.Since(startTime),
 			FirstTokenMs:                  firstTokenMs,
@@ -796,7 +800,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				usage = copyOpenAIUsageFromResponsesUsage(event.Response.Usage)
 			}
 		}
-		if strings.TrimSpace(event.Type) == "response.failed" || strings.TrimSpace(event.Type) == "error" {
+		if apicompat.ResponsesStreamEventFailed(&event) {
 			payloadBytes := []byte(payload)
 			message := extractOpenAISSEErrorMessage(payloadBytes)
 			if hit, code, msg := detectOpenAICyberPolicy(payloadBytes); hit {
@@ -910,7 +914,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 				}
 				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 					clientDisconnected = true
-					logger.L().Info("openai chat_completions stream: client disconnected, continuing to drain upstream for billing",
+					logger.L().Info("openai chat_completions stream: client disconnected, canceling upstream with observed usage",
 						zap.String("request_id", requestID),
 					)
 					break
@@ -1026,6 +1030,8 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 		return processDataLine(payload)
 	}
 
+	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 	// Determine keepalive interval
 	keepaliveInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -1035,7 +1041,7 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	// No keepalive: fast synchronous path
 	if streamInterval <= 0 && keepaliveInterval <= 0 {
 		var parser openAICompatSSEFrameParser
-		for scanner.Scan() {
+		for !clientDisconnected && c.Request.Context().Err() == nil && scanner.Scan() {
 			line := scanner.Text()
 			frame, ok := parser.AddLine(line)
 			if !ok {
@@ -1047,6 +1053,10 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 			if processFrame(frame) {
 				return finalizeStream()
 			}
+		}
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
 		}
 		if err := scanner.Err(); err != nil {
 			handleScanErr(err)
@@ -1110,7 +1120,14 @@ func (s *OpenAIGatewayService) handleChatStreamingResponse(
 	var parser openAICompatSSEFrameParser
 
 	for {
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
+		}
 		select {
+		case <-c.Request.Context().Done():
+			clientDisconnected = true
+			return resultWithUsage(), c.Request.Context().Err()
 		case ev, ok := <-events:
 			if !ok {
 				if frame, ok := parser.Finish(); ok {

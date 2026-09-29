@@ -624,7 +624,7 @@ func TestNormalizeCodexImportUsesJWTSubForAccessTokenOnlyIdentity(t *testing.T) 
 	}
 }
 
-func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwoAccounts(t *testing.T) {
+func TestCodexSessionDraftPlanAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwoAccounts(t *testing.T) {
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	req := CodexSessionImportRequest{SkipDefaultGroupBind: boolPtr(true)}
@@ -633,22 +633,22 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceDifferentUsersCreatesTwo
 		{Index: 2, Value: buildCodexAccessOnlyImportValue(t, "workspace-1", "user-2")},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 2 || result.Updated != 0 || result.Skipped != 0 || result.Failed != 0 {
+	if result.NewCount != 2 || result.ExistingCount != 0 || result.Skipped != 0 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want two created accounts", result)
 	}
-	if len(svc.createdAccounts) != 2 {
-		t.Fatalf("created accounts = %d, want 2", len(svc.createdAccounts))
+	if len(result.NewAccounts) != 2 {
+		t.Fatalf("created accounts = %d, want 2", len(result.NewAccounts))
 	}
-	if svc.createdAccounts[0].Credentials["chatgpt_user_id"] == svc.createdAccounts[1].Credentials["chatgpt_user_id"] {
-		t.Fatalf("created accounts share user id: %v", svc.createdAccounts)
+	if result.NewAccounts[0].Credentials["chatgpt_user_id"] == result.NewAccounts[1].Credentials["chatgpt_user_id"] {
+		t.Fatalf("created accounts share user id: %v", result.NewAccounts)
 	}
 }
 
-func TestImportCodexSessionsAccessTokenOnlySameWorkspaceAndUserDifferentTokensCreatesTwoAccounts(t *testing.T) {
+func TestCodexSessionDraftPlanAccessTokenOnlySameWorkspaceAndUserDifferentTokensCreatesTwoAccounts(t *testing.T) {
 	svc := newCodexImportMemoryAdminService(nil)
 	handler := NewAccountHandler(svc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	req := CodexSessionImportRequest{SkipDefaultGroupBind: boolPtr(true)}
@@ -673,19 +673,19 @@ func TestImportCodexSessionsAccessTokenOnlySameWorkspaceAndUserDifferentTokensCr
 		}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 2 || result.Updated != 0 || result.Skipped != 0 || result.Failed != 0 {
+	if result.NewCount != 2 || result.ExistingCount != 0 || result.Skipped != 0 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want two created accounts", result)
 	}
-	if len(svc.createdAccounts) != 2 {
-		t.Fatalf("created accounts = %d, want 2", len(svc.createdAccounts))
+	if len(result.NewAccounts) != 2 {
+		t.Fatalf("created accounts = %d, want 2", len(result.NewAccounts))
 	}
 }
 
-func TestImportCodexSessionsAccessTokenOnlySameUserUpdatesExisting(t *testing.T) {
+func TestCodexSessionDraftPlanAccessTokenOnlySameUserUpdatesExisting(t *testing.T) {
 	existingToken := buildCodexAccessToken(t, "workspace-1", "user-1", time.Now().Add(time.Hour))
 	svc := newCodexImportMemoryAdminService([]service.Account{{
 		ID:       10,
@@ -705,25 +705,25 @@ func TestImportCodexSessionsAccessTokenOnlySameUserUpdatesExisting(t *testing.T)
 		{Index: 1, Value: map[string]any{"access_token": existingToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 0 || result.Updated != 1 || result.Failed != 0 {
+	if result.NewCount != 0 || result.ExistingCount != 1 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want one updated account", result)
 	}
-	if len(svc.createdAccounts) != 0 {
-		t.Fatalf("created accounts = %d, want 0", len(svc.createdAccounts))
+	if len(result.NewAccounts) != 0 {
+		t.Fatalf("created accounts = %d, want 0", len(result.NewAccounts))
 	}
-	if len(svc.updatedAccounts) != 1 || svc.updatedAccounts[0].id != 10 {
-		t.Fatalf("updated accounts = %+v, want account 10", svc.updatedAccounts)
+	if len(result.ExistingAccounts) != 1 || result.ExistingAccounts[0].id != 10 {
+		t.Fatalf("updated accounts = %+v, want account 10", result.ExistingAccounts)
 	}
-	if got := svc.updatedAccounts[0].input.Extra["openai_long_context_billing_enabled"]; got != false {
+	if got := result.ExistingAccounts[0].input.Extra["openai_long_context_billing_enabled"]; got != false {
 		t.Fatalf("openai_long_context_billing_enabled = %v, want false", got)
 	}
 }
 
-func TestImportCodexSessionsUpgradesAccessTokenOnlyAccountWithRefreshToken(t *testing.T) {
+func TestCodexSessionDraftPlanUpgradesAccessTokenOnlyAccountWithRefreshToken(t *testing.T) {
 	oldToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "old-token", time.Now().Add(time.Hour))
 	newToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "new-token", time.Now().Add(time.Hour))
 	svc := newCodexImportMemoryAdminService([]service.Account{{
@@ -746,22 +746,22 @@ func TestImportCodexSessionsUpgradesAccessTokenOnlyAccountWithRefreshToken(t *te
 		}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 0 || result.Updated != 1 || result.Failed != 0 {
+	if result.NewCount != 0 || result.ExistingCount != 1 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want one updated account", result)
 	}
-	if len(svc.updatedAccounts) != 1 || svc.updatedAccounts[0].id != 12 {
-		t.Fatalf("updated accounts = %+v, want account 12", svc.updatedAccounts)
+	if len(result.ExistingAccounts) != 1 || result.ExistingAccounts[0].id != 12 {
+		t.Fatalf("updated accounts = %+v, want account 12", result.ExistingAccounts)
 	}
-	if got := svc.updatedAccounts[0].input.Credentials["refresh_token"]; got != "refresh-new" {
+	if got := result.ExistingAccounts[0].input.Credentials["refresh_token"]; got != "refresh-new" {
 		t.Fatalf("updated refresh_token = %v, want refresh-new", got)
 	}
 }
 
-func TestImportCodexSessionsAccessTokenOnlyPreservesExistingRefreshToken(t *testing.T) {
+func TestCodexSessionDraftPlanAccessTokenOnlyPreservesExistingRefreshToken(t *testing.T) {
 	existingToken := buildCodexAccessToken(t, "workspace-1", "user-1", time.Now().Add(time.Hour))
 	svc := newCodexImportMemoryAdminService([]service.Account{{
 		ID:       13,
@@ -782,14 +782,14 @@ func TestImportCodexSessionsAccessTokenOnlyPreservesExistingRefreshToken(t *test
 		{Index: 1, Value: map[string]any{"access_token": existingToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 0 || result.Updated != 1 || result.Failed != 0 {
+	if result.NewCount != 0 || result.ExistingCount != 1 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want one updated account", result)
 	}
-	update := svc.updatedAccounts[0].input
+	update := result.ExistingAccounts[0].input
 	if got := update.Credentials["refresh_token"]; got != "refresh-old" {
 		t.Fatalf("refresh_token = %v, want refresh-old", got)
 	}
@@ -804,7 +804,7 @@ func TestImportCodexSessionsAccessTokenOnlyPreservesExistingRefreshToken(t *test
 	}
 }
 
-func TestImportCodexSessionsBatchOldAccessTokenDoesNotRollbackRefreshToken(t *testing.T) {
+func TestCodexSessionDraftPlanBatchOldAccessTokenDoesNotRollbackRefreshToken(t *testing.T) {
 	oldToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "old-token", time.Now().Add(time.Hour))
 	newToken := buildCodexAccessTokenWithJTI(t, "workspace-1", "user-1", "new-token", time.Now().Add(time.Hour))
 	svc := newCodexImportMemoryAdminService([]service.Account{{
@@ -829,20 +829,17 @@ func TestImportCodexSessionsBatchOldAccessTokenDoesNotRollbackRefreshToken(t *te
 		{Index: 2, Value: map[string]any{"access_token": oldToken}},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Updated != 1 || result.Created != 1 || result.Failed != 0 {
+	if result.ExistingCount != 1 || result.NewCount != 1 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want first item updated and stale access token created separately", result)
 	}
-	if len(svc.updatedAccounts) != 1 || svc.updatedAccounts[0].id != 14 {
-		t.Fatalf("updated accounts = %+v, want account 14 updated once", svc.updatedAccounts)
+	if len(result.ExistingAccounts) != 1 || result.ExistingAccounts[0].id != 14 {
+		t.Fatalf("updated accounts = %+v, want account 14 updated once", result.ExistingAccounts)
 	}
-	stored, err := svc.GetAccount(context.Background(), 14)
-	if err != nil {
-		t.Fatalf("GetAccount error = %v", err)
-	}
+	stored := &service.Account{Credentials: result.ExistingAccounts[0].input.Credentials}
 	if got := stored.Credentials["access_token"]; got != newToken {
 		t.Fatalf("stored access_token rolled back = %v, want new token", got)
 	}
@@ -851,7 +848,7 @@ func TestImportCodexSessionsBatchOldAccessTokenDoesNotRollbackRefreshToken(t *te
 	}
 }
 
-func TestImportCodexSessionsWithRefreshTokenKeepsExistingDedup(t *testing.T) {
+func TestCodexSessionDraftPlanWithRefreshTokenKeepsExistingDedup(t *testing.T) {
 	existingToken := buildCodexAccessToken(t, "workspace-1", "user-1", time.Now().Add(time.Hour))
 	svc := newCodexImportMemoryAdminService([]service.Account{{
 		ID:       11,
@@ -871,14 +868,14 @@ func TestImportCodexSessionsWithRefreshTokenKeepsExistingDedup(t *testing.T) {
 		{Index: 1, Value: buildCodexRefreshImportValue(t, "workspace-1", "user-1", "refresh-new")},
 	}
 
-	result, err := handler.importCodexSessions(context.Background(), req, entries)
+	result, err := planCodexImportForTest(t, handler, req, entries)
 	if err != nil {
 		t.Fatalf("importCodexSessions error = %v", err)
 	}
-	if result.Created != 0 || result.Updated != 1 || result.Failed != 0 {
+	if result.NewCount != 0 || result.ExistingCount != 1 || result.Failed != 0 {
 		t.Fatalf("result = %+v, want one updated account", result)
 	}
-	if got := svc.updatedAccounts[0].input.Credentials["refresh_token"]; got != "refresh-new" {
+	if got := result.ExistingAccounts[0].input.Credentials["refresh_token"]; got != "refresh-new" {
 		t.Fatalf("updated refresh_token = %v, want refresh-new", got)
 	}
 }

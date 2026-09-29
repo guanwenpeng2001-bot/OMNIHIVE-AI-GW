@@ -5,7 +5,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -131,7 +130,7 @@ func TestClaudeOpus5_BedrockThinkingConvertedToAdaptive(t *testing.T) {
 
 // TestClaudeOpus5_CatalogAndBedrockMapping 锁定模型清单与 Bedrock 默认映射。
 func TestClaudeOpus5_CatalogAndBedrockMapping(t *testing.T) {
-	assert.Contains(t, claude.DefaultModelIDs(), "claude-opus-5")
+	assert.Contains(t, NewModelRegistry().Snapshot().CandidateIDs(PlatformAnthropic, ""), "claude-opus-5")
 
 	mapped, ok := domain.DefaultBedrockModelMapping["claude-opus-5"]
 	require.True(t, ok, "claude-opus-5 missing from DefaultBedrockModelMapping")

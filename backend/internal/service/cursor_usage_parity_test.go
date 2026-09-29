@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strings"
@@ -132,5 +133,40 @@ func TestCursorOfficialUsageAndPartialFailures(t *testing.T) {
 				require.Nil(t, usage.ResetsAt)
 			}
 		})
+	}
+}
+
+func TestCursorUsageRecoversFromInvalidCache(t *testing.T) {
+	for _, cached := range []any{"invalid", (*antigravityUsageCache)(nil), &antigravityUsageCache{}} {
+		t.Run(fmt.Sprintf("%T", cached), func(t *testing.T) {
+			account := &Account{ID: 71, Platform: PlatformCursor, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "test-key"}}
+			sessions := NewCursorSessionProvider(newCursorMemoryCache())
+			sessions.exchange = func(context.Context, string) (cursor.Session, error) {
+				return cursor.Session{Token: "test-session", ExpiresAt: time.Now().Add(time.Hour)}, nil
+			}
+			var calls atomic.Int32
+			service := &AccountUsageService{cache: NewUsageCache(), cursorSessions: sessions, cursorUsageClient: cursorUsageParityClient(func(*http.Request) (*http.Response, error) {
+				calls.Add(1)
+				return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(`{}`))}, nil
+			})}
+			service.cache.cursorCache.Store(cursorSessionKey(account), cached)
+			for range 2 {
+				info := service.getCursorUsage(context.Background(), account, false)
+				require.Empty(t, info.ErrorCode)
+				require.NotNil(t, info.CursorMonthly)
+			}
+			require.EqualValues(t, 3, calls.Load(), "invalid cache is replaced with a usable cached result")
+		})
+	}
+}
+
+func TestCursorNativeSlotRejectsInvalidState(t *testing.T) {
+	for _, state := range []any{"invalid", (*cursorNativeSlots)(nil)} {
+		gateway := &CursorGatewayService{}
+		account := &Account{ID: 71, Concurrency: 1}
+		gateway.locks.Store(account.ID, state)
+		release, err := gateway.acquireNativeSlot(context.Background(), account)
+		require.Error(t, err)
+		require.Nil(t, release)
 	}
 }

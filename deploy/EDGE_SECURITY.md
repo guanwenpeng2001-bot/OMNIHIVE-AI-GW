@@ -15,7 +15,8 @@ terminate healthy long generations and streams.
   image, video, and batch-image endpoints.
 - `gateway.text_max_body_size: 33554432` limits the known pure-text
   `/embeddings` and `/alpha/search` endpoints to 32 MiB.
-- H2C defaults to 50 concurrent streams per connection, a 2 MiB connection
+- H2C is disabled by default. When explicitly enabled, it allows 50 concurrent
+  streams per connection, a 2 MiB connection
   upload window, and a 512 KiB stream upload window.
 - Invalid credential abuse is limited in process by trusted client IP (IPv6
   `/64`): 120 failures per 60 seconds followed by a 60-second block. This is a
@@ -26,6 +27,39 @@ Do not add a single application-wide request semaphore: an SSE request may
 legitimately occupy it for many minutes. Apply connection and unauthenticated
 request controls at the edge; authenticated user/API-key concurrency remains
 the application's responsibility.
+
+## Compatibility defaults and outbound destinations
+
+These four defaults remain unchanged in the application and deployment examples:
+
+| Setting | Default | Operational meaning |
+| --- | --- | --- |
+| `security.trust_forwarded_ip_for_api_key_acl` | `true` | Forwarded headers can determine security-sensitive client IPs; protect the origin and overwrite them at the proxy. |
+| `security.url_allowlist.enabled` | `false` | No upstream host allowlist is enabled by default. |
+| `security.url_allowlist.allow_private_hosts` | `true` | Configured destinations can reach private/loopback services. |
+| `security.url_allowlist.allow_insecure_http` | `true` | HTTP destinations are allowed; credentials/content may travel without TLS. |
+
+An administrator can opt into restrictions using the existing settings. Changing examples
+does not silently impose HTTPS, forbid private networks, or override an existing policy.
+Prompt-audit endpoints intentionally support internal HTTP/private services: the operator
+must trust the endpoint owner and the service network, because prompts and configured
+credentials are sent there. In the baseline implementation the prompt-audit client uses
+its own direct dialer; the generic URL allowlist alone must not be represented as an
+already-enforced restriction on that path. Verify the deployed version's prompt-audit
+allowlist enforcement before relying on it; apply network egress rules when needed.
+
+CORS defaults to an empty allowed-origin list. Explicit `cors.allowed_origins: ["*"]`
+is supported; it allows browser access from arbitrary origins and disables credentialed
+CORS even if `allow_credentials` is true. CORS is a browser policy, not an authentication
+or network access control. Use an explicit origin list when restricting browser consumers.
+
+## Probes and response limits
+
+Use `/health` for container liveness and `/ready` for load-balancer readiness. Readiness
+checks dependencies and draining state; a running process can correctly be live but not
+ready. Caddy's active check uses `/ready` and stops new routing to an unhealthy upstream.
+The non-stream upstream response read limit is 128 MiB (`134217728` bytes); it is independent
+of the 256 MiB request-body cap above. Keep overrides consistent across env and YAML.
 
 ## Trusted client IPs
 

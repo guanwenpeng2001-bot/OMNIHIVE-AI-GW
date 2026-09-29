@@ -14,8 +14,16 @@
           <div class="flex items-start justify-between">
             <div class="min-w-0 flex-1">
               <div class="mb-1 flex items-center gap-2"><span class="font-medium text-gray-900 dark:text-white">{{ key.name }}</span><span :class="['badge text-xs', key.status === 'active' ? 'badge-success' : 'badge-danger']">{{ key.status }}</span></div>
-              <p class="truncate font-mono text-sm text-gray-500">{{ key.key.substring(0, 20) }}...{{ key.key.substring(key.key.length - 8) }}</p>
+              <p class="truncate font-mono text-sm text-gray-500">{{ key.key }}</p>
             </div>
+          </div>
+          <button type="button" class="btn btn-secondary mt-2" @click="modelAccessKeyID = modelAccessKeyID === key.id ? null : key.id">{{ t('modelAccess.title') }}</button>
+          <div class="mt-3 space-y-2"><TpmLimitField v-model="tpmDrafts[key.id]" /><button type="button" class="btn btn-secondary btn-sm" :disabled="updatingKeyIds.has(key.id)" @click="saveTpm(key)">{{ t('common.save') }}</button></div>
+          <ModelAccessRuleEditor v-if="modelAccessKeyID === key.id" :path="`/admin/api-keys/${key.id}`" />
+          <div class="mt-2 flex flex-wrap gap-2">
+            <button type="button" class="btn btn-secondary btn-sm" @click="openRotate(key)">{{ t('keys.rotateKey') }}</button>
+            <button type="button" class="btn btn-secondary btn-sm" @click="toggleStatus(key)">{{ key.status === 'active' ? t('keys.disable') : t('keys.enable') }}</button>
+            <button type="button" class="btn btn-danger btn-sm" @click="confirmRemove(key)">{{ t('common.delete') }}</button>
           </div>
           <div class="mt-3 flex flex-wrap gap-4 text-xs text-gray-500">
             <div class="flex items-center gap-1">
@@ -103,9 +111,35 @@
       </div>
     </div>
   </Teleport>
+
+  <KeyRotationDialog
+    :show="showRotateDialog"
+    :api-key="rotateTarget"
+    :rotate-fn="adminRotateFn"
+    @close="showRotateDialog = false"
+    @issued="onRotated"
+  />
+  <KeySecretDialog
+    :show="showSecretDialog"
+    :secret="issuedSecret"
+    :grace-until="issuedGraceUntil"
+    @close="showSecretDialog = false"
+  />
+  <ConfirmDialog
+    :show="showRemoveDialog"
+    :title="t('common.delete')"
+    :message="t('keys.deleteConfirmMessage', { name: removeTarget?.name || '' })"
+    :confirm-text="t('common.delete')"
+    :cancel-text="t('common.cancel')"
+    :danger="true"
+    @confirm="removeKey"
+    @cancel="showRemoveDialog = false"
+  />
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
+import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { ref, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -113,8 +147,11 @@ import { adminAPI } from '@/api/admin'
 import { formatDateTime } from '@/utils/format'
 import type { AdminUser, AdminGroup, ApiKey } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import GroupBadge from '@/components/common/GroupBadge.vue'
 import GroupOptionItem from '@/components/common/GroupOptionItem.vue'
+import KeyRotationDialog from '@/components/keys/KeyRotationDialog.vue'
+import KeySecretDialog from '@/components/keys/KeySecretDialog.vue'
 
 const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close'])
@@ -124,6 +161,16 @@ const appStore = useAppStore()
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+let requestGeneration = 0
+const tpmDrafts = ref<Record<number, number>>({})
+const saveTpm = async (key: ApiKey) => {
+  updatingKeyIds.value.add(key.id)
+  try {
+    await adminAPI.apiKeys.setTpmLimit(key.id, tpmDrafts.value[key.id])
+    await load()
+  } catch (error) { appStore.showError(error instanceof Error ? error.message : t('admin.accounts.tpmLimitInvalid')) }
+  finally { updatingKeyIds.value.delete(key.id) }
+}
 const updatingKeyIds = ref(new Set<number>())
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
@@ -131,6 +178,63 @@ const dropdownRef = ref<HTMLElement | null>(null)
 const scrollContainerRef = ref<HTMLElement | null>(null)
 const groupButtonRefs = ref<Map<number, HTMLElement>>(new Map())
 
+const modelAccessKeyID = ref<number | null>(null)
+
+const showRotateDialog = ref(false)
+const rotateTarget = ref<ApiKey | null>(null)
+const showSecretDialog = ref(false)
+const issuedSecret = ref('')
+const issuedGraceUntil = ref<string | null>(null)
+const showRemoveDialog = ref(false)
+const removeTarget = ref<ApiKey | null>(null)
+
+const adminRotateFn = (id: number, options: { grace_ttl_hours?: number; revoke_previous?: boolean }) =>
+  adminAPI.apiKeys.rotateApiKey(id, options)
+
+const openRotate = (key: ApiKey) => {
+  rotateTarget.value = key
+  showRotateDialog.value = true
+}
+
+const onRotated = (payload: { secret: string; graceUntil: string | null }) => {
+  issuedSecret.value = payload.secret
+  issuedGraceUntil.value = payload.graceUntil
+  showSecretDialog.value = true
+  void load()
+}
+
+const toggleStatus = async (key: ApiKey) => {
+  const next = key.status === 'active' ? 'disabled' : 'active'
+  updatingKeyIds.value.add(key.id)
+  try {
+    const updated = await adminAPI.apiKeys.setApiKeyStatus(key.id, next)
+    const idx = apiKeys.value.findIndex((k) => k.id === key.id)
+    if (idx !== -1) apiKeys.value[idx] = updated
+    appStore.showSuccess(t('keys.keyUpdatedSuccess'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
+  } finally {
+    updatingKeyIds.value.delete(key.id)
+  }
+}
+
+const confirmRemove = (key: ApiKey) => {
+  removeTarget.value = key
+  showRemoveDialog.value = true
+}
+
+const removeKey = async () => {
+  const target = removeTarget.value
+  showRemoveDialog.value = false
+  if (!target) return
+  try {
+    await adminAPI.apiKeys.deleteApiKey(target.id)
+    apiKeys.value = apiKeys.value.filter((k) => k.id !== target.id)
+    appStore.showSuccess(t('keys.keyDeletedSuccess'))
+  } catch (error: any) {
+    appStore.showError(error?.message || t('admin.users.groupChangeFailed'))
+  }
+}
 const selectedKeyForGroup = computed(() => {
   if (groupSelectorKeyId.value === null) return null
   return apiKeys.value.find((k) => k.id === groupSelectorKeyId.value) || null
@@ -144,26 +248,32 @@ const setGroupButtonRef = (keyId: number, el: Element | ComponentPublicInstance 
   }
 }
 
-watch(() => props.show, (v) => {
-  if (v && props.user) {
+watch(() => [props.show, props.user?.id] as const, ([visible], _previous, onCleanup) => {
+  onCleanup(() => { requestGeneration++ })
+  closeGroupSelector()
+  if (visible && props.user) {
     load()
     loadGroups()
-  } else {
-    closeGroupSelector()
   }
 })
 
 const load = async () => {
   if (!props.user) return
+  const currentGeneration = ++requestGeneration
+  apiKeys.value = []
+  tpmDrafts.value = {}
   loading.value = true
   groupButtonRefs.value.clear()
   try {
     const res = await adminAPI.users.getUserApiKeys(props.user.id)
+    if (currentGeneration !== requestGeneration) return
     apiKeys.value = res.items || []
+    tpmDrafts.value = Object.fromEntries(apiKeys.value.map(key => [key.id, key.tpm_limit ?? 0]))
   } catch (error) {
+    if (currentGeneration !== requestGeneration) return
     console.error('Failed to load API keys:', error)
   } finally {
-    loading.value = false
+    if (currentGeneration === requestGeneration) loading.value = false
   }
 }
 

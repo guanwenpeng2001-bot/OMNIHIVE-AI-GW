@@ -7,6 +7,7 @@ import (
 )
 
 // Exact pre-Cursor factory seed from migration 197; migrations stay immutable.
+//
 //go:embed channel_monitor_v2_factory_platforms.json
 var preCursorFactoryPlatformSeed []byte
 

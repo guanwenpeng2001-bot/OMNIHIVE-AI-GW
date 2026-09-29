@@ -2,16 +2,13 @@ version: 2
 
 project_name: sub2api
 
-before:
-  hooks:
-    - go mod tidy -C backend
-
 builds:
   - id: sub2api
     dir: backend
     main: ./cmd/server
     binary: sub2api
     flags:
+      - -mod=readonly
       - -tags=embed
     env:
       - CGO_ENABLED=0
@@ -27,22 +24,26 @@ builds:
         goarch: arm64
     ldflags:
       - -s -w
+      - -X main.Version={{.Version}}
       - -X main.Commit={{.Commit}}
       - -X main.Date={{.Date}}
       - -X main.BuildType=release
 
 archives:
   - id: default
-    format: tar.gz
+    formats: [tar.gz]
     name_template: >-
       {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
     format_overrides:
       - goos: windows
-        format: zip
+        formats: [zip]
     files:
       - LICENSE*
       - README*
       - deploy/*
+      - src: backend/resources/model-pricing/*.json
+        dst: resources/model-pricing
+        strip_parent: true
 
 checksum:
   name_template: 'checksums.txt'

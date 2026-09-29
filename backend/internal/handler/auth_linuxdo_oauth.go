@@ -16,13 +16,12 @@ import (
 	"unicode/utf8"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
-	dbuser "github.com/Wei-Shaw/sub2api/ent/user"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
-	servermiddleware "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 	"github.com/imroc/req/v3"
@@ -91,7 +90,7 @@ func (h *AuthHandler) LinuxDoOAuthStart(c *gin.Context) {
 		return
 	}
 
-	state, err := oauth.GenerateState()
+	state, err := h.issueOAuthState(c, "linuxdo")
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.InternalServer("OAUTH_STATE_GEN_FAILED", "failed to generate oauth state").WithCause(err))
 		return
@@ -194,6 +193,10 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid oauth state", "")
 		return
 	}
+	if err := h.consumeOAuthState(c, "linuxdo", state); err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid or consumed oauth state", "")
+		return
+	}
 
 	redirectTo, _ := readCookieDecoded(c, linuxDoOAuthRedirectCookie)
 	redirectTo = sanitizeFrontendRedirectPath(redirectTo)
@@ -231,13 +234,13 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 			log.Printf(
 				"[LinuxDo OAuth] token exchange failed: status=%d provider_error=%q provider_description=%q body=%s",
 				exchangeErr.StatusCode,
-				exchangeErr.ProviderError,
-				exchangeErr.ProviderDescription,
+				truncateLogValue(exchangeErr.ProviderError, 128),
+				truncateLogValue(exchangeErr.ProviderDescription, 2048),
 				truncateLogValue(exchangeErr.Body, 2048),
 			)
 			description = exchangeErr.Error()
 		} else {
-			log.Printf("[LinuxDo OAuth] token exchange failed: %v", err)
+			log.Printf("[LinuxDo OAuth] token exchange failed: %s", logredact.RedactDiagnostic(err.Error()))
 			description = err.Error()
 		}
 		redirectOAuthError(c, frontendCallback, "token_exchange_failed", "failed to exchange oauth code", singleLine(description))
@@ -344,31 +347,21 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 			"linuxdo",
 		)
 		if err == nil {
-			if err := applyPendingOAuthBinding(
-				c.Request.Context(),
-				h.entClient(),
-				h.authService,
-				h.userService,
-				&dbent.PendingAuthSession{
-					Intent:                 oauthIntentLogin,
-					ProviderType:           identityKey.ProviderType,
-					ProviderKey:            identityKey.ProviderKey,
-					ProviderSubject:        identityKey.ProviderSubject,
-					ResolvedEmail:          email,
-					UpstreamIdentityClaims: upstreamClaims,
-				},
-				nil,
-				&user.ID,
-				true,
-				false,
-			); err != nil {
+			if err := h.authService.ApplyPendingOAuthBinding(c.Request.Context(), h.userService, &dbent.PendingAuthSession{
+				Intent:                 oauthIntentLogin,
+				ProviderType:           identityKey.ProviderType,
+				ProviderKey:            identityKey.ProviderKey,
+				ProviderSubject:        identityKey.ProviderSubject,
+				ResolvedEmail:          email,
+				UpstreamIdentityClaims: upstreamClaims,
+			}, nil, &user.ID, true, false); err != nil {
 				redirectOAuthError(c, frontendCallback, "session_error", "failed to bind oauth identity", "")
 				return
 			}
 			h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)
 			clearOAuthPendingSessionCookie(c, secureCookie)
 			clearOAuthPendingBrowserCookie(c, secureCookie)
-			redirectOAuthTokenPair(c, frontendCallback, tokenPair, redirectTo)
+			h.redirectOAuthTokenPair(c, frontendCallback, tokenPair, redirectTo)
 			return
 		}
 		if !errors.Is(err, service.ErrOAuthInvitationRequired) {
@@ -396,35 +389,7 @@ func (h *AuthHandler) LinuxDoOAuthCallback(c *gin.Context) {
 }
 
 func (h *AuthHandler) findLinuxDoCompatEmailUser(ctx context.Context, email string) (*dbent.User, error) {
-	client := h.entClient()
-	if client == nil {
-		return nil, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready")
-	}
-
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" ||
-		strings.HasSuffix(email, service.LinuxDoConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.OIDCConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.WeChatConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.DingTalkConnectSyntheticEmailDomain) {
-		return nil, nil
-	}
-
-	userEntity, err := client.User.Query().
-		Where(userNormalizedEmailPredicate(email)).
-		Order(dbent.Asc(dbuser.FieldID)).
-		All(ctx)
-	if err != nil {
-		return nil, infraerrors.InternalServer("COMPAT_EMAIL_LOOKUP_FAILED", "failed to look up compat email user").WithCause(err)
-	}
-	switch len(userEntity) {
-	case 0:
-		return nil, nil
-	case 1:
-		return userEntity[0], nil
-	default:
-		return nil, infraerrors.Conflict("USER_EMAIL_CONFLICT", "normalized email matched multiple users")
-	}
+	return h.authService.FindLinuxDoCompatEmailUser(ctx, email)
 }
 
 func (h *AuthHandler) createLinuxDoOAuthChoicePendingSession(
@@ -514,7 +479,7 @@ type completeLinuxDoOAuthRequest struct {
 func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 	var req completeLinuxDoOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": err.Error()})
+		c.JSON(http.StatusBadRequest, gin.H{"error": "INVALID_REQUEST", "message": "Invalid request"})
 		return
 	}
 
@@ -570,12 +535,11 @@ func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	client := h.entClient()
-	if client == nil {
+	if _, err := h.pendingIdentityService(); err != nil {
 		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready"))
 		return
 	}
-	if err := ensurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), client, session); err != nil {
+	if err := h.authService.EnsurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), session); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}
@@ -600,7 +564,7 @@ func (h *AuthHandler) CompleteLinuxDoOAuthRegistration(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if err := applyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), client, h.authService, h.userService, session, decision, user.ID); err != nil {
+	if err := h.authService.ApplyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), h.userService, session, decision, user.ID); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}
@@ -808,6 +772,20 @@ func buildLinuxDoAuthorizeURL(cfg config.LinuxDoConnectConfig, state string, cod
 }
 
 func redirectOAuthError(c *gin.Context, frontendCallback string, code string, message string, description string) {
+	if description != "" {
+		log.Printf("[OAuth] request failed code=%s diagnostic=%s", code, logredact.RedactDiagnostic(description))
+		switch code {
+		case "token_exchange_failed", "userinfo_failed", "provider_error":
+			description = "OAuth provider request failed"
+		default:
+			description = logredact.RedactDiagnostic(description)
+		}
+	}
+	if code == "provider_error" {
+		message = "OAuth provider request failed"
+	} else {
+		message = logredact.RedactDiagnostic(message)
+	}
 	fragment := url.Values{}
 	fragment.Set("error", truncateFragmentValue(code))
 	if strings.TrimSpace(message) != "" {
@@ -819,33 +797,41 @@ func redirectOAuthError(c *gin.Context, frontendCallback string, code string, me
 	redirectWithFragment(c, frontendCallback, fragment)
 }
 
-func redirectOAuthTokenPair(c *gin.Context, frontendCallback string, tokenPair *service.TokenPair, redirectTo string) {
-	fragment := url.Values{}
-	if tokenPair != nil {
-		fragment.Set("access_token", truncateFragmentValue(tokenPair.AccessToken))
-		fragment.Set("refresh_token", truncateFragmentValue(tokenPair.RefreshToken))
-		fragment.Set("expires_in", strconv.Itoa(tokenPair.ExpiresIn))
-		fragment.Set("token_type", "Bearer")
+func (h *AuthHandler) redirectOAuthTokenPair(c *gin.Context, frontendCallback string, tokenPair *service.TokenPair, redirectTo string) {
+	claims, err := h.authService.ValidateToken(tokenPair.AccessToken)
+	if err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_token", "OAuth completion failed", "")
+		return
 	}
-	if redirect := strings.TrimSpace(redirectTo); redirect != "" {
-		originalRedirect := redirect
-		for range 2 {
-			decoded, err := url.QueryUnescape(redirect)
-			if err != nil || decoded == redirect {
-				break
-			}
-			redirect = decoded
-		}
-		if redirect != originalRedirect {
-			if sanitized := sanitizeFrontendRedirectPath(redirect); sanitized != "" {
-				redirect = sanitized
-			} else {
-				redirect = originalRedirect
-			}
-		}
-		fragment.Set("redirect", truncateFragmentValue(redirect))
+	pending, err := h.pendingIdentityService()
+	if err != nil {
+		redirectOAuthError(c, frontendCallback, "completion_unavailable", "OAuth completion unavailable", "")
+		return
 	}
-	redirectWithFragment(c, frontendCallback, fragment)
+	browser, err := generateOAuthPendingBrowserSession()
+	if err != nil {
+		redirectOAuthError(c, frontendCallback, "completion_unavailable", "OAuth completion unavailable", "")
+		return
+	}
+	code, err := pending.IssueIdentityTicket(c.Request.Context(), "oauth-completion", browser+":"+oauthRequestBinding(c), map[string]any{
+		"user_id":       strconv.FormatInt(claims.UserID, 10),
+		"token_version": strconv.FormatInt(claims.TokenVersion, 10),
+		"redirect":      sanitizeFrontendRedirectPath(redirectTo),
+	}, 5*time.Minute)
+	if err != nil {
+		redirectOAuthError(c, frontendCallback, "completion_unavailable", "OAuth completion unavailable", "")
+		return
+	}
+	// The callback's provisional refresh token must not survive the exchange.
+	if err := h.authService.RevokeRefreshToken(c.Request.Context(), tokenPair.RefreshToken); err != nil {
+		redirectOAuthError(c, frontendCallback, "completion_unavailable", "OAuth completion unavailable", "")
+		return
+	}
+	setOAuthPendingBrowserCookie(c, browser, isRequestHTTPS(c))
+	http.SetCookie(c.Writer, &http.Cookie{Name: "oauth_completion_code", Value: code, Path: oauthPendingBrowserCookiePath, MaxAge: 300, HttpOnly: true, Secure: isRequestHTTPS(c), SameSite: http.SameSiteLaxMode})
+	clearOAuthPendingSessionCookie(c, isRequestHTTPS(c))
+	c.Header("Cache-Control", "no-store")
+	redirectWithFragment(c, frontendCallback, url.Values{"code": {code}, "redirect": {sanitizeFrontendRedirectPath(redirectTo)}})
 }
 
 func redirectWithFragment(c *gin.Context, frontendCallback string, fragment url.Values) {
@@ -963,7 +949,7 @@ func getGJSON(body string, path string) string {
 }
 
 func truncateLogValue(value string, maxLen int) string {
-	value = strings.TrimSpace(value)
+	value = logredact.RedactText(value)
 	if value == "" || maxLen <= 0 {
 		return ""
 	}
@@ -1076,7 +1062,7 @@ func clearOAuthBindAccessTokenCookie(c *gin.Context, secure bool) {
 func setOAuthBindAccessTokenCookie(c *gin.Context, token string, secure bool) {
 	http.SetCookie(c.Writer, &http.Cookie{
 		Name:     oauthBindAccessTokenCookieName,
-		Value:    url.QueryEscape(strings.TrimSpace(token)),
+		Value:    encodeCookieValue(strings.TrimSpace(token)),
 		Path:     oauthBindAccessTokenCookiePath,
 		MaxAge:   linuxDoOAuthCookieMaxAgeSec,
 		HttpOnly: true,
@@ -1164,59 +1150,70 @@ func (h *AuthHandler) buildOAuthBindUserCookieFromContext(c *gin.Context) (strin
 }
 
 func (h *AuthHandler) PrepareOAuthBindAccessTokenCookie(c *gin.Context) {
-	const bearerPrefix = "Bearer "
-
-	authHeader := strings.TrimSpace(c.GetHeader("Authorization"))
-	if !strings.HasPrefix(strings.ToLower(authHeader), strings.ToLower(bearerPrefix)) {
-		response.ErrorFrom(c, infraerrors.Unauthorized("UNAUTHORIZED", "authentication required"))
+	token := strings.TrimSpace(strings.TrimPrefix(c.GetHeader("Authorization"), "Bearer "))
+	claims, err := h.authService.ValidateToken(token)
+	if err != nil {
+		response.ErrorFrom(c, service.ErrInvalidToken)
 		return
 	}
-
-	token := strings.TrimSpace(authHeader[len(bearerPrefix):])
-	if token == "" {
-		response.ErrorFrom(c, infraerrors.Unauthorized("UNAUTHORIZED", "authentication required"))
+	browser, err := oauth.GenerateState()
+	if err != nil {
+		response.InternalError(c, "Failed to prepare OAuth binding")
 		return
 	}
-
-	setOAuthBindAccessTokenCookie(c, token, isRequestHTTPS(c))
-	c.Status(http.StatusNoContent)
-	c.Writer.WriteHeaderNow()
+	pending, err := h.pendingIdentityService()
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	ticket, err := pending.IssueIdentityTicket(c.Request.Context(), "oauth-bind-start", browser+":"+oauthRequestBinding(c), map[string]any{
+		"user_id": strconv.FormatInt(claims.UserID, 10), "token_version": strconv.FormatInt(claims.TokenVersion, 10),
+		"expires_at": claims.ExpiresAt.Format(time.RFC3339Nano),
+	}, 5*time.Minute)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	setOAuthBindAccessTokenCookie(c, browser, isRequestHTTPS(c))
+	c.Header("Cache-Control", "no-store")
+	response.Success(c, gin.H{"csrf_token": ticket})
 }
 
 func (h *AuthHandler) resolveOAuthBindTargetUserID(c *gin.Context) (*int64, error) {
-	if subject, ok := servermiddleware.GetAuthSubjectFromContext(c); ok && subject.UserID > 0 {
-		return &subject.UserID, nil
+	if cached, ok := c.Get("oauth_bind_target_user_id"); ok {
+		userID, _ := cached.(int64)
+		return &userID, nil
 	}
-	if h == nil || h.authService == nil || h.userService == nil {
-		return nil, service.ErrInvalidToken
-	}
-
-	ck, err := c.Request.Cookie(oauthBindAccessTokenCookieName)
+	browser, err := readCookieDecoded(c, oauthBindAccessTokenCookieName)
 	clearOAuthBindAccessTokenCookie(c, isRequestHTTPS(c))
-	if err != nil {
-		return nil, err
-	}
-
-	tokenString, err := url.QueryUnescape(strings.TrimSpace(ck.Value))
-	if err != nil {
-		return nil, err
-	}
-	if tokenString == "" {
+	if err != nil || browser == "" {
 		return nil, service.ErrInvalidToken
 	}
-
-	claims, err := h.authService.ValidateToken(tokenString)
+	pending, err := h.pendingIdentityService()
 	if err != nil {
 		return nil, err
 	}
-	user, err := h.userService.GetByID(c.Request.Context(), claims.UserID)
+	ticket, err := pending.ConsumeIdentityTicket(c.Request.Context(), c.Query("csrf_token"), "oauth-bind-start", browser+":"+oauthRequestBinding(c))
 	if err != nil {
 		return nil, err
 	}
-	if user == nil || !user.IsActive() || claims.TokenVersion != user.TokenVersion {
+	userID, err := strconv.ParseInt(pendingSessionStringValue(ticket.LocalFlowState, "user_id"), 10, 64)
+	if err != nil {
 		return nil, service.ErrInvalidToken
 	}
-	return &user.ID, nil
+	expiresAt, err := time.Parse(time.RFC3339Nano, pendingSessionStringValue(ticket.LocalFlowState, "expires_at"))
+	if err != nil || !time.Now().Before(expiresAt) {
+		return nil, service.ErrInvalidToken
+	}
+	user, err := h.userService.GetByID(c.Request.Context(), userID)
+	if err != nil {
+		return nil, err
+	}
+	if user == nil || !user.IsActive() || strconv.FormatInt(user.TokenVersion, 10) != pendingSessionStringValue(ticket.LocalFlowState, "token_version") {
+		return nil, service.ErrInvalidToken
+	}
+	c.Set("oauth_bind_target_user_id", userID)
+	return &userID, nil
 }
 
 func (h *AuthHandler) readOAuthBindUserIDFromCookie(c *gin.Context, cookieName string) (int64, error) {

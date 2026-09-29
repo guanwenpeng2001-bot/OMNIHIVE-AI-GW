@@ -1,11 +1,13 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { adminAPI } from '@/api/admin'
 
-const { showError, showSuccess, translate } = vi.hoisted(() => ({
+const { showError, showSuccess, translate, catalogPreview } = vi.hoisted(() => ({
+  catalogPreview: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
   translate: vi.fn((key: string) => key)
@@ -28,7 +30,10 @@ vi.mock('@/api/admin', () => ({
   }
 }))
 
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([{ platform: 'antigravity', coverage_status: 'complete', models: [{ id: 'gemini-3.1-flash-image' }, { id: 'gemini-2.5-flash-image' }] }]) }))
+
 vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels: catalogPreview },
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
@@ -42,8 +47,9 @@ vi.mock('vue-i18n', async () => {
   }
 })
 
-function mountModal(extraProps: Record<string, unknown> = {}) {
+function mountModal(extraProps: Record<string, unknown> = {}, realDialogs = false) {
   return mount(BulkEditAccountModal, {
+    attachTo: realDialogs ? document.body : undefined,
     props: {
       show: true,
       accountIds: [1, 2],
@@ -55,8 +61,8 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
     } as any,
     global: {
       stubs: {
-        BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' },
-        ConfirmDialog: true,
+        BaseDialog: realDialogs ? false : { template: '<div><slot /><slot name="footer" /></div>' },
+        ConfirmDialog: realDialogs ? false : true,
         Select: {
           props: ['modelValue', 'options'],
           emits: ['update:modelValue'],
@@ -81,6 +87,19 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
+    catalogPreview.mockReset().mockResolvedValue({ candidate_models: ['shared'], models: ['shared'], discovery_complete: true, complete: true })
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('#bulk-edit-header-override-enabled').setValue(true)
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bulk-model-preview"]').text()).toContain('bulkSavedScope')
+    expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.mocked(adminAPI.accounts.bulkUpdate).mockReset()
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset()
@@ -96,6 +115,22 @@ describe('BulkEditAccountModal', () => {
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({
       has_risk: false
     } as any)
+  })
+
+  it('keeps TPM omitted unless selected and submits explicit zero when selected', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-concurrency-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0])).not.toContain('tpm_limit')
+    wrapper.unmount()
+    const next = mountModal()
+    await next.get('#bulk-edit-tpm-enabled').setValue(true)
+    await next.get('[data-testid="tpm-limit-field"] input').setValue('0')
+    await next.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls.at(-1))).toContain('"tpm_limit":0')
+    next.unmount()
   })
 
   it('批量修改倍率时提示自动同步账号需要先关闭同步', async () => {
@@ -125,12 +160,36 @@ describe('BulkEditAccountModal', () => {
     expect(showError).toHaveBeenCalledWith('admin.accounts.bulkEdit.rateSyncConflict')
   })
 
+  it('saves only a complete explicit-set preview intersection through the real bulk form', async () => {
+    catalogPreview.mockReset().mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockRejectedValueOnce({ status: 502 })
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockResolvedValue({ success: 2, failed: 0 } as any)
+    vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({ has_risk: false } as any)
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    catalogPreview.mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockResolvedValueOnce({ candidate_models: ['common', 'only-second'], models: ['common', 'only-second'], discovery_complete: true, complete: true })
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="add-common-models"]').trigger('click')
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], { credentials: { model_mapping: { common: 'common' } } })
+    wrapper.unmount()
+  })
+
   it('antigravity 白名单包含 Gemini 图片模型且过滤掉普通 GPT 模型', async () => {
     const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
     const selector = wrapper.findComponent(ModelWhitelistSelector)
     expect(selector.exists()).toBe(true)
 
-    await selector.find('div.cursor-pointer').trigger('click')
+    await selector.get('button[aria-label="admin.accounts.selectModels"]').trigger('click')
+    expect(selector.get('button[aria-expanded]').attributes('aria-expanded')).toBe('true')
 
     expect(wrapper.text()).toContain('gemini-3.1-flash-image')
     expect(wrapper.text()).toContain('gemini-2.5-flash-image')
@@ -140,12 +199,13 @@ describe('BulkEditAccountModal', () => {
   it('antigravity 映射预设包含图片映射并过滤 OpenAI 预设', async () => {
     const wrapper = mountModal()
 
-    const mappingTab = wrapper.findAll('button').find((btn) => btn.text().includes('admin.accounts.modelMapping'))
-    expect(mappingTab).toBeTruthy()
-    await mappingTab!.trigger('click')
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await flushPromises()
+    expect(wrapper.find('[data-testid="account-model-configuration"]').exists()).toBe(true)
 
-    expect(wrapper.text()).toContain('3.1-Flash-Image透传')
-    expect(wrapper.text()).toContain('3-Pro-Image→3.1')
+    expect(wrapper.text()).toContain('gemini-3.1-flash-image')
+    expect(wrapper.text()).toContain('gemini-2.5-flash-image')
+    expect(wrapper.text()).not.toContain('3-Pro-Image→3.1')
     expect(wrapper.text()).not.toContain('GPT-5.3 Codex Spark')
   })
 
@@ -1011,5 +1071,63 @@ describe('BulkEditAccountModal', () => {
         codex_cli_only: true
       }
     })
+  })
+})
+
+describe('Management error contract bulk confirmation', () => {
+  it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
+    vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset().mockResolvedValue({ has_risk: false } as any)
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockReset().mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm group', metadata: { group_id: 27, group_name: 'Review group' } }).mockResolvedValue({ success: 2, failed: 0, results: [] } as any)
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-rate-multiplier-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0][1]))
+    dialog.vm.$emit(action)
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(action === 'confirm' ? 2 : 1)
+    if (action === 'confirm') {
+      expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[1]).toEqual([[1, 2], { ...payload, confirm_mixed_channel_risk: true }])
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    } else {
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+})
+
+
+describe('bulk error code confirmation', () => {
+  it('keeps cancellation write-free and restores focus to the warning trigger', async () => {
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockClear()
+    const nativeConfirm = vi.spyOn(window, 'confirm')
+    const wrapper = mountModal({}, true)
+    await flushPromises()
+    const documentWrapper = new DOMWrapper(document.body)
+    await documentWrapper.get('#bulk-edit-custom-error-codes-enabled').setValue(true)
+    const trigger = documentWrapper.findAll('button').find(button => button.text().startsWith('429 '))!
+    ;(trigger.element as HTMLButtonElement).focus()
+    await trigger.trigger('click')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.customErrorCodes')!
+    expect(dialog.props('show')).toBe(true)
+    expect(nativeConfirm).not.toHaveBeenCalled()
+    dialog.vm.$emit('cancel')
+    await flushPromises()
+    expect(document.activeElement).toBe(trigger.element)
+    expect((wrapper.vm as unknown as { selectedErrorCodes: number[] }).selectedErrorCodes).not.toContain(429)
+    expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
+    await trigger.trigger('click')
+    await flushPromises()
+    dialog.vm.$emit('confirm')
+    await flushPromises()
+    expect((wrapper.vm as unknown as { selectedErrorCodes: number[] }).selectedErrorCodes).toContain(429)
+    expect(document.activeElement).toBe(trigger.element)
+    wrapper.unmount()
+    nativeConfirm.mockRestore()
   })
 })

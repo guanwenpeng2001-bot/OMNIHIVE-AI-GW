@@ -313,6 +313,30 @@ func TestForwardAsAnthropic_PreservesMaxForFinalGPT56ResponsesModel(t *testing.T
 	}
 }
 
+func TestForwardAsAnthropic_DisabledThinkingWithEffortRejectedForResponses(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	body := []byte(`{"model":"sol","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"disabled"},"output_config":{"effort":"max"},"stream":false}`)
+	rec := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(rec)
+	ginContext.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body))
+	ginContext.Request.Header.Set("Content-Type", "application/json")
+
+	upstream := &httpUpstreamRecorder{resp: openAICompatSSECompletedResponse("resp_no_thinking", "gpt-5.6-sol")}
+	svc := &OpenAIGatewayService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{Security: config.SecurityConfig{URLAllowlist: config.URLAllowlistConfig{Enabled: false}}},
+	}
+	account := rawGPT56ResponsesOAuthAccount("sol", "gpt-5.6-sol")
+
+	result, err := svc.ForwardAsAnthropic(context.Background(), ginContext, account, body, "", "")
+	require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "unsupported thinking.type=disabled")
+	require.Nil(t, upstream.lastReq)
+}
+
 func rawGPT56ResponsesAPIKeyAccount(requestedModel, mappedModel string) *Account {
 	return &Account{
 		ID:          501,
@@ -1677,11 +1701,11 @@ func TestForwardAsAnthropic_ClientDisconnectDrainsUpstreamUsage(t *testing.T) {
 	}
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
-	require.Equal(t, 9, result.Usage.InputTokens)
-	require.Equal(t, 4, result.Usage.OutputTokens)
-	require.Equal(t, 3, result.Usage.CacheReadInputTokens)
+	require.Zero(t, result.Usage.InputTokens)
+	require.Zero(t, result.Usage.OutputTokens)
+	require.Zero(t, result.Usage.CacheReadInputTokens)
 }
 
 func TestForwardAsAnthropic_TerminalUsageWithoutUpstreamCloseReturns(t *testing.T) {
@@ -2229,7 +2253,7 @@ func openAICompatOpsEvents(t *testing.T, c *gin.Context) []*OpsUpstreamErrorEven
 	return events
 }
 
-func TestForwardAsAnthropic_UpstreamRequestIgnoresClientCancel(t *testing.T) {
+func TestForwardAsAnthropic_UpstreamRequestHonorsClientCancel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -2266,10 +2290,9 @@ func TestForwardAsAnthropic_UpstreamRequestIgnoresClientCancel(t *testing.T) {
 	}
 
 	result, err := svc.ForwardAsAnthropic(reqCtx, c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.NoError(t, upstream.lastReq.Context().Err())
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, result)
+	require.Nil(t, upstream.lastReq)
 }
 
 func TestForwardAsAnthropic_AstraContinuationRestoresHistoryAndDisablesUnsupportedSession(t *testing.T) {

@@ -13,6 +13,26 @@ const setupClient = axios.create({
   }
 })
 
+let bootstrapToken = ''
+
+export function setSetupBootstrapToken(token: string): void {
+  bootstrapToken = token.trim()
+}
+
+setupClient.interceptors.request.use((request) => {
+  if (request.method !== 'get') request.headers.set('X-Setup-Bootstrap-Token', bootstrapToken)
+  return request
+})
+setupClient.interceptors.response.use((response) => {
+  const next = response.headers['x-setup-bootstrap-token']
+  if (typeof next === 'string') bootstrapToken = next
+  return response
+}, (error) => {
+  const next = error.response?.headers?.['x-setup-bootstrap-token']
+  if (typeof next === 'string') bootstrapToken = next
+  return Promise.reject(error)
+})
+
 export interface SetupStatus {
   needs_setup: boolean
   step: string

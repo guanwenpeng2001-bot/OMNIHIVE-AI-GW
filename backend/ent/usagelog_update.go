@@ -369,6 +369,195 @@ func (_u *UsageLogUpdate) ClearPriceCardVersion() *UsageLogUpdate {
 	return _u
 }
 
+// SetRequestType sets the "request_type" field.
+func (_u *UsageLogUpdate) SetRequestType(v int16) *UsageLogUpdate {
+	_u.mutation.ResetRequestType()
+	_u.mutation.SetRequestType(v)
+	return _u
+}
+
+// SetNillableRequestType sets the "request_type" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableRequestType(v *int16) *UsageLogUpdate {
+	if v != nil {
+		_u.SetRequestType(*v)
+	}
+	return _u
+}
+
+// AddRequestType adds value to the "request_type" field.
+func (_u *UsageLogUpdate) AddRequestType(v int16) *UsageLogUpdate {
+	_u.mutation.AddRequestType(v)
+	return _u
+}
+
+// SetOpenaiWsMode sets the "openai_ws_mode" field.
+func (_u *UsageLogUpdate) SetOpenaiWsMode(v bool) *UsageLogUpdate {
+	_u.mutation.SetOpenaiWsMode(v)
+	return _u
+}
+
+// SetNillableOpenaiWsMode sets the "openai_ws_mode" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableOpenaiWsMode(v *bool) *UsageLogUpdate {
+	if v != nil {
+		_u.SetOpenaiWsMode(*v)
+	}
+	return _u
+}
+
+// SetServiceTier sets the "service_tier" field.
+func (_u *UsageLogUpdate) SetServiceTier(v string) *UsageLogUpdate {
+	_u.mutation.SetServiceTier(v)
+	return _u
+}
+
+// SetNillableServiceTier sets the "service_tier" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableServiceTier(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetServiceTier(*v)
+	}
+	return _u
+}
+
+// ClearServiceTier clears the value of the "service_tier" field.
+func (_u *UsageLogUpdate) ClearServiceTier() *UsageLogUpdate {
+	_u.mutation.ClearServiceTier()
+	return _u
+}
+
+// SetReasoningEffort sets the "reasoning_effort" field.
+func (_u *UsageLogUpdate) SetReasoningEffort(v string) *UsageLogUpdate {
+	_u.mutation.SetReasoningEffort(v)
+	return _u
+}
+
+// SetNillableReasoningEffort sets the "reasoning_effort" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableReasoningEffort(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetReasoningEffort(*v)
+	}
+	return _u
+}
+
+// ClearReasoningEffort clears the value of the "reasoning_effort" field.
+func (_u *UsageLogUpdate) ClearReasoningEffort() *UsageLogUpdate {
+	_u.mutation.ClearReasoningEffort()
+	return _u
+}
+
+// SetRequestedReasoningEffort sets the "requested_reasoning_effort" field.
+func (_u *UsageLogUpdate) SetRequestedReasoningEffort(v string) *UsageLogUpdate {
+	_u.mutation.SetRequestedReasoningEffort(v)
+	return _u
+}
+
+// SetNillableRequestedReasoningEffort sets the "requested_reasoning_effort" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableRequestedReasoningEffort(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetRequestedReasoningEffort(*v)
+	}
+	return _u
+}
+
+// ClearRequestedReasoningEffort clears the value of the "requested_reasoning_effort" field.
+func (_u *UsageLogUpdate) ClearRequestedReasoningEffort() *UsageLogUpdate {
+	_u.mutation.ClearRequestedReasoningEffort()
+	return _u
+}
+
+// SetInboundEndpoint sets the "inbound_endpoint" field.
+func (_u *UsageLogUpdate) SetInboundEndpoint(v string) *UsageLogUpdate {
+	_u.mutation.SetInboundEndpoint(v)
+	return _u
+}
+
+// SetNillableInboundEndpoint sets the "inbound_endpoint" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableInboundEndpoint(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetInboundEndpoint(*v)
+	}
+	return _u
+}
+
+// ClearInboundEndpoint clears the value of the "inbound_endpoint" field.
+func (_u *UsageLogUpdate) ClearInboundEndpoint() *UsageLogUpdate {
+	_u.mutation.ClearInboundEndpoint()
+	return _u
+}
+
+// SetUpstreamEndpoint sets the "upstream_endpoint" field.
+func (_u *UsageLogUpdate) SetUpstreamEndpoint(v string) *UsageLogUpdate {
+	_u.mutation.SetUpstreamEndpoint(v)
+	return _u
+}
+
+// SetNillableUpstreamEndpoint sets the "upstream_endpoint" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamEndpoint(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamEndpoint(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamEndpoint clears the value of the "upstream_endpoint" field.
+func (_u *UsageLogUpdate) ClearUpstreamEndpoint() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamEndpoint()
+	return _u
+}
+
+// SetUpstreamRequestID sets the "upstream_request_id" field.
+func (_u *UsageLogUpdate) SetUpstreamRequestID(v string) *UsageLogUpdate {
+	_u.mutation.SetUpstreamRequestID(v)
+	return _u
+}
+
+// SetNillableUpstreamRequestID sets the "upstream_request_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableUpstreamRequestID(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetUpstreamRequestID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamRequestID clears the value of the "upstream_request_id" field.
+func (_u *UsageLogUpdate) ClearUpstreamRequestID() *UsageLogUpdate {
+	_u.mutation.ClearUpstreamRequestID()
+	return _u
+}
+
+// SetSessionID sets the "session_id" field.
+func (_u *UsageLogUpdate) SetSessionID(v string) *UsageLogUpdate {
+	_u.mutation.SetSessionID(v)
+	return _u
+}
+
+// SetNillableSessionID sets the "session_id" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableSessionID(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetSessionID(*v)
+	}
+	return _u
+}
+
+// ClearSessionID clears the value of the "session_id" field.
+func (_u *UsageLogUpdate) ClearSessionID() *UsageLogUpdate {
+	_u.mutation.ClearSessionID()
+	return _u
+}
+
+// SetNativeCompactionV2 sets the "native_compaction_v2" field.
+func (_u *UsageLogUpdate) SetNativeCompactionV2(v bool) *UsageLogUpdate {
+	_u.mutation.SetNativeCompactionV2(v)
+	return _u
+}
+
+// SetNillableNativeCompactionV2 sets the "native_compaction_v2" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableNativeCompactionV2(v *bool) *UsageLogUpdate {
+	if v != nil {
+		_u.SetNativeCompactionV2(*v)
+	}
+	return _u
+}
+
 // SetInputTokens sets the "input_tokens" field.
 func (_u *UsageLogUpdate) SetInputTokens(v int) *UsageLogUpdate {
 	_u.mutation.ResetInputTokens()
@@ -492,6 +681,90 @@ func (_u *UsageLogUpdate) SetNillableCacheCreation1hTokens(v *int) *UsageLogUpda
 // AddCacheCreation1hTokens adds value to the "cache_creation_1h_tokens" field.
 func (_u *UsageLogUpdate) AddCacheCreation1hTokens(v int) *UsageLogUpdate {
 	_u.mutation.AddCacheCreation1hTokens(v)
+	return _u
+}
+
+// SetImageOutputTokens sets the "image_output_tokens" field.
+func (_u *UsageLogUpdate) SetImageOutputTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetImageOutputTokens()
+	_u.mutation.SetImageOutputTokens(v)
+	return _u
+}
+
+// SetNillableImageOutputTokens sets the "image_output_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableImageOutputTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetImageOutputTokens(*v)
+	}
+	return _u
+}
+
+// AddImageOutputTokens adds value to the "image_output_tokens" field.
+func (_u *UsageLogUpdate) AddImageOutputTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddImageOutputTokens(v)
+	return _u
+}
+
+// SetImageOutputCost sets the "image_output_cost" field.
+func (_u *UsageLogUpdate) SetImageOutputCost(v float64) *UsageLogUpdate {
+	_u.mutation.ResetImageOutputCost()
+	_u.mutation.SetImageOutputCost(v)
+	return _u
+}
+
+// SetNillableImageOutputCost sets the "image_output_cost" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableImageOutputCost(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetImageOutputCost(*v)
+	}
+	return _u
+}
+
+// AddImageOutputCost adds value to the "image_output_cost" field.
+func (_u *UsageLogUpdate) AddImageOutputCost(v float64) *UsageLogUpdate {
+	_u.mutation.AddImageOutputCost(v)
+	return _u
+}
+
+// SetImageInputTokens sets the "image_input_tokens" field.
+func (_u *UsageLogUpdate) SetImageInputTokens(v int) *UsageLogUpdate {
+	_u.mutation.ResetImageInputTokens()
+	_u.mutation.SetImageInputTokens(v)
+	return _u
+}
+
+// SetNillableImageInputTokens sets the "image_input_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableImageInputTokens(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetImageInputTokens(*v)
+	}
+	return _u
+}
+
+// AddImageInputTokens adds value to the "image_input_tokens" field.
+func (_u *UsageLogUpdate) AddImageInputTokens(v int) *UsageLogUpdate {
+	_u.mutation.AddImageInputTokens(v)
+	return _u
+}
+
+// SetImageInputCost sets the "image_input_cost" field.
+func (_u *UsageLogUpdate) SetImageInputCost(v float64) *UsageLogUpdate {
+	_u.mutation.ResetImageInputCost()
+	_u.mutation.SetImageInputCost(v)
+	return _u
+}
+
+// SetNillableImageInputCost sets the "image_input_cost" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableImageInputCost(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetImageInputCost(*v)
+	}
+	return _u
+}
+
+// AddImageInputCost adds value to the "image_input_cost" field.
+func (_u *UsageLogUpdate) AddImageInputCost(v float64) *UsageLogUpdate {
+	_u.mutation.AddImageInputCost(v)
 	return _u
 }
 
@@ -680,6 +953,33 @@ func (_u *UsageLogUpdate) AddAccountRateMultiplier(v float64) *UsageLogUpdate {
 // ClearAccountRateMultiplier clears the value of the "account_rate_multiplier" field.
 func (_u *UsageLogUpdate) ClearAccountRateMultiplier() *UsageLogUpdate {
 	_u.mutation.ClearAccountRateMultiplier()
+	return _u
+}
+
+// SetAccountStatsCost sets the "account_stats_cost" field.
+func (_u *UsageLogUpdate) SetAccountStatsCost(v float64) *UsageLogUpdate {
+	_u.mutation.ResetAccountStatsCost()
+	_u.mutation.SetAccountStatsCost(v)
+	return _u
+}
+
+// SetNillableAccountStatsCost sets the "account_stats_cost" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableAccountStatsCost(v *float64) *UsageLogUpdate {
+	if v != nil {
+		_u.SetAccountStatsCost(*v)
+	}
+	return _u
+}
+
+// AddAccountStatsCost adds value to the "account_stats_cost" field.
+func (_u *UsageLogUpdate) AddAccountStatsCost(v float64) *UsageLogUpdate {
+	_u.mutation.AddAccountStatsCost(v)
+	return _u
+}
+
+// ClearAccountStatsCost clears the value of the "account_stats_cost" field.
+func (_u *UsageLogUpdate) ClearAccountStatsCost() *UsageLogUpdate {
+	_u.mutation.ClearAccountStatsCost()
 	return _u
 }
 
@@ -1136,6 +1436,41 @@ func (_u *UsageLogUpdate) check() error {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ServiceTier(); ok {
+		if err := usagelog.ServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "service_tier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.service_tier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ReasoningEffort(); ok {
+		if err := usagelog.ReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "UsageLog.reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RequestedReasoningEffort(); ok {
+		if err := usagelog.RequestedReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "requested_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "UsageLog.requested_reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.InboundEndpoint(); ok {
+		if err := usagelog.InboundEndpointValidator(v); err != nil {
+			return &ValidationError{Name: "inbound_endpoint", err: fmt.Errorf(`ent: validator failed for field "UsageLog.inbound_endpoint": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamEndpoint(); ok {
+		if err := usagelog.UpstreamEndpointValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_endpoint", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_endpoint": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamRequestID(); ok {
+		if err := usagelog.UpstreamRequestIDValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_request_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_request_id": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SessionID(); ok {
+		if err := usagelog.SessionIDValidator(v); err != nil {
+			return &ValidationError{Name: "session_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.session_id": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.UserAgent(); ok {
 		if err := usagelog.UserAgentValidator(v); err != nil {
 			return &ValidationError{Name: "user_agent", err: fmt.Errorf(`ent: validator failed for field "UsageLog.user_agent": %w`, err)}
@@ -1270,6 +1605,60 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.PriceCardVersionCleared() {
 		_spec.ClearField(usagelog.FieldPriceCardVersion, field.TypeString)
 	}
+	if value, ok := _u.mutation.RequestType(); ok {
+		_spec.SetField(usagelog.FieldRequestType, field.TypeInt16, value)
+	}
+	if value, ok := _u.mutation.AddedRequestType(); ok {
+		_spec.AddField(usagelog.FieldRequestType, field.TypeInt16, value)
+	}
+	if value, ok := _u.mutation.OpenaiWsMode(); ok {
+		_spec.SetField(usagelog.FieldOpenaiWsMode, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ServiceTier(); ok {
+		_spec.SetField(usagelog.FieldServiceTier, field.TypeString, value)
+	}
+	if _u.mutation.ServiceTierCleared() {
+		_spec.ClearField(usagelog.FieldServiceTier, field.TypeString)
+	}
+	if value, ok := _u.mutation.ReasoningEffort(); ok {
+		_spec.SetField(usagelog.FieldReasoningEffort, field.TypeString, value)
+	}
+	if _u.mutation.ReasoningEffortCleared() {
+		_spec.ClearField(usagelog.FieldReasoningEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.RequestedReasoningEffort(); ok {
+		_spec.SetField(usagelog.FieldRequestedReasoningEffort, field.TypeString, value)
+	}
+	if _u.mutation.RequestedReasoningEffortCleared() {
+		_spec.ClearField(usagelog.FieldRequestedReasoningEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.InboundEndpoint(); ok {
+		_spec.SetField(usagelog.FieldInboundEndpoint, field.TypeString, value)
+	}
+	if _u.mutation.InboundEndpointCleared() {
+		_spec.ClearField(usagelog.FieldInboundEndpoint, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamEndpoint(); ok {
+		_spec.SetField(usagelog.FieldUpstreamEndpoint, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamEndpointCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamEndpoint, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamRequestID(); ok {
+		_spec.SetField(usagelog.FieldUpstreamRequestID, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamRequestIDCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamRequestID, field.TypeString)
+	}
+	if value, ok := _u.mutation.SessionID(); ok {
+		_spec.SetField(usagelog.FieldSessionID, field.TypeString, value)
+	}
+	if _u.mutation.SessionIDCleared() {
+		_spec.ClearField(usagelog.FieldSessionID, field.TypeString)
+	}
+	if value, ok := _u.mutation.NativeCompactionV2(); ok {
+		_spec.SetField(usagelog.FieldNativeCompactionV2, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
 	}
@@ -1305,6 +1694,30 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageOutputTokens(); ok {
+		_spec.SetField(usagelog.FieldImageOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageOutputTokens(); ok {
+		_spec.AddField(usagelog.FieldImageOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageOutputCost(); ok {
+		_spec.SetField(usagelog.FieldImageOutputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageOutputCost(); ok {
+		_spec.AddField(usagelog.FieldImageOutputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ImageInputTokens(); ok {
+		_spec.SetField(usagelog.FieldImageInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageInputTokens(); ok {
+		_spec.AddField(usagelog.FieldImageInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageInputCost(); ok {
+		_spec.SetField(usagelog.FieldImageInputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageInputCost(); ok {
+		_spec.AddField(usagelog.FieldImageInputCost, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
@@ -1359,6 +1772,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.AccountStatsCost(); ok {
+		_spec.SetField(usagelog.FieldAccountStatsCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountStatsCost(); ok {
+		_spec.AddField(usagelog.FieldAccountStatsCost, field.TypeFloat64, value)
+	}
+	if _u.mutation.AccountStatsCostCleared() {
+		_spec.ClearField(usagelog.FieldAccountStatsCost, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)
@@ -1961,6 +2383,195 @@ func (_u *UsageLogUpdateOne) ClearPriceCardVersion() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetRequestType sets the "request_type" field.
+func (_u *UsageLogUpdateOne) SetRequestType(v int16) *UsageLogUpdateOne {
+	_u.mutation.ResetRequestType()
+	_u.mutation.SetRequestType(v)
+	return _u
+}
+
+// SetNillableRequestType sets the "request_type" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableRequestType(v *int16) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetRequestType(*v)
+	}
+	return _u
+}
+
+// AddRequestType adds value to the "request_type" field.
+func (_u *UsageLogUpdateOne) AddRequestType(v int16) *UsageLogUpdateOne {
+	_u.mutation.AddRequestType(v)
+	return _u
+}
+
+// SetOpenaiWsMode sets the "openai_ws_mode" field.
+func (_u *UsageLogUpdateOne) SetOpenaiWsMode(v bool) *UsageLogUpdateOne {
+	_u.mutation.SetOpenaiWsMode(v)
+	return _u
+}
+
+// SetNillableOpenaiWsMode sets the "openai_ws_mode" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableOpenaiWsMode(v *bool) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetOpenaiWsMode(*v)
+	}
+	return _u
+}
+
+// SetServiceTier sets the "service_tier" field.
+func (_u *UsageLogUpdateOne) SetServiceTier(v string) *UsageLogUpdateOne {
+	_u.mutation.SetServiceTier(v)
+	return _u
+}
+
+// SetNillableServiceTier sets the "service_tier" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableServiceTier(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetServiceTier(*v)
+	}
+	return _u
+}
+
+// ClearServiceTier clears the value of the "service_tier" field.
+func (_u *UsageLogUpdateOne) ClearServiceTier() *UsageLogUpdateOne {
+	_u.mutation.ClearServiceTier()
+	return _u
+}
+
+// SetReasoningEffort sets the "reasoning_effort" field.
+func (_u *UsageLogUpdateOne) SetReasoningEffort(v string) *UsageLogUpdateOne {
+	_u.mutation.SetReasoningEffort(v)
+	return _u
+}
+
+// SetNillableReasoningEffort sets the "reasoning_effort" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableReasoningEffort(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetReasoningEffort(*v)
+	}
+	return _u
+}
+
+// ClearReasoningEffort clears the value of the "reasoning_effort" field.
+func (_u *UsageLogUpdateOne) ClearReasoningEffort() *UsageLogUpdateOne {
+	_u.mutation.ClearReasoningEffort()
+	return _u
+}
+
+// SetRequestedReasoningEffort sets the "requested_reasoning_effort" field.
+func (_u *UsageLogUpdateOne) SetRequestedReasoningEffort(v string) *UsageLogUpdateOne {
+	_u.mutation.SetRequestedReasoningEffort(v)
+	return _u
+}
+
+// SetNillableRequestedReasoningEffort sets the "requested_reasoning_effort" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableRequestedReasoningEffort(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetRequestedReasoningEffort(*v)
+	}
+	return _u
+}
+
+// ClearRequestedReasoningEffort clears the value of the "requested_reasoning_effort" field.
+func (_u *UsageLogUpdateOne) ClearRequestedReasoningEffort() *UsageLogUpdateOne {
+	_u.mutation.ClearRequestedReasoningEffort()
+	return _u
+}
+
+// SetInboundEndpoint sets the "inbound_endpoint" field.
+func (_u *UsageLogUpdateOne) SetInboundEndpoint(v string) *UsageLogUpdateOne {
+	_u.mutation.SetInboundEndpoint(v)
+	return _u
+}
+
+// SetNillableInboundEndpoint sets the "inbound_endpoint" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableInboundEndpoint(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetInboundEndpoint(*v)
+	}
+	return _u
+}
+
+// ClearInboundEndpoint clears the value of the "inbound_endpoint" field.
+func (_u *UsageLogUpdateOne) ClearInboundEndpoint() *UsageLogUpdateOne {
+	_u.mutation.ClearInboundEndpoint()
+	return _u
+}
+
+// SetUpstreamEndpoint sets the "upstream_endpoint" field.
+func (_u *UsageLogUpdateOne) SetUpstreamEndpoint(v string) *UsageLogUpdateOne {
+	_u.mutation.SetUpstreamEndpoint(v)
+	return _u
+}
+
+// SetNillableUpstreamEndpoint sets the "upstream_endpoint" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamEndpoint(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamEndpoint(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamEndpoint clears the value of the "upstream_endpoint" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamEndpoint() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamEndpoint()
+	return _u
+}
+
+// SetUpstreamRequestID sets the "upstream_request_id" field.
+func (_u *UsageLogUpdateOne) SetUpstreamRequestID(v string) *UsageLogUpdateOne {
+	_u.mutation.SetUpstreamRequestID(v)
+	return _u
+}
+
+// SetNillableUpstreamRequestID sets the "upstream_request_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableUpstreamRequestID(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetUpstreamRequestID(*v)
+	}
+	return _u
+}
+
+// ClearUpstreamRequestID clears the value of the "upstream_request_id" field.
+func (_u *UsageLogUpdateOne) ClearUpstreamRequestID() *UsageLogUpdateOne {
+	_u.mutation.ClearUpstreamRequestID()
+	return _u
+}
+
+// SetSessionID sets the "session_id" field.
+func (_u *UsageLogUpdateOne) SetSessionID(v string) *UsageLogUpdateOne {
+	_u.mutation.SetSessionID(v)
+	return _u
+}
+
+// SetNillableSessionID sets the "session_id" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableSessionID(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetSessionID(*v)
+	}
+	return _u
+}
+
+// ClearSessionID clears the value of the "session_id" field.
+func (_u *UsageLogUpdateOne) ClearSessionID() *UsageLogUpdateOne {
+	_u.mutation.ClearSessionID()
+	return _u
+}
+
+// SetNativeCompactionV2 sets the "native_compaction_v2" field.
+func (_u *UsageLogUpdateOne) SetNativeCompactionV2(v bool) *UsageLogUpdateOne {
+	_u.mutation.SetNativeCompactionV2(v)
+	return _u
+}
+
+// SetNillableNativeCompactionV2 sets the "native_compaction_v2" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableNativeCompactionV2(v *bool) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetNativeCompactionV2(*v)
+	}
+	return _u
+}
+
 // SetInputTokens sets the "input_tokens" field.
 func (_u *UsageLogUpdateOne) SetInputTokens(v int) *UsageLogUpdateOne {
 	_u.mutation.ResetInputTokens()
@@ -2084,6 +2695,90 @@ func (_u *UsageLogUpdateOne) SetNillableCacheCreation1hTokens(v *int) *UsageLogU
 // AddCacheCreation1hTokens adds value to the "cache_creation_1h_tokens" field.
 func (_u *UsageLogUpdateOne) AddCacheCreation1hTokens(v int) *UsageLogUpdateOne {
 	_u.mutation.AddCacheCreation1hTokens(v)
+	return _u
+}
+
+// SetImageOutputTokens sets the "image_output_tokens" field.
+func (_u *UsageLogUpdateOne) SetImageOutputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetImageOutputTokens()
+	_u.mutation.SetImageOutputTokens(v)
+	return _u
+}
+
+// SetNillableImageOutputTokens sets the "image_output_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableImageOutputTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetImageOutputTokens(*v)
+	}
+	return _u
+}
+
+// AddImageOutputTokens adds value to the "image_output_tokens" field.
+func (_u *UsageLogUpdateOne) AddImageOutputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddImageOutputTokens(v)
+	return _u
+}
+
+// SetImageOutputCost sets the "image_output_cost" field.
+func (_u *UsageLogUpdateOne) SetImageOutputCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetImageOutputCost()
+	_u.mutation.SetImageOutputCost(v)
+	return _u
+}
+
+// SetNillableImageOutputCost sets the "image_output_cost" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableImageOutputCost(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetImageOutputCost(*v)
+	}
+	return _u
+}
+
+// AddImageOutputCost adds value to the "image_output_cost" field.
+func (_u *UsageLogUpdateOne) AddImageOutputCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddImageOutputCost(v)
+	return _u
+}
+
+// SetImageInputTokens sets the "image_input_tokens" field.
+func (_u *UsageLogUpdateOne) SetImageInputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetImageInputTokens()
+	_u.mutation.SetImageInputTokens(v)
+	return _u
+}
+
+// SetNillableImageInputTokens sets the "image_input_tokens" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableImageInputTokens(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetImageInputTokens(*v)
+	}
+	return _u
+}
+
+// AddImageInputTokens adds value to the "image_input_tokens" field.
+func (_u *UsageLogUpdateOne) AddImageInputTokens(v int) *UsageLogUpdateOne {
+	_u.mutation.AddImageInputTokens(v)
+	return _u
+}
+
+// SetImageInputCost sets the "image_input_cost" field.
+func (_u *UsageLogUpdateOne) SetImageInputCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetImageInputCost()
+	_u.mutation.SetImageInputCost(v)
+	return _u
+}
+
+// SetNillableImageInputCost sets the "image_input_cost" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableImageInputCost(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetImageInputCost(*v)
+	}
+	return _u
+}
+
+// AddImageInputCost adds value to the "image_input_cost" field.
+func (_u *UsageLogUpdateOne) AddImageInputCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddImageInputCost(v)
 	return _u
 }
 
@@ -2272,6 +2967,33 @@ func (_u *UsageLogUpdateOne) AddAccountRateMultiplier(v float64) *UsageLogUpdate
 // ClearAccountRateMultiplier clears the value of the "account_rate_multiplier" field.
 func (_u *UsageLogUpdateOne) ClearAccountRateMultiplier() *UsageLogUpdateOne {
 	_u.mutation.ClearAccountRateMultiplier()
+	return _u
+}
+
+// SetAccountStatsCost sets the "account_stats_cost" field.
+func (_u *UsageLogUpdateOne) SetAccountStatsCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.ResetAccountStatsCost()
+	_u.mutation.SetAccountStatsCost(v)
+	return _u
+}
+
+// SetNillableAccountStatsCost sets the "account_stats_cost" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableAccountStatsCost(v *float64) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetAccountStatsCost(*v)
+	}
+	return _u
+}
+
+// AddAccountStatsCost adds value to the "account_stats_cost" field.
+func (_u *UsageLogUpdateOne) AddAccountStatsCost(v float64) *UsageLogUpdateOne {
+	_u.mutation.AddAccountStatsCost(v)
+	return _u
+}
+
+// ClearAccountStatsCost clears the value of the "account_stats_cost" field.
+func (_u *UsageLogUpdateOne) ClearAccountStatsCost() *UsageLogUpdateOne {
+	_u.mutation.ClearAccountStatsCost()
 	return _u
 }
 
@@ -2741,6 +3463,41 @@ func (_u *UsageLogUpdateOne) check() error {
 			return &ValidationError{Name: "billing_mode", err: fmt.Errorf(`ent: validator failed for field "UsageLog.billing_mode": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ServiceTier(); ok {
+		if err := usagelog.ServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "service_tier", err: fmt.Errorf(`ent: validator failed for field "UsageLog.service_tier": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.ReasoningEffort(); ok {
+		if err := usagelog.ReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "UsageLog.reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.RequestedReasoningEffort(); ok {
+		if err := usagelog.RequestedReasoningEffortValidator(v); err != nil {
+			return &ValidationError{Name: "requested_reasoning_effort", err: fmt.Errorf(`ent: validator failed for field "UsageLog.requested_reasoning_effort": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.InboundEndpoint(); ok {
+		if err := usagelog.InboundEndpointValidator(v); err != nil {
+			return &ValidationError{Name: "inbound_endpoint", err: fmt.Errorf(`ent: validator failed for field "UsageLog.inbound_endpoint": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamEndpoint(); ok {
+		if err := usagelog.UpstreamEndpointValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_endpoint", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_endpoint": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.UpstreamRequestID(); ok {
+		if err := usagelog.UpstreamRequestIDValidator(v); err != nil {
+			return &ValidationError{Name: "upstream_request_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.upstream_request_id": %w`, err)}
+		}
+	}
+	if v, ok := _u.mutation.SessionID(); ok {
+		if err := usagelog.SessionIDValidator(v); err != nil {
+			return &ValidationError{Name: "session_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.session_id": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.UserAgent(); ok {
 		if err := usagelog.UserAgentValidator(v); err != nil {
 			return &ValidationError{Name: "user_agent", err: fmt.Errorf(`ent: validator failed for field "UsageLog.user_agent": %w`, err)}
@@ -2892,6 +3649,60 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	if _u.mutation.PriceCardVersionCleared() {
 		_spec.ClearField(usagelog.FieldPriceCardVersion, field.TypeString)
 	}
+	if value, ok := _u.mutation.RequestType(); ok {
+		_spec.SetField(usagelog.FieldRequestType, field.TypeInt16, value)
+	}
+	if value, ok := _u.mutation.AddedRequestType(); ok {
+		_spec.AddField(usagelog.FieldRequestType, field.TypeInt16, value)
+	}
+	if value, ok := _u.mutation.OpenaiWsMode(); ok {
+		_spec.SetField(usagelog.FieldOpenaiWsMode, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ServiceTier(); ok {
+		_spec.SetField(usagelog.FieldServiceTier, field.TypeString, value)
+	}
+	if _u.mutation.ServiceTierCleared() {
+		_spec.ClearField(usagelog.FieldServiceTier, field.TypeString)
+	}
+	if value, ok := _u.mutation.ReasoningEffort(); ok {
+		_spec.SetField(usagelog.FieldReasoningEffort, field.TypeString, value)
+	}
+	if _u.mutation.ReasoningEffortCleared() {
+		_spec.ClearField(usagelog.FieldReasoningEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.RequestedReasoningEffort(); ok {
+		_spec.SetField(usagelog.FieldRequestedReasoningEffort, field.TypeString, value)
+	}
+	if _u.mutation.RequestedReasoningEffortCleared() {
+		_spec.ClearField(usagelog.FieldRequestedReasoningEffort, field.TypeString)
+	}
+	if value, ok := _u.mutation.InboundEndpoint(); ok {
+		_spec.SetField(usagelog.FieldInboundEndpoint, field.TypeString, value)
+	}
+	if _u.mutation.InboundEndpointCleared() {
+		_spec.ClearField(usagelog.FieldInboundEndpoint, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamEndpoint(); ok {
+		_spec.SetField(usagelog.FieldUpstreamEndpoint, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamEndpointCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamEndpoint, field.TypeString)
+	}
+	if value, ok := _u.mutation.UpstreamRequestID(); ok {
+		_spec.SetField(usagelog.FieldUpstreamRequestID, field.TypeString, value)
+	}
+	if _u.mutation.UpstreamRequestIDCleared() {
+		_spec.ClearField(usagelog.FieldUpstreamRequestID, field.TypeString)
+	}
+	if value, ok := _u.mutation.SessionID(); ok {
+		_spec.SetField(usagelog.FieldSessionID, field.TypeString, value)
+	}
+	if _u.mutation.SessionIDCleared() {
+		_spec.ClearField(usagelog.FieldSessionID, field.TypeString)
+	}
+	if value, ok := _u.mutation.NativeCompactionV2(); ok {
+		_spec.SetField(usagelog.FieldNativeCompactionV2, field.TypeBool, value)
+	}
 	if value, ok := _u.mutation.InputTokens(); ok {
 		_spec.SetField(usagelog.FieldInputTokens, field.TypeInt, value)
 	}
@@ -2927,6 +3738,30 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if value, ok := _u.mutation.AddedCacheCreation1hTokens(); ok {
 		_spec.AddField(usagelog.FieldCacheCreation1hTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageOutputTokens(); ok {
+		_spec.SetField(usagelog.FieldImageOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageOutputTokens(); ok {
+		_spec.AddField(usagelog.FieldImageOutputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageOutputCost(); ok {
+		_spec.SetField(usagelog.FieldImageOutputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageOutputCost(); ok {
+		_spec.AddField(usagelog.FieldImageOutputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.ImageInputTokens(); ok {
+		_spec.SetField(usagelog.FieldImageInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedImageInputTokens(); ok {
+		_spec.AddField(usagelog.FieldImageInputTokens, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.ImageInputCost(); ok {
+		_spec.SetField(usagelog.FieldImageInputCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedImageInputCost(); ok {
+		_spec.AddField(usagelog.FieldImageInputCost, field.TypeFloat64, value)
 	}
 	if value, ok := _u.mutation.InputCost(); ok {
 		_spec.SetField(usagelog.FieldInputCost, field.TypeFloat64, value)
@@ -2981,6 +3816,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.AccountRateMultiplierCleared() {
 		_spec.ClearField(usagelog.FieldAccountRateMultiplier, field.TypeFloat64)
+	}
+	if value, ok := _u.mutation.AccountStatsCost(); ok {
+		_spec.SetField(usagelog.FieldAccountStatsCost, field.TypeFloat64, value)
+	}
+	if value, ok := _u.mutation.AddedAccountStatsCost(); ok {
+		_spec.AddField(usagelog.FieldAccountStatsCost, field.TypeFloat64, value)
+	}
+	if _u.mutation.AccountStatsCostCleared() {
+		_spec.ClearField(usagelog.FieldAccountStatsCost, field.TypeFloat64)
 	}
 	if value, ok := _u.mutation.BillingType(); ok {
 		_spec.SetField(usagelog.FieldBillingType, field.TypeInt8, value)

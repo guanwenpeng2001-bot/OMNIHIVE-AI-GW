@@ -12,6 +12,7 @@ import (
 
 // AdminService interface defines admin management operations
 type AdminService interface {
+	AdminSetAPIKeyTPMLimit(context.Context, int64, *int64) (*APIKey, error)
 	// User management
 	ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
 	GetUser(ctx context.Context, id int64) (*User, error)
@@ -56,6 +57,8 @@ type AdminService interface {
 	DeleteCompositeRoute(ctx context.Context, groupID, routeID int64) error
 	PreviewCompositeRoute(ctx context.Context, groupID int64, input CompositeRoutePreviewRequest) (*CompositeRouteDecision, error)
 	GetGroupAPIKeys(ctx context.Context, groupID int64, page, pageSize int) ([]APIKey, int64, error)
+	// GetGroupAPIKeyCounts 返回分组内全部与启用中的 API Key 数量（分组统计用）。
+	GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error)
 	GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error)
 	ClearGroupRateMultipliers(ctx context.Context, groupID int64) error
 	BatchSetGroupRateMultipliers(ctx context.Context, groupID int64, entries []GroupRateMultiplierInput) error
@@ -66,6 +69,18 @@ type AdminService interface {
 	// API Key management (admin)
 	AdminUpdateAPIKeyGroupID(ctx context.Context, keyID int64, groupID *int64) (*AdminUpdateAPIKeyGroupIDResult, error)
 	AdminResetAPIKeyRateLimitUsage(ctx context.Context, keyID int64) (*APIKey, error)
+	// AdminSetAPIKeyStatus enables or disables any user's key.
+	AdminSetAPIKeyStatus(ctx context.Context, keyID int64, status string) (*APIKey, error)
+	// AdminDeleteAPIKey removes any user's key and revokes its credentials.
+	AdminDeleteAPIKey(ctx context.Context, keyID int64) error
+	// AdminRotateAPIKeyCredential rotates any user's key secret, keeping its identity.
+	AdminRotateAPIKeyCredential(ctx context.Context, keyID int64, graceTTL time.Duration, revokePrevious bool) (*APIKeyCredentialIssue, error)
+	// AdminSetAPIKeyBudgetPolicy writes a period-budget policy including the
+	// enforced switch. It is the only path that may move a platform-enforced
+	// budget, and it runs behind the existing admin auth + audit middleware.
+	AdminSetAPIKeyBudgetPolicy(ctx context.Context, keyID int64, policy APIKeyBudgetPolicy) (APIKeyBudgetPolicy, error)
+	// AdminAdjustAPIKeyBudgetUsage records an audited consumed-usage adjustment.
+	AdminAdjustAPIKeyBudgetUsage(ctx context.Context, cmd *KeyBudgetAdjustmentCommand) (*APIKeyBudgetState, error)
 
 	// ReplaceUserGroup 替换用户的专属分组：授予新分组权限、迁移 Key、移除旧分组权限
 	ReplaceUserGroup(ctx context.Context, userID, oldGroupID, newGroupID int64) (*ReplaceUserGroupResult, error)
@@ -126,6 +141,8 @@ type AdminService interface {
 	DeleteProxy(ctx context.Context, id int64) error
 	BatchDeleteProxies(ctx context.Context, ids []int64) (*ProxyBatchDeleteResult, error)
 	GetProxyAccounts(ctx context.Context, proxyID int64) ([]ProxyAccountSummary, error)
+	// GetProxyStats 返回代理的真实观测汇总（账号归属/账本请求量/最近探测观测）。
+	GetProxyStats(ctx context.Context, proxyID int64) (*ProxyStats, error)
 	CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error)
 	TestProxy(ctx context.Context, id int64) (*ProxyTestResult, error)
 	CheckProxyQuality(ctx context.Context, id int64) (*ProxyQualityCheckResult, error)
@@ -233,6 +250,8 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
+	TPMLimit                  int64
+	AccountType               string
 	Name                      string
 	Description               string
 	Platform                  string
@@ -313,6 +332,8 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
+	TPMLimit                  *int64
+	AccountType               *string
 	Name                      string
 	Description               *string
 	Platform                  string
@@ -394,6 +415,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	TPMLimit           int64
 	Name               string
 	Notes              *string
 	Platform           string
@@ -426,6 +448,7 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
+	TPMLimit              *int64
 	Name                  string
 	Notes                 *string
 	Type                  string // Account type: oauth, setup-token, apikey
@@ -447,6 +470,7 @@ type UpdateAccountInput struct {
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
+	TPMLimit       *int64
 	AccountIDs     []int64
 	Filters        *BulkUpdateAccountFilters
 	Name           string
@@ -500,15 +524,23 @@ type UserRPMStatus struct {
 	UserRPMUsed  int                  `json:"user_rpm_used"`
 	UserRPMLimit int                  `json:"user_rpm_limit"`
 	PerGroup     []UserGroupRPMStatus `json:"per_group"`
+	// WindowResetsAt 是 RPM 固定分钟窗口的真实结束时刻（与计数器同源的
+	// 服务端时间）。没有证据时为 nil，不伪造。
+	WindowResetsAt *time.Time `json:"window_resets_at,omitempty"`
+	// Priority 与用户可见展示共用同一份优先级语义。
+	Priority string `json:"priority"`
 }
 
 // UserGroupRPMStatus describes current per-minute RPM usage for one user/group pair.
+// Source 使用与 ResolveEffectiveRPMLimits 相同的取值，展示与判定只有一个词汇表。
 type UserGroupRPMStatus struct {
-	GroupID   int64  `json:"group_id"`
-	GroupName string `json:"group_name"`
-	Used      int    `json:"used"`
-	Limit     int    `json:"limit"`
-	Source    string `json:"source"` // "group" | "override"
+	GroupID   int64                    `json:"group_id"`
+	GroupName string                   `json:"group_name"`
+	Used      int                      `json:"used"`
+	Limit     int                      `json:"limit"`
+	Source    AdmissionRateLimitSource `json:"source"`
+	// UserCeilingRPM 是无论覆盖/分组如何都始终生效的用户级上限（0=不限制）。
+	UserCeilingRPM int `json:"user_ceiling_rpm"`
 }
 
 // BulkUpdateAccountsResult is the aggregated response for bulk updates.
@@ -683,9 +715,11 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
+	runtimeInvalidator   *AccountRuntimeInvalidator
 	cursorSessions       CursorSessionCache
 	cfg                  *config.Config
 	userRepo             UserRepository
+	usageLogRepo         UsageLogRepository
 	groupRepo            GroupRepository
 	groupDuplicateRepo   GroupDuplicateRepository
 	emptyGroupDeleteRepo EmptyGroupDeleteRepository
@@ -732,6 +766,7 @@ type userGroupRateBatchReader interface {
 func NewAdminService(
 	cfg *config.Config,
 	userRepo UserRepository,
+	usageLogRepo UsageLogRepository,
 	groupRepo AdminGroupRepository,
 	accountRepo AdminAccountRepository,
 	proxyRepo ProxyRepository,
@@ -754,11 +789,14 @@ func NewAdminService(
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
 	cursorSessions CursorSessionCache,
+	runtimeInvalidator *AccountRuntimeInvalidator,
 ) AdminService {
 	return &adminServiceImpl{
+		runtimeInvalidator:   runtimeInvalidator,
 		cursorSessions:       cursorSessions,
 		cfg:                  cfg,
 		userRepo:             userRepo,
+		usageLogRepo:         usageLogRepo,
 		groupRepo:            groupRepo,
 		groupDuplicateRepo:   groupRepo,
 		emptyGroupDeleteRepo: groupRepo,

@@ -3,6 +3,9 @@ package apicompat
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"strings"
 )
 
@@ -51,50 +54,22 @@ func ResponsesToAnthropicRequest(req *ResponsesRequest) (*AnthropicRequest, erro
 		out.ToolChoice = tc
 	}
 
-	// reasoning.effort → output_config.effort + thinking
+	// Effort is a model capability, not a token budget. Never invent a
+	// manual budget or silently translate xhigh into max.
 	if req.Reasoning != nil && req.Reasoning.Effort != "" {
-		effort := mapResponsesEffortToAnthropic(req.Reasoning.Effort)
-		out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
-		// Enable thinking for non-low efforts
-		if effort != "low" {
-			out.Thinking = &AnthropicThinking{
-				Type:         "enabled",
-				BudgetTokens: defaultThinkingBudget(effort),
+		effort := req.Reasoning.Effort
+		if effort == "none" {
+			out.Thinking = &AnthropicThinking{Type: "disabled"}
+		} else {
+			if !claude.SupportsAdaptiveThinking(req.Model) || !slices.Contains(claude.EffortLevelsForModel(req.Model), effort) {
+				return nil, fmt.Errorf("unsupported reasoning.effort %q for the target model; use the target model native API for thinking controls", effort)
 			}
+			out.OutputConfig = &AnthropicOutputConfig{Effort: effort}
+			out.Thinking = &AnthropicThinking{Type: "adaptive"}
 		}
 	}
 
 	return out, nil
-}
-
-// defaultThinkingBudget returns a sensible thinking budget based on effort level.
-func defaultThinkingBudget(effort string) int {
-	switch effort {
-	case "low":
-		return 1024
-	case "medium":
-		return 4096
-	case "high":
-		return 10240
-	case "max":
-		return 32768
-	default:
-		return 10240
-	}
-}
-
-// mapResponsesEffortToAnthropic converts OpenAI Responses reasoning effort to
-// Anthropic effort levels. Reverse of mapAnthropicEffortToResponses.
-//
-//	low    → low
-//	medium → medium
-//	high   → high
-//	xhigh  → max
-func mapResponsesEffortToAnthropic(effort string) string {
-	if effort == "xhigh" {
-		return "max"
-	}
-	return effort // low→low, medium→medium, high→high, unknown→passthrough
 }
 
 // convertResponsesInputToAnthropic extracts system prompt and messages from
@@ -476,6 +451,10 @@ func convertResponsesUserToAnthropicContent(raw json.RawMessage) (json.RawMessag
 					Text: p.Text,
 				})
 			}
+		case "input_file":
+			if source := dataURIToAnthropicImageSource(p.FileData); source != nil {
+				blocks = append(blocks, AnthropicContentBlock{Type: "document", Source: source})
+			}
 		case "input_image":
 			src := dataURIToAnthropicImageSource(p.ImageURL)
 			if src != nil {
@@ -646,6 +625,9 @@ func convertResponsesToAnthropicTools(tools []ResponsesTool) []AnthropicTool {
 }
 
 // normalizeAnthropicInputSchema ensures input_schema is a valid object schema.
+// Codex 会把部分内置工具（例如 codex_app 的 automation_update）的 parameters
+// 根节点声明成对象分支的 oneOf/anyOf，Anthropic 只接受 object 根节点，这里把
+// 顶层联合摊平成单个 object schema。
 func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 	const emptyObjectSchema = `{"type":"object","properties":{}}`
 
@@ -658,6 +640,8 @@ func normalizeAnthropicInputSchema(schema json.RawMessage) json.RawMessage {
 	if err := json.Unmarshal(schema, &m); err != nil {
 		return json.RawMessage(`{"type":"object","properties":{}}`)
 	}
+
+	flattenAnthropicRootUnions(m)
 
 	typeRaw, ok := m["type"]
 	if !ok || strings.TrimSpace(string(typeRaw)) == "" || string(typeRaw) == "null" {

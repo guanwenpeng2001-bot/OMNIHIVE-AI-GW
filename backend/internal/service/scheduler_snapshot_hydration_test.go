@@ -228,7 +228,7 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 				Extra: map[string]any{
 					"mixed_scheduling": true,
 					modelRateLimitsKey: map[string]any{
-						antigravityGeminiModelRateLimitKey: map[string]any{
+						antigravityModelRateLimitDomain("gemini-3-flash"): map[string]any{
 							"rate_limit_reset_at": resetAt,
 						},
 					},
@@ -283,7 +283,7 @@ func TestGatewaySelectAccountWithLoadAwareness_SkipsAntigravityGeminiFamilyRateL
 		},
 	}
 
-	result, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", "gemini-3-flash-preview", nil, "", 0)
+	result, err := svc.SelectAccountWithLoadAwareness(context.Background(), &groupID, "", antigravityModelRateLimitDomain("gemini-3-flash"), nil, "", 0)
 	if err != nil {
 		t.Fatalf("SelectAccountWithLoadAwareness error: %v", err)
 	}

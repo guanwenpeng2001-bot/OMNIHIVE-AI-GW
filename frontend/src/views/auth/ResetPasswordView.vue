@@ -200,6 +200,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, computed, onMounted, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
@@ -312,18 +314,9 @@ async function handleSubmit(): Promise<void> {
     isSuccess.value = true
     appStore.showSuccess(t('auth.passwordResetSuccess'))
   } catch (error: unknown) {
-    const err = error as { message?: string; response?: { data?: { detail?: string; code?: string } } }
-
-    // Check for invalid/expired token error
-    if (err.response?.data?.code === 'INVALID_RESET_TOKEN') {
-      errorMessage.value = t('auth.invalidOrExpiredToken')
-    } else if (err.response?.data?.detail) {
-      errorMessage.value = err.response.data.detail
-    } else if (err.message) {
-      errorMessage.value = err.message
-    } else {
-      errorMessage.value = t('auth.resetPasswordFailed')
-    }
+    errorMessage.value = extractApiErrorCode(error) === 'INVALID_RESET_TOKEN'
+      ? t('auth.invalidOrExpiredToken')
+      : extractApiErrorMessage(error, t('auth.resetPasswordFailed'))
 
     appStore.showError(errorMessage.value)
   } finally {

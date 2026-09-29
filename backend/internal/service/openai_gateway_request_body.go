@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
@@ -129,19 +131,233 @@ func deleteOpenAIResponsesNoneReasoningEffortFromObject(account *Account, body m
 // normalizeDeepSeekResponsesRequestBody 适配无状态 CN Responses 端点：
 // 强制 store=false 并清除 previous_response_id（DeepSeek / Kimi 官方
 // Responses 均不支持服务端状态存储，携带这些字段会被拒绝）。
-// 非原生 Responses 协议账号原样返回。
+//
+// DeepSeek 另需把 Codex/OpenAI 的 input_image.image_url 写成线上 serde
+// 要求的 url 字段；openai 平台但 base_url 指向 api.deepseek.com 的映射
+// 账号同样走这条出站改写（Codex 贴图会 422 missing field url）。
+// 非 CN / 非 DeepSeek 上游原样返回。
 func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte {
-	if account == nil || !account.UsesNativeCNResponses() {
+	if account == nil {
 		return body
 	}
-	normalized, err := sjson.SetBytes(body, "store", false)
+	applyStateless := account.UsesNativeCNResponses()
+	applyImages := shouldAliasDeepSeekResponsesInputImages(account)
+	if !applyStateless && !applyImages {
+		return body
+	}
+
+	normalized := body
+	if applyStateless {
+		patched, err := sjson.SetBytes(normalized, "store", false)
+		if err != nil {
+			return body
+		}
+		normalized = patched
+		if stripped, err := sjson.DeleteBytes(normalized, "previous_response_id"); err == nil {
+			normalized = stripped
+		}
+	}
+
+	// Preserve Kimi stateless normalization without DeepSeek media rewrites.
+	if account.Platform != PlatformDeepseek && !applyImages {
+		return normalized
+	}
+	var requestBody map[string]any
+	if err := decodeOpenAIJSONUseNumber(normalized, &requestBody); err != nil {
+		return normalized
+	}
+	input, exists := requestBody["input"]
+	if !exists {
+		return normalized
+	}
+
+	changed := false
+	if liftedInput, lifted := apicompat.LiftResponsesToolOutputMedia(input); lifted {
+		requestBody["input"] = liftedInput
+		input = liftedInput
+		changed = true
+	}
+	if applyImages {
+		if aliased, aliasedChanged := aliasDeepSeekResponsesInputImages(input); aliasedChanged {
+			requestBody["input"] = aliased
+			changed = true
+		}
+	}
+	if !changed {
+		return normalized
+	}
+	rebuilt, err := marshalOpenAIUpstreamJSON(requestBody)
 	if err != nil {
-		return body
+		return normalized
 	}
-	if stripped, err := sjson.DeleteBytes(normalized, "previous_response_id"); err == nil {
-		normalized = stripped
+	return rebuilt
+}
+
+func shouldAliasDeepSeekResponsesInputImages(account *Account) bool {
+	if account == nil {
+		return false
 	}
-	return normalized
+	// Keep the native platform protocol boundary: Chat-only accounts are untouched.
+	if account.Platform == PlatformDeepseek {
+		return account.UsesNativeCNResponses()
+	}
+	upstreamURL, err := url.Parse(strings.TrimSpace(account.GetOpenAIBaseURL()))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(upstreamURL.Hostname(), "api.deepseek.com")
+}
+
+// aliasDeepSeekResponsesInputImages 把图片 part 改写成 DeepSeek 能反序列化
+// 的形状：type=input_image，同时带字符串字段 image_url 与 url。
+// 文档与部分 400 提 image_url；线上 serde 要求 url。只发其中一个都会踩坑。
+// 仅有 file_id、没有可用 URL 的 part 原样保留。
+func aliasDeepSeekResponsesInputImages(input any) (any, bool) {
+	items, ok := asDeepSeekResponsesSlice(input)
+	if !ok {
+		return input, false
+	}
+	changed := false
+	for index, raw := range items {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if aliasDeepSeekResponsesInputItem(item) {
+			items[index] = item
+			changed = true
+		}
+	}
+	if !changed {
+		return input, false
+	}
+	return items, true
+}
+
+func aliasDeepSeekResponsesInputItem(item map[string]any) bool {
+	changed := aliasDeepSeekResponsesImagePart(item)
+	if content, exists := item["content"]; exists {
+		if rewritten, did := aliasDeepSeekResponsesContent(content); did {
+			item["content"] = rewritten
+			changed = true
+		}
+	}
+	if output, exists := item["output"]; exists {
+		if rewritten, did := aliasDeepSeekResponsesContent(output); did {
+			item["output"] = rewritten
+			changed = true
+		}
+	}
+	return changed
+}
+
+func aliasDeepSeekResponsesContent(content any) (any, bool) {
+	parts, ok := asDeepSeekResponsesSlice(content)
+	if !ok {
+		return content, false
+	}
+	changed := false
+	for index, raw := range parts {
+		part, ok := raw.(map[string]any)
+		if !ok {
+			continue
+		}
+		if aliasDeepSeekResponsesImagePart(part) {
+			parts[index] = part
+			changed = true
+		}
+	}
+	if !changed {
+		return content, false
+	}
+	return parts, true
+}
+
+func aliasDeepSeekResponsesImagePart(part map[string]any) bool {
+	partType := strings.TrimSpace(stringValue(part["type"]))
+	switch partType {
+	case "input_image", "image_url", "image":
+	default:
+		return false
+	}
+	imageURL := extractDeepSeekResponsesImageURL(part)
+	if imageURL == "" {
+		return false
+	}
+	changed := false
+	if partType != "input_image" {
+		part["type"] = "input_image"
+		changed = true
+	}
+	if current, ok := part["image_url"].(string); !ok || strings.TrimSpace(current) != imageURL {
+		part["image_url"] = imageURL
+		changed = true
+	}
+	if current, ok := part["url"].(string); !ok || strings.TrimSpace(current) != imageURL {
+		part["url"] = imageURL
+		changed = true
+	}
+	return changed
+}
+
+func extractDeepSeekResponsesImageURL(part map[string]any) string {
+	if imageURL := deepSeekResponsesURLValue(part["url"]); imageURL != "" {
+		return imageURL
+	}
+	if imageURL := deepSeekResponsesURLValue(part["image_url"]); imageURL != "" {
+		return imageURL
+	}
+	if imageURL := deepSeekResponsesURLValue(part["image"]); imageURL != "" {
+		return imageURL
+	}
+	source, ok := part["source"].(map[string]any)
+	if !ok {
+		return ""
+	}
+	if imageURL := deepSeekResponsesURLValue(source["url"]); imageURL != "" {
+		return imageURL
+	}
+	data := strings.TrimSpace(stringValue(source["data"]))
+	if data == "" {
+		return ""
+	}
+	if strings.HasPrefix(strings.ToLower(data), "data:") {
+		return data
+	}
+	mediaType := strings.TrimSpace(stringValue(source["media_type"]))
+	if mediaType == "" {
+		mediaType = "image/png"
+	}
+	return "data:" + mediaType + ";base64," + data
+}
+
+func deepSeekResponsesURLValue(value any) string {
+	switch typed := value.(type) {
+	case string:
+		return strings.TrimSpace(typed)
+	case map[string]any:
+		if imageURL := strings.TrimSpace(stringValue(typed["url"])); imageURL != "" {
+			return imageURL
+		}
+		return strings.TrimSpace(stringValue(typed["image_url"]))
+	default:
+		return ""
+	}
+}
+
+func asDeepSeekResponsesSlice(value any) ([]any, bool) {
+	switch items := value.(type) {
+	case []any:
+		return items, true
+	case []map[string]any:
+		out := make([]any, len(items))
+		for index := range items {
+			out[index] = items[index]
+		}
+		return out, true
+	default:
+		return nil, false
+	}
 }
 
 func trimOpenAIEncryptedReasoningItems(reqBody map[string]any) bool {
@@ -775,15 +991,8 @@ func appendOpenAIResponsesRequestPathSuffix(baseURL, suffix string) string {
 }
 
 func (s *OpenAIGatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
-	// 使用 gjson/sjson 精确替换 model 字段，避免全量 JSON 反序列化
-	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
-		newBody, err := sjson.SetBytes(body, "model", toModel)
-		if err != nil {
-			return body
-		}
-		return newBody
-	}
-	return body
+	// 与 Claude 主干共用同一替换实现
+	return replaceModelInJSONBody(body, fromModel, toModel)
 }
 
 func getOpenAIReasoningEffortFromReqBody(reqBody map[string]any, requestedModel string) (value string, present bool) {
@@ -2253,31 +2462,6 @@ func extractOpenAIReasoningEffort(reqBody map[string]any, modelCandidates ...str
 		return nil
 	}
 	return &value
-}
-
-func CanonicalRequestedReasoningEffortFromReqBody(reqBody map[string]any, modelCandidates ...string) *string {
-	if reqBody == nil {
-		return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
-	}
-	raw := ""
-	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
-		if effort, ok := reasoning["effort"].(string); ok {
-			raw = strings.TrimSpace(effort)
-		}
-	}
-	if raw == "" {
-		if effort, ok := reqBody["reasoning_effort"].(string); ok {
-			raw = strings.TrimSpace(effort)
-		}
-	}
-	if raw != "" {
-		canonical := NormalizeMaxReasoningEffort(raw)
-		if canonical == "" {
-			return nil
-		}
-		return &canonical
-	}
-	return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
 }
 
 func normalizeOpenAIReasoningEffort(raw string) string {

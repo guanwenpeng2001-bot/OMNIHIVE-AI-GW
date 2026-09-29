@@ -101,8 +101,8 @@
           </template>
         </div>
 
-        <!-- Personal Section for Admin (hidden in simple mode) -->
-        <div v-if="!authStore.isSimpleMode" class="sidebar-section">
+        <!-- Personal section keeps the guide reachable in simple mode. -->
+        <div class="sidebar-section">
           <div class="sidebar-section-title" :class="{ 'sidebar-section-title-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">
             <span class="sidebar-section-title-text" :class="{ 'sidebar-section-title-text-collapsed': sidebarCollapsed }">
               {{ t('nav.myAccount') }}
@@ -110,7 +110,7 @@
           </div>
 
           <router-link
-            v-for="item in personalNavItems"
+            v-for="item in authStore.isSimpleMode ? personalNavItems.filter(item => item.path === '/help') : personalNavItems"
             :key="item.path"
             :to="item.path"
             class="sidebar-link mb-1"
@@ -190,6 +190,7 @@
 <script setup lang="ts">
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { uniqueNavigationItems } from '@/router/navigationItems'
 import { useI18n } from 'vue-i18n'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
@@ -576,6 +577,12 @@ const ChevronDoubleLeftIcon = {
     )
 }
 
+const GuideBookIcon = {
+  render: () => h('svg', { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5', 'aria-hidden': 'true' }, [
+    h('path', { 'stroke-linecap': 'round', 'stroke-linejoin': 'round', d: 'M12 6c-3-2-6-2-9-1v15c3-1 6-1 9 1m0-15c3-2 6-2 9-1v15c-3-1-6-1-9 1V6z' })
+  ])
+}
+
 const OrderIcon = {
   render: () =>
     h(
@@ -723,7 +730,9 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     items.push({ path: '/dashboard', label: t('nav.dashboard'), icon: DashboardIcon })
   }
   items.push(
+    { path: '/workspaces', label: t('workspaces.title'), icon: UsersIcon },
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
+    { path: '/help', label: t('nav.helpGuide'), icon: GuideBookIcon },
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
@@ -747,7 +756,7 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
 // finalizeNav 合并三重过滤：featureFlag 过滤 + simple 模式过滤。
 function finalizeNav(items: NavItem[]): NavItem[] {
   const visible = applyFeatureFlags(items)
-  return authStore.isSimpleMode ? visible.filter(item => !item.hideInSimpleMode) : visible
+  return uniqueNavigationItems(authStore.isSimpleMode ? visible.filter(item => !item.hideInSimpleMode) : visible, router)
 }
 
 // User navigation items (for regular users)
@@ -849,14 +858,14 @@ const adminNavItems = computed((): NavItem[] => {
     for (const cm of customMenuItemsForAdmin.value) {
       filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
     }
-    return filtered
+    return uniqueNavigationItems(filtered, router)
   }
 
   visible.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
   for (const cm of customMenuItemsForAdmin.value) {
     visible.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
   }
-  return visible
+  return uniqueNavigationItems(visible, router)
 })
 
 function toggleSidebar() {
@@ -944,9 +953,9 @@ if (
 
 // Fetch admin settings (for feature-gated nav items like Ops).
 watch(
-  isAdmin,
-  (v) => {
-    if (v) {
+  [isAdmin, () => authStore.user?.id, () => authStore.sessionRevision],
+  ([admin]) => {
+    if (admin) {
       adminSettingsStore.fetch()
     }
   },
@@ -955,9 +964,6 @@ watch(
 
 onMounted(() => {
   void refreshBatchImageAccess()
-  if (isAdmin.value) {
-    adminSettingsStore.fetch()
-  }
   // Restore sidebar scroll position after route change re-mounts the component
   if (appStore.sidebarScrollTop > 0 && sidebarNavRef.value) {
     void nextTick(() => {

@@ -65,9 +65,19 @@ func UpdatedAt(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
+// WorkspaceID applies equality check predicate on the "workspace_id" field. It's identical to WorkspaceIDEQ.
+func WorkspaceID(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
 // DeletedAt applies equality check predicate on the "deleted_at" field. It's identical to DeletedAtEQ.
 func DeletedAt(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldDeletedAt, v))
+}
+
+// TpmLimit applies equality check predicate on the "tpm_limit" field. It's identical to TpmLimitEQ.
+func TpmLimit(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldTpmLimit, v))
 }
 
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
@@ -275,6 +285,46 @@ func UpdatedAtLTE(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldLTE(FieldUpdatedAt, v))
 }
 
+// WorkspaceIDEQ applies the EQ predicate on the "workspace_id" field.
+func WorkspaceIDEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDNEQ applies the NEQ predicate on the "workspace_id" field.
+func WorkspaceIDNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDIn applies the In predicate on the "workspace_id" field.
+func WorkspaceIDIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDNotIn applies the NotIn predicate on the "workspace_id" field.
+func WorkspaceIDNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDGT applies the GT predicate on the "workspace_id" field.
+func WorkspaceIDGT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDGTE applies the GTE predicate on the "workspace_id" field.
+func WorkspaceIDGTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLT applies the LT predicate on the "workspace_id" field.
+func WorkspaceIDLT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLTE applies the LTE predicate on the "workspace_id" field.
+func WorkspaceIDLTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldWorkspaceID, v))
+}
+
 // DeletedAtEQ applies the EQ predicate on the "deleted_at" field.
 func DeletedAtEQ(v time.Time) predicate.Account {
 	return predicate.Account(sql.FieldEQ(FieldDeletedAt, v))
@@ -323,6 +373,46 @@ func DeletedAtIsNil() predicate.Account {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.Account {
 	return predicate.Account(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// TpmLimitEQ applies the EQ predicate on the "tpm_limit" field.
+func TpmLimitEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitNEQ applies the NEQ predicate on the "tpm_limit" field.
+func TpmLimitNEQ(v int64) predicate.Account {
+	return predicate.Account(sql.FieldNEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitIn applies the In predicate on the "tpm_limit" field.
+func TpmLimitIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitNotIn applies the NotIn predicate on the "tpm_limit" field.
+func TpmLimitNotIn(vs ...int64) predicate.Account {
+	return predicate.Account(sql.FieldNotIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitGT applies the GT predicate on the "tpm_limit" field.
+func TpmLimitGT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGT(FieldTpmLimit, v))
+}
+
+// TpmLimitGTE applies the GTE predicate on the "tpm_limit" field.
+func TpmLimitGTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldGTE(FieldTpmLimit, v))
+}
+
+// TpmLimitLT applies the LT predicate on the "tpm_limit" field.
+func TpmLimitLT(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLT(FieldTpmLimit, v))
+}
+
+// TpmLimitLTE applies the LTE predicate on the "tpm_limit" field.
+func TpmLimitLTE(v int64) predicate.Account {
+	return predicate.Account(sql.FieldLTE(FieldTpmLimit, v))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.

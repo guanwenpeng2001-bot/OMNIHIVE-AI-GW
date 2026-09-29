@@ -4,7 +4,6 @@ import (
 	"context"
 	"strings"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -14,7 +13,7 @@ type contentModerationHashCache struct {
 	rdb *redis.Client
 }
 
-func NewContentModerationHashCache(rdb *redis.Client) service.ContentModerationHashCache {
+func NewContentModerationHashCache(rdb *redis.Client) *contentModerationHashCache {
 	return &contentModerationHashCache{rdb: rdb}
 }
 

@@ -7,10 +7,12 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/stretchr/testify/require"
 )
 
 type dashboardAggregationRepoTestStub struct {
+	watermarkUpdateCalls int
 	aggregateCalls       int
 	recomputeCalls       int
 	cleanupUsageCalls    int
@@ -67,6 +69,7 @@ func (s *dashboardAggregationRepoTestStub) GetAggregationWatermark(ctx context.C
 }
 
 func (s *dashboardAggregationRepoTestStub) UpdateAggregationWatermark(ctx context.Context, aggregatedAt time.Time) error {
+	s.watermarkUpdateCalls++
 	return nil
 }
 
@@ -286,4 +289,33 @@ func TestDashboardAggregationService_TriggerBackfill_TooLarge(t *testing.T) {
 	err := svc.TriggerBackfill(start, end)
 	require.ErrorIs(t, err, ErrDashboardBackfillTooLarge)
 	require.Equal(t, 0, repo.aggregateCalls)
+}
+
+func TestDashboardBackfillDoesNotPublishCursorOrRunRetention(t *testing.T) {
+	repo := &dashboardAggregationRepoTestStub{}
+	svc := &DashboardAggregationService{repo: repo}
+	start := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	require.NoError(t, svc.backfillRange(context.Background(), start, start.AddDate(0, 0, 2)))
+	require.Equal(t, 2, repo.aggregateCalls)
+	require.Zero(t, repo.watermarkUpdateCalls)
+	require.Zero(t, repo.cleanupUsageCalls)
+	require.Zero(t, repo.cleanupDedupCalls)
+}
+
+func TestDashboardBackfillUsesStatisticsCalendarDST(t *testing.T) {
+	previous := timezone.Name()
+	require.NoError(t, timezone.Init("America/New_York"))
+	t.Cleanup(func() { require.NoError(t, timezone.Init(previous)) })
+	for _, date := range []string{"2026-03-08", "2026-11-01"} {
+		start, err := time.ParseInLocation("2006-01-02", date, timezone.Location())
+		require.NoError(t, err)
+		end := start.AddDate(0, 0, 1)
+		repo := &dashboardAggregationRepoTestStub{}
+		svc := &DashboardAggregationService{repo: repo}
+		require.NoError(t, svc.backfillRange(context.Background(), start, end))
+		require.Equal(t, 1, repo.aggregateCalls)
+		require.True(t, repo.lastStart.Equal(start))
+		require.True(t, repo.lastEnd.Equal(end))
+		require.Contains(t, []time.Duration{23 * time.Hour, 25 * time.Hour}, repo.lastEnd.Sub(repo.lastStart))
+	}
 }

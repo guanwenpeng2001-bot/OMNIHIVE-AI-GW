@@ -3,10 +3,12 @@ package admin
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
@@ -53,7 +55,7 @@ func parseTimeRange(c *gin.Context) (time.Time, time.Time) {
 
 	if endDate != "" {
 		if t, err := timezone.ParseInUserLocation("2006-01-02", endDate, userTZ); err == nil {
-			endTime = t.Add(24 * time.Hour) // Include the end date
+			endTime = t.AddDate(0, 0, 1) // Half-open calendar day, including DST transitions.
 		} else {
 			endTime = timezone.StartOfDayInUserLocation(now.AddDate(0, 0, 1), userTZ)
 		}
@@ -81,7 +83,7 @@ func parseOptionalBoolDashboardFilter(c *gin.Context, name string) (*bool, error
 func (h *DashboardHandler) GetStats(c *gin.Context) {
 	stats, err := h.dashboardService.GetDashboardStats(c.Request.Context())
 	if err != nil {
-		response.Error(c, 500, "Failed to get dashboard statistics")
+		writeDashboardError(c, err, "Failed to get dashboard statistics")
 		return
 	}
 
@@ -112,8 +114,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"total_cache_creation_tokens": stats.TotalCacheCreationTokens,
 		"total_cache_read_tokens":     stats.TotalCacheReadTokens,
 		"total_tokens":                stats.TotalTokens,
-		"total_cost":                  stats.TotalCost,       // 标准计费
-		"total_actual_cost":           stats.TotalActualCost, // 实际扣除
+		"total_cost":                  stats.TotalCost,        // 标准计费
+		"total_actual_cost":           stats.TotalActualCost,  // 实际扣除
+		"total_account_cost":          stats.TotalAccountCost, // 累计账号成本
 
 		// 今日 Token 使用统计
 		"today_requests":              stats.TodayRequests,
@@ -122,8 +125,9 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"today_cache_creation_tokens": stats.TodayCacheCreationTokens,
 		"today_cache_read_tokens":     stats.TodayCacheReadTokens,
 		"today_tokens":                stats.TodayTokens,
-		"today_cost":                  stats.TodayCost,       // 今日标准计费
-		"today_actual_cost":           stats.TodayActualCost, // 今日实际扣除
+		"today_cost":                  stats.TodayCost,        // 今日标准计费
+		"today_actual_cost":           stats.TodayActualCost,  // 今日实际扣除
+		"today_account_cost":          stats.TodayAccountCost, // 今日账号成本
 
 		// 系统运行统计
 		"average_duration_ms": stats.AverageDurationMs,
@@ -137,6 +141,7 @@ func (h *DashboardHandler) GetStats(c *gin.Context) {
 		"hourly_active_users": stats.HourlyActiveUsers,
 		"stats_updated_at":    stats.StatsUpdatedAt,
 		"stats_stale":         stats.StatsStale,
+		"coverage":            stats.Coverage,
 	})
 }
 
@@ -189,13 +194,31 @@ func (h *DashboardHandler) BackfillAggregation(c *gin.Context) {
 
 // GetRealtimeMetrics handles getting real-time system metrics
 // GET /api/v1/admin/dashboard/realtime
+//
+// 真实查询：请求量/平均响应耗时来自本地原始账本 usage_logs 的最近一分钟窗口；
+// 账本保留窗口覆盖不住这一分钟时返回 null（不假填 0）。active_requests 需要在途
+// 计数器、error_rate 需要错误维度，本地账本两者都没有，一律返回 null 而不是 0。
 func (h *DashboardHandler) GetRealtimeMetrics(c *gin.Context) {
-	// Return mock data for now
+	if h.dashboardService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Dashboard service not available")
+		return
+	}
+	windowEnd := time.Now().UTC()
+	windowStart := windowEnd.Add(-time.Minute)
+	stats, err := h.dashboardService.GetRealtimeWindowStats(c.Request.Context(), windowStart, windowEnd)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	response.Success(c, gin.H{
-		"active_requests":       0,
-		"requests_per_minute":   0,
-		"average_response_time": 0,
-		"error_rate":            0.0,
+		"requests_per_minute":   stats.Requests,
+		"average_response_time": stats.AverageResponseTimeMs,
+		// 无本地观测源的字段：显式未知。
+		"active_requests":   nil,
+		"error_rate":        nil,
+		"coverage_complete": stats.CoverageComplete,
+		"observed_from":     stats.WindowStart.Format(time.RFC3339),
+		"observed_to":       stats.WindowEnd.Format(time.RFC3339),
 	})
 }
 
@@ -212,6 +235,10 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -273,9 +300,9 @@ func (h *DashboardHandler) GetUsageTrend(c *gin.Context) {
 		return
 	}
 
-	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	trend, hit, err := h.getUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get usage trend")
+		writeDashboardError(c, err, "Failed to get usage trend")
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -300,6 +327,10 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -365,9 +396,9 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		return
 	}
 
-	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getModelStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, modelSource, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get model statistics")
+		writeDashboardError(c, err, "Failed to get model statistics")
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -377,6 +408,18 @@ func (h *DashboardHandler) GetModelStats(c *gin.Context) {
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 	})
+}
+
+// parseBillingModeQuery reads the shared billing_mode filter. An unknown mode is
+// rejected instead of silently returning an empty result set, so the table, the
+// totals and the charts cannot disagree about what was asked.
+func parseBillingModeQuery(c *gin.Context) (string, bool) {
+	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	if billingMode != "" && !service.BillingMode(billingMode).IsValidUsageFilter() {
+		response.BadRequest(c, "Invalid billing_mode")
+		return "", false
+	}
+	return billingMode, true
 }
 
 // GetGroupStats handles getting group usage statistics
@@ -389,6 +432,10 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 	var requestType *int16
 	var stream *bool
 	var billingType *int8
+	billingMode, ok := parseBillingModeQuery(c)
+	if !ok {
+		return
+	}
 	var upstreamModelMismatch *bool
 
 	if userIDStr := c.Query("user_id"); userIDStr != "" {
@@ -447,9 +494,9 @@ func (h *DashboardHandler) GetGroupStats(c *gin.Context) {
 		return
 	}
 
-	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, upstreamModelMismatch)
+	stats, hit, err := h.getGroupStatsCached(c.Request.Context(), startTime, endTime, userID, apiKeyID, accountID, groupID, requestType, stream, nativeCompactionV2, billingType, billingMode, upstreamModelMismatch)
 	if err != nil {
-		response.Error(c, 500, "Failed to get group statistics")
+		writeDashboardError(c, err, "Failed to get group statistics")
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -475,7 +522,7 @@ func (h *DashboardHandler) GetAPIKeyUsageTrend(c *gin.Context) {
 
 	trend, hit, err := h.getAPIKeyUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
 	if err != nil {
-		response.Error(c, 500, "Failed to get API key usage trend")
+		writeDashboardError(c, err, "Failed to get API key usage trend")
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -502,7 +549,7 @@ func (h *DashboardHandler) GetUserUsageTrend(c *gin.Context) {
 
 	trend, hit, err := h.getUserUsageTrendCached(c.Request.Context(), startTime, endTime, granularity, limit)
 	if err != nil {
-		response.Error(c, 500, "Failed to get user usage trend")
+		writeDashboardError(c, err, "Failed to get user usage trend")
 		return
 	}
 	c.Header("X-Snapshot-Cache", cacheStatusValue(hit))
@@ -550,7 +597,12 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 		End:   endTime.UTC().Format(time.RFC3339),
 		Limit: limit,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardUsersRankingCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)
@@ -559,7 +611,7 @@ func (h *DashboardHandler) GetUserSpendingRanking(c *gin.Context) {
 
 	ranking, err := h.dashboardService.GetUserSpendingRanking(c.Request.Context(), startTime, endTime, limit)
 	if err != nil {
-		response.Error(c, 500, "Failed to get user spending ranking")
+		writeDashboardError(c, err, "Failed to get user spending ranking")
 		return
 	}
 
@@ -601,7 +653,12 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 		Day:     timezone.Today().Format("2006-01-02"),
 		UserIDs: userIDs,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardBatchUsersUsageCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)
@@ -610,7 +667,7 @@ func (h *DashboardHandler) GetBatchUsersUsage(c *gin.Context) {
 
 	stats, err := h.dashboardService.GetBatchUserUsageStats(c.Request.Context(), userIDs, time.Time{}, time.Time{})
 	if err != nil {
-		response.Error(c, 500, "Failed to get user usage stats")
+		writeDashboardError(c, err, "Failed to get user usage stats")
 		return
 	}
 
@@ -645,7 +702,12 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 	}{
 		APIKeyIDs: apiKeyIDs,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to read usage coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 	if cached, ok := dashboardBatchAPIKeysUsageCache.Get(cacheKey); ok {
 		c.Header("X-Snapshot-Cache", "hit")
 		response.Success(c, cached.Payload)
@@ -654,7 +716,7 @@ func (h *DashboardHandler) GetBatchAPIKeysUsage(c *gin.Context) {
 
 	stats, err := h.dashboardService.GetBatchAPIKeyUsageStats(c.Request.Context(), apiKeyIDs, time.Time{}, time.Time{})
 	if err != nil {
-		response.Error(c, 500, "Failed to get API key usage stats")
+		writeDashboardError(c, err, "Failed to get API key usage stats")
 		return
 	}
 
@@ -745,7 +807,7 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		c.Request.Context(), startTime, endTime, dim, limit,
 	)
 	if err != nil {
-		response.Error(c, 500, "Failed to get user breakdown stats")
+		writeDashboardError(c, err, "Failed to get user breakdown stats")
 		return
 	}
 
@@ -754,4 +816,14 @@ func (h *DashboardHandler) GetUserBreakdown(c *gin.Context) {
 		"start_date": startTime.Format("2006-01-02"),
 		"end_date":   endTime.Add(-24 * time.Hour).Format("2006-01-02"),
 	})
+}
+
+// Preserve structured status, reason and metadata while keeping internal failures private.
+func writeDashboardError(c *gin.Context, err error, message string) {
+	statusCode, status := infraerrors.ToHTTP(err)
+	if statusCode >= 500 {
+		response.InternalError(c, message)
+		return
+	}
+	response.ErrorWithDetails(c, statusCode, status.Message, status.Reason, status.Metadata)
 }

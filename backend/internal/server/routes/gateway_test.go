@@ -102,8 +102,8 @@ func TestGatewayRoutesAlphaSearchRejectsUnsupportedGroup(t *testing.T) {
 
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "only available for OpenAI and Composite groups")
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	require.Contains(t, w.Body.String(), "action_not_implemented")
 }
 
 func TestGatewayRoutesOpenAIImagesPathsAreRegistered(t *testing.T) {
@@ -273,16 +273,18 @@ func TestGatewayRoutesCompositeVideoLookupsUseGrokHandler(t *testing.T) {
 func TestGatewayRoutesCompositeMessagesWithGrokModelUsesOpenAIGateway(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformComposite)
 
-	req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
+	for _, path := range []string{"/v1/messages", "/messages"} {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"grok-4.3","messages":[{"role":"user","content":"hi"}]}`))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
 
-	router.ServeHTTP(w, req)
+		router.ServeHTTP(w, req)
 
-	require.NotEqual(t, http.StatusNotFound, w.Code)
-	require.NotContains(t, w.Body.String(), "not supported")
-	require.NotContains(t, w.Body.String(), "OpenAI-compatible endpoint")
-	require.NotContains(t, w.Body.String(), "composite groups")
+		require.NotEqual(t, http.StatusNotFound, w.Code)
+		require.NotContains(t, w.Body.String(), "not supported")
+		require.NotContains(t, w.Body.String(), "OpenAI-compatible endpoint")
+		require.NotContains(t, w.Body.String(), "composite groups")
+	}
 }
 
 func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *testing.T) {
@@ -302,7 +304,25 @@ func TestGatewayRoutesCompositeChatCompletionsWithGrokModelUsesOpenAIGateway(t *
 	}
 }
 
-func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
+// Deliberate gate-semantics change (2026-09-22): the OpenAI video ingress now
+// registers openai.video.generate/edit/extend/status/content, so an OpenAI
+// group's video requests are no longer rejected at the platform action gate with
+// action_not_implemented — they reach the OpenAI video adapter. The ledger items
+// this closes are P2 ("actual video actions") and P3 ("standard OpenAI audio");
+// the change is not a relaxation made to pass a test, and every route below is
+// still asserted to reach the handler instead of being rejected locally.
+//
+// This router carries no gateway, billing or job dependencies and no auth
+// subject, so the ingress answers with its own envelope (the missing-dependency
+// or missing-subject refusal) instead of the platform gate. What this case
+// verifies is that hand-off: every route below reaches the OpenAI video ingress
+// and comes back in the gateway error envelope, with no local 400 and no
+// action_not_implemented. It never drives a successful video job — only the
+// entry route and its error envelope are asserted here; the adapter path itself
+// is covered by the OpenAI video handler wiring suite. Platforms that still have
+// no video cell keep the local rejection, which
+// TestGatewayUnsupportedProtocolContracts proves cell by cell.
+func TestGatewayRoutesOpenAIVideosReachTheOpenAIVideoIngress(t *testing.T) {
 	router := newGatewayRoutesTestRouter(service.PlatformOpenAI)
 
 	for _, tc := range []struct {
@@ -340,8 +360,9 @@ func TestGatewayRoutesNonGrokVideosAreRejectedAtPlatformGate(t *testing.T) {
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, req)
-		require.Equal(t, http.StatusNotFound, w.Code, "method=%s path=%s", tc.method, tc.path)
-		require.Contains(t, w.Body.String(), "Videos API is not supported for this platform")
+		require.NotEqual(t, http.StatusBadRequest, w.Code, "method=%s path=%s", tc.method, tc.path)
+		require.NotContains(t, w.Body.String(), "action_not_implemented", "method=%s path=%s", tc.method, tc.path)
+		require.Contains(t, w.Body.String(), "\"error\"", "the OpenAI video ingress answers with the gateway error envelope: method=%s path=%s", tc.method, tc.path)
 	}
 }
 
@@ -365,7 +386,7 @@ func TestGatewayRoutesCompositeOpenAIOnlyEndpointsRequireOpenAITarget(t *testing
 	w := httptest.NewRecorder()
 
 	router.ServeHTTP(w, req)
-	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, http.StatusBadRequest, w.Code)
 
 	req = httptest.NewRequest(http.MethodPost, "/v1/embeddings", strings.NewReader(`{"model":"text-embedding-3-small","input":"hello"}`))
 	req.Header.Set("Content-Type", "application/json")

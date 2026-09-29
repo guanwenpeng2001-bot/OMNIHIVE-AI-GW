@@ -204,6 +204,9 @@ func (s *FailoverState) HandleFailoverError(
 		return FailoverCanceled
 	}
 	s.LastFailoverErr = failoverErr
+	if service.CheckAttemptBudget(ctx) != nil {
+		return FailoverExhausted
+	}
 	if failoverErr == nil || !failoverErr.ShouldRetryNextAccount() {
 		return FailoverExhausted
 	}
@@ -234,7 +237,7 @@ func (s *FailoverState) HandleFailoverError(
 	}
 
 	// 同账号重试用尽，执行临时封禁
-	if failoverErr.RetryableOnSameAccount {
+	if failoverErr.RetryableOnSameAccount && gatewayService != nil {
 		gatewayService.TempUnscheduleRetryableError(ctx, accountID, failoverErr)
 	}
 
@@ -280,6 +283,9 @@ func (s *FailoverState) HandleSelectionExhausted(ctx context.Context) FailoverAc
 		return FailoverCanceled
 	}
 
+	if service.CheckAttemptBudget(ctx) != nil {
+		return FailoverExhausted
+	}
 	if s.LastFailoverErr != nil &&
 		s.LastFailoverErr.StatusCode == http.StatusServiceUnavailable &&
 		s.SwitchCount <= s.MaxSwitches {

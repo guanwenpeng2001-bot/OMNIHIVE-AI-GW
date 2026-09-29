@@ -60,6 +60,7 @@ type authCacheInvalidatorStub struct {
 	userIDs  []int64
 	groupIDs []int64
 	keys     []string
+	keyIDs   []int64
 }
 
 type adminRechargeAffiliateAccruerStub struct {
@@ -88,6 +89,12 @@ func adminRechargeSettingService(enabled bool) *SettingService {
 
 func (s *authCacheInvalidatorStub) InvalidateAuthCacheByKey(ctx context.Context, key string) {
 	s.keys = append(s.keys, key)
+}
+
+// InvalidateAuthCacheByAPIKeyID evicts every credential of a key from its identity,
+// which is how the key lifecycle paths avoid depending on a plaintext secret.
+func (s *authCacheInvalidatorStub) InvalidateAuthCacheByAPIKeyID(ctx context.Context, apiKeyID int64) {
+	s.keyIDs = append(s.keyIDs, apiKeyID)
 }
 
 func (s *authCacheInvalidatorStub) InvalidateAuthCacheByUserID(ctx context.Context, userID int64) {

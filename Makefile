@@ -48,10 +48,42 @@ test: test-backend test-frontend
 test-backend:
 	@$(MAKE) -C backend test
 
-test-frontend:
+test-frontend: test-frontend-check
+	@pnpm --dir frontend run test:run
+
+.PHONY: test-frontend-check test-shell
+test-frontend-check:
 	@pnpm --dir frontend run lint:check
 	@pnpm --dir frontend run typecheck
-	@$(MAKE) test-frontend-critical
+	@pnpm --dir frontend run check:i18n
+
+# Includes Apple container checks; run this aggregate on the macOS CI runner.
+test-shell:
+	@bash -n deploy/apple-container.sh
+	@bash deploy/tests/apple-container-test.sh
+	@sh deploy/tests/docker-compose-security-test.sh
+	@sh deploy/tests/docker-compose-gateway-env-test.sh
+	@sh deploy/tests/docker-runtime-resources-test.sh
+	@sh deploy/test-caddyfile-cache.sh
+	@bash deploy/tests/install-github-token-test.sh
 
 test-frontend-critical:
 	@pnpm --dir frontend exec vitest run $(FRONTEND_CRITICAL_VITEST)
+
+# Required round gates reject skipped/missing tests as well as failures.
+# Set USAGE_STATS_TEST_DSN to a disposable stats_test database URL and
+# AFFINITY_REDIS_TEST_ADDR (optional AFFINITY_REDIS_TEST_PASSWORD) to isolated Redis.
+# Probe only when a Python gate runs; ordinary build/test targets need no Python.
+# Running a probe also rejects Windows Store aliases that cannot run Python.
+PYTHON ?= $(shell python3 -c "import sys; sys.exit(sys.version_info.major != 3)" >/dev/null 2>&1 && echo python3 || (python -c "import sys; sys.exit(sys.version_info.major != 3)" >/dev/null 2>&1 && echo python))
+.PHONY: test-required-round test-required-usage-coverage test-required-catalog test-required-affinity
+test-required-round: test-required-usage-coverage test-required-catalog test-required-affinity
+
+test-required-usage-coverage:
+	@$(if $(strip $(PYTHON)),,$(error Python 3 is required; install python3/python or set PYTHON to its executable))$(PYTHON) -B backend/scripts/required-round-tests.py usage-coverage
+
+test-required-catalog:
+	@$(if $(strip $(PYTHON)),,$(error Python 3 is required; install python3/python or set PYTHON to its executable))$(PYTHON) -B backend/scripts/required-round-tests.py catalog
+
+test-required-affinity:
+	@$(if $(strip $(PYTHON)),,$(error Python 3 is required; install python3/python or set PYTHON to its executable))$(PYTHON) -B backend/scripts/required-round-tests.py affinity

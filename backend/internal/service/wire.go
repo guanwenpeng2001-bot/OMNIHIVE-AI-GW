@@ -42,8 +42,9 @@ type BuildInfo struct {
 }
 
 // ProvidePricingService creates and initializes PricingService
-func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient) (*PricingService, error) {
+func ProvidePricingService(cfg *config.Config, remoteClient PricingRemoteClient, registry *ModelRegistry) (*PricingService, error) {
 	svc := NewPricingService(cfg, remoteClient)
+	svc.registry = registry
 	if err := svc.Initialize(); err != nil {
 		// Pricing service initialization failure should not block startup, use fallback prices
 		println("[Service] Warning: Pricing service initialization failed:", err.Error())
@@ -255,6 +256,7 @@ func ProvideAccountUsageService(
 }
 
 func ProvideAccountTestService(
+	pricingService *PricingService,
 	cursorGatewayService *CursorGatewayService,
 	accountRepo AccountRepository,
 	geminiTokenProvider *GeminiTokenProvider,
@@ -283,6 +285,13 @@ func ProvideAccountTestService(
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
+	service.SetModelCapabilityProvider(pricingService)
+	enricher, err := NewCapabilityReadOnlyEnricher(pricingService, nil)
+	if err != nil {
+		logger.L().Warn("capability display enrichment unavailable", zap.Error(err))
+	} else {
+		service.capabilityReadOnlyEnricher = enricher
+	}
 	return service
 }
 
@@ -646,6 +655,8 @@ func ProvideScheduledTestRunnerService(
 	cfg *config.Config,
 ) *ScheduledTestRunnerService {
 	svc := NewScheduledTestRunnerService(planRepo, scheduledSvc, accountTestSvc, rateLimitSvc, cfg)
+	svc.SetModelCatalogRefreshEnabled(cfg != nil && cfg.ModelCatalogRefreshEnabled)
+	svc.SetBoundedModelProbesEnabled(cfg != nil && cfg.BoundedModelProbesEnabled)
 	svc.Start()
 	return svc
 }
@@ -821,11 +832,13 @@ func ProvideAPIKeyService(
 	userSubRepo UserSubscriptionRepository,
 	userGroupRateRepo UserGroupRateRepository,
 	cache APIKeyCache,
+	credentialRepo APIKeyCredentialRepository,
 	cfg *config.Config,
 	billingCacheService *BillingCacheService,
 	concurrencyService *ConcurrencyService,
 ) *APIKeyService {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
+	svc.SetCredentialRepository(credentialRepo)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
 	svc.SetConcurrencyService(concurrencyService)
 	return svc
@@ -833,6 +846,8 @@ func ProvideAPIKeyService(
 
 // ProviderSet is the Wire provider set for all services
 var ProviderSet = wire.NewSet(
+	NewModelAccessService,
+	NewWorkspaceService,
 	ProvideUpstreamJobService,
 	ProvideCursorSessionProvider,
 	ProvideCursorGatewayService,
@@ -846,16 +861,19 @@ var ProviderSet = wire.NewSet(
 	NewGroupService,
 	NewCompositeRouteResolver,
 	NewAccountService,
+	NewCredentialSecretService,
 	NewProxyService,
 	NewRedeemService,
 	NewPromoService,
 	NewUsageService,
 	NewDashboardService,
+	NewModelRegistry,
 	ProvidePricingService,
 	NewBillingService,
 	ProvideBillingCacheService,
 	NewAnnouncementService,
 	NewAdminService,
+	ProvideAccountRuntimeInvalidator,
 	ProvideGatewayService,
 	ProvideOpenAIGatewayService,
 	ProvideImageStorageSettingService,
@@ -895,7 +913,6 @@ var ProviderSet = wire.NewSet(
 	ProvideUpstreamBillingProbeService,
 	ProvideOllamaCloudUsageService,
 	ProvideSettingService,
-	NewDataManagementService,
 	ProvideBackupService,
 	ProvideOpsSystemLogSink,
 	ProvideOpsService,
@@ -1055,4 +1072,11 @@ func ProvideChannelMonitorV2Aggregator(repo ChannelMonitorV2Repository, db *sql.
 	}
 	aggregator.Start()
 	return aggregator
+}
+
+func ProvideAccountRuntimeInvalidator(usage *UsageCache, monitor *ChannelMonitorQuotaFetcher,
+	tokens TokenCacheInvalidator, timeout TimeoutCounterCache, forbidden OpenAI403CounterCache,
+	internal Internal500CounterCache, sessions CursorSessionCache, gateway *OpenAIGatewayService) *AccountRuntimeInvalidator {
+	return &AccountRuntimeInvalidator{Usage: usage, Monitor: monitor, Tokens: tokens,
+		Timeout: timeout, Forbidden: forbidden, Internal: internal, Sessions: sessions, Gateway: gateway}
 }

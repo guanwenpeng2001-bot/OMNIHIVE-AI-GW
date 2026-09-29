@@ -742,7 +742,7 @@
                 >
                   <span class="min-w-0">
                     <span class="block truncate text-sm font-semibold text-gray-900 dark:text-white">{{ group.name }}</span>
-                    <span :title="group.platform" class="mt-1 inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ platformLabel(group.platform) }}</span>
+                    <span :title="group.platform" class="mt-1 inline-flex rounded-md bg-gray-100 px-2 py-0.5 text-xs text-gray-500 dark:bg-dark-700 dark:text-gray-400">{{ getPlatformLabel(group.platform, t) }}</span>
                   </span>
                   <span
                     class="flex h-5 w-5 flex-shrink-0 items-center justify-center rounded-full border"
@@ -1119,7 +1119,7 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

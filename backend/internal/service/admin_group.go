@@ -10,14 +10,10 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 // Group management implementations
@@ -114,7 +110,7 @@ func (s *adminServiceImpl) GetGroupModelsListCandidates(ctx context.Context, id 
 			if !isConcreteRequestPlatform(acc.Platform) {
 				continue
 			}
-		} else if acc.Platform != platform {
+		} else if !acc.MatchesPlatform(platform, "") {
 			continue
 		}
 		for model := range acc.GetModelMapping() {
@@ -180,6 +176,20 @@ func (s *adminServiceImpl) UpdateCompositeRoute(ctx context.Context, groupID, ro
 	} else if !ok {
 		return nil, ErrCompositeRouteNotFound
 	}
+	existing, err := s.findCompositeRoute(ctx, groupID, routeID)
+	if err != nil {
+		return nil, err
+	}
+	if existing == nil {
+		return nil, ErrCompositeRouteNotFound
+	}
+	if !input.AccountTypeSet && input.AccountType == "" {
+		input.AccountType = existing.AccountType
+	}
+	// 未提供 targets 时保留已配置的有序目标；空数组显式清空回单目标兼容模式。
+	if input.Targets == nil {
+		input.Targets = existing.Targets
+	}
 	route, err := compositeRouteFromInput(groupID, input)
 	if err != nil {
 		return nil, err
@@ -239,25 +249,41 @@ func (s *adminServiceImpl) requireCompositeGroup(ctx context.Context, groupID in
 }
 
 func (s *adminServiceImpl) compositeRouteBelongsToGroup(ctx context.Context, groupID, routeID int64) (bool, error) {
-	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	route, err := s.findCompositeRoute(ctx, groupID, routeID)
 	if err != nil {
 		return false, err
 	}
+	return route != nil, nil
+}
+
+func (s *adminServiceImpl) findCompositeRoute(ctx context.Context, groupID, routeID int64) (*CompositeModelRoute, error) {
+	routes, err := s.compositeRouteRepo.ListByGroup(ctx, groupID, true)
+	if err != nil {
+		return nil, err
+	}
 	for i := range routes {
 		if routes[i].ID == routeID {
-			return true, nil
+			route := routes[i]
+			return &route, nil
 		}
 	}
-	return false, nil
+	return nil, nil
 }
 
 func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*CompositeModelRoute, error) {
-	input = normalizeCompositeRouteInput(input)
+	normalized, err := normalizeCompositeRouteInput(input)
+	if err != nil {
+		return nil, err
+	}
+	input = normalized
 	if input.PublicModel == "" {
 		return nil, fmt.Errorf("public_model is required")
 	}
 	if !isConcreteRequestPlatform(input.TargetPlatform) {
 		return nil, fmt.Errorf("target_platform must be a concrete provider")
+	}
+	if err := domain.ValidateHostedRestriction(input.TargetPlatform, input.AccountType); err != nil {
+		return nil, err
 	}
 	if input.Priority == 0 {
 		input.Priority = 100
@@ -267,71 +293,27 @@ func compositeRouteFromInput(groupID int64, input CompositeRouteInput) (*Composi
 		PublicModel:    input.PublicModel,
 		MatchType:      input.MatchType,
 		TargetPlatform: input.TargetPlatform,
+		AccountType:    input.AccountType,
 		UpstreamModel:  input.UpstreamModel,
 		Endpoint:       input.Endpoint,
 		Priority:       input.Priority,
 		Enabled:        input.Enabled,
 		Notes:          input.Notes,
+		Targets:        input.Targets,
 	}, nil
 }
 
 func defaultModelsListCandidateIDs(platform string) []string {
-	switch platform {
-	case PlatformOpenAI:
-		return openai.DefaultModelIDs()
-	case PlatformGemini:
-		ids := make([]string, 0, len(geminicli.DefaultModels))
-		for _, model := range geminicli.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformAntigravity:
-		models := antigravity.DefaultModels()
-		ids := make([]string, 0, len(models))
-		for _, model := range models {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	case PlatformGrok:
-		return xai.DefaultModelIDs()
-	case PlatformQianwen:
-		return DefaultQianwenModelIDs()
-	case PlatformCursor:
-		return DefaultCursorModelIDs()
-	case PlatformCommandCode:
-		return DefaultCommandCodeModelIDs()
-	case PlatformOpenCodeGo:
-		return DefaultOpenCodeGoModelIDs()
-	case PlatformComposite:
-		return compositeDefaultModelsListCandidateIDs()
-	default:
-		ids := make([]string, 0, len(claude.DefaultModels))
-		for _, model := range claude.DefaultModels {
-			ids = append(ids, model.ID)
-		}
-		return ids
-	}
+	return NewModelRegistry().Snapshot().CandidateIDs(platform, "")
 }
 
 func defaultAllowImageGenerationForPlatform(platform string) bool {
 	// Grok image and video generation routes share the legacy image-generation gate.
 	// Older clients send the false zero value, so Grok groups must default enabled.
-	return platform == PlatformGrok
-}
-
-func compositeDefaultModelsListCandidateIDs() []string {
-	seen := make(map[string]struct{})
-	ids := make([]string, 0)
-	for _, platform := range ConcretePlatforms() {
-		for _, id := range defaultModelsListCandidateIDs(platform) {
-			if _, ok := seen[id]; ok {
-				continue
-			}
-			seen[id] = struct{}{}
-			ids = append(ids, id)
-		}
-	}
-	return ids
+	// MiniMax has native image/video generation (image-01 / MiniMax-H3), so new
+	// MiniMax groups default to the actual capability as well.
+	// Volcengine Ark has native Seedream image generation (doubao-seedream-*).
+	return platform == PlatformGrok || platform == PlatformMiniMax || platform == PlatformVolcengine
 }
 
 func canCopyAccountsFromGroupPlatform(targetPlatform, sourcePlatform string) bool {
@@ -369,7 +351,7 @@ func normalizeCreateGroupInputForSimpleMode(input *CreateGroupInput) {
 		return
 	}
 	*input = CreateGroupInput{
-		Name: input.Name, Description: input.Description, Platform: input.Platform,
+		Name: input.Name, Description: input.Description, Platform: input.Platform, AccountType: input.AccountType,
 		RateMultiplier: 1, SubscriptionType: SubscriptionTypeStandard,
 	}
 }
@@ -382,6 +364,9 @@ func normalizeUpdateGroupInputForSimpleMode(input *UpdateGroupInput) {
 }
 
 func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupInput) (*Group, error) {
+	if input.TPMLimit < 0 {
+		return nil, fmt.Errorf("tpm_limit must be non-negative")
+	}
 	if s.cfg != nil && s.cfg.RunMode == config.RunModeSimple && NormalizeGroupPlatform(input.Platform) == PlatformComposite {
 		return nil, infraerrors.BadRequest("SIMPLE_MODE_GROUP_NOT_BINDABLE", "composite groups are not supported in simple mode")
 	}
@@ -393,6 +378,9 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 	}
 
 	platform := NormalizeGroupPlatform(input.Platform)
+	if err := domain.ValidateHostedRestriction(platform, input.AccountType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_HOSTED_ACCOUNT_TYPE", err.Error())
+	}
 	// 固定账号 manifest 配置：账号绑定发生在创建之后，创建时无法校验成员关系，
 	// 拒绝开启并在创建后的编辑里配置。
 	if normalizeCodexModelsManifestConfig(platform, input.CodexModelsManifestConfig).Enabled {
@@ -563,6 +551,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		Name:                            input.Name,
 		Description:                     input.Description,
 		Platform:                        platform,
+		AccountType:                     input.AccountType,
 		RateMultiplier:                  input.RateMultiplier,
 		IsExclusive:                     input.IsExclusive,
 		Status:                          StatusActive,
@@ -617,6 +606,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		// 固定账号 manifest 配置：账号绑定发生在分组创建之后，创建路径禁止开启，
 		// 成员关系无从校验（前端创建对话框也不展示）。
 		CodexModelsManifestConfig:   normalizeCodexModelsManifestConfig(platform, input.CodexModelsManifestConfig),
+		TPMLimit:                    input.TPMLimit,
 		RPMLimit:                    input.RPMLimit,
 		MaxReasoningEffort:          maxReasoningEffort,
 		MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
@@ -775,6 +765,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.Platform != "" {
 		group.Platform = input.Platform
+	}
+	if input.AccountType != nil {
+		group.AccountType = *input.AccountType
+	}
+	if err := domain.ValidateHostedRestriction(group.Platform, group.AccountType); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_HOSTED_ACCOUNT_TYPE", err.Error())
 	}
 	if input.RateMultiplier != nil {
 		if *input.RateMultiplier <= 0 {
@@ -1013,6 +1009,12 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	if input.CodexModelsManifestConfig != nil {
 		group.CodexModelsManifestConfig = *input.CodexModelsManifestConfig
 	}
+	if input.TPMLimit != nil {
+		if *input.TPMLimit < 0 {
+			return nil, fmt.Errorf("tpm_limit must be non-negative")
+		}
+		group.TPMLimit = *input.TPMLimit
+	}
 	if input.RPMLimit != nil {
 		group.RPMLimit = *input.RPMLimit
 	}
@@ -1240,6 +1242,31 @@ func (s *adminServiceImpl) GetGroupAPIKeys(ctx context.Context, groupID int64, p
 	return keys, result.Total, nil
 }
 
+// groupAPIKeyStatusCounter 由仓储层按状态计数；未实现时分组统计必须显式失败，
+// 而不是把「启用中的 Key」写成 0。
+type groupAPIKeyStatusCounter interface {
+	CountByGroupIDAndStatus(ctx context.Context, groupID int64, status string) (int64, error)
+}
+
+// GetGroupAPIKeyCounts 返回分组内全部与启用中的 API Key 数量。
+func (s *adminServiceImpl) GetGroupAPIKeyCounts(ctx context.Context, groupID int64) (int64, int64, error) {
+	total, err := s.apiKeyRepo.CountByGroupID(ctx, groupID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count group api keys: %w", err)
+	}
+	counter, ok := s.apiKeyRepo.(groupAPIKeyStatusCounter)
+	if !ok {
+		return 0, 0, infraerrors.New(http.StatusInternalServerError,
+			"GROUP_API_KEY_STATUS_COUNT_UNAVAILABLE",
+			"api key repository does not support status counts")
+	}
+	active, err := counter.CountByGroupIDAndStatus(ctx, groupID, StatusAPIKeyActive)
+	if err != nil {
+		return 0, 0, fmt.Errorf("count active group api keys: %w", err)
+	}
+	return total, active, nil
+}
+
 func (s *adminServiceImpl) GetGroupRateMultipliers(ctx context.Context, groupID int64) ([]UserGroupRateEntry, error) {
 	if err := s.ValidateSimpleModeGroupOperation(AdminGroupOperationMultiplier); err != nil {
 		return nil, err
@@ -1404,7 +1431,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 			// 失效认证缓存（在事务提交后执行）
 			if s.authCacheInvalidator != nil {
-				s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+				invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 			}
 
 			result.APIKey = apiKey
@@ -1419,7 +1446,7 @@ func (s *adminServiceImpl) AdminUpdateAPIKeyGroupID(ctx context.Context, keyID i
 
 	// 失效认证缓存
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 
 	result.APIKey = apiKey
@@ -1442,7 +1469,7 @@ func (s *adminServiceImpl) AdminResetAPIKeyRateLimitUsage(ctx context.Context, k
 		return nil, fmt.Errorf("reset api key rate limit usage: %w", err)
 	}
 	if s.authCacheInvalidator != nil {
-		s.authCacheInvalidator.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		invalidateAPIKeyAuthCache(ctx, s.authCacheInvalidator, apiKey.ID)
 	}
 	if s.billingCacheService != nil {
 		_ = s.billingCacheService.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)

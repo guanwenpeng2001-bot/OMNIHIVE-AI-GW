@@ -4,6 +4,7 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
@@ -61,6 +62,20 @@ func (_c *CompositeModelRouteCreate) SetDeletedAt(v time.Time) *CompositeModelRo
 func (_c *CompositeModelRouteCreate) SetNillableDeletedAt(v *time.Time) *CompositeModelRouteCreate {
 	if v != nil {
 		_c.SetDeletedAt(*v)
+	}
+	return _c
+}
+
+// SetAccountType sets the "account_type" field.
+func (_c *CompositeModelRouteCreate) SetAccountType(v string) *CompositeModelRouteCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *CompositeModelRouteCreate) SetNillableAccountType(v *string) *CompositeModelRouteCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
 	}
 	return _c
 }
@@ -175,6 +190,12 @@ func (_c *CompositeModelRouteCreate) SetNillableNotes(v *string) *CompositeModel
 	return _c
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_c *CompositeModelRouteCreate) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteCreate {
+	_c.mutation.SetOrderedTargets(v)
+	return _c
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_c *CompositeModelRouteCreate) SetGroup(v *Group) *CompositeModelRouteCreate {
 	return _c.SetGroupID(v.ID)
@@ -231,6 +252,10 @@ func (_c *CompositeModelRouteCreate) defaults() error {
 		v := compositemodelroute.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := compositemodelroute.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
 	if _, ok := _c.mutation.MatchType(); !ok {
 		v := compositemodelroute.DefaultMatchType
 		_c.mutation.SetMatchType(v)
@@ -265,6 +290,14 @@ func (_c *CompositeModelRouteCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "CompositeModelRoute.updated_at"`)}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "CompositeModelRoute.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.GroupID(); !ok {
 		return &ValidationError{Name: "group_id", err: errors.New(`ent: missing required field "CompositeModelRoute.group_id"`)}
@@ -357,6 +390,10 @@ func (_c *CompositeModelRouteCreate) createSpec() (*CompositeModelRoute, *sqlgra
 		_spec.SetField(compositemodelroute.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
 	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
+	}
 	if value, ok := _c.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)
 		_node.PublicModel = value
@@ -388,6 +425,10 @@ func (_c *CompositeModelRouteCreate) createSpec() (*CompositeModelRoute, *sqlgra
 	if value, ok := _c.mutation.Notes(); ok {
 		_spec.SetField(compositemodelroute.FieldNotes, field.TypeString, value)
 		_node.Notes = &value
+	}
+	if value, ok := _c.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+		_node.OrderedTargets = value
 	}
 	if nodes := _c.mutation.GroupIDs(); len(nodes) > 0 {
 		edge := &sqlgraph.EdgeSpec{
@@ -485,6 +526,18 @@ func (u *CompositeModelRouteUpsert) UpdateDeletedAt() *CompositeModelRouteUpsert
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *CompositeModelRouteUpsert) ClearDeletedAt() *CompositeModelRouteUpsert {
 	u.SetNull(compositemodelroute.FieldDeletedAt)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsert) SetAccountType(v string) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateAccountType() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldAccountType)
 	return u
 }
 
@@ -608,6 +661,24 @@ func (u *CompositeModelRouteUpsert) ClearNotes() *CompositeModelRouteUpsert {
 	return u
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsert) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsert {
+	u.Set(compositemodelroute.FieldOrderedTargets, v)
+	return u
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsert) UpdateOrderedTargets() *CompositeModelRouteUpsert {
+	u.SetExcluded(compositemodelroute.FieldOrderedTargets)
+	return u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsert) ClearOrderedTargets() *CompositeModelRouteUpsert {
+	u.SetNull(compositemodelroute.FieldOrderedTargets)
+	return u
+}
+
 // UpdateNewValues updates the mutable fields using the new values that were set on create.
 // Using this option is equivalent to using:
 //
@@ -685,6 +756,20 @@ func (u *CompositeModelRouteUpsertOne) UpdateDeletedAt() *CompositeModelRouteUps
 func (u *CompositeModelRouteUpsertOne) ClearDeletedAt() *CompositeModelRouteUpsertOne {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsertOne) SetAccountType(v string) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateAccountType() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateAccountType()
 	})
 }
 
@@ -825,6 +910,27 @@ func (u *CompositeModelRouteUpsertOne) UpdateNotes() *CompositeModelRouteUpsertO
 func (u *CompositeModelRouteUpsertOne) ClearNotes() *CompositeModelRouteUpsertOne {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertOne) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetOrderedTargets(v)
+	})
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertOne) UpdateOrderedTargets() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateOrderedTargets()
+	})
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertOne) ClearOrderedTargets() *CompositeModelRouteUpsertOne {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.ClearOrderedTargets()
 	})
 }
 
@@ -1074,6 +1180,20 @@ func (u *CompositeModelRouteUpsertBulk) ClearDeletedAt() *CompositeModelRouteUps
 	})
 }
 
+// SetAccountType sets the "account_type" field.
+func (u *CompositeModelRouteUpsertBulk) SetAccountType(v string) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateAccountType() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateAccountType()
+	})
+}
+
 // SetGroupID sets the "group_id" field.
 func (u *CompositeModelRouteUpsertBulk) SetGroupID(v int64) *CompositeModelRouteUpsertBulk {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
@@ -1211,6 +1331,27 @@ func (u *CompositeModelRouteUpsertBulk) UpdateNotes() *CompositeModelRouteUpsert
 func (u *CompositeModelRouteUpsertBulk) ClearNotes() *CompositeModelRouteUpsertBulk {
 	return u.Update(func(s *CompositeModelRouteUpsert) {
 		s.ClearNotes()
+	})
+}
+
+// SetOrderedTargets sets the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertBulk) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.SetOrderedTargets(v)
+	})
+}
+
+// UpdateOrderedTargets sets the "ordered_targets" field to the value that was provided on create.
+func (u *CompositeModelRouteUpsertBulk) UpdateOrderedTargets() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.UpdateOrderedTargets()
+	})
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (u *CompositeModelRouteUpsertBulk) ClearOrderedTargets() *CompositeModelRouteUpsertBulk {
+	return u.Update(func(s *CompositeModelRouteUpsert) {
+		s.ClearOrderedTargets()
 	})
 }
 

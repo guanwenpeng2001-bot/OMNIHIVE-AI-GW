@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/model"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -25,7 +24,7 @@ type errorPassthroughCache struct {
 }
 
 // NewErrorPassthroughCache 创建错误透传规则缓存
-func NewErrorPassthroughCache(rdb *redis.Client) service.ErrorPassthroughCache {
+func NewErrorPassthroughCache(rdb *redis.Client) *errorPassthroughCache {
 	return &errorPassthroughCache{
 		rdb: rdb,
 	}
@@ -101,28 +100,12 @@ func (c *errorPassthroughCache) NotifyUpdate(ctx context.Context) error {
 }
 
 // SubscribeUpdates 订阅缓存更新通知
+
 func (c *errorPassthroughCache) SubscribeUpdates(ctx context.Context, handler func()) {
-	go func() {
-		sub := c.rdb.Subscribe(ctx, errorPassthroughPubSubKey)
-		defer func() { _ = sub.Close() }()
-
-		ch := sub.Channel()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case msg := <-ch:
-				if msg == nil {
-					return
-				}
-				// 清除本地缓存，下次访问时会从 Redis 或数据库重新加载
-				c.localMu.Lock()
-				c.localCache = nil
-				c.localMu.Unlock()
-
-				// 调用处理函数
-				handler()
-			}
-		}
-	}()
+	subscribeCacheUpdates(ctx, c.rdb, errorPassthroughPubSubKey, func() {
+		c.localMu.Lock()
+		c.localCache = nil
+		c.localMu.Unlock()
+		handler()
+	})
 }

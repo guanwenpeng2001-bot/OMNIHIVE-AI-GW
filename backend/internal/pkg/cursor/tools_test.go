@@ -97,7 +97,12 @@ func TestMCPHTTP2MultiRoundAndFailures(t *testing.T) {
 					fail(err)
 					return
 				}
-				write := func(m message) { _, _ = w.Write(encodeFrame(m)); w.(http.Flusher).Flush() }
+				write := func(m message) {
+					_, _ = w.Write(encodeFrame(m))
+					if flusher, ok := w.(http.Flusher); ok {
+						flusher.Flush()
+					}
+				}
 				for i := 0; i < 2; i++ {
 					write(mcpFixture(uint32(i), fmt.Sprint(i), map[string]any{"city": "Paris"}))
 					if mode == "cancel_reply" {

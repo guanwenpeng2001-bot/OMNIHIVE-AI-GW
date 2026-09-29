@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { ApiResponse } from '@/types'
+import type { ApiResponse } from '@/types/common'
 import { getAPIBaseURL } from './url'
 
 const AUTH_TOKEN_KEY = 'auth_token'
@@ -22,9 +22,47 @@ export interface RefreshTokenResponse {
 export interface RefreshAuthTokensOptions {
   /** Access token attached to the request that received a 401 response. */
   failedAccessToken?: string | null
+  session?: AuthSessionSnapshot
 }
 
-interface AuthSnapshot {
+export const AUTH_SESSION_KEY = 'auth_session_revision'
+export const AUTH_SESSION_EVENT = 'auth-session-changed'
+
+export interface AuthSessionSnapshot {
+  revision: string | null
+  accessToken: string | null
+  userID: number | null
+}
+
+export function captureAuthSession(): AuthSessionSnapshot {
+  return {
+    revision: localStorage.getItem(AUTH_SESSION_KEY),
+    accessToken: localStorage.getItem(AUTH_TOKEN_KEY),
+    userID: getStoredUserID()
+  }
+}
+
+export function isAuthSessionCurrent(snapshot: AuthSessionSnapshot): boolean {
+  const current = captureAuthSession()
+  return current.revision === snapshot.revision && current.userID === snapshot.userID &&
+    !!current.accessToken === !!snapshot.accessToken &&
+    (snapshot.revision !== null || snapshot.userID !== null || current.accessToken === snapshot.accessToken)
+}
+
+export function authSessionChangedError(): Error & { status: number; code: string } {
+  return Object.assign(new Error('Session changed during token refresh'), {
+    status: 401, code: 'AUTH_SESSION_CHANGED'
+  })
+}
+
+export function advanceAuthSession(): void {
+  // getRandomValues also works on HTTP installations where randomUUID is unavailable.
+  const revision = Array.from(crypto.getRandomValues(new Uint32Array(4)), n => n.toString(16)).join('-')
+  localStorage.setItem(AUTH_SESSION_KEY, revision)
+  window.dispatchEvent(new Event(AUTH_SESSION_EVENT))
+}
+
+interface AuthSnapshot extends AuthSessionSnapshot {
   accessToken: string | null
   refreshToken: string
   expiresAt: number
@@ -32,6 +70,7 @@ interface AuthSnapshot {
 }
 
 let inFlightRefresh: Promise<RefreshTokenResponse> | null = null
+let inFlightSession: AuthSessionSnapshot | null = null
 
 function getStoredUserID(): number | null {
   const rawUser = localStorage.getItem(AUTH_USER_KEY)
@@ -54,6 +93,7 @@ function readAuthSnapshot(): AuthSnapshot {
   }
 
   return {
+    ...captureAuthSession(),
     accessToken: localStorage.getItem(AUTH_TOKEN_KEY),
     refreshToken,
     expiresAt: Number(localStorage.getItem(TOKEN_EXPIRES_AT_KEY)),
@@ -71,6 +111,7 @@ function readStoredTokenPair(snapshot: AuthSnapshot): RefreshTokenResponse | nul
     !refreshToken ||
     !Number.isFinite(expiresAt) ||
     expiresAt <= Date.now() ||
+    !isAuthSessionCurrent(snapshot) ||
     getStoredUserID() !== snapshot.userID
   ) {
     return null
@@ -153,6 +194,7 @@ async function requestTokenPair(
     }
 
     if (
+      !isAuthSessionCurrent(snapshot) ||
       localStorage.getItem(REFRESH_TOKEN_KEY) !== snapshot.refreshToken ||
       getStoredUserID() !== snapshot.userID
     ) {
@@ -160,7 +202,7 @@ async function requestTokenPair(
       if (peerResult) {
         return peerResult
       }
-      throw new Error('Session changed during token refresh')
+      throw authSessionChangedError()
     }
 
     persistTokenPair(payload.data)
@@ -188,8 +230,10 @@ async function requestTokenPair(
 }
 
 async function runRefresh(options: RefreshAuthTokensOptions): Promise<RefreshTokenResponse> {
+  if (options.session && !isAuthSessionCurrent(options.session)) throw authSessionChangedError()
   const snapshot = readAuthSnapshot()
   const refresh = async (mayHaveUncoordinatedPeer = false): Promise<RefreshTokenResponse> => {
+    if (!isAuthSessionCurrent(snapshot)) throw authSessionChangedError()
     const peerResult = readPeerRefreshResult(snapshot, options.failedAccessToken)
     if (peerResult) {
       return peerResult
@@ -213,10 +257,18 @@ async function runRefresh(options: RefreshAuthTokensOptions): Promise<RefreshTok
 export function refreshAuthTokens(
   options: RefreshAuthTokensOptions = {}
 ): Promise<RefreshTokenResponse> {
-  if (inFlightRefresh) {
+  if (!options.session && options.failedAccessToken &&
+    options.failedAccessToken !== localStorage.getItem(AUTH_TOKEN_KEY)) {
+    return Promise.reject(authSessionChangedError())
+  }
+  if (options.session && !isAuthSessionCurrent(options.session)) {
+    return Promise.reject(authSessionChangedError())
+  }
+  if (inFlightRefresh && inFlightSession && isAuthSessionCurrent(inFlightSession)) {
     return inFlightRefresh
   }
 
+  inFlightSession = captureAuthSession()
   const pending = runRefresh(options)
   inFlightRefresh = pending
   const clearPending = (): void => {

@@ -21,6 +21,8 @@ const (
 	FieldUpdatedAt = "updated_at"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
 	FieldDeletedAt = "deleted_at"
+	// FieldAccountType holds the string denoting the account_type field in the database.
+	FieldAccountType = "account_type"
 	// FieldGroupID holds the string denoting the group_id field in the database.
 	FieldGroupID = "group_id"
 	// FieldPublicModel holds the string denoting the public_model field in the database.
@@ -39,6 +41,8 @@ const (
 	FieldEnabled = "enabled"
 	// FieldNotes holds the string denoting the notes field in the database.
 	FieldNotes = "notes"
+	// FieldOrderedTargets holds the string denoting the ordered_targets field in the database.
+	FieldOrderedTargets = "ordered_targets"
 	// EdgeGroup holds the string denoting the group edge name in mutations.
 	EdgeGroup = "group"
 	// Table holds the table name of the compositemodelroute in the database.
@@ -58,6 +62,7 @@ var Columns = []string{
 	FieldCreatedAt,
 	FieldUpdatedAt,
 	FieldDeletedAt,
+	FieldAccountType,
 	FieldGroupID,
 	FieldPublicModel,
 	FieldMatchType,
@@ -67,6 +72,7 @@ var Columns = []string{
 	FieldPriority,
 	FieldEnabled,
 	FieldNotes,
+	FieldOrderedTargets,
 }
 
 // ValidColumn reports if the column name is valid (part of the table columns).
@@ -93,6 +99,10 @@ var (
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultAccountType holds the default value on creation for the "account_type" field.
+	DefaultAccountType string
+	// AccountTypeValidator is a validator for the "account_type" field. It is called by the builders before save.
+	AccountTypeValidator func(string) error
 	// PublicModelValidator is a validator for the "public_model" field. It is called by the builders before save.
 	PublicModelValidator func(string) error
 	// DefaultMatchType holds the default value on creation for the "match_type" field.
@@ -138,6 +148,11 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 // ByDeletedAt orders the results by the deleted_at field.
 func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
+}
+
+// ByAccountType orders the results by the account_type field.
+func ByAccountType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountType, opts...).ToFunc()
 }
 
 // ByGroupID orders the results by the group_id field.

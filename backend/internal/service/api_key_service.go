@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrAPIKeyGroupRequired  = infraerrors.BadRequest("API_KEY_GROUP_REQUIRED", "You must select a group before creating an API key / 创建密钥必须选择分组")
 	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
 	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
 	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
@@ -36,6 +37,8 @@ var (
 	ErrAPIKeyExpired = infraerrors.Forbidden("API_KEY_EXPIRED", "api key 已过期")
 	// ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key quota exhausted")
 	ErrAPIKeyQuotaExhausted = infraerrors.TooManyRequests("API_KEY_QUOTA_EXHAUSTED", "api key 额度已用完")
+	// 停用只由管理侧解除：面板编辑不能把 disabled 的凭据改回 active。
+	ErrAPIKeyDisabledByAdmin = infraerrors.Forbidden("API_KEY_DISABLED_BY_ADMIN", "this api key was disabled by an administrator and cannot be re-enabled from the panel")
 
 	// Rate limit errors
 	ErrAPIKeyRateLimit5hExceeded = infraerrors.TooManyRequests("API_KEY_RATE_5H_EXCEEDED", "api key 5小时限额已用完")
@@ -61,6 +64,7 @@ const (
 // 若编辑 Key 时无条件整行回写，并发累计的配额与限流计数就会被旧快照覆盖。
 // 因此调用方必须显式声明要改的列。
 type APIKeyUpdateFields struct {
+	TPMLimit  bool
 	Name      bool
 	Status    bool
 	Quota     bool
@@ -223,6 +227,16 @@ type CreateAPIKeyRequest struct {
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+
+	// Period budget (optional, self-set upper limit). Exactly one of
+	// LegacyBudgetAnchor or BudgetPeriodMode/BudgetLimit describes the period.
+	LegacyBudgetAnchor    string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      string  `json:"budget_period_mode"`
+	BudgetLimit           float64 `json:"budget_limit"`
+	BudgetDurationSeconds int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          string  `json:"budget_anchor"`
+	BudgetCalendarUnit    string  `json:"budget_calendar_unit"`
+	BudgetTimezone        string  `json:"budget_timezone"`
 }
 
 // UpdateAPIKeyRequest 更新API Key请求
@@ -243,7 +257,18 @@ type UpdateAPIKeyRequest struct {
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Reset all usage counters to 0
+	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // Owner-facing reset is rejected; see ErrAPIKeyUsageResetForbidden.
+
+	// Period budget (nil = no change). ClearBudget removes a self-set budget and
+	// is rejected for platform-enforced budgets.
+	LegacyBudgetAnchor    *string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      *string  `json:"budget_period_mode"`
+	BudgetLimit           *float64 `json:"budget_limit"`
+	BudgetDurationSeconds *int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          *string  `json:"budget_anchor"`
+	BudgetCalendarUnit    *string  `json:"budget_calendar_unit"`
+	BudgetTimezone        *string  `json:"budget_timezone"`
+	ClearBudget           *bool    `json:"clear_budget"`
 }
 
 func validateAPIKeyLimit(v float64) error {
@@ -254,7 +279,10 @@ func validateAPIKeyLimit(v float64) error {
 }
 
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
-	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+	if req.GroupID == nil || *req.GroupID <= 0 {
+		return ErrAPIKeyGroupRequired
+	}
+	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if err := validateAPIKeyLimit(v); err != nil {
 			return err
 		}
@@ -262,11 +290,45 @@ func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
 		return infraerrors.BadRequest("API_KEY_EXPIRY_INVALID", "expires_in_days must be greater than zero")
 	}
+	if _, err := apiKeyBudgetPolicyFromCreateRequest(req); err != nil {
+		return err
+	}
 	return nil
 }
 
+// apiKeyBudgetPolicyFromCreateRequest builds the period budget of a new key.
+// A legacy anchor keeps its historical window; an explicit mode describes a
+// fixed calendar period or a custom duration.
+func apiKeyBudgetPolicyFromCreateRequest(req CreateAPIKeyRequest) (APIKeyBudgetPolicy, error) {
+	if anchor := strings.TrimSpace(req.LegacyBudgetAnchor); anchor != "" {
+		policy, ok := LegacyAPIKeyBudgetPolicy(anchor, req.BudgetLimit, false)
+		if !ok {
+			return APIKeyBudgetPolicy{}, fmt.Errorf("%w: unknown legacy budget anchor %q", ErrAPIKeyBudgetInvalid, anchor)
+		}
+		if err := policy.Validate(); err != nil {
+			return APIKeyBudgetPolicy{}, err
+		}
+		return policy.Normalize(), nil
+	}
+	policy := APIKeyBudgetPolicy{
+		Mode:            req.BudgetPeriodMode,
+		LimitUSD:        req.BudgetLimit,
+		DurationSeconds: req.BudgetDurationSeconds,
+		Anchor:          req.BudgetAnchor,
+		CalendarUnit:    req.BudgetCalendarUnit,
+		Timezone:        req.BudgetTimezone,
+	}
+	if policy.Normalize().Mode == APIKeyBudgetModeOff && policy.LimitUSD == 0 {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, nil
+	}
+	if err := policy.Validate(); err != nil {
+		return APIKeyBudgetPolicy{}, err
+	}
+	return policy.Normalize(), nil
+}
+
 func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
-	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d} {
+	for _, v := range []*float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if v != nil {
 			if err := validateAPIKeyLimit(*v); err != nil {
 				return err
@@ -274,6 +336,58 @@ func validateUpdateAPIKeyRequest(req UpdateAPIKeyRequest) error {
 		}
 	}
 	return nil
+}
+
+// apiKeyBudgetPolicyFromUpdateRequest merges a partial budget update onto the
+// stored policy. Absent fields keep their current value; a legacy anchor wins
+// over an explicit mode.
+func apiKeyBudgetPolicyFromUpdateRequest(current APIKeyBudgetPolicy, req UpdateAPIKeyRequest) (APIKeyBudgetPolicy, bool, error) {
+	if req.ClearBudget != nil && *req.ClearBudget {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+	}
+	changed := req.LegacyBudgetAnchor != nil || req.BudgetPeriodMode != nil || req.BudgetLimit != nil ||
+		req.BudgetDurationSeconds != nil || req.BudgetAnchor != nil || req.BudgetCalendarUnit != nil || req.BudgetTimezone != nil
+	if !changed {
+		return current.Normalize(), false, nil
+	}
+	next := current.Normalize()
+	if req.LegacyBudgetAnchor != nil {
+		anchor := strings.TrimSpace(*req.LegacyBudgetAnchor)
+		if anchor == "" {
+			// Empty anchor explicitly returns to the legacy-only configuration.
+			return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+		}
+		policy, ok := LegacyAPIKeyBudgetPolicy(anchor, next.LimitUSD, next.Enforced)
+		if !ok {
+			return APIKeyBudgetPolicy{}, false, fmt.Errorf("%w: unknown legacy budget anchor %q", ErrAPIKeyBudgetInvalid, anchor)
+		}
+		next = policy
+	}
+	if req.BudgetPeriodMode != nil {
+		next.Mode = strings.TrimSpace(*req.BudgetPeriodMode)
+	}
+	if req.BudgetLimit != nil {
+		next.LimitUSD = *req.BudgetLimit
+	}
+	if req.BudgetDurationSeconds != nil {
+		next.DurationSeconds = *req.BudgetDurationSeconds
+	}
+	if req.BudgetAnchor != nil {
+		next.Anchor = strings.TrimSpace(*req.BudgetAnchor)
+	}
+	if req.BudgetCalendarUnit != nil {
+		next.CalendarUnit = strings.TrimSpace(*req.BudgetCalendarUnit)
+	}
+	if req.BudgetTimezone != nil {
+		next.Timezone = strings.TrimSpace(*req.BudgetTimezone)
+	}
+	if next.Mode == APIKeyBudgetModeOff || next.LimitUSD <= 0 {
+		return APIKeyBudgetPolicy{Mode: APIKeyBudgetModeOff}, true, nil
+	}
+	if err := next.Validate(); err != nil {
+		return APIKeyBudgetPolicy{}, false, err
+	}
+	return next.Normalize(), true, nil
 }
 
 // APIKeyService API Key服务
@@ -289,6 +403,7 @@ type APIKeyService struct {
 	userSubRepo               UserSubscriptionRepository
 	userGroupRateRepo         UserGroupRateRepository
 	cache                     APIKeyCache
+	credentialRepo            APIKeyCredentialRepository
 	rateLimitCacheInvalid     RateLimitCacheInvalidator // optional: invalidate Redis rate limit cache
 	concurrencyService        *ConcurrencyService
 	cfg                       *config.Config
@@ -363,6 +478,12 @@ func NewAPIKeyService(
 // Called after construction (e.g. in wire) to avoid circular dependencies.
 func (s *APIKeyService) SetRateLimitCacheInvalidator(inv RateLimitCacheInvalidator) {
 	s.rateLimitCacheInvalid = inv
+}
+
+// SetCredentialRepository sets the credential repository used for rotation,
+// revocation and digest-based cache invalidation.
+func (s *APIKeyService) SetCredentialRepository(repo APIKeyCredentialRepository) {
+	s.credentialRepo = repo
 }
 
 func (s *APIKeyService) SetConcurrencyService(concurrencyService *ConcurrencyService) {
@@ -532,18 +653,19 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:      userID,
-		Key:         key,
-		Name:        html.EscapeString(req.Name),
-		GroupID:     req.GroupID,
-		Status:      StatusActive,
-		IPWhitelist: req.IPWhitelist,
-		IPBlacklist: req.IPBlacklist,
-		Quota:       req.Quota,
-		QuotaUsed:   0,
-		RateLimit5h: req.RateLimit5h,
-		RateLimit1d: req.RateLimit1d,
-		RateLimit7d: req.RateLimit7d,
+		UserID:        userID,
+		Key:           key,
+		DisplaySuffix: APIKeyCredentialDisplaySuffix(key),
+		Name:          html.EscapeString(req.Name),
+		GroupID:       req.GroupID,
+		Status:        StatusActive,
+		IPWhitelist:   req.IPWhitelist,
+		IPBlacklist:   req.IPBlacklist,
+		Quota:         req.Quota,
+		QuotaUsed:     0,
+		RateLimit5h:   req.RateLimit5h,
+		RateLimit1d:   req.RateLimit1d,
+		RateLimit7d:   req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -556,7 +678,21 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		return nil, fmt.Errorf("create api key: %w", err)
 	}
 
-	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+	// The period budget lives in its own SQL projection; persist it after the key
+	// row exists so a failed budget write cannot leave a key without its policy.
+	policy, err := apiKeyBudgetPolicyFromCreateRequest(req)
+	if err != nil {
+		return nil, err
+	}
+	if policy.IsActive() {
+		saved, err := s.SaveBudgetPolicy(ctx, apiKey.ID, policy, false)
+		if err != nil {
+			return nil, err
+		}
+		apiKey.BudgetPolicy = saved
+	}
+
+	s.InvalidateAuthCacheByKey(ctx, APIKeyCredentialDigest(apiKey.Key))
 	s.compileAPIKeyIPRules(apiKey)
 
 	return apiKey, nil
@@ -784,8 +920,17 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		}
 	}
 
+	// 用户自助清零已消费额度是禁止的：强制预算与已结算消费都只能通过
+	// 管理员的审计化调整（AdjustBudgetUsage）移动，面板不能把它们归零。
+	if req.ResetQuota != nil && *req.ResetQuota {
+		return nil, ErrAPIKeyUsageResetForbidden
+	}
+	if req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage {
+		return nil, ErrAPIKeyUsageResetForbidden
+	}
+
 	// fields 只登记本次请求真正要改的列。quota_used 与 usage_5h/1d/7d 由计费热路径
-	// 原子递增，除非用户显式点了"重置"，否则这里不用快照把它们写回去。
+	// 原子递增，面板不再提供把它们写回去的路径。
 	var fields APIKeyUpdateFields
 	// 下面若干分支会顺带把 Status 改回 active（配额扩容、清除过期等），
 	// 所以用原始值比对来决定是否写 status，而不是只看 req.Status。
@@ -798,26 +943,43 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	}
 
 	if req.GroupID != nil {
-		// 验证分组权限
-		user, err := s.userRepo.GetByID(ctx, userID)
-		if err != nil {
-			return nil, fmt.Errorf("get user: %w", err)
-		}
+		// 与管理员接口一致：nil（省略或 null）= 不变，0 = 解绑，正整数 = 绑定。
+		// 0 走显式解绑分支，不会拿去查分组 ID，避免把「解绑」误判成「分组不存在」。
+		switch {
+		case *req.GroupID < 0:
+			return nil, infraerrors.BadRequest("INVALID_GROUP_ID", "group_id must be non-negative")
+		case *req.GroupID == 0:
+			apiKey.GroupID = nil
+			apiKey.Group = nil
+			fields.GroupID = true
+		default:
+			// 验证分组权限
+			user, err := s.userRepo.GetByID(ctx, userID)
+			if err != nil {
+				return nil, fmt.Errorf("get user: %w", err)
+			}
 
-		group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
-		if err != nil {
-			return nil, fmt.Errorf("get group: %w", err)
-		}
+			group, err := s.groupRepo.GetByID(ctx, *req.GroupID)
+			if err != nil {
+				return nil, fmt.Errorf("get group: %w", err)
+			}
 
-		if !s.canUserBindGroup(ctx, user, group) {
-			return nil, ErrGroupNotAllowed
-		}
+			if !s.canUserBindGroup(ctx, user, group) {
+				return nil, ErrGroupNotAllowed
+			}
 
-		apiKey.GroupID = req.GroupID
-		fields.GroupID = true
+			apiKey.GroupID = req.GroupID
+			apiKey.Group = group
+			fields.GroupID = true
+		}
 	}
 
 	if req.Status != nil {
+		// 停用（disabled）是管理侧（管理员/风控）的决定：面板编辑不得把凭据悄悄
+		// 复活。quota_exhausted / expired 属于可由编辑恢复的限额状态，仍允许重置。
+		if originalStatus == StatusAPIKeyDisabled && *req.Status != StatusAPIKeyDisabled {
+			return nil, ErrAPIKeyDisabledByAdmin
+		}
 		apiKey.Status = *req.Status
 		fields.Status = true
 		// 如果状态改变，清除Redis缓存
@@ -832,14 +994,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.Quota = true
 		// If quota now has room, or is changed to unlimited, reactivate exhausted keys.
 		if apiKey.Status == StatusAPIKeyQuotaExhausted && (*req.Quota <= 0 || *req.Quota > apiKey.QuotaUsed) {
-			apiKey.Status = StatusActive
-		}
-	}
-	if req.ResetQuota != nil && *req.ResetQuota {
-		apiKey.QuotaUsed = 0
-		fields.QuotaUsed = true
-		// If resetting quota and status was quota_exhausted, reactivate
-		if apiKey.Status == StatusAPIKeyQuotaExhausted {
 			apiKey.Status = StatusActive
 		}
 	}
@@ -882,17 +1036,6 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		apiKey.RateLimit7d = *req.RateLimit7d
 		fields.RateLimits = true
 	}
-	resetRateLimit := req.ResetRateLimitUsage != nil && *req.ResetRateLimitUsage
-	if resetRateLimit {
-		apiKey.Usage5h = 0
-		apiKey.Usage1d = 0
-		apiKey.Usage7d = 0
-		apiKey.Window5hStart = nil
-		apiKey.Window1dStart = nil
-		apiKey.Window7dStart = nil
-		fields.RateLimitUsage = true
-	}
-
 	// 上面的自动复活分支可能改了 status，这里统一登记。
 	if apiKey.Status != originalStatus {
 		fields.Status = true
@@ -902,20 +1045,29 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		return nil, fmt.Errorf("update api key: %w", err)
 	}
 
-	s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
-	s.compileAPIKeyIPRules(apiKey)
-
-	// Invalidate Redis rate limit cache so reset takes effect immediately
-	if resetRateLimit && s.rateLimitCacheInvalid != nil {
-		_ = s.rateLimitCacheInvalid.InvalidateAPIKeyRateLimit(ctx, apiKey.ID)
+	// Period budget: the owner may edit their own limit and period, but consumed
+	// usage is never reset and an enforced budget cannot be changed or cleared.
+	nextPolicy, policyChanged, err := apiKeyBudgetPolicyFromUpdateRequest(apiKey.BudgetPolicy, req)
+	if err != nil {
+		return nil, err
 	}
+	if policyChanged {
+		saved, err := s.SaveBudgetPolicy(ctx, apiKey.ID, nextPolicy, false)
+		if err != nil {
+			return nil, err
+		}
+		apiKey.BudgetPolicy = saved
+	}
+
+	s.InvalidateAuthCacheByAPIKeyID(ctx, apiKey.ID)
+	s.compileAPIKeyIPRules(apiKey)
 
 	return apiKey, nil
 }
 
 // Delete 删除API Key
 func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) error {
-	key, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
+	_, ownerID, err := s.apiKeyRepo.GetKeyAndOwnerID(ctx, id)
 	if err != nil {
 		return fmt.Errorf("get api key: %w", err)
 	}
@@ -925,17 +1077,14 @@ func (s *APIKeyService) Delete(ctx context.Context, id int64, userID int64) erro
 		return ErrInsufficientPerms
 	}
 
-	// 事务内:写审计 + 软删除(tombstone)。
-	if err := s.apiKeyRepo.DeleteWithAudit(ctx, id); err != nil {
-		return fmt.Errorf("delete api key: %w", err)
+	if err := s.DeleteAPIKeyByID(ctx, id); err != nil {
+		return err
 	}
 
 	// 删除成功后再清理缓存,避免"缓存已清但删除失败"的竞态。
 	if s.cache != nil {
 		_ = s.cache.DeleteCreateAttemptCount(ctx, userID)
 	}
-	s.InvalidateAuthCacheByKey(ctx, key)
-	s.lastUsedTouchL1.Delete(id)
 
 	return nil
 }
@@ -1072,7 +1221,7 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 }
 
 // GetUserGroupVisibility 返回 user_allowed_groups 授权及有效订阅的分组 ID 集合，
-// 以及该用户是否开启了公开分组限制。开启时公开分组的可见性也要落在该集合内。
+// 以及是否应用公开分组限制：仅限制有授权集合的非管理员用户。
 //
 // 与 GetAvailableGroups 的区别：这里保留普通授权分组的「橱窗」语义，不检查
 // 分组是否活跃；有效订阅也授予对应分组的可见性。返回值恒非 nil。
@@ -1092,7 +1241,7 @@ func (s *APIKeyService) GetUserGroupVisibility(ctx context.Context, userID int64
 	for _, sub := range subscriptions {
 		allowed[sub.GroupID] = struct{}{}
 	}
-	return allowed, user.RestrictPublicGroups, nil
+	return allowed, user.RestrictPublicGroups && !user.IsAdmin() && len(allowed) > 0, nil
 }
 
 // GetUserGroupRates 获取用户的专属分组倍率配置
@@ -1106,6 +1255,70 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 		return nil, fmt.Errorf("get user group rates: %w", err)
 	}
 	return rates, nil
+}
+
+// rpmWindowReader 是 API key 缓存的窄扩展口：实现它就能给出真实 RPM 窗口边界。
+// 未实现（如测试替身）时只省略重置时间，不影响限额解析。
+type rpmWindowReader interface {
+	RPMWindowResetAt(ctx context.Context) (time.Time, error)
+}
+
+// EffectiveRPM 解析这把 Key 实际生效的 RPM 限额，用于用户可见展示。
+//
+// 与请求判定共用 ResolveEffectiveRPMLimits：覆盖值存在时替代分组容量，
+// 用户级上限始终作为天花板列出。重置时间来自 RPM 计数器的服务端时间源；
+// 拿不到就留空，不允许用本机时钟编一个看起来合理的值。
+func (s *APIKeyService) EffectiveRPM(ctx context.Context, key *APIKey) *APIKeyEffectiveRPM {
+	if s == nil || key == nil {
+		return nil
+	}
+	groupID := int64(0)
+	groupRPMLimit := 0
+	if key.GroupID != nil {
+		groupID = *key.GroupID
+	}
+	if key.Group != nil && key.Group.ID == groupID {
+		groupRPMLimit = key.Group.RPMLimit
+	} else if groupID > 0 && s.groupRepo != nil {
+		if group, err := s.groupRepo.GetByIDLite(ctx, groupID); err == nil && group != nil {
+			groupRPMLimit = group.RPMLimit
+		}
+	}
+
+	userID := key.UserID
+	userRPMLimit := 0
+	if key.User != nil && key.User.ID == userID {
+		userRPMLimit = key.User.RPMLimit
+	} else if userID > 0 && s.userRepo != nil {
+		if user, err := s.userRepo.GetByID(ctx, userID); err == nil && user != nil {
+			userRPMLimit = user.RPMLimit
+		}
+	}
+
+	var override *int
+	if groupID > 0 {
+		if key.User != nil && key.User.ID == userID && key.User.UserGroupRPMOverride != nil {
+			override = key.User.UserGroupRPMOverride
+		} else if s.userGroupRateRepo != nil {
+			if dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, userID, groupID); err == nil {
+				override = dbOverride
+			}
+		}
+	}
+
+	out := &APIKeyEffectiveRPM{
+		Limits:   ResolveEffectiveRPMLimits(userRPMLimit, userID, groupID, groupRPMLimit, override),
+		Priority: EffectiveRPMPriority,
+	}
+	if reader, ok := s.cache.(rpmWindowReader); ok {
+		if resetAt, err := reader.RPMWindowResetAt(ctx); err == nil && RetryAfterSecondsUntil(resetAt, time.Now()) > 0 {
+			out.WindowResetsAt = &resetAt
+		}
+	}
+	if out.Limits == nil {
+		out.Limits = []EffectiveRPM{}
+	}
+	return out
 }
 
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)
@@ -1140,8 +1353,8 @@ func (s *APIKeyService) UpdateQuotaUsed(ctx context.Context, apiKeyID int64, cos
 		if err != nil {
 			return fmt.Errorf("increment quota used: %w", err)
 		}
-		if state != nil && state.Status == StatusAPIKeyQuotaExhausted && strings.TrimSpace(state.Key) != "" {
-			s.InvalidateAuthCacheByKey(ctx, state.Key)
+		if state != nil && state.Status == StatusAPIKeyQuotaExhausted {
+			s.InvalidateAuthCacheByAPIKeyID(ctx, apiKeyID)
 		}
 		return nil
 	}
@@ -1167,7 +1380,7 @@ func (s *APIKeyService) UpdateQuotaUsed(ctx context.Context, apiKeyID int64, cos
 			return nil // Don't fail the request
 		}
 		// Invalidate cache so next request sees the new status
-		s.InvalidateAuthCacheByKey(ctx, apiKey.Key)
+		s.InvalidateAuthCacheByAPIKeyID(ctx, apiKeyID)
 	}
 
 	return nil

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
@@ -39,11 +40,12 @@ const (
 	paymentResumeNotConfiguredCode    = "PAYMENT_RESUME_NOT_CONFIGURED"
 	paymentResumeNotConfiguredMessage = "payment resume tokens require a configured signing key"
 
-	paymentResumeTokenTTL       = 24 * time.Hour
+	paymentResumeTokenTTL       = 15 * time.Minute
 	wechatPaymentResumeTokenTTL = 15 * time.Minute
 )
 
 type ResumeTokenClaims struct {
+	Nonce              string `json:"nonce"`
 	OrderID            int64  `json:"oid"`
 	UserID             int64  `json:"uid,omitempty"`
 	ProviderInstanceID string `json:"pi,omitempty"`
@@ -342,6 +344,14 @@ func (s *PaymentResumeService) CreateToken(claims ResumeTokenClaims) (string, er
 	if claims.ExpiresAt == 0 {
 		claims.ExpiresAt = time.Now().Add(paymentResumeTokenTTL).Unix()
 	}
+	if claims.ExpiresAt > time.Now().Add(paymentResumeTokenTTL).Unix() {
+		claims.ExpiresAt = time.Now().Add(paymentResumeTokenTTL).Unix()
+	}
+	nonce := make([]byte, 32)
+	if _, err := rand.Read(nonce); err != nil {
+		return "", fmt.Errorf("generate resume nonce: %w", err)
+	}
+	claims.Nonce = base64.RawURLEncoding.EncodeToString(nonce)
 	return s.createSignedToken(claims)
 }
 
@@ -355,6 +365,9 @@ func (s *PaymentResumeService) ParseToken(token string) (*ResumeTokenClaims, err
 	}
 	if claims.OrderID <= 0 {
 		return nil, infraerrors.BadRequest("INVALID_RESUME_TOKEN", "resume token missing order id")
+	}
+	if claims.ExpiresAt <= 0 || claims.ExpiresAt > time.Now().Add(paymentResumeTokenTTL).Unix() || len(claims.Nonce) != 43 {
+		return nil, infraerrors.BadRequest("INVALID_RESUME_TOKEN", "resume token lifetime or nonce is invalid")
 	}
 	if err := validatePaymentResumeExpiry(claims.ExpiresAt, "INVALID_RESUME_TOKEN", "resume token has expired"); err != nil {
 		return nil, err
@@ -459,7 +472,7 @@ func validatePaymentResumeExpiry(expiresAt int64, code, message string) error {
 	if expiresAt <= 0 {
 		return nil
 	}
-	if time.Now().Unix() > expiresAt {
+	if time.Now().Unix() >= expiresAt {
 		return infraerrors.BadRequest(code, message)
 	}
 	return nil

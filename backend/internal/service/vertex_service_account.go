@@ -142,7 +142,7 @@ func vertexServiceAccountCacheKey(account *Account, key *vertexServiceAccountKey
 	if fingerprint == "" && account != nil {
 		fingerprint = fmt.Sprintf("account:%d", account.ID)
 	}
-	return "vertex:service_account:" + fingerprint
+	return "vertex:service_account:" + fingerprint + ":" + AccountRuntimeIdentityKey(account)
 }
 
 // getVertexServiceAccountAccessToken obtains an access token for a Vertex service account,
@@ -163,9 +163,10 @@ func getVertexServiceAccountAccessToken(ctx context.Context, cache GeminiTokenCa
 	locked := false
 	if cache != nil {
 		var lockErr error
-		locked, lockErr = cache.AcquireRefreshLock(ctx, cacheKey, 30*time.Second)
+		lockOwner := newRefreshLockOwner()
+		locked, lockErr = cache.AcquireRefreshLock(ctx, cacheKey, lockOwner, 30*time.Second)
 		if lockErr == nil && locked {
-			defer func() { _ = cache.ReleaseRefreshLock(ctx, cacheKey) }()
+			defer releaseRefreshLock(ctx, cache, cacheKey, lockOwner)
 		} else if lockErr != nil {
 			slog.Warn("vertex_service_account_token_lock_failed", "account_id", account.ID, "error", lockErr)
 		} else {

@@ -939,7 +939,9 @@ func (m *PluginManager) RoundTripOpenAIOAuth(ctx context.Context, request *http.
 	if !route.runtime.beginRequest() {
 		return nil, true, errors.New("OpenAI OAuth 插件正在停止")
 	}
-	response, err := route.runtime.roundTrip(ctx, request, proxyURL, account)
+	response, err := generationHTTP(request, account.ID, func(r *http.Request) (*http.Response, error) {
+		return route.runtime.roundTrip(r.Context(), r, proxyURL, account)
+	})
 	if err != nil {
 		route.runtime.finishRequest()
 		if route.runtime.client.Exited() {

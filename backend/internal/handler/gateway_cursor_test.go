@@ -28,8 +28,7 @@ import (
 
 func TestCursorModelFallbackAndEndpointOwnership(t *testing.T) {
 	models := defaultModelIDsForPlatform(service.PlatformCursor)
-	require.Contains(t, models, "default")
-	require.Contains(t, models, "claude-sonnet-4-6")
+	require.Empty(t, models)
 	for _, inbound := range []string{EndpointChatCompletions, EndpointMessages, EndpointResponses} {
 		require.Equal(t, "/agent.v1.AgentService/Run", DeriveUpstreamEndpoint(inbound, inbound, service.PlatformCursor))
 	}
@@ -49,7 +48,7 @@ func TestCursorPublicModelsFallsBackWithoutMapping(t *testing.T) {
 	require.Equal(t, http.StatusOK, writer.Code)
 	var response gatewayModelsResponseForTest
 	require.NoError(t, json.Unmarshal(writer.Body.Bytes(), &response))
-	require.Equal(t, service.DefaultCursorModelIDs(), modelIDsForTest(response.Data))
+	require.Empty(t, response.Data)
 	for _, model := range response.Data {
 		require.Equal(t, "cursor", model.OwnedBy)
 	}
@@ -100,7 +99,9 @@ func (cache *cursorRouteSlotCache) ReleaseUserSlot(context.Context, int64, strin
 	return nil
 }
 
-func TestCursorRoutes(t *testing.T) {
+func TestCursorRoutes(t *testing.T)                        { testCursorRequestPlanRoutes(t, false) }
+func TestGatewayRequestPlanSharedHTTPIngress(t *testing.T) { testCursorRequestPlanRoutes(t, true) }
+func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
 	for _, scenario := range []struct {
 		name, path                      string
 		stream, preFailure, interrupted bool
@@ -169,12 +170,14 @@ func TestCursorRoutes(t *testing.T) {
 			handler, cleanup := newTestGatewayHandler(t, group, accounts)
 			defer cleanup()
 			cfg := &config.Config{RunMode: config.RunModeSimple}
+			cfg.Gateway.SessionAffinityEnabled = affinity
+			handler.cfg = cfg
 			repo := &cursorRouteUsageRepo{}
 			slots := &cursorRouteSlotCache{}
 			concurrency := service.NewConcurrencyService(slots)
 			handler.concurrencyHelper = NewConcurrencyHelper(concurrency, SSEPingFormatClaude, 0)
 			snapshot := service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: accounts}, nil, nil, nil, nil)
-			handler.gatewayService = service.NewGatewayService(nil, &fakeGroupRepo{group: group}, repo, nil, nil, nil, nil, nil, cfg, snapshot, concurrency, service.NewBillingService(cfg, nil), nil, nil, nil, nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+			handler.gatewayService = service.ProvideGatewayService(nil, &fakeGroupRepo{group: group}, repo, nil, nil, nil, nil, nil, cfg, snapshot, concurrency, service.NewBillingService(cfg, nil), nil, nil, nil, nil, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 			handler.cursorGatewayService = service.NewCursorGatewayWithClientForTest(cursorRouteSessionCache{}, &cursor.Client{HTTPClient: server.Client(), BaseURL: server.URL})
 			pool := newUsageRecordTestPool(t)
 			defer pool.Stop()
@@ -186,6 +189,12 @@ func TestCursorRoutes(t *testing.T) {
 				requestContext.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 83, Concurrency: 10})
 				requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), ctxkey.Group, group))
 				requestContext.Next()
+				plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
+				require.NotNil(t, plan)
+				require.Equal(t, scenario.path, plan.Snapshot().Route)
+				require.True(t, plan.State().Finalized)
+				require.True(t, plan.State().UsageClaimed)
+
 			})
 			router.POST(EndpointChatCompletions, handler.ChatCompletions)
 			router.POST(EndpointMessages, handler.Messages)
@@ -321,12 +330,12 @@ func TestCursorRoutes(t *testing.T) {
 }
 
 func TestCursorCompositeModelsIncludeMappedAndDefaultCatalog(t *testing.T) {
-	require.Subset(t, defaultModelIDsForPlatform(service.PlatformComposite), service.DefaultCursorModelIDs())
+	require.Empty(t, defaultModelIDsForPlatform(service.PlatformComposite))
 	for _, mapped := range []bool{false, true} {
 		t.Run(fmt.Sprint(mapped), func(t *testing.T) {
 			groupID := int64(82)
 			account := service.Account{ID: 1, Platform: service.PlatformCursor}
-			expected := service.DefaultCursorModelIDs()
+			expected := []string{}
 			if mapped {
 				account.Credentials = map[string]any{"model_mapping": map[string]any{"cursor-custom": "default"}}
 				expected = []string{"cursor-custom"}

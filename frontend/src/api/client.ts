@@ -5,6 +5,7 @@
 
 import axios, { AxiosInstance, AxiosError, InternalAxiosRequestConfig, AxiosResponse } from 'axios'
 import type { ApiResponse } from '@/types'
+import { normalizeApiError, decodeErrorEnvelopeBody } from '@/utils/apiError'
 import { getLocale } from '@/i18n'
 import {
   ADMIN_UI_REQUEST_HEADER,
@@ -12,8 +13,12 @@ import {
   shouldMarkAdminUIRequest,
   shouldMarkUserUIRequest,
 } from './adminUIRequest'
-import { refreshAuthTokens } from './tokenRefresh'
+import {
+  refreshAuthTokens, captureAuthSession, isAuthSessionCurrent, authSessionChangedError,
+  advanceAuthSession, AUTH_SESSION_EVENT, type AuthSessionSnapshot
+} from './tokenRefresh'
 import { getAPIBaseURL } from './url'
+import { workspaceRequestURL } from './workspaceScope'
 export { buildApiUrl, buildGatewayUrl } from './url'
 
 // ==================== Axios Instance Configuration ====================
@@ -29,6 +34,12 @@ export const apiClient: AxiosInstance = axios.create({
 
 // ==================== Request Interceptor ====================
 
+type SessionRequest = InternalAxiosRequestConfig & {
+  _retry?: boolean
+  _authSession?: AuthSessionSnapshot
+  _releaseSession?: () => void
+}
+
 // Get user's timezone
 const getUserTimezone = (): string => {
   try {
@@ -39,7 +50,31 @@ const getUserTimezone = (): string => {
 }
 
 apiClient.interceptors.request.use(
-  (config: InternalAxiosRequestConfig) => {
+  (config: SessionRequest) => {
+    config.url = workspaceRequestURL(config.url, window.location.pathname)
+    if (config._authSession && !isAuthSessionCurrent(config._authSession)) {
+      return Promise.reject(authSessionChangedError())
+    }
+    config._authSession ??= captureAuthSession()
+    if (config._authSession.accessToken) {
+      const controller = new AbortController()
+      const callerSignal = config.signal
+      const abort = () => controller.abort()
+      const checkSession = () => {
+        if (!isAuthSessionCurrent(config._authSession!)) controller.abort()
+      }
+      callerSignal?.addEventListener?.('abort', abort)
+      if (callerSignal?.aborted) controller.abort()
+      window.addEventListener('storage', checkSession)
+      window.addEventListener(AUTH_SESSION_EVENT, checkSession)
+      config.signal = controller.signal
+      config._releaseSession = () => {
+        callerSignal?.removeEventListener?.('abort', abort)
+        window.removeEventListener('storage', checkSession)
+        window.removeEventListener(AUTH_SESSION_EVENT, checkSession)
+        config.signal = callerSignal
+      }
+    }
     // Attach token from localStorage
     const token = localStorage.getItem('auth_token')
     if (token && config.headers) {
@@ -53,10 +88,18 @@ apiClient.interceptors.request.use(
 
     // Attach timezone for all GET requests (backend may use it for default date ranges)
     if (config.method === 'get') {
-      if (!config.params) {
-        config.params = {}
+      // Normalize tuple parameters so Axios serializes them as query pairs.
+      if (Array.isArray(config.params)) config.params = new URLSearchParams(config.params)
+      if (config.params instanceof URLSearchParams) {
+        const params = new URLSearchParams(config.params)
+        if (!params.has('timezone')) params.set('timezone', getUserTimezone())
+        config.params = params
+      } else {
+        config.params = { ...config.params }
+        if (!Object.prototype.hasOwnProperty.call(config.params, 'timezone')) {
+          config.params.timezone = getUserTimezone()
+        }
       }
-      config.params.timezone = getUserTimezone()
     }
 
     if (config.headers) {
@@ -80,6 +123,11 @@ apiClient.interceptors.request.use(
 
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {
+    const request = response.config as SessionRequest
+    request?._releaseSession?.()
+    if (request?._authSession && !isAuthSessionCurrent(request._authSession)) {
+      return Promise.reject(authSessionChangedError())
+    }
     // Unwrap standard API response format { code, message, data }
     const apiResponse = response.data as ApiResponse<unknown>
     if (apiResponse && typeof apiResponse === 'object' && 'code' in apiResponse) {
@@ -88,38 +136,40 @@ apiClient.interceptors.response.use(
         response.data = apiResponse.data
       } else {
         // API error
-        const resp = apiResponse as unknown as Record<string, unknown>
-        return Promise.reject({
-          status: response.status,
-          code: apiResponse.code,
-          message: apiResponse.message || 'Unknown error',
-          reason: resp.reason,
-          metadata: resp.metadata,
-        })
+        return Promise.reject(normalizeApiError({ response }))
       }
     }
     return response
   },
   async (error: AxiosError<ApiResponse<unknown>>) => {
+    const originalRequest = error.config as SessionRequest | undefined
+    originalRequest?._releaseSession?.()
+    if (error.code === 'AUTH_SESSION_CHANGED') return Promise.reject(error)
+    if (originalRequest?._authSession && !isAuthSessionCurrent(originalRequest._authSession)) {
+      return Promise.reject(authSessionChangedError())
+    }
     // Request cancellation: keep the original axios cancellation error so callers can ignore it.
     // Otherwise we'd misclassify it as a generic "network error".
     if (error.code === 'ERR_CANCELED' || axios.isCancel(error)) {
       return Promise.reject(error)
     }
 
-    const originalRequest = error.config as InternalAxiosRequestConfig & { _retry?: boolean }
-
     // Handle common errors
     if (error.response) {
-      const { status, data } = error.response
+      const { status } = error.response
       const url = String(error.config?.url || '')
 
+      // 二进制响应的错误正文（responseType: 'blob'）里还是 JSON 信封：必须在规范化之前
+      // 读回来，否则 409 的 reason/metadata 在这里就丢了，页面只能报一句通用失败。
+      const decodedEnvelope = await decodeErrorEnvelopeBody(error.response.data)
+      if (decodedEnvelope !== undefined) error.response.data = decodedEnvelope as ApiResponse<unknown>
+
       // Validate `data` shape to avoid HTML error pages breaking our error handling.
-      const apiData = (typeof data === 'object' && data !== null ? data : {}) as Record<string, any>
+      const apiError = normalizeApiError(error)
 
       // Ops monitoring disabled: treat as feature-flagged 404, and proactively redirect away
       // from ops pages to avoid broken UI states.
-      if (status === 404 && apiData.message === 'Ops monitoring is disabled') {
+      if (status === 404 && (apiError.reason === 'OPS_DISABLED' || apiError.message === 'Ops monitoring is disabled')) {
         try {
           localStorage.setItem('ops_monitoring_enabled_cached', 'false')
         } catch {
@@ -135,34 +185,35 @@ apiClient.interceptors.response.use(
           window.location.href = '/admin/settings'
         }
 
-        return Promise.reject({
-          status,
-          code: 'OPS_DISABLED',
-          message: apiData.message || error.message,
-          url
-        })
+        return Promise.reject(normalizeApiError({ ...apiError, reason: 'OPS_DISABLED' }))
       }
 
-      if (status === 423 && apiData.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
+      if (status === 423 && apiError.reason === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
         try {
-          window.dispatchEvent(new CustomEvent('admin-compliance-required', {
-            detail: apiData.metadata || {}
-          }))
+          const currentToken = localStorage.getItem('auth_token')
+          // A rejected request from a previous login must not lock the current admin.
+          if (currentToken && (originalRequest?._authSession
+            ? isAuthSessionCurrent(originalRequest._authSession)
+            : error.config?.headers?.Authorization === `Bearer ${currentToken}`)) {
+            window.dispatchEvent(new CustomEvent('admin-compliance-required', {
+              detail: apiError.metadata
+            }))
+          }
         } catch {
           // ignore event failures
         }
 
-        return Promise.reject({
-          status,
-          code: apiData.code,
-          message: apiData.message || error.message,
-          metadata: apiData.metadata,
-        })
+        return Promise.reject(apiError)
       }
 
       // 401: Try to refresh the token if we have a refresh token
       // This handles TOKEN_EXPIRED, INVALID_TOKEN, TOKEN_REVOKED, etc.
-      if (status === 401 && !originalRequest._retry) {
+      if (status === 401 && originalRequest && !originalRequest._retry) {
+        const sentToken = originalRequest.headers?.Authorization
+        if (!originalRequest._authSession && sentToken &&
+          sentToken !== `Bearer ${localStorage.getItem('auth_token')}`) {
+          return Promise.reject(authSessionChangedError())
+        }
         const refreshToken = localStorage.getItem('refresh_token')
         const isAuthEndpoint =
           url.includes('/auth/login') || url.includes('/auth/register') || url.includes('/auth/refresh')
@@ -179,7 +230,15 @@ apiClient.interceptors.response.use(
               typeof authHeader === 'string' && authHeader.startsWith('Bearer ')
                 ? authHeader.slice('Bearer '.length)
                 : null
-            const tokens = await refreshAuthTokens({ failedAccessToken })
+            // Older/custom adapters may omit interceptor metadata; never adopt a different token
+            // without the original principal snapshot.
+            if (!originalRequest._authSession && failedAccessToken !== localStorage.getItem('auth_token')) {
+              throw authSessionChangedError()
+            }
+            const session = originalRequest._authSession ?? captureAuthSession()
+            originalRequest._authSession = session
+            const tokens = await refreshAuthTokens({ failedAccessToken, session })
+            if (!isAuthSessionCurrent(session)) throw authSessionChangedError()
 
             // Retry the original request with the refreshed token
             if (originalRequest.headers) {
@@ -190,24 +249,22 @@ apiClient.interceptors.response.use(
             // A stale request must never destroy a session that was logged out or replaced while
             // its refresh was in flight (for example, when another tab signs in as another user).
             const sessionChanged =
+              (refreshError as { code?: string }).code === 'AUTH_SESSION_CHANGED' ||
+              (originalRequest._authSession && !isAuthSessionCurrent(originalRequest._authSession)) ||
               localStorage.getItem('refresh_token') !== refreshToken ||
               localStorage.getItem('auth_user') !== refreshSessionUser
             if (sessionChanged) {
-              return Promise.reject({
-                status: 401,
-                code: 'AUTH_SESSION_CHANGED',
-                message: 'Authentication session changed while refreshing.'
-              })
+              return Promise.reject(authSessionChangedError())
             }
 
             if (axios.isAxiosError(refreshError)) {
               const refreshStatus = refreshError.response?.status ?? 0
               if (refreshStatus === 0 || refreshStatus === 429 || refreshStatus >= 500) {
-                return Promise.reject({
+                return Promise.reject(normalizeApiError({
                   status: refreshStatus,
-                  code: 'TOKEN_REFRESH_UNAVAILABLE',
-                  message: refreshError.response?.data?.message || refreshError.message
-                })
+                  reason: 'TOKEN_REFRESH_UNAVAILABLE',
+                  message: normalizeApiError(refreshError).message
+                }))
               }
             }
 
@@ -216,17 +273,18 @@ apiClient.interceptors.response.use(
             localStorage.removeItem('refresh_token')
             localStorage.removeItem('auth_user')
             localStorage.removeItem('token_expires_at')
+            advanceAuthSession()
             sessionStorage.setItem('auth_expired', '1')
 
             if (!window.location.pathname.includes('/login')) {
               window.location.href = '/login'
             }
 
-            return Promise.reject({
+            return Promise.reject(normalizeApiError({
               status: 401,
               code: 'TOKEN_REFRESH_FAILED',
               message: 'Session expired. Please log in again.'
-            })
+            }))
           }
         }
 
@@ -245,6 +303,7 @@ apiClient.interceptors.response.use(
         localStorage.removeItem('refresh_token')
         localStorage.removeItem('auth_user')
         localStorage.removeItem('token_expires_at')
+        advanceAuthSession()
         if ((hasToken || sentAuth) && !isAuthEndpoint) {
           sessionStorage.setItem('auth_expired', '1')
         }
@@ -254,22 +313,14 @@ apiClient.interceptors.response.use(
         }
       }
 
-      // Return structured error
-      return Promise.reject({
-        status,
-        code: apiData.code,
-        reason: apiData.reason,
-        error: apiData.error,
-        message: apiData.message || apiData.detail || error.message,
-        metadata: apiData.metadata,
-      })
+      return Promise.reject(apiError)
     }
 
     // Network error
-    return Promise.reject({
+    return Promise.reject(normalizeApiError({
       status: 0,
       message: 'Network error. Please check your connection.'
-    })
+    }))
   }
 )
 

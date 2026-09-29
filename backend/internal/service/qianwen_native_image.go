@@ -24,8 +24,19 @@ func IsQianwenNativeImageModel(model string) bool {
 }
 
 // ValidateQianwenNativeOperation must also run after account model mapping.
+// Voice enrollment models collide with the audio family name check, so the
+// voice hook runs first; rerank and embedding families are disjoint.
 func ValidateQianwenNativeOperation(operation QianwenNativeOperation, model string, body []byte, stream bool) error {
+	if handled, err := validateQianwenVoiceEnrollmentOperation(operation, model, body, stream); handled {
+		return err
+	}
 	if handled, err := validateQianwenNativeAudioOperation(operation, model, body, stream); handled {
+		return err
+	}
+	if handled, err := validateQianwenNativeRerankOperation(operation, model, body, stream); handled {
+		return err
+	}
+	if handled, err := validateQianwenNativeEmbeddingOperation(operation, model, body, stream); handled {
 		return err
 	}
 	if !IsQianwenNativeImageModel(model) {

@@ -75,11 +75,14 @@ func (s *AntigravityGatewayService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if err := s.resolveAntigravityCompatModel(c, account, responsesRequest); err != nil {
+		return nil, err
+	}
 	claudeRequest, err := apicompat.ResponsesToAnthropicRequest(responsesRequest)
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
-	preserveChatCompletionTokenLimit(&request, claudeRequest)
+	preserveAntigravityChatCompletionTokenLimit(&request, claudeRequest)
 	claudeRequest.Stream = request.Stream
 	claudeBody, err := json.Marshal(claudeRequest)
 	if err != nil {
@@ -118,6 +121,10 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "model is required")
 	}
 
+	originalModel := request.Model
+	if err := s.resolveAntigravityCompatModel(c, account, &request); err != nil {
+		return nil, err
+	}
 	claudeRequest, err := apicompat.ResponsesToAnthropicRequest(&request)
 	if err != nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
@@ -132,11 +139,35 @@ func (s *AntigravityGatewayService) ForwardAsResponses(
 		protocol:        antigravityCompatResponses,
 		originalBody:    body,
 		claudeBody:      claudeBody,
-		originalModel:   request.Model,
+		originalModel:   originalModel,
 		clientStream:    request.Stream,
 		startTime:       time.Now(),
 		reasoningEffort: ExtractResponsesReasoningEffortFromBody(body),
 	})
+}
+
+// resolveAntigravityCompatModel applies the existing routing rules before capability
+// validation. Strict OpenAI conversion only produces disabled or adaptive thinking,
+// so its routing level is low for none and high otherwise (no synthetic budget).
+func (gateway *AntigravityGatewayService) resolveAntigravityCompatModel(requestContext *gin.Context, account *Account, request *apicompat.ResponsesRequest) error {
+	thinkingLevel := "high"
+	thinkingEnabled := false
+	if request.Reasoning != nil {
+		effort := request.Reasoning.Effort
+		if effort == "none" {
+			thinkingLevel = "low"
+		} else {
+			thinkingEnabled = effort != ""
+		}
+	}
+	mappedModel := gateway.getMappedModelForThinkingLevel(account, request.Model, thinkingLevel)
+	if mappedModel == "" {
+		MarkOpsClientBusinessLimited(requestContext, OpsClientBusinessLimitedReasonLocalFeatureGate)
+		message := fmt.Sprintf("model %s not in whitelist", request.Model)
+		return gateway.writeAntigravityCompatError(requestContext, http.StatusForbidden, "permission_error", message)
+	}
+	request.Model = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
+	return nil
 }
 
 func (s *AntigravityGatewayService) validateAntigravityCompatAccount(c *gin.Context, account *Account) error {
@@ -151,7 +182,7 @@ func (s *AntigravityGatewayService) validateAntigravityCompatAccount(c *gin.Cont
 	)
 }
 
-func preserveChatCompletionTokenLimit(request *apicompat.ChatCompletionsRequest, claudeRequest *apicompat.AnthropicRequest) {
+func preserveAntigravityChatCompletionTokenLimit(request *apicompat.ChatCompletionsRequest, claudeRequest *apicompat.AnthropicRequest) {
 	if request == nil || claudeRequest == nil {
 		return
 	}
@@ -212,15 +243,8 @@ func (s *AntigravityGatewayService) prepareAntigravityCompatCall(
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadRequest, "invalid_request_error", "Invalid request body")
 	}
 
-	mappedModel := s.getMappedModel(account, request.originalModel)
-	if mappedModel == "" {
-		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
-		message := fmt.Sprintf("model %s not in whitelist", request.originalModel)
-		return nil, s.writeAntigravityCompatError(c, http.StatusForbidden, "permission_error", message)
-	}
-	thinkingEnabled := claudeRequest.Thinking != nil &&
-		(claudeRequest.Thinking.Type == "enabled" || claudeRequest.Thinking.Type == "adaptive")
-	mappedModel = applyThinkingModelSuffix(mappedModel, thinkingEnabled)
+	// The converter checked this exact resolved model before constructing the body.
+	mappedModel := claudeRequest.Model
 
 	if s.tokenProvider == nil {
 		return nil, s.writeAntigravityCompatError(c, http.StatusBadGateway, "api_error", "Antigravity token provider not configured")
@@ -286,35 +310,72 @@ func (s *AntigravityGatewayService) buildAntigravityCompatGeminiBody(
 	return antigravity.TransformClaudeToGeminiWithOptions(claudeRequest, projectID, mappedModel, options)
 }
 
+// enableMixedGeminiToolInvocations reconciles Antigravity v1internal tool payloads.
+//
+// Antigravity's cloudcode-pa v1internal endpoint rejects mixing built-in tools
+// (googleSearch / codeExecution) with client functionDeclarations — even when
+// includeServerSideToolInvocations is set (issue #6464). Prefer client function
+// tools (Codex/agent workflows) and drop the incompatible built-ins.
 func enableMixedGeminiToolInvocations(body []byte) ([]byte, error) {
 	var request map[string]any
 	if err := json.Unmarshal(body, &request); err != nil {
 		return nil, err
 	}
 
-	var hasGoogleSearch, hasFunctionDeclarations bool
-	if tools, ok := request["tools"].([]any); ok {
-		for _, rawTool := range tools {
-			tool, ok := rawTool.(map[string]any)
-			if !ok {
-				continue
-			}
-			_, hasSearch := tool["googleSearch"]
-			declarations, hasFunctions := tool["functionDeclarations"].([]any)
-			hasGoogleSearch = hasGoogleSearch || hasSearch
-			hasFunctionDeclarations = hasFunctionDeclarations || hasFunctions && len(declarations) > 0
-		}
-	}
-	if !hasGoogleSearch || !hasFunctionDeclarations {
+	tools, ok := request["tools"].([]any)
+	if !ok || len(tools) == 0 {
 		return body, nil
 	}
 
-	toolConfig, _ := request["toolConfig"].(map[string]any)
-	if toolConfig == nil {
-		toolConfig = make(map[string]any)
-		request["toolConfig"] = toolConfig
+	hasFunctionDeclarations := false
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			continue
+		}
+		declarations, hasFunctions := tool["functionDeclarations"].([]any)
+		if hasFunctions && len(declarations) > 0 {
+			hasFunctionDeclarations = true
+			break
+		}
 	}
-	toolConfig["includeServerSideToolInvocations"] = true
+	if !hasFunctionDeclarations {
+		return body, nil
+	}
+
+	filtered := make([]any, 0, len(tools))
+	droppedBuiltin := false
+	for _, rawTool := range tools {
+		tool, ok := rawTool.(map[string]any)
+		if !ok {
+			filtered = append(filtered, rawTool)
+			continue
+		}
+		if _, hasSearch := tool["googleSearch"]; hasSearch {
+			delete(tool, "googleSearch")
+			droppedBuiltin = true
+		}
+		if _, hasCodeExecution := tool["codeExecution"]; hasCodeExecution {
+			delete(tool, "codeExecution")
+			droppedBuiltin = true
+		}
+		if len(tool) == 0 {
+			continue
+		}
+		filtered = append(filtered, tool)
+	}
+	if !droppedBuiltin {
+		return body, nil
+	}
+
+	request["tools"] = filtered
+	if toolConfig, ok := request["toolConfig"].(map[string]any); ok {
+		delete(toolConfig, "includeServerSideToolInvocations")
+		delete(toolConfig, "include_server_side_tool_invocations")
+		if len(toolConfig) == 0 {
+			delete(request, "toolConfig")
+		}
+	}
 	return json.Marshal(request)
 }
 
@@ -333,7 +394,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatTransportError(c *gin
 		}
 	}
 	if c.Request.Context().Err() != nil {
-		return s.writeAntigravityCompatError(c, http.StatusBadGateway, "client_disconnected", "Client disconnected before upstream response")
+		return s.writeAntigravityCompatError(c, antigravityStatusClientClosed, "client_disconnected", "Client disconnected before upstream response")
 	}
 	return s.writeAntigravityCompatError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries")
 }

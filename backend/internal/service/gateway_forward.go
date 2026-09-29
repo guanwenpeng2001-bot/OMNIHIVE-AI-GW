@@ -382,7 +382,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		lastWireBody = wireBody
 
 		// 发送请求
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+		resp, err = s.doModelCheckedUpstream(upstreamReq, proxyURL, account, "", tlsProfile)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -445,7 +445,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					releaseRetryCtx()
 					if buildErr == nil {
-						retryResp, retryErr := s.httpUpstream.DoWithTLS(retryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+						retryResp, retryErr := s.doModelCheckedUpstream(retryReq, proxyURL, account, "", tlsProfile)
 						if retryErr == nil {
 							if retryResp.StatusCode < 400 {
 								// 重试请求被上游接受后同步 ParsedRequest，保证 usage/日志看到真实请求体。
@@ -488,7 +488,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									releaseRetryCtx2()
 									if buildErr2 == nil {
-										retryResp2, retryErr2 := s.httpUpstream.DoWithTLS(retryReq2, proxyURL, account.ID, account.Concurrency, tlsProfile)
+										retryResp2, retryErr2 := s.doModelCheckedUpstream(retryReq2, proxyURL, account, "", tlsProfile)
 										if retryErr2 == nil {
 											if retryResp2.StatusCode < 400 {
 												// 二阶段工具块降级成功时也必须更新当前 body。
@@ -571,7 +571,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						releaseBudgetRetryCtx()
 						if buildErr == nil {
-							budgetRetryResp, retryErr := s.httpUpstream.DoWithTLS(budgetRetryReq, proxyURL, account.ID, account.Concurrency, tlsProfile)
+							budgetRetryResp, retryErr := s.doModelCheckedUpstream(budgetRetryReq, proxyURL, account, "", tlsProfile)
 							if retryErr == nil {
 								if budgetRetryResp.StatusCode < 400 {
 									// budget 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
@@ -808,8 +808,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if errors.As(err, &sseErr) {
 				// 上游 HTTP 200 + SSE 流体内出现 event:error 帧。
 				body := []byte(sseErr.RawData)
+				if anthropicStreamRejectionFailover(c, sseErr.RawData) == nil {
+					return partialStreamUsageResult(c, resp, streamResult, originalModel, mappedModel, startTime, err), err
+				}
 				semanticStatus := http.StatusForbidden
-				if c.Writer.Size() == writerSizeBeforeStream && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
+				if (c.Writer.Size() == writerSizeBeforeStream || c.GetBool("gateway_stream_only_heartbeats")) && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
 					semanticStatus = 529
 					syntheticResp := &http.Response{
 						StatusCode: semanticStatus,
@@ -936,10 +939,7 @@ func modelSupportsAnthropicFastMode(model string) bool {
 
 // ResolveChannelMapping 委托渠道服务解析模型映射
 func (s *GatewayService) ResolveChannelMapping(ctx context.Context, groupID int64, model string) ChannelMappingResult {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}
-	}
-	return s.channelService.ResolveChannelMapping(ctx, groupID, model)
+	return resolveChannelMapping(ctx, s.channelService, groupID, model)
 }
 
 // ReplaceModelInBody 替换请求体中的模型名（导出供 handler 使用）
@@ -949,34 +949,20 @@ func (s *GatewayService) ReplaceModelInBody(body []byte, newModel string) []byte
 
 // IsModelRestricted 检查模型是否被渠道限制
 func (s *GatewayService) IsModelRestricted(ctx context.Context, groupID int64, model string) bool {
-	if s.channelService == nil {
-		return false
-	}
-	return s.channelService.IsModelRestricted(ctx, groupID, model)
+	return channelModelRestricted(ctx, s.channelService, groupID, model)
 }
 
 // ResolveChannelMappingAndRestrict 解析渠道映射。
 // 模型限制检查已移至调度阶段（checkChannelPricingRestriction），restricted 始终返回 false。
 func (s *GatewayService) ResolveChannelMappingAndRestrict(ctx context.Context, groupID *int64, model string) (ChannelMappingResult, bool) {
-	if s.channelService == nil {
-		return ChannelMappingResult{MappedModel: model}, false
-	}
-	return s.channelService.ResolveChannelMappingAndRestrict(ctx, groupID, model)
+	return resolveChannelMappingAndRestriction(ctx, s.channelService, groupID, model)
 }
 
 // checkChannelPricingRestriction 根据渠道计费基准检查模型是否受定价列表限制。
-// 供调度阶段预检查（requested / channel_mapped）。
+// 供调度阶段预检查（requested / channel_mapped），与 OpenAI 主干共用同一份实现。
 // upstream 需逐账号检查，此处返回 false。
 func (s *GatewayService) checkChannelPricingRestriction(ctx context.Context, groupID *int64, requestedModel string) bool {
-	if groupID == nil || s.channelService == nil || requestedModel == "" {
-		return false
-	}
-	mapping := s.channelService.ResolveChannelMapping(ctx, *groupID, requestedModel)
-	billingModel := billingModelForRestriction(mapping.BillingModelSource, requestedModel, mapping.MappedModel)
-	if billingModel == "" {
-		return false
-	}
-	return s.channelService.IsModelRestricted(ctx, *groupID, billingModel)
+	return channelPricingRestrictionBlocks(ctx, s.channelService, groupID, requestedModel)
 }
 
 // billingModelForRestriction 根据计费基准确定限制检查使用的模型。

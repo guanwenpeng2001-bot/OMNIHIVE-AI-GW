@@ -64,6 +64,8 @@ const usageLogsEffectiveRequestedModelIndex = "idx_usage_logs_effective_requeste
 const usageLogsEffectiveUpstreamModelIndex = "idx_usage_logs_effective_upstream_model_created"
 const usageLogsUpstreamRequestIDIndexMigration = "233_add_usage_log_upstream_request_id_index_notx.sql"
 const usageLogsUpstreamRequestIDIndex = "idx_usage_logs_upstream_request_id"
+const usageLogsSessionIDIndexMigration = "274_add_usage_log_session_id_index_notx.sql"
+const usageLogsSessionIDIndex = "idx_usage_logs_session_id"
 
 type migrationChecksumCompatibilityRule struct {
 	fileChecksum       string
@@ -240,6 +242,15 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 		}
 
 		if nonTx {
+			if name == usageLogsSessionIDIndexMigration {
+				if err := applyUsageSessionIndexMigration(ctx, lockConn); err != nil {
+					return fmt.Errorf("apply migration %s: %w", name, err)
+				}
+				if _, err := lockConn.ExecContext(ctx, "INSERT INTO schema_migrations (filename, checksum) VALUES ($1, $2)", name, checksum); err != nil {
+					return fmt.Errorf("record migration %s (non-tx): %w", name, err)
+				}
+				continue
+			}
 			if err := prepareNonTransactionalMigration(ctx, lockConn, name); err != nil {
 				return fmt.Errorf("prepare migration %s: %w", name, err)
 			}

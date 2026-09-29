@@ -123,6 +123,7 @@ type ResponsesEventToChatState struct {
 	SentRole               bool
 	SawToolCall            bool
 	SawText                bool
+	textTracker            responsesTextTracker
 	Finalized              bool        // true after finish chunk has been emitted
 	NextToolCallIndex      int         // next sequential tool_call index to assign
 	OutputIndexToToolIndex map[int]int // Responses output_index → Chat tool_calls index
@@ -144,11 +145,45 @@ func NewResponsesEventToChatState() *ResponsesEventToChatState {
 // ResponsesEventToChatChunks converts a single Responses SSE event into zero
 // or more Chat Completions chunks, updating state as it goes.
 func ResponsesEventToChatChunks(evt *ResponsesStreamEvent, state *ResponsesEventToChatState) []ChatCompletionsChunk {
+	if state.Finalized || !state.textTracker.accept(evt) {
+		return nil
+	}
+	if ResponsesStreamEventFailed(evt) {
+		state.Finalized = true
+		return nil
+	}
 	switch evt.Type {
 	case "response.created":
 		return resToChatHandleCreated(evt, state)
 	case "response.output_text.delta":
-		return resToChatHandleTextDelta(evt, state)
+		copy := *evt
+		copy.Delta = state.textTracker.delta(evt)
+		return resToChatHandleTextDelta(&copy, state)
+	case "response.output_text.done", "response.content_part.done":
+		text := evt.Text
+		if evt.Type == "response.content_part.done" {
+			if evt.Part == nil || evt.Part.Type != "output_text" {
+				return nil
+			}
+			text = evt.Part.Text
+		}
+		copy := *evt
+		copy.Delta = state.textTracker.recover(evt.OutputIndex, evt.ContentIndex, evt.ItemID, text)
+		return resToChatHandleTextDelta(&copy, state)
+	case "response.output_item.done":
+		if evt.Item == nil || evt.Item.Type != "message" {
+			return nil
+		}
+		var chunks []ChatCompletionsChunk
+		for index, part := range evt.Item.Content {
+			if part.Type != "output_text" {
+				continue
+			}
+			copy := *evt
+			copy.Delta = state.textTracker.recover(evt.OutputIndex, index, evt.Item.ID, part.Text)
+			chunks = append(chunks, resToChatHandleTextDelta(&copy, state)...)
+		}
+		return chunks
 	case "response.output_item.added":
 		return resToChatHandleOutputItemAdded(evt, state)
 	case "response.function_call_arguments.delta",
@@ -363,6 +398,9 @@ func resToChatHandleCompleted(evt *ResponsesStreamEvent, state *ResponsesEventTo
 	}
 
 	var chunks []ChatCompletionsChunk
+	state.textTracker.terminalText(evt.Response, func(text string) {
+		chunks = append(chunks, resToChatHandleTextDelta(&ResponsesStreamEvent{Delta: text}, state)...)
+	})
 	chunks = append(chunks, makeChatFinishChunk(state, finishReason))
 
 	if state.IncludeUsage && state.Usage != nil {
@@ -596,8 +634,8 @@ func (a *BufferedResponseAccumulator) BuildOutput() []ResponsesOutput {
 }
 
 // SupplementResponseOutput fills resp.Output from accumulated stream content
-// when the terminal event delivered an empty output array. It also fills empty
-// function-call arguments from authoritative argument-done events.
+// when the terminal event delivered an empty output array or missing message text.
+// It also fills empty function-call arguments from authoritative argument-done events.
 func (a *BufferedResponseAccumulator) SupplementResponseOutput(resp *ResponsesResponse) {
 	if resp == nil {
 		return
@@ -607,6 +645,24 @@ func (a *BufferedResponseAccumulator) SupplementResponseOutput(resp *ResponsesRe
 			resp.Output = a.BuildOutput()
 		}
 		return
+	}
+
+	// The terminal event can carry a non-empty output array whose message has
+	// no usable text. Trusting it as-is silently drops the text that already
+	// streamed: the client gets an empty reply while usage still bills the
+	// terminal output_tokens. Refill it from the accumulated deltas; non-empty
+	// terminal text stays authoritative.
+	if a.text.Len() > 0 && !responsesOutputHasText(resp.Output) {
+		if !fillResponsesOutputText(resp.Output, a.text.String()) {
+			resp.Output = append(resp.Output, ResponsesOutput{
+				Type: "message",
+				Role: "assistant",
+				Content: []ResponsesContentPart{{
+					Type: "output_text",
+					Text: a.text.String(),
+				}},
+			})
+		}
 	}
 
 	for outputIndex := range resp.Output {
@@ -626,4 +682,47 @@ func (a *BufferedResponseAccumulator) SupplementResponseOutput(resp *ResponsesRe
 			break
 		}
 	}
+}
+
+// responsesOutputHasText reports whether the terminal output already carries
+// usable message text. Whitespace-only text does not count.
+func responsesOutputHasText(output []ResponsesOutput) bool {
+	for outputIndex := range output {
+		if output[outputIndex].Type != "message" {
+			continue
+		}
+		for _, part := range output[outputIndex].Content {
+			if part.Type == "output_text" && strings.TrimSpace(part.Text) != "" {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// fillResponsesOutputText writes text into the first empty output_text part of
+// the first message item, adding an output_text part when that message has
+// none. It returns false when the output holds no message item, leaving the
+// caller to append one.
+func fillResponsesOutputText(output []ResponsesOutput, text string) bool {
+	for outputIndex := range output {
+		if output[outputIndex].Type != "message" {
+			continue
+		}
+		for contentIndex := range output[outputIndex].Content {
+			if output[outputIndex].Content[contentIndex].Type != "output_text" {
+				continue
+			}
+			if strings.TrimSpace(output[outputIndex].Content[contentIndex].Text) == "" {
+				output[outputIndex].Content[contentIndex].Text = text
+				return true
+			}
+		}
+		output[outputIndex].Content = append(output[outputIndex].Content, ResponsesContentPart{
+			Type: "output_text",
+			Text: text,
+		})
+		return true
+	}
+	return false
 }

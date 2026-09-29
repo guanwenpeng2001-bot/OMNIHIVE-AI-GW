@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -74,6 +73,12 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		return
 	}
 	requestModel := parsed.Model
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "images", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
+		return
+	}
 	ensureCompositeTargetPlatform(c, apiKey, requestModel)
 	clientRequestModel := clientRequestedModel(c, requestModel)
 	routingModel := requestModel
@@ -135,10 +140,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai.images.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
@@ -146,25 +149,21 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 	sessionHash := h.gatewayService.GenerateExplicitSessionHash(c, body)
 	requestCtx := service.WithOpenAIImagesEndpoint(service.WithOpenAIImageGenerationIntent(c.Request.Context()))
 
-	maxAccountSwitches := h.maxAccountSwitches
-	switchCount := 0
 	profitVetoCount := 0
-	failedAccountIDs := make(map[int64]struct{})
-	sameAccountRetryCount := make(map[int64]int)
-	var lastFailoverErr *service.UpstreamFailoverError
+	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	stopJSONKeepalive := func() {}
 	jsonKeepaliveStarted := false
 	defer func() { stopJSONKeepalive() }()
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 
 	for {
-		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		reqLog.Debug("openai.images.account_selecting", zap.Int("excluded_account_count", len(failoverState.FailedAccountIDs)))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForImages(
 			requestCtx,
 			apiKey.GroupID,
 			sessionHash,
 			routingModel,
-			failedAccountIDs,
+			failoverState.FailedAccountIDs,
 			parsed.RequiredCapability,
 		)
 		if err != nil {
@@ -174,9 +173,9 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 			}
 			reqLog.Warn("openai.images.account_select_failed",
 				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				zap.Int("excluded_account_count", len(failoverState.FailedAccountIDs)),
 			)
-			if len(failedAccountIDs) == 0 {
+			if len(failoverState.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, clientRequestModel, routingModel, service.PlatformOpenAI)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -188,8 +187,8 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, message, streamStarted)
 				return
 			}
-			if lastFailoverErr != nil {
-				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
+			if failoverState.LastFailoverErr != nil {
+				h.handleFailoverExhausted(c, failoverState.LastFailoverErr, streamStarted)
 			} else {
 				h.handleFailoverExhaustedSimple(c, 502, streamStarted)
 			}
@@ -225,7 +224,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 		accountReleaseFunc, slotResult := h.acquireResponsesAccountSlot(c, apiKey.GroupID, sessionHash, selection, parsed.Stream, &streamStarted, reqLog)
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// Images 调度不装利润门，此分支实际不可达；防御性排除重选并受同一否决上限约束。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+			if !recordOpenAIProfitVeto(failoverState.FailedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -307,43 +306,22 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 						)
 						return
 					}
-					if failoverErr.RetryableOnSameAccount {
-						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
-						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
-							sameAccountRetryCount[account.ID]++
-							retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
-							reqLog.Warn("openai.images.pool_mode_same_account_retry",
-								zap.Int64("account_id", account.ID),
-								zap.Int("upstream_status", failoverErr.StatusCode),
-								zap.Int("retry_limit", retryLimit),
-								zap.Int("retry_count", sameAccountRetryCount[account.ID]),
-								zap.Duration("retry_delay", retryDelay),
-							)
-							select {
-							case <-requestCtx.Done():
-								return
-							case <-time.After(retryDelay):
-							}
-							continue
-						}
-					}
-					h.gatewayService.RecordOpenAIAccountSwitch()
-					failedAccountIDs[account.ID] = struct{}{}
-					lastFailoverErr = failoverErr
-					if switchCount >= maxAccountSwitches {
+					switch failoverState.HandleFailoverError(requestCtx, nil, account.ID, account.Platform, effectiveSameAccountRetryLimit(failoverErr, account), failoverErr) {
+					case FailoverCanceled:
+						return
+					case FailoverExhausted:
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
-					switchCount++
-					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+					if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, failoverState.SwitchCount, &oauth429FailoverState) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
 					reqLog.Warn("openai.images.upstream_failover_switching",
 						zap.Int64("account_id", account.ID),
 						zap.Int("upstream_status", failoverErr.StatusCode),
-						zap.Int("switch_count", switchCount),
-						zap.Int("max_switches", maxAccountSwitches),
+						zap.Int("switch_count", failoverState.SwitchCount),
+						zap.Int("max_switches", failoverState.MaxSwitches),
 					)
 					continue
 				}
@@ -422,7 +400,7 @@ func (h *OpenAIGatewayHandler) Images(c *gin.Context) {
 
 		reqLog.Debug("openai.images.request_completed",
 			zap.Int64("account_id", account.ID),
-			zap.Int("switch_count", switchCount),
+			zap.Int("switch_count", failoverState.SwitchCount),
 		)
 		return
 	}

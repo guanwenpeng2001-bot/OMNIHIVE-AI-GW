@@ -4,6 +4,7 @@
  */
 
 import { i18n, getLocale } from '@/i18n'
+import { formatMoney, isKnownAmount } from './money'
 
 /**
  * 格式化相对时间
@@ -56,19 +57,19 @@ export function formatNumber(num: number | null | undefined): string {
  * 格式化货币金额
  * @param amount 金额
  * @param currency 货币代码，默认 USD
- * @returns 格式化后的字符串，如 "$1.25"
+ * @returns 格式化后的字符串，如 "USD 1.25"
  */
 export function formatCurrency(amount: number | null | undefined, currency: string = 'USD'): string {
+  return formatMoney(amount, currency, 'balance', getLocale())
+}
+
+/** Preserve the account table's existing currency symbols and six-digit small amounts. */
+export function formatAccountStatsCurrency(amount: number | null | undefined): string {
   if (amount === null || amount === undefined) return '$0.00'
-
-  const locale = getLocale()
-
-  // For very small amounts, show more decimals
   const fractionDigits = amount > 0 && amount < 0.01 ? 6 : 2
-
-  return new Intl.NumberFormat(locale, {
+  return new Intl.NumberFormat(getLocale(), {
     style: 'currency',
-    currency: currency,
+    currency: 'USD',
     minimumFractionDigits: fractionDigits,
     maximumFractionDigits: fractionDigits
   }).format(amount)
@@ -81,11 +82,12 @@ export function formatCurrency(amount: number | null | undefined, currency: stri
  * @returns 格式化后的字符串，如 "1.5 MB"
  */
 export function formatBytes(bytes: number, decimals: number = 2): string {
-  if (bytes === 0) return '0 Bytes'
+  if (bytes === 0) return '0 B'
 
   const k = 1024
   const dm = decimals < 0 ? 0 : decimals
-  const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
+  // Keep technical unit symbols identical in English and Chinese; retain the existing 1024 scale.
+  const sizes = ['B', 'KB', 'MB', 'GB', 'TB', 'PB', 'EB', 'ZB', 'YB']
 
   const i = Math.floor(Math.log(bytes) / Math.log(k))
 
@@ -260,6 +262,25 @@ export function getBrowserTimeZone(): string {
   }
 }
 
+/** One effective zone for report queries, calendar controls, cells and exports. */
+export function resolveReportTimeZone(explicit?: string): string {
+  const zone = explicit || getBrowserTimeZone()
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone }).format()
+    return zone
+  } catch {
+    return 'UTC'
+  }
+}
+
+export function formatReportDateInput(date: Date, timeZone: string): string {
+  if (Number.isNaN(date.getTime())) return ''
+  const parts = new Intl.DateTimeFormat('en', {
+    timeZone: resolveReportTimeZone(timeZone), year: 'numeric', month: '2-digit', day: '2-digit'
+  }).formatToParts(date)
+  return ['year', 'month', 'day'].map(type => parts.find(part => part.type === type)?.value).join('-')
+}
+
 /**
  * 格式化 OpenAI reasoning effort（用于使用记录展示）
  * @param effort 原始 effort（如 "low" / "medium" / "high" / "xhigh"）
@@ -346,11 +367,11 @@ export function formatNumberLocaleString(num: number): string {
 /**
  * 格式化金额（固定小数位，不带货币符号）
  * @param amount 金额
- * @param fractionDigits 小数位数，默认 4
+ * @param fractionDigits 小数位数，默认 8
  * @returns 格式化后的字符串，如 "1.2345"
  */
-export function formatCostFixed(amount: number, fractionDigits: number = 4): string {
-  return amount.toFixed(fractionDigits)
+export function formatCostFixed(amount: number | null | undefined, fractionDigits: number = 8): string {
+  return isKnownAmount(amount) ? amount.toFixed(fractionDigits) : '-'
 }
 
 /**
@@ -446,4 +467,26 @@ export function formatRelativeWithDateTime(date: string | Date | null | undefine
   }
 
   return `${relativeTime} · ${dateTime}`
+}
+
+/** Visible zone and UTC offset disambiguate the repeated hour at DST fall-back. */
+export function formatDateTimeWithZone(
+  date: string | Date | null | undefined,
+  timeZone = getBrowserTimeZone()
+): string {
+  if (!date || Number.isNaN(new Date(date).getTime())) return ''
+  let zone = timeZone
+  try {
+    new Intl.DateTimeFormat('en', { timeZone: zone }).format()
+  } catch {
+    zone = 'UTC'
+  }
+  const offset = new Intl.DateTimeFormat('en', { timeZone: zone, timeZoneName: 'longOffset' })
+    .formatToParts(new Date(date)).find(part => part.type === 'timeZoneName')?.value
+  const dateTime = formatDateTime(date, {
+    timeZone: zone,
+    year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+  })
+  return `${dateTime} (${zone}, ${offset === 'GMT' ? 'GMT+00:00' : offset})`
 }

@@ -236,7 +236,7 @@ func (s *PromptService) Probe(ctx context.Context, request ProbeRequest) ProbeRe
 		return s.finishProbe(request.Endpoint.ID, started, ProbeResult{Status: "failed", ErrorCode: "endpoint_invalid", Message: "审计节点配置无效"})
 	}
 	LogInfo(EventProbeStarted, map[string]any{"guard_endpoint_id": endpoint.ID, "status": "started"})
-	client, err := NewSecureHTTPClient(endpoint)
+	client, err := NewSecureHTTPClient(endpoint, s.scanner.urlPolicy)
 	if err != nil {
 		return s.finishProbe(endpoint.ID, started, ProbeResult{Status: "failed", ErrorCode: "endpoint_unsafe", Message: "审计节点地址不在允许范围", TokenApplied: tokenApplied})
 	}

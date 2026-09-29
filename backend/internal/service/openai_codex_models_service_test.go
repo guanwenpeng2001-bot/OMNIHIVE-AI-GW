@@ -299,7 +299,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, []string{"low", "medium", "high"}, effortsFromConfiguredCodexLevels(grok45.SupportedReasoningLevels))
 
 	grokNonReasoning := newConfiguredCodexModelDescriptor("grok-4.20-0309-non-reasoning")
-	require.Equal(t, "Grok 4.20 Non Reasoning", grokNonReasoning.DisplayName)
+	require.Equal(t, "Grok 4.20 (Non-Reasoning)", grokNonReasoning.DisplayName)
 	require.NotNil(t, grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, "none", *grokNonReasoning.DefaultReasoningLevel)
 	require.Equal(t, []configuredCodexReasoningLevel{
@@ -372,7 +372,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, int64(1_050_000), gpt6Astra.ContextWindow)
 	require.Equal(t, int64(1_050_000), gpt6Astra.MaxContextWindow)
 	gpt6 := newConfiguredCodexModelDescriptor("gpt-6")
-	require.Equal(t, "GPT-6 (Astra)", gpt6.DisplayName)
+	require.Equal(t, "gpt-6", gpt6.DisplayName)
 	require.True(t, strings.HasPrefix(strings.TrimSpace(gpt6.ModelMessages.InstructionsTemplate), "You are Codex, an agent based on GPT-6."))
 	require.Equal(t, []string{"low", "medium", "high", "xhigh", "max", "ultra"}, effortsFromConfiguredCodexLevels(gpt6.SupportedReasoningLevels))
 	require.NotNil(t, gpt6.MultiAgentReasoningEffort)
@@ -389,7 +389,7 @@ func TestNewConfiguredCodexModelDescriptorUsesProviderMetadataAndSafeFallback(t 
 	require.Equal(t, "low", *gpt55.DefaultVerbosity)
 
 	gpt4o := newConfiguredCodexModelDescriptor("gpt-4o")
-	require.Equal(t, "gpt-4o", gpt4o.DisplayName)
+	require.Equal(t, "GPT-4o", gpt4o.DisplayName)
 	require.NotNil(t, gpt4o.DefaultReasoningLevel)
 	require.Equal(t, "none", *gpt4o.DefaultReasoningLevel)
 	require.Equal(t, []string{"none"}, effortsFromConfiguredCodexLevels(gpt4o.SupportedReasoningLevels))
@@ -1252,7 +1252,7 @@ func TestBuildGroupConfiguredCodexModelsManifestUsesAdministratorConfiguration(t
 	require.True(t, configured)
 	models := decodeCodexManifestModels(t, manifest.Body)
 	require.Equal(t, "glm-5.3", models[0]["slug"])
-	require.Contains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
+	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-5.6-sol")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "gpt-image-2")
 	require.NotContains(t, codexManifestModelSlugs(t, manifest.Body), "codex-auto-review")
 	require.Equal(t, "GLM 5.3", models[0]["display_name"])
@@ -2528,8 +2528,13 @@ func TestFetchCodexModelsManifestRejectsInvalidEnvelope(t *testing.T) {
 		{name: "non-object", body: `[]`},
 		{name: "null object", body: `null`},
 		{name: "missing models", body: `{}`},
+		{name: "uppercase models", body: `{"Models":[]}`},
+		{name: "nested models", body: `{"data":{"models":[]}}`},
+		{name: "malformed models array", body: `{"models":[{"slug":"gpt-5.6"},]}`},
+		{name: "trailing JSON", body: `{"models":[]} {}`},
 		{name: "models object", body: `{"models":{}}`},
 		{name: "models null", body: `{"models":null}`},
+		{name: "models string", body: `{"models":"[]"}`},
 	}
 
 	for _, tt := range tests {
@@ -2560,6 +2565,12 @@ func TestFetchCodexModelsManifestRejectsInvalidEnvelope(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateCodexModelsManifestEnvelopeRequiresExactModelsKey(t *testing.T) {
+	require.NoError(t, validateCodexModelsManifestEnvelope([]byte(`{"models":[]}`)))
+	require.NoError(t, validateCodexModelsManifestEnvelope([]byte(`{"models": [ {"slug":"gpt-5.6"} ]}`)))
+	require.Error(t, validateCodexModelsManifestEnvelope([]byte(`{"Models":[]}`)))
 }
 
 func TestFetchCodexModelsManifestAPIKeyDoesNotCacheInvalidEnvelope(t *testing.T) {
@@ -3697,4 +3708,60 @@ func TestFetchCodexModelsManifestOAuthSharedAcrossGroupsWithIndependentFiltering
 	require.Equal(t, []string{"model-a"}, got[91])
 	require.Equal(t, []string{"model-b"}, got[92])
 	require.EqualValues(t, 1, calls.Load(), "同一账号两个分组同时请求时只发一次上游请求")
+}
+
+// Scenario: 非 OpenAI GPT 模型的 Codex 提示词不声称自己是 GPT。
+// Antigravity(Google) 对「Codex 提示词 + GPT-5 身份」直接回 429 RESOURCE_EXHAUSTED。
+func TestBuildCodexModelsManifestStripsGPTIdentityForNonGPTModels(t *testing.T) {
+	t.Parallel()
+
+	nonGPT := []string{
+		"gemini-3-flash", "claude-sonnet-4-6", "deepseek-v4-flash", "grok-4.3",
+		"gpt-oss-120b-medium", "company-coding-model", "company-codex-alias",
+	}
+	body, err := BuildCodexModelsManifest(nonGPT)
+	require.NoError(t, err)
+
+	var manifest struct {
+		Models []struct {
+			Slug          string `json:"slug"`
+			ModelMessages struct {
+				InstructionsTemplate string `json:"instructions_template"`
+			} `json:"model_messages"`
+		} `json:"models"`
+	}
+	require.NoError(t, json.Unmarshal(body, &manifest))
+	require.Len(t, manifest.Models, len(nonGPT))
+	for _, model := range manifest.Models {
+		tmpl := model.ModelMessages.InstructionsTemplate
+		require.NotContains(t, tmpl, "GPT-", model.Slug)
+		require.True(t, strings.HasPrefix(tmpl, "You are Codex"), "%s: %.60q", model.Slug, tmpl)
+		// Only the identity clause is removed; the rest of the bundled prompt is kept.
+		base := openai.CodexBaseInstructionsForModel(model.Slug)
+		require.Less(t, len(base)-len(tmpl), 32, model.Slug)
+	}
+}
+
+// Scenario: OpenAI GPT 模型的 Codex 提示词保持原样。
+func TestBuildCodexModelsManifestKeepsGPTIdentityForGPTModels(t *testing.T) {
+	t.Parallel()
+
+	for _, model := range []string{"gpt-5.5", "gpt-6-astra", "gpt-5.2", "gpt-5.3-codex-spark"} {
+		require.Equal(t, openai.CodexBaseInstructionsForModel(model), codexInstructionsTemplateForModel(model), model)
+	}
+}
+
+// Scenario: 每份内置 Codex 提示词的身份声明都能被识别并去掉。
+func TestCodexGPTIdentityPatternsCoverBundledPrompts(t *testing.T) {
+	t.Parallel()
+
+	for _, model := range []string{"gpt-5.1", "gpt-5.2", "gpt-5.5", "gpt-6-astra", "gpt-5-codex"} {
+		tmpl := openai.CodexBaseInstructionsForModel(model)
+		require.Contains(t, tmpl, "GPT-", "bundled prompt for %s changed; update this test", model)
+		for _, pattern := range codexGPTIdentityPatterns {
+			tmpl = pattern.re.ReplaceAllString(tmpl, pattern.repl)
+		}
+		require.NotContains(t, tmpl, "GPT-", model)
+		require.True(t, strings.HasPrefix(tmpl, "You are Codex"), "%s: %.60q", model, tmpl)
+	}
 }

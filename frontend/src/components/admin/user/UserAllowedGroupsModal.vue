@@ -66,7 +66,7 @@
                   <div class="mt-1.5 flex items-center gap-3 text-sm">
                     <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
                       <PlatformIcon :platform="config.platform" size="xs" />
-                      <span :title="config.platform">{{ platformLabel(config.platform) }}</span>
+                      <span :title="config.platform">{{ getPlatformLabel(config.platform, t) }}</span>
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
@@ -146,7 +146,7 @@
                   <div class="mt-1.5 flex items-center gap-3 text-sm">
                     <span class="inline-flex items-center gap-1 text-gray-500 dark:text-gray-400">
                       <PlatformIcon :platform="config.platform" size="xs" />
-                      <span :title="config.platform">{{ platformLabel(config.platform) }}</span>
+                      <span :title="config.platform">{{ getPlatformLabel(config.platform, t) }}</span>
                     </span>
                     <span class="text-gray-300 dark:text-dark-500">•</span>
                     <span class="text-gray-500 dark:text-gray-400">
@@ -201,9 +201,11 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
-import { ref, watch, computed } from 'vue'
+import { getPlatformLabel } from '@/constants/platforms'
+import { ref, watch, computed, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
+import { useAuthStore } from '@/stores/auth'
+import { captureAuthSession, isAuthSessionCurrent } from '@/api/tokenRefresh'
 import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AdminUser, Group, GroupPlatform } from '@/types'
@@ -224,6 +226,7 @@ const props = defineProps<{ show: boolean; user: AdminUser | null }>()
 const emit = defineEmits(['close', 'success'])
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
 
 const groups = ref<Group[]>([])
 const groupConfigs = ref<GroupRateConfig[]>([])
@@ -231,6 +234,29 @@ const originalGroupRates = ref<Record<number, number>>({}) // 记录原始专属
 const loading = ref(false)
 const submitting = ref(false)
 const restrictPublicGroups = ref(false)
+const draftUserId = ref<number | null>(null)
+const loadFailed = ref(false)
+let generation = 0
+
+const canSave = computed(() => props.show && props.user !== null &&
+  draftUserId.value === props.user.id && !loading.value && !loadFailed.value && !submitting.value)
+
+const clearDraft = () => {
+  generation++
+  draftUserId.value = null
+  groups.value = []
+  groupConfigs.value = []
+  originalGroupRates.value = {}
+  restrictPublicGroups.value = false
+  loading.value = false
+  loadFailed.value = false
+  submitting.value = false
+}
+
+const handleClose = () => {
+  clearDraft()
+  emit('close')
+}
 
 // 分离专属分组和公开分组
 const exclusiveGroups = computed(() => groups.value.filter((g) => g.is_exclusive))
@@ -239,26 +265,23 @@ const publicGroups = computed(() => groups.value.filter((g) => !g.is_exclusive))
 const exclusiveGroupConfigs = computed(() => groupConfigs.value.filter((c) => c.isExclusive))
 const publicGroupConfigs = computed(() => groupConfigs.value.filter((c) => !c.isExclusive))
 
-watch(
-  () => props.show,
-  (v) => {
-    if (v && props.user) {
-      load()
-    }
-  }
-)
-
-const load = async () => {
+const load = async (user: AdminUser) => {
+  const session = captureAuthSession()
+  const currentGeneration = generation
+  const userId = user.id
+  const userAllowedGroups = [...(user.allowed_groups || [])]
+  const userGroupRates = { ...(user.group_rates || {}) }
+  const userRestrictsPublicGroups = user.restrict_public_groups ?? false
+  const isCurrent = () => isAuthSessionCurrent(session) && generation === currentGeneration && props.show && props.user?.id === userId
   loading.value = true
   try {
     const res = await adminAPI.groups.list(1, 1000)
+    if (!isCurrent()) return
     // 只显示标准类型且活跃的分组
     groups.value = res.items.filter((g) => g.subscription_type === 'standard' && g.status === 'active')
 
     // 初始化配置
-    const userAllowedGroups = props.user?.allowed_groups || []
-    const userGroupRates = props.user?.group_rates || {}
-    restrictPublicGroups.value = props.user?.restrict_public_groups ?? false
+    restrictPublicGroups.value = userRestrictsPublicGroups
 
     // 保存原始专属倍率，用于检测删除操作
     originalGroupRates.value = { ...userGroupRates }
@@ -275,12 +298,28 @@ const load = async () => {
       isSelected:
         g.is_exclusive || restrictPublicGroups.value ? userAllowedGroups.includes(g.id) : true,
     }))
+    draftUserId.value = userId
   } catch (error) {
+    if (!isCurrent()) return
+    loadFailed.value = true
     console.error('Failed to load groups:', error)
   } finally {
-    loading.value = false
+    if (isCurrent()) loading.value = false
   }
 }
+
+watch(
+  () => [props.show, props.user?.id] as const,
+  () => {
+    clearDraft()
+    if (props.show && props.user) void load(props.user)
+  },
+  { immediate: true, flush: 'sync' }
+)
+
+watch([() => authStore.user?.id, () => authStore.user?.role, () => authStore.isAuthenticated, () => authStore.sessionRevision], clearDraft, { flush: 'sync' })
+
+onBeforeUnmount(clearDraft)
 
 const toggleExclusiveGroup = (groupId: number) => {
   const config = groupConfigs.value.find((c) => c.groupId === groupId)
@@ -319,7 +358,11 @@ const updateCustomRate = (groupId: number, value: string) => {
 }
 
 const handleSave = async () => {
-  if (!props.user) return
+  if (!canSave.value || !props.user) return
+  const userId = props.user.id
+  const session = captureAuthSession()
+  const currentGeneration = generation
+  const isCurrent = () => isAuthSessionCurrent(session) && generation === currentGeneration && props.show && props.user?.id === userId
   submitting.value = true
 
   try {
@@ -345,19 +388,21 @@ const handleSave = async () => {
       }
     }
 
-    await adminAPI.users.update(props.user.id, {
+    await adminAPI.users.update(userId, {
       allowed_groups: allowedGroups,
       restrict_public_groups: restrictPublicGroups.value,
       group_rates: Object.keys(groupRates).length > 0 ? groupRates : undefined,
     })
 
+    if (!isCurrent()) return
     appStore.showSuccess(t('admin.users.groupConfigUpdated'))
     emit('success')
-    emit('close')
+    handleClose()
   } catch (error) {
+    if (!isCurrent()) return
     console.error('Failed to update user group config:', error)
   } finally {
-    submitting.value = false
+    if (isCurrent()) submitting.value = false
   }
 }
 </script>

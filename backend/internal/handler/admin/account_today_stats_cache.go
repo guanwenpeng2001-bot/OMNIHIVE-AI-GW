@@ -1,25 +1,19 @@
 package admin
 
-import (
-	"strconv"
-	"strings"
-	"time"
-)
+import "time"
 
 var accountTodayStatsBatchCache = newSnapshotCache(30 * time.Second)
 
-func buildAccountTodayStatsBatchCacheKey(accountIDs []int64) string {
-	if len(accountIDs) == 0 {
-		return "accounts_today_stats_empty"
-	}
-	var b strings.Builder
-	b.Grow(len(accountIDs) * 6)
-	_, _ = b.WriteString("accounts_today_stats:")
-	for i, id := range accountIDs {
-		if i > 0 {
-			_ = b.WriteByte(',')
-		}
-		_, _ = b.WriteString(strconv.FormatInt(id, 10))
-	}
-	return b.String()
+func buildAccountTodayStatsBatchCacheKey(accountIDs []int64, dayStart time.Time, revision string) string {
+	return "accounts_today_stats:" + mustMarshalDashboardCacheKey(struct {
+		AccountIDs []int64 `json:"account_ids"`
+		DayStart   string  `json:"day_start"`
+		Timezone   string  `json:"timezone"`
+		Revision   string  `json:"revision"`
+	}{
+		AccountIDs: normalizeInt64IDList(accountIDs),
+		DayStart:   dayStart.Format(time.RFC3339),
+		Timezone:   dayStart.Location().String(),
+		Revision:   revision,
+	})
 }

@@ -1,5 +1,6 @@
 export default {
   common: {
+    displayTimeZone: '显示时区：{timezone}',
     loading: '加载中...',
     submitting: '提交中...',
     justNow: '刚刚',
@@ -163,6 +164,7 @@ export default {
 
   // Navigation
   nav: {
+    helpGuide: '使用指南',
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',

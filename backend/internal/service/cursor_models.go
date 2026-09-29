@@ -15,12 +15,7 @@ import (
 )
 
 func DefaultCursorModelIDs() []string {
-	models := cursor.FallbackModels()
-	ids := make([]string, 0, len(models))
-	for _, model := range models {
-		ids = append(ids, model.ID)
-	}
-	return ids
+	return NewModelRegistry().Snapshot().CandidateIDs(PlatformCursor, "")
 }
 
 func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, account *Account) ([]string, error) {
@@ -38,7 +33,7 @@ func (gateway *CursorGatewayService) AvailableModels(ctx context.Context, accoun
 		if err != nil {
 			return nil, fmt.Errorf("cursor: relay models unavailable")
 		}
-		defer response.Body.Close()
+		defer func() { _ = response.Body.Close() }()
 		if response.StatusCode != http.StatusOK {
 			return nil, &cursor.HTTPError{Status: response.StatusCode}
 		}

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 )
 
@@ -28,7 +29,12 @@ type APIKeyUsageTrendPoint = usagestats.APIKeyUsageTrendPoint
 
 // GetAPIKeyUsageTrend returns usage trend data grouped by API key and date
 func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []APIKeyUsageTrendPoint, err error) {
-	dateFormat := safeDateFormat(granularity)
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]APIKeyUsageTrendPoint, error) {
+			return snapshot.GetAPIKeyUsageTrend(ctx, startTime, endTime, granularity, limit)
+		})
+	}
+	dateFormat := usageTrendDateSQL("u.created_at", granularity)
 
 	query := fmt.Sprintf(`
 		WITH top_keys AS (
@@ -40,7 +46,7 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 			LIMIT $3
 		)
 		SELECT
-			TO_CHAR(u.created_at, '%s') as date,
+			%s as date,
 			u.api_key_id,
 			COALESCE(k.name, '') as key_name,
 			COUNT(*) as requests,
@@ -83,7 +89,12 @@ func (r *usageLogRepository) GetAPIKeyUsageTrend(ctx context.Context, startTime,
 
 // GetUserUsageTrend returns usage trend data grouped by user and date
 func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) (results []UserUsageTrendPoint, err error) {
-	dateFormat := safeDateFormat(granularity)
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]UserUsageTrendPoint, error) {
+			return snapshot.GetUserUsageTrend(ctx, startTime, endTime, granularity, limit)
+		})
+	}
+	dateFormat := usageTrendDateSQL("u.created_at", granularity)
 
 	query := fmt.Sprintf(`
 		WITH top_users AS (
@@ -95,7 +106,7 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 			LIMIT $3
 		)
 		SELECT
-			TO_CHAR(u.created_at, '%s') as date,
+			%s as date,
 			u.user_id,
 			COALESCE(us.email, '') as email,
 			COALESCE(us.username, '') as username,
@@ -141,6 +152,11 @@ func (r *usageLogRepository) GetUserUsageTrend(ctx context.Context, startTime, e
 
 // GetUserSpendingRanking returns user spending ranking aggregated within the time range.
 func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTime, endTime time.Time, limit int) (result *UserSpendingRankingResponse, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) (*UserSpendingRankingResponse, error) {
+			return snapshot.GetUserSpendingRanking(ctx, startTime, endTime, limit)
+		})
+	}
 	if limit <= 0 {
 		limit = 12
 	}
@@ -224,11 +240,16 @@ func (r *usageLogRepository) GetUserSpendingRanking(ctx context.Context, startTi
 
 // GetUserUsageTrendByUserID 获取指定用户的使用趋势
 func (r *usageLogRepository) GetUserUsageTrendByUserID(ctx context.Context, userID int64, startTime, endTime time.Time, granularity string) (results []TrendDataPoint, err error) {
-	dateFormat := safeDateFormat(granularity)
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]TrendDataPoint, error) {
+			return snapshot.GetUserUsageTrendByUserID(ctx, userID, startTime, endTime, granularity)
+		})
+	}
+	dateFormat := usageTrendDateSQL("created_at", granularity)
 
 	query := fmt.Sprintf(`
 		SELECT
-			TO_CHAR(created_at, '%s') as date,
+			%s as date,
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens), 0) as input_tokens,
 			COALESCE(SUM(output_tokens), 0) as output_tokens,
@@ -279,17 +300,19 @@ func (r *usageLogRepository) GetUsageTrendWithUsageFilters(ctx context.Context, 
 
 func (r *usageLogRepository) getUsageTrendWithFilters(ctx context.Context, startTime, endTime time.Time, granularity string, userID, apiKeyID, accountID, groupID int64, model string, modelSource string, requestType *int16, stream *bool, billingType *int8, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool) (results []TrendDataPoint, err error) {
 	if shouldUsePreaggregatedTrend(granularity, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, billingMode, upstreamModelMismatch, nativeCompactionV2) {
-		aggregated, aggregatedErr := r.getUsageTrendFromAggregates(ctx, startTime, endTime, granularity)
-		if aggregatedErr == nil && len(aggregated) > 0 {
-			return aggregated, nil
-		}
+		return r.getUsageTrendFromAggregates(ctx, startTime, endTime, granularity)
 	}
 
-	dateFormat := safeDateFormat(granularity)
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]TrendDataPoint, error) {
+			return snapshot.getUsageTrendWithFilters(ctx, startTime, endTime, granularity, userID, apiKeyID, accountID, groupID, model, modelSource, requestType, stream, billingType, billingMode, upstreamModelMismatch, nativeCompactionV2)
+		})
+	}
+	dateFormat := usageTrendDateSQL("created_at", granularity)
 
 	query := fmt.Sprintf(`
 		SELECT
-			TO_CHAR(created_at, '%s') as date,
+			%s as date,
 			COUNT(*) as requests,
 			COALESCE(SUM(input_tokens), 0) as input_tokens,
 			COALESCE(SUM(output_tokens), 0) as output_tokens,
@@ -370,48 +393,16 @@ func shouldUsePreaggregatedTrend(granularity string, userID, apiKeyID, accountID
 }
 
 func (r *usageLogRepository) getUsageTrendFromAggregates(ctx context.Context, startTime, endTime time.Time, granularity string) (results []TrendDataPoint, err error) {
-	dateFormat := safeDateFormat(granularity)
-	query := ""
-	args := []any{startTime, endTime}
-
-	switch granularity {
-	case "hour":
-		query = fmt.Sprintf(`
-			SELECT
-				TO_CHAR(bucket_start, '%s') as date,
-				total_requests as requests,
-				input_tokens,
-				output_tokens,
-				cache_creation_tokens,
-				cache_read_tokens,
-				(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
-				total_cost as cost,
-				actual_cost
-			FROM usage_dashboard_hourly
-			WHERE bucket_start >= $1 AND bucket_start < $2
-			ORDER BY bucket_start ASC
-		`, dateFormat)
-	case "day":
-		query = fmt.Sprintf(`
-			SELECT
-				TO_CHAR(bucket_date::timestamp, '%s') as date,
-				total_requests as requests,
-				input_tokens,
-				output_tokens,
-				cache_creation_tokens,
-				cache_read_tokens,
-				(input_tokens + output_tokens + cache_creation_tokens + cache_read_tokens) as total_tokens,
-				total_cost as cost,
-				actual_cost
-			FROM usage_dashboard_daily
-			WHERE bucket_date >= $1::date AND bucket_date < $2::date
-			ORDER BY bucket_date ASC
-		`, dateFormat)
-	default:
-		return nil, nil
+	if needsUsageSnapshot(r) {
+		return usageReadSnapshot(ctx, r, func(snapshot *usageLogRepository, c dashboardCoverage) ([]TrendDataPoint, error) {
+			if err := c.requireTrend(startTime, endTime, granularity); err != nil {
+				return nil, err
+			}
+			return snapshot.getUsageTrendFromAggregates(ctx, startTime, endTime, granularity)
+		})
 	}
-
-	rows, err := r.sql.QueryContext(ctx, query, args...)
+	query := dashboardTrendQuery(granularity)
+	rows, err := r.sql.QueryContext(ctx, query, startTime, endTime, timezone.Name())
 	if err != nil {
 		return nil, err
 	}
@@ -421,12 +412,7 @@ func (r *usageLogRepository) getUsageTrendFromAggregates(ctx context.Context, st
 			results = nil
 		}
 	}()
-
-	results, err = scanTrendRows(rows)
-	if err != nil {
-		return nil, err
-	}
-	return results, nil
+	return scanTrendRows(rows)
 }
 
 // GetModelStatsWithFilters returns model statistics with optional filters
@@ -445,8 +431,12 @@ func (r *usageLogRepository) GetModelStatsWithUsageFiltersBySource(ctx context.C
 }
 
 func (r *usageLogRepository) getModelStatsWithFiltersBySource(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, source string, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool) (results []ModelStat, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]ModelStat, error) {
+			return snapshot.getModelStatsWithFiltersBySource(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, source, billingMode, upstreamModelMismatch, nativeCompactionV2)
+		})
+	}
 	actualCostExpr := "COALESCE(SUM(actual_cost), 0) as actual_cost"
-	// 当仅按 account_id 聚合时，实际费用使用账号倍率（total_cost * account_rate_multiplier）。
 	if accountID > 0 && userID == 0 && apiKeyID == 0 {
 		actualCostExpr = "COALESCE(SUM(COALESCE(account_stats_cost, total_cost) * COALESCE(account_rate_multiplier, 1)), 0) as actual_cost"
 	}
@@ -532,6 +522,11 @@ func (r *usageLogRepository) GetGroupStatsWithUsageFilters(ctx context.Context, 
 }
 
 func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, startTime, endTime time.Time, userID, apiKeyID, accountID, groupID int64, model string, requestType *int16, stream *bool, billingType *int8, billingMode string, upstreamModelMismatch *bool, nativeCompactionV2 *bool) (results []usagestats.GroupStat, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]usagestats.GroupStat, error) {
+			return snapshot.getGroupStatsWithFilters(ctx, startTime, endTime, userID, apiKeyID, accountID, groupID, model, requestType, stream, billingType, billingMode, upstreamModelMismatch, nativeCompactionV2)
+		})
+	}
 	query := `
 		SELECT
 			COALESCE(ul.group_id, 0) as group_id,
@@ -615,6 +610,11 @@ func (r *usageLogRepository) getGroupStatsWithFilters(ctx context.Context, start
 
 // GetUserBreakdownStats returns per-user usage breakdown within a specific dimension.
 func (r *usageLogRepository) GetUserBreakdownStats(ctx context.Context, startTime, endTime time.Time, dim usagestats.UserBreakdownDimension, limit int) (results []usagestats.UserBreakdownItem, err error) {
+	if needsUsageSnapshot(r) {
+		return rawUsageReadSnapshot(ctx, r, startTime, endTime, func(snapshot *usageLogRepository) ([]usagestats.UserBreakdownItem, error) {
+			return snapshot.GetUserBreakdownStats(ctx, startTime, endTime, dim, limit)
+		})
+	}
 	query := `
 		SELECT
 			COALESCE(ul.user_id, 0) as user_id,

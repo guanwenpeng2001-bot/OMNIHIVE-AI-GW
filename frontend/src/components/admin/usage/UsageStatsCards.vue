@@ -1,5 +1,12 @@
 <template>
-  <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+  <div v-if="loading || error || historyGap || !stats" data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
+    <div v-for="label in ['usage.totalRequests', 'usage.totalTokens', 'usage.totalCost', 'usage.avgDuration']" :key="label" class="card p-4">
+      <p class="text-xs font-medium text-gray-500">{{ t(label) }}</p>
+      <p class="text-xl font-bold" role="status">{{ t(loading ? 'common.loading' : historyGap ? 'usage.statsUnknown' : 'usage.statsUnavailable') }}</p>
+      <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
+    </div>
+  </div>
+  <div v-else data-testid="usage-stats" :aria-busy="loading" class="grid grid-cols-2 gap-4 lg:grid-cols-4">
     <div class="card p-4 flex items-center gap-3">
       <div class="rounded-lg bg-blue-100 p-2 dark:bg-blue-900/30 text-blue-600">
         <Icon name="document" size="md" />
@@ -63,18 +70,19 @@
         <Icon name="dollar" size="md" />
       </div>
       <div class="min-w-0 flex-1">
-        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalCost') }}</p>
+        <p class="text-xs font-medium text-gray-500">{{ t('usage.totalCost') }} · {{ t('usage.userBilled') }} · USD</p>
         <p class="text-xl font-bold text-green-600">
-          ${{ (stats?.total_actual_cost || 0).toFixed(4) }}
+          {{ formatLedgerAmount(stats?.total_actual_cost) }}
         </p>
+        <p class="text-xs text-gray-400">{{ t('usage.inSelectedRange') }}</p>
         <p class="text-xs text-gray-400">
           <template v-if="showAccountCost && totalAccountCost != null">
-            <span class="text-orange-500">{{ t('usage.accountCost') }} ${{ totalAccountCost.toFixed(4) }}</span>
+            <span class="text-orange-500">{{ t('usage.accountCost') }} USD {{ formatLedgerAmount(totalAccountCost) }}</span>
             <span> · </span>
           </template>
           <span>
             {{ t('usage.standardCost') }}
-            <span :class="{ 'line-through': strikeStandardCost }">${{ (stats?.total_cost || 0).toFixed(4) }}</span>
+            <span :class="{ 'line-through': strikeStandardCost }">USD {{ formatLedgerAmount(stats?.total_cost) }}</span>
           </span>
         </p>
       </div>
@@ -90,6 +98,7 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { formatLedgerAmount } from '@/utils/money'
 import { useI18n } from 'vue-i18n'
 import type { AdminUsageStatsResponse } from '@/api/admin/usage'
 import type { UsageStatsResponse } from '@/types'
@@ -97,6 +106,9 @@ import Icon from '@/components/icons/Icon.vue'
 
 const props = withDefaults(defineProps<{
   stats: (AdminUsageStatsResponse | UsageStatsResponse) | null
+  loading?: boolean
+  error?: boolean
+  historyGap?: { reason: string } | null
   showAccountCost?: boolean
   strikeStandardCost?: boolean
 }>(), {

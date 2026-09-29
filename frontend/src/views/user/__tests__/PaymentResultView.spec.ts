@@ -87,6 +87,7 @@ const recoverySnapshotFactory = (resumeToken: string) => ({
   orderType: 'balance',
   paymentMode: 'popup',
   resumeToken,
+  ownerUserId: 9,
   createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
 })
 
@@ -101,10 +102,28 @@ describe('PaymentResultView', () => {
     refreshUser.mockReset()
     refreshUser.mockResolvedValue({})
     window.localStorage.clear()
+    window.sessionStorage.clear()
+    window.localStorage.setItem('auth_token', 'test-token')
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
   })
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('resolves an explicit anonymous return token without restoring another account credentials', async () => {
+    localStorage.removeItem('auth_token')
+    localStorage.removeItem('auth_user')
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify(recoverySnapshotFactory('resume-42')))
+    routeState.query = { resume_token: 'resume-42' }
+    resolveOrderPublicByResumeToken.mockResolvedValue({ data: orderFactory('COMPLETED') })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-42', expect.any(AbortSignal))
+    expect(localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
+    expect(wrapper.text()).toContain('payment.result.success')
+    expect(pollOrderStatus).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('renders a pending state instead of a failure state when the restored order is still pending', async () => {
@@ -130,10 +149,11 @@ describe('PaymentResultView', () => {
       orderType: 'balance',
       paymentMode: 'redirect',
       resumeToken: 'resume-42',
+      ownerUserId: 9,
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     }))
     resolveOrderPublicByResumeToken.mockResolvedValue({
-      data: orderFactory('PENDING'),
+      data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' },
     })
 
     const wrapper = mount(PaymentResultView, {
@@ -146,9 +166,10 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-42')
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-42', expect.any(AbortSignal))
     expect(pollOrderStatus).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
     expect(wrapper.text()).not.toContain('payment.result.success')
     expect(wrapper.text()).not.toContain('payment.result.failed')
   })
@@ -176,6 +197,7 @@ describe('PaymentResultView', () => {
       orderType: 'balance',
       paymentMode: 'popup',
       resumeToken: 'resume-authoritative',
+      ownerUserId: 9,
       createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     }))
     resolveOrderPublicByResumeToken.mockResolvedValue({
@@ -198,7 +220,7 @@ describe('PaymentResultView', () => {
     await flushPromises()
 
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-authoritative')
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-authoritative', expect.any(AbortSignal))
     expect(refreshUser).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('payment.result.success')
     expect(wrapper.text()).toContain('103.00')
@@ -217,7 +239,7 @@ describe('PaymentResultView', () => {
     )
     resolveOrderPublicByResumeToken
       .mockResolvedValueOnce({
-        data: orderFactory('PENDING'),
+        data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' },
       })
       .mockResolvedValueOnce({
         data: orderFactory('COMPLETED'),
@@ -236,12 +258,14 @@ describe('PaymentResultView', () => {
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(1)
     expect(refreshUser).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).not.toBeNull()
 
     await vi.advanceTimersByTimeAsync(2000)
     await flushPromises()
 
     expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith('next-resume-token', expect.any(AbortSignal))
     expect(refreshUser).toHaveBeenCalledTimes(1)
     expect(wrapper.text()).toContain('payment.result.success')
     expect(wrapper.text()).not.toContain('payment.result.failed')
@@ -300,14 +324,14 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail')
-    expect(pollOrderStatus).toHaveBeenCalledWith(77)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail', expect.any(AbortSignal))
+    expect(pollOrderStatus).toHaveBeenCalledWith(77, expect.any(AbortSignal))
     expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.success')
     expect(window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
   })
 
-  it('falls back to public out_trade_no verification when resume_token recovery fails in legacy return flows', async () => {
+  it('does not expose public order lookup when resume recovery fails', async () => {
     routeState.query = {
       resume_token: 'resume-fail',
       out_trade_no: 'legacy-should-not-run',
@@ -331,10 +355,11 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail')
-    expect(verifyOrderPublic).toHaveBeenCalledWith('legacy-should-not-run')
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-fail', expect.any(AbortSignal))
+    expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.processing')
+    expect(wrapper.get('[role="status"]').attributes('aria-label')).toBe('common.loading')
   })
 
   it('ignores a stale global recovery snapshot when legacy return markers do not identify the order', async () => {
@@ -363,7 +388,7 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).not.toContain('sub2_20260420abcd1234')
   })
 
-  it('uses public out_trade_no verification when no signed resume context is available', async () => {
+  it('requires authentication when no signed resume context is available', async () => {
     routeState.query = {
       out_trade_no: 'legacy-123',
       trade_status: 'TRADE_SUCCESS',
@@ -383,13 +408,13 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(verifyOrder).toHaveBeenCalledWith('legacy-123')
-    expect(verifyOrderPublic).toHaveBeenCalledWith('legacy-123')
+    expect(verifyOrder).toHaveBeenCalledWith('legacy-123', expect.any(AbortSignal))
+    expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(pollOrderStatus).not.toHaveBeenCalled()
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.failed')
   })
 
-  it('renders the minimal public out_trade_no verification result without payment_type', async () => {
+  it('does not trust a legacy provider return as a verified payment', async () => {
     routeState.query = {
       out_trade_no: 'legacy-minimal',
       trade_status: 'TRADE_SUCCESS',
@@ -415,7 +440,7 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(wrapper.text()).toContain('payment.result.success')
+    expect(wrapper.text()).toContain('payment.result.failed')
     expect(wrapper.text()).toContain('legacy-minimal')
     expect(wrapper.text()).not.toContain('payment.orders.paymentMethod')
   })
@@ -439,7 +464,7 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(verifyOrder).toHaveBeenCalledWith('auth-verify-123')
+    expect(verifyOrder).toHaveBeenCalledWith('auth-verify-123', expect.any(AbortSignal))
     expect(verifyOrderPublic).not.toHaveBeenCalled()
     expect(wrapper.text()).toContain('payment.result.success')
   })
@@ -480,7 +505,7 @@ describe('PaymentResultView', () => {
 
     await flushPromises()
 
-    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-77')
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledWith('resume-77', expect.any(AbortSignal))
     expect(wrapper.text()).toContain('payment.result.success')
   })
 
@@ -535,4 +560,98 @@ describe('PaymentResultView', () => {
     expect(wrapper.text()).toContain('payment.methods.alipay')
     expect(wrapper.text()).not.toContain('payment.methods.alipay_direct')
   })
+  it.each(['unmount', 'identity', 'route'])('ignores initial results after %s', async (change) => {
+    vi.useFakeTimers()
+    routeState.query = { resume_token: 'resume-pending' }
+    let resolve!: (value: unknown) => void
+    resolveOrderPublicByResumeToken.mockReturnValue(new Promise(done => { resolve = done }))
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    if (change === 'unmount') wrapper.unmount()
+    if (change === 'identity') localStorage.setItem('auth_user', JSON.stringify({ id: 10 }))
+    if (change === 'route') routeState.query = { resume_token: 'another-order' }
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, 'new-page-credentials')
+    resolve({ data: orderFactory('COMPLETED') })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(refreshUser).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBe('new-page-credentials')
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(1)
+    expect(resolveOrderPublicByResumeToken.mock.calls[0][1].aborted).toBe(true)
+    if (change !== 'unmount') wrapper.unmount()
+  })
+
+  it('does not rearm an in-flight public poll after unmount', async () => {
+    vi.useFakeTimers()
+    routeState.query = { resume_token: 'resume-pending' }
+    let resolve!: (value: unknown) => void
+    resolveOrderPublicByResumeToken.mockResolvedValueOnce({ data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' } })
+      .mockReturnValueOnce(new Promise(done => { resolve = done }))
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
+    wrapper.unmount()
+    resolve({ data: { ...orderFactory('PENDING'), resume_token: 'next-resume-token' } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(20000)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(2)
+    expect(refreshUser).not.toHaveBeenCalled()
+  })
+
+  it.each(['PENDING', 'COMPLETED'])('retains the latest anonymous continuation across remount after %s', async (status) => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'initial-token' }
+    resolveOrderPublicByResumeToken.mockImplementation(async (token: string) => {
+      if (token === 'initial-token' && resolveOrderPublicByResumeToken.mock.calls.length === 1) {
+        return { data: { ...orderFactory(status), resume_token: 'continuation-token' } }
+      }
+      if (token === 'continuation-token') return { data: { ...orderFactory('COMPLETED'), resume_token: 'final-token' } }
+      throw { reason: 'INVALID_RESUME_TOKEN' }
+    })
+    const initial = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    initial.unmount()
+    const refreshed = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith('continuation-token', expect.any(AbortSignal))
+    expect(refreshed.text()).toContain('payment.result.success')
+    expect(pollOrderStatus).not.toHaveBeenCalled()
+    expect(verifyOrder).not.toHaveBeenCalled()
+    refreshed.unmount()
+  })
+
+  it.each(['initial', 'poll'])('retries the unconsumed anonymous token after a temporary %s failure', async (stage) => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'initial-token', order_id: '42' }
+    if (stage === 'poll') resolveOrderPublicByResumeToken.mockResolvedValueOnce({ data: { ...orderFactory('PENDING'), resume_token: 'continuation-token' } })
+    resolveOrderPublicByResumeToken.mockRejectedValueOnce(new Error('temporary network or database failure'))
+      .mockResolvedValueOnce({ data: { ...orderFactory('COMPLETED'), resume_token: 'final-token' } })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    if (stage === 'poll') await vi.advanceTimersByTimeAsync(2000)
+    expect(wrapper.text()).not.toContain('payment.result.failed')
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+    expect(resolveOrderPublicByResumeToken).toHaveBeenLastCalledWith(stage === 'poll' ? 'continuation-token' : 'initial-token', expect.any(AbortSignal))
+    expect(wrapper.text()).toContain('payment.result.success')
+    expect(pollOrderStatus).not.toHaveBeenCalled()
+    expect(verifyOrder).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('stops using a definitively consumed token without claiming the payment failed', async () => {
+    vi.useFakeTimers()
+    localStorage.clear()
+    routeState.query = { resume_token: 'consumed-token' }
+    resolveOrderPublicByResumeToken.mockRejectedValue({ reason: 'INVALID_RESUME_TOKEN' })
+    const wrapper = mount(PaymentResultView, { global: { stubs: { OrderStatusBadge: true } } })
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+    expect(resolveOrderPublicByResumeToken).toHaveBeenCalledTimes(1)
+    expect(wrapper.text()).not.toContain('payment.result.failed')
+    wrapper.unmount()
+  })
+
 })

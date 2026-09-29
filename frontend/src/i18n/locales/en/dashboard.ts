@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: 'No statistics were returned for this range because historical coverage is incomplete. Missing history does not mean zero usage.',
+    coverageIncomplete: 'Totals include only verified retained data. Missing history does not mean zero usage.',
+    coverageReason: 'Coverage reason: {reason}',
+    rawRetainedFrom: 'Raw records retained from: {time}',
+
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
     balance: 'Balance',
@@ -66,6 +71,27 @@ export default {
 
   // API Keys
   keys: {
+    payAsYouGo: {
+      title: 'Pay-as-you-go mode',
+      mode: 'Pay-as-you-go',
+      description: 'Access credentials for authenticating model requests in pay-as-you-go mode. Use an API key below with the corresponding protocol address.',
+      openai: 'OpenAI compatible · Base URL',
+      anthropic: 'Anthropic compatible · Messages endpoint',
+      copyAddress: 'Copy {protocol} address',
+      copied: 'Endpoint address copied',
+      addressHint:
+        'Use the address provided in the admin console or integration guide as the source of truth; available protocols and models depend on the API key’s group.',
+      generationTitle: 'Generation endpoints (different from the Messages endpoint)',
+      generationHint:
+        'The Anthropic-compatible Messages endpoint accepts text and vision input only; it never generates images, videos or speech. Use the entries below for generation requests — actual availability depends on the group platform and its switches.',
+      imageGeneration: 'Image generation',
+      imageEdit: 'Image edit',
+      videoGeneration: 'Video generation',
+      speech: 'Speech synthesis (TTS)',
+      transcription: 'Transcription (STT)',
+      embeddings: 'Embeddings',
+      rerank: 'Rerank'
+    },
     title: 'API Keys',
     description: 'Manage your API keys and access tokens',
     searchPlaceholder: 'Search name or key...',
@@ -111,6 +137,21 @@ export default {
     keyUpdatedSuccess: 'API key updated successfully',
     keyDeletedSuccess: 'API key deleted successfully',
     keyEnabledSuccess: 'API key enabled successfully',
+    rotateKey: 'Rotate key',
+    rotation: {
+      description: 'Generate a new secret for "{name}". The key keeps its ID, so usage and billing history continue.',
+      revokePrevious: 'Revoke the previous secret immediately (no grace window)',
+      graceHours: 'Grace window (hours)',
+      graceDefault: 'Default: 24 hours',
+      graceHint: 'The previous secret keeps working until the grace window ends, then it stops.',
+      success: 'API key rotated successfully'
+    },
+    secretOnce: {
+      title: 'Copy your new secret',
+      warning: 'This secret is shown only once. Copy it now; you cannot view it again.',
+      graceUntil: 'The previous secret stops working at {time}.',
+      confirm: 'I have saved it'
+    },
     keyDisabledSuccess: 'API key disabled successfully',
     failedToLoad: 'Failed to load API keys',
     failedToSave: 'Failed to save API key',
@@ -119,6 +160,10 @@ export default {
     clickToChangeGroup: 'Click to change group',
     groupChangedSuccess: 'Group changed successfully',
     failedToChangeGroup: 'Failed to change group',
+    retryGroups: 'Retry',
+    groupsLoading: 'Loading available groups…',
+    groupsLoadFailed: 'Could not load groups. Retry before creating a key.',
+    noAvailableGroups: 'No groups are available to your account. Ask an administrator to create a group or grant access, or activate a group subscription.',
     groupRequired: 'Please select a group',
     usage: 'Usage',
     today: 'Today',
@@ -128,6 +173,8 @@ export default {
     lastUsedIP: 'Last Used IP',
     useKey: 'Use Key',
     useKeyModal: {
+      clientLabel: 'Client',
+      shellLabel: 'Operating system and shell',
       title: 'Use API Key',
       description:
         'Add the following environment variables to your terminal profile or run directly in terminal to configure API access.',
@@ -137,6 +184,9 @@ export default {
       claudeSettingsHint: 'User-level persistent configuration. Do not commit this file containing your API key to a project repository.',
       noGroupTitle: 'Please assign a group first',
       noGroupDescription: 'This API key has not been assigned to a group. Please click the group column in the key list to assign one before viewing the configuration.',
+      baseUrlMissing: 'This deployment has no public API base URL configured (api_base_url), so no client configuration can be generated. Ask an administrator to configure it, then retry.',
+      generationEntryHint:
+        'The configurations above target text/vision protocols only (Messages, Responses, Chat Completions). Send image, video and speech generation to the media endpoints such as /v1/images/*, /v1/videos/*, /v1/tts and /v1/stt, not to the Messages endpoint.',
       openai: {
         description: 'Add the following configuration files to your Codex CLI config directory.',
         authModeTitle: 'Codex authentication mode',
@@ -241,6 +291,8 @@ export default {
     ipBlacklistHint: 'One IP or CIDR per line. These IPs will be blocked from using this key.',
     ipRestrictionEnabled: 'IP restriction enabled',
     ccSwitchNotInstalled: 'CC-Switch is not installed or the protocol handler is not registered. Please install CC-Switch first or manually copy the API key.',
+    ccSwitchSecretUnavailable: 'A key secret is shown only once, at creation or rotation, and the list only carries a mask, so it cannot be imported. Rotate this key and import it right away.',
+    ccSwitchBaseUrlMissing: 'This deployment has no public API base URL configured (api_base_url), so no usable import link can be built. Ask an administrator to configure it.',
     ccsClientSelect: {
       title: 'Select Client',
       description: 'Please select the client type to import to CC-Switch:',
@@ -263,6 +315,44 @@ export default {
     failedToResetQuota: 'Failed to reset quota',
     rateLimitColumn: 'Rate Limit',
     rateLimitSection: 'Rate Limit',
+    // Effective RPM (requests per minute): the value that actually applies, who
+    // owns it and when its minute window resets. Kept separate from the USD
+    // windows above and from the period budget below.
+    effectiveRpmTitle: 'Effective RPM',
+    effectiveRpmSourceUserGroupOverride: 'Group override',
+    effectiveRpmSourceGroup: 'Group limit',
+    effectiveRpmSourceUser: 'Account ceiling',
+    effectiveRpmValue: '{limit} req/min',
+    effectiveRpmResetsIn: 'resets in {value}',
+    effectiveRpmPriorityHint: 'A group override replaces that group limit; your account-level ceiling always applies on top.',
+    // Period budget (USD): named separately from RPM/TPM and the legacy USD windows
+    budgetColumn: 'Period Budget',
+    budgetSection: 'Period Budget (USD)',
+    budgetHint: 'A spend limit over one explicit period, counted separately from the rate limits (RPM/TPM) above and from the 5h/1d/7d USD windows.',
+    budgetAmount: 'Budget Amount (USD)',
+    budgetAmountHint: 'Set the maximum amount this key can spend within the selected period. 0 = no period budget.',
+    budgetPeriod: 'Budget Period',
+    budgetPeriodHint: 'Fixed periods align to calendar day/week/month in the selected timezone; a custom duration rolls from first use.',
+    budgetPeriodLegacy5h: '5 hours (legacy anchor, rolls from first use)',
+    budgetPeriodLegacy1d: '1 day (legacy anchor, aligned to the UTC day)',
+    budgetPeriodLegacy7d: '7 days (legacy anchor, aligned to the UTC day)',
+    budgetPeriodDuration: 'Custom duration',
+    budgetPeriodCalendarDay: 'Calendar day (fixed)',
+    budgetPeriodCalendarWeek: 'Calendar week (starts Monday)',
+    budgetPeriodCalendarMonth: 'Calendar month (fixed)',
+    budgetDurationValue: 'Duration',
+    budgetDurationUnit: 'Unit',
+    budgetDurationMinutes: 'minutes',
+    budgetDurationHours: 'hours',
+    budgetDurationDays: 'days',
+    budgetTimezone: 'Timezone (IANA)',
+    budgetTimezoneHint: 'For example Asia/Shanghai or America/New_York; fixed periods use this timezone for their boundaries.',
+    budgetUsage: 'Period usage',
+    budgetReserved: 'In-flight holds',
+    budgetOverrun: 'Beyond the period limit (recorded)',
+    budgetNextReset: 'Next reset',
+    budgetEnforced: 'Platform-enforced budget: it cannot be edited or cleared from this panel.',
+    usageSelfServiceHint: 'Consumed usage cannot be reset from the panel; ask an administrator for an audited adjustment.',
     resetUsage: 'Reset',
     rateLimit5h: '5-Hour Limit (USD)',
     rateLimit1d: 'Daily Limit (USD)',
@@ -287,9 +377,11 @@ export default {
     status: {
       active: 'Active',
       inactive: 'Inactive',
+      disabled: 'Disabled by admin',
       quota_exhausted: 'Quota Exhausted',
       expired: 'Expired',
     },
+    statusDisabledHint: 'An administrator disabled this key; it cannot be re-enabled from the panel.',
   },
 
   // Usage
@@ -352,6 +444,8 @@ export default {
     cacheTtlOverriddenLabel: 'TTL Override',
     cacheTtlOverridden5m: 'Billed as 5m',
     cacheTtlOverridden1h: 'Billed as 1h',
+    statsUnknown: 'Unknown',
+    statsUnavailable: 'Unavailable',
     totalRequests: 'Total Requests',
     totalTokens: 'Total Tokens',
     cacheTotal: 'Cache',
@@ -464,7 +558,8 @@ export default {
     failedToLoad: 'Failed to load usage logs',
     noDataToExport: 'No data to export',
     exportSuccess: 'Usage data exported successfully',
-    exportFailed: 'Failed to export usage data',
+    exportFailed: 'Export incomplete. Please try again.',
+    exportHistoryIncomplete: 'Usage history is incomplete, so this range cannot be exported in full.',
     exportExcelSuccess: 'Usage data exported successfully (Excel format)',
     exportExcelFailed: 'Failed to export usage data',
     imageUnit: ' images',
@@ -491,6 +586,9 @@ export default {
       keyName: 'Key Name', keyDeleted: 'Deleted', allKeys: 'All keys',
       modelPlaceholder: 'Search model', allCategories: 'All categories', allStatuses: 'All status codes',
       empty: 'No error requests', failedToLoad: 'Failed to load error requests',
+      opsDisabledTitle: 'Ops monitoring is disabled',
+      opsDisabled: 'The error request list comes from Ops monitoring (OPS_DISABLED: Ops monitoring is disabled), which is turned off in this deployment, so there is no data to show. Usage details are unaffected.',
+      openOpsSettings: 'Open system settings to enable Ops monitoring',
       categories: {
         auth: 'Auth failed', rate_limit: 'Rate limited', quota: 'Balance/Subscription',
         invalid_request: 'Invalid request', service_unavailable: 'Service unavailable',
@@ -538,6 +636,7 @@ export default {
     // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
     quota: {
       unavailable: 'Quota unavailable',
+      noSource: 'No quota endpoint for this platform; local statistics only',
       windows: {
         '5h': '5h',
         '7d': '7d',
@@ -584,6 +683,8 @@ export default {
     searchPlaceholder: 'Search channels...',
     allProviders: 'All Providers',
     loadError: 'Failed to load channel status',
+    disabled: 'Channel monitoring is disabled, so there is no monitoring data to show',
+    modeMismatch: 'Channel monitoring is running in V2 mode; use the V2 channel status page instead',
     detailLoadError: 'Failed to load channel detail',
     detailTitle: 'Channel Detail',
     closeDetail: 'Close',
@@ -645,6 +746,8 @@ export default {
       billingModePerRequest: 'Per Request',
       billingModeImage: 'Per Image',
       billingModeVideo: 'Per Video',
+      videoPrice: 'Video Price',
+      unitPerSecond: '/ second',
       inputPrice: 'Input',
       outputPrice: 'Output',
       cacheWritePrice: 'Cache Write',
@@ -662,6 +765,18 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
+    confirmation: {
+      title: "Plaza model confirmation",
+      description: "Controls display for the saved channel and group. Candidates come from linked account discovery and mappings; confirmation does not authorize calls or change prices.",
+      empty: "No candidates. Sync linked accounts or configure concrete mappings first.",
+      legacy: "Historical configuration, confirmation not recorded",
+      confirmed: "Administrator {actor} · {time}",
+      save: "Confirm and save display selection",
+      loadError: "Could not load candidates. Saved configuration is unchanged.",
+      saveError: "Could not save confirmation. Your draft is retained; retry.",
+      conflict: "Configuration or candidates changed. Refresh and select again.",
+    },
+
     title: 'Model Plaza',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
@@ -685,7 +800,7 @@ export default {
       noModels: 'No models configured for this group',
       noPricing: 'Pricing not configured',
       peakNote: 'Peak hours {window}: billing rate ×{multiplier}',
-      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier; official tiers are for reference only'
+      longContextDisabledNote: 'Long-context tier pricing is disabled for this group: requests above the threshold are billed at the base tier'
     },
     table: {
       model: 'Model',
@@ -708,10 +823,45 @@ export default {
         '; prices in this row exclude the peak-hour rate — where this period overlaps the peak hours {window}, the overlapping portion is additionally multiplied by ×{multiplier}',
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
-      paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
-      rate: 'Rate',
-      unitPerMillion: '$ / 1M tokens',
+      paidPrice: 'Your price (standard hours)',
+      rate: 'Effective rate',
+      contextShort: 'context',
+      referenceNote: 'A sourced reference price is shown struck through; the paid price uses the current rate.',
+      contextHint: {
+        input: 'Input context limit (all account evidence agrees)',
+        total: 'Total context limit (input + output; all account evidence agrees)',
+        unspecified: 'Context limit whose kind is not stated; shown only from available evidence',
+        observedMinimum: 'Only a minimum was observed; the real limit may be higher'
+      },
+      capability: {
+        vision: 'Vision input',
+        functionCalling: 'Tool calling',
+        promptCaching: 'Prompt caching',
+        pdf: 'PDF',
+        reasoning: 'Reasoning',
+        embeddingDimensions: '{dimensions}-dim embeddings',
+        inputModalityPartial: 'May accept {modality} input',
+        outputModality: 'Outputs {modality}'
+      },
+      capabilityHint: {
+        vision: 'Account evidence shows this model accepts image input',
+        functionCalling: 'Account evidence shows this model supports tool/function calling',
+        promptCaching: 'Account evidence shows this model supports prompt caching',
+        pdf: 'Account evidence shows this model accepts PDF input',
+        reasoning: 'Account evidence shows this model supports reasoning controls',
+        embeddingDimensions: 'The vector dimension is a verifiable value and is never merged into a minimum',
+        inputModalityPartial: 'Only some accounts declare this modality, or it appears in a single observation',
+        outputModality: 'This model may produce a non-text modality; availability still depends on the actual endpoint'
+      },
+      modality: {
+        image: 'image',
+        audio: 'audio',
+        video: 'video',
+        pdf: 'PDF',
+        embedding: 'embeddings',
+        score: 'ranking scores'
+      },
+      unitPerMillion: 'USD / 1M tokens',
       perUnitRequest: '/ request',
       perUnitImage: '/ image',
       perRequest: 'Per request',
@@ -809,6 +959,7 @@ export default {
     days: ' days',
     codeRedeemSuccess: 'Code redeemed successfully!',
     failedToRedeem: 'Failed to redeem code. Please check the code and try again.',
+    historyLoadFailed: 'Failed to load activity. Please try again.',
     userRefreshFailed: 'Redeemed successfully, but failed to refresh account information.',
     subscriptionRefreshFailed: 'Redeemed successfully, but failed to refresh subscription status.',
     pleaseEnterCode: 'Please enter a redeem code'
@@ -1021,6 +1172,7 @@ export default {
 
   // Pagination
   pagination: {
+    label: 'Pagination',
     showing: 'Showing',
     to: 'to',
     of: 'of',
@@ -1067,5 +1219,30 @@ export default {
     selectDateRange: 'Select date range'
   },
 
+
+  // Billing timeline (user-facing)
+  billing: {
+    timeline: {
+      title: 'Billing Timeline',
+      description: 'Recharges, deductions, refunds, rebates, redeemed cards and balance adjustments on one axis.',
+      credits: 'Credited',
+      debits: 'Deducted',
+      net: 'Net change',
+      accruedRebate: 'Rebate not transferred',
+      accruedOnly: 'Accrued, not yet transferred',
+      requests: '{count} requests',
+      page: 'Page {page} / {pages}',
+      empty: 'No billing entries in this range.',
+      loadFailed: 'Failed to load the billing timeline.',
+    },
+    kind: {
+      recharge: 'Recharge',
+      charge: 'Deduction',
+      refund: 'Refund',
+      rebate: 'Rebate',
+      redeem: 'Redeem',
+      adjustment: 'Adjustment',
+    },
+  },
   // Admin
 }

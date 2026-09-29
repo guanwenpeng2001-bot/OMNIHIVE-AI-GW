@@ -1,7 +1,13 @@
 <template>
   <AppLayout>
+    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" />
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
+      <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" />
       <UsageSettlementStatus />
       <!-- Charts Section -->
       <div class="space-y-4">
@@ -62,7 +68,7 @@
             :end-date="endDate"
             :filters="breakdownFilters"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
       <!-- 明细区：tab 栏 + 筛选 + 内容收进同一张卡片，消除割裂感 -->
@@ -84,7 +90,7 @@
           </button>
         </div>
 
-        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel">
+        <UsageFilters v-model="filters" ref="usageFiltersRef" flat :mode="activeTab" class="border-b border-gray-100 dark:border-dark-700/50" :start-date="startDate" :end-date="endDate" :exporting="exporting" :model-options="modelNameOptions" @change="applyFilters" @refresh="refreshData" @reset="resetFilters" @cleanup="openCleanupDialog" @export="exportToExcel" @exportCsv="exportToCsv">
           <template #after-reset>
             <div v-if="activeTab !== 'ranking'" class="relative" ref="columnDropdownRef">
               <button
@@ -124,7 +130,7 @@
         </UsageFilters>
 
         <div v-show="activeTab === 'usage'" class="overflow-hidden rounded-b-2xl">
-          <UsageTable
+          <UsageTable :time-zone="reportTimeZone"
             flat
             :data="usageLogs"
             :loading="loading"
@@ -139,7 +145,21 @@
           <Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" />
         </div>
         <div v-show="activeTab === 'errors'" class="overflow-hidden rounded-b-2xl">
+          <!-- Ops 关闭：展示真实原因与配置入口，而不是空表格 + 泛化 toast。 -->
+          <div
+            v-if="opsDisabled"
+            data-test="usage-errors-ops-disabled"
+            class="rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-900/20 dark:text-amber-100"
+            role="status"
+          >
+            <p class="font-medium">{{ t('usage.errors.opsDisabledTitle') }}</p>
+            <p class="mt-1 text-xs leading-relaxed">{{ t('usage.errors.opsDisabled') }}</p>
+            <router-link class="mt-2 inline-block text-xs font-medium underline" to="/admin/settings">
+              {{ t('usage.errors.openOpsSettings') }}
+            </router-link>
+          </div>
           <OpsErrorLogTable
+            v-else
             flat
             :rows="errRows" :total="errTotal" :loading="errLoading"
             :page="errPage" :page-size="errPageSize"
@@ -185,13 +205,23 @@
 </template>
 
 <script setup lang="ts">
+import { resolveReportTimeZone, formatReportDateInput, formatDateTimeWithZone } from '@/utils/format'
+import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+
+import { historyGapFromError, usageExportFailureMessage, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
+import { extractApiErrorCode } from '@/utils/apiError'
 import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { saveAs } from 'file-saver'
 import { useRoute } from 'vue-router'
-import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'; import { adminUsageAPI } from '@/api/admin/usage'
+import { useAppStore } from '@/stores/app'; import { adminAPI } from '@/api/admin'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
+import { formatLedgerAmount, accountBilledAmount } from '@/utils/money'
+import { ADMIN_USAGE_EXPORT_ENDPOINT, downloadUsageCsv, fetchUsageExportRows, usageExportFileName } from '@/utils/usageExport'
+import writeXlsxFile from 'write-excel-file/browser'
 import { formatReasoningEffort } from '@/utils/format'
 import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import AppLayout from '@/components/layout/AppLayout.vue'; import Pagination from '@/components/common/Pagination.vue'; import Select from '@/components/common/Select.vue'; import DateRangePicker from '@/components/common/DateRangePicker.vue'
@@ -211,6 +241,9 @@ import Icon from '@/components/icons/Icon.vue'
 import type { AdminUsageLog, TrendDataPoint, ModelStat, GroupStat, EndpointStat, AdminUser } from '@/types'; import type { AdminUsageStatsResponse, AdminUsageQueryParams } from '@/api/admin/usage'
 
 const { t } = useI18n()
+const historyGap = ref<HistoryGap | null>(null)
+const statsError = ref(false)
+const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 type DistributionMetric = 'tokens' | 'actual_cost'
 type EndpointSource = 'inbound' | 'upstream' | 'path'
@@ -243,15 +276,16 @@ const showBalanceHistoryModal = ref(false)
 const balanceHistoryUser = ref<AdminUser | null>(null)
 
 const breakdownFilters = computed(() => {
-  const f: Record<string, any> = {}
-  if (filters.value.user_id) f.user_id = filters.value.user_id
-  if (filters.value.api_key_id) f.api_key_id = filters.value.api_key_id
-  if (filters.value.account_id) f.account_id = filters.value.account_id
-  if (filters.value.group_id) f.group_id = filters.value.group_id
-  if (filters.value.request_type != null) f.request_type = filters.value.request_type
-  if (filters.value.native_compaction_v2 != null) f.native_compaction_v2 = filters.value.native_compaction_v2
-  if (filters.value.billing_type != null) f.billing_type = filters.value.billing_type
-  return f
+  const breakdownQuery: Record<string, any> = { ...reportQueryContext }
+  if (filters.value.user_id) breakdownQuery.user_id = filters.value.user_id
+  if (filters.value.api_key_id) breakdownQuery.api_key_id = filters.value.api_key_id
+  if (filters.value.account_id) breakdownQuery.account_id = filters.value.account_id
+  if (filters.value.group_id) breakdownQuery.group_id = filters.value.group_id
+  if (filters.value.request_type != null) breakdownQuery.request_type = filters.value.request_type
+  if (filters.value.native_compaction_v2 != null) breakdownQuery.native_compaction_v2 = filters.value.native_compaction_v2
+  if (filters.value.billing_type != null) breakdownQuery.billing_type = filters.value.billing_type
+  if (filters.value.billing_mode) breakdownQuery.billing_mode = filters.value.billing_mode
+  return breakdownQuery
 })
 
 const modelNameOptions = computed(() =>
@@ -279,12 +313,7 @@ const handleRankingSelectUser = (userId: number, email: string) => {
 
 const granularityOptions = computed(() => [{ value: 'day', label: t('admin.dashboard.day') }, { value: 'hour', label: t('admin.dashboard.hour') }])
 // Use local timezone to avoid UTC timezone issues
-const formatLD = (d: Date) => {
-  const year = d.getFullYear()
-  const month = String(d.getMonth() + 1).padStart(2, '0')
-  const day = String(d.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
-}
+const formatLD = (date: Date) => formatReportDateInput(date, reportTimeZone)
 const getLast24HoursRangeDates = (): { start: string; end: string } => {
   const end = new Date()
   const start = new Date(end.getTime() - 24 * 60 * 60 * 1000)
@@ -301,7 +330,7 @@ const getGranularityForRange = (start: string, end: string): 'day' | 'hour' => {
 }
 const defaultRange = getLast24HoursRangeDates()
 const startDate = ref(defaultRange.start); const endDate = ref(defaultRange.end)
-const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, start_date: startDate.value, end_date: endDate.value })
+const filters = ref<AdminUsageQueryParams>({ user_id: undefined, model: undefined, group_id: undefined, request_type: undefined, native_compaction_v2: null, billing_type: null, ...reportQueryContext, start_date: startDate.value, end_date: endDate.value })
 const pagination = reactive({ page: 1, page_size: getPersistedPageSize(), total: 0 })
 const sortState = reactive({
   sort_by: 'created_at',
@@ -335,7 +364,7 @@ const applyRouteQueryFilters = () => {
   filters.value = {
     ...filters.value,
     user_id: queryUserId,
-    start_date: startDate.value,
+    ...reportQueryContext, start_date: startDate.value,
     end_date: endDate.value
   }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
@@ -385,6 +414,7 @@ const buildUsageListParams = (
     page_size: pageSize,
     exact_total: exactTotal,
     ...filters.value,
+    timezone: reportTimeZone,
     stream: legacyStream === null ? undefined : legacyStream,
     sort_by: sortState.sort_by,
     sort_order: sortState.sort_order
@@ -403,12 +433,16 @@ const loadLogs = async () => {
 }
 const loadStats = async (force = false) => {
   const seq = ++statsReqSeq
+  usageStats.value = null
+  statsError.value = false
+  statsHistoryGap.value = null
   endpointStatsLoading.value = true
   try {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const s = await adminAPI.usage.getStats({
       ...filters.value,
+      timezone: reportTimeZone,
       stream: legacyStream === null ? undefined : legacyStream,
       ...(force ? { nocache: 1 } : {}),
     })
@@ -419,6 +453,9 @@ const loadStats = async (force = false) => {
     endpointPathStats.value = s.endpoint_paths || []
   } catch (error) {
     if (seq !== statsReqSeq) return
+    usageStats.value = null
+    statsError.value = true
+    statsHistoryGap.value = historyGapFromError(error)
     console.error('Failed to load usage stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
@@ -446,7 +483,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const baseParams = {
-      start_date: filters.value.start_date || startDate.value,
+      ...reportQueryContext, start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
       user_id: filters.value.user_id,
       model: filters.value.model,
@@ -457,6 +494,7 @@ const loadModelStats = async (source: ModelDistributionSource, force = false) =>
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
       billing_type: filters.value.billing_type,
+      billing_mode: filters.value.billing_mode,
 	  upstream_model_mismatch: filters.value.upstream_model_mismatch,
     }
 
@@ -496,7 +534,7 @@ const loadChartData = async () => {
     const requestType = filters.value.request_type
     const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
     const snapshot = await adminAPI.dashboard.getSnapshotV2({
-      start_date: filters.value.start_date || startDate.value,
+      ...reportQueryContext, start_date: filters.value.start_date || startDate.value,
       end_date: filters.value.end_date || endDate.value,
       granularity: granularity.value,
       user_id: filters.value.user_id,
@@ -508,6 +546,7 @@ const loadChartData = async () => {
       stream: legacyStream === null ? undefined : legacyStream,
       native_compaction_v2: filters.value.native_compaction_v2,
       billing_type: filters.value.billing_type,
+      billing_mode: filters.value.billing_mode,
 	  upstream_model_mismatch: filters.value.upstream_model_mismatch,
       include_stats: false,
       include_trend: true,
@@ -516,9 +555,16 @@ const loadChartData = async () => {
       include_users_trend: false
     })
     if (seq !== chartReqSeq) return
-    trendData.value = snapshot.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(snapshot.trend || [], granularity.value)
     groupStats.value = snapshot.groups || []
-  } catch (error) { console.error('Failed to load chart data:', error) } finally { if (seq === chartReqSeq) chartsLoading.value = false }
+  } catch (error) {
+    if (seq !== chartReqSeq) return
+    historyGap.value = historyGapFromError(error)
+    trendData.value = []
+    groupStats.value = []
+    console.error('Failed to load chart data:', error)
+  } finally { if (seq === chartReqSeq) chartsLoading.value = false }
 }
 const applyFilters = () => {
   pagination.page = 1
@@ -547,7 +593,7 @@ const resetFilters = () => {
   const range = getLast24HoursRangeDates()
   startDate.value = range.start
   endDate.value = range.end
-  filters.value = { start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined }
+  filters.value = { ...reportQueryContext, start_date: startDate.value, end_date: endDate.value, request_type: undefined, native_compaction_v2: null, billing_type: null, billing_mode: undefined }
   granularity.value = getGranularityForRange(startDate.value, endDate.value)
   applyFilters()
 }
@@ -575,62 +621,99 @@ const getRequestTypeLabel = (log: AdminUsageLog): string => {
   return t('usage.unknown')
 }
 
+// 导出表头即界面语言的列名；服务端负责列顺序，这里只提供标签。
+const usageExportHeaders = (): string[] => [
+  t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
+  t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
+  t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
+  t('usage.type'),
+  t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
+  t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
+  t('admin.usage.inputCost') + ' (USD)', t('admin.usage.outputCost') + ' (USD)',
+  t('admin.usage.cacheReadCost') + ' (USD)', t('admin.usage.cacheCreationCost') + ' (USD)',
+  t('usage.rate'), t('usage.accountMultiplier'), t('usage.original') + ' (USD)', t('usage.userBilled') + ' (USD)', t('usage.accountBilled') + ' (USD)',
+  t('usage.firstToken'), t('usage.duration'),
+  t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress'),
+  ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`))
+]
+
+const usageExportRows = (logs: AdminUsageLog[], exportTimeZone: string): unknown[][] =>
+  logs.map((log) => [
+    formatDateTimeWithZone(log.created_at, exportTimeZone), log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
+    log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
+    log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
+    log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
+    formatLedgerAmount(log.input_cost), formatLedgerAmount(log.output_cost),
+    formatLedgerAmount(log.cache_read_cost), formatLedgerAmount(log.cache_creation_cost),
+    log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
+    formatLedgerAmount(log.total_cost), formatLedgerAmount(log.actual_cost),
+    formatLedgerAmount(accountBilledAmount(log)), log.first_token_ms ?? '', log.duration_ms,
+    log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || '',
+    ...billingExplanationValues(log, t)
+  ])
+
+const exportRangeName = () => ({
+  start: filters.value.start_date || startDate.value,
+  end: filters.value.end_date || endDate.value,
+})
+
+// Excel 导出：一次请求取回全部行（服务端游标读取），再用维护中的写库生成 xlsx。
 const exportToExcel = async () => {
-  if (exporting.value) return; exporting.value = true; exportProgress.show = true
+  if (exporting.value) return
+  exporting.value = true
+  exportProgress.show = true
+  exportProgress.progress = 0
+  exportProgress.current = 0
+  exportProgress.total = 0
+  const c = new AbortController(); exportAbortController = c
+  const exportTimeZone = reportTimeZone
+  try {
+    const logs = await fetchUsageExportRows<AdminUsageLog>({
+      endpoint: ADMIN_USAGE_EXPORT_ENDPOINT,
+      params: buildUsageListParams(1, 100, true),
+      signal: c.signal,
+    })
+    if (c.signal.aborted) return
+    exportProgress.total = logs.length
+    exportProgress.current = logs.length
+    const rows = [usageExportHeaders(), ...usageExportRows(logs, exportTimeZone)]
+    const range = exportRangeName()
+    await writeXlsxFile(rows as (string | number)[][], { sheet: 'Usage' }).toFile(usageExportFileName(range.start, range.end, 'xlsx'))
+    appStore.showSuccess(t('usage.exportExcelSuccess'))
+  } catch (error) {
+    if (!c.signal.aborted) { console.error('Failed to export:', error); appStore.showError(t('usage.exportExcelFailed')) }
+  } finally {
+    if (exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false }
+  }
+}
+
+// CSV 导出：服务端流式产出，浏览器只发一次请求；表头替换为界面语言。
+const exportToCsv = async () => {
+  if (exporting.value) return
+  exporting.value = true
+  exportProgress.show = true
+  exportProgress.progress = 0
+  exportProgress.current = 0
+  exportProgress.total = 0
   const c = new AbortController(); exportAbortController = c
   try {
-    let p = 1; let total = pagination.total; let exportedCount = 0
-    const XLSX = await import('xlsx')
-    const headers = [
-      t('usage.time'), t('admin.usage.user'), t('usage.apiKeyFilter'),
-      t('admin.usage.account'), t('usage.requestedModel'), t('usage.sentUpstreamModel'), t('usage.upstreamResponseModel'), t('usage.upstreamModelMismatch'), t('usage.requestedReasoningEffort'), t('usage.reasoningEffort'), t('admin.usage.group'),
-      t('usage.inboundEndpoint'), t('usage.upstreamEndpoint'),
-      t('usage.type'),
-      t('admin.usage.inputTokens'), t('admin.usage.outputTokens'),
-      t('admin.usage.cacheReadTokens'), t('admin.usage.cacheCreationTokens'),
-      t('admin.usage.inputCost'), t('admin.usage.outputCost'),
-      t('admin.usage.cacheReadCost'), t('admin.usage.cacheCreationCost'),
-      t('usage.rate'), t('usage.accountMultiplier'), t('usage.original'), t('usage.userBilled'), t('usage.accountBilled'),
-      t('usage.firstToken'), t('usage.duration'),
-      t('admin.usage.requestId'), t('admin.usage.upstreamRequestId'), t('usage.userAgent'), t('admin.usage.ipAddress'),
-      ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`))
-    ]
-    const ws = XLSX.utils.aoa_to_sheet([headers])
-    while (true) {
-      const res = await adminUsageAPI.list(
-        buildUsageListParams(p, 100, true),
-        { signal: c.signal }
-      )
-      if (c.signal.aborted) break; if (p === 1) { total = res.total; exportProgress.total = total }
-      const rows = (res.items || []).map((log: AdminUsageLog) => [
-        log.created_at, log.user?.email || '', log.api_key?.name || '', log.account?.name || '', log.model,
-        log.upstream_model || log.model, log.upstream_response_model || '', log.upstream_model_mismatch == null ? '' : t(log.upstream_model_mismatch ? 'common.yes' : 'common.no'), formatReasoningEffort(log.reasoning_effort), formatReasoningEffort(log.upstream_reasoning_effort || log.reasoning_effort), log.group?.name || '',
-        log.inbound_endpoint || '', log.upstream_endpoint || '', getRequestTypeLabel(log),
-        log.input_tokens, log.output_tokens, log.cache_read_tokens, log.cache_creation_tokens,
-        log.input_cost?.toFixed(8) || '0.00000000', log.output_cost?.toFixed(8) || '0.00000000',
-        log.cache_read_cost?.toFixed(8) || '0.00000000', log.cache_creation_cost?.toFixed(8) || '0.00000000',
-        log.rate_multiplier?.toPrecision(4) || '1.00', (log.account_rate_multiplier ?? 1).toPrecision(4),
-        log.total_cost?.toFixed(8) || '0.00000000', log.actual_cost?.toFixed(8) || '0.00000000',
-        ((log.account_stats_cost ?? log.total_cost) * (log.account_rate_multiplier ?? 1)).toFixed(8), log.first_token_ms ?? '', log.duration_ms,
-        log.request_id || '', log.upstream_request_id || '', log.user_agent || '', log.ip_address || '',
-        ...billingExplanationValues(log, t)
-      ])
-      if (rows.length) {
-        XLSX.utils.sheet_add_aoa(ws, rows, { origin: -1 })
-      }
-      exportedCount += rows.length
-      exportProgress.current = exportedCount
-      exportProgress.progress = total > 0 ? Math.min(100, Math.round(exportedCount / total * 100)) : 0
-      if (exportedCount >= total || res.items.length < 100) break; p++
+    const range = exportRangeName()
+    await downloadUsageCsv({
+      endpoint: ADMIN_USAGE_EXPORT_ENDPOINT,
+      params: buildUsageListParams(1, 100, true),
+      labels: usageExportHeaders(),
+      fileName: usageExportFileName(range.start, range.end, 'csv'),
+      signal: c.signal,
+    })
+    if (!c.signal.aborted) appStore.showSuccess(t('usage.exportSuccess'))
+  } catch (error) {
+    if (!c.signal.aborted) {
+      console.error('Failed to export CSV:', error)
+      appStore.showError(usageExportFailureMessage(error, t) ?? t('usage.exportFailed'))
     }
-    if(!c.signal.aborted) {
-      const wb = XLSX.utils.book_new()
-      XLSX.utils.book_append_sheet(wb, ws, 'Usage')
-      saveAs(new Blob([XLSX.write(wb, { bookType: 'xlsx', type: 'array' })], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }), `usage_${filters.value.start_date}_to_${filters.value.end_date}.xlsx`)
-      appStore.showSuccess(t('usage.exportSuccess'))
-    }
-  } catch (error) { console.error('Failed to export:', error); appStore.showError('Export Failed') }
-  finally { if(exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false } }
+  } finally {
+    if (exportAbortController === c) { exportAbortController = null; exporting.value = false; exportProgress.show = false }
+  }
 }
 
 // Column visibility
@@ -801,7 +884,7 @@ const rankingRef = ref<InstanceType<typeof UserTokenRanking> | null>(null)
 
 const switchTab = (tab: DetailTab) => {
   activeTab.value = tab
-  if (tab === 'errors' && errRows.value.length === 0) loadAdminErrors()
+  if (tab === 'errors' && errRows.value.length === 0 && !opsDisabled.value) loadAdminErrors()
   if (tab === 'ranking') rankingMounted.value = true
 }
 
@@ -815,6 +898,8 @@ const errSortBy = ref('created_at')
 const errSortOrder = ref<'asc' | 'desc'>('desc')
 const showErrorModal = ref(false)
 const selectedErrorId = ref<number | null>(null)
+// 错误请求页签依赖运维监控；OPS_DISABLED 时展示真实原因与配置入口（用量明细不受影响）。
+const opsDisabled = ref(false)
 
 // 注意：'YYYY-MM-DDT00:00:00' 无时区后缀，按本地时区解析后再转 UTC——与页面其它日期处理语义一致，刻意如此，勿改成 'T00:00:00Z'
 const toRFC3339 = (d: string | undefined, endOfDay = false): string | undefined =>
@@ -842,7 +927,14 @@ const loadAdminErrors = async () => {
     })
     errRows.value = resp.items
     errTotal.value = resp.total
+    opsDisabled.value = false
   } catch (error) {
+    if (extractApiErrorCode(error) === 'OPS_DISABLED') {
+      opsDisabled.value = true
+      errRows.value = []
+      errTotal.value = 0
+      return
+    }
     console.error('Failed to load admin errors:', error)
     appStore.showError(t('usage.errors.failedToLoad'))
   } finally {

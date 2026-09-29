@@ -51,6 +51,7 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 		allowedSet[origin] = struct{}{}
 	}
 	allowHeaders := []string{
+		"Anthropic-Version", "Anthropic-Beta", "Anthropic-Dangerous-Direct-Browser-Access", "X-Goog-Api-Key", "X-Goog-Api-Client", "OpenAI-Organization", "OpenAI-Project", "OpenAI-Beta",
 		"Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization",
 		"accept", "origin", "Cache-Control", "X-Requested-With", "X-API-Key", "X-Admin-UI-Request", "X-User-UI-Request",
 	}

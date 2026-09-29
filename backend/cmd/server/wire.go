@@ -13,6 +13,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/handler/admin"
 	"github.com/Wei-Shaw/sub2api/internal/payment"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
@@ -48,6 +49,7 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 
 		// Server layer ProviderSet
 		server.ProviderSet,
+		provideDingTalkTokenCache,
 
 		// Privacy client factory for OpenAI training opt-out
 		providePrivacyClientFactory,
@@ -133,6 +135,7 @@ func provideCleanup(
 	pluginManager *service.PluginManager,
 ) func() {
 	return func() {
+		admin.StopImportProbes()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 

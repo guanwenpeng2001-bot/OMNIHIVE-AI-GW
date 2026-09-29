@@ -29,11 +29,11 @@ func (s *geminiTokenCacheStub) DeleteAccessToken(ctx context.Context, cacheKey s
 	return s.deleteErr
 }
 
-func (s *geminiTokenCacheStub) AcquireRefreshLock(ctx context.Context, cacheKey string, ttl time.Duration) (bool, error) {
+func (s *geminiTokenCacheStub) AcquireRefreshLock(ctx context.Context, cacheKey string, owner string, ttl time.Duration) (bool, error) {
 	return true, nil
 }
 
-func (s *geminiTokenCacheStub) ReleaseRefreshLock(ctx context.Context, cacheKey string) error {
+func (s *geminiTokenCacheStub) ReleaseRefreshLock(ctx context.Context, cacheKey string, owner string) error {
 	return nil
 }
 
@@ -51,9 +51,8 @@ func TestCompositeTokenCacheInvalidator_Gemini(t *testing.T) {
 
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
-	// 新行为：同时删除基于 project_id 和 account_id 的缓存键
-	// 这是为了处理：首次获取 token 时可能没有 project_id，之后自动检测到后会使用新 key
-	require.Equal(t, []string{"gemini:project-x", "gemini:account:10"}, cache.deletedKeys)
+	// Retire the old shared project token and the current account token.
+	require.Equal(t, []string{"gemini:project-x", GeminiTokenCacheKey(account), "gemini:account:10"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_GeminiWithoutProjectID(t *testing.T) {
@@ -71,7 +70,7 @@ func TestCompositeTokenCacheInvalidator_GeminiWithoutProjectID(t *testing.T) {
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
 	// 没有 project_id 时，两个 key 相同，去重后只删除一个
-	require.Equal(t, []string{"gemini:account:10"}, cache.deletedKeys)
+	require.Equal(t, []string{GeminiTokenCacheKey(account), "gemini:account:10"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_Antigravity(t *testing.T) {
@@ -89,7 +88,7 @@ func TestCompositeTokenCacheInvalidator_Antigravity(t *testing.T) {
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
 	// 新行为：同时删除基于 project_id 和 account_id 的缓存键
-	require.Equal(t, []string{"ag:ag-project", "ag:account:99"}, cache.deletedKeys)
+	require.Equal(t, []string{antigravityCredentialTokenCacheKey(account), "ag:account:99", "ag:ag-project"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_AntigravityWithoutProjectID(t *testing.T) {
@@ -106,8 +105,8 @@ func TestCompositeTokenCacheInvalidator_AntigravityWithoutProjectID(t *testing.T
 
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
-	// 没有 project_id 时，两个 key 相同，去重后只删除一个
-	require.Equal(t, []string{"ag:account:99"}, cache.deletedKeys)
+	// Without a project, delete the credential token and the legacy account token once each.
+	require.Equal(t, []string{antigravityCredentialTokenCacheKey(account), "ag:account:99"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_OpenAI(t *testing.T) {
@@ -124,7 +123,7 @@ func TestCompositeTokenCacheInvalidator_OpenAI(t *testing.T) {
 
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"openai:account:500"}, cache.deletedKeys)
+	require.Equal(t, []string{OpenAITokenCacheKey(account), "openai:account:500"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_Claude(t *testing.T) {
@@ -141,7 +140,7 @@ func TestCompositeTokenCacheInvalidator_Claude(t *testing.T) {
 
 	err := invalidator.InvalidateToken(context.Background(), account)
 	require.NoError(t, err)
-	require.Equal(t, []string{"claude:account:600"}, cache.deletedKeys)
+	require.Equal(t, []string{ClaudeTokenCacheKey(account), "claude:account:600"}, cache.deletedKeys)
 }
 
 func TestCompositeTokenCacheInvalidator_SkipNonOAuth(t *testing.T) {
@@ -191,7 +190,11 @@ func TestCompositeTokenCacheInvalidator_SkipNonOAuth(t *testing.T) {
 			cache.deletedKeys = nil
 			err := invalidator.InvalidateToken(context.Background(), tt.account)
 			require.NoError(t, err)
-			require.Empty(t, cache.deletedKeys)
+			if tt.account.Type == AccountTypeSetupToken {
+				require.Equal(t, []string{ClaudeTokenCacheKey(tt.account), "claude:account:4"}, cache.deletedKeys)
+			} else {
+				require.Empty(t, cache.deletedKeys)
+			}
 		})
 	}
 }
@@ -272,10 +275,9 @@ func TestCompositeTokenCacheInvalidator_DeleteError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// 新行为：删除失败只记录日志，不返回错误
-			// 这是因为缓存失效失败不应影响主业务流程
+			// Surface invalidation failures so callers can retry after commit.
 			err := invalidator.InvalidateToken(context.Background(), tt.account)
-			require.NoError(t, err)
+			require.ErrorIs(t, err, expectedErr)
 		})
 	}
 }
@@ -295,10 +297,14 @@ func TestCompositeTokenCacheInvalidator_AllPlatformsIntegration(t *testing.T) {
 	// 新行为：Gemini 和 Antigravity 会同时删除基于 project_id 和 account_id 的键
 	expectedKeys := []string{
 		"gemini:gemini-proj",
+		GeminiTokenCacheKey(accounts[0]),
 		"gemini:account:1",
-		"ag:ag-proj",
+		antigravityCredentialTokenCacheKey(accounts[1]),
 		"ag:account:2",
+		"ag:ag-proj",
+		OpenAITokenCacheKey(accounts[2]),
 		"openai:account:3",
+		ClaudeTokenCacheKey(accounts[3]),
 		"claude:account:4",
 	}
 
@@ -544,4 +550,12 @@ func TestCheckTokenVersion_NilRepo(t *testing.T) {
 	}
 	_, isStale := CheckTokenVersion(context.Background(), account, nil)
 	require.False(t, isStale) // nil repo，默认允许缓存
+}
+
+func TestCompositeTokenCacheInvalidator_AntigravityConvertedFromOAuth(t *testing.T) {
+	account := &Account{ID: 12, Platform: PlatformAntigravity, Type: AccountTypeUpstream, Credentials: map[string]any{"project_id": "shared"}}
+	cache := &geminiTokenCacheStub{}
+	require.NoError(t, NewCompositeTokenCacheInvalidator(cache).InvalidateToken(context.Background(), account))
+	require.Contains(t, cache.deletedKeys, "ag:shared")
+	require.Contains(t, cache.deletedKeys, "ag:account:12")
 }

@@ -138,7 +138,11 @@ func grokBillingHasAuthoritativeQuota(billing *xai.BillingSummary) bool {
 }
 
 func (s *GrokQuotaService) ProbeUsage(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error) {
-	return s.runProbeFlight(ctx, "active:"+strconv.FormatInt(accountID, 10), func(sharedCtx context.Context) (*GrokQuotaProbeResult, error) {
+	account, err := s.loadGrokOAuthAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runProbeFlight(ctx, "active:"+AccountRuntimeIdentityKey(account), func(sharedCtx context.Context) (*GrokQuotaProbeResult, error) {
 		return s.probeUsage(sharedCtx, accountID)
 	})
 }
@@ -196,9 +200,9 @@ func (s *GrokQuotaService) probeUsage(ctx context.Context, accountID int64) (*Gr
 	persisted := false
 	shouldPersist := resp.StatusCode < 400 || resp.StatusCode == http.StatusTooManyRequests
 	if shouldPersist && (snapshot.HeadersObserved || resp.StatusCode == http.StatusOK) {
-		persistErr = s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+		persistErr = persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{
 			grokQuotaSnapshotExtraKey: snapshot,
-		})
+		}, nil)
 		persisted = persistErr == nil
 	}
 	if limited {
@@ -244,7 +248,11 @@ func (s *GrokQuotaService) probeUsage(ctx context.Context, accountID int64) (*Gr
 // ProbeBilling only calls the xAI billing endpoints. Account usage refreshes
 // use this method so opening the account list never consumes model quota.
 func (s *GrokQuotaService) ProbeBilling(ctx context.Context, accountID int64) (*GrokQuotaProbeResult, error) {
-	return s.runProbeFlight(ctx, "billing:"+strconv.FormatInt(accountID, 10), func(sharedCtx context.Context) (*GrokQuotaProbeResult, error) {
+	account, err := s.loadGrokOAuthAccount(ctx, accountID)
+	if err != nil {
+		return nil, err
+	}
+	return s.runProbeFlight(ctx, "billing:"+AccountRuntimeIdentityKey(account), func(sharedCtx context.Context) (*GrokQuotaProbeResult, error) {
 		return s.probeBilling(sharedCtx, accountID)
 	})
 }
@@ -304,7 +312,7 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 		billing.WeeklyStatusCode = weekly.status
 		billing.MonthlyStatusCode = monthly.status
 		billing = xai.StampBillingSummary(billing, preferBillingObservationStatus(weekly.status, monthly.status), "billing_probe")
-		if persistErr := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{grokBillingExtraKey: billing}); persistErr != nil {
+		if persistErr := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{grokBillingExtraKey: billing}, nil); persistErr != nil {
 			slog.Warn("grok_billing_failure_persist_failed", "account_id", account.ID, "error", persistErr)
 		}
 		return nil, probeErr
@@ -314,9 +322,9 @@ func (s *GrokQuotaService) probeBilling(ctx context.Context, accountID int64) (*
 	billing.WeeklyStatusCode = weekly.status
 	billing.MonthlyStatusCode = monthly.status
 	billing = xai.StampBillingSummary(billing, statusCode, "billing_probe")
-	persistErr := s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+	persistErr := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{
 		grokBillingExtraKey: billing,
-	})
+	}, nil)
 	if persistErr != nil {
 		slog.Warn("grok_billing_persist_failed", "account_id", account.ID, "error", persistErr)
 	}
@@ -503,7 +511,10 @@ func (s *GrokQuotaService) prepareProbe(ctx context.Context, accountID int64) (*
 	}
 	proxyURL := s.resolveProxyURL(ctx, account)
 
-	token, err := s.tokenProvider.GetAccessToken(ctx, account)
+	// Quota diagnostics must remain available while scheduling is paused (for
+	// example after a 402). Use the same credential checks and refresh protocol
+	// as an admin connection test, without the model-request scheduling gate.
+	token, err := s.tokenProvider.GetAccessTokenForManualTest(ctx, account)
 	if err != nil {
 		return nil, "", "", infraerrors.Newf(http.StatusBadGateway, "GROK_QUOTA_TOKEN_UNAVAILABLE", "failed to acquire access token: %v", err)
 	}

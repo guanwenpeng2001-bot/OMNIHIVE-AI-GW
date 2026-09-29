@@ -67,6 +67,16 @@ function modelPlazaDestination(wrapper: ReturnType<typeof mountHome>) {
 }
 
 describe('HomeView compact mode', () => {
+  it.each([true, false])('names icon actions in compact=%s home', compact => {
+    appStore.docUrl = 'https://example.test/docs'
+    const wrapper = mountHome({ compact_home_enabled: compact })
+    const themeButton = wrapper.get('button[aria-label="home.switchToDark"]')
+    expect(themeButton.attributes('title')).toBe(themeButton.attributes('aria-label'))
+    expect(wrapper.get('a[aria-label="home.viewDocs"]').attributes('href')).toBe(appStore.docUrl)
+    wrapper.unmount()
+    appStore.docUrl = ''
+  })
+
   beforeEach(() => {
     authStore.isAuthenticated = false
     authStore.isAdmin = false
@@ -94,6 +104,9 @@ describe('HomeView compact mode', () => {
     })
 
     expect(wrapper.get('iframe').attributes('src')).toBe('https://example.com/home')
+    expect(wrapper.get('iframe').attributes('sandbox')).toBe('allow-scripts')
+    expect(wrapper.get('iframe').attributes('title')).toBe('Test site')
+    expect(wrapper.get('iframe').attributes('referrerpolicy')).toBe('no-referrer')
     expect(wrapper.find('[data-testid="compact-home"]').exists()).toBe(false)
   })
 
@@ -101,6 +114,13 @@ describe('HomeView compact mode', () => {
     const wrapper = mountHome({ compact_home_enabled: true, home_content: ' \n\t ' })
 
     expect(wrapper.get('[data-testid="compact-home"]').text()).toContain('Test site')
+  })
+
+  it('sanitizes custom HTML and embedded child frames', () => {
+    const wrapper = mountHome({ home_content: '<script>alert(1)</script><img src=x onerror="alert(1)"><iframe src="https://example.com" sandbox="allow-scripts allow-same-origin"></iframe>' })
+    expect(wrapper.find('script').exists()).toBe(false)
+    expect(wrapper.get('img').attributes('onerror')).toBeUndefined()
+    expect(wrapper.get('iframe').attributes('sandbox')).toBe('allow-scripts')
   })
 
   it.each([undefined, false])('selects the default home when compact mode is %s', (enabled) => {

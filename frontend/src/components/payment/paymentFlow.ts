@@ -1,3 +1,5 @@
+import { onScopeDispose, watch } from 'vue'
+import { AUTH_SESSION_EVENT, AUTH_SESSION_KEY, captureAuthSession, isAuthSessionCurrent } from '@/api/tokenRefresh'
 import type {
   CreateOrderRequest,
   CreateOrderResult,
@@ -8,6 +10,35 @@ import type {
 } from '@/types/payment'
 
 export const PAYMENT_RECOVERY_STORAGE_KEY = 'payment.recovery.current'
+
+/** A page owns its pending work; token renewal keeps the existing identity alive. */
+export function usePaymentPageLifecycle(pageKey: () => string | undefined, onInvalidate?: () => void) {
+  const session = captureAuthSession()
+  const initialPageKey = pageKey()
+  const controller = new AbortController()
+  const invalidate = () => {
+    if (controller.signal.aborted) return
+    controller.abort()
+    onInvalidate?.()
+  }
+  const isCurrent = () => {
+    if (!isAuthSessionCurrent(session) || pageKey() !== initialPageKey) invalidate()
+    return !controller.signal.aborted
+  }
+  const onSessionChange = () => { isCurrent() }
+  const onStorage = (event: StorageEvent) => {
+    if (!event.key || [AUTH_SESSION_KEY, 'auth_user', 'auth_token'].includes(event.key)) isCurrent()
+  }
+  watch(pageKey, onSessionChange, { flush: 'sync' })
+  window.addEventListener(AUTH_SESSION_EVENT, onSessionChange)
+  window.addEventListener('storage', onStorage)
+  onScopeDispose(() => {
+    invalidate()
+    window.removeEventListener(AUTH_SESSION_EVENT, onSessionChange)
+    window.removeEventListener('storage', onStorage)
+  })
+  return { isCurrent, signal: controller.signal }
+}
 
 const VISIBLE_METHOD_ALIASES = {
   alipay: 'alipay',
@@ -32,6 +63,7 @@ export type PaymentLaunchKind =
   | 'unhandled'
 
 export interface PaymentRecoverySnapshot {
+  ownerUserId?: number
   orderId: number
   amount: number
   qrCode: string
@@ -261,7 +293,33 @@ export function writePaymentRecoverySnapshot(
   snapshot: PaymentRecoverySnapshot,
   key = PAYMENT_RECOVERY_STORAGE_KEY,
 ): void {
-  storage.setItem(key, JSON.stringify(snapshot))
+  const ownerUserId = getPaymentRecoveryOwner()
+  if (ownerUserId === null) {
+    storage.removeItem(key)
+    return
+  }
+  storage.setItem(key, JSON.stringify({ ...snapshot, ownerUserId }))
+}
+
+function getPaymentRecoveryOwner(): number | null {
+  const session = captureAuthSession()
+  return session.accessToken && Number.isSafeInteger(session.userID) ? session.userID : null
+}
+
+/** Shared persisted credentials must never be restored across accounts or anonymously.
+ * Public return URLs continue to resolve their explicit capability through the API.
+ */
+export function readOwnedPaymentRecoverySnapshot(
+  raw: string | null | undefined,
+  options: { now?: number; resumeToken?: string } = {},
+): PaymentRecoverySnapshot | null {
+  const snapshot = readPaymentRecoverySnapshot(raw, options)
+  const ownerUserId = getPaymentRecoveryOwner()
+  if (snapshot && ownerUserId !== null && snapshot.ownerUserId === ownerUserId) return snapshot
+  if (typeof window !== 'undefined' && window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY) === raw) {
+    clearPaymentRecoverySnapshot(window.localStorage)
+  }
+  return null
 }
 
 export function clearPaymentRecoverySnapshot(
@@ -311,6 +369,7 @@ export function readPaymentRecoverySnapshot(
     }
 
     return {
+      ownerUserId: parsed.ownerUserId,
       orderId: parsed.orderId,
       amount: parsed.amount,
       qrCode: parsed.qrCode,

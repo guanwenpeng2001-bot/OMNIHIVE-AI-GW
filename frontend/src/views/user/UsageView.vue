@@ -1,7 +1,13 @@
 <template>
   <AppLayout>
+    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <UsageStatsCards :stats="usageStats" :show-account-cost="false" :strike-standard-cost="true" />
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
+      <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
         <div class="card p-4">
@@ -62,7 +68,7 @@
             :start-date="startDate"
             :end-date="endDate"
           />
-          <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+          <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
         </div>
       </div>
 
@@ -94,36 +100,21 @@
               <Select v-model="errorFilter.status_code" :options="errorStatusOptions" @change="applyErrorFilters" />
             </div>
           </div>
-          <div v-else class="flex flex-1 flex-wrap items-end gap-4">
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
-              <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
-              <Select v-model="filters.api_key_id" :options="apiKeyOptions" @change="applyFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[220px]">
-              <label class="input-label">{{ t('usage.model') }}</label>
-              <Select v-model="filters.model" :options="modelOptions" searchable @change="applyFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[200px]">
-              <label class="input-label">{{ t('admin.usage.group') }}</label>
-              <Select v-model="filters.group_id" :options="groupOptions" searchable @change="applyFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[180px]">
-              <label class="input-label">{{ t('usage.type') }}</label>
-              <Select v-model="filters.request_type" :options="requestTypeOptions" @change="applyFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[180px]">
-              <label class="input-label">{{ t('usage.compactionFilter') }}</label>
-              <Select v-model="filters.native_compaction_v2" :options="compactionOptions" @change="applyFilters" />
-            </div>
-            <div v-if="subscriptionFeatureEnabled" class="w-full sm:w-auto sm:min-w-[200px]">
-              <label class="input-label">{{ t('admin.usage.billingType') }}</label>
-              <Select v-model="filters.billing_type" :options="billingTypeOptions" @change="applyFilters" />
-            </div>
-            <div class="w-full sm:w-auto sm:min-w-[200px]">
-              <label class="input-label">{{ t('admin.usage.billingMode') }}</label>
-              <Select v-model="filters.billing_mode" :options="billingModeOptions" @change="applyFilters" />
-            </div>
-          </div>
+          <UsageFilters
+            v-else
+            v-model="filters"
+            inline
+            scope="self"
+            :show-actions="false"
+            :exporting="exporting"
+            :start-date="startDate"
+            :end-date="endDate"
+            :model-options="modelOptionValues"
+            :api-key-options="apiKeyOptions"
+            :group-options="groupOptions"
+            :show-billing-type="subscriptionFeatureEnabled"
+            @change="applyFilters"
+          />
 
           <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
             <button type="button" @click="refreshData" :disabled="activeTab === 'errors' ? errorLoading : loading" class="btn btn-secondary">
@@ -177,7 +168,7 @@
       </div>
 
       <template v-if="activeTab === 'usage'">
-        <UsageTable
+        <UsageTable :time-zone="reportTimeZone"
           :data="usageLogs"
           :loading="loading"
           :columns="visibleColumns"
@@ -219,7 +210,14 @@
 </template>
 
 <script setup lang="ts">
-import { billingEvidenceFields, billingExplanationValues } from '@/utils/usageBillingExplanation'
+import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
+import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+
+import { historyGapFromError, usageExportFailureMessage, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
+import { billingEvidenceFields } from '@/utils/usageBillingExplanation'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -238,9 +236,9 @@ import TokenUsageTrend from '@/components/charts/TokenUsageTrend.vue'
 import Icon from '@/components/icons/Icon.vue'
 import UserErrorRequestsTable from '@/components/user/UserErrorRequestsTable.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
-import { formatReasoningEffort } from '@/utils/format'
-import { getBillingModeLabel, getDisplayBillingMode as resolveDisplayBillingMode } from '@/utils/billingMode'
-import { resolveUsageRequestType, requestTypeToLegacyStream } from '@/utils/usageRequestType'
+import UsageFilters from '@/components/admin/usage/UsageFilters.vue'
+import { USER_USAGE_EXPORT_ENDPOINT, downloadUsageCsv, usageExportFileName } from '@/utils/usageExport'
+import { requestTypeToLegacyStream } from '@/utils/usageRequestType'
 import type {
   ApiKey,
   EndpointStat,
@@ -257,6 +255,9 @@ import type { Column } from '@/components/common/types'
 import { COMMON_ERROR_STATUS_CODES } from '@/utils/errorBadges'
 
 const { t } = useI18n()
+const historyGap = ref<HistoryGap | null>(null)
+const statsError = ref(false)
+const statsHistoryGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 
 type DistributionMetric = 'tokens' | 'actual_cost'
@@ -328,12 +329,12 @@ const applyErrorFilters = () => {
 }
 
 let abortController: AbortController | null = null
+let exportAbortController: AbortController | null = null
 let chartReqSeq = 0
 let statsReqSeq = 0
 let modelStatsReqSeq = 0
 
-const formatLocalDate = (date: Date): string =>
-  `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+const formatLocalDate = (date: Date): string => formatReportDateInput(date, reportTimeZone)
 
 const getLast24HoursRangeDates = () => {
   const end = new Date()
@@ -360,7 +361,7 @@ const activeTab = ref<'usage' | 'errors'>('usage')
 const errorViewEnabled = computed(() => appStore.cachedPublicSettings?.allow_user_view_error_requests ?? false)
 
 const filters = ref<UsageQueryParams>({
-  start_date: startDate.value,
+  ...reportQueryContext, start_date: startDate.value,
   end_date: endDate.value,
   request_type: undefined,
   native_compaction_v2: null,
@@ -382,31 +383,8 @@ const granularityOptions = computed<SelectOption[]>(() => [
   { value: 'day', label: t('admin.dashboard.day') },
   { value: 'hour', label: t('admin.dashboard.hour') },
 ])
-const requestTypeOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('admin.usage.allTypes') },
-  { value: 'ws_v2', label: t('usage.ws') },
-  { value: 'live', label: t('usage.live') },
-  { value: 'stream', label: t('usage.stream') },
-  { value: 'sync', label: t('usage.sync') },
-])
-const compactionOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('usage.allCompactionTypes') },
-  { value: true, label: t('usage.compactionOnly') },
-])
 // 订阅功能关闭后只剩余额计费，「计费类型」筛选（余额/订阅）失去意义，整块隐藏。
 const subscriptionFeatureEnabled = computed(() => resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.subscription))
-const billingTypeOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('admin.usage.allBillingTypes') },
-  { value: 0, label: t('admin.usage.billingTypeBalance') },
-  { value: 1, label: t('admin.usage.billingTypeSubscription') },
-])
-const billingModeOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('admin.usage.allBillingModes') },
-  { value: 'token', label: t('admin.usage.billingModeToken') },
-  { value: 'per_request', label: t('admin.usage.billingModePerRequest') },
-  { value: 'image', label: t('admin.usage.billingModeImage') },
-  { value: 'video', label: t('admin.usage.billingModeVideo') },
-])
 
 const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
@@ -420,17 +398,13 @@ const groupOptions = computed<SelectOption[]>(() => [
   { value: null, label: t('admin.usage.allGroups') },
   ...groups.value.map((group) => ({ value: group.id, label: group.name })),
 ])
-const modelOptions = computed<SelectOption[]>(() => [
-  { value: null, label: t('admin.usage.allModels') },
-  ...modelOptionValues.value.map((model) => ({ value: model, label: model })),
-])
 
 const normalizedFilters = computed<UsageQueryParams>(() => {
   const requestType = filters.value.request_type
   const legacyStream = requestType ? requestTypeToLegacyStream(requestType) : filters.value.stream
   return {
     ...filters.value,
-    start_date: startDate.value,
+    ...reportQueryContext, start_date: startDate.value,
     end_date: endDate.value,
     stream: legacyStream === null ? undefined : legacyStream,
   }
@@ -468,6 +442,9 @@ const loadLogs = async () => {
 
 const loadStats = async () => {
   const seq = ++statsReqSeq
+  usageStats.value = null
+  statsError.value = false
+  statsHistoryGap.value = null
   endpointStatsLoading.value = true
   try {
     const stats = await usageAPI.getStats(normalizedFilters.value)
@@ -478,6 +455,9 @@ const loadStats = async () => {
     endpointPathStats.value = []
   } catch (error) {
     if (seq !== statsReqSeq) return
+    usageStats.value = null
+    statsError.value = true
+    statsHistoryGap.value = historyGapFromError(error)
     console.error('Failed to load usage stats:', error)
     inboundEndpointStats.value = []
     upstreamEndpointStats.value = []
@@ -519,10 +499,12 @@ const loadChartData = async () => {
       include_group_stats: true,
     })
     if (seq !== chartReqSeq) return
-    trendData.value = snapshot.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(snapshot.trend || [], granularity.value)
     groupStats.value = snapshot.groups || []
   } catch (error) {
     if (seq !== chartReqSeq) return
+    historyGap.value = historyGapFromError(error)
     console.error('Failed to load chart data:', error)
     trendData.value = []
     groupStats.value = []
@@ -609,106 +591,51 @@ const handleIpGeoBatchFailed = () => {
   appStore.showError(t('usage.ipGeo.batchFailed'))
 }
 
-const getRequestTypeExportText = (log: UsageLog): string => {
-  const requestType = resolveUsageRequestType(log)
-  if (requestType === 'cyber') return 'Cyber'
-  if (requestType === 'live') return 'Live'
-  if (requestType === 'ws_v2') return 'WS'
-  if (requestType === 'stream') return 'Stream'
-  if (requestType === 'sync') return 'Sync'
-  return 'Unknown'
-}
+// 用户端 CSV 表头（界面语言）；列顺序由服务端导出契约决定。
+const usageExportLabels = (): string[] => [
+  t('usage.time'),
+  t('usage.apiKeyFilter'),
+  t('usage.model'),
+  t('usage.reasoningEffort'),
+  t('usage.inboundEndpoint'),
+  t('admin.usage.ipAddress'),
+  t('usage.type'),
+  t('admin.usage.billingMode'),
+  t('admin.usage.inputTokens'),
+  t('admin.usage.outputTokens'),
+  t('admin.usage.cacheReadTokens'),
+  t('admin.usage.cacheCreationTokens'),
+  t('usage.rate'),
+  t('usage.userBilled') + ' (USD)',
+  t('usage.original') + ' (USD)',
+  t('usage.firstToken'),
+  t('usage.duration'),
+  ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`)),
+]
 
-const getDisplayBillingMode = (
-  row: Pick<UsageLog, 'billing_mode' | 'image_count'> | null | undefined
-): string | null | undefined => resolveDisplayBillingMode(row)
-
-const escapeCSVValue = (value: unknown): string => {
-  if (value == null) return ''
-  const str = String(value)
-  const escaped = str.replace(/"/g, '""')
-  if (/^[=+\-@\t\r]/.test(str)) return `"\'${escaped}"`
-  if (/[,"\n\r]/.test(str)) return `"${escaped}"`
-  return str
-}
-
+// 导出交给服务端：一次请求流式取回 CSV，浏览器不再按页循环拉取。
 const exportToCSV = async () => {
-  if (pagination.total === 0) {
-    appStore.showWarning(t('usage.noDataToExport'))
-    return
-  }
+  if (exporting.value) return
   exporting.value = true
+  const c = new AbortController()
+  exportAbortController = c
   appStore.showInfo(t('usage.preparingExport'))
   try {
-    const allLogs: UsageLog[] = []
-    const pageSize = 100
-    const exportParams = buildUsageListParams(1, pageSize)
-    const totalPages = Math.ceil(pagination.total / pageSize)
-    for (let page = 1; page <= totalPages; page++) {
-      const response = await usageAPI.query({ ...exportParams, page })
-      allLogs.push(...response.items)
-    }
-    if (allLogs.length === 0) {
-      appStore.showWarning(t('usage.noDataToExport'))
-      return
-    }
-    const headers = [
-      'Time',
-      'API Key Name',
-      'Model',
-      'Reasoning Effort',
-      'Inbound Endpoint',
-      'IP Address',
-      'Type',
-      'Billing Mode',
-      'Input Tokens',
-      'Output Tokens',
-      'Cache Read Tokens',
-      'Cache Creation Tokens',
-      'Rate Multiplier',
-      'Billed Cost',
-      'Original Cost',
-      'First Token (ms)',
-      'Duration (ms)',
-      ...billingEvidenceFields.map(field => t(`usage.evidence.${field}`)),
-    ]
-    const rows = allLogs.map((log) => [
-      log.created_at,
-      log.api_key?.name || '',
-      log.model,
-      formatReasoningEffort(log.reasoning_effort),
-      log.inbound_endpoint || '',
-      log.ip_address || '',
-      getRequestTypeExportText(log),
-      getBillingModeLabel(getDisplayBillingMode(log), t),
-      log.input_tokens,
-      log.output_tokens,
-      log.cache_read_tokens,
-      log.cache_creation_tokens,
-      log.rate_multiplier,
-      log.actual_cost.toFixed(8),
-      log.total_cost.toFixed(8),
-      log.first_token_ms ?? '',
-      log.duration_ms ?? '',
-      ...billingExplanationValues(log, t),
-    ].map(escapeCSVValue))
-    const csvContent = [
-      headers.map(escapeCSVValue).join(','),
-      ...rows.map((row) => row.join(',')),
-    ].join('\n')
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = window.URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `usage_${exportParams.start_date}_to_${exportParams.end_date}.csv`
-    link.click()
-    window.URL.revokeObjectURL(url)
-    appStore.showSuccess(t('usage.exportSuccess'))
+    await downloadUsageCsv({
+      endpoint: USER_USAGE_EXPORT_ENDPOINT,
+      params: buildUsageListParams(1, 100),
+      labels: usageExportLabels(),
+      fileName: usageExportFileName(startDate.value, endDate.value, 'csv'),
+      signal: c.signal,
+    })
+    if (!c.signal.aborted) appStore.showSuccess(t('usage.exportSuccess'))
   } catch (error) {
-    console.error('CSV Export failed:', error)
-    appStore.showError(t('usage.exportFailed'))
+    if (!c.signal.aborted) {
+      console.error('CSV Export failed:', error)
+      appStore.showError(usageExportFailureMessage(error, t) ?? t('usage.exportFailed'))
+    }
   } finally {
-    exporting.value = false
+    if (exportAbortController === c) { exportAbortController = null; exporting.value = false }
   }
 }
 
@@ -858,7 +785,7 @@ const loadErrors = async () => {
     const resp = await usageAPI.listMyErrorRequests({
       page: errorPage.value,
       page_size: errorPageSize.value,
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value,
       model: (errorFilter.value.model ?? '').trim() || undefined,
       category: errorFilter.value.category || undefined,

@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: '历史覆盖不完整，该时间范围未返回统计结果。缺失历史不代表零用量。',
+    coverageIncomplete: '合计仅包含已验证的保留数据，缺失历史不代表零用量。',
+    coverageReason: '覆盖原因：{reason}',
+    rawRetainedFrom: '原始记录保留起点：{time}',
+
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
     balance: '余额',
@@ -66,6 +71,26 @@ export default {
 
   // API Keys
   keys: {
+    payAsYouGo: {
+      title: '按量付费模式',
+      mode: '按量付费',
+      description: '展示按量付费模式的访问凭证，用于模型调用身份鉴权。请使用下方 API 密钥及对应协议地址发起调用。',
+      openai: 'OpenAI 兼容 · Base URL',
+      anthropic: 'Anthropic 兼容 · Messages 端点',
+      copyAddress: '复制{protocol}地址',
+      copied: '接入地址已复制',
+      addressHint: '请以管理后台或接入说明提供的地址为准；可用协议和模型取决于 API 密钥所属分组。',
+      generationTitle: '生成类入口（与 Messages 端点不同）',
+      generationHint:
+        'Anthropic 兼容的 Messages 端点只处理文本与视觉输入，不会生成图片、视频或语音；生成类请求请使用以下入口，实际可用性取决于分组平台与分组开关。',
+      imageGeneration: '图片生成',
+      imageEdit: '图片编辑',
+      videoGeneration: '视频生成',
+      speech: '语音合成（TTS）',
+      transcription: '语音转写（STT）',
+      embeddings: '向量化',
+      rerank: '重排'
+    },
     title: 'API 密钥',
     description: '管理您的 API 密钥和访问令牌',
     searchPlaceholder: '搜索名称或Key...',
@@ -111,6 +136,21 @@ export default {
     keyUpdatedSuccess: 'API 密钥更新成功',
     keyDeletedSuccess: 'API 密钥删除成功',
     keyEnabledSuccess: 'API 密钥已启用',
+    rotateKey: '轮换密钥',
+    rotation: {
+      description: '为「{name}」生成新密钥。Key 的 ID 保持不变，用量与账单历史延续。',
+      revokePrevious: '立即撤销旧密钥（不留宽限期）',
+      graceHours: '宽限期（小时）',
+      graceDefault: '默认：24 小时',
+      graceHint: '旧密钥在宽限期结束前仍可使用，到期后失效。',
+      success: 'API 密钥轮换成功'
+    },
+    secretOnce: {
+      title: '请复制新密钥',
+      warning: '该密钥只显示一次，请立即复制保存；关闭后无法再次查看。',
+      graceUntil: '旧密钥将于 {time} 失效。',
+      confirm: '我已保存'
+    },
     keyDisabledSuccess: 'API 密钥已禁用',
     failedToLoad: '加载 API 密钥失败',
     failedToSave: '保存 API 密钥失败',
@@ -119,6 +159,10 @@ export default {
     clickToChangeGroup: '点击更换分组',
     groupChangedSuccess: '分组更换成功',
     failedToChangeGroup: '更换分组失败',
+    retryGroups: '重试',
+    groupsLoading: '正在加载可用分组…',
+    groupsLoadFailed: '加载分组失败，请重试后创建密钥。',
+    noAvailableGroups: '当前没有可用分组或无分组权限。请联系管理员创建分组、开通权限，或开通有效的分组订阅。',
     groupRequired: '请选择分组',
     usage: '用量',
     today: '今日',
@@ -128,6 +172,8 @@ export default {
     lastUsedIP: '最近使用 IP',
     useKey: '使用密钥',
     useKeyModal: {
+      clientLabel: '客户端',
+      shellLabel: '操作系统与终端',
       title: '使用 API 密钥',
       description: '将以下环境变量添加到您的终端配置文件或直接在终端中运行。',
       copy: '复制',
@@ -137,6 +183,9 @@ export default {
       noGroupTitle: '请先分配分组',
       noGroupDescription:
         '此 API 密钥尚未分配分组，请先在密钥列表中点击分组列进行分配，然后才能查看使用配置。',
+      baseUrlMissing: '本站尚未配置公开 API 地址（api_base_url），无法生成接入配置。请联系管理员配置后重试。',
+      generationEntryHint:
+        '以上配置只针对文本/视觉输入协议（Messages、Responses、Chat Completions）。图片、视频、语音等生成类请求请使用 /v1/images/*、/v1/videos/*、/v1/tts、/v1/stt 等媒体入口，不要通过 Messages 端点发生成请求。',
       openai: {
         description: '将以下配置文件添加到 Codex CLI 配置目录中。',
         authModeTitle: 'Codex 认证模式',
@@ -246,6 +295,10 @@ export default {
     ipRestrictionEnabled: '已配置 IP 限制',
     ccSwitchNotInstalled:
       'CC-Switch 未安装或协议处理程序未注册。请先安装 CC-Switch 或手动复制 API 密钥。',
+    ccSwitchSecretUnavailable:
+      '密钥只在创建或轮换时显示一次，列表里已是掩码，无法再用于导入。请先轮换该密钥，再立即导入 CC-Switch。',
+    ccSwitchBaseUrlMissing:
+      '本站尚未配置公开 API 地址（api_base_url），无法生成可用的导入链接。请联系管理员配置后再试。',
     ccsClientSelect: {
       title: '选择客户端',
       description: '请选择您要导入到 CC-Switch 的客户端类型：',
@@ -268,6 +321,43 @@ export default {
     failedToResetQuota: '重置额度失败',
     rateLimitColumn: '速率限制',
     rateLimitSection: '速率限制',
+    // 有效 RPM（每分钟请求数）：真正生效的限值、它的来源，以及分钟窗口的重置时间。
+    // 与上方的 USD 窗口、下方的周期预算分别命名，不混用同一组字段。
+    effectiveRpmTitle: '有效 RPM',
+    effectiveRpmSourceUserGroupOverride: '分组覆盖',
+    effectiveRpmSourceGroup: '分组限额',
+    effectiveRpmSourceUser: '账户上限',
+    effectiveRpmValue: '{limit} 请求/分钟',
+    effectiveRpmResetsIn: '{value} 后重置',
+    effectiveRpmPriorityHint: '分组覆盖会替代该分组自身的限额；账户级上限始终在最外层生效。',
+    // 周期预算 (USD)：与 RPM/TPM 速率限制、以及 5h/1d/7d USD 窗口分开命名
+    budgetColumn: '周期预算',
+    budgetSection: '周期预算 (USD)',
+    budgetHint: '一个明确周期内的消费上限，与上方的速率限制（RPM/TPM）和 5h/1d/7d USD 窗口分开计量。',
+    budgetAmount: '预算金额 (USD)',
+    budgetAmountHint: '设置此密钥在所选周期内的最大消费额。0 = 不启用周期预算。',
+    budgetPeriod: '预算周期',
+    budgetPeriodHint: '固定周期按所选时区的自然日/自然周/自然月对齐；自定义时长从首次使用开始滚动。',
+    budgetPeriodLegacy5h: '5 小时（兼容锚点，自首次使用滚动）',
+    budgetPeriodLegacy1d: '1 天（兼容锚点，按 UTC 自然日对齐）',
+    budgetPeriodLegacy7d: '7 天（兼容锚点，按 UTC 自然日对齐）',
+    budgetPeriodDuration: '自定义时长',
+    budgetPeriodCalendarDay: '自然日（固定周期）',
+    budgetPeriodCalendarWeek: '自然周（周一起算）',
+    budgetPeriodCalendarMonth: '自然月（固定周期）',
+    budgetDurationValue: '时长',
+    budgetDurationUnit: '单位',
+    budgetDurationMinutes: '分钟',
+    budgetDurationHours: '小时',
+    budgetDurationDays: '天',
+    budgetTimezone: '时区 (IANA)',
+    budgetTimezoneHint: '例如 Asia/Shanghai、America/New_York；固定周期按此时区计算边界。',
+    budgetUsage: '周期用量',
+    budgetReserved: '在途预留',
+    budgetOverrun: '超出周期上限（已记账）',
+    budgetNextReset: '下次重置',
+    budgetEnforced: '平台强制预算：不可自助修改或清零。',
+    usageSelfServiceHint: '已消费额度不能自助清零；如需调整请联系管理员做审计化调整。',
     resetUsage: '重置',
     rateLimit5h: '5小时限额 (USD)',
     rateLimit1d: '日限额 (USD)',
@@ -292,9 +382,11 @@ export default {
     status: {
       active: '活跃',
       inactive: '已停用',
+      disabled: '管理员已停用',
       quota_exhausted: '额度耗尽',
       expired: '已过期'
-    }
+    },
+    statusDisabledHint: '该密钥已被管理员停用，面板无法重新启用，请联系管理员。'
   },
 
   // Usage
@@ -357,6 +449,8 @@ export default {
     cacheTtlOverriddenLabel: 'TTL 替换',
     cacheTtlOverridden5m: '按 5m 计费',
     cacheTtlOverridden1h: '按 1h 计费',
+    statsUnknown: '未知',
+    statsUnavailable: '不可用',
     totalRequests: '总请求数',
     totalTokens: '总 Token',
     cacheTotal: '缓存',
@@ -469,7 +563,8 @@ export default {
     failedToLoad: '加载使用记录失败',
     noDataToExport: '没有可导出的数据',
     exportSuccess: '使用数据导出成功',
-    exportFailed: '使用数据导出失败',
+    exportFailed: '导出未完成，请重试',
+    exportHistoryIncomplete: '使用历史不完整，该时间范围无法完整导出。',
     exportExcelSuccess: '使用数据导出成功（Excel格式）',
     exportExcelFailed: '使用数据导出失败',
     imageUnit: '张',
@@ -496,6 +591,9 @@ export default {
       keyName: 'Key 名称', keyDeleted: '已删除', allKeys: '全部 Key',
       modelPlaceholder: '搜索模型', allCategories: '全部分类', allStatuses: '全部状态码',
       empty: '暂无错误请求', failedToLoad: '加载错误请求失败',
+      opsDisabledTitle: '运维监控未启用',
+      opsDisabled: '错误请求列表来自运维监控（OPS_DISABLED：Ops monitoring is disabled），当前部署已关闭该模块，因此没有数据可展示。用量明细不受影响。',
+      openOpsSettings: '打开系统设置开启运维监控',
       categories: {
         auth: '认证失败', rate_limit: '限流', quota: '余额/订阅',
         invalid_request: '参数错误', service_unavailable: '服务暂时不可用',
@@ -543,6 +641,7 @@ export default {
     // 配额快照展示（MonitorQuotaView，管理端与用户端共用）
     quota: {
       unavailable: '配额信息不可用',
+      noSource: '该平台暂无额度查询接口，仅展示本地统计',
       windows: {
         '5h': '5 小时',
         '7d': '7 天',
@@ -589,6 +688,8 @@ export default {
     searchPlaceholder: '搜索渠道...',
     allProviders: '全部供应商',
     loadError: '加载渠道状态失败',
+    disabled: '渠道监控未启用，当前页面没有可展示的监控数据',
+    modeMismatch: '渠道监控当前运行在 V2 模式，请改用渠道状态 V2 页面查看',
     detailLoadError: '加载渠道详情失败',
     detailTitle: '渠道详情',
     closeDetail: '关闭',
@@ -650,6 +751,8 @@ export default {
       billingModePerRequest: '按次',
       billingModeImage: '按图片',
       billingModeVideo: '按视频',
+      videoPrice: '视频单价',
+      unitPerSecond: '/ 秒',
       inputPrice: '输入',
       outputPrice: '输出',
       cacheWritePrice: '缓存写入',
@@ -667,6 +770,18 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
+    confirmation: {
+      title: "广场模型确认",
+      description: "仅管理当前已保存渠道及分组的广场展示。候选来自关联账号发现与映射；确认不授权调用、不修改售价。",
+      empty: "暂无候选模型。请先同步关联账号或配置具体映射。",
+      legacy: "历史配置，未记录确认",
+      confirmed: "操作人 {actor} · {time}",
+      save: "确认并保存展示名单",
+      loadError: "候选读取失败，已保存配置保持不变。",
+      saveError: "确认保存失败，请重试；草稿已保留。",
+      conflict: "配置或候选已变化，请刷新后重新勾选确认。",
+    },
+
     title: '模型广场',
     description: '按分组浏览可用模型与价格',
     loading: '加载中...',
@@ -690,7 +805,7 @@ export default {
       noModels: '该分组暂未配置模型',
       noPricing: '未配置定价',
       peakNote: '高峰时段 {window} 计费倍率 ×{multiplier}',
-      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费，官方阶梯仅供参考'
+      longContextDisabledNote: '该分组未启用长上下文阶梯计费，超阈值请求仍按基础档计费'
     },
     table: {
       model: '模型',
@@ -712,10 +827,45 @@ export default {
       timePricingRowHintPeak: '；本行价格未含高峰倍率，与高峰时段 {window} 重叠的部分实付再乘 ×{multiplier}',
       timePricingWeekdays: '工作日',
       timePricingRateHint: '生效倍率 {rate} × 时段倍率 {multiplier}',
-      paidPrice: '实付价格(折后)',
-      officialPrice: '官方价格',
-      rate: '折扣倍率',
-      unitPerMillion: '$ / 1M token',
+      paidPrice: '售价（标准时段）',
+      rate: '生效倍率',
+      contextShort: '上下文',
+      referenceNote: '有来源的参考价以划线展示，实付价按当前倍率计算。',
+      contextHint: {
+        input: '输入上下文上限（多个账号证据一致）',
+        total: '总上下文上限（输入 + 输出，多个账号证据一致）',
+        unspecified: '上下文上限（口径未标明输入或总量，仅按已有证据展示）',
+        observedMinimum: '仅观测到最小值，真实上限可能更高'
+      },
+      capability: {
+        vision: '视觉输入',
+        functionCalling: '工具调用',
+        promptCaching: '提示缓存',
+        pdf: 'PDF',
+        reasoning: '推理',
+        embeddingDimensions: '向量 {dimensions} 维',
+        inputModalityPartial: '可能支持{modality}输入',
+        outputModality: '输出 {modality}'
+      },
+      capabilityHint: {
+        vision: '账号证据表明该模型接受图片输入',
+        functionCalling: '账号证据表明该模型支持工具/函数调用',
+        promptCaching: '账号证据表明该模型支持提示缓存',
+        pdf: '账号证据表明该模型接受 PDF 输入',
+        reasoning: '账号证据表明该模型支持推理控制',
+        embeddingDimensions: '向量维度为可核实值（不会按最小值合并）',
+        inputModalityPartial: '部分账号声明或仅个别观测出现该模态，未在所有观测中一致',
+        outputModality: '该模型可能输出非文本模态；是否可用仍取决于实际端点'
+      },
+      modality: {
+        image: '图片',
+        audio: '音频',
+        video: '视频',
+        pdf: 'PDF',
+        embedding: '向量',
+        score: '排序分数'
+      },
+      unitPerMillion: 'USD / 1M token',
       perUnitRequest: '/ 次',
       perUnitImage: '/ 张',
       perRequest: '按次计费',
@@ -813,6 +963,7 @@ export default {
     days: '天',
     codeRedeemSuccess: '兑换成功！',
     failedToRedeem: '兑换失败，请检查兑换码后重试。',
+    historyLoadFailed: '加载兑换记录失败，请重试。',
     userRefreshFailed: '兑换成功，但账户信息刷新失败。',
     subscriptionRefreshFailed: '兑换成功，但订阅状态刷新失败。',
     pleaseEnterCode: '请输入兑换码'
@@ -1025,6 +1176,7 @@ export default {
 
   // Pagination
   pagination: {
+    label: '分页',
     showing: '显示',
     to: '至',
     of: '共',
@@ -1071,5 +1223,30 @@ export default {
     selectDateRange: '选择日期范围'
   },
 
+
+  // Billing timeline (user-facing)
+  billing: {
+    timeline: {
+      title: '账单历史',
+      description: '充值、扣费、退款、返利、兑换与调账在同一条时间线上，金额按发生时的记录展示。',
+      credits: '累计入账',
+      debits: '累计扣减',
+      net: '净变动',
+      accruedRebate: '未转入返利',
+      accruedOnly: '已累计，尚未转入余额',
+      requests: '{count} 次请求',
+      page: '第 {page} / {pages} 页',
+      empty: '该时间范围内没有账单记录。',
+      loadFailed: '账单历史加载失败。',
+    },
+    kind: {
+      recharge: '充值',
+      charge: '扣费',
+      refund: '退款',
+      rebate: '返利',
+      redeem: '兑换',
+      adjustment: '调账',
+    },
+  },
   // Admin
 }

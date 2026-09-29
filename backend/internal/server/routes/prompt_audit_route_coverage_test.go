@@ -28,6 +28,10 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 	}
 
 	audited := map[string][]string{
+		"/files":                    {"gateway_resource_actions.go"},
+		"/messages/batches":         {"gateway_resource_actions.go"},
+		"/tools/search":             {"kimi_actions.go"},
+		"/tools/search_pro":         {"kimi_actions.go"},
 		"/messages":                 {"gateway_handler.go", "openai_gateway_handler.go"},
 		"/responses":                {"gateway_handler_responses.go", "openai_gateway_handler.go"},
 		"/responses/*subpath":       {"gateway_handler_responses.go", "openai_gateway_handler.go"},
@@ -38,6 +42,8 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/realtime/calls":           {"openai_live.go"},
 		"/images/generations":       {"openai_images.go", "grok_media.go"},
 		"/images/edits":             {"openai_images.go", "grok_media.go"},
+		"/images/variations":        {"openai_images.go"},
+		"/rerank":                   {"qianwen_standard_actions.go"},
 		"/images/generations/async": {"image_task_handler.go"},
 		"/images/edits/async":       {"image_task_handler.go"},
 		"/images/batches":           {"batch_image_handler.go"},
@@ -47,14 +53,22 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/videos/extensions":        {"grok_media.go"},
 		"/models/*modelAction":      {"gemini_v1beta_handler.go"},
 		"/tts":                      {"grok_audio.go"},
+		"/audio/speech":             {"hunyuan_actions.go", "qianfan_actions.go"},
 		"/web_search":               {"gateway_web_search.go"},
 		"/x_search":                 {"gateway_web_search.go"},
 	}
 	excluded := map[string]string{
-		"/messages/count_tokens":     "tokenization only; it does not execute a model request",
-		"/images/batches/:id/cancel": "control-plane cancellation with no user prompt",
-		"/stt":                       "speech transcription is not a text-generation prompt",
-		"/custom-voices":             "voice profile management has no model prompt",
+		"/batches":                  "submission references an owned file whose JSONL prompts were audited on upload; body contains resource metadata only",
+		"/batches/:batch_id/cancel": "control-plane cancellation with no user prompt",
+		"/messages/batches/:message_batch_id/cancel": "control-plane cancellation with no user prompt",
+		"/videos/:request_id/cancel":                 "control-plane cancellation with no user prompt",
+		"/moderations":                               "classification of submitted input; it does not execute a generation request",
+		"/messages/count_tokens":                     "tokenization only; it does not execute a model request",
+		"/images/batches/:id/cancel":                 "control-plane cancellation with no user prompt",
+		"/stt":                                       "speech transcription is not a text-generation prompt",
+		"/audio/transcriptions":                      "speech recognition is not a text-generation prompt",
+		"/audio/translations":                        "speech translation is not a text-generation prompt",
+		"/custom-voices":                             "voice profile management has no model prompt",
 	}
 
 	unclassified := make([]string, 0)

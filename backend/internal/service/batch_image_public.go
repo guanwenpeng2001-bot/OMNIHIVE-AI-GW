@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"go.uber.org/zap"
 )
@@ -215,12 +214,15 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	if idempotencyKey != "" {
 		existing, err := s.Repo.GetBatchImageJobByIdempotencyKey(ctx, owner.UserID, owner.APIKeyID, idempotencyKey)
 		if err == nil {
+			if !batchImageJobMatchesOwner(existing, owner) || existing.IdempotencyKey == nil || *existing.IdempotencyKey != idempotencyKey {
+				return nil, ErrBatchImageJobNotFound
+			}
 			if batchImageDerefString(existing.RequestHash) != requestHash {
 				return nil, ErrBatchImageIdempotencyConflict
 			}
 			if existing.Status == BatchImageJobStatusSubmitted && s.Queue != nil {
 				if enqueueErr := s.Queue.Enqueue(ctx, existing.BatchID); enqueueErr != nil && !errors.Is(enqueueErr, ErrBatchImageAlreadyQueued) {
-					_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, existing.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(enqueueErr.Error()), false)
+					_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, existing.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(enqueueErr.Error()), false, existing.Version)
 					return nil, ErrBatchImageQueueFailed
 				}
 			}
@@ -241,7 +243,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	}
 	parentBatchID := batchImageOptionalStringPtr(normalized.ParentBatchID)
 	if parentBatchID != nil {
-		parent, parentErr := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, *parentBatchID)
+		parent, parentErr := s.getOwnedJob(ctx, owner, *parentBatchID)
 		if parentErr != nil {
 			return nil, parentErr
 		}
@@ -292,7 +294,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		if errors.Is(err, ErrBatchImageInsufficientBalance) {
 			code = "INSUFFICIENT_BALANCE"
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, code, sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, code, sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		return nil, err
 	}
@@ -301,7 +303,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
 			return nil, releaseErr
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "ITEM_CREATE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "ITEM_CREATE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		return nil, ErrBatchImageQueueFailed
 	}
@@ -328,9 +330,11 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		})
 	}
 
-	// 上游提交（上传参考图 + 创建批任务）可能长达数分钟且不刷新 updated_at，
-	// 会被 stale 恢复扫描误判为滞留并退款。提交前转入 uploading 刷新时间戳，
-	// 提交期间用心跳持续续期。
+	ctx, finishPlan := CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: account.ID, UserID: owner.UserID, APIKeyID: owner.APIKeyID, Model: normalized.Model, Action: "batch_images", ExecutionID: job.BatchID})
+	defer finishPlan()
+
+	// Persist the at-most-once submission claim before contacting the provider.
+	// Uploading without a receipt remains ambiguous after a crash.
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusUploading, BatchImageTransitionOptions{
 		EventType:    "upload_started",
 		EventPayload: map[string]any{"batch_id": job.BatchID},
@@ -340,12 +344,13 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		}
 		// 并发 Cancel 等导致的非法转换：job 已处于终态，不再覆盖其状态。
 		if !errors.Is(err, ErrBatchImageInvalidTransition) {
-			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "UPLOAD_TRANSITION_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "UPLOAD_TRANSITION_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 			s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		}
 		return nil, err
 	}
 	job.Status = BatchImageJobStatusUploading
+	job.Version++
 
 	hbCtx, hbCancel := context.WithCancel(ctx)
 	hbDone := make(chan struct{})
@@ -353,26 +358,36 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 	providerJob, err := provider.Submit(ctx, job, account, input)
 	hbCancel()
 	<-hbDone
-	if err != nil {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
+	var notCreated *geminiBatchNotCreatedError
+	if errors.As(err, &notCreated) {
+		// Persist proof before releasing, so a crash or failed release can use the
+		// existing terminal billing recovery. The request may already be cancelled.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		if persistErr := s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_NOT_CREATED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version); persistErr != nil {
+			return nil, persistErr
+		}
+		if releaseErr := s.releaseFailedSubmitHold(persistCtx, job, requestHash); releaseErr != nil {
 			return nil, releaseErr
 		}
-		publicErr := batchImageProviderSubmitPublicError(err)
-		reason := batchImageProviderSubmitRecordCode(publicErr)
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, reason, sanitizeBatchImagePublicMessage(err.Error()), true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
-		return nil, publicErr
-	}
-	if providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
-		if releaseErr := s.releaseFailedSubmitHold(ctx, job, requestHash); releaseErr != nil {
-			return nil, releaseErr
+		s.hidePreUpstreamSubmitFailure(persistCtx, owner, job)
+		if IsTPMAdmissionError(err) {
+			return nil, err
 		}
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "PROVIDER_SUBMIT_FAILED", "provider job name missing", true)
-		s.hidePreUpstreamSubmitFailure(ctx, owner, job)
 		return nil, ErrBatchImageProviderSubmitFailed
 	}
+	if err != nil || providerJob == nil || strings.TrimSpace(providerJob.ProviderJobName) == "" {
+		// No receipt does not prove rejection: the provider may have committed before
+		// the connection failed. Keep uploading and the hold for reconciliation.
+		persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+		defer cancel()
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(persistCtx, job.BatchID, "SUBMISSION_UNKNOWN", "upstream submission outcome requires reconciliation", false, job.Version)
+		return nil, ErrBatchImageProviderSubmitFailed
+	}
+	persistCtx, persistCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
+	defer persistCancel()
 
-	if err := s.Repo.UpdateBatchImageJobProviderSubmit(ctx, UpdateBatchImageJobProviderSubmitParams{
+	if err := s.Repo.UpdateBatchImageJobProviderSubmit(persistCtx, UpdateBatchImageJobProviderSubmitParams{
 		BatchID:           job.BatchID,
 		ProviderJobName:   providerJob.ProviderJobName,
 		ProviderInputRef:  providerJob.ProviderInputRef,
@@ -387,9 +402,11 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		return nil, err
 	}
 
+	job.Status = BatchImageJobStatusSubmitted
+	job.Version++
 	if s.Queue != nil {
 		if err := s.Queue.Enqueue(ctx, job.BatchID); err != nil && !errors.Is(err, ErrBatchImageAlreadyQueued) {
-			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), false)
+			_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "QUEUE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), false, job.Version)
 			return nil, ErrBatchImageQueueFailed
 		}
 	}
@@ -403,7 +420,7 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 
 func (s *BatchImagePublicService) releaseFailedSubmitHold(ctx context.Context, job *BatchImageJob, requestHash string) error {
 	if err := releaseBatchImageBalanceHold(ctx, s.BillingRepo, job, requestHash); err != nil {
-		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "BILLING_RELEASE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true)
+		_ = s.Repo.RecordBatchImageJobSubmitFailure(ctx, job.BatchID, "BILLING_RELEASE_FAILED", sanitizeBatchImagePublicMessage(err.Error()), true, job.Version)
 		s.enqueueBillingRetry(ctx, job.BatchID)
 		return ErrBatchImageBillingHoldFailed
 	}
@@ -533,7 +550,7 @@ func (s *BatchImagePublicService) hidePreUpstreamSubmitFailure(ctx context.Conte
 }
 
 func (s *BatchImagePublicService) Get(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicBatch, error) {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -586,6 +603,9 @@ func (s *BatchImagePublicService) List(ctx context.Context, owner BatchImageOwne
 	}
 	data := make([]*BatchImagePublicBatch, 0, len(jobs))
 	for _, job := range jobs {
+		if !batchImageJobMatchesOwner(job, owner) {
+			return nil, ErrBatchImageJobNotFound
+		}
 		data = append(data, BatchImageJobToPublic(job))
 	}
 	return &BatchImagePublicListResponse{
@@ -596,7 +616,7 @@ func (s *BatchImagePublicService) List(ctx context.Context, owner BatchImageOwne
 }
 
 func (s *BatchImagePublicService) MarkDownloaded(ctx context.Context, owner BatchImageOwner, batchID string) error {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return err
 	}
@@ -604,7 +624,7 @@ func (s *BatchImagePublicService) MarkDownloaded(ctx context.Context, owner Batc
 }
 
 func (s *BatchImagePublicService) DeleteRecord(ctx context.Context, owner BatchImageOwner, batchID string) error {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return err
 	}
@@ -674,6 +694,9 @@ func (s *BatchImagePublicService) ListModels(ctx context.Context, owner BatchIma
 }
 
 func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImageOwner, batchID string, query BatchImageItemsQuery) (*BatchImagePublicItemsResponse, error) {
+	if _, err := s.getOwnedJob(ctx, owner, batchID); err != nil {
+		return nil, err
+	}
 	filter := BatchImageItemFilter{Limit: query.Limit, Offset: parseBatchImageCursor(query.Cursor)}
 	switch strings.TrimSpace(query.Status) {
 	case "", "all":
@@ -695,6 +718,9 @@ func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImag
 	}
 	data := make([]BatchImagePublicItem, 0, len(items))
 	for _, item := range items {
+		if item == nil || item.JobID != batchID {
+			return nil, ErrBatchImageJobNotFound
+		}
 		data = append(data, BatchImageItemToPublic(item))
 	}
 	return &BatchImagePublicItemsResponse{
@@ -705,7 +731,7 @@ func (s *BatchImagePublicService) ListItems(ctx context.Context, owner BatchImag
 }
 
 func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImagePublicBatch, error) {
-	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	job, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -745,11 +771,14 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 				return nil, ErrBatchImageCancelFailed
 			}
 		}
-		updated, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+		updated, err := s.getOwnedJob(ctx, owner, batchID)
 		if err != nil {
 			return nil, err
 		}
 		return BatchImageJobToPublic(updated), nil
+	}
+	if job.Status == BatchImageJobStatusUploading {
+		return nil, ErrBatchImageCancelFailed // no receipt is not proof of no upstream work
 	}
 	if err := s.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusCancelled, BatchImageTransitionOptions{
 		EventType:    "job_cancelled",
@@ -762,7 +791,7 @@ func (s *BatchImagePublicService) Cancel(ctx context.Context, owner BatchImageOw
 		return nil, ErrBatchImageCancelFailed
 	}
 	s.invalidateAuthCache(ctx, owner.UserID)
-	updated, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	updated, err := s.getOwnedJob(ctx, owner, batchID)
 	if err != nil {
 		return nil, err
 	}
@@ -1324,22 +1353,6 @@ func batchImageGCSRef(provider, ref string) string {
 	return ""
 }
 
-func batchImageProviderSubmitPublicError(err error) error {
-	reason := strings.TrimSpace(infraerrors.Reason(err))
-	switch reason {
-	case "VERTEX_MANAGED_GCS_BUCKET_MISSING":
-		return ErrBatchImageVertexGCSBucketMissing
-	case "BATCH_IMAGE_PROVIDER_MISSING_API_KEY":
-		return ErrBatchImageProviderMissingAPIKey
-	case "BATCH_IMAGE_PROVIDER_MISSING_SERVICE_ACCOUNT":
-		return ErrBatchImageProviderMissingServiceAccount
-	case "BATCH_IMAGE_PROVIDER_UNSUPPORTED_ACCOUNT":
-		return ErrBatchImageProviderUnsupportedAccount
-	default:
-		return ErrBatchImageProviderSubmitFailed
-	}
-}
-
 func batchImagePublicTaskName(job *BatchImageJob) string {
 	if job == nil {
 		return ""
@@ -1355,14 +1368,6 @@ func defaultBatchImageTaskName(now time.Time) string {
 		now = time.Now()
 	}
 	return now.Format("2006-01-02 15:04:05")
-}
-
-func batchImageProviderSubmitRecordCode(err error) string {
-	reason := strings.TrimSpace(infraerrors.Reason(err))
-	if reason == "" || reason == "BATCH_IMAGE_PROVIDER_SUBMIT_FAILED" {
-		return "PROVIDER_SUBMIT_FAILED"
-	}
-	return reason
 }
 
 func parseBatchImageListTime(raw string) *time.Time {
@@ -1438,4 +1443,26 @@ func parseBatchImageCursor(cursor string) int {
 		return 0
 	}
 	return offset
+}
+
+// Authorization is bound to both the caller and the returned resource, even
+// when a repository implementation serves the query from a cache.
+func batchImageJobMatchesOwner(job *BatchImageJob, owner BatchImageOwner) bool {
+	return owner.UserID > 0 && owner.APIKeyID > 0 && job != nil &&
+		job.UserID == owner.UserID && job.APIKeyID != nil && *job.APIKeyID == owner.APIKeyID &&
+		job.UserDeletedAt == nil
+}
+
+func (s *BatchImagePublicService) getOwnedJob(ctx context.Context, owner BatchImageOwner, batchID string) (*BatchImageJob, error) {
+	if owner.UserID <= 0 || owner.APIKeyID <= 0 || strings.TrimSpace(batchID) == "" {
+		return nil, ErrBatchImageJobNotFound
+	}
+	job, err := s.Repo.GetBatchImageJobByBatchIDForOwner(ctx, owner.UserID, owner.APIKeyID, batchID)
+	if err != nil {
+		return nil, err
+	}
+	if !batchImageJobMatchesOwner(job, owner) || job.BatchID != batchID {
+		return nil, ErrBatchImageJobNotFound
+	}
+	return job, nil
 }

@@ -234,12 +234,13 @@ func observeQianwenNativeAudio(body []byte, result *OpenAIForwardResult) error {
 	}
 	mode := qianwenNativeAudioMode(result.UpstreamModel)
 	field, divisor := "seconds", 3600.0
-	if mode == "tts" {
+	switch mode {
+	case "tts":
 		field, divisor = "characters", 1_000_000
 		if gjson.GetBytes(body, "output.finish_reason").String() != "stop" || !qianwenAudioHTTPURL(gjson.GetBytes(body, "output.audio.url").String()) {
 			return fmt.Errorf("DashScope TTS response requires a completed audio URL")
 		}
-	} else if mode == "stt" {
+	case "stt":
 		choices := gjson.GetBytes(body, "output.choices")
 		if !choices.IsArray() || len(choices.Array()) != 1 || choices.Array()[0].Get("finish_reason").String() != "stop" {
 			return fmt.Errorf("DashScope ASR response requires a completed transcript")
@@ -248,7 +249,7 @@ func observeQianwenNativeAudio(body []byte, result *OpenAIForwardResult) error {
 		if !parts.IsArray() || len(parts.Array()) != 1 || parts.Array()[0].Get("text").Type != gjson.String {
 			return fmt.Errorf("DashScope ASR response requires text content")
 		}
-	} else {
+	default:
 		return fmt.Errorf("unsupported DashScope audio usage model")
 	}
 	units := gjson.GetBytes(body, "usage."+field)

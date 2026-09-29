@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"strconv"
+	"strings"
 )
 
 type TokenCacheInvalidator interface {
@@ -24,31 +26,36 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 	if c == nil || c.cache == nil || account == nil {
 		return nil
 	}
-	if account.Type != AccountTypeOAuth {
+	// Antigravity may have just been converted away from OAuth. Still retire
+	// its old shared/account keys so a rollback cannot reuse that cached token.
+	if !account.IsOAuth() && account.Type != AccountTypeServiceAccount && account.Platform != PlatformAntigravity {
 		return nil
 	}
 
 	var keysToDelete []string
+	var failures []error
 	accountIDKey := "account:" + strconv.FormatInt(account.ID, 10)
 
 	switch account.Platform {
 	case PlatformGemini:
-		// Gemini 可能有两种缓存键：project_id 或 account_id
-		// 首次获取 token 时可能没有 project_id，之后自动检测到 project_id 后会使用新 key
-		// 刷新时需要同时删除两种可能的 key，确保不会遗留旧缓存
+		// Retire legacy project-scoped tokens, but never read them. A project is
+		// not a credential owner; all current OAuth callers use the account key.
+		if projectID := strings.TrimSpace(account.GetCredential("project_id")); projectID != "" {
+			keysToDelete = append(keysToDelete, "gemini:"+projectID)
+		}
 		keysToDelete = append(keysToDelete, GeminiTokenCacheKey(account))
 		keysToDelete = append(keysToDelete, "gemini:"+accountIDKey)
 	case PlatformAntigravity:
-		// Antigravity 同样可能有两种缓存键
-		keysToDelete = append(keysToDelete, AntigravityTokenCacheKey(account))
-		keysToDelete = append(keysToDelete, "ag:"+accountIDKey)
+		// Purge current and legacy shared keys; never read legacy keys.
+		keysToDelete = append(keysToDelete, antigravityCredentialTokenCacheKey(account))
+		keysToDelete = append(keysToDelete, antigravityLegacyTokenCacheKeys(account)...)
 	case PlatformOpenAI:
-		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account))
+		keysToDelete = append(keysToDelete, OpenAITokenCacheKey(account), "openai:"+accountIDKey)
 	case PlatformGrok:
 		keysToDelete = append(keysToDelete, GrokTokenCacheKey(account))
 		keysToDelete = append(keysToDelete, "grok:"+accountIDKey)
 	case PlatformAnthropic:
-		keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account))
+		keysToDelete = append(keysToDelete, ClaudeTokenCacheKey(account), "claude:"+accountIDKey)
 	default:
 		return nil
 	}
@@ -61,11 +68,12 @@ func (c *CompositeTokenCacheInvalidator) InvalidateToken(ctx context.Context, ac
 		}
 		seen[key] = true
 		if err := c.cache.DeleteAccessToken(ctx, key); err != nil {
+			failures = append(failures, err)
 			slog.Warn("token_cache_delete_failed", "key", key, "account_id", account.ID, "error", err)
 		}
 	}
 
-	return nil
+	return errors.Join(failures...)
 }
 
 // CheckTokenVersion 检查 account 的 token 版本是否已过时，并返回最新的 account
@@ -88,6 +96,9 @@ func CheckTokenVersion(ctx context.Context, account *Account, repo AccountReposi
 		return nil, false
 	}
 
+	if AccountRuntimeIdentityKey(account) != AccountRuntimeIdentityKey(latestAccount) {
+		return latestAccount, true
+	}
 	latestVersion := latestAccount.GetCredentialAsInt64("_token_version")
 
 	// 情况1: 当前 account 没有版本号，但 DB 中已有版本号
@@ -114,4 +125,20 @@ func CheckTokenVersion(ctx context.Context, account *Account, repo AccountReposi
 	}
 
 	return latestAccount, false
+}
+
+// tokenRequestBindingEqual permits token renewal only within the selected
+// endpoint, transport, owner and configuration revision.
+func tokenRequestBindingEqual(selected, latest *Account) bool {
+	if selected == nil || latest == nil {
+		return false
+	}
+	selectedBinding := snapshotOAuthRefreshAccount(selected)
+	latestBinding := snapshotOAuthRefreshAccount(latest)
+	for _, binding := range []*Account{selectedBinding, latestBinding} {
+		for _, field := range []string{"access_token", "refresh_token", "id_token", "expires_at", "expires_in", "_token_version", "token_type"} {
+			delete(binding.Credentials, field)
+		}
+	}
+	return AccountRuntimeIdentityKey(selectedBinding) == AccountRuntimeIdentityKey(latestBinding)
 }

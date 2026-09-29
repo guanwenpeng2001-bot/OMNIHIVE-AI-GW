@@ -17,7 +17,7 @@ import (
 func newGatewayRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo UserRepository, subRepo UserSubscriptionRepository) *GatewayService {
 	cfg := &config.Config{}
 	cfg.Default.RateMultiplier = 1.1
-	return NewGatewayService(
+	svc := NewGatewayService(
 		nil,
 		nil,
 		usageRepo,
@@ -47,6 +47,8 @@ func newGatewayRecordUsageServiceForTest(usageRepo UsageLogRepository, userRepo 
 		nil,
 		nil, // userPlatformQuotaRepo
 	)
+	svc.usageSettlement = NewUsageSettlementService(&recordUsageReceiptFixture{usage: usageRepo, users: userRepo, subscriptions: subRepo, billing: func() UsageBillingRepository { return svc.usageBillingRepo }}, nil, nil)
+	return svc
 }
 
 func newGatewayRecordUsageServiceWithBillingRepoForTest(usageRepo UsageLogRepository, billingRepo UsageBillingRepository, userRepo UserRepository, subRepo UserSubscriptionRepository) *GatewayService {
@@ -81,7 +83,7 @@ func (s *openAIRecordUsageBestEffortLogRepoStub) Create(ctx context.Context, log
 }
 
 func TestGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T) {
-	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: context.DeadlineExceeded}
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
 	quotaSvc := &openAIRecordUsageAPIKeyQuotaStub{}
@@ -113,7 +115,7 @@ func TestGatewayServiceRecordUsage_BillingUsesDetachedContext(t *testing.T) {
 	require.Equal(t, 1, usageRepo.calls)
 	require.Equal(t, 1, userRepo.deductCalls)
 	require.NoError(t, userRepo.lastCtxErr)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
+	require.Zero(t, quotaSvc.quotaCalls)
 	require.NoError(t, quotaSvc.lastQuotaCtxErr)
 }
 
@@ -523,7 +525,7 @@ func TestGatewayServiceRecordUsage_DeepSeekAccountStatsUsesRequestPricingAtAndUp
 	}
 }
 
-func TestGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t *testing.T) {
+func TestGatewayServiceRecordUsage_UsageLogWriteErrorRetainsPendingReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{inserted: false, err: MarkUsageLogCreateNotPersisted(context.Canceled)}
 	userRepo := &openAIRecordUsageUserRepoStub{}
 	subRepo := &openAIRecordUsageSubRepoStub{}
@@ -550,9 +552,10 @@ func TestGatewayServiceRecordUsage_UsageLogWriteErrorDoesNotSkipBilling(t *testi
 	})
 
 	require.NoError(t, err)
+	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
 	require.Equal(t, 1, usageRepo.calls)
-	require.Equal(t, 1, userRepo.deductCalls)
-	require.Equal(t, 1, quotaSvc.quotaCalls)
+	require.Zero(t, userRepo.deductCalls)
+	require.Zero(t, quotaSvc.quotaCalls)
 }
 
 func TestGatewayServiceRecordUsage_UsesFallbackRequestIDForUsageLog(t *testing.T) {
@@ -638,7 +641,7 @@ func TestGatewayServiceRecordUsage_GeneratesRequestIDWhenAllSourcesMissing(t *te
 	require.Equal(t, billingRepo.lastCmd.RequestID, usageRepo.lastLog.RequestID)
 }
 
-func TestGatewayServiceRecordUsage_DroppedUsageLogFallsBackToSyncCreate(t *testing.T) {
+func TestGatewayServiceRecordUsage_ReceiptBypassesBestEffortUsageQueue(t *testing.T) {
 	// 计费成功后 best-effort 写入被丢弃（队列超时）时必须同步兜底，
 	// 否则出现“已扣费但无 usage_log”的对账缺口（issue #3656）。
 	usageRepo := &openAIRecordUsageBestEffortLogRepoStub{
@@ -663,13 +666,13 @@ func TestGatewayServiceRecordUsage_DroppedUsageLogFallsBackToSyncCreate(t *testi
 	})
 
 	require.NoError(t, err)
-	require.Equal(t, 1, usageRepo.bestEffortCalls)
+	require.Zero(t, usageRepo.bestEffortCalls)
 	require.Equal(t, 1, usageRepo.createCalls)
 	// 兜底调用使用的 ctx 必须仍然存活，不能带着已死的 ctx 走过场。
 	require.NoError(t, usageRepo.lastCtxErr)
 }
 
-func TestGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *testing.T) {
+func TestGatewayServiceRecordUsage_BillingErrorRetainsFrozenPendingReceipt(t *testing.T) {
 	usageRepo := &openAIRecordUsageLogRepoStub{}
 	billingErr := errors.New("billing tx failed")
 	billingRepo := &openAIRecordUsageBillingRepoStub{err: billingErr}
@@ -692,7 +695,8 @@ func TestGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *testin
 		Account: &Account{ID: 705},
 	})
 
-	require.ErrorIs(t, err, billingErr)
+	require.NoError(t, err)
+	require.Equal(t, UsageSettlementPending, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.State)
 	require.Equal(t, 1, billingRepo.calls)
 	require.Equal(t, 1, usageRepo.calls)
 	require.NotNil(t, usageRepo.lastLog)
@@ -701,7 +705,7 @@ func TestGatewayServiceRecordUsage_BillingErrorWritesUnsettledUsageLog(t *testin
 	require.Greater(t, usageRepo.lastLog.InputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.OutputCost, 0.0)
 	require.Greater(t, usageRepo.lastLog.TotalCost, 0.0)
-	require.Zero(t, usageRepo.lastLog.ActualCost)
+	require.Greater(t, svc.usageSettlement.repo.(*recordUsageReceiptFixture).receipt.Command.BalanceCost, 0.0)
 }
 
 func TestGatewayServiceRecordUsage_ReasoningEffortPersisted(t *testing.T) {

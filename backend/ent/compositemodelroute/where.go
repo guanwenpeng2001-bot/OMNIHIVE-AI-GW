@@ -70,6 +70,11 @@ func DeletedAt(v time.Time) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldEQ(FieldDeletedAt, v))
 }
 
+// AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
+func AccountType(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldEQ(FieldAccountType, v))
+}
+
 // GroupID applies equality check predicate on the "group_id" field. It's identical to GroupIDEQ.
 func GroupID(v int64) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldEQ(FieldGroupID, v))
@@ -243,6 +248,71 @@ func DeletedAtIsNil() predicate.CompositeModelRoute {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// AccountTypeEQ applies the EQ predicate on the "account_type" field.
+func AccountTypeEQ(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldEQ(FieldAccountType, v))
+}
+
+// AccountTypeNEQ applies the NEQ predicate on the "account_type" field.
+func AccountTypeNEQ(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldNEQ(FieldAccountType, v))
+}
+
+// AccountTypeIn applies the In predicate on the "account_type" field.
+func AccountTypeIn(vs ...string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldIn(FieldAccountType, vs...))
+}
+
+// AccountTypeNotIn applies the NotIn predicate on the "account_type" field.
+func AccountTypeNotIn(vs ...string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldNotIn(FieldAccountType, vs...))
+}
+
+// AccountTypeGT applies the GT predicate on the "account_type" field.
+func AccountTypeGT(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldGT(FieldAccountType, v))
+}
+
+// AccountTypeGTE applies the GTE predicate on the "account_type" field.
+func AccountTypeGTE(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldGTE(FieldAccountType, v))
+}
+
+// AccountTypeLT applies the LT predicate on the "account_type" field.
+func AccountTypeLT(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldLT(FieldAccountType, v))
+}
+
+// AccountTypeLTE applies the LTE predicate on the "account_type" field.
+func AccountTypeLTE(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldLTE(FieldAccountType, v))
+}
+
+// AccountTypeContains applies the Contains predicate on the "account_type" field.
+func AccountTypeContains(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldContains(FieldAccountType, v))
+}
+
+// AccountTypeHasPrefix applies the HasPrefix predicate on the "account_type" field.
+func AccountTypeHasPrefix(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldHasPrefix(FieldAccountType, v))
+}
+
+// AccountTypeHasSuffix applies the HasSuffix predicate on the "account_type" field.
+func AccountTypeHasSuffix(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldHasSuffix(FieldAccountType, v))
+}
+
+// AccountTypeEqualFold applies the EqualFold predicate on the "account_type" field.
+func AccountTypeEqualFold(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldEqualFold(FieldAccountType, v))
+}
+
+// AccountTypeContainsFold applies the ContainsFold predicate on the "account_type" field.
+func AccountTypeContainsFold(v string) predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldContainsFold(FieldAccountType, v))
 }
 
 // GroupIDEQ applies the EQ predicate on the "group_id" field.
@@ -713,6 +783,16 @@ func NotesEqualFold(v string) predicate.CompositeModelRoute {
 // NotesContainsFold applies the ContainsFold predicate on the "notes" field.
 func NotesContainsFold(v string) predicate.CompositeModelRoute {
 	return predicate.CompositeModelRoute(sql.FieldContainsFold(FieldNotes, v))
+}
+
+// OrderedTargetsIsNil applies the IsNil predicate on the "ordered_targets" field.
+func OrderedTargetsIsNil() predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldIsNull(FieldOrderedTargets))
+}
+
+// OrderedTargetsNotNil applies the NotNil predicate on the "ordered_targets" field.
+func OrderedTargetsNotNil() predicate.CompositeModelRoute {
+	return predicate.CompositeModelRoute(sql.FieldNotNull(FieldOrderedTargets))
 }
 
 // HasGroup applies the HasEdge predicate on the "group" edge.

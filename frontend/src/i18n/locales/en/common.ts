@@ -1,5 +1,6 @@
 export default {
   common: {
+    displayTimeZone: 'Display time zone: {timezone}',
     loading: 'Loading...',
     submitting: 'Submitting...',
     justNow: 'just now',
@@ -163,6 +164,7 @@ export default {
 
   // Navigation
   nav: {
+    helpGuide: 'Guide',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

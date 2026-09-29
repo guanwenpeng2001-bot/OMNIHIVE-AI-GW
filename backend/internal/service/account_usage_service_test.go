@@ -149,7 +149,7 @@ func TestAccountUsageService_PersistOpenAICodexProbeSnapshotOnlyUpdatesExtra(t *
 		rateLimitCh:   make(chan time.Time, 1),
 	}
 	svc := &AccountUsageService{accountRepo: repo}
-	svc.persistOpenAICodexProbeSnapshot(321, map[string]any{
+	svc.persistOpenAICodexProbeSnapshot(&Account{ID: 321}, map[string]any{
 		"codex_7d_used_percent": 100.0,
 		"codex_7d_reset_at":     time.Now().Add(2 * time.Hour).UTC().Truncate(time.Second).Format(time.RFC3339),
 	})
@@ -255,4 +255,8 @@ func TestBuildCodexUsageProgressFromExtra_ZerosExpiredWindow(t *testing.T) {
 			t.Fatalf("expected Utilization=0 for expired 7d window, got %v", progress.Utilization)
 		}
 	})
+}
+
+func (r *accountUsageCodexProbeRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, end *time.Time) error {
+	return r.UpdateExtra(ctx, expected.ID, updates)
 }

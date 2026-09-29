@@ -153,12 +153,11 @@ func TestCodexModelsAppliesLocalFiltersBeforeClientETag(t *testing.T) {
 	upstream := &codexModelsFailoverHTTPUpstream{
 		firstBody: `{"object":"list","data":[{"id":"codex-auto-review"},{"id":"gpt-5.6"}]}`,
 	}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	group := &service.Group{
 		ID:       groupID,
@@ -222,12 +221,11 @@ func TestCodexModelsAPIKeyCacheDoesNotLeakGroupFilters(t *testing.T) {
 	upstream := &codexModelsFailoverHTTPUpstream{
 		firstBody: `{"object":"list","data":[{"id":"model-a"},{"id":"model-b"}]}`,
 	}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	groupA := &service.Group{
 		ID:       91,
@@ -328,12 +326,11 @@ func TestCodexModelsSupplementsConfiguredModelsWithUnmappedAccountDefaults(t *te
 		},
 	}}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 
 	recorder := performCodexModelsRequestForGroup(t, handler, &service.Group{
@@ -353,7 +350,7 @@ func TestCodexModelsSupplementsConfiguredModelsWithUnmappedAccountDefaults(t *te
 	if err := json.Unmarshal(recorder.Body.Bytes(), &envelope); err != nil {
 		t.Fatalf("decode body: %v; body=%s", err, recorder.Body.String())
 	}
-	require.Contains(t, codexHandlerManifestSlugs(t, recorder), "gpt-5.6-sol")
+	require.NotContains(t, codexHandlerManifestSlugs(t, recorder), "gpt-5.6-sol")
 	require.Contains(t, codexHandlerManifestSlugs(t, recorder), "glm-5.3")
 	for _, model := range envelope.Models {
 		require.Contains(t, model, "supported_reasoning_levels")
@@ -377,18 +374,17 @@ func TestCodexModelsUnmappedParentAndSparkShadowHonorCustomListAndETag(t *testin
 		},
 	}}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	group := &service.Group{ID: 45, Platform: service.PlatformOpenAI}
 	first := performCodexModelsRequestForGroup(t, handler, group, "")
 	require.Equal(t, http.StatusOK, first.Code, first.Body.String())
 	slugs := codexHandlerManifestSlugs(t, first)
-	require.Contains(t, slugs, "gpt-5.6-sol")
+	require.NotContains(t, slugs, "gpt-5.6-sol")
 	require.Contains(t, slugs, sparkModel)
 	require.NotContains(t, slugs, "gpt-image-2")
 	require.NotContains(t, slugs, "codex-auto-review")
@@ -396,11 +392,11 @@ func TestCodexModelsUnmappedParentAndSparkShadowHonorCustomListAndETag(t *testin
 	require.NotEmpty(t, firstETag)
 
 	group.ModelAllowlist = service.GroupModelAllowlist{
-		Enabled: true, Models: []string{"gpt-5.6-sol", sparkModel, "unknown-model"},
+		Enabled: true, Models: []string{"gpt-5.6-sol", "unknown-model"},
 	}
 	second := performCodexModelsRequestForGroup(t, handler, group, firstETag)
 	require.Equal(t, http.StatusOK, second.Code, second.Body.String())
-	require.ElementsMatch(t, []string{"gpt-5.6-sol", sparkModel}, codexHandlerManifestSlugs(t, second))
+	require.Empty(t, codexHandlerManifestSlugs(t, second))
 	require.NotEqual(t, firstETag, second.Header().Get("ETag"))
 	third := performCodexModelsRequestForGroup(t, handler, group, second.Header().Get("ETag"))
 	require.Equal(t, http.StatusNotModified, third.Code)
@@ -594,12 +590,11 @@ func newCodexModelsFailoverTestHandlerWithAccountCount(firstStatus, accountCount
 	}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: firstStatus}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		codexModelsFailoverAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	return &OpenAIGatewayHandler{gatewayService: gatewayService, maxAccountSwitches: maxSwitches}, upstream, groupID
 }
 
@@ -757,12 +752,11 @@ func newPinnedCodexAccount(id int64, status string, schedulable bool, rateLimite
 func newPinnedCodexTestHandler(accounts []service.Account, upstream *codexModelsPinnedHTTPUpstream, maxSwitches int) *OpenAIGatewayHandler {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		codexModelsFailoverAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	return &OpenAIGatewayHandler{gatewayService: gatewayService, maxAccountSwitches: maxSwitches}
 }
 

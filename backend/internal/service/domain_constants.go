@@ -51,6 +51,11 @@ const (
 	PlatformOpenCodeGo  = domain.PlatformOpenCodeGo
 	PlatformCursor      = domain.PlatformCursor
 	PlatformQianwen     = domain.PlatformQianwen
+	PlatformQianfan     = domain.PlatformQianfan
+	PlatformHunyuan     = domain.PlatformHunyuan
+	PlatformMistral     = domain.PlatformMistral
+	PlatformBedrock     = domain.PlatformBedrock
+	PlatformVolcengine  = domain.PlatformVolcengine
 	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
@@ -88,6 +93,15 @@ const (
 	DefaultOpenCodeGoBaseURL = "https://opencode.ai/zen/go/v1"
 	// OpenCode Zen：按量付费网关，模型列表为 /zen/v1/models。
 	DefaultOpenCodeZenBaseURL = "https://opencode.ai/zen/v1"
+	// 后期平台的套餐（Coding Plan / Token Plan）数据面与按量付费不同，厂商为套餐发布了
+	// 专属 Base URL 且要求专属 API Key（腾讯云 TokenHub Coding Plan 文档 1823/130092、
+	// 火山方舟 Coding Plan 个人版快速开始、千帆 Token Plan 个人版文档，均 2026-09-23 抓取）。
+	// 未设 account_mode 时按按量付费处理；显式 base_url 始终优先于这里的默认值。
+	DefaultHunyuanCodingBaseURL    = "https://api.lkeap.cloud.tencent.com/coding/v3"
+	DefaultVolcengineCodingBaseURL = "https://ark.cn-beijing.volces.com/api/coding/v3"
+	// 千帆 Token Plan 分个人版 / 企业版两条子路径，默认取个人版；企业版由用户显式填
+	// https://qianfan.baidubce.com/v2/tokenplan/team 覆盖，不额外增加选择器。
+	DefaultQianfanCodingBaseURL = "https://qianfan.baidubce.com/v2/tokenplan/personal"
 )
 
 // 国产供应商 Anthropic 协议端点的默认 base_url（上游路径为 {base}/v1/messages）。
@@ -101,6 +115,14 @@ const (
 	// OpenCode Go Anthropic 基址不含 /v1：nativeAnthropicTargetURL 会再拼 /v1/messages。
 	DefaultOpenCodeGoAnthropicBaseURL  = "https://opencode.ai/zen/go"
 	DefaultOpenCodeZenAnthropicBaseURL = "https://opencode.ai/zen"
+	// 后期平台套餐的 Anthropic 兼容路径（同样由 nativeAnthropicTargetURL 拼 /v1/messages）。
+	// 只给混元：火山方舟与千帆的 messages 格子在能力矩阵里是 hard_conflict，账号选不到
+	// anthropic 协议（GetAPIProtocol 对非多协议平台固定 chat_completions，
+	// GetAnthropicProtocolBaseURL 直接返回空串），写了也走不到。它们的 /v1/messages
+	// 走既有 Claude→chat 兼容桥，落到 GetOpenAIBaseURL()，同样按模式选套餐端点。
+	// 矩阵格子改成 implemented 时再补：火山方舟 https://ark.cn-beijing.volces.com/api/coding、
+	// 千帆 https://qianfan.baidubce.com/anthropic/tokenplan/personal。
+	DefaultHunyuanCodingAnthropicBaseURL = "https://api.lkeap.cloud.tencent.com/coding/anthropic"
 )
 
 // IsCNProvider 报告 platform 是否为国产 OpenAI 兼容供应商（kimi/zhipu/deepseek/minimax/qianwen）。
@@ -124,7 +146,7 @@ func IsMultiProtocolAPIKeyProvider(platform string) bool {
 // AllowedQuotaPlatforms 是 domain 平台目录派生的兼容视图。
 // ent/schema/user_platform_quota.go 的 Validate 函数独立维护（构建期约束），
 // 若新增平台需同步修改该 schema。
-var AllowedQuotaPlatforms = domain.ConcretePlatforms()
+var AllowedQuotaPlatforms = append(domain.ConcretePlatforms(), "vertex")
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。
 // openai/anthropic/grok 有原生用量窗口；kimi/zhipu/minimax 的 Coding Plan 同样暴露
@@ -132,7 +154,7 @@ var AllowedQuotaPlatforms = domain.ConcretePlatforms()
 var AllowedSchedulingThresholdPlatforms = domain.PlatformsWith(func(p domain.PlatformDescriptor) bool { return p.SchedulingThreshold })
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。
-func IsAllowedQuotaPlatform(s string) bool { return domain.IsConcretePlatform(s) }
+func IsAllowedQuotaPlatform(s string) bool { return s == "vertex" || domain.IsConcretePlatform(s) }
 
 // Account type constants
 const (
@@ -353,6 +375,7 @@ const (
 	SettingKeySiteName                    = "site_name"                     // 网站名称
 	SettingKeySiteLogo                    = "site_logo"                     // 网站Logo (base64)
 	SettingKeySiteSubtitle                = "site_subtitle"                 // 网站副标题
+	SettingKeySiteICP                     = "site_icp"                      // 网站备案号
 	SettingKeyAPIBaseURL                  = "api_base_url"                  // API端点地址（用于客户端配置和导入）
 	SettingKeyContactInfo                 = "contact_info"                  // 客服联系方式
 	SettingKeyDocURL                      = "doc_url"                       // 文档链接

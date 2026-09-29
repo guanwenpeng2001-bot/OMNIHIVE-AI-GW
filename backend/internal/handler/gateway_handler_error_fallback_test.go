@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -29,10 +30,10 @@ func TestGatewayEnsureForwardErrorResponse_WritesFallbackWhenNotWritten(t *testi
 	var parsed map[string]any
 	err := json.Unmarshal(w.Body.Bytes(), &parsed)
 	require.NoError(t, err)
-	assert.Equal(t, "error", parsed["type"])
+	assert.Nil(t, parsed["type"])
 	errorObj, ok := parsed["error"].(map[string]any)
 	require.True(t, ok)
-	assert.Equal(t, "upstream_error", errorObj["type"])
+	assert.Equal(t, "server_error", errorObj["type"])
 	assert.Equal(t, "Upstream request failed", errorObj["message"])
 }
 
@@ -51,7 +52,8 @@ func TestGatewayEnsureForwardErrorResponse_AppendsSSEAfterWritten(t *testing.T) 
 	require.True(t, wrote)
 	require.Equal(t, http.StatusTeapot, w.Code)
 	assert.Contains(t, w.Body.String(), "already written")
-	assert.Contains(t, w.Body.String(), `data: {"type":"error"`)
+	assert.Contains(t, w.Body.String(), `event: error`)
+	assert.Contains(t, w.Body.String(), `"type":"server_error"`)
 }
 
 func TestGatewayEnsureForwardErrorResponse_SkipsCommittedSSEError(t *testing.T) {
@@ -181,4 +183,39 @@ func TestGatewayForwardErrorAlreadyCommunicated(t *testing.T) {
 
 		require.False(t, reported)
 	})
+}
+
+func TestGatewayEnsureForwardErrorResponse_SkipsCanceledClient(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ctx, cancel := context.WithCancel(context.Background())
+	ginContext.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil).WithContext(ctx)
+	cancel()
+
+	handler := &GatewayHandler{}
+	wrote := handler.ensureForwardErrorResponse(ginContext, false)
+
+	require.False(t, wrote)
+	require.Equal(t, statusClientClosedRequest, ginContext.Writer.Status())
+	require.Empty(t, recorder.Body.String())
+}
+
+func TestGatewayEnsureForwardErrorResponse_CanceledClientAfterStreamStartedAppendsNothing(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	recorder := httptest.NewRecorder()
+	ginContext, _ := gin.CreateTestContext(recorder)
+	ctx, cancel := context.WithCancel(context.Background())
+	ginContext.Request = httptest.NewRequest(http.MethodPost, EndpointMessages, nil).WithContext(ctx)
+	ginContext.Header("Content-Type", "text/event-stream")
+	_, _ = ginContext.Writer.WriteString(":\n\n")
+	cancel()
+
+	handler := &GatewayHandler{}
+	wrote := handler.ensureForwardErrorResponse(ginContext, true)
+
+	require.False(t, wrote)
+	require.Equal(t, http.StatusOK, ginContext.Writer.Status())
+	require.Equal(t, ":\n\n", recorder.Body.String())
+	require.Empty(t, service.GetOpsStreamErrors(ginContext))
 }

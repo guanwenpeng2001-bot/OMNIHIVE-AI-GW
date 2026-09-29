@@ -486,11 +486,11 @@ func TestForwardAsChatCompletions_ClientDisconnectDrainsUpstreamUsage(t *testing
 	}
 
 	result, err := svc.ForwardAsChatCompletions(context.Background(), c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
-	require.Equal(t, 11, result.Usage.InputTokens)
-	require.Equal(t, 5, result.Usage.OutputTokens)
-	require.Equal(t, 4, result.Usage.CacheReadInputTokens)
+	require.Zero(t, result.Usage.InputTokens)
+	require.Zero(t, result.Usage.OutputTokens)
+	require.Zero(t, result.Usage.CacheReadInputTokens)
 }
 
 func TestForwardAsChatCompletions_BufferedContextWindowResponseFailedReturnsErrorWithoutFailover(t *testing.T) {
@@ -1083,7 +1083,7 @@ func TestForwardAsChatCompletions_DoneSentinelWithoutTerminalReturnsError(t *tes
 	require.Zero(t, result.Usage.OutputTokens)
 }
 
-func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.T) {
+func TestForwardAsChatCompletions_UpstreamRequestHonorsClientCancel(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -1120,10 +1120,9 @@ func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.
 	}
 
 	result, err := svc.ForwardAsChatCompletions(reqCtx, c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.NoError(t, upstream.lastReq.Context().Err())
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, result)
+	require.Nil(t, upstream.lastReq)
 }
 
 // TestBuildChatStreamErrorSSE verifies F4: the error chunk payload follows the

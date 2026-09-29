@@ -22,6 +22,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
+	modelpricing "github.com/Wei-Shaw/sub2api/resources/model-pricing"
 	"go.uber.org/zap"
 )
 
@@ -136,6 +137,10 @@ var (
 // LiteLLMModelPricing LiteLLM价格数据结构
 // 只保留我们需要的字段，使用指针来处理可能缺失的值
 type LiteLLMModelPricing struct {
+	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
+	// sourceQuotes retain missing versus explicit zero for read-only comparisons.
+	// They never participate in billing or capability approval.
+	sourceQuotes                        map[string]PricingQuote
 	InputCostPerToken                   float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  float64 `json:"output_cost_per_token"`
@@ -171,6 +176,8 @@ type PricingRemoteClient interface {
 
 // LiteLLMRawEntry 用于解析原始JSON数据
 type LiteLLMRawEntry struct {
+	PriceVariants []ModelPriceVariant `json:"price_variants,omitempty"`
+	LiteLLMCapabilityFields
 	InputCostPerToken                   *float64 `json:"input_cost_per_token"`
 	InputCostPerTokenPriority           *float64 `json:"input_cost_per_token_priority"`
 	OutputCostPerToken                  *float64 `json:"output_cost_per_token"`
@@ -186,7 +193,6 @@ type LiteLLMRawEntry struct {
 	SupportsServiceTier                 bool     `json:"supports_service_tier"`
 	LiteLLMProvider                     string   `json:"litellm_provider"`
 	Mode                                string   `json:"mode"`
-	SupportsPromptCaching               bool     `json:"supports_prompt_caching"`
 	OutputCostPerImage                  *float64 `json:"output_cost_per_image"`
 	OutputCostPerImageToken             *float64 `json:"output_cost_per_image_token"`
 	InputCostPerImageToken              *float64 `json:"input_cost_per_image_token"`
@@ -195,12 +201,14 @@ type LiteLLMRawEntry struct {
 
 // PricingService 动态价格服务
 type PricingService struct {
-	cfg          *config.Config
-	remoteClient PricingRemoteClient
-	mu           sync.RWMutex
-	pricingData  map[string]*LiteLLMModelPricing
-	lastUpdated  time.Time
-	localHash    string
+	cfg              *config.Config
+	remoteClient     PricingRemoteClient
+	mu               sync.RWMutex
+	pricingData      map[string]*LiteLLMModelPricing
+	registry         *ModelRegistry
+	registrySnapshot *ModelRegistrySnapshot
+	lastUpdated      time.Time
+	localHash        string
 	// fallback/override 文件在最近一次成功重建时的内容指纹，定时器据此判断是否
 	// 需要从本地目录缓存重建叠加层。
 	customFilesHash string
@@ -213,6 +221,7 @@ type PricingService struct {
 // NewPricingService 创建价格服务
 func NewPricingService(cfg *config.Config, remoteClient PricingRemoteClient) *PricingService {
 	s := &PricingService{
+		registry:     NewModelRegistry(),
 		cfg:          cfg,
 		remoteClient: remoteClient,
 		pricingData:  make(map[string]*LiteLLMModelPricing),
@@ -498,6 +507,7 @@ func (s *PricingService) reloadCustomPricingLayers() error {
 
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
+	warnDroppedCacheBasePrices(s.pricingData, data)
 	s.pricingData = data
 	s.customFilesHash = fingerprint
 	s.mu.Unlock()
@@ -540,15 +550,17 @@ func (s *PricingService) downloadPricingData() error {
 			remoteHash[:min(8, len(remoteHash))], dataHashStr[:8])
 	}
 
+	capability := s.buildCapabilityCandidate(body, remoteHash)
 	data, customFilesHash, err := s.buildPricingData(body)
 	if err != nil {
+		s.stageCapabilityReview(s.getPricingFilePath(), body, capability)
 		return fmt.Errorf("parse pricing data: %w", err)
 	}
 
 	// 保存到本地文件
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, body, 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save file: %v", err)
+	if err := s.persistPricingDownload(pricingFile, body, capability); err != nil {
+		return fmt.Errorf("save pricing file: %w", err)
 	}
 
 	// 使用远程哈希作为同步锚点，防止重复下载
@@ -559,12 +571,13 @@ func (s *PricingService) downloadPricingData() error {
 	}
 	hashFile := s.getHashFilePath()
 	if err := os.WriteFile(hashFile, []byte(syncHash+"\n"), 0644); err != nil {
-		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to save hash: %v", err)
+		return fmt.Errorf("save pricing hash: %w", err)
 	}
 
 	// 更新内存数据
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, data)
+	warnDroppedCacheBasePrices(s.pricingData, data)
 	s.pricingData = data
 	s.lastUpdated = time.Now()
 	s.localHash = syncHash
@@ -596,20 +609,25 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 
 		// 尝试解析每个条目
 		var entry LiteLLMRawEntry
-		if err := json.Unmarshal(rawEntry, &entry); err != nil {
+		if err := unmarshalPricingEntry(rawEntry, &entry); err != nil {
 			skipped++
 			continue
 		}
 
 		// 只保留有有效价格的条目
-		if entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil && entry.InputCostPerImageToken == nil {
+		if err := validateModelPriceVariants(entry.PriceVariants); err != nil {
+			return nil, fmt.Errorf("model %s: %w", modelName, err)
+		}
+		if len(entry.PriceVariants) == 0 && entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil && entry.OutputCostPerImage == nil && entry.OutputCostPerImageToken == nil && entry.InputCostPerImageToken == nil {
 			continue
 		}
 
 		pricing := &LiteLLMModelPricing{
+			sourceQuotes:          pricingEntryQuotes(modelName, rawEntry),
+			PriceVariants:         cloneModelPriceVariants(entry.PriceVariants),
 			LiteLLMProvider:       entry.LiteLLMProvider,
 			Mode:                  entry.Mode,
-			SupportsPromptCaching: entry.SupportsPromptCaching,
+			SupportsPromptCaching: entry.SupportsPromptCaching != nil && *entry.SupportsPromptCaching,
 			SupportsServiceTier:   entry.SupportsServiceTier,
 			TokenPricingAbsent:    entry.InputCostPerToken == nil && entry.OutputCostPerToken == nil,
 		}
@@ -690,6 +708,9 @@ func (s *PricingService) parsePricingData(body []byte) (map[string]*LiteLLMModel
 		return nil, fmt.Errorf("no valid pricing entries found")
 	}
 
+	if err := indexModelPriceVariants(result); err != nil {
+		return nil, err
+	}
 	return result, nil
 }
 
@@ -864,6 +885,7 @@ func (s *PricingService) applyPricingOverrides(rawData map[string]json.RawMessag
 }
 
 // loadPricingOverrideEntries 读取 override 文件的原始条目。未配置返回 nil；
+// 默认路径缺文件时使用内嵌副本，自定义路径不叠加默认修补。
 // 读取或解析失败打日志并跳过，不影响目录加载。
 func (s *PricingService) loadPricingOverrideEntries() map[string]json.RawMessage {
 	if s == nil || s.cfg == nil {
@@ -874,6 +896,9 @@ func (s *PricingService) loadPricingOverrideEntries() map[string]json.RawMessage
 		return nil
 	}
 	body, err := os.ReadFile(path)
+	if os.IsNotExist(err) && filepath.Clean(path) == filepath.FromSlash("resources/model-pricing/cache-base-overrides.json") {
+		body, err = modelpricing.CacheBaseOverridesJSON(), nil
+	}
 	if err != nil {
 		logger.LegacyPrintf("service.pricing", "[Pricing] Warning: override merge skipped: %v", err)
 		return nil
@@ -968,6 +993,9 @@ func (s *PricingService) buildPricingData(body []byte) (map[string]*LiteLLMModel
 	}
 	data = s.mergeFallbackPricingData(data)
 	data = s.mergeOverrideOnlyModels(data)
+	if err := indexModelPriceVariants(data); err != nil {
+		return nil, "", err
+	}
 	return data, fingerprint, nil
 }
 
@@ -989,6 +1017,7 @@ func (s *PricingService) loadPricingData(filePath string) error {
 
 	s.mu.Lock()
 	warnDroppedLongContextLadders(s.pricingData, pricingData)
+	warnDroppedCacheBasePrices(s.pricingData, pricingData)
 	s.pricingData = pricingData
 	s.localHash = hashStr
 	s.customFilesHash = customFilesHash
@@ -1064,6 +1093,55 @@ func warnDroppedLongContextLadders(old, next map[string]*LiteLLMModelPricing) {
 	logger.LegacyPrintf("service.pricing", "[Pricing] Long-context ladder dropped for %d model(s) after reload: %s (verify catalog/override data if unintended)", total, strings.Join(dropped, ", "))
 }
 
+// warnDroppedCacheBasePrices 对比新旧目录数据：上一份里基础缓存价为正、新数据里该基础价
+// 缺失或为 0 的条目打 WARN。cache 基础价已完全数据驱动（无代码兜底：mergeFallbackPricingData
+// 对已存在条目整条跳过，override 也只是数据层），数据源一次误提交就会让该缓存分项静默按 $0
+// 计——与长上下文阶梯丢失同一形态，这里是唯一的哨兵。
+//
+// 只对比基础价。计费对变体有回落：服务档变体（_priority，_flex 不参与本服务的取值）与 1h
+// 缓存写入变体缺自身价时取标准基础价（见 computeTokenBreakdown/computeCacheCreationCost），
+// 因此变体单独丢失不会归零、只会改价，纳入对比只会在上游正常整理目录时误报。
+// 调用方需持有 s.mu 写锁。
+func warnDroppedCacheBasePrices(old, next map[string]*LiteLLMModelPricing) {
+	if len(old) == 0 {
+		return
+	}
+	// 计费在这两个字段缺失时没有下一档可取：该缓存分项直接按 $0 计。
+	basePriceFields := []struct {
+		name  string
+		price func(*LiteLLMModelPricing) float64
+	}{
+		{"cache_creation_input_token_cost", func(pricing *LiteLLMModelPricing) float64 { return pricing.CacheCreationInputTokenCost }},
+		{"cache_read_input_token_cost", func(pricing *LiteLLMModelPricing) float64 { return pricing.CacheReadInputTokenCost }},
+	}
+	var dropped []string
+	for name, prev := range old {
+		if prev == nil {
+			continue
+		}
+		// 条目整体消失属于另一类问题（下架/改名），计费会走 fallback 或 fail-closed 而非静默 $0，
+		// 与长上下文阶梯哨兵一致只看仍在的条目。
+		cur, ok := next[name]
+		if !ok || cur == nil {
+			continue
+		}
+		for _, field := range basePriceFields {
+			if field.price(prev) > 0 && field.price(cur) <= 0 {
+				dropped = append(dropped, name+"("+field.name+")")
+			}
+		}
+	}
+	if len(dropped) == 0 {
+		return
+	}
+	sort.Strings(dropped)
+	total := len(dropped)
+	if total > 20 {
+		dropped = append(dropped[:20], "...")
+	}
+	logger.LegacyPrintf("service.pricing", "[Pricing] Warning: base cache price dropped for %d item(s) after reload: %s (that cache item bills at $0 until the catalog or pricing.override_file supplies the base)", total, strings.Join(dropped, ", "))
+}
+
 // useFallbackPricing 使用回退价格文件
 func (s *PricingService) useFallbackPricing() error {
 	fallbackFile := s.cfg.Pricing.FallbackFile
@@ -1081,7 +1159,7 @@ func (s *PricingService) useFallbackPricing() error {
 	}
 
 	pricingFile := s.getPricingFilePath()
-	if err := os.WriteFile(pricingFile, data, 0644); err != nil { //nolint:gosec // G703: 路径为配置的数据目录 + 硬编码文件名，非请求输入
+	if err := s.persistPricingDownload(pricingFile, data, nil); err != nil { //nolint:gosec // G703: 路径为配置的数据目录 + 硬编码文件名，非请求输入
 		logger.LegacyPrintf("service.pricing", "[Pricing] Failed to copy fallback: %v", err)
 	}
 

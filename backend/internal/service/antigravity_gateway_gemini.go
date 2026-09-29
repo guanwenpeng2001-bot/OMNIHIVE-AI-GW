@@ -86,7 +86,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		return nil, s.writeGoogleError(c, http.StatusNotFound, "Unsupported action: "+action)
 	}
 
-	mappedModel := s.getMappedModel(account, originalModel)
+	mappedModel := s.getMappedModelForThinkingLevel(account, originalModel, geminiThinkingLevelFromBody(body))
 	if mappedModel == "" {
 		MarkOpsClientBusinessLimited(c, OpsClientBusinessLimitedReasonLocalFeatureGate)
 		return nil, s.writeGoogleError(c, http.StatusForbidden, fmt.Sprintf("model %s not in whitelist", originalModel))
@@ -131,6 +131,11 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		logger.LegacyPrintf("service.antigravity_gateway", "[Antigravity] Failed to clean schema: %v", err)
 	}
 
+	// Antigravity v1internal rejects built-in + functionDeclarations mixes (#6464).
+	if reconciled, err := enableMixedGeminiToolInvocations(injectedBody); err == nil {
+		injectedBody = reconciled
+	}
+
 	// 包装请求
 	wrappedBody, err := s.wrapV1InternalRequest(projectID, mappedModel, injectedBody)
 	if err != nil {
@@ -170,7 +175,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 		}
 		// 区分客户端取消和真正的上游失败，返回更准确的错误消息
 		if c.Request.Context().Err() != nil {
-			return nil, s.writeGoogleError(c, http.StatusBadGateway, "Client disconnected before upstream response")
+			return nil, s.writeGoogleError(c, antigravityStatusClientClosed, "Client disconnected before upstream response")
 		}
 		return nil, s.writeGoogleError(c, http.StatusBadGateway, "Upstream request failed after retries")
 	}
@@ -200,7 +205,7 @@ func (s *AntigravityGatewayService) ForwardGemini(ctx context.Context, c *gin.Co
 				if err == nil {
 					fallbackReq, err := antigravity.NewAPIRequest(ctx, upstreamAction, accessToken, fallbackWrapped)
 					if err == nil {
-						fallbackResp, err := s.httpUpstream.Do(fallbackReq, proxyURL, account.ID, account.Concurrency)
+						fallbackResp, err := doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, fallbackReq, proxyURL, account)
 						if err == nil && fallbackResp.StatusCode < 400 {
 							_ = resp.Body.Close()
 							resp = fallbackResp
@@ -455,6 +460,7 @@ handleSuccess:
 		UpstreamResponseModel:         observedUpstreamResponseModel(c),
 		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 		Stream:                        stream,
+		ReasoningEffort:               extractGeminiReasoningEffortFromBody(injectedBody),
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  firstTokenMs,
 		ClientDisconnect:              clientDisconnect,

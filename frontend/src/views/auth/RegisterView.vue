@@ -47,9 +47,12 @@
               :disabled="registrationActionDisabled"
               class="input pl-11"
               :class="{ 'input-error': errors.email }"
+              :aria-invalid="Boolean(errors.email)"
+              :aria-describedby="errors.email ? 'email-error' : undefined"
               :placeholder="t('auth.emailPlaceholder')"
             />
           </div>
+          <p v-if="errors.email" id="email-error" role="alert" class="sr-only">{{ errors.email }}</p>
         </div>
 
         <!-- Password Input -->
@@ -70,6 +73,8 @@
               :disabled="registrationActionDisabled"
               class="input pl-11 pr-11"
               :class="{ 'input-error': errors.password }"
+              :aria-invalid="Boolean(errors.password)"
+              :aria-describedby="errors.password ? 'password-error' : undefined"
               :placeholder="t('auth.createPasswordPlaceholder')"
             />
             <button
@@ -85,6 +90,44 @@
           <p class="input-hint">
             {{ t('auth.passwordHint') }}
           </p>
+          <p v-if="errors.password" id="password-error" role="alert" class="sr-only">{{ errors.password }}</p>
+        </div>
+
+        <!-- Confirm Password Input -->
+        <div>
+          <label for="confirmPassword" class="input-label">
+            {{ t('auth.confirmPassword') }}
+          </label>
+          <div class="relative">
+            <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3.5">
+              <Icon name="lock" size="md" class="text-gray-400 dark:text-dark-500" />
+            </div>
+            <input
+              id="confirmPassword"
+              v-model="confirmPassword"
+              :type="showConfirmPassword ? 'text' : 'password'"
+              required
+              autocomplete="new-password"
+              :disabled="registrationActionDisabled"
+              class="input pl-11 pr-11"
+              :class="{ 'input-error': errors.confirmPassword }"
+              :aria-invalid="Boolean(errors.confirmPassword)"
+              :aria-describedby="errors.confirmPassword ? 'confirm-password-error' : undefined"
+              :placeholder="t('auth.confirmPasswordPlaceholder')"
+            />
+            <button
+              type="button"
+              :disabled="registrationActionDisabled"
+              :aria-label="t('auth.confirmPassword')"
+              :aria-pressed="showConfirmPassword"
+              @click="showConfirmPassword = !showConfirmPassword"
+              class="absolute inset-y-0 right-0 flex items-center pr-3.5 text-gray-400 transition-colors hover:text-gray-600 dark:hover:text-dark-300"
+            >
+              <Icon v-if="showConfirmPassword" name="eyeOff" size="md" />
+              <Icon v-else name="eye" size="md" />
+            </button>
+          </div>
+          <p v-if="errors.confirmPassword" id="confirm-password-error" role="alert" class="sr-only">{{ errors.confirmPassword }}</p>
         </div>
 
         <!-- Invitation Code Input (Required when enabled) -->
@@ -384,11 +427,14 @@ const isLoading = ref<boolean>(false)
 const settingsLoaded = ref<boolean>(false)
 const errorMessage = ref<string>('')
 const showPassword = ref<boolean>(false)
+const showConfirmPassword = ref(false)
+const confirmPassword = ref('')
 
 // Public settings
 const registrationEnabled = ref<boolean>(true)
 const emailVerifyEnabled = ref<boolean>(false)
-const promoCodeEnabled = ref<boolean>(true)
+// Use injected settings on the first render; stay hidden until explicitly enabled.
+const promoCodeEnabled = ref<boolean>(appStore.cachedPublicSettings?.promo_code_enabled === true)
 const invitationCodeEnabled = ref<boolean>(false)
 const affiliateEnabled = ref<boolean>(false)
 const turnstileEnabled = ref<boolean>(false)
@@ -469,6 +515,7 @@ const formData = reactive({
 const errors = reactive({
   email: '',
   password: '',
+  confirmPassword: '',
   turnstile: '',
   invitation_code: ''
 })
@@ -476,6 +523,7 @@ const errors = reactive({
 const validationToastMessage = computed(() =>
   errors.email ||
   errors.password ||
+  errors.confirmPassword ||
   (invitationValidation.invalid ? invitationValidation.message : '') ||
   errors.invitation_code ||
   (promoValidation.invalid ? promoValidation.message : '') ||
@@ -884,6 +932,7 @@ function validateForm(): boolean {
   // Reset errors
   errors.email = ''
   errors.password = ''
+  errors.confirmPassword = ''
   errors.turnstile = ''
   errors.invitation_code = ''
 
@@ -922,6 +971,15 @@ function validateForm(): boolean {
     isValid = false
   }
 
+  // Confirm password validation
+  if (!confirmPassword.value) {
+    errors.confirmPassword = t('auth.confirmPasswordRequired')
+    isValid = false
+  } else if (formData.password !== confirmPassword.value) {
+    errors.confirmPassword = t('auth.passwordsDoNotMatch')
+    isValid = false
+  }
+
   // Invitation code validation (required when enabled)
   if (invitationCodeEnabled.value) {
     if (!formData.invitation_code.trim()) {
@@ -942,6 +1000,8 @@ function validateForm(): boolean {
 // ==================== Form Handlers ====================
 
 async function handleRegister(): Promise<void> {
+  if (registrationActionDisabled.value || !registrationEnabled.value) return
+
   // Clear previous error
   errorMessage.value = ''
 

@@ -107,6 +107,9 @@ func (p *BatchImageProviderProcessor) Process(ctx context.Context, batchID strin
 	if status == nil {
 		return BatchImageProcessResult{RequeueAfter: p.requeueDelay(0)}, nil
 	}
+	if err := checkBatchImageLease(ctx); err != nil {
+		return BatchImageProcessResult{}, err
+	}
 	if err := p.persistProviderOutputRef(ctx, job, status.ProviderOutputRef); err != nil {
 		return BatchImageProcessResult{}, err
 	}
@@ -194,27 +197,14 @@ func (p *BatchImageProviderProcessor) indexAndSettle(ctx context.Context, job *B
 		if errors.Is(err, ErrBatchImageIndexStateConflict) {
 			return BatchImageProcessResult{RequeueAfter: time.Millisecond}, nil
 		}
-		code := "INDEX_PARSE_FAILED"
-		if errors.Is(err, ErrBatchImageDuplicateCustomID) {
-			code = "DUPLICATE_CUSTOM_ID_IN_OUTPUT"
-		}
-		msg := truncateBatchImageMessage(err.Error(), batchImageMaxErrorMessageLength)
-		transitionErr := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusFailed, BatchImageTransitionOptions{
-			EventType:    "indexing_failed",
-			EventPayload: map[string]any{"error_code": code},
-			ErrorCode:    batchImageStringPtr(code),
-			ErrorMessage: batchImageOptionalStringPtr(msg),
-		})
-		if transitionErr != nil {
-			return BatchImageProcessResult{}, transitionErr
-		}
-		job.Status = BatchImageJobStatusFailed
-		if err := p.releaseTerminalHold(ctx, job); err != nil {
-			return BatchImageProcessResult{}, err
-		}
-		return BatchImageProcessResult{Terminal: true}, nil
+		// Indexing errors (including DB outages) do not invalidate provider success.
+		// Keep the receipt and hold; a later worker can rebuild and settle the output.
+		return BatchImageProcessResult{}, err
 	}
 
+	if err := checkBatchImageLease(ctx); err != nil {
+		return BatchImageProcessResult{}, err
+	}
 	if err := p.Repo.TransitionBatchImageJobStatus(ctx, job.BatchID, BatchImageJobStatusSettling, BatchImageTransitionOptions{
 		EventType: "indexing_completed",
 		EventPayload: map[string]any{
@@ -409,6 +399,9 @@ func (i *BatchImageResultIndexer) Index(ctx context.Context, job *BatchImageJob,
 				zap.Error(err),
 			)
 		}
+	}
+	if err := checkBatchImageLease(ctx); err != nil {
+		return nil, err
 	}
 	if err := i.Repo.ReplaceBatchImageItemsForJob(ctx, job.BatchID, items, BatchImageCounts{
 		SuccessCount: result.SuccessCount,

@@ -464,6 +464,21 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 				}
 				_ = resp.Body.Close()
+				var failoverErr *UpstreamFailoverError
+				if result != nil && result.usage != nil && !errors.As(handleErr, &failoverErr) {
+					return &OpenAIForwardResult{
+						RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header,
+						ResponseID: result.responseID, Usage: *result.usage,
+						Model: reqModel, UpstreamModel: upstreamPassthroughModel,
+						UpstreamResponseModel:         observedUpstreamResponseModel(c),
+						UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+						UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+						ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, extractOpenAIServiceTierFromBody(body)),
+						ReasoningEffort:               reasoningEffort,
+						Stream:                        true, Duration: time.Since(startTime), FirstTokenMs: result.firstTokenMs,
+						ImageCount: result.imageCount, ImageOutputSizes: result.imageOutputSizes, ClientDisconnect: true,
+					}, handleErr
+				}
 				return nil, handleErr
 			}
 			usage = result.usage
@@ -719,6 +734,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 		req.Header.Set("content-type", "application/json")
 	}
 
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
+
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body)
@@ -728,6 +747,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http_passthrough", req.Header, body, "not_applicable")
 
+	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 
@@ -1073,9 +1095,10 @@ func openAIStreamClientOutputStarted(c *gin.Context, localStarted bool) bool {
 	return OpenAICompactKeepaliveAdjustedWrittenSize(c) >= 0
 }
 
-func openAIStreamEventIsPreamble(eventType string) bool {
+// Lifecycle metadata and transport heartbeats are not model output.
+func openAIStreamEventIsMetadata(eventType string) bool {
 	switch strings.TrimSpace(eventType) {
-	case "response.created", "response.in_progress":
+	case "response.created", "response.in_progress", "keepalive":
 		return true
 	default:
 		return false
@@ -1180,7 +1203,7 @@ func openAIStreamDataStartsClientOutput(data, eventType string) bool {
 	case "response.output_item.added", "response.content_part.added", "response.reasoning_summary_part.added":
 		return openAIStreamAddedEventStartsClientOutput([]byte(trimmed), eventType)
 	}
-	return !openAIStreamEventIsPreamble(eventType)
+	return !openAIStreamEventIsMetadata(eventType)
 }
 
 func openAIStreamItemHasVisibleOutput(item gjson.Result) bool {
@@ -1258,7 +1281,7 @@ func openAIStreamDataStartsSemanticTTFT(data, eventType string) bool {
 		payload := []byte(trimmed)
 		return !openAIStreamFailedEventShouldFailover(payload, extractOpenAISSEErrorMessage(payload))
 	default:
-		return !openAIStreamEventIsPreamble(eventType)
+		return !openAIStreamEventIsMetadata(eventType)
 	}
 }
 
@@ -1366,6 +1389,19 @@ func sanitizeOpenAICapacityShedErrorCodeForClient(payload []byte) ([]byte, bool)
 	return updated, changed
 }
 
+// openAIStreamErrorStatusPaths 覆盖流内 error / response.failed 事件里上游状态码的
+// 两种拼写：OpenAI 用 status_code，而不少 OpenAI 兼容上游（含二级中转）只写 status。
+// 只认 status_code 会把 401/403/429/529 一律降级成通用 502，账号健康与 failover
+// 判定随之失效。WS 路径的 openAIWSPayloadTransientStatus 早已同时读两种拼写。
+var openAIStreamErrorStatusPaths = []string{
+	"response.error.status_code",
+	"response.error.status",
+	"error.status_code",
+	"error.status",
+	"status_code",
+	"status",
+}
+
 func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
@@ -1377,7 +1413,7 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 		errType = strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "error.type").String()))
 	}
 	combined := strings.TrimSpace(errType + " " + code + " " + strings.ToLower(strings.TrimSpace(message)))
-	for _, path := range []string{"response.error.status_code", "error.status_code", "status_code"} {
+	for _, path := range openAIStreamErrorStatusPaths {
 		if status := int(gjson.GetBytes(payload, path).Int()); status == http.StatusUnauthorized ||
 			status == http.StatusForbidden || status == http.StatusTooManyRequests || status == 529 {
 			return status
@@ -1425,7 +1461,7 @@ func openAIStreamCredentialAuthFailure(payload []byte) bool {
 	if len(bytes.TrimSpace(payload)) == 0 || !gjson.ValidBytes(payload) {
 		return false
 	}
-	for _, path := range []string{"response.error.status_code", "error.status_code", "status_code"} {
+	for _, path := range openAIStreamErrorStatusPaths {
 		if int(gjson.GetBytes(payload, path).Int()) == http.StatusUnauthorized {
 			return true
 		}
@@ -1932,7 +1968,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		for _, pending := range pendingLines {
 			if _, err := fmt.Fprintln(w, pending); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				return false
 			}
 		}
@@ -1981,7 +2017,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 
-	for documentScanner.Scan() {
+	defer func() { _ = resp.Body.Close() }()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
+	defer stopCancellation()
+	for !clientDisconnected && ctx.Err() == nil && documentScanner.Scan() {
 		line := documentScanner.Text()
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
@@ -2025,6 +2064,18 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				}
 			}
 			eventType := effectiveOpenAISSEEventType(dataBytes, rawEventType)
+			if codexFailureTerminal && sawBareError && !sawResponseFailed &&
+				(eventType == "response.completed" || eventType == "response.done") {
+				// Match the standard stream path: a successful terminal supersedes
+				// a pending bare error and supplies the authoritative usage.
+				sawBareError = false
+				sawFailedEvent = false
+				responseFailedPending = false
+				suppressCurrentEvent = false
+				bareErrorPayload = nil
+				bareErrorAccountSideEffectsPending = false
+				failedMessage = ""
+			}
 			if codexFailureTerminal && sawBareError && !sawResponseFailed && eventType != "response.failed" {
 				suppressCurrentEvent = true
 			}
@@ -2186,7 +2237,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 			} else {
 				clientOutputStarted = true
 				flushPending = true
@@ -2199,7 +2250,16 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			responseFailedPending = false
 			failureDelivered = true
 		}
+		// A complete terminal frame ends the stream without waiting for EOF.
+		// Codex bare errors still need their later authoritative terminal/usage.
+		if (sawDone || sawTerminalEvent) && line == "" && (!codexFailureTerminal || !sawBareError) {
+			break
+		}
 	}
+	if clientDisconnected || ctx.Err() != nil {
+		return resultWithUsage(), context.Canceled
+	}
+
 	ensureResponseFailedTerminal()
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {

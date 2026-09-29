@@ -89,7 +89,7 @@ func (s *adminServiceImpl) CreateProxy(ctx context.Context, input *CreateProxyIn
 		return nil, err
 	}
 	// Probe latency asynchronously so creation isn't blocked by network timeout.
-	go s.probeProxyLatency(context.Background(), proxy)
+	AfterAccountWriteCommit(ctx, func() { go s.probeProxyLatency(context.Background(), proxy) })
 	return proxy, nil
 }
 
@@ -206,6 +206,81 @@ func (s *adminServiceImpl) BatchDeleteProxies(ctx context.Context, ids []int64) 
 
 func (s *adminServiceImpl) GetProxyAccounts(ctx context.Context, proxyID int64) ([]ProxyAccountSummary, error) {
 	return s.proxyRepo.ListAccountSummariesByProxyID(ctx, proxyID)
+}
+
+// proxyAccountStatusCounter / proxyUsageTotalsReader 由仓储层按状态计数与
+// 按代理汇总账本请求量；未实现时代理统计必须显式失败，而不是把未知写成 0。
+type proxyAccountStatusCounter interface {
+	CountAccountsByProxyIDAndStatus(ctx context.Context, proxyID int64, status string) (int64, error)
+}
+
+type proxyUsageTotalsReader interface {
+	GetProxyUsageTotals(ctx context.Context, proxyID int64) (*ProxyUsageTotals, error)
+}
+
+// GetProxyStats 汇总代理的真实观测：账号归属、账本请求量、最近一次真实探测
+// 或质量检查结果。代理从未探测过时相关字段留 nil，不用 0 / 100% 冒充观测。
+//
+// 两个扩展能力用窄接口探测：仓库未实现时显式失败，而不是把「启用中的账号」
+// 或「账本请求量」写成 0。
+func (s *adminServiceImpl) GetProxyStats(ctx context.Context, proxyID int64) (*ProxyStats, error) {
+	if _, err := s.proxyRepo.GetByID(ctx, proxyID); err != nil {
+		return nil, err
+	}
+
+	totalAccounts, err := s.proxyRepo.CountAccountsByProxyID(ctx, proxyID)
+	if err != nil {
+		return nil, fmt.Errorf("count proxy accounts: %w", err)
+	}
+	counter, ok := s.proxyRepo.(proxyAccountStatusCounter)
+	if !ok {
+		return nil, infraerrors.New(http.StatusInternalServerError,
+			"PROXY_ACCOUNT_STATUS_COUNT_UNAVAILABLE",
+			"proxy repository does not support status counts")
+	}
+	activeAccounts, err := counter.CountAccountsByProxyIDAndStatus(ctx, proxyID, StatusActive)
+	if err != nil {
+		return nil, fmt.Errorf("count active proxy accounts: %w", err)
+	}
+
+	stats := &ProxyStats{
+		ProxyID:        proxyID,
+		TotalAccounts:  totalAccounts,
+		ActiveAccounts: activeAccounts,
+	}
+
+	usageReader, ok := s.proxyRepo.(proxyUsageTotalsReader)
+	if !ok {
+		return nil, infraerrors.New(http.StatusInternalServerError,
+			"PROXY_USAGE_TOTALS_UNAVAILABLE",
+			"proxy repository does not support usage totals")
+	}
+	usage, err := usageReader.GetProxyUsageTotals(ctx, proxyID)
+	if err != nil {
+		return nil, fmt.Errorf("get proxy usage totals: %w", err)
+	}
+	stats.Usage = usage
+
+	// 探测观测来自延迟/质量缓存（TestProxy / CheckProxyQuality / 创建后异步探活写入）。
+	if s.proxyLatencyCache != nil {
+		cached, cacheErr := s.proxyLatencyCache.GetProxyLatencies(ctx, []int64{proxyID})
+		if cacheErr != nil {
+			logger.LegacyPrintf("service.admin", "Warning: load proxy latency cache failed: %v", cacheErr)
+		} else if info := cached[proxyID]; info != nil {
+			stats.AverageLatencyMs = info.LatencyMs
+			measuredAt := info.UpdatedAt
+			stats.MeasuredAt = &measuredAt
+			probeSuccess := info.Success
+			stats.ProbeSuccess = &probeSuccess
+			stats.QualityStatus = info.QualityStatus
+			stats.QualityScore = info.QualityScore
+			stats.QualityGrade = info.QualityGrade
+			stats.QualitySummary = info.QualitySummary
+			stats.QualityCheckedAt = info.QualityCheckedAt
+		}
+	}
+
+	return stats, nil
 }
 
 func (s *adminServiceImpl) CheckProxyExists(ctx context.Context, host string, port int, username, password string) (bool, error) {

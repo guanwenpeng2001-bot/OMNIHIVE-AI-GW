@@ -24,11 +24,15 @@ type APIKey struct {
 	CreatedAt time.Time `json:"created_at,omitempty"`
 	// UpdatedAt holds the value of the "updated_at" field.
 	UpdatedAt time.Time `json:"updated_at,omitempty"`
+	// WorkspaceID holds the value of the "workspace_id" field.
+	WorkspaceID int64 `json:"workspace_id,omitempty"`
 	// DeletedAt holds the value of the "deleted_at" field.
 	DeletedAt *time.Time `json:"deleted_at,omitempty"`
+	// Token budget per admission minute; zero is unlimited
+	TpmLimit int64 `json:"tpm_limit,omitempty"`
 	// UserID holds the value of the "user_id" field.
 	UserID int64 `json:"user_id,omitempty"`
-	// Key holds the value of the "key" field.
+	// Legacy plaintext credential; unused after the digest migration and never written for new keys
 	Key string `json:"key,omitempty"`
 	// Name holds the value of the "name" field.
 	Name string `json:"name,omitempty"`
@@ -80,9 +84,11 @@ type APIKeyEdges struct {
 	Group *Group `json:"group,omitempty"`
 	// UsageLogs holds the value of the usage_logs edge.
 	UsageLogs []*UsageLog `json:"usage_logs,omitempty"`
+	// Credentials holds the value of the credentials edge.
+	Credentials []*APIKeyCredential `json:"credentials,omitempty"`
 	// loadedTypes holds the information for reporting if a
 	// type was loaded (or requested) in eager-loading or not.
-	loadedTypes [3]bool
+	loadedTypes [4]bool
 }
 
 // UserOrErr returns the User value or an error if the edge
@@ -116,6 +122,15 @@ func (e APIKeyEdges) UsageLogsOrErr() ([]*UsageLog, error) {
 	return nil, &NotLoadedError{edge: "usage_logs"}
 }
 
+// CredentialsOrErr returns the Credentials value or an error if the edge
+// was not loaded in eager-loading.
+func (e APIKeyEdges) CredentialsOrErr() ([]*APIKeyCredential, error) {
+	if e.loadedTypes[3] {
+		return e.Credentials, nil
+	}
+	return nil, &NotLoadedError{edge: "credentials"}
+}
+
 // scanValues returns the types for scanning values from sql.Rows.
 func (*APIKey) scanValues(columns []string) ([]any, error) {
 	values := make([]any, len(columns))
@@ -125,7 +140,7 @@ func (*APIKey) scanValues(columns []string) ([]any, error) {
 			values[i] = new([]byte)
 		case apikey.FieldQuota, apikey.FieldQuotaUsed, apikey.FieldRateLimit5h, apikey.FieldRateLimit1d, apikey.FieldRateLimit7d, apikey.FieldUsage5h, apikey.FieldUsage1d, apikey.FieldUsage7d:
 			values[i] = new(sql.NullFloat64)
-		case apikey.FieldID, apikey.FieldUserID, apikey.FieldGroupID:
+		case apikey.FieldID, apikey.FieldWorkspaceID, apikey.FieldTpmLimit, apikey.FieldUserID, apikey.FieldGroupID:
 			values[i] = new(sql.NullInt64)
 		case apikey.FieldKey, apikey.FieldName, apikey.FieldStatus:
 			values[i] = new(sql.NullString)
@@ -164,12 +179,24 @@ func (_m *APIKey) assignValues(columns []string, values []any) error {
 			} else if value.Valid {
 				_m.UpdatedAt = value.Time
 			}
+		case apikey.FieldWorkspaceID:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field workspace_id", values[i])
+			} else if value.Valid {
+				_m.WorkspaceID = value.Int64
+			}
 		case apikey.FieldDeletedAt:
 			if value, ok := values[i].(*sql.NullTime); !ok {
 				return fmt.Errorf("unexpected type %T for field deleted_at", values[i])
 			} else if value.Valid {
 				_m.DeletedAt = new(time.Time)
 				*_m.DeletedAt = value.Time
+			}
+		case apikey.FieldTpmLimit:
+			if value, ok := values[i].(*sql.NullInt64); !ok {
+				return fmt.Errorf("unexpected type %T for field tpm_limit", values[i])
+			} else if value.Valid {
+				_m.TpmLimit = value.Int64
 			}
 		case apikey.FieldUserID:
 			if value, ok := values[i].(*sql.NullInt64); !ok {
@@ -329,6 +356,11 @@ func (_m *APIKey) QueryUsageLogs() *UsageLogQuery {
 	return NewAPIKeyClient(_m.config).QueryUsageLogs(_m)
 }
 
+// QueryCredentials queries the "credentials" edge of the APIKey entity.
+func (_m *APIKey) QueryCredentials() *APIKeyCredentialQuery {
+	return NewAPIKeyClient(_m.config).QueryCredentials(_m)
+}
+
 // Update returns a builder for updating this APIKey.
 // Note that you need to call APIKey.Unwrap() before calling this method if this APIKey
 // was returned from a transaction, and the transaction was committed or rolled back.
@@ -358,10 +390,16 @@ func (_m *APIKey) String() string {
 	builder.WriteString("updated_at=")
 	builder.WriteString(_m.UpdatedAt.Format(time.ANSIC))
 	builder.WriteString(", ")
+	builder.WriteString("workspace_id=")
+	builder.WriteString(fmt.Sprintf("%v", _m.WorkspaceID))
+	builder.WriteString(", ")
 	if v := _m.DeletedAt; v != nil {
 		builder.WriteString("deleted_at=")
 		builder.WriteString(v.Format(time.ANSIC))
 	}
+	builder.WriteString(", ")
+	builder.WriteString("tpm_limit=")
+	builder.WriteString(fmt.Sprintf("%v", _m.TpmLimit))
 	builder.WriteString(", ")
 	builder.WriteString("user_id=")
 	builder.WriteString(fmt.Sprintf("%v", _m.UserID))

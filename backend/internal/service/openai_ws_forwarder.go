@@ -262,6 +262,7 @@ type OpenAIWSIngressHooks struct {
 	ReasoningEffortMappings []ReasoningEffortMapping
 	TurnStarted             func(turn int, startedAt time.Time)
 	BeforeTurn              func(turn int) error
+	RequestPlan             func() *GatewayRequestPlan
 	BeforeRequest           func(turn int, payload []byte, originalModel string) error
 	// MapRequestModel resolves the current turn's client model to the model
 	// that must be written into the upstream response.create frame.
@@ -305,19 +306,6 @@ type OpenAIWSPerformanceMetricsSnapshot struct {
 	Pool      OpenAIWSPoolMetricsSnapshot      `json:"pool"`
 	Retry     OpenAIWSRetryMetricsSnapshot     `json:"retry"`
 	Transport OpenAIWSTransportMetricsSnapshot `json:"transport"`
-}
-
-func (s *OpenAIGatewayService) SnapshotOpenAIWSPerformanceMetrics() OpenAIWSPerformanceMetricsSnapshot {
-	pool := s.getOpenAIWSConnPool()
-	snapshot := OpenAIWSPerformanceMetricsSnapshot{
-		Retry: s.SnapshotOpenAIWSRetryMetrics(),
-	}
-	if pool == nil {
-		return snapshot
-	}
-	snapshot.Pool = pool.SnapshotMetrics()
-	snapshot.Transport = pool.SnapshotTransportMetrics()
-	return snapshot
 }
 
 func (s *OpenAIGatewayService) getOpenAIWSStateStore() OpenAIWSStateStore {

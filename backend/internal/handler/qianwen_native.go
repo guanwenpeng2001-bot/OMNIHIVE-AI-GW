@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -26,10 +27,44 @@ func (h *OpenAIGatewayHandler) QianwenNative(c *gin.Context) {
 	operation, ok := service.QianwenNativeOperationForPath(c.Request.URL.Path)
 	if !ok || c.Request.Method != http.MethodPost {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
-		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Unsupported DashScope operation; supported: text conversations, image/text conversations, synchronous Qwen image generation/editing on multimodal-generation")
+		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Unsupported DashScope operation; supported: text conversations, image/text conversations, synchronous Qwen image generation/editing on multimodal-generation, text embedding, text rerank, voice enrollment")
+		return
+	}
+	if operation == service.QianwenNativeRerank || operation == service.QianwenNativeEmbedding || operation == service.QianwenNativeVoiceEnrollment {
+		h.handleQianwenNativeSyncResource(c, operation)
 		return
 	}
 	h.chatCompletions(c, operation)
+}
+
+// qianwenNativeResourceAuditText exposes rerank queries/documents, embedding
+// texts and voice enrollment transcripts to the moderation view. Original
+// native JSON remains the upstream request body.
+func qianwenNativeResourceAuditText(body []byte) (string, bool) {
+	if query := gjson.GetBytes(body, "input.query"); query.Type == gjson.String && query.String() != "" {
+		documents := []string{}
+		gjson.GetBytes(body, "input.documents").ForEach(func(_, doc gjson.Result) bool {
+			if doc.Type == gjson.String {
+				documents = append(documents, doc.String())
+			}
+			return true
+		})
+		return strings.Join(append([]string{query.String()}, documents...), "\n"), true
+	}
+	texts := []string{}
+	gjson.GetBytes(body, "input.texts").ForEach(func(_, text gjson.Result) bool {
+		if text.Type == gjson.String {
+			texts = append(texts, text.String())
+		}
+		return true
+	})
+	if len(texts) > 0 {
+		return strings.Join(texts, "\n"), true
+	}
+	if text := gjson.GetBytes(body, "input.text"); text.Type == gjson.String && text.String() != "" {
+		return text.String(), true
+	}
+	return "", false
 }
 
 // Only the audit view uses Chat-shaped content. Forwarding retains native JSON.
@@ -43,7 +78,7 @@ func qianwenNativeAuditBody(body []byte) []byte {
 	var messages []any
 	gjson.GetBytes(body, "input.messages").ForEach(func(_, message gjson.Result) bool {
 		content := message.Get("content")
-		var value any = content.Value()
+		value := content.Value()
 		if content.IsArray() {
 			parts := []any{}
 			content.ForEach(func(_, part gjson.Result) bool {
@@ -62,6 +97,11 @@ func qianwenNativeAuditBody(body []byte) []byte {
 	})
 	if len(messages) == 0 {
 		if text, ok := service.QianwenNativeAudioAuditText(body); ok {
+			messages = append(messages, gin.H{"role": "user", "content": text})
+		}
+	}
+	if len(messages) == 0 {
+		if text, ok := qianwenNativeResourceAuditText(body); ok {
 			messages = append(messages, gin.H{"role": "user", "content": text})
 		}
 	}

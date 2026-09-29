@@ -18,6 +18,8 @@ const (
 	BetaTokenCounting            = "token-counting-2024-11-01"
 	BetaContext1M                = "context-1m-2025-08-07"
 	BetaFastMode                 = "fast-mode-2026-02-01"
+	// Legacy structured output compatibility; forwarded only when explicitly requested.
+	BetaStructuredOutputs = "structured-outputs-2025-11-13"
 
 	// 新增（对齐官方 CLI 2.1.9x 以来的流量）
 	BetaPromptCachingScope          = "prompt-caching-scope-2026-01-05"
@@ -131,85 +133,6 @@ type Model struct {
 	Type        string `json:"type"`
 	DisplayName string `json:"display_name"`
 	CreatedAt   string `json:"created_at"`
-}
-
-// DefaultModels Claude Code 客户端支持的默认模型列表
-var DefaultModels = []Model{
-	{
-		ID:          "claude-fable-5-1",
-		Type:        "model",
-		DisplayName: "Claude Fable 5.1",
-		CreatedAt:   "2026-09-01T00:00:00Z",
-	},
-	{
-		ID:          "claude-fable-5",
-		Type:        "model",
-		DisplayName: "Claude Fable 5",
-		CreatedAt:   "2026-06-09T00:00:00Z",
-	},
-	{
-		ID:          "claude-opus-4-5-20251101",
-		Type:        "model",
-		DisplayName: "Claude Opus 4.5",
-		CreatedAt:   "2025-11-01T00:00:00Z",
-	},
-	{
-		ID:          "claude-opus-4-6",
-		Type:        "model",
-		DisplayName: "Claude Opus 4.6",
-		CreatedAt:   "2026-02-06T00:00:00Z",
-	},
-	{
-		ID:          "claude-opus-4-7",
-		Type:        "model",
-		DisplayName: "Claude Opus 4.7",
-		CreatedAt:   "2026-04-17T00:00:00Z",
-	},
-	{
-		ID:          "claude-opus-4-8",
-		Type:        "model",
-		DisplayName: "Claude Opus 4.8",
-		CreatedAt:   "2026-05-29T00:00:00Z",
-	},
-	{
-		ID:          "claude-opus-5",
-		Type:        "model",
-		DisplayName: "Claude Opus 5",
-		CreatedAt:   "2026-07-25T00:00:00Z",
-	},
-	{
-		ID:          "claude-sonnet-5",
-		Type:        "model",
-		DisplayName: "Claude Sonnet 5",
-		CreatedAt:   "2026-07-01T00:00:00Z",
-	},
-	{
-		ID:          "claude-sonnet-4-6",
-		Type:        "model",
-		DisplayName: "Claude Sonnet 4.6",
-		CreatedAt:   "2026-02-18T00:00:00Z",
-	},
-	{
-		ID:          "claude-sonnet-4-5-20250929",
-		Type:        "model",
-		DisplayName: "Claude Sonnet 4.5",
-		CreatedAt:   "2025-09-29T00:00:00Z",
-	},
-	{
-		ID:          "claude-haiku-4-5-20251001",
-		Type:        "model",
-		DisplayName: "Claude Haiku 4.5",
-		CreatedAt:   "2025-10-01T00:00:00Z",
-	},
-}
-
-// DefaultModelIDs 返回默认模型的 ID 列表
-func DefaultModelIDs() []string {
-	ids := make([]string, len(DefaultModels))
-	for i, m := range DefaultModels {
-		ids[i] = m.ID
-	}
-	return ids
 }
 
 // DefaultTestModel 测试时使用的默认模型

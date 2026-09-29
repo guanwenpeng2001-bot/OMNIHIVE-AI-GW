@@ -16,7 +16,6 @@ func ProvideAdminHandlers(
 	groupHandler *admin.GroupHandler,
 	accountHandler *admin.AccountHandler,
 	announcementHandler *admin.AnnouncementHandler,
-	dataManagementHandler *admin.DataManagementHandler,
 	backupHandler *admin.BackupHandler,
 	oauthHandler *admin.OAuthHandler,
 	openaiOAuthHandler *admin.OpenAIOAuthHandler,
@@ -47,9 +46,18 @@ func ProvideAdminHandlers(
 	affiliateHandler *admin.AffiliateHandler,
 	complianceHandler *admin.ComplianceHandler,
 	auditLogHandler *admin.AuditLogHandler,
+	credentialSecretHandler *admin.CredentialSecretHandler,
 	upstreamBillingProbe *service.UpstreamBillingProbeService,
 	ollamaCloudUsage *service.OllamaCloudUsageService,
+	authService *service.AuthService,
 ) *AdminHandlers {
+	credentialDrafts, _ := authService.PendingIdentityService()
+	accountHandler.SetCredentialDraftService(credentialDrafts)
+	oauthHandler.SetCredentialDraftService(credentialDrafts)
+	openaiOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	geminiOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	antigravityOAuthHandler.SetCredentialDraftService(credentialDrafts)
+	grokOAuthHandler.SetCredentialDraftService(credentialDrafts)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	return &AdminHandlers{
@@ -58,7 +66,6 @@ func ProvideAdminHandlers(
 		Group:                  groupHandler,
 		Account:                accountHandler,
 		Announcement:           announcementHandler,
-		DataManagement:         dataManagementHandler,
 		Backup:                 backupHandler,
 		OAuth:                  oauthHandler,
 		OpenAIOAuth:            openaiOAuthHandler,
@@ -89,6 +96,7 @@ func ProvideAdminHandlers(
 		Affiliate:              affiliateHandler,
 		Compliance:             complianceHandler,
 		AuditLog:               auditLogHandler,
+		CredentialSecret:       credentialSecretHandler,
 	}
 }
 
@@ -177,6 +185,8 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	modelAccessHandler *ModelAccessHandler,
+	workspaceHandler *WorkspaceHandler,
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
 	apiKeyHandler *APIKeyHandler,
@@ -198,11 +208,14 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	resourceHandler *GatewayResourceHandler,
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		ModelAccess:      modelAccessHandler,
+		Workspace:        workspaceHandler,
 		Auth:             authHandler,
 		User:             userHandler,
 		APIKey:           apiKeyHandler,
@@ -224,14 +237,17 @@ func ProvideHandlers(
 		ModelPlaza:       modelPlazaHandler,
 		AsyncImage:       asyncImageHandler,
 		BatchImage:       batchImageHandler,
+		Resource:         resourceHandler,
 	}
 }
 
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
 	// Top-level handlers
-	NewAuthHandler,
+	ProvideAuthHandler,
 	NewUserHandler,
+	NewModelAccessHandler,
+	NewWorkspaceHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
 	NewRedeemHandler,
@@ -250,6 +266,7 @@ var ProviderSet = wire.NewSet(
 	NewModelPlazaHandler,
 	NewAsyncImageHandler,
 	ProvideBatchImageHandler,
+	NewGatewayResourceHandler,
 
 	// Admin handlers
 	admin.NewDashboardHandler,
@@ -257,7 +274,6 @@ var ProviderSet = wire.NewSet(
 	admin.NewGroupHandlerWithConfig,
 	admin.ProvideAccountHandler,
 	admin.NewAnnouncementHandler,
-	admin.NewDataManagementHandler,
 	admin.NewBackupHandler,
 	admin.NewOAuthHandler,
 	admin.NewOpenAIOAuthHandler,
@@ -287,6 +303,7 @@ var ProviderSet = wire.NewSet(
 	admin.NewAffiliateHandler,
 	admin.NewComplianceHandler,
 	admin.NewAuditLogHandler,
+	admin.NewCredentialSecretHandler,
 
 	// AdminHandlers and Handlers constructors
 	ProvideAdminHandlers,

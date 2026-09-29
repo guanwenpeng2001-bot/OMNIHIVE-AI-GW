@@ -23,6 +23,87 @@ func newSchedulerCacheUnit(t *testing.T) *schedulerCache {
 	return cache
 }
 
+func TestSchedulerSnapshotPreservesCatalogBindingAndRevocation(t *testing.T) {
+	ctx := context.Background()
+	cache := newSchedulerCacheUnit(t)
+	account := service.Account{
+		ID: 51, Platform: service.PlatformDeepseek, Type: service.AccountTypeAPIKey,
+		Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"public": "deepseek-coder"},
+			"base_url":      "https://api.deepseek.com", "api_protocol": "chat_completions", "account_mode": "payg",
+		},
+		Extra: map[string]any{
+			service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2},
+			service.UpstreamModelCatalogExtraKey: service.AccountModelCatalogSnapshot{
+				LegacyAccountID: 51, Complete: true, IdentityRevision: 3, RulesRevision: 2,
+				SourceKind: "legacy-mapping-upgrade", DiscoveryScope: "legacy-mapping-upgrade", ObservedAt: "2026-09-20T00:00:00Z",
+				EligibleModels: []service.AccountCatalogModel{{ID: "deepseek-coder", Endpoints: []string{}, EvidenceKind: "legacy-mapping-upgrade", EvidenceObservedAt: "2026-09-20T00:00:00Z"}},
+			},
+		},
+	}
+	bucket := service.SchedulerBucket{GroupID: 10, Platform: account.Platform, Mode: service.SchedulerModeSingle}
+	token, err := cache.CaptureBucketWriteToken(ctx, bucket)
+	require.NoError(t, err)
+	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{account}))
+	read := func() *service.Account {
+		t.Helper()
+		accounts, hit, err := cache.GetSnapshot(ctx, bucket)
+		require.NoError(t, err)
+		require.True(t, hit)
+		require.Len(t, accounts, 1)
+		return accounts[0]
+	}
+	options := service.AccountModelBindingOptions{Endpoint: "chat_completions"}
+	require.True(t, service.AccountSupportsResolvedModel(ctx, &account, "public", options))
+	projected := read()
+	require.Equal(t, []string{"chat_completions"}, projected.GetUpstreamModelCatalog().EligibleModels[0].Endpoints)
+	require.True(t, service.AccountSupportsResolvedModel(ctx, projected, "public", options))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "unseeded", options))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, projected, "public", service.AccountModelBindingOptions{Endpoint: "embeddings"}))
+
+	account.Extra[service.UpstreamModelAllowlistExtraKey] = service.AccountModelAllowlist{Enabled: true, Models: []string{"other"}}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "snapshot refresh must retain allowlist denial")
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 4, RulesRevision: 2}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "snapshot refresh must retain identity revocation")
+	account.Extra[service.UpstreamModelCatalogStateExtraKey] = service.AccountModelCatalogState{IdentityRevision: 3, RulesRevision: 2}
+	account.Extra[service.UpstreamModelMetadataExtraKey] = service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"deepseek-coder": {SupportedMethods: []string{}}}}
+	require.NoError(t, cache.SetAccount(ctx, &account))
+	require.False(t, service.AccountSupportsResolvedModel(ctx, read(), "public", options), "explicit empty model methods must not fall back to legacy text endpoints")
+}
+
+func TestSchedulerProjectionPreservesCatalogInputs(t *testing.T) {
+	account := service.Account{
+		ID: 51, Platform: service.PlatformCommandCode, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{"public": "private-model"},
+			"base_url":      "https://private.example/v1", "api_base_urls": map[string]any{"responses": "https://private.example/responses"},
+			"account_mode": "coding", "api_protocol": "adaptive", "protocol_rules": []any{map[string]any{"pattern": "private-*", "protocol": "anthropic"}},
+			"openai_capabilities": []string{"chat_completions"},
+		},
+		Extra: map[string]any{
+			service.UpstreamModelCatalogExtraKey:      service.AccountModelCatalogSnapshot{Complete: true},
+			service.UpstreamModelCatalogStateExtraKey: service.AccountModelCatalogState{IdentityRevision: 7, RulesRevision: 8},
+			service.UpstreamModelAllowlistExtraKey:    service.AccountModelAllowlist{Enabled: true},
+			service.UpstreamModelMetadataExtraKey:     service.UpstreamModelMetadataSnapshot{Models: map[string]service.UpstreamModelMetadata{"private-model": {SupportedMethods: []string{"messages"}}}},
+			service.ModelAvailabilityExtraKey:         []service.ModelAvailabilityDeclaration{{AccountID: 51, Model: "private-model", Endpoint: "messages", IdentityRevision: 7, RulesRevision: 8, ConfirmedBy: 1, Reason: "operator declaration", ConfirmedAt: time.Now().Add(-time.Minute), EvidenceKind: service.ModelEvidenceAdministrator}},
+		},
+	}
+	delete(account.Extra, service.UpstreamModelAllowlistExtraKey)
+	projected := buildSchedulerMetadataAccount(account)
+	actual, err := json.Marshal(projected)
+	require.NoError(t, err)
+	var restored service.Account
+	require.NoError(t, json.Unmarshal(actual, &restored))
+	options := service.AccountModelBindingOptions{Endpoint: "responses"}
+	require.True(t, service.AccountSupportsResolvedModel(context.Background(), &account, "public", options))
+	require.True(t, service.AccountSupportsResolvedModel(context.Background(), &restored, "public", options), "availability evidence and custom native protocol must survive projection")
+	require.False(t, service.AccountSupportsResolvedModel(context.Background(), &restored, "public", service.AccountModelBindingOptions{Endpoint: "embeddings"}))
+}
+
 func newSchedulerCacheUnitWithRedis(t *testing.T) (*schedulerCache, *miniredis.Miniredis) {
 	t.Helper()
 	mr := miniredis.RunT(t)
@@ -444,6 +525,47 @@ func TestBuildSchedulerMetadataAccount_KeepsQuotaAutoPauseFields(t *testing.T) {
 	require.Equal(t, 0.96, got.Extra["auto_pause_7d_threshold"])
 	require.Equal(t, true, got.Extra["auto_pause_5h_disabled"])
 	require.Equal(t, false, got.Extra["auto_pause_7d_disabled"])
+}
+
+// 候选过滤读的是 Redis 元数据投影；自动用卡的开关、阈值和卡状态缺失时，
+// 卡可用的 OpenAI 号会在暂停阈值处被一刀切停调，放行到用卡阈值的逻辑永远不生效。
+func TestSchedulerMetadataPayload_KeepsOpenAIAutoResetCreditFields(t *testing.T) {
+	checkedAt := time.Now().UTC().Format(time.RFC3339)
+	account := service.Account{
+		ID:          40,
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeOAuth,
+		Status:      service.StatusActive,
+		Schedulable: true,
+		Extra: map[string]any{
+			"codex_7d_used_percent":                          90.0,
+			service.OpenAIAutoResetCreditEnabledExtraKey:     true,
+			service.OpenAIAutoResetCredit5hThresholdExtraKey: 0.95,
+			service.OpenAIAutoResetCredit7dThresholdExtraKey: 0.98,
+			service.OpenAIAutoResetCreditStateExtraKey: map[string]any{
+				"status":          service.OpenAIAutoResetStatusAvailable,
+				"available_count": 3,
+				"checked_at":      checkedAt,
+				"trigger_window":  "7d",
+			},
+		},
+	}
+
+	_, metaPayload, err := marshalSchedulerCacheAccount(account)
+	require.NoError(t, err)
+	var cached service.Account
+	require.NoError(t, json.Unmarshal(metaPayload, &cached))
+
+	config := service.ResolveOpenAIAutoResetCreditConfig(&cached)
+	require.True(t, config.Enabled)
+	require.Equal(t, 0.95, config.Threshold5h)
+	require.Equal(t, 0.98, config.Threshold7d)
+
+	state, ok := cached.Extra[service.OpenAIAutoResetCreditStateExtraKey].(map[string]any)
+	require.True(t, ok, "卡状态必须进入调度投影")
+	require.Equal(t, service.OpenAIAutoResetStatusAvailable, state["status"])
+	require.EqualValues(t, 3, state["available_count"])
+	require.Equal(t, checkedAt, state["checked_at"])
 }
 
 func TestBuildSchedulerMetadataAccount_KeepsQuotaStateForCachedAccounts(t *testing.T) {
@@ -1120,4 +1242,68 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIPassthroughForModelGate(t *tes
 			require.Equal(t, map[string]any{"gpt-5.5": "gpt-5.5"}, restored.Credentials["model_mapping"])
 		})
 	}
+}
+
+// 调度投影必须保留账号的 RPM 配置。
+//
+// 候选过滤走 ListSchedulableAccounts，读的是 buildSchedulerMetadataAccount 产出的精简投影；
+// isAccountSchedulableForRPM 靠 extra 上的 base_rpm 判定，缺失时 GetBaseRPM() 返回 0，
+// baseRPM <= 0 直接放行，已配置限流的账号在选号阶段被当作未开启 RPM（#7225）。
+// rpm_strategy / rpm_sticky_buffer 同理：只保留 base_rpm 会让三区判定退回默认值，
+// 红区（不可调度）被误判成黄区（仅粘性），超额请求照样被转发。
+func TestBuildSchedulerMetadataAccount_KeepsRPMFieldsForRPMGate(t *testing.T) {
+	newAccount := func(extra map[string]any) service.Account {
+		return service.Account{
+			ID:       7225,
+			Platform: service.PlatformAnthropic,
+			Type:     service.AccountTypeOAuth,
+			Extra:    extra,
+		}
+	}
+	roundTrip := func(t *testing.T, account service.Account) service.Account {
+		t.Helper()
+		// 走一遍真实的序列化/反序列化路径（写入 sched:meta 再由 decodeCachedAccount 读回）。
+		payload, err := json.Marshal(buildSchedulerMetadataAccount(account))
+		require.NoError(t, err)
+		var restored service.Account
+		require.NoError(t, json.Unmarshal(payload, &restored))
+		return restored
+	}
+
+	t.Run("tiered", func(t *testing.T) {
+		account := newAccount(map[string]any{
+			"base_rpm":          1,
+			"rpm_strategy":      "tiered",
+			"rpm_sticky_buffer": 1,
+		})
+		require.Equal(t, service.WindowCostNotSchedulable, account.CheckRPMSchedulability(2),
+			"前置条件：base_rpm=1 + 缓冲 1，当前 2 次已进红区")
+
+		restored := roundTrip(t, account)
+
+		require.Equal(t, 1, restored.GetBaseRPM())
+		require.Equal(t, "tiered", restored.GetRPMStrategy())
+		require.Equal(t, 1, restored.GetRPMStickyBuffer())
+		require.Equal(t, service.WindowCostSchedulable, restored.CheckRPMSchedulability(0))
+		require.Equal(t, service.WindowCostStickyOnly, restored.CheckRPMSchedulability(1),
+			"base_rpm=1 must reject a second non-sticky request in the same minute")
+		require.Equal(t, service.WindowCostNotSchedulable, restored.CheckRPMSchedulability(2),
+			"投影裁掉 RPM 配置会让已配置限流的账号在候选过滤阶段被放行")
+	})
+
+	t.Run("sticky_exempt", func(t *testing.T) {
+		account := newAccount(map[string]any{
+			"base_rpm":     10,
+			"rpm_strategy": "sticky_exempt",
+		})
+		require.Equal(t, service.WindowCostStickyOnly, account.CheckRPMSchedulability(100),
+			"前置条件：粘性豁免策略没有红区")
+
+		restored := roundTrip(t, account)
+
+		require.Equal(t, 10, restored.GetBaseRPM())
+		require.Equal(t, "sticky_exempt", restored.GetRPMStrategy())
+		require.Equal(t, service.WindowCostStickyOnly, restored.CheckRPMSchedulability(100),
+			"投影裁掉 rpm_strategy 会让粘性豁免账号退回三区判定")
+	})
 }

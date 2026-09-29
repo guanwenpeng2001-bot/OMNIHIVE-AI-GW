@@ -63,11 +63,8 @@ func openAIImagesJSONResponse() *http.Response {
 	}
 }
 
-// issue #5411：生图是长耗时、上游侧已经产生实际成本的操作。客户端中途断开时，
-// 如果连带取消上游请求，就会出现「上游已出图并计费、网关记 502 context canceled、
-// 用户不扣费」。非流式路径以前走 detachStreamUpstreamContext(ctx, false)，
-// 该函数在非流式时原样返回请求 context，因此不脱钩。
-func TestForwardOpenAIImagesAPIKey_NonStreamDetachesUpstreamContext(t *testing.T) {
+// Cancellation prevents generation; only already-observed billing evidence survives.
+func TestForwardOpenAIImagesAPIKey_NonStreamHonorsCancellation(t *testing.T) {
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","response_format":"b64_json"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 
@@ -83,17 +80,12 @@ func TestForwardOpenAIImagesAPIKey_NonStreamDetachesUpstreamContext(t *testing.T
 
 	result, err := svc.ForwardImages(ctx, c, newOpenAIImagesAPIKeyAccount(), body, parsed, "")
 
-	require.NoError(t, err, "客户端断开不应把已在出图的上游调用打断成 context canceled")
-	require.NotNil(t, result)
-	require.Equal(t, 1, result.ImageCount, "图片已产出，必须带回结果供计费")
-
-	require.NotNil(t, recorder.lastReq)
-	require.NoError(t, recorder.lastReq.Context().Err(),
-		"交给上游的请求 context 必须已脱钩，不随客户端断开取消")
+	require.Error(t, err)
+	require.Nil(t, result)
+	require.Nil(t, recorder.lastReq, "canceled requests must not start generation")
 }
 
-// 流式路径本来就脱钩，这条守卫防止对齐时把它改坏。
-func TestForwardOpenAIImagesAPIKey_StreamKeepsDetachedUpstreamContext(t *testing.T) {
+func TestForwardOpenAIImagesAPIKey_StreamHonorsCancellation(t *testing.T) {
 	body := []byte(`{"model":"gpt-image-2","prompt":"draw a cat","stream":true,"response_format":"b64_json"}`)
 	c, _ := newOpenAIImagesTestContext(t, body)
 
@@ -120,19 +112,16 @@ func TestForwardOpenAIImagesAPIKey_StreamKeepsDetachedUpstreamContext(t *testing
 
 	_, _ = svc.ForwardImages(ctx, c, newOpenAIImagesAPIKeyAccount(), body, parsed, "")
 
-	require.NotNil(t, recorder.lastReq)
-	require.NoError(t, recorder.lastReq.Context().Err(),
-		"流式路径原本就脱钩，不能被改回随客户端取消")
+	require.Nil(t, recorder.lastReq, "canceled requests must not start generation")
 }
 
-// 两个 detach 辅助函数的语义差异是本次修复的根据，锁死它们防止被悄悄改动。
 func TestDetachUpstreamContextSemantics(t *testing.T) {
-	t.Run("detachUpstreamContext_always_detaches", func(t *testing.T) {
+	t.Run("detachUpstreamContext_propagates_cancel", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		detached, release := detachUpstreamContext(ctx)
 		defer release()
-		require.NoError(t, detached.Err())
+		require.ErrorIs(t, detached.Err(), context.Canceled)
 	})
 
 	t.Run("detachStreamUpstreamContext_keeps_cancel_when_not_streaming", func(t *testing.T) {
@@ -140,15 +129,14 @@ func TestDetachUpstreamContextSemantics(t *testing.T) {
 		cancel()
 		same, release := detachStreamUpstreamContext(ctx, false)
 		defer release()
-		require.ErrorIs(t, same.Err(), context.Canceled,
-			"非流式时该函数原样返回请求 context —— 生图路径不能用它")
+		require.ErrorIs(t, same.Err(), context.Canceled)
 	})
 
-	t.Run("detachStreamUpstreamContext_detaches_when_streaming", func(t *testing.T) {
+	t.Run("detachStreamUpstreamContext_propagates_cancel_when_streaming", func(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		cancel()
 		detached, release := detachStreamUpstreamContext(ctx, true)
 		defer release()
-		require.NoError(t, detached.Err())
+		require.ErrorIs(t, detached.Err(), context.Canceled)
 	})
 }

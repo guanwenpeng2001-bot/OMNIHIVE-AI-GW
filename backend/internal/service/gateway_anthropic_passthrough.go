@@ -20,7 +20,6 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
-	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -109,7 +108,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			input.Body = input.Parsed.Body.Bytes()
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+		resp, err = s.doModelCheckedUpstream(upstreamReq, proxyURL, account, "", s.tlsFPProfileService.ResolveTLSProfile(account))
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -495,8 +494,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 	inPartialEvent := false
 
+	defer func() { _ = resp.Body.Close() }()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
@@ -534,11 +539,14 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				if rejected := anthropicStreamRejectionFailover(c, trimmed); rejected != nil {
+					return nil, rejected
+				}
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
+				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" && !IsStreamHeartbeatData(trimmed) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
@@ -554,10 +562,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if line == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
@@ -597,7 +605,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			}
 			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.gateway", "[Anthropic passthrough] Client disconnected during keepalive ping, canceling upstream with observed usage: account=%d", account.ID)
 				continue
 			}
 			flusher.Flush()
@@ -811,16 +819,14 @@ func invalidNonStreamingJSONFailoverError(
 
 	accountID := int64(0)
 	accountName := ""
-	retryableOnSameAccount := false
 	if account != nil {
 		accountID = account.ID
 		accountName = account.Name
-		retryableOnSameAccount = account.IsPoolMode() && account.IsPoolModeRetryableStatus(statusCode)
 	}
 
 	logger.LegacyPrintf(
 		"service.gateway",
-		"Account %d(%s): upstream returned non-JSON 2xx response, attempting failover: status=%d request_id=%s error=%v",
+		"Account %d(%s): upstream returned non-JSON 2xx response, replay forbidden: status=%d request_id=%s error=%v",
 		accountID,
 		accountName,
 		resp.StatusCode,
@@ -837,10 +843,10 @@ func invalidNonStreamingJSONFailoverError(
 	}
 
 	return &UpstreamFailoverError{
-		StatusCode:             statusCode,
-		ResponseBody:           body,
-		ResponseHeaders:        resp.Header,
-		RetryableOnSameAccount: retryableOnSameAccount,
+		StatusCode:        statusCode,
+		ResponseBody:      body,
+		ResponseHeaders:   resp.Header,
+		NextAccountAction: NextAccountStop,
 	}
 }
 
@@ -872,12 +878,6 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
-	if IsForceCacheBilling(ctx) && usage.InputTokens > 0 {
-		body, err = classifyAnthropicResponseInputAsCacheRead(body, usage)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -887,18 +887,6 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil
-}
-
-func classifyAnthropicResponseInputAsCacheRead(body []byte, usage *ClaudeUsage) ([]byte, error) {
-	classified, err := sjson.SetBytes(body, "usage.input_tokens", 0)
-	if err != nil {
-		return nil, fmt.Errorf("classify forced cache billing input tokens: %w", err)
-	}
-	classified, err = sjson.SetBytes(classified, "usage.cache_read_input_tokens", usage.CacheReadInputTokens+usage.InputTokens)
-	if err != nil {
-		return nil, fmt.Errorf("classify forced cache billing cache read tokens: %w", err)
-	}
-	return classified, nil
 }
 
 func writeAnthropicPassthroughResponseHeaders(dst http.Header, src http.Header, filter *responseheaders.CompiledHeaderFilter) {

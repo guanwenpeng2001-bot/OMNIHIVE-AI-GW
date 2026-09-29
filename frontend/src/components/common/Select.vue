@@ -6,35 +6,26 @@
       @click="toggle"
       :disabled="disabled"
       :aria-expanded="isOpen"
-      :aria-haspopup="true"
+      aria-haspopup="listbox"
+      :aria-controls="`${instanceId}-listbox`"
       :id="id"
-      :aria-label="ariaLabel ?? 'Select option'"
+      :aria-label="ariaLabelledby ? undefined : `${fieldLabel}: ${selectedLabel}`"
+      :aria-labelledby="ariaLabelledby ? `${ariaLabelledby} ${instanceId}-value` : undefined"
       :aria-describedby="ariaDescribedby"
+      :aria-invalid="error || undefined"
       :class="[
         'select-trigger',
+        clearable && hasValue && !disabled && 'select-trigger-clearable',
         isOpen && 'select-trigger-open',
         error && 'select-trigger-error',
         disabled && 'select-trigger-disabled'
       ]"
-      @keydown.down.prevent="onTriggerKeyDown"
-      @keydown.up.prevent="onTriggerKeyDown"
+      @keydown="onTriggerKeyDown"
     >
-      <span class="select-value">
+      <span :id="`${instanceId}-value`" class="select-value">
         <slot name="selected" :option="selectedOption">
           {{ selectedLabel }}
         </slot>
-      </span>
-      <span
-        v-if="clearable && hasValue && !disabled"
-        class="select-clear"
-        role="button"
-        tabindex="-1"
-        aria-label="Clear selection"
-        @click.stop="clearSelection"
-        @mousedown.stop
-        @keydown.enter.stop.prevent="clearSelection"
-      >
-        <Icon name="x" size="sm" />
       </span>
       <span class="select-icon">
         <Icon
@@ -43,6 +34,17 @@
           :class="['transition-transform duration-200', isOpen && 'rotate-180']"
         />
       </span>
+    </button>
+    <button
+      v-if="clearable && hasValue && !disabled"
+      type="button"
+      class="select-clear"
+      :aria-label="ariaLabelledby ? undefined : `${t('common.clear')}: ${fieldLabel}`"
+      :aria-labelledby="ariaLabelledby ? `${instanceId}-clear-label ${ariaLabelledby}` : undefined"
+      @click="clearSelection"
+    >
+      <span :id="`${instanceId}-clear-label`" class="sr-only">{{ t('common.clear') }}</span>
+      <Icon name="x" size="sm" />
     </button>
 
     <!-- Teleport dropdown to body to escape stacking context -->
@@ -54,7 +56,8 @@
           class="select-dropdown-portal"
           :class="[instanceId]"
           :style="dropdownStyle"
-          role="listbox"
+          :data-dialog-owner="dialogOwner"
+          :data-select-open="isOpen"
           @click.stop
           @mousedown.stop
           @keydown="onDropdownKeyDown"
@@ -67,18 +70,27 @@
               v-model="searchQuery"
               type="text"
               :placeholder="searchPlaceholderText"
-              :aria-label="searchPlaceholderText"
+              :aria-label="ariaLabelledby ? undefined : `${fieldLabel}: ${searchPlaceholderText}`"
+              :aria-labelledby="ariaLabelledby"
+              role="combobox"
+              aria-autocomplete="list"
+              :aria-expanded="isOpen"
+              :aria-controls="`${instanceId}-listbox`"
+              :aria-activedescendant="focusedIndex >= 0 ? `${instanceId}-option-${focusedIndex}` : undefined"
               class="select-search-input"
               @click.stop
             />
           </div>
 
           <!-- Options list -->
-          <div class="select-options" ref="optionsListRef">
+          <div class="select-options" ref="optionsListRef" role="listbox" tabindex="-1"
+            :id="`${instanceId}-listbox`" :aria-label="ariaLabelledby ? undefined : fieldLabel"
+            :aria-labelledby="ariaLabelledby" :aria-activedescendant="focusedIndex >= 0 ? `${instanceId}-option-${focusedIndex}` : undefined">
             <div
               v-for="(option, index) in filteredOptions"
               :key="`${typeof getOptionValue(option)}:${String(getOptionValue(option) ?? '')}`"
               role="option"
+              :id="`${instanceId}-option-${index}`"
               :aria-selected="isSelected(option)"
               :aria-disabled="isOptionDisabled(option)"
               @click.stop="!isOptionDisabled(option) && selectOption(option)"
@@ -110,7 +122,7 @@
             </div>
 
             <!-- Empty state -->
-            <div v-if="filteredOptions.length === 0" class="select-empty">
+            <div v-if="filteredOptions.length === 0" class="select-empty" role="status">
               {{ props.loading ? t('common.loading') : emptyTextDisplay }}
             </div>
           </div>
@@ -152,6 +164,8 @@ interface Props {
   creatablePrefix?: string
   clearable?: boolean
   id?: string
+  label?: string
+  ariaLabelledby?: string
   ariaLabel?: string
   ariaDescribedby?: string
   /** 远程搜索模式：输入不在本地过滤 options，而是防抖后 emit('search', query)，由父组件请求数据更新 options */
@@ -182,6 +196,7 @@ const props = withDefaults(defineProps<Props>(), {
 const emit = defineEmits<Emits>()
 
 const isOpen = ref(false)
+const dialogOwner = ref<string | undefined>()
 const searchQuery = ref('')
 const focusedIndex = ref(-1)
 const containerRef = ref<HTMLElement | null>(null)
@@ -195,6 +210,11 @@ const dropdownViewportPadding = 8
 const dropdownMinimumWidth = 200
 
 // i18n placeholders
+const externalLabel = ref('')
+onMounted(() => {
+  externalLabel.value = Array.from(triggerRef.value?.labels ?? []).map(label => label.textContent?.trim()).filter(Boolean).join(' ')
+})
+const fieldLabel = computed(() => props.ariaLabel || props.label || externalLabel.value || placeholderText.value)
 const placeholderText = computed(() => props.placeholder ?? t('common.selectOption'))
 const searchPlaceholderText = computed(() => props.searchPlaceholder ?? t('common.searchPlaceholder'))
 const emptyTextDisplay = computed(() => props.emptyText ?? t('common.noOptionsFound'))
@@ -370,6 +390,7 @@ const toggle = () => {
 
 watch(isOpen, (open) => {
   if (open) {
+    dialogOwner.value = triggerRef.value?.closest<HTMLElement>('[data-dialog-id]')?.dataset.dialogId
     calculateDropdownPosition()
     // Reset focused index to current selection or first item
     if (filteredOptions.value.length === 0) {
@@ -382,13 +403,19 @@ watch(isOpen, (open) => {
         : initialIdx
     }
 
+    scrollToFocused()
+
     if (isSearchable.value) {
       nextTick(() => searchInputRef.value?.focus())
+    } else {
+      nextTick(() => optionsListRef.value?.focus())
     }
     // Add scroll listener to update position
     window.addEventListener('scroll', updateTriggerRect, { capture: true, passive: true })
     window.addEventListener('resize', calculateDropdownPosition)
   } else {
+    // A leaving portal must no longer consume its dialog's Escape.
+    dropdownRef.value?.removeAttribute('data-select-open')
     searchQuery.value = ''
     focusedIndex.value = -1
     // 关闭时取消仍在排队的远程搜索（避免关闭后尾随 emit 一次 search(''))。
@@ -423,16 +450,21 @@ const clearSelection = () => {
   if (props.disabled) return
   emit('update:modelValue', null)
   emit('change', null, null)
+  triggerRef.value?.focus()
 }
 
 // Keyboards
-const onTriggerKeyDown = () => {
-  if (!isOpen.value) {
+const onTriggerKeyDown = (event: KeyboardEvent) => {
+  if (isOpen.value) return onDropdownKeyDown(event)
+  if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+    event.preventDefault()
     isOpen.value = true
   }
 }
 
 const onDropdownKeyDown = (e: KeyboardEvent) => {
+  if (e.isComposing) return
+  if (e.key === ' ' && e.target === searchInputRef.value) return
   switch (e.key) {
     case 'ArrowDown':
       e.preventDefault()
@@ -444,6 +476,7 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       focusedIndex.value = findPrevEnabledIndex(focusedIndex.value - 1)
       if (focusedIndex.value >= 0) scrollToFocused()
       break
+    case ' ':
     case 'Enter':
       e.preventDefault()
       if (focusedIndex.value >= 0 && focusedIndex.value < filteredOptions.value.length) {
@@ -453,11 +486,14 @@ const onDropdownKeyDown = (e: KeyboardEvent) => {
       break
     case 'Escape':
       e.preventDefault()
+      e.stopPropagation()
       isOpen.value = false
       triggerRef.value?.focus()
       break
     case 'Tab':
+      // Restore the trigger before the native Tab step leaves the portal.
       isOpen.value = false
+      triggerRef.value?.focus()
       break
   }
 }
@@ -476,6 +512,13 @@ const scrollToFocused = () => {
     }
   })
 }
+
+// Filtering or replacing remote results must not leave a stale active descendant.
+watch(filteredOptions, () => {
+  if (!isOpen.value) return
+  focusedIndex.value = findNextEnabledIndex(0)
+  scrollToFocused()
+})
 
 const handleClickOutside = (event: MouseEvent) => {
   const target = event.target as HTMLElement
@@ -508,16 +551,16 @@ onUnmounted(() => {
   @apply flex w-full items-center justify-between gap-2;
   @apply rounded-xl px-4 py-2.5 text-sm;
   @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
+  @apply border border-gray-500 dark:border-dark-400;
   @apply text-gray-900 dark:text-gray-100;
   @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
+  @apply focus:border-primary-700 focus:outline-none focus:ring-2 focus:ring-primary-700 dark:focus:border-primary-300 dark:focus:ring-primary-300;
+  @apply hover:border-gray-600 dark:hover:border-dark-300;
   @apply cursor-pointer;
 }
 
 .select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
+  @apply border-primary-700 ring-2 ring-primary-700 dark:border-primary-300 dark:ring-primary-300;
 }
 
 .select-trigger-error {
@@ -536,10 +579,15 @@ onUnmounted(() => {
   @apply flex-shrink-0 text-gray-400 dark:text-dark-400;
 }
 
+.select-trigger-clearable {
+  @apply pr-16;
+}
+
 .select-clear {
-  @apply flex flex-shrink-0 cursor-pointer items-center justify-center;
-  @apply rounded text-gray-400 transition-colors;
-  @apply hover:text-gray-600 dark:hover:text-gray-200;
+  @apply absolute right-8 top-1/2 -translate-y-1/2 flex h-6 w-6 items-center justify-center;
+  @apply rounded text-gray-600 transition-colors dark:text-dark-300;
+  @apply hover:bg-gray-100 dark:hover:bg-dark-700;
+  @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-700 dark:focus-visible:outline-primary-300;
 }
 </style>
 
@@ -562,7 +610,7 @@ onUnmounted(() => {
 .select-dropdown-portal .select-search-input {
   @apply flex-1 bg-transparent text-sm;
   @apply text-gray-900 dark:text-gray-100;
-  @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
+  @apply placeholder:text-gray-500 dark:placeholder:text-dark-400;
   @apply focus:outline-none;
 }
 
@@ -604,7 +652,8 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-option-label {
-  @apply flex-1 min-w-0 truncate text-left;
+  @apply flex-1 min-w-0 break-words text-left;
+  overflow-wrap: anywhere;
 }
 
 .select-dropdown-portal .select-empty {

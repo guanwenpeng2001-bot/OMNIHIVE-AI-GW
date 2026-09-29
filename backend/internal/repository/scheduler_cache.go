@@ -956,7 +956,12 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	}
 	// Candidate-list admission evaluates the account override before hydrating
 	// the full account. Dropping it silently falls back to the platform threshold.
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold"}
+	keys := []string{
+		"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold",
+		// Catalog binding resolves the same provider profile and native protocol
+		// as forwarding before the full account is hydrated.
+		"base_url", "api_base_urls", "account_mode", "api_protocol", "protocol_rules", "openai_capabilities",
+	}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {
@@ -974,6 +979,14 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		return nil
 	}
 	keys := []string{
+		// Request selection consumes catalog evidence on this projection. Keep
+		// revocations, declarations and model facts alongside the snapshot so a
+		// partial copy cannot invent membership or change endpoint eligibility.
+		service.UpstreamModelCatalogExtraKey,
+		service.UpstreamModelCatalogStateExtraKey,
+		service.UpstreamModelAllowlistExtraKey,
+		service.UpstreamModelMetadataExtraKey,
+		service.ModelAvailabilityExtraKey,
 		// Anthropic shared-window and Fable-only threshold checks run on this
 		// projection. UpdateExtra refreshes both payloads without a bucket rebuild.
 		"session_window_utilization",
@@ -998,6 +1011,11 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"mixed_scheduling",
 		"window_cost_limit",
 		"window_cost_sticky_reserve",
+		// RPM 门与窗口费用门一样跑在本投影上：isAccountSchedulableForRPM 读 base_rpm，
+		// 缺失时 GetBaseRPM() 返回 0 并直接放行，已配置限流的账号会被超额调度。
+		"base_rpm",
+		"rpm_strategy",
+		"rpm_sticky_buffer",
 		"max_sessions",
 		"session_idle_timeout_minutes",
 		"openai_oauth_responses_websockets_v2_enabled",
@@ -1029,6 +1047,13 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",
 		"auto_pause_7d_disabled",
+		// 自动用卡：卡可用的 OpenAI 号在暂停阈值与用卡阈值之间继续调度。
+		// 候选过滤读的是本投影，缺这几个键时放行分支永远不会生效，
+		// 账号会在暂停阈值处被一刀切停调，直到窗口自然重置。
+		service.OpenAIAutoResetCreditEnabledExtraKey,
+		service.OpenAIAutoResetCredit5hThresholdExtraKey,
+		service.OpenAIAutoResetCredit7dThresholdExtraKey,
+		service.OpenAIAutoResetCreditStateExtraKey,
 		"model_rate_limits",
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,

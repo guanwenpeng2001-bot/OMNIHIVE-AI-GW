@@ -1,9 +1,16 @@
 package setup
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/mail"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -11,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/sysutil"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,6 +28,11 @@ var installMutex sync.Mutex
 
 // RegisterRoutes registers setup wizard routes
 func RegisterRoutes(r *gin.Engine) {
+	if NeedsSetup() {
+		if err := initializeBootstrapToken(); err != nil {
+			slog.Error("cannot initialize setup bootstrap token", "error", err)
+		}
+	}
 	setup := r.Group("/setup")
 	{
 		// Status endpoint is always accessible (read-only)
@@ -56,6 +69,9 @@ func setupGuard() gin.HandlerFunc {
 		if !NeedsSetup() {
 			response.Error(c, http.StatusForbidden, "Setup is not allowed: system is already installed")
 			c.Abort()
+			return
+		}
+		if !consumeBootstrapToken(c) {
 			return
 		}
 		c.Next()
@@ -127,7 +143,8 @@ type TestDatabaseRequest struct {
 func testDatabase(c *gin.Context) {
 	var req TestDatabaseRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -167,7 +184,7 @@ func testDatabase(c *gin.Context) {
 	}
 
 	if err := TestDatabaseConnection(cfg); err != nil {
-		response.Error(c, http.StatusBadRequest, "Connection failed: "+err.Error())
+		response.Error(c, http.StatusBadRequest, "Connection failed")
 		return
 	}
 
@@ -188,7 +205,8 @@ type TestRedisRequest struct {
 func testRedis(c *gin.Context) {
 	var req TestRedisRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -221,7 +239,7 @@ func testRedis(c *gin.Context) {
 	}
 
 	if err := TestRedisConnection(cfg); err != nil {
-		response.Error(c, http.StatusBadRequest, "Connection failed: "+err.Error())
+		response.Error(c, http.StatusBadRequest, "Connection failed")
 		return
 	}
 
@@ -250,7 +268,8 @@ func install(c *gin.Context) {
 
 	var req InstallRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, http.StatusBadRequest, "Invalid request: "+err.Error())
+		slog.Warn("setup request validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid request")
 		return
 	}
 
@@ -304,7 +323,8 @@ func install(c *gin.Context) {
 		return
 	}
 	if err := validatePassword(req.Admin.Password); err != nil {
-		response.Error(c, http.StatusBadRequest, err.Error())
+		slog.Warn("setup administrator password validation failed", "error", logredact.RedactDiagnostic(err.Error()))
+		response.Error(c, http.StatusBadRequest, "Invalid administrator password")
 		return
 	}
 
@@ -348,7 +368,7 @@ func install(c *gin.Context) {
 	}
 
 	if err := Install(cfg); err != nil {
-		response.Error(c, http.StatusInternalServerError, "Installation failed: "+err.Error())
+		response.Error(c, http.StatusInternalServerError, "Installation failed")
 		return
 	}
 
@@ -364,4 +384,66 @@ func install(c *gin.Context) {
 		"message": "Installation completed successfully. Service will restart automatically.",
 		"restart": true,
 	})
+}
+
+// The first credential is delivered only through the local data directory.
+// Each request rotates it without extending the installation window.
+var bootstrapState struct {
+	sync.Mutex
+	digest    [32]byte
+	expiresAt time.Time
+	path      string
+}
+
+func initializeBootstrapToken() error {
+	bootstrapState.Lock()
+	defer bootstrapState.Unlock()
+	token, err := newBootstrapToken()
+	if err != nil {
+		return err
+	}
+	tokenPath := filepath.Join(GetDataDir(), "setup-bootstrap-token")
+	if err := os.WriteFile(tokenPath, []byte(token+"\n"), 0600); err != nil {
+		return err
+	}
+	bootstrapState.digest = sha256.Sum256([]byte(token))
+	bootstrapState.expiresAt = time.Now().Add(30 * time.Minute)
+	bootstrapState.path = tokenPath
+	slog.Info("setup bootstrap token written to local file", "path", tokenPath)
+	return nil
+}
+
+func newBootstrapToken() (string, error) {
+	randomBytes := make([]byte, 32)
+	if _, err := rand.Read(randomBytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(randomBytes), nil
+}
+
+func consumeBootstrapToken(c *gin.Context) bool {
+	bootstrapState.Lock()
+	defer bootstrapState.Unlock()
+	supplied := strings.TrimSpace(c.GetHeader("X-Setup-Bootstrap-Token"))
+	digest := sha256.Sum256([]byte(supplied))
+	if supplied == "" || !time.Now().Before(bootstrapState.expiresAt) || subtle.ConstantTimeCompare(digest[:], bootstrapState.digest[:]) != 1 {
+		response.Error(c, http.StatusUnauthorized, "Valid local setup bootstrap token required")
+		c.Abort()
+		return false
+	}
+	nextToken, err := newBootstrapToken()
+	if err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Setup authorization unavailable")
+		c.Abort()
+		return false
+	}
+	if err := os.WriteFile(bootstrapState.path, []byte(nextToken+"\n"), 0600); err != nil {
+		response.Error(c, http.StatusServiceUnavailable, "Setup authorization unavailable")
+		c.Abort()
+		return false
+	}
+	bootstrapState.digest = sha256.Sum256([]byte(nextToken))
+	c.Header("X-Setup-Bootstrap-Token", nextToken)
+	c.Header("Cache-Control", "no-store")
+	return true
 }

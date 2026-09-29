@@ -28,6 +28,8 @@ func IsWindowExpired(windowStart *time.Time, duration time.Duration) bool {
 }
 
 type APIKey struct {
+	TPMLimit    int64
+	WorkspaceID int64
 	ID          int64
 	UserID      int64
 	Key         string
@@ -62,6 +64,23 @@ type APIKey struct {
 	Window5hStart *time.Time // Start of current 5h window
 	Window1dStart *time.Time // Start of current 1d window
 	Window7dStart *time.Time // Start of current 7d window
+
+	// CredentialValidUntil bounds how long the presented credential may authenticate
+	// and therefore how long an auth cache entry for it may live. nil means the
+	// credential has no deadline.
+	CredentialValidUntil *time.Time
+
+	// BudgetPolicy is the key's period budget. The zero value means "off" and
+	// keeps the legacy quota / rate_limit behaviour unchanged.
+	BudgetPolicy APIKeyBudgetPolicy
+
+	// BudgetState carries the current period counters for display. It is nil on
+	// paths that only need the policy (for example the auth projection).
+	BudgetState *APIKeyBudgetState
+
+	// DisplaySuffix is the non-secret tail of the current credential, used only to
+	// render a masked value and never to reconstruct the secret.
+	DisplaySuffix string
 }
 
 func (k *APIKey) IsActive() bool {
@@ -71,6 +90,12 @@ func (k *APIKey) IsActive() bool {
 // HasRateLimits returns true if any rate limit window is configured
 func (k *APIKey) HasRateLimits() bool {
 	return k.RateLimit5h > 0 || k.RateLimit1d > 0 || k.RateLimit7d > 0
+}
+
+// HasPeriodBudget reports whether the key has an active period budget that must
+// be reserved before forwarding a request.
+func (k *APIKey) HasPeriodBudget() bool {
+	return k != nil && k.BudgetPolicy.IsActive()
 }
 
 // IsExpired checks if the API key has expired

@@ -233,6 +233,12 @@ describe('Prompt Audit components', () => {
     expect(panel.classes()).toContain('h-[min(62vh,36rem)]')
     expect(panel.classes()).toContain('overflow-y-auto')
 
+    for (const tab of wrapper.findAll('[role="tab"]')) {
+      expect(wrapper.get(`#${tab.attributes('aria-controls')}`).attributes('aria-labelledby')).toBe(tab.attributes('id'))
+    }
+    await wrapper.get('#audit-detail-tab-summary').trigger('keydown', { key: 'End' })
+    expect(wrapper.get('#audit-detail-tab-technical').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#audit-detail-tab-summary').attributes('tabindex')).toBe('-1')
     const riskTab = wrapper.findAll('[role="tab"]').find((tab) => tab.text().includes('admin.promptAudit.events.tabs.risks'))
     expect(riskTab).toBeTruthy()
     await riskTab!.trigger('click')
@@ -264,6 +270,12 @@ describe('Prompt Audit components', () => {
       props: { show: true, event, loading: false },
       global: { stubs: { BaseDialog: DialogStub } },
     })
+    for (const tab of wrapper.findAll('[role="tab"]')) {
+      expect(wrapper.get(`#${tab.attributes('aria-controls')}`).attributes('aria-labelledby')).toBe(tab.attributes('id'))
+    }
+    await wrapper.get('#audit-detail-tab-summary').trigger('keydown', { key: 'End' })
+    expect(wrapper.get('#audit-detail-tab-technical').attributes('aria-selected')).toBe('true')
+    expect(wrapper.get('#audit-detail-tab-summary').attributes('tabindex')).toBe('-1')
     const riskTab = wrapper.findAll('[role="tab"]').find((tab) => tab.text().includes('admin.promptAudit.events.tabs.risks'))
     await riskTab!.trigger('click')
     expect(wrapper.get('[data-test="risk-prompt-full"]').text()).toContain('legacy redacted preview')

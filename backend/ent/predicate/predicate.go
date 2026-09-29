@@ -9,6 +9,9 @@ import (
 // APIKey is the predicate function for apikey builders.
 type APIKey func(*sql.Selector)
 
+// APIKeyCredential is the predicate function for apikeycredential builders.
+type APIKeyCredential func(*sql.Selector)
+
 // Account is the predicate function for account builders.
 type Account func(*sql.Selector)
 
@@ -51,6 +54,9 @@ type ChannelMonitorRequestTemplate func(*sql.Selector)
 // CompositeModelRoute is the predicate function for compositemodelroute builders.
 type CompositeModelRoute func(*sql.Selector)
 
+// CredentialSecret is the predicate function for credentialsecret builders.
+type CredentialSecret func(*sql.Selector)
+
 // ErrorPassthroughRule is the predicate function for errorpassthroughrule builders.
 type ErrorPassthroughRule func(*sql.Selector)
 
@@ -62,6 +68,12 @@ type IdempotencyRecord func(*sql.Selector)
 
 // IdentityAdoptionDecision is the predicate function for identityadoptiondecision builders.
 type IdentityAdoptionDecision func(*sql.Selector)
+
+// ModelAccessGroup is the predicate function for modelaccessgroup builders.
+type ModelAccessGroup func(*sql.Selector)
+
+// ModelAccessRule is the predicate function for modelaccessrule builders.
+type ModelAccessRule func(*sql.Selector)
 
 // PaymentAuditLog is the predicate function for paymentauditlog builders.
 type PaymentAuditLog func(*sql.Selector)
@@ -122,3 +134,9 @@ type UserPlatformQuota func(*sql.Selector)
 
 // UserSubscription is the predicate function for usersubscription builders.
 type UserSubscription func(*sql.Selector)
+
+// Workspace is the predicate function for workspace builders.
+type Workspace func(*sql.Selector)
+
+// WorkspaceMember is the predicate function for workspacemember builders.
+type WorkspaceMember func(*sql.Selector)

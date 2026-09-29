@@ -550,54 +550,82 @@
           </template>
 
           <template #cell-usage="{ row }">
-            <PlatformUsageBreakdown
-              :today="usageStats[row.id]?.today_actual_cost ?? 0"
-              :total="usageStats[row.id]?.total_actual_cost ?? 0"
-              :by-platform="usageStats[row.id]?.by_platform"
-            />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformUsageBreakdown
+                :today="usageStats[row.id]?.today_actual_cost ?? 0"
+                :total="usageStats[row.id]?.total_actual_cost ?? 0"
+                :by-platform="usageStats[row.id]?.by_platform"
+              />
+            </UsageStatsState>
           </template>
 
           <template #cell-usage_grok="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'grok')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'grok')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_kimi="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'kimi')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'kimi')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_zhipu="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'zhipu')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'zhipu')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_deepseek="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'deepseek')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'deepseek')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_minimax="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'minimax')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'minimax')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_opencode_go="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'opencode_go')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'opencode_go')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_cursor="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'cursor')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'cursor')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_qianwen="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'qianwen')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'qianwen')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_commandcode="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'commandcode')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'commandcode')" />
+            </UsageStatsState>
           </template>
           <template #cell-usage_anthropic="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'anthropic')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'anthropic')" />
+            </UsageStatsState>
           </template>
 
           <template #cell-usage_openai="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'openai')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'openai')" />
+            </UsageStatsState>
           </template>
 
           <template #cell-usage_gemini="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'gemini')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'gemini')" />
+            </UsageStatsState>
           </template>
 
           <template #cell-usage_antigravity="{ row }">
-            <PlatformCostCell :usage="getPlatformUsage(row.id, 'antigravity')" />
+            <UsageStatsState :state="usageState" :history-gap="usageHistoryGap">
+              <PlatformCostCell :usage="getPlatformUsage(row.id, 'antigravity')" />
+            </UsageStatsState>
           </template>
 
           <template #cell-concurrency="{ row }">
@@ -819,6 +847,9 @@
 </template>
 
 <script setup lang="ts">
+import UsageStatsState from '@/components/common/UsageStatsState.vue'
+import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -1259,6 +1290,8 @@ const getAttributeDefinition = (attrId: number): UserAttributeDefinition | undef
   return attributeDefinitions.value.find(d => d.id === attrId)
 }
 const usageStats = ref<Record<string, BatchUserUsageStats>>({})
+const usageState = ref<'loading' | 'known' | 'unknown'>('loading')
+const usageHistoryGap = ref<HistoryGap | null>(null)
 const platformQuotaStats = ref<Record<number, PlatformQuotaItem[]>>({})
 
 const getPlatformUsage = (userId: number, platform: string) =>
@@ -1421,6 +1454,9 @@ const loadUsersSecondaryData = async (
   const tasks: Promise<void>[] = []
 
   if (hasVisibleUsageColumn.value) {
+    usageState.value = 'loading'
+    usageHistoryGap.value = null
+    usageStats.value = {}
     tasks.push(
       (async () => {
         try {
@@ -1428,9 +1464,14 @@ const loadUsersSecondaryData = async (
           if (signal?.aborted) return
           if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
           usageStats.value = usageResponse.stats
+          usageState.value = 'known'
         } catch (e) {
           if (signal?.aborted) return
-          console.error('Failed to load usage stats:', e)
+          if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
+          usageStats.value = {}
+          usageHistoryGap.value = historyGapFromError(e)
+          usageState.value = 'unknown'
+          if (!usageHistoryGap.value) console.error('Failed to load usage stats:', e)
         }
       })()
     )
@@ -1629,6 +1670,10 @@ const handleAttributesModalClose = async () => {
 }
 
 const loadUsers = async () => {
+  ++secondaryDataSeq
+  usageState.value = 'loading'
+  usageHistoryGap.value = null
+  usageStats.value = {}
   abortController?.abort()
   const currentAbortController = new AbortController()
   abortController = currentAbortController
@@ -1684,7 +1729,7 @@ const loadUsers = async () => {
     if (errorInfo?.name === 'AbortError' || errorInfo?.name === 'CanceledError' || errorInfo?.code === 'ERR_CANCELED') {
       return
     }
-    const message = error.response?.data?.detail || error.message || t('admin.users.failedToLoad')
+    const message = extractApiErrorMessage(error, '') || t('admin.users.failedToLoad')
     appStore.showError(message)
     console.error('Error loading users:', error)
   } finally {
@@ -1791,13 +1836,23 @@ const closeEditModal = () => {
 const handleToggleStatus = async (user: AdminUser) => {
   const newStatus = user.status === 'active' ? 'disabled' : 'active'
   try {
-    await adminAPI.users.toggleStatus(user.id, newStatus)
+    const updatedUser = await adminAPI.users.toggleStatus(user.id, newStatus)
     appStore.showSuccess(
       newStatus === 'active' ? t('admin.users.userEnabled') : t('admin.users.userDisabled')
     )
-    loadUsers()
+    if (loading.value) {
+      // A concurrent list request may have read the previous status.
+      loadUsers()
+      return
+    }
+    // Keep concurrency, subscriptions and other list-only fields intact.
+    const currentUser = users.value.find((entry) => entry.id === user.id)
+    if (currentUser) {
+      currentUser.status = updatedUser.status
+      currentUser.updated_at = updatedUser.updated_at
+    }
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.users.failedToToggle'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.users.failedToToggle'))
     console.error('Error toggling user status:', error)
   }
 }
@@ -1849,7 +1904,7 @@ const confirmDelete = async () => {
     deletingUser.value = null
     loadUsers()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.users.failedToDelete'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.users.failedToDelete'))
     console.error('Error deleting user:', error)
   }
 }
@@ -1940,6 +1995,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  ++secondaryDataSeq
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
   clearTimeout(searchTimeout)

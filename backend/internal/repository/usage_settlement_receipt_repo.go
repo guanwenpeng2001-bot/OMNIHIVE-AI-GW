@@ -26,6 +26,13 @@ func NewUsageSettlementReceiptRepository(db *sql.DB, effects ...UsageSettlementE
 const usageSettlementColumns = `id,request_id,api_key_id,user_id,account_id,request_fingerprint,
 usage_json,billing_command,pricing_state,pricing_snapshot,resolution_state,completion_state,state,usage_log_id,created_at,settled_at`
 
+// Keep the token attempt with the existing durable replay payload. Old command
+// JSON remains readable; TPM introduces neither a receipt table nor a queue.
+type settlementCommandPayload struct {
+	service.UsageBillingCommand
+	TPMReservation *service.TPMReservationIdentity `json:"tpm_reservation,omitempty"`
+}
+
 func scanUsageSettlement(row interface{ Scan(...any) error }) (*service.UsageSettlementReceipt, error) {
 	var receipt service.UsageSettlementReceipt
 	var usageJSON, commandJSON []byte
@@ -44,9 +51,11 @@ func scanUsageSettlement(row interface{ Scan(...any) error }) (*service.UsageSet
 	if err := json.Unmarshal(usageJSON, &receipt.Usage); err != nil {
 		return nil, err
 	}
-	if err := json.Unmarshal(commandJSON, &receipt.Command); err != nil {
+	var payload settlementCommandPayload
+	if err := json.Unmarshal(commandJSON, &payload); err != nil {
 		return nil, err
 	}
+	receipt.Command, receipt.TPMReservation = payload.UsageBillingCommand, payload.TPMReservation
 	if receipt.Command.RequestFingerprint != fingerprint || receipt.Command.AccountID != accountID {
 		return nil, service.ErrUsageBillingRequestConflict
 	}
@@ -66,7 +75,7 @@ func (r *usageSettlementReceiptRepository) Persist(ctx context.Context, input *s
 	if err != nil {
 		return nil, err
 	}
-	commandJSON, err := json.Marshal(receipt.Command)
+	commandJSON, err := json.Marshal(settlementCommandPayload{UsageBillingCommand: receipt.Command, TPMReservation: receipt.TPMReservation})
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +98,10 @@ ON CONFLICT (request_id,api_key_id) DO NOTHING`, receipt.Key.RequestID, receipt.
 	}
 	if stored.Command.RequestFingerprint != receipt.Command.RequestFingerprint || stored.Command.AccountID != receipt.Command.AccountID {
 		return nil, service.ErrUsageBillingRequestConflict
+	}
+	if (stored.TPMReservation == nil) != (receipt.TPMReservation == nil) ||
+		(stored.TPMReservation != nil && *stored.TPMReservation != *receipt.TPMReservation) {
+		return nil, service.ErrTPMReservationConflict
 	}
 	return stored, nil
 }
@@ -119,11 +132,15 @@ func (r *usageSettlementReceiptRepository) ListPending(ctx context.Context, afte
 }
 
 func (r *usageSettlementReceiptRepository) Settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
-	return r.settle(ctx, key, fingerprint, false)
+	return withBillingAdmission(ctx, key.UserID, func(ctx context.Context) (*service.UsageSettlementResult, error) {
+		return r.settle(ctx, key, fingerprint, false)
+	})
 }
 
 func (r *usageSettlementReceiptRepository) ReconcileLegacy(ctx context.Context, key service.UsageSettlementKey, fingerprint string) (*service.UsageSettlementResult, error) {
-	return r.settle(ctx, key, fingerprint, true)
+	return withBillingAdmission(ctx, key.UserID, func(ctx context.Context) (*service.UsageSettlementResult, error) {
+		return r.settle(ctx, key, fingerprint, true)
+	})
 }
 
 func (r *usageSettlementReceiptRepository) settle(ctx context.Context, key service.UsageSettlementKey, fingerprint string, reconcile bool) (*service.UsageSettlementResult, error) {
@@ -235,6 +252,18 @@ WHERE request_id=$1 AND api_key_id=$2 AND user_id=$3 FOR UPDATE`, strings.TrimSp
 			if err := effect(ctx, tx, &receipt.Usage); err != nil {
 				return nil, err
 			}
+		}
+	}
+	if receipt.TPMReservation != nil {
+		actual, tokenErr := service.TPMUsageTokens(service.UsageTokens{
+			InputTokens: receipt.Usage.InputTokens, OutputTokens: receipt.Usage.OutputTokens,
+			CacheCreationTokens: receipt.Usage.CacheCreationTokens, CacheReadTokens: receipt.Usage.CacheReadTokens,
+		})
+		if tokenErr != nil {
+			return nil, tokenErr
+		}
+		if err := settleTPMAttempt(ctx, tx, *receipt.TPMReservation, actual); err != nil {
+			return nil, err
 		}
 	}
 	err = tx.QueryRowContext(ctx, `UPDATE usage_settlement_receipts SET state='settled',usage_log_id=$2,settled_at=NOW() WHERE id=$1 RETURNING settled_at`, receipt.ID, receipt.Usage.ID).Scan(&receipt.SettledAt)

@@ -23,7 +23,7 @@
         v-if="showPlatform && model.platform"
         class="rounded bg-gray-200/60 px-1 text-[10px] text-gray-600 dark:bg-dark-700 dark:text-gray-400"
       >
-        <span :title="model.platform">{{ platformLabel(model.platform) }}</span>
+        <span :title="model.platform">{{ getPlatformLabel(model.platform, t) }}</span>
       </span>
       {{ model.name }}
     </span>
@@ -50,7 +50,7 @@
             v-if="model.platform"
             class="flex-shrink-0 rounded bg-white/70 px-1.5 py-0.5 text-[10px] tracking-wide dark:bg-dark-900/60"
           >
-            <span :title="model.platform">{{ platformLabel(model.platform) }}</span>
+            <span :title="model.platform">{{ getPlatformLabel(model.platform, t) }}</span>
           </span>
         </div>
 
@@ -135,6 +135,14 @@
               :scale="1"
             />
 
+            <PricingRow
+              v-if="model.pricing.billing_mode === BILLING_MODE_VIDEO && model.pricing.per_request_price != null"
+              :label="t(prefixKey('videoPrice'))"
+              :value="model.pricing.per_request_price"
+              :unit="t(prefixKey('unitPerSecond'))"
+              :scale="1"
+            />
+
             <div
               v-if="model.pricing.intervals && model.pricing.intervals.length > 0"
               class="mt-2 border-t pt-2"
@@ -165,7 +173,7 @@
 </template>
 
 <script setup lang="ts">
-import { platformLabel } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 import { computed, nextTick, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PricingRow from './PricingRow.vue'
@@ -173,7 +181,8 @@ import { formatScaled, resolveIntervalPrices } from '@/utils/pricing'
 import {
   BILLING_MODE_TOKEN,
   BILLING_MODE_PER_REQUEST,
-  BILLING_MODE_IMAGE
+  BILLING_MODE_IMAGE,
+  BILLING_MODE_VIDEO
 } from '@/constants/channel'
 // 复用 api/channels.ts 的用户侧最小形态 DTO。
 // admin 侧 ChannelModelPricing 字段更多，但结构上是用户 DTO 的超集，admin 视图传入可直接通过结构化子类型检查。
@@ -236,6 +245,8 @@ const billingModeLabel = computed(() => {
       return t(prefixKey('billingModePerRequest'))
     case BILLING_MODE_IMAGE:
       return t(prefixKey('billingModeImage'))
+    case BILLING_MODE_VIDEO:
+      return t(prefixKey('billingModeVideo'))
     default:
       return '-'
   }
@@ -247,6 +258,9 @@ function formatRange(min: number, max: number | null): string {
 }
 
 function formatInterval(iv: UserPricingInterval, pricing: UserSupportedModelPricing): string {
+  if (pricing.billing_mode === BILLING_MODE_VIDEO) {
+    return `${formatScaled(iv.per_request_price, 1)} ${t(prefixKey('unitPerSecond'))}`
+  }
   if (pricing.billing_mode === BILLING_MODE_PER_REQUEST || pricing.billing_mode === BILLING_MODE_IMAGE) {
     return formatScaled(iv.per_request_price, 1)
   }

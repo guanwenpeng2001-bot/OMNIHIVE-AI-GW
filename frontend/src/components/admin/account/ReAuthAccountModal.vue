@@ -120,7 +120,9 @@
         </div>
       </div>
 
-      <OAuthAuthorizationFlow
+      <AccountModelConfigurationSection v-if="pendingAuthorization" v-model="authorizationModels" v-model:mappings="authorizationMappings" :platform="account.platform" :candidate-identity="authorizationCandidateIdentity" :sync-credentials="authorizationPreview" :active="show" />
+      <p v-if="authorizationError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ authorizationError }}</p>
+      <OAuthAuthorizationFlow v-show="!pendingAuthorization"
         ref="oauthFlowRef"
         :add-method="addMethod"
         :auth-url="currentAuthUrl"
@@ -147,12 +149,13 @@
     </div>
 
     <template #footer>
+      <button v-if="pendingAuthorization" type="button" class="btn btn-primary" data-testid="confirm-reauthorization" :disabled="confirmingAuthorization" @click="confirmAuthorizationReview">{{ t('common.confirm') }}</button>
       <div v-if="account" class="flex justify-between gap-3">
         <button type="button" class="btn btn-secondary" @click="handleClose">
           {{ t('common.cancel') }}
         </button>
         <button
-          v-if="isManualInputMethod"
+          v-if="isManualInputMethod && !pendingAuthorization"
           type="button"
           :disabled="!canExchangeCode"
           class="btn btn-primary"
@@ -190,6 +193,13 @@
 </template>
 
 <script setup lang="ts">
+import { apiClient } from '@/api/client'
+import AccountModelConfigurationSection from '@/components/account/AccountModelConfigurationSection.vue'
+import { readAccountCredentialDraft, credentialsFromAuthorization, type AccountCredentialDraft } from '@/components/account/accountCredentialDraft'
+import { splitModelMappingObject, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry } from '@/composables/useModelWhitelist'
+
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -232,6 +242,77 @@ const emit = defineEmits<{
 
 const appStore = useAppStore()
 const { t } = useI18n()
+const reauthorizationPending = Symbol('reauthorization-pending')
+const pendingAuthorization = ref<{ accountId: number; draft: AccountCredentialDraft; type: 'oauth' | 'setup-token'; extra?: Record<string, unknown> } | null>(null)
+const authorizationModels = ref<string[]>([])
+const authorizationMappings = ref<ModelMappingEntry[]>([])
+const confirmingAuthorization = ref(false)
+const authorizationError = ref('')
+const authorizationCandidateIdentity = computed(() => ({
+  host: String(props.account?.credentials?.base_url ?? ''),
+  type: pendingAuthorization.value?.type ?? props.account?.type,
+  profile: String(props.account?.credentials?.provider_profile ?? ''),
+  region: String(props.account?.credentials?.aws_region ?? props.account?.credentials?.location ?? ''),
+  mode: String(props.account?.credentials?.account_mode ?? '')
+}))
+let reviewedAuthorization = ''
+const authorizationPreview = computed(() => pendingAuthorization.value ? {
+  platform: pendingAuthorization.value.draft.platform, type: pendingAuthorization.value.type,
+  credential_draft: pendingAuthorization.value.draft.credential_draft, credential_draft_revision: pendingAuthorization.value.draft.revision,
+  credentials: { model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} }
+} : undefined)
+async function stageReauthorization(accountId: number, payload: { type: 'oauth' | 'setup-token'; credentials: Record<string, unknown>; extra?: Record<string, unknown> }): Promise<never> {
+  const draft = readAccountCredentialDraft(payload.credentials)
+  if (!draft) throw new Error(t('admin.accounts.oauth.authFailed'))
+  if (!props.show || props.account?.id !== accountId) {
+    await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(draft.credential_draft)}`).catch(() => {})
+    throw reauthorizationPending
+  }
+  const selection = splitModelMappingObject(props.account.credentials?.model_mapping as Record<string, unknown> | undefined)
+  authorizationModels.value = selection.allowedModels
+  authorizationMappings.value = selection.modelMappings
+  pendingAuthorization.value = { accountId, draft, type: payload.type, extra: payload.extra }
+  reviewedAuthorization = ''
+  authorizationError.value = ''
+  throw reauthorizationPending
+}
+async function cancelAuthorizationReview() {
+  const pending = pendingAuthorization.value
+  pendingAuthorization.value = null
+  reviewedAuthorization = ''
+  if (pending) await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(pending.draft.credential_draft)}`).catch(() => {})
+}
+async function confirmAuthorizationReview() {
+  const pending = pendingAuthorization.value
+  if (!pending || confirmingAuthorization.value || props.account?.id !== pending.accountId) return
+  const errors = validateModelRestrictions('combined', authorizationModels.value, authorizationMappings.value)
+  if (errors.length) { authorizationError.value = translateModelRestrictionErrors(errors, t); return }
+  const credentials = { model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} }
+  const selection = JSON.stringify(credentials)
+  confirmingAuthorization.value = true
+  authorizationError.value = ''
+  try {
+    const review = { name: `account:${pending.accountId}`, platform: pending.draft.platform, type: pending.type, credentials, extra: pending.extra,
+      credential_draft: pending.draft.credential_draft, credential_draft_revision: pending.draft.revision }
+    const fingerprint = JSON.stringify({ ...review, credential_draft_revision: undefined })
+    if (reviewedAuthorization !== fingerprint) {
+      const { data } = await apiClient.post<AccountCredentialDraft>(`/admin/accounts/credential-drafts/${encodeURIComponent(pending.draft.credential_draft)}/review`, review)
+      pending.draft.revision = data.revision
+      reviewedAuthorization = fingerprint
+    }
+    if (pendingAuthorization.value !== pending || selection !== JSON.stringify({ model_mapping: buildModelMappingObject('combined', authorizationModels.value, authorizationMappings.value) ?? {} })) return
+    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(pending.accountId, {
+      type: pending.type, credentials, extra: pending.extra, credential_draft: pending.draft.credential_draft, credential_draft_revision: pending.draft.revision
+    })
+    pendingAuthorization.value = null
+    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
+    emit('reauthorized', updatedAccount)
+    emit('close')
+  } catch (error) { authorizationError.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed')) }
+  finally { confirmingAuthorization.value = false }
+}
+watch(() => [props.show, props.account?.id], () => { if (!props.show || (pendingAuthorization.value && pendingAuthorization.value.accountId !== props.account?.id)) void cancelAuthorizationReview() })
+
 
 // OAuth composables
 const claudeOAuth = useAccountOAuth()
@@ -363,6 +444,8 @@ const resetState = () => {
 }
 
 const handleClose = () => {
+  if (confirmingAuthorization.value) return
+  void cancelAuthorizationReview()
   emit('close')
 }
 
@@ -412,21 +495,18 @@ const handleExchangeCode = async () => {
     if (!tokenInfo) return
 
     // Build credentials and extra info
-    const credentials = oauthClient.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => oauthClient.buildCredentials(tokenInfo))
     const extra = oauthClient.buildExtraInfo(tokenInfo)
 
     try {
-      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      await stageReauthorization(props.account.id, {
         type: 'oauth',
         credentials,
         extra
       })
-
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      oauthClient.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
+      oauthClient.error.value = extractApiErrorMessage(error, '') || t('admin.accounts.oauth.authFailed')
       appStore.showError(oauthClient.error.value)
     }
   } else if (isGemini.value) {
@@ -443,23 +523,17 @@ const handleExchangeCode = async () => {
       state: stateToUse,
       proxyId: props.account.proxy_id,
       oauthType: geminiOAuthType.value,
-      tierId: typeof (props.account.credentials as any)?.tier_id === 'string' ? ((props.account.credentials as any).tier_id as string) : undefined
+      tierId: typeof props.account.credentials?.tier_id === 'string' ? (props.account.credentials.tier_id as string) : undefined
     })
     if (!tokenInfo) return
 
-    const credentials = geminiOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => geminiOAuth.buildCredentials(tokenInfo))
 
     try {
-      await adminAPI.accounts.update(props.account.id, {
-        type: 'oauth',
-        credentials
-      })
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      geminiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+      await stageReauthorization(props.account.id, { type: 'oauth', credentials })
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
+      geminiOAuth.error.value = extractApiErrorMessage(error, '') || t('admin.accounts.oauth.authFailed')
       appStore.showError(geminiOAuth.error.value)
     }
   } else if (isAntigravity.value) {
@@ -479,19 +553,13 @@ const handleExchangeCode = async () => {
     })
     if (!tokenInfo) return
 
-    const credentials = antigravityOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo))
 
     try {
-      await adminAPI.accounts.update(props.account.id, {
-        type: 'oauth',
-        credentials
-      })
-      const updatedAccount = await adminAPI.accounts.clearError(props.account.id)
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      antigravityOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+      await stageReauthorization(props.account.id, { type: 'oauth', credentials })
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
+      antigravityOAuth.error.value = extractApiErrorMessage(error, '') || t('admin.accounts.oauth.authFailed')
       appStore.showError(antigravityOAuth.error.value)
     }
   } else if (isGrok.value) {
@@ -510,21 +578,18 @@ const handleExchangeCode = async () => {
     })
     if (!tokenInfo) return
 
-    const credentials = grokOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
     const extra = grokOAuth.buildExtraInfo(tokenInfo)
 
     try {
-      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      await stageReauthorization(props.account.id, {
         type: 'oauth',
         credentials,
         extra
       })
-
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      grokOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
+      grokOAuth.error.value = extractApiErrorMessage(error, '') || t('admin.accounts.oauth.authFailed')
       appStore.showError(grokOAuth.error.value)
     }
   } else {
@@ -550,17 +615,14 @@ const handleExchangeCode = async () => {
 
       const extra = claudeOAuth.buildExtraInfo(tokenInfo)
 
-      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      await stageReauthorization(props.account.id, {
         type: addMethod.value as 'oauth' | 'setup-token',
         credentials: tokenInfo as unknown as Record<string, unknown>,
         extra
       })
-
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
-      claudeOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
+      claudeOAuth.error.value = extractApiErrorMessage(error, '') || t('admin.accounts.oauth.authFailed')
       appStore.showError(claudeOAuth.error.value)
     } finally {
       claudeOAuth.loading.value = false
@@ -589,41 +651,30 @@ const handleCookieAuth = async (sessionKey: string) => {
 
     const extra = claudeOAuth.buildExtraInfo(tokenInfo)
 
-    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+    await stageReauthorization(props.account.id, {
       type: addMethod.value as 'oauth' | 'setup-token',
       credentials: tokenInfo as unknown as Record<string, unknown>,
       extra
     })
-
-    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-    emit('reauthorized', updatedAccount)
-    handleClose()
-  } catch (error: any) {
+  } catch (error: unknown) {
+      if (error === reauthorizationPending) return
     claudeOAuth.error.value =
-      error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+      extractApiErrorMessage(error, '') || t('admin.accounts.oauth.cookieAuthFailed')
   } finally {
     claudeOAuth.loading.value = false
   }
 }
 
 /** Apply Grok Build OAuth tokens onto the existing account (never store password/SSO). */
-const applyGrokReauthTokenInfo = async (tokenInfo: {
-  access_token?: string
-  refresh_token?: string
-  email?: string
-  [key: string]: unknown
-}) => {
+const applyGrokReauthTokenInfo = async (tokenInfo: Parameters<typeof grokOAuth.buildCredentials>[0]) => {
   if (!props.account) return
-  const credentials = grokOAuth.buildCredentials(tokenInfo as any)
-  const extra = grokOAuth.buildExtraInfo(tokenInfo as any)
-  const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+  const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
+  const extra = grokOAuth.buildExtraInfo(tokenInfo)
+  await stageReauthorization(props.account.id, {
     type: 'oauth',
     credentials,
     extra
   })
-  appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-  emit('reauthorized', updatedAccount)
-  handleClose()
 }
 
 /** Re-auth the existing account with one refresh token. */
@@ -647,19 +698,15 @@ const handleValidateRefreshToken = async (refreshTokenInput: string) => {
       const tokenInfo = await openaiOAuth.validateRefreshToken(refreshToken, props.account.proxy_id)
       if (!tokenInfo) return
 
-      const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+      await stageReauthorization(props.account.id, {
         type: 'oauth',
-        credentials: openaiOAuth.buildCredentials(tokenInfo),
+        credentials: credentialsFromAuthorization(tokenInfo, () => openaiOAuth.buildCredentials(tokenInfo)),
         extra: openaiOAuth.buildExtraInfo(tokenInfo)
       })
-      appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-      emit('reauthorized', updatedAccount)
-      handleClose()
-    } catch (error: any) {
+    } catch (error: unknown) {
+      if (error === reauthorizationPending) return
       openaiOAuth.error.value =
-        error.response?.data?.detail ||
-        error.response?.data?.message ||
-        error.message ||
+        extractApiErrorMessage(error, '') ||
         t('admin.accounts.oauth.authFailed')
       appStore.showError(openaiOAuth.error.value)
     } finally {
@@ -675,18 +722,14 @@ const handleValidateRefreshToken = async (refreshTokenInput: string) => {
     const tokenInfo = await antigravityOAuth.validateRefreshToken(refreshToken, props.account.proxy_id)
     if (!tokenInfo) return
 
-    const updatedAccount = await adminAPI.accounts.applyOAuthCredentials(props.account.id, {
+    await stageReauthorization(props.account.id, {
       type: 'oauth',
-      credentials: antigravityOAuth.buildCredentials(tokenInfo, refreshToken)
+      credentials: credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo, refreshToken))
     })
-    appStore.showSuccess(t('admin.accounts.reAuthorizedSuccess'))
-    emit('reauthorized', updatedAccount)
-    handleClose()
-  } catch (error: any) {
+  } catch (error: unknown) {
+      if (error === reauthorizationPending) return
     antigravityOAuth.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
+      extractApiErrorMessage(error, '') ||
       t('admin.accounts.oauth.authFailed')
     appStore.showError(antigravityOAuth.error.value)
   } finally {
@@ -709,10 +752,10 @@ const handleGrokImportSSO = async (ssoInput: string) => {
     const tokenInfo = await grokOAuth.validateSSOToken(ssoToken, props.account.proxy_id)
     if (!tokenInfo) return
     await applyGrokReauthTokenInfo(tokenInfo)
-  } catch (error: any) {
+  } catch (error: unknown) {
+      if (error === reauthorizationPending) return
     grokOAuth.error.value =
-      error.response?.data?.detail ||
-      error.message ||
+      extractApiErrorMessage(error, '') ||
       t('admin.accounts.oauth.grok.failedToValidateSSO', 'Failed to validate Grok SSO')
     appStore.showError(grokOAuth.error.value)
   } finally {
@@ -738,10 +781,10 @@ const handleGrokValidateRefreshToken = async (refreshTokenInput: string) => {
     const tokenInfo = await grokOAuth.validateRefreshToken(refreshToken, props.account.proxy_id)
     if (!tokenInfo) return
     await applyGrokReauthTokenInfo(tokenInfo)
-  } catch (error: any) {
+  } catch (error: unknown) {
+      if (error === reauthorizationPending) return
     grokOAuth.error.value =
-      error.response?.data?.detail ||
-      error.message ||
+      extractApiErrorMessage(error, '') ||
       t('admin.accounts.oauth.grok.failedToValidateRT')
     appStore.showError(grokOAuth.error.value)
   } finally {

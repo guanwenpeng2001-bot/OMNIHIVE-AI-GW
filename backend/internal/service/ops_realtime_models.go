@@ -39,13 +39,18 @@ type AccountConcurrencyInfo struct {
 
 // UserConcurrencyInfo represents real-time concurrency usage for a single user.
 type UserConcurrencyInfo struct {
-	UserID         int64   `json:"user_id"`
-	UserEmail      string  `json:"user_email"`
-	Username       string  `json:"username"`
-	CurrentInUse   int64   `json:"current_in_use"`
-	MaxCapacity    int64   `json:"max_capacity"`
-	LoadPercentage float64 `json:"load_percentage"`
-	WaitingInQueue int64   `json:"waiting_in_queue"`
+	Balance                  float64  `json:"balance"`
+	BalancePerActiveRequest  *float64 `json:"balance_per_active_request"`
+	LowBalanceThreshold      *float64 `json:"low_balance_threshold"`
+	LowBalanceConcurrent     *bool    `json:"low_balance_concurrent"`
+	ConcurrencyLimitExceeded bool     `json:"concurrency_limit_exceeded"`
+	UserID                   int64    `json:"user_id"`
+	UserEmail                string   `json:"user_email"`
+	Username                 string   `json:"username"`
+	CurrentInUse             int64    `json:"current_in_use"`
+	MaxCapacity              int64    `json:"max_capacity"`
+	LoadPercentage           float64  `json:"load_percentage"`
+	WaitingInQueue           int64    `json:"waiting_in_queue"`
 }
 
 // PlatformAvailability aggregates account availability by platform.

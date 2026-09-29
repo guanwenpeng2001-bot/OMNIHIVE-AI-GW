@@ -150,6 +150,28 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDropped(t *testing.T) {
 	require.Empty(t, out.Messages[0].ReasoningContent)
 }
 
+func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort(t *testing.T) {
+	for _, effort := range []string{"", "high", "max"} {
+		t.Run(effort, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:        "gpt-5.6-luna",
+				MaxTokens:    1024,
+				Messages:     []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+				Thinking:     &AnthropicThinking{Type: "disabled"},
+				OutputConfig: &AnthropicOutputConfig{Effort: effort},
+			}
+
+			out, err := AnthropicToChatCompletionsRequest(req)
+			if effort != "" {
+				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, "none", out.ReasoningEffort)
+		})
+	}
+}
+
 func TestAnthropicToChatCompletionsRequest_ToolChoiceAuto(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "claude-sonnet-4-20250514",
@@ -723,10 +745,11 @@ func TestDirectBridge_RequestMatchesDoubleConversion(t *testing.T) {
 	direct, err := AnthropicToChatCompletionsRequest(req)
 	require.NoError(t, err)
 
-	// Double-conversion bridge
+	// Compare the strict system-only target profile; the default Responses
+	// bridge now preserves AnthropicToResponses' developer role.
 	responsesReq, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	double, err := ResponsesToChatCompletionsRequest(responsesReq)
+	double, err := ResponsesToChatCompletionsRequestWithOptions(responsesReq, &ResponsesToChatOptions{SingleLeadingSystemMessage: true})
 	require.NoError(t, err)
 
 	// Compare key fields
@@ -1090,4 +1113,10 @@ func TestChatCompletionsResponseToAnthropic_ContentFilterWithToolUse(t *testing.
 
 	out := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 	require.Equal(t, "tool_use", AnthropicStopReasonString(out.StopReason))
+}
+
+func TestAnthropicToChatCompletionsRequestNil(testingT *testing.T) {
+	result, err := AnthropicToChatCompletionsRequest(nil)
+	require.EqualError(testingT, err, "anthropic request is nil")
+	require.Nil(testingT, result)
 }

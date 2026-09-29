@@ -192,8 +192,10 @@ Sub2API は、AI 製品のサブスクリプションから API クォータを�
 - **スマートスケジューリング** - スティッキーセッション付きのインテリジェントなアカウント選択
 - **同時実行制御** - ユーザーごと・アカウントごとの同時実行数制限
 - **レート制限** - 設定可能なリクエスト数およびトークンレート制限
-- **内蔵決済システム** - EasyPay、Alipay、WeChat Pay、Stripe に対応。ユーザーのセルフサービスチャージが可能で、別途決済サービスのデプロイは不要（[設定ガイド](docs/PAYMENT.md)）
+- **内蔵決済システム** - EasyPay、Alipay、WeChat Pay、Stripe、Airwallex に対応し、グループに紐づくサブスクリプションプランも利用可能。ユーザーのセルフサービス決済のため、別途決済サービスのデプロイは不要（[設定ガイド](docs/PAYMENT.md)）
 - **管理ダッシュボード** - 監視・管理のための Web インターフェース
+- **コンポジットグループ（Composite）** - リクエストされた公開モデルを具体的なプロバイダーへ解決する管理者向けルーティング層。複数プロバイダーのグループと、任意の順序付きフォールバックターゲットに対応（[運用手順](docs/COMPOSITE_GROUPS.md)）
+- **マルチモーダルリクエスト** - プラットフォームごとに登録されたメディアアクション：画像生成/編集/バリエーション、動画生成/編集/拡張、音声（TTS/STT）、埋め込み、リランク、リアルタイム。いずれもグループのプラットフォーム、アカウントの証拠、グループスイッチで制御されます。Anthropic Messages はテキスト/視覚入力のプロトコルであり、生成用のエンドポイントではありません
 - **外部システム連携** - 外部システム（チケット管理など）を iframe 経由で管理ダッシュボードに埋め込み可能
 
 ## エコシステム
@@ -407,7 +409,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | ローカルディレクトリ | ✅ 容易（ディレクトリ全体を tar） | 本番環境、頻繁なバックアップ |
 | **docker-compose.yml** | 名前付きボリューム | ⚠️ docker コマンドが必要 | シンプルなセットアップ |
 
-**推奨:** データ管理が容易な `docker-compose.local.yml`（スクリプトによるデプロイ）を使用してください。
+**推奨:** 管理・移行が容易なローカルディレクトリ方式を使用してください。表はリポジトリ内のファイル名です。スクリプトは `docker-compose.local.yml` を **`docker-compose.yml`** として保存するため、`docker compose` を使用します。以下のアクセス・アップグレード例はスクリプト導入向けです。手動クローンでは `-f docker-compose.local.yml` を追加してください。後続の移行・管理例にこの指定がある場合、スクリプト導入では省略してください。
 
 #### アクセス
 
@@ -415,15 +417,15 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 管理者パスワードが自動生成された場合は、ログで確認できます:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 ```
 
 #### アップグレード
 
 ```bash
 # 最新イメージをプルしてコンテナを再作成
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 #### 簡単な移行（ローカルディレクトリバージョン）
@@ -486,8 +488,8 @@ cd sub2api/deploy
 
 #### 前提条件
 
-- Go 1.21+
-- Node.js 18+
+- Go 1.27.0+
+- Node.js 24+
 - PostgreSQL 15+
 - Redis 7+
 
@@ -672,6 +674,32 @@ go generate ./cmd/server
 
 ---
 
+## Grok / xAI サポート
+
+Sub2API は xAI OAuth による Grok サブスクリプションアカウントと、標準の xAI API キーアカウントの両方をサポートします。どちらも OpenAI 互換の Responses トラフィックを xAI に転送します。
+
+### サポート範囲
+
+- プラットフォーム名：`grok`
+- アカウント種別：OAuth サブスクリプションアカウントと xAI API キーアカウント
+- 公開 Responses エンドポイント：`/v1/responses`、`/responses`、`/backend-api/codex/responses`（OAuth はサブスクリプションプロキシ、API キーは `https://api.x.ai/v1/responses`）
+- 公開 Claude 互換エンドポイント：`/v1/messages`（xAI Responses に変換し、Anthropic Messages 形式で返却。Claude CLI 系クライアント向け）
+- 公開 Chat Completions エンドポイント：`/v1/chat/completions`、`/chat/completions`
+- Responses エンドポイントでは Codex CLI 形式の WebSocket 接続を受け付け、xAI の HTTP/SSE 上流にブリッジします
+- テキストモデル：`grok-4.5`、`grok-4.3`、`grok-build-0.1`、`grok-composer-2.5-fast`、`grok-4.20-0309-reasoning`、`grok-4.20-0309-non-reasoning`、`grok-4.20-multi-agent-0309`
+- Grok グループのメディアエンドポイント：`/v1/images/generations`、`/images/generations`、`/v1/images/edits`、`/images/edits`、`/v1/videos/generations`、`/videos/generations`、`/v1/videos/edits`、`/videos/edits`、`/v1/videos/extensions`、`/videos/extensions`、`/v1/videos/{request_id}`、`/videos/{request_id}`。生成・編集・拡張にはグループの画像生成権限が必要です。画像バリエーション（`/v1/images/variations`）は OpenAI/Bedrock のアクションであり、Grok の範囲外です
+- メディアモデル：`grok-imagine`、`grok-imagine-image-quality`、`grok-imagine-image`、`grok-imagine-image-2.0`、`grok-imagine-edit`、`grok-imagine-video`、`grok-imagine-video-1.5`
+- Grok グループの音声・検索エンドポイント：`/v1/tts`、`/v1/stt`、`/v1/custom-voices`（作成/一覧/取得/更新/削除と `/{voice_id}/audio`）、`/v1/realtime`（WebSocket）、`/v1/web_search`、`/v1/x_search` と対応するルートエイリアス。これらは個別に許可されるアクションであり、チャット可能な Grok キーが TTS・文字起こし・検索を自動的に許可するわけではありません
+- 対象外：ブラウザー自動化、Cookie ベースのスクレイピング、Grok Web スクレイピング
+
+> `/v1/messages` はテキストと視覚入力のみを扱います。画像・動画・音声などの生成リクエストは上記のメディアエンドポイントを使用してください。
+
+### 使用量とクォータの表示
+
+xAI のクォータは受動的な情報です。Sub2API はサブスクリプションクォータを推測せず、xAI が実際に返したホワイトリスト済みのレート制限ヘッダーのみを記録します。最初の有効な上流応答まではダッシュボードのクォータは「不明」と表示され、ローカルの使用量統計は引き続き表示されます。
+
+---
+
 ## Antigravity サポート
 
 Sub2API は [Antigravity](https://antigravity.so/) アカウントをサポートしています。認証後、Claude および Gemini モデル用の専用エンドポイントが利用可能になります。
@@ -704,20 +732,25 @@ Antigravity アカウントはオプションの**ハイブリッドスケジュ
 sub2api/
 ├── backend/                  # Go バックエンドサービス
 │   ├── cmd/server/           # アプリケーションエントリ
-│   ├── internal/             # 内部モジュール
-│   │   ├── config/           # 設定
-│   │   ├── model/            # データモデル
-│   │   ├── service/          # ビジネスロジック
-│   │   ├── handler/          # HTTP ハンドラー
-│   │   └── gateway/          # API ゲートウェイコア
-│   └── resources/            # 静的リソース
+│   ├── ent/                  # Ent スキーマと生成コード
+│   ├── internal/
+│   │   ├── config/           # 設定の読み込みと既定値
+│   │   ├── domain/           # プラットフォーム記述子、能力・アクション行列
+│   │   ├── handler/          # HTTP ハンドラー（admin/ と各ゲートウェイ入口）
+│   │   ├── middleware/       # リクエストミドルウェア
+│   │   ├── payment/          # 決済プロバイダー、レジストリ、負荷分散
+│   │   ├── repository/       # 永続化
+│   │   ├── server/routes/    # ルート登録
+│   │   └── service/          # ビジネスロジック（ゲートウェイ、課金、スケジューリング）
+│   ├── migrations/           # SQL マイグレーション
+│   └── resources/            # 組み込み能力カタログと価格フォールバック
 │
 ├── frontend/                 # Vue 3 フロントエンド
 │   └── src/
 │       ├── api/              # API 呼び出し
+│       ├── components/       # 再利用可能なコンポーネント
 │       ├── stores/           # 状態管理
-│       ├── views/            # ページコンポーネント
-│       └── components/       # 再利用可能なコンポーネント
+│       └── views/            # ページコンポーネント
 │
 └── deploy/                   # デプロイファイル
     ├── docker-compose.yml    # Docker Compose 設定

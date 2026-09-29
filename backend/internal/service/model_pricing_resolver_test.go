@@ -560,7 +560,7 @@ func TestGetIntervalPricing_ChannelIntervalsNoMatch(t *testing.T) {
 
 func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 	// When ListAll returns an error, the ChannelService cache build fails.
-	// Resolve should gracefully fall back to base pricing without panicking.
+	// An unavailable channel price snapshot must not silently substitute catalog prices.
 	repo := &mockChannelRepository{
 		listAllFn: func(_ context.Context) ([]Channel, error) {
 			return nil, errors.New("database unavailable")
@@ -577,11 +577,10 @@ func TestResolve_WithChannelOverride_CacheError(t *testing.T) {
 	})
 
 	require.NotNil(t, resolved)
-	// Should NOT panic, should NOT have source "channel"
-	require.NotEqual(t, "channel", resolved.Source)
-	// Base pricing should still be present (from BillingService fallback)
-	require.NotNil(t, resolved.BasePricing)
-	require.InDelta(t, 3e-6, resolved.BasePricing.InputPricePerToken, 1e-12)
+	require.Equal(t, PricingSourceChannel, resolved.Source)
+	require.Nil(t, resolved.BasePricing)
+	_, err := r.ResolveDescriptor(context.Background(), PricingInput{Model: "claude-sonnet-4", GroupID: &gid})
+	require.ErrorIs(t, err, ErrModelPricingUnavailable)
 }
 
 // ===========================================================================
@@ -722,7 +721,7 @@ func TestFilterValidIntervals(t *testing.T) {
 // 9. ImageOutputPriceExplicit tests
 // ===========================================================================
 
-func TestApplyTokenOverrides_FlatSetsImageOutputPriceExplicit(t *testing.T) {
+func TestApplyTokenOverrides_FlatUnsetImageOutputPriceKeepsFallback(t *testing.T) {
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -737,7 +736,7 @@ func TestApplyTokenOverrides_FlatSetsImageOutputPriceExplicit(t *testing.T) {
 	})
 
 	require.Equal(t, PricingSourceChannel, resolved.Source)
-	require.True(t, resolved.BasePricing.ImageOutputPriceExplicit)
+	require.False(t, resolved.BasePricing.ImageOutputPriceExplicit)
 	require.Equal(t, 0.0, resolved.BasePricing.ImageOutputPricePerToken)
 }
 
@@ -759,7 +758,7 @@ func TestApplyTokenOverrides_FlatWithImageOutputPriceSetsExplicit(t *testing.T) 
 	require.InDelta(t, 50e-6, resolved.BasePricing.ImageOutputPricePerToken, 1e-12)
 }
 
-func TestApplyTokenOverrides_IntervalSetsImageOutputPriceExplicit(t *testing.T) {
+func TestApplyTokenOverrides_IntervalUnsetImageOutputPriceKeepsFallback(t *testing.T) {
 	r := newResolverWithChannel(t, []ChannelModelPricing{{
 		Platform:    "anthropic",
 		Models:      []string{"claude-sonnet-4"},
@@ -774,13 +773,13 @@ func TestApplyTokenOverrides_IntervalSetsImageOutputPriceExplicit(t *testing.T) 
 		GroupID: groupIDPtr(),
 	})
 
-	// BasePricing should have explicit mark (for interval fallback)
-	require.True(t, resolved.BasePricing.ImageOutputPriceExplicit)
+	// BasePricing should preserve the implicit catalog price (for interval fallback)
+	require.False(t, resolved.BasePricing.ImageOutputPriceExplicit)
 	require.Equal(t, 0.0, resolved.BasePricing.ImageOutputPricePerToken)
 
-	// intervalToModelPricing should also have explicit mark
+	// intervalToModelPricing should also preserve the implicit catalog price
 	pricing := r.GetIntervalPricing(resolved, 50000)
-	require.True(t, pricing.ImageOutputPriceExplicit)
+	require.False(t, pricing.ImageOutputPriceExplicit)
 	require.Equal(t, 0.0, pricing.ImageOutputPricePerToken)
 }
 
@@ -835,7 +834,7 @@ func TestApplyTokenOverrides_IntervalDoesNotPolluteFallbackPrices(t *testing.T) 
 	})
 
 	require.NotNil(t, resolved)
-	require.True(t, resolved.BasePricing.ImageOutputPriceExplicit)
+	require.False(t, resolved.BasePricing.ImageOutputPriceExplicit)
 
 	// Global fallbackPrices must NOT be polluted
 	fp := r.billingService.fallbackPrices["claude-sonnet-4"]

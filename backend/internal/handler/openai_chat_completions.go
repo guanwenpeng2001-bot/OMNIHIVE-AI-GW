@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -82,6 +81,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if native != "" && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformQianwen {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "DashScope requires a Qianwen group or an explicit Qianwen model route")
@@ -172,15 +172,18 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("openai_chat_completions.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
 		return
 	}
 
-	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
+	// Period budget hold: insufficient budget is rejected before the upstream.
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
+		return
+	}
+
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c, body)
 	promptCacheKey := h.gatewayService.ExtractSessionID(c, body)
 
 	maxAccountSwitches := h.maxAccountSwitches
@@ -249,7 +252,9 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			return
 		}
 		account := selection.Account
-		sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		if h.cfg == nil || !h.cfg.Gateway.SessionAffinityEnabled {
+			sessionHash = ensureOpenAIPoolModeSessionHash(sessionHash, account)
+		}
 		reqLog.Debug("openai_chat_completions.account_selected", zap.Int64("account_id", account.ID), zap.String("account_name", account.Name))
 		_ = scheduleDecision
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -353,6 +358,9 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 					zap.Error(err),
 				)
 			} else {
+				if writeGatewayTPMRequestError(c, err) {
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {

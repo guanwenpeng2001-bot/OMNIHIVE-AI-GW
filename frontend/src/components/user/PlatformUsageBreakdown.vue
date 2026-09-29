@@ -46,6 +46,7 @@
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
+import { getPlatformLabel } from '@/constants/platforms'
 import type { PlatformUsage } from '@/api/admin/dashboard'
 
 const props = defineProps<{
@@ -90,22 +91,8 @@ const sortedBreakdown = computed<BreakdownRow[]>(() => {
 
 const hasBreakdown = computed(() => sortedBreakdown.value.length > 0)
 
-const PLATFORM_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  grok: 'Grok',
-  kimi: 'Kimi',
-  zhipu: 'Zhipu GLM',
-  deepseek: 'DeepSeek',
-  minimax: 'MiniMax',
-  cursor: 'Cursor',
-  opencode_go: 'OpenCode',
-}
-
+// 平台名统一取自共享词条表 admin.accounts.platforms.*（getPlatformLabel）。
 function platformLabel(platform: string): string {
-  if (platform === 'qianwen' || platform === 'commandcode') return t(`monitorCommon.providers.${platform}`)
-  return PLATFORM_LABELS[platform] ?? platform
+  return getPlatformLabel(platform, t)
 }
 </script>

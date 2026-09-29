@@ -53,6 +53,20 @@ func (_c *AccountCreate) SetNillableUpdatedAt(v *time.Time) *AccountCreate {
 	return _c
 }
 
+// SetWorkspaceID sets the "workspace_id" field.
+func (_c *AccountCreate) SetWorkspaceID(v int64) *AccountCreate {
+	_c.mutation.SetWorkspaceID(v)
+	return _c
+}
+
+// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableWorkspaceID(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetWorkspaceID(*v)
+	}
+	return _c
+}
+
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *AccountCreate) SetDeletedAt(v time.Time) *AccountCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -63,6 +77,20 @@ func (_c *AccountCreate) SetDeletedAt(v time.Time) *AccountCreate {
 func (_c *AccountCreate) SetNillableDeletedAt(v *time.Time) *AccountCreate {
 	if v != nil {
 		_c.SetDeletedAt(*v)
+	}
+	return _c
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (_c *AccountCreate) SetTpmLimit(v int64) *AccountCreate {
+	_c.mutation.SetTpmLimit(v)
+	return _c
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_c *AccountCreate) SetNillableTpmLimit(v *int64) *AccountCreate {
+	if v != nil {
+		_c.SetTpmLimit(*v)
 	}
 	return _c
 }
@@ -539,6 +567,14 @@ func (_c *AccountCreate) defaults() error {
 		v := account.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		v := account.DefaultWorkspaceID
+		_c.mutation.SetWorkspaceID(v)
+	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		v := account.DefaultTpmLimit
+		_c.mutation.SetTpmLimit(v)
+	}
 	if _, ok := _c.mutation.Credentials(); !ok {
 		if account.DefaultCredentials == nil {
 			return fmt.Errorf("ent: uninitialized account.DefaultCredentials (forgotten import ent/runtime?)")
@@ -591,6 +627,17 @@ func (_c *AccountCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Account.updated_at"`)}
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "Account.workspace_id"`)}
+	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		return &ValidationError{Name: "tpm_limit", err: errors.New(`ent: missing required field "Account.tpm_limit"`)}
+	}
+	if v, ok := _c.mutation.TpmLimit(); ok {
+		if err := account.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Account.tpm_limit": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Account.name"`)}
@@ -693,9 +740,17 @@ func (_c *AccountCreate) createSpec() (*Account, *sqlgraph.CreateSpec) {
 		_spec.SetField(account.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if value, ok := _c.mutation.WorkspaceID(); ok {
+		_spec.SetField(account.FieldWorkspaceID, field.TypeInt64, value)
+		_node.WorkspaceID = value
+	}
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(account.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.TpmLimit(); ok {
+		_spec.SetField(account.FieldTpmLimit, field.TypeInt64, value)
+		_node.TpmLimit = value
 	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(account.FieldName, field.TypeString, value)
@@ -966,6 +1021,24 @@ func (u *AccountUpsert) UpdateDeletedAt() *AccountUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *AccountUpsert) ClearDeletedAt() *AccountUpsert {
 	u.SetNull(account.FieldDeletedAt)
+	return u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *AccountUpsert) SetTpmLimit(v int64) *AccountUpsert {
+	u.Set(account.FieldTpmLimit, v)
+	return u
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *AccountUpsert) UpdateTpmLimit() *AccountUpsert {
+	u.SetExcluded(account.FieldTpmLimit)
+	return u
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *AccountUpsert) AddTpmLimit(v int64) *AccountUpsert {
+	u.Add(account.FieldTpmLimit, v)
 	return u
 }
 
@@ -1445,6 +1518,9 @@ func (u *AccountUpsertOne) UpdateNewValues() *AccountUpsertOne {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(account.FieldCreatedAt)
 		}
+		if _, exists := u.create.mutation.WorkspaceID(); exists {
+			s.SetIgnore(account.FieldWorkspaceID)
+		}
 	}))
 	return u
 }
@@ -1508,6 +1584,27 @@ func (u *AccountUpsertOne) UpdateDeletedAt() *AccountUpsertOne {
 func (u *AccountUpsertOne) ClearDeletedAt() *AccountUpsertOne {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *AccountUpsertOne) SetTpmLimit(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *AccountUpsertOne) AddTpmLimit(v int64) *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *AccountUpsertOne) UpdateTpmLimit() *AccountUpsertOne {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateTpmLimit()
 	})
 }
 
@@ -2229,6 +2326,9 @@ func (u *AccountUpsertBulk) UpdateNewValues() *AccountUpsertBulk {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(account.FieldCreatedAt)
 			}
+			if _, exists := b.mutation.WorkspaceID(); exists {
+				s.SetIgnore(account.FieldWorkspaceID)
+			}
 		}
 	}))
 	return u
@@ -2293,6 +2393,27 @@ func (u *AccountUpsertBulk) UpdateDeletedAt() *AccountUpsertBulk {
 func (u *AccountUpsertBulk) ClearDeletedAt() *AccountUpsertBulk {
 	return u.Update(func(s *AccountUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *AccountUpsertBulk) SetTpmLimit(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *AccountUpsertBulk) AddTpmLimit(v int64) *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *AccountUpsertBulk) UpdateTpmLimit() *AccountUpsertBulk {
+	return u.Update(func(s *AccountUpsert) {
+		s.UpdateTpmLimit()
 	})
 }
 

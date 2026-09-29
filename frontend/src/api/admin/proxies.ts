@@ -10,10 +10,10 @@ import type {
   ProxyQualityCheckResult,
   CreateProxyRequest,
   UpdateProxyRequest,
-  PaginatedResponse,
   AdminDataPayload,
-  AdminDataImportResult
-} from '@/types'
+  AdminDataImportResult,
+} from '@/types/admin'
+import type { PaginatedResponse } from '@/types/common'
 
 function assertProxyArray(value: unknown): asserts value is Proxy[] {
   if (!Array.isArray(value)) {
@@ -168,21 +168,43 @@ export async function checkProxyQuality(id: number): Promise<ProxyQualityCheckRe
 /**
  * Get proxy usage statistics
  * @param id - Proxy ID
- * @returns Proxy usage statistics
+ * @returns 真实观测：账号归属、账本保留窗口内的请求量，以及最近一次真实探测/质量检查。
+ *          `average_latency`/`measured_at`/`probe_success` 为 null 表示从未探测过；
+ *          本地账本没有按代理归属的请求失败维度，因此不返回 success_rate。
  */
 export async function getStats(id: number): Promise<{
+  proxy_id: number
   total_accounts: number
   active_accounts: number
-  total_requests: number
-  success_rate: number
-  average_latency: number
+  total_requests?: number
+  last_request_at?: string | null
+  usage_window_start?: string
+  usage_window_end?: string
+  average_latency: number | null
+  measured_at: string | null
+  probe_success: boolean | null
+  quality_status: string
+  quality_score: number | null
+  quality_grade: string
+  quality_summary: string
+  quality_checked_at: number | null
 }> {
   const { data } = await apiClient.get<{
+    proxy_id: number
     total_accounts: number
     active_accounts: number
-    total_requests: number
-    success_rate: number
-    average_latency: number
+    total_requests?: number
+    last_request_at?: string | null
+    usage_window_start?: string
+    usage_window_end?: string
+    average_latency: number | null
+    measured_at: string | null
+    probe_success: boolean | null
+    quality_status: string
+    quality_score: number | null
+    quality_grade: string
+    quality_summary: string
+    quality_checked_at: number | null
   }>(`/admin/proxies/${id}/stats`)
   return data
 }

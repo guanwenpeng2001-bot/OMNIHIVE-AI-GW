@@ -906,6 +906,13 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 				wsLastFailureReason,
 				&agentTaskRecoveryTried,
 			)
+			if wsResult != nil && wsResult.ClientDisconnect {
+				wsResult.UpstreamModel = upstreamModel
+				if wsResult.BillingModel == "" {
+					wsResult.BillingModel = billingModel
+				}
+				return wsResult, wsErr
+			}
 			if wsErr == nil {
 				break
 			}
@@ -1259,6 +1266,21 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					}
 					return s.handleErrorResponse(ctx, compactResp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
 				}
+				var failoverErr *UpstreamFailoverError
+				if streamResult != nil && streamResult.usage != nil && !errors.As(err, &failoverErr) {
+					return &OpenAIForwardResult{
+						RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header,
+						ResponseID: streamResult.responseID, Usage: *streamResult.usage,
+						Model: originalModel, BillingModel: billingModel, UpstreamModel: upstreamModel,
+						UpstreamResponseModel:         observedUpstreamResponseModel(c),
+						UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+						UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+						ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, serviceTier), ReasoningEffort: reasoningEffort,
+						Stream: true, Duration: time.Since(startTime), FirstTokenMs: streamResult.firstTokenMs,
+						ImageCount: streamResult.imageCount, ImageOutputSizes: streamResult.imageOutputSizes,
+						SearchCount: streamResult.searchCount, ClientDisconnect: true,
+					}, err
+				}
 				return nil, err
 			}
 			usage = streamResult.usage
@@ -1440,6 +1462,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 			}
 		}
 	}
+	if account.Platform == PlatformOpenAI {
+		preserveRequestedResponsesBeta(c.Request.Header, req.Header)
+	}
 	// 客户端回带的 x-codex-turn-state 若已知由其他账号铸造（failover 换号），
 	// 剥离后再出站——异账号 blob 与本账号的（指纹收敛后）出站身份自相矛盾。
 	s.guardOpenAICodexTurnStateEcho(c, account, req.Header)
@@ -1510,6 +1535,10 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 		req.Header.Set("content-type", "application/json")
 	}
 
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
+
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）
 	account.ApplyHeaderOverrides(req.Header)
 	applyOpenCodeSessionHeader(c, account, targetURL, req.Header, body, openCodeSessionHintBody(promptCacheKey))
@@ -1519,6 +1548,9 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	setOpenAICodexRoutingHintFromBody(req.Header, account, body)
 	logOpenAIRoutingDiagnosticsFromBody(ctx, account, "http", req.Header, body, "not_applicable")
 
+	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
+		return nil, err
+	}
 	return req, nil
 }
 

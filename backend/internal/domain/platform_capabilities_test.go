@@ -76,13 +76,24 @@ func TestPlatformResponsesSurfaces(t *testing.T) {
 		compact  bool
 	}{
 		{PlatformOpenAI, EndpointNative, EndpointNative, true},
-		{PlatformGrok, EndpointNative, EndpointBridge, false},
+		// Grok compact: native xAI POST /v1/responses/compact (docs.x.ai
+		// Context Compaction, retrieved 2026-09-21), served through the
+		// existing Grok compact bridge on the responses trunk.
+		{PlatformGrok, EndpointNative, EndpointBridge, true},
 		{PlatformGemini, EndpointRejected, EndpointRejected, false},
 		{PlatformAnthropic, EndpointBridge, EndpointRejected, false},
 		{PlatformCursor, EndpointBridge, EndpointRejected, false},
 		{PlatformKimi, EndpointNative, EndpointRejected, false},
 		{PlatformZhipu, EndpointBridge, EndpointRejected, false},
 		{PlatformCommandCode, EndpointBridge, EndpointRejected, false},
+		// The late CN/TokenHub entries publish the native Responses API on their
+		// OpenAI-shaped trunk (Ark docs/82379/1298459, Qianfan /v2/responses live
+		// probe and TokenHub 1823/133813, all captured 2026-09-21), while Mistral
+		// publishes none.
+		{PlatformVolcengine, EndpointNative, EndpointRejected, false},
+		{PlatformQianfan, EndpointNative, EndpointRejected, false},
+		{PlatformHunyuan, EndpointNative, EndpointRejected, false},
+		{PlatformMistral, EndpointRejected, EndpointRejected, false},
 		{PlatformComposite, EndpointRejected, EndpointRejected, false},
 		{"unknown", EndpointRejected, EndpointRejected, false},
 	} {

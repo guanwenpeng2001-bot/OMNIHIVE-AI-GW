@@ -3,10 +3,10 @@
     <!-- Row 1: Platform + Type -->
     <div class="inline-flex items-center overflow-hidden rounded-md">
       <span :class="['inline-flex items-center gap-1 px-2 py-1', platformClass]">
-        <PlatformIcon :platform="platform" size="xs" />
-        <span>{{ platformLabel }}</span>
+        <PlatformIcon :platform="platform" :account-type="type" size="xs" />
+        <span data-testid="platform-label">{{ platformLabel }}</span>
       </span>
-      <span :class="['inline-flex items-center gap-1 px-1.5 py-1', typeClass]">
+      <span :class="['inline-flex items-center gap-1 px-1.5 py-1', platformClass]">
         <!-- OAuth icon -->
         <svg
           v-if="type === 'oauth'"
@@ -58,7 +58,7 @@
       </span>
     </div>
     <!-- Row 3: Subscription expiration (non-free paid accounts only) -->
-    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-400 dark:text-gray-500 pl-0.5" :title="subscriptionExpiresAt">
+    <div v-if="expiresLabel" class="text-[10px] leading-tight text-gray-600 dark:text-dark-400 pl-0.5" :title="subscriptionExpiresAt">
       {{ expiresLabel }}
     </div>
   </div>
@@ -66,10 +66,11 @@
 
 <script setup lang="ts">
 import { computed } from 'vue'
+import { canonicalPlatform, getPlatformLabel } from '@/constants/platforms'
 import { useI18n } from 'vue-i18n'
 import type { AccountPlatform, AccountType } from '@/types'
-import { platformLabel as sharedPlatformLabel } from '@/utils/platformColors'
 import { normalizePlanType, openAIPlanTypeLabel } from '@/utils/planType'
+import { platformSolidBadgeClass } from '@/utils/platformColors'
 import GrokFreeIcon from './GrokFreeIcon.vue'
 import PlatformIcon from './PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -79,6 +80,7 @@ const { t } = useI18n()
 interface Props {
   platform: AccountPlatform
   type: AccountType
+  showAwsSuffix?: boolean
   authMode?: string
   planType?: string
   privacyMode?: string
@@ -87,7 +89,12 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => sharedPlatformLabel(props.platform))
+const basePlatformLabel = computed(() => getPlatformLabel(canonicalPlatform(props.platform), t))
+const isBedrock = computed(() => props.platform === 'bedrock' ||
+  (canonicalPlatform(props.platform) === 'anthropic' && props.type === 'bedrock'))
+const platformLabel = computed(() => props.showAwsSuffix && isBedrock.value
+  ? `${basePlatformLabel.value} (AWS)`
+  : basePlatformLabel.value)
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
@@ -175,65 +182,13 @@ const planIconName = computed<'bolt' | null>(() => {
   return null
 })
 
-const platformClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-  }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  if (props.platform === 'grok') {
-    return 'bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-300'
-  }
-  if (props.platform === 'kimi') {
-    return 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-  }
-  if (props.platform === 'zhipu') {
-    return 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-  }
-  if (props.platform === 'deepseek') {
-    return 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-  }
-  if (props.platform === 'minimax') {
-    return 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-  }
-  return 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400'
-})
-
-const typeClass = computed(() => {
-  if (props.platform === 'anthropic') {
-    return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
-  }
-  if (props.platform === 'openai') {
-    return 'bg-emerald-100 text-emerald-600 dark:bg-emerald-900/30 dark:text-emerald-400'
-  }
-  if (props.platform === 'antigravity') {
-    return 'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400'
-  }
-  if (props.platform === 'grok') {
-    return 'bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-300'
-  }
-  if (props.platform === 'kimi') {
-    return 'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400'
-  }
-  if (props.platform === 'zhipu') {
-    return 'bg-indigo-100 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400'
-  }
-  if (props.platform === 'deepseek') {
-    return 'bg-teal-100 text-teal-600 dark:bg-teal-900/30 dark:text-teal-400'
-  }
-  if (props.platform === 'minimax') {
-    return 'bg-rose-100 text-rose-600 dark:bg-rose-900/30 dark:text-rose-400'
-  }
-  return 'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400'
-})
+// 平台色只有一处权威定义（utils/platformColors.ts）：平台格与类型格共用同一档实心徽章，
+// 本组件不再维护自己的平台色表（此前未列出的平台会一起塌成蓝色兜底）。
+const platformClass = computed(() => platformSolidBadgeClass(props.platform))
 
 const planBadgeClass = computed(() => {
   if (normalizedPlanType.value === 'abnormal') {
-    return 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400'
+    return 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400'
   }
   // Free stays muted gray; paid Grok tiers get distinct colors.
   if (
@@ -269,7 +224,7 @@ const planBadgeClass = computed(() => {
   ) {
     return 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
   }
-  return typeClass.value
+  return platformClass.value
 })
 
 // Subscription expiration label (non-free only)
@@ -303,16 +258,16 @@ const privacyBadge = computed(() => {
   switch (props.privacyMode) {
     // OpenAI states
     case 'training_off':
-      return { label: 'Private', icon: shieldCheck, title: t('admin.accounts.privacyTrainingOff'), class: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' }
+      return { label: t('admin.accounts.privacyShort'), icon: shieldCheck, title: t('admin.accounts.privacyTrainingOff'), class: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' }
     case 'training_set_cf_blocked':
-      return { label: 'CF', icon: shieldX, title: t('admin.accounts.privacyCfBlocked'), class: 'bg-yellow-100 text-yellow-600 dark:bg-yellow-900/30 dark:text-yellow-400' }
+      return { label: t('admin.accounts.privacyCfShort'), icon: shieldX, title: t('admin.accounts.privacyCfBlocked'), class: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400' }
     case 'training_set_failed':
-      return { label: 'Fail', icon: shieldX, title: t('admin.accounts.privacyFailed'), class: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' }
+      return { label: t('admin.accounts.privacyFailedShort'), icon: shieldX, title: t('admin.accounts.privacyFailed'), class: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' }
     // Antigravity states
     case 'privacy_set':
-      return { label: 'Private', icon: shieldCheck, title: t('admin.accounts.privacyAntigravitySet'), class: 'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400' }
+      return { label: t('admin.accounts.privacyShort'), icon: shieldCheck, title: t('admin.accounts.privacyAntigravitySet'), class: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400' }
     case 'privacy_set_failed':
-      return { label: 'Fail', icon: shieldX, title: t('admin.accounts.privacyAntigravityFailed'), class: 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' }
+      return { label: t('admin.accounts.privacyFailedShort'), icon: shieldX, title: t('admin.accounts.privacyAntigravityFailed'), class: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400' }
     default:
       return null
   }

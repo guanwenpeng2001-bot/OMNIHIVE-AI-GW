@@ -7,6 +7,10 @@
 # Documentation / 文档: https://github.com/Wei-Shaw/sub2api
 
 # =============================================================================
+# Scheduled availability probes require explicit opt-in; changes take effect after restart.
+# 有界模型探测默认关闭；配置或环境变量变更后重启生效。
+bounded_model_probes_enabled: false
+
 # Server Configuration
 # 服务器配置
 # =============================================================================
@@ -55,7 +59,7 @@ server:
   h2c:
     # Enable HTTP/2 Cleartext for client connections
     # 启用 HTTP/2 Cleartext 客户端连接
-    enabled: true
+    enabled: false
     # Max concurrent streams per connection
     # 每个连接的最大并发流数量
     max_concurrent_streams: 50
@@ -120,8 +124,8 @@ security:
   # Legacy compatibility switch. When true, raw forwarded headers take over
   # server.trusted_proxies. Set false to enforce the trusted proxy chain above.
   # 旧版兼容开关。开启时原始转发头会接管 server.trusted_proxies；关闭后严格
-  # 使用上方配置的可信代理链。示例配置采用高安全模式。
-  trust_forwarded_ip_for_api_key_acl: false
+  # 使用上方配置的可信代理链。默认保留兼容模式；边缘代理须覆盖转发头。
+  trust_forwarded_ip_for_api_key_acl: true
   # Optional client-IP headers for third-party CDNs, checked in list order before
   # CF-Connecting-IP, X-Real-IP, and X-Forwarded-For. Valid only while the legacy
   # compatibility switch above is true; maximum 16 unique HTTP header names.
@@ -134,8 +138,8 @@ security:
   #   - "True-Client-IP"
   #   - "X-CDN-Client-IP"
   url_allowlist:
-    # Enable URL allowlist validation (disable to skip all URL checks)
-    # 启用 URL 白名单验证（禁用则跳过所有 URL 检查）
+    # Enable host allowlist validation; scheme/private-host settings remain independent
+    # 启用主机白名单验证；协议和私网选项仍按各自配置生效
     enabled: false
     # Allowed upstream hosts for API proxying
     # 允许代理的上游 API 主机列表
@@ -209,6 +213,12 @@ security:
 # 网关配置
 # =============================================================================
 gateway:
+  # Opt into scoped session hashing and binding; disabled by default.
+  session_affinity_enabled: false
+  # Configure both together. Both empty permits development SHA fallback;
+  # configuring only one rejects startup.
+  affinity_hmac_key: ""
+  affinity_hmac_key_version: ""
   # Timeout for waiting upstream response headers (seconds)
   # 等待上游响应头超时时间（秒）
   response_header_timeout: 600
@@ -233,9 +243,9 @@ gateway:
   # Pure-text endpoint body limit (embeddings and alpha/search), default 32 MiB.
   # 纯文本端点请求体上限（embeddings、alpha/search），默认 32 MiB。
   text_max_body_size: 33554432
-  # Max bytes to read for non-stream upstream responses (default: 8MB)
-  # 非流式上游响应体读取上限（默认 8MB）
-  upstream_response_read_max_bytes: 8388608
+  # Max bytes to read for non-stream upstream responses (default: 128 MiB)
+  # 非流式上游响应体读取上限（默认 128 MiB）
+  upstream_response_read_max_bytes: 134217728
   # Max bytes to read for upstream model-list responses (default: 8MB)
   # 上游模型列表响应体读取上限（默认 8MB）
   models_list_read_max_bytes: 8388608
@@ -716,6 +726,16 @@ api_key_auth_cache:
     capacity: 16384
 
 # =============================================================================
+# API Key Credential Configuration
+# API Key 凭据配置
+# =============================================================================
+api_key_credential:
+  # Dual-read window (hours) during which the previous secret of a rotated key still
+  # authenticates. The key keeps its identity id, so usage and billing stay attached.
+  # 轮换后旧密钥仍可鉴权的双读窗口（小时）。Key 的 ID 不变，用量与账单继续挂在同一 Key 上。
+  grace_ttl_hours: 24
+
+# =============================================================================
 # Dashboard Cache Configuration
 # 仪表盘缓存配置
 # =============================================================================
@@ -959,7 +979,9 @@ linuxdo_connect:
   frontend_redirect_url: "/auth/linuxdo/callback"
   token_auth_method: "client_secret_post" # client_secret_post | client_secret_basic | none
   # 注意：当 token_auth_method=none（public client）时，必须启用 PKCE
-  use_pkce: true
+  # Default false for LinuxDo confidential clients using a client secret.
+  # Public clients (token_auth_method=none) must explicitly set true.
+  use_pkce: false
   userinfo_email_path: ""
   userinfo_id_path: ""
   userinfo_username_path: ""
@@ -1066,13 +1088,16 @@ plugins:
 # Pricing Data Source (Optional)
 # 定价数据源（可选）
 # =============================================================================
+# Periodic outbound model catalog refresh requires explicit opt-in.
+model_catalog_refresh_enabled: false
+
 pricing:
-  # URL to fetch model pricing data (default: model-price-repo main branch)
-  # 获取模型定价数据的 URL（默认：model-price-repo main 分支）
-  remote_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.json"
-  # Hash verification URL (optional)
-  # 哈希校验 URL（可选）
-  hash_url: "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/refs/heads/main//model_prices_and_context_window.sha256"
+  # URL to fetch model pricing data (default: official LiteLLM main branch)
+  # 获取模型定价数据的 URL（默认：LiteLLM 官方 main 分支）
+  remote_url: "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json"
+  # Optional sync hash URL; official LiteLLM uses interval refresh without one.
+  # 可选同步哈希 URL；LiteLLM 官方源不配置，按更新周期刷新。
+  hash_url: ""
   # Local data directory for caching
   # 本地数据缓存目录
   data_dir: "./data"
@@ -1080,14 +1105,21 @@ pricing:
   # detected by content hash at the next hash check and reloaded without restart.
   # 备用定价文件：只补目录缺失的模型。修改后在下一次哈希检查时按内容哈希自动重载，无需重启。
   fallback_file: "./resources/model-pricing/model_prices_and_context_window.json"
-  # Override patch file (optional, highest priority): entries are shallow-merged
+  # Override patch file (highest priority): entries are shallow-merged
   # field-by-field over catalog/fallback data; a null field value removes that field.
   # Model names must match catalog keys exactly. Edits are detected by content hash
   # at the next hash check and reloaded without restart.
-  # 覆盖补丁文件（可选，优先级最高）：条目按字段浅合并覆盖目录/回退数据，
+  # 覆盖补丁文件（优先级最高）：条目按字段浅合并覆盖目录/回退数据，
   # 字段值为 null 表示删除该字段。模型名须与目录键完全一致。
   # 修改后在下一次哈希检查时按内容哈希自动重载，无需重启。
-  # override_file: "./data/model_pricing_overrides.json"
+  # The default restores six approved cache base fields. Paths are relative to
+  # the server working directory. An explicit custom file replaces this layer;
+  # merge the approved fields into it after reviewing conflicts (see
+  # resources/model-pricing/cache-base-overrides.md). The runtime cache is unchanged.
+  # 默认恢复六个已批准的缓存基础字段，路径相对服务工作目录。
+  # 自定义文件会替代此层；请审查冲突后合入修复字段，保留其他运营覆盖。
+  # 详见资源目录的 cache-base-overrides.md；下载的运行缓存不被本补丁改写。
+  override_file: "./resources/model-pricing/cache-base-overrides.json"
   # Update interval in hours
   # 更新间隔（小时）
   update_interval_hours: 24

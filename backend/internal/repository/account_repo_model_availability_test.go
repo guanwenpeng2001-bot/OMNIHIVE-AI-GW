@@ -56,3 +56,25 @@ func TestListModelAvailabilityCandidates_GroupQueryIgnoresTransientState(t *test
 		require.NotContains(t, whereClause, transientPredicate, "configured-state diagnosis must not filter transient predicate %q", transientPredicate)
 	}
 }
+
+func TestModelCatalogProjectionReadsOnlyEvidenceAndRules(t *testing.T) {
+	var capturedSQL string
+	db, mock, err := sqlmock.New(sqlmock.QueryMatcherOption(captureEntQueryMatcher{actual: &capturedSQL}))
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = db.Close() })
+	repo := &accountRepository{sql: db}
+	mock.ExpectQuery("catalog projection").WillReturnRows(sqlmock.NewRows([]string{
+		"id", "platform", "type", "status", "schedulable", "parent_account_id", "expires_at", "auto_pause_on_expired", "temp_unschedulable_until", "credentials", "extra",
+	}).AddRow(int64(7), "openai", "apikey", "active", true, nil, nil, true, nil,
+		`{"model_mapping":{"public":"native"}}`, `{"upstream_model_catalog_state":{"identity_revision":3}}`))
+	a, err := repo.GetModelCatalogAccount(context.Background(), 7)
+	require.NoError(t, err)
+	require.Equal(t, int64(3), a.ModelCatalogState().IdentityRevision)
+	require.Equal(t, "native", a.GetMappedModel("public"))
+	for _, secret := range []string{"api_key", "access_token", "refresh_token", "aws_secret_access_key"} {
+		require.NotContains(t, capturedSQL, "'"+secret+"'")
+		require.NotContains(t, a.Credentials, secret)
+	}
+	require.Contains(t, capturedSQL, "jsonb_object_agg")
+	require.NoError(t, mock.ExpectationsWereMet())
+}

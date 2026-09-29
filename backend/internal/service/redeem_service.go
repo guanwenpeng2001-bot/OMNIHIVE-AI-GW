@@ -670,19 +670,37 @@ func (s *RedeemService) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
-// GetStats 获取兑换码统计信息
-func (s *RedeemService) GetStats(ctx context.Context) (map[string]any, error) {
-	// TODO: 实现统计逻辑
-	// 统计未使用、已使用的兑换码数量
-	// 统计总面值等
+// RedeemCodeStats 兑换码真实分布统计。
+// ActiveCodes 的口径与 ListWithFilters 的 status=unused 过滤一致：
+// 未使用且（无到期时间或尚未到期）才算可用；未使用但已过期的计入 ExpiredCodes。
+type RedeemCodeStats struct {
+	TotalCodes            int64            `json:"total_codes"`
+	ActiveCodes           int64            `json:"active_codes"`
+	UsedCodes             int64            `json:"used_codes"`
+	ExpiredCodes          int64            `json:"expired_codes"`
+	TotalValueDistributed float64          `json:"total_value_distributed"`
+	ByType                map[string]int64 `json:"by_type"`
+}
 
-	stats := map[string]any{
-		"total_codes":  0,
-		"unused_codes": 0,
-		"used_codes":   0,
-		"total_value":  0.0,
+// redeemCodeStatsReader 由仓储层按库内真实分布聚合兑换码统计；未实现时统计
+// 端点必须显式失败，而不是退回写死的零。
+type redeemCodeStatsReader interface {
+	GetStats(ctx context.Context) (*RedeemCodeStats, error)
+}
+
+// GetStats 获取兑换码统计信息（真实聚合，不再返回写死的零）。
+func (s *RedeemService) GetStats(ctx context.Context) (*RedeemCodeStats, error) {
+	if s.redeemRepo == nil {
+		return nil, fmt.Errorf("redeem code repository is not configured")
 	}
-
+	reader, ok := s.redeemRepo.(redeemCodeStatsReader)
+	if !ok {
+		return nil, fmt.Errorf("redeem code repository does not support stats aggregation")
+	}
+	stats, err := reader.GetStats(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get redeem code stats: %w", err)
+	}
 	return stats, nil
 }
 
@@ -695,22 +713,30 @@ func (s *RedeemService) GetUserHistory(ctx context.Context, userID int64, limit 
 	return codes, nil
 }
 
-// reduceOrCancelSubscription 缩短订阅天数，剩余天数 <= 0 时取消订阅
+// reduceOrCancelSubscription 缩短订阅天数，扣减后已到期时取消订阅。
 func (s *RedeemService) reduceOrCancelSubscription(ctx context.Context, userID, groupID int64, reduceDays int, code string) error {
 	sub, err := s.subscriptionService.userSubRepo.GetByUserIDAndGroupID(ctx, userID, groupID)
 	if err != nil {
 		return ErrSubscriptionNotFound
 	}
 
-	now := time.Now()
-	remaining := int(sub.ExpiresAt.Sub(now).Hours() / 24)
-	if remaining < 0 {
-		remaining = 0
+	// Different redemption codes and renewals must serialize on the same row.
+	// The caller's transaction keeps this lock until redemption commits.
+	sub, err = s.subscriptionService.userSubRepo.GetByIDForUpdate(ctx, sub.ID)
+	if err != nil {
+		return fmt.Errorf("lock subscription for reduction: %w", err)
 	}
+
+	now := time.Now()
+	if s.subscriptionService.now != nil {
+		now = s.subscriptionService.now()
+	}
+	// Subtract calendar days without rounding away the remaining hours.
+	newExpiresAt := sub.ExpiresAt.AddDate(0, 0, -reduceDays)
 
 	notes := fmt.Sprintf("通过兑换码 %s 退款扣减 %d 天", code, reduceDays)
 
-	if remaining <= reduceDays {
+	if !newExpiresAt.After(now) {
 		// 剩余天数不足，直接取消订阅
 		if err := s.subscriptionService.userSubRepo.UpdateStatus(ctx, sub.ID, SubscriptionStatusExpired); err != nil {
 			return fmt.Errorf("cancel subscription: %w", err)
@@ -721,7 +747,6 @@ func (s *RedeemService) reduceOrCancelSubscription(ctx context.Context, userID, 
 		}
 	} else {
 		// 缩短天数
-		newExpiresAt := sub.ExpiresAt.AddDate(0, 0, -reduceDays)
 		if err := s.subscriptionService.userSubRepo.ExtendExpiry(ctx, sub.ID, newExpiresAt); err != nil {
 			return fmt.Errorf("reduce subscription: %w", err)
 		}
@@ -741,4 +766,9 @@ func (s *RedeemService) reduceOrCancelSubscription(ctx context.Context, userID, 
 	s.subscriptionService.InvalidateSubCache(userID, groupID)
 
 	return nil
+}
+
+// GetUserHistoryPaginated returns all redemption types for the authenticated user.
+func (s *RedeemService) GetUserHistoryPaginated(ctx context.Context, userID int64, params pagination.PaginationParams) ([]RedeemCode, *pagination.PaginationResult, error) {
+	return s.redeemRepo.ListByUserPaginated(ctx, userID, params, "")
 }

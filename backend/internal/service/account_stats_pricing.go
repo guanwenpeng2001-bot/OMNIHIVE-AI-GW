@@ -32,6 +32,7 @@ func resolveAccountStatsCost(
 	totalCost float64,
 	serviceTier string,
 	pricingAt time.Time,
+	longContextPricingEnabled bool,
 	reasoningEfforts ...string,
 ) *float64 {
 	reasoningEffort := ""
@@ -49,7 +50,7 @@ func resolveAccountStatsCost(
 	platform := channelService.GetGroupPlatform(ctx, groupID)
 
 	// 优先级 1：自定义规则（始终尝试）
-	if cost := tryCustomRules(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, reasoningEffort); cost != nil {
+	if cost := tryCustomRulesAt(channel, accountID, groupID, platform, upstreamModel, tokens, requestCount, pricingAt, reasoningEffort); cost != nil {
 		return cost
 	}
 
@@ -62,9 +63,20 @@ func resolveAccountStatsCost(
 		return &cost
 	}
 
+	// Explicit cost dimensions are read from the frozen request price snapshot.
+	// They enter the reference-cost fallback only after custom rules and the
+	// apply-customer-pricing switch, preserving existing precedence.
+	resolver := NewModelPricingResolver(channelService, billingService)
+	descriptor, found, err := resolver.configuredPriceDescriptor(ctx, PricingInput{Model: upstreamModel, GroupID: &groupID, Group: &Group{Platform: platform}})
+	if err == nil && found {
+		if cost, costErr := descriptor.tokenCost(tokens); costErr == nil {
+			return &cost
+		}
+		return nil
+	}
 	// 优先级 3：模型定价文件（LiteLLM）默认价格
 	if billingService != nil {
-		return tryModelFilePricing(billingService, upstreamModel, tokens, serviceTier, pricingAt, reasoningEffort)
+		return tryModelFilePricing(billingService.forGatewayRequest(ctx), upstreamModel, tokens, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort)
 	}
 
 	return nil
@@ -74,11 +86,16 @@ func resolveAccountStatsCost(
 // 与用户计费共用同一条定价管线，避免这里维护第二份"单价 × token 数"实现后，
 // 每加一个定价特性都要手工镜像一次。解析器不配置渠道或分组，保持优先级 3 的
 // 语义：只取模型定价文件，不引入自定义售价。
-func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, reasoningEfforts ...string) *float64 {
+func tryModelFilePricing(billingService *BillingService, model string, tokens UsageTokens, serviceTier string, pricingAt time.Time, longContextPricingEnabled bool, reasoningEfforts ...string) *float64 {
 	reasoningEffort := ""
 	if len(reasoningEfforts) > 0 {
 		reasoningEffort = reasoningEfforts[0]
 	}
+	resolver := NewModelPricingResolver(nil, billingService)
+	resolved := resolver.Resolve(context.Background(), PricingInput{Model: model})
+	// 无分组的解析结果默认开启长上下文，CostInput.LongContextBillingEnabled=false 无法否决，
+	// 因此直接覆写解析结果。
+	resolved.longContextPricingEnabled = longContextPricingEnabled
 	breakdown, err := billingService.CalculateCostUnified(CostInput{
 		Ctx:             context.Background(),
 		Model:           model,
@@ -87,7 +104,8 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 		ServiceTier:     normalizeBillingServiceTier(serviceTier),
 		ReasoningEffort: reasoningEffort,
 		PricingAt:       pricingAt,
-		Resolver:        NewModelPricingResolver(nil, billingService),
+		Resolver:        resolver,
+		Resolved:        resolved,
 	})
 	if err != nil || breakdown == nil || breakdown.TotalCost <= 0 {
 		return nil
@@ -96,9 +114,19 @@ func tryModelFilePricing(billingService *BillingService, model string, tokens Us
 }
 
 // tryCustomRules 遍历自定义规则，按数组顺序先命中为准。
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func tryCustomRules(
 	channel *Channel, accountID, groupID int64,
 	platform, model string, tokens UsageTokens, requestCount int,
+	reasoningEfforts ...string,
+) *float64 {
+	return tryCustomRulesAt(channel, accountID, groupID, platform, model, tokens, requestCount, time.Now(), reasoningEfforts...)
+}
+
+func tryCustomRulesAt(
+	channel *Channel, accountID, groupID int64,
+	platform, model string, tokens UsageTokens, requestCount int, pricingAt time.Time,
 	reasoningEfforts ...string,
 ) *float64 {
 	reasoningEffort := ""
@@ -113,6 +141,14 @@ func tryCustomRules(
 		pricing := findPricingForModel(rule.Pricing, platform, modelLower)
 		if pricing == nil {
 			continue // 规则匹配但模型不在规则定价中，继续下一条
+		}
+		if len(pricing.PriceVariants) > 0 {
+			descriptor := &ModelPricingDescriptor{Model: model, PricingAt: pricingAt, Variants: cloneModelPriceVariants(pricing.PriceVariants)}
+			cost, err := descriptor.tokenCost(tokens)
+			if err != nil {
+				return nil
+			}
+			return &cost
 		}
 		cost := calculateStatsCost(pricing, tokens, requestCount)
 		if cost != nil {
@@ -263,6 +299,7 @@ func applyAccountStatsCost(
 	tokens UsageTokens,
 	totalCost float64,
 	pricingAt time.Time,
+	longContextPricingEnabled bool,
 ) {
 	model := upstreamModel
 	if model == "" {
@@ -281,6 +318,14 @@ func applyAccountStatsCost(
 		reasoningEffort = *usageLog.ReasoningEffort
 	}
 	usageLog.AccountStatsCost = resolveAccountStatsCost(
-		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier, pricingAt, reasoningEffort,
+		ctx, cs, bs, accountID, groupID, model, tokens, requestCount, totalCost, serviceTier, pricingAt, longContextPricingEnabled, reasoningEffort,
 	)
+}
+
+// accountStatsLongContextPricingEnabled 判断账号统计成本是否计入长上下文阶梯。
+// 账号统计成本反映上游实际成本：OpenAI 账号由开关声明上游是否收取长上下文费率；
+// 其它平台没有该开关（accountGate 为 nil），按官方阶梯计。分组开关只决定客户售价，
+// 不参与成本判断。
+func accountStatsLongContextPricingEnabled(accountGate *bool) bool {
+	return accountGate == nil || *accountGate
 }

@@ -31,7 +31,7 @@ func NewOpenAI403CounterCache(rdb *redis.Client) service.OpenAI403CounterCache {
 }
 
 func (c *openAI403CounterCache) IncrementOpenAI403Count(ctx context.Context, accountID int64, windowMinutes int) (int64, error) {
-	key := fmt.Sprintf("%s%d", openAI403CounterPrefix, accountID)
+	key := openAI403CounterPrefix + service.AccountRuntimeCacheSuffix(ctx, accountID)
 
 	ttlSeconds := windowMinutes * 60
 	if ttlSeconds < 60 {
@@ -46,6 +46,6 @@ func (c *openAI403CounterCache) IncrementOpenAI403Count(ctx context.Context, acc
 }
 
 func (c *openAI403CounterCache) ResetOpenAI403Count(ctx context.Context, accountID int64) error {
-	key := fmt.Sprintf("%s%d", openAI403CounterPrefix, accountID)
+	key := openAI403CounterPrefix + service.AccountRuntimeCacheSuffix(ctx, accountID)
 	return c.rdb.Del(ctx, key).Err()
 }

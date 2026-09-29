@@ -1,3 +1,4 @@
+import { Line } from 'vue-chartjs'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
@@ -5,10 +6,11 @@ import { createPinia, setActivePinia } from 'pinia'
 import type { DashboardStats } from '@/types'
 import DashboardView from '../DashboardView.vue'
 
-const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking } = vi.hoisted(() => ({
+const { getSnapshotV2, getUserUsageTrend, getUserSpendingRanking, getStats } = vi.hoisted(() => ({
   getSnapshotV2: vi.fn(),
   getUserUsageTrend: vi.fn(),
-  getUserSpendingRanking: vi.fn()
+  getUserSpendingRanking: vi.fn(),
+  getStats: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -16,7 +18,8 @@ vi.mock('@/api/admin', () => ({
     dashboard: {
       getSnapshotV2,
       getUserUsageTrend,
-      getUserSpendingRanking
+      getUserSpendingRanking,
+      getStats
     }
   }
 }))
@@ -93,6 +96,7 @@ describe('admin DashboardView', () => {
     getSnapshotV2.mockReset()
     getUserUsageTrend.mockReset()
     getUserSpendingRanking.mockReset()
+    getStats.mockReset()
 
     getSnapshotV2.mockResolvedValue({
       stats: createDashboardStats(),
@@ -113,6 +117,126 @@ describe('admin DashboardView', () => {
       start_date: '',
       end_date: ''
     })
+  })
+
+  it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('shares explicit %s and projects user chart gaps without another read', async timeZone => {
+    getUserUsageTrend.mockResolvedValue({ trend: [
+      { date: '2026-11-01 01:00', user_id: 1, username: 'first', tokens: 7 },
+      { date: '2026-11-01 02:00', user_id: 2, username: 'second', tokens: 9 },
+    ] })
+    const wrapper = mount(DashboardView, { props: { timeZone }, global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    for (const request of [getSnapshotV2, getUserUsageTrend, getUserSpendingRanking]) {
+      expect(request).toHaveBeenCalledTimes(1)
+      expect(request).toHaveBeenCalledWith(expect.objectContaining({ timezone: timeZone }))
+    }
+    expect(wrapper.getComponent({ name: 'TokenUsageTrend' }).props('timeZone')).toBe(timeZone)
+    const chart = wrapper.getComponent(Line).props('data')
+    const rows = wrapper.get('[data-testid="user-trend-table"]').findAll('tbody tr')
+    expect(rows.map(row => row.get('th').text())).toEqual(chart.labels)
+    expect(rows.map(row => row.findAll('td').map(cell => cell.text()))).toEqual([['7', '-'], ['-', '9']])
+    expect(Number.isNaN(chart.datasets[0].data[1])).toBe(true)
+    expect(wrapper.get('[data-testid="user-trend-table"]').element.parentElement?.parentElement?.classList.contains('h-64')).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('clears obsolete snapshot charts on a history gap and recovers', async () => {
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-01', requests: 7 }], models: [{ model: 'old' }] })
+    await page.loadDashboardSnapshot(false)
+    expect(page.trendData).toHaveLength(1)
+    getSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await page.loadDashboardSnapshot(false)
+    expect(page.trendData).toEqual([])
+    expect(page.modelStats).toEqual([])
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(true)
+    await page.loadDashboardSnapshot(false)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('does not let an obsolete snapshot failure replace newer charts', async () => {
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+    let rejectOld!: (reason: unknown) => void
+    getSnapshotV2.mockReturnValueOnce(new Promise((_resolve, reject) => { rejectOld = reject }))
+    const oldRequest = page.loadDashboardSnapshot(false)
+    getSnapshotV2.mockResolvedValueOnce({ trend: [{ date: '2026-03-06', requests: 9 }], models: [] })
+    await page.loadDashboardSnapshot(false)
+    rejectOld({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    await oldRequest
+    expect(page.trendData[0].requests).toBe(9)
+    expect(wrapper.find('[data-testid="history-gap"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows the account cost as unavailable instead of a fake zero when the overview fallback cannot prove it', async () => {
+    // 降级概览(/admin/dashboard/stats 旧响应)不含账号成本时，卡片必须明确显示不可用，
+    // 直接走 formatCost 会把未知值渲染成 0.0000，等于低估账号成本。
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+
+    getSnapshotV2.mockRejectedValueOnce({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' })
+    getStats.mockResolvedValueOnce({
+      ...createDashboardStats(),
+      total_cost: 12,
+      total_actual_cost: 9,
+      today_cost: 1,
+      today_actual_cost: 0.5,
+    })
+    await page.loadDashboardSnapshot(true)
+    await flushPromises()
+
+    expect(getStats).toHaveBeenCalledTimes(1)
+    const text = wrapper.text()
+    expect(text).toContain('admin.dashboard.accountCost')
+    expect(text).toContain('common.notAvailable')
+    expect(text).not.toContain('USD 0.0000')
+    wrapper.unmount()
+  })
+
+  it('renders the real account cost when the payload carries it', async () => {
+    const wrapper = mount(DashboardView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, LoadingSpinner: true,
+      Icon: true, DateRangePicker: true, Select: true, ModelDistributionChart: true,
+      TokenUsageTrend: true, Line: true,
+    } } })
+    await flushPromises()
+    const page = wrapper.vm as any
+
+    getSnapshotV2.mockResolvedValueOnce({
+      stats: { ...createDashboardStats(), total_account_cost: 4.5, today_account_cost: 0.45 },
+      trend: [],
+      models: [],
+    })
+    await page.loadDashboardSnapshot(true)
+    await flushPromises()
+
+    const text = wrapper.text()
+    expect(text).toContain('USD 4.50')
+    expect(text).toContain('USD 0.450')
+    expect(text).not.toContain('common.notAvailable')
+    wrapper.unmount()
   })
 
   it('uses last 24 hours as default dashboard range', async () => {

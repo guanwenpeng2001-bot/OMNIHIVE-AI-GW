@@ -2,6 +2,14 @@
 
 set -euo pipefail
 
+# macOS-only: apple-container.sh uses BSD stat -f and Apple plutil.
+# CI runs make test-shell on macos-15; skip on Linux/Windows so the rest of
+# the shell suite (compose, caddy, github-token) can still run.
+if [[ "$(uname -s)" != "Darwin" ]]; then
+    printf 'Skipping Apple container lifecycle tests (require macOS BSD stat and plutil).\n'
+    exit 0
+fi
+
 TEST_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 DEPLOY_DIR="$(cd "${TEST_DIR}/.." && pwd)"
 SCRIPT="${DEPLOY_DIR}/apple-container.sh"

@@ -21,7 +21,9 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const pluginUISessionTTL = 30 * time.Minute
+// Static assets may make multiple requests, so the page-scoped capability is
+// reusable only for this short window; it cannot authenticate an API session.
+const pluginUISessionTTL = 5 * time.Minute
 
 // PluginHandler 提供插件安装、生命周期、配置和隔离 UI 资源接口。
 type PluginHandler struct {
@@ -184,6 +186,7 @@ func (h *PluginHandler) Test(c *gin.Context) {
 }
 
 func (h *PluginHandler) CreateUISession(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
 	id, ok := pluginIDParam(c)
 	if !ok {
 		return
@@ -208,6 +211,8 @@ func (h *PluginHandler) CreateUISession(c *gin.Context) {
 
 // ServeUIAsset 使用短时随机能力 URL 提供插件静态资源，不向 iframe 暴露管理员凭据。
 func (h *PluginHandler) ServeUIAsset(c *gin.Context) {
+	c.Header("Cache-Control", "private, no-store")
+	c.Header("Referrer-Policy", "no-referrer")
 	token := strings.TrimSpace(c.Param("token"))
 	pluginID, err := h.manager.ResolveUIAssetToken(token)
 	if err != nil {
@@ -228,14 +233,12 @@ func (h *PluginHandler) ServeUIAsset(c *gin.Context) {
 	if contentType == "" {
 		contentType = "application/octet-stream"
 	}
-	c.Header("Cache-Control", "private, no-store")
-	c.Header("Referrer-Policy", "no-referrer")
 	c.Header("X-Content-Type-Options", "nosniff")
 	c.Header("X-Frame-Options", "SAMEORIGIN")
 	// sandbox iframe 没有 allow-same-origin，会以不透明来源加载自己的 CSS/JS。
 	// 资源 URL 由短时随机能力 Token 保护，Bridge Token 只存在于 fragment 中。
 	c.Header("Cross-Origin-Resource-Policy", "cross-origin")
-	c.Header("Content-Security-Policy", "default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; navigate-to 'none'")
+	c.Header("Content-Security-Policy", "sandbox allow-scripts; default-src 'none'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'none'; base-uri 'none'; form-action 'none'; frame-ancestors 'self'; navigate-to 'none'")
 	c.Data(http.StatusOK, contentType, data)
 }
 

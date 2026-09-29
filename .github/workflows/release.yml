@@ -26,46 +26,23 @@ permissions:
   packages: write
 
 jobs:
-  # Update VERSION file with tag version
-  update-version:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v6
-
-      - name: Update VERSION file
-        run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
-          echo "$VERSION" > backend/cmd/server/VERSION
-          echo "Updated VERSION file to: $VERSION"
-
-      - name: Upload VERSION artifact
-        uses: actions/upload-artifact@v7
-        with:
-          name: version-file
-          path: backend/cmd/server/VERSION
-          retention-days: 1
-
   build-frontend:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          version: 11.25.0
 
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
 
@@ -85,7 +62,7 @@ jobs:
           retention-days: 1
 
   release:
-    needs: [update-version, build-frontend]
+    needs: [build-frontend]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -93,12 +70,6 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ github.event.inputs.tag || github.ref }}
-
-      - name: Download VERSION artifact
-        uses: actions/download-artifact@v8
-        with:
-          name: version-file
-          path: backend/cmd/server/
 
       - name: Download frontend artifact
         uses: actions/download-artifact@v8
@@ -147,12 +118,10 @@ jobs:
 
       - name: Get tag message
         id: tag_message
+        env:
+          RELEASE_REF: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
+          TAG_NAME=$RELEASE_REF
           echo "Processing tag: $TAG_NAME"
 
           # 获取完整的 tag message（跳过第一行标题）
@@ -170,13 +139,15 @@ jobs:
 
       - name: Set lowercase owner for GHCR
         id: lowercase
-        run: echo "owner=$(echo '${{ github.repository_owner }}' | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        env:
+          REPO_OWNER: ${{ github.repository_owner }}
+        run: echo "owner=${REPO_OWNER,,}" >> "$GITHUB_OUTPUT"
 
       - name: Run GoReleaser
         uses: goreleaser/goreleaser-action@v7
         with:
           version: '~> v2'
-          args: release --clean --skip=validate ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
+          args: release --clean ${{ env.SIMPLE_RELEASE == 'true' && '--config=.goreleaser.simple.yaml' || '' }}
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
@@ -205,6 +176,9 @@ jobs:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
+          RELEASE_REF: ${{ github.event.inputs.tag || github.ref_name }}
+          REPO: ${{ github.repository }}
+          TAG_MESSAGE: ${{ steps.tag_message.outputs.message }}
         continue-on-error: true
         run: |
           # 检查必要的环境变量
@@ -213,17 +187,11 @@ jobs:
             exit 0
           fi
 
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            TAG_NAME=${{ github.event.inputs.tag }}
-          else
-            TAG_NAME=${GITHUB_REF#refs/tags/}
-          fi
+          TAG_NAME=$RELEASE_REF
           VERSION=${TAG_NAME#v}
-          REPO="${{ github.repository }}"
           GHCR_IMAGE="ghcr.io/${REPO,,}"  # ${,,} converts to lowercase
 
           # 获取 tag message 内容并转义 Markdown 特殊字符
-          TAG_MESSAGE='${{ steps.tag_message.outputs.message }}'
           TAG_MESSAGE=$(echo "$TAG_MESSAGE" | sed 's/\([_*`\[]\)/\\\1/g')
 
           # 限制消息长度（Telegram 消息限制 4096 字符，预留空间给头尾固定内容）
@@ -283,13 +251,11 @@ jobs:
           ref: ${{ github.event.repository.default_branch }}
 
       - name: Sync VERSION file to released tag
+        env:
+          RELEASE_REF: ${{ github.event.inputs.tag || github.ref_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
+          VERSION=${RELEASE_REF#v}
 
           CURRENT_VERSION=$(tr -d '\r\n' < backend/cmd/server/VERSION || true)
           if [ "$CURRENT_VERSION" = "$VERSION" ]; then
@@ -303,4 +269,4 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add backend/cmd/server/VERSION
           git commit -m "chore: sync VERSION to ${VERSION} [skip ci]"
-          git push origin HEAD:${{ github.event.repository.default_branch }}
+          git push origin "HEAD:${DEFAULT_BRANCH}"

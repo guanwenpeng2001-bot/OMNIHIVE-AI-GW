@@ -57,7 +57,7 @@ func RefreshToken(ctx context.Context, client *http.Client, baseURL, refreshToke
 	if err != nil {
 		return OAuthTokens{}, errors.New("cursor: refresh transport failed")
 	}
-	defer response.Body.Close()
+	defer func() { _ = response.Body.Close() }()
 	var payload struct {
 		AccessToken  string `json:"access_token"`
 		RefreshToken string `json:"refresh_token"`

@@ -3,7 +3,7 @@
     <div class="w-full max-w-md space-y-6">
       <!-- Loading -->
       <div v-if="loading" class="flex items-center justify-center py-20">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
+        <LoadingSpinner size="md" color="primary" />
       </div>
       <template v-else>
         <!-- Status Icon -->
@@ -15,9 +15,9 @@
               <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
             </svg>
           </div>
-          <div v-else-if="isPending"
+          <div v-else-if="isPending || resumeLookupUnavailable"
             class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-yellow-100 dark:bg-yellow-900/30">
-            <div class="h-10 w-10 animate-spin rounded-full border-4 border-yellow-500 border-t-transparent"></div>
+            <LoadingSpinner size="md" color="primary" />
           </div>
           <div v-else
             class="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-red-100 dark:bg-red-900/30">
@@ -28,8 +28,8 @@
           <h2 class="mt-4 text-2xl font-bold text-gray-900 dark:text-white">
             {{ statusTitle }}
           </h2>
-          <p v-if="isPending" class="mt-2 text-sm text-gray-500 dark:text-gray-400">
-            {{ t('payment.result.processingHint') }}
+          <p v-if="isPending || resumeLookupUnavailable" class="mt-2 text-sm text-gray-500 dark:text-gray-400">
+            {{ resumeTokenInvalid ? t('common.contactSupport') : t('payment.result.processingHint') }}
           </p>
         </div>
         <!-- Order Info -->
@@ -97,18 +97,22 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { paymentPageIdentity } from '@/components/payment/paymentRoute'
 import OrderStatusBadge from '@/components/payment/OrderStatusBadge.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
   clearPaymentRecoverySnapshot,
-  readPaymentRecoverySnapshot,
+  usePaymentPageLifecycle,
+  readOwnedPaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 import { usePaymentStore } from '@/stores/payment'
 import { useAuthStore } from '@/stores/auth'
 import { paymentAPI } from '@/api/payment'
+import { normalizeApiError } from '@/utils/apiError'
 import type { PublicOrderVerifyResult } from '@/api/payment'
 import type { OrderStatus, PaymentOrder } from '@/types/payment'
 import { formatPaymentAmount, normalizePaymentCurrency } from '@/components/payment/currency'
@@ -120,12 +124,15 @@ const route = useRoute()
 const router = useRouter()
 const paymentStore = usePaymentStore()
 const authStore = useAuthStore()
+const lifecycle = usePaymentPageLifecycle(() => paymentPageIdentity(route, 'result'), clearStatusRefreshTimer)
 
 type ResolvedOrder = PaymentOrder | PublicOrderVerifyResult
 
 const order = ref<ResolvedOrder | null>(null)
 const loading = ref(true)
 const currency = ref('CNY')
+const resumeLookupUnavailable = ref(false)
+const resumeTokenInvalid = ref(false)
 
 interface ReturnInfo {
   outTradeNo: string
@@ -181,7 +188,8 @@ const statusTitle = computed(() => {
   if (isSuccess.value) {
     return t('payment.result.success')
   }
-  if (isPending.value) {
+  if (resumeTokenInvalid.value) return t('payment.orders.status') + ': ' + t('common.unknown')
+  if (isPending.value || resumeLookupUnavailable.value) {
     return t('payment.result.processing')
   }
   return t('payment.result.failed')
@@ -196,6 +204,11 @@ function formatGatewayAmount(value: number): string {
 }
 
 function setResolvedOrder(nextOrder: ResolvedOrder | null): void {
+  if (!lifecycle.isCurrent()) return
+  if (nextOrder) {
+    resumeLookupUnavailable.value = false
+    resumeTokenInvalid.value = false
+  }
   order.value = nextOrder
   if (nextOrder && 'currency' in nextOrder && nextOrder.currency) {
     currency.value = normalizePaymentCurrency(nextOrder.currency)
@@ -268,7 +281,7 @@ function restoreRecoverySnapshot(context: {
   }
 
   if (context.resumeToken) {
-    return readPaymentRecoverySnapshot(rawSnapshot, {
+    return readOwnedPaymentRecoverySnapshot(rawSnapshot, {
       resumeToken: context.resumeToken,
     })
   }
@@ -277,7 +290,7 @@ function restoreRecoverySnapshot(context: {
     return null
   }
 
-  const restored = readPaymentRecoverySnapshot(rawSnapshot)
+  const restored = readOwnedPaymentRecoverySnapshot(rawSnapshot)
   if (!restored) {
     return null
   }
@@ -293,26 +306,55 @@ function restoreRecoverySnapshot(context: {
   return restored
 }
 
+const RESULT_RESUME_STORAGE_KEY = 'payment_result_resume'
+let continuationToken = ''
+
+function readResultResumeToken(sourceToken: string): string {
+  try {
+    const saved = JSON.parse(sessionStorage.getItem(RESULT_RESUME_STORAGE_KEY + ':' + sourceToken) || 'null')
+    if (saved?.expiresAt > Date.now() && typeof saved.continuationToken === 'string') {
+      return saved.continuationToken
+    }
+  } catch { /* Fall back to the URL when no saved continuation is readable. */ }
+  return sourceToken
+}
+
+function saveResultResumeToken(token: string): void {
+  continuationToken = token
+  try {
+    const storageKey = RESULT_RESUME_STORAGE_KEY + ':' + readRouteQueryString('resume_token')
+    const saved = JSON.parse(sessionStorage.getItem(storageKey) || 'null')
+    sessionStorage.setItem(storageKey, JSON.stringify({
+      continuationToken: token,
+      expiresAt: saved?.expiresAt || Date.now() + 15 * 60 * 1000,
+    }))
+  } catch { /* Keep the current page usable when browser storage is unavailable. */ }
+}
+
 async function resolveOrderFromResumeToken(resumeToken: string): Promise<ResolvedOrder | null> {
   try {
-    const result = await paymentAPI.resolveOrderPublicByResumeToken(resumeToken)
+    const result = await paymentAPI.resolveOrderPublicByResumeToken(resumeToken, lifecycle.signal)
+    if (!lifecycle.isCurrent()) return null
+    saveResultResumeToken(result.data.resume_token || '')
+    resumeLookupUnavailable.value = false
     return result.data
-  } catch (_err: unknown) {
+  } catch (error: unknown) {
+    if (!lifecycle.isCurrent()) return null
+    resumeLookupUnavailable.value = true
+    if (normalizeApiError(error).reason === 'INVALID_RESUME_TOKEN') {
+      resumeTokenInvalid.value = true
+      saveResultResumeToken('')
+    }
     return null
   }
 }
 
 async function resolveOrderFromOutTradeNo(outTradeNo: string): Promise<ResolvedOrder | null> {
   try {
-    const result = await paymentAPI.verifyOrder(outTradeNo)
+    const result = await paymentAPI.verifyOrder(outTradeNo, lifecycle.signal)
     return result.data
   } catch (_err: unknown) {
-    try {
-      const result = await paymentAPI.verifyOrderPublic(outTradeNo)
-      return result.data
-    } catch (_innerErr: unknown) {
-      return null
-    }
+    return null
   }
 }
 
@@ -324,7 +366,7 @@ function clearStatusRefreshTimer(): void {
 }
 
 function clearRecoverySnapshot(): void {
-  if (typeof window === 'undefined') return
+  if (!lifecycle.isCurrent() || typeof window === 'undefined') return
   clearPaymentRecoverySnapshot(window.localStorage, PAYMENT_RECOVERY_STORAGE_KEY)
 }
 
@@ -337,26 +379,34 @@ function clearRecoverySnapshotForTerminalStatus(status: string | null | undefine
 
 function scheduleStatusRefresh(refreshOrder: (() => Promise<ResolvedOrder | null>) | null): void {
   clearStatusRefreshTimer()
-  if (!refreshOrder || !isPending.value || refreshAttempts.value >= STATUS_REFRESH_MAX_ATTEMPTS) {
+  if (!lifecycle.isCurrent() || !refreshOrder || !(isPending.value || (resumeLookupUnavailable.value && continuationToken)) || refreshAttempts.value >= STATUS_REFRESH_MAX_ATTEMPTS) {
     return
   }
 
   statusRefreshTimer = setTimeout(async () => {
+    if (!lifecycle.isCurrent()) return
     refreshAttempts.value += 1
     const refreshedOrder = await refreshOrder()
+    if (!lifecycle.isCurrent()) return
     if (refreshedOrder) {
       setResolvedOrder(refreshedOrder)
       clearRecoverySnapshotForTerminalStatus(refreshedOrder.status)
     }
 
-    if (isPendingStatus(order.value?.status)) {
+    if (isPendingStatus(order.value?.status) || (resumeLookupUnavailable.value && continuationToken)) {
       scheduleStatusRefresh(refreshOrder)
     }
   }, STATUS_REFRESH_INTERVAL_MS)
 }
 
 onMounted(async () => {
-  const resumeToken = readRouteQueryString('resume_token')
+  const sourceToken = readRouteQueryString('resume_token')
+  const resumeToken = readResultResumeToken(sourceToken)
+  continuationToken = resumeToken
+  if (sourceToken && !resumeToken) {
+    resumeLookupUnavailable.value = true
+    resumeTokenInvalid.value = true
+  }
   const routeOrderId = Number(readRouteQueryString('order_id')) || 0
   let outTradeNo = readRouteQueryString('out_trade_no')
   let orderId = 0
@@ -379,6 +429,7 @@ onMounted(async () => {
 
   if (resumeToken) {
     const resolvedOrder = await resolveOrderFromResumeToken(resumeToken)
+    if (!lifecycle.isCurrent()) return
     if (resolvedOrder) {
       setResolvedOrder(resolvedOrder)
       if (!orderId) {
@@ -395,18 +446,22 @@ onMounted(async () => {
   }
 
   const hasLegacyFallbackContext = readRouteQueryString('trade_status').trim() !== ''
-  const shouldUsePublicOutTradeNo = outTradeNo !== '' && (hasLegacyFallbackContext || routeOrderId > 0 || orderId > 0)
+  const shouldUseOwnerOutTradeNo = outTradeNo !== '' && (hasLegacyFallbackContext || routeOrderId > 0 || orderId > 0)
 
-  if (!order.value && orderId && (!resumeToken || routeOrderId > 0)) {
+  if ((!sourceToken || localStorage.getItem('auth_token')) && !order.value && orderId && (!resumeToken || routeOrderId > 0)) {
     try {
-      setResolvedOrder(await paymentStore.pollOrderStatus(orderId))
+      const polledOrder = await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
+      if (!lifecycle.isCurrent()) return
+      setResolvedOrder(polledOrder)
     } catch (_err: unknown) {
       // Order lookup failed, will try legacy fallback below when possible.
     }
   }
 
-  if (!order.value && shouldUsePublicOutTradeNo && (!resumeToken || resumeTokenLookupFailed)) {
+  if (!lifecycle.isCurrent()) return
+  if ((!sourceToken || localStorage.getItem('auth_token')) && !order.value && shouldUseOwnerOutTradeNo && (!resumeToken || resumeTokenLookupFailed)) {
     const legacyOrder = await resolveOrderFromOutTradeNo(outTradeNo)
+    if (!lifecycle.isCurrent()) return
     if (legacyOrder) {
       setResolvedOrder(legacyOrder)
       if (!orderId) {
@@ -425,36 +480,39 @@ onMounted(async () => {
   }
 
   const refreshOrder = async (): Promise<ResolvedOrder | null> => {
-    if (resumeToken) {
-      const resolvedOrder = await resolveOrderFromResumeToken(resumeToken)
-      if (resolvedOrder) {
-        return resolvedOrder
-      }
+    if (!lifecycle.isCurrent()) return null
+    if (continuationToken) {
+      const token = continuationToken
+      const resolvedOrder = await resolveOrderFromResumeToken(token)
+      if (!lifecycle.isCurrent()) return null
+      return resolvedOrder
     }
 
+    if (sourceToken && !localStorage.getItem('auth_token')) return null
     if (orderId) {
       try {
-        return await paymentStore.pollOrderStatus(orderId)
+        return await paymentStore.pollOrderStatus(orderId, lifecycle.signal)
       } catch (_err: unknown) {
-        // Fall through to legacy public verification when order polling is unavailable.
+        // Fall through to authenticated verification when order polling is unavailable.
       }
     }
 
-    if (shouldUsePublicOutTradeNo) {
+    if (!lifecycle.isCurrent()) return null
+    if (shouldUseOwnerOutTradeNo) {
       return await resolveOrderFromOutTradeNo(outTradeNo)
     }
 
     return null
   }
 
-  if (isPendingStatus(order.value?.status)) {
+  if (isPendingStatus(order.value?.status) || (resumeLookupUnavailable.value && continuationToken)) {
     scheduleStatusRefresh(refreshOrder)
   } else if (order.value) {
     clearRecoverySnapshotForTerminalStatus(order.value.status)
   } else if (returnInfo.value) {
     clearRecoverySnapshot()
   }
-  loading.value = false
+  if (lifecycle.isCurrent()) loading.value = false
 })
 
 onBeforeUnmount(() => {

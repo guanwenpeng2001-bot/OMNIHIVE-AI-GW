@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/redis/go-redis/v9"
 )
 
@@ -29,7 +28,7 @@ type userRPMCacheImpl struct {
 }
 
 // NewUserRPMCache 创建用户/分组级 RPM 计数器。
-func NewUserRPMCache(rdb *redis.Client) service.UserRPMCache {
+func NewUserRPMCache(rdb *redis.Client) *userRPMCacheImpl {
 	return &userRPMCacheImpl{rdb: rdb}
 }
 
@@ -40,6 +39,16 @@ func (c *userRPMCacheImpl) minuteTS(ctx context.Context) (int64, error) {
 		return 0, fmt.Errorf("redis TIME: %w", err)
 	}
 	return t.Unix() / 60, nil
+}
+
+// WindowResetAt 用 Redis 服务端时间给出当前分钟窗口的结束时刻。
+// 与计数器 key 使用同一个时间源，客户端据此退避一定落在真实窗口边界上。
+func (c *userRPMCacheImpl) WindowResetAt(ctx context.Context) (time.Time, error) {
+	serverTime, err := c.rdb.Time(ctx).Result()
+	if err != nil {
+		return time.Time{}, fmt.Errorf("redis TIME: %w", err)
+	}
+	return serverTime.Truncate(time.Minute).Add(time.Minute), nil
 }
 
 // atomicIncr 原子 INCR+EXPIRE。

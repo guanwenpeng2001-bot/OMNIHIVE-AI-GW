@@ -1,6 +1,17 @@
 <template>
   <AppLayout>
+    <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
+      <div v-if="stats?.coverage?.complete === false" role="status" data-testid="coverage-incomplete" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.coverageIncomplete') }}</p>
+        <p v-if="stats.coverage.reason">{{ t('dashboard.coverageReason', { reason: stats.coverage.reason }) }}</p>
+        <p>{{ t('dashboard.rawRetainedFrom', { time: stats.coverage.raw_retained_from }) }}</p>
+      </div>
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -114,19 +125,19 @@
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.today_actual_cost) }}</span
+                    >{{ t('admin.dashboard.actual') }} USD {{ formatCost(stats.today_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.today_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.today_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.today_cost) }}</span
+                    >{{ t('admin.dashboard.standard') }} USD {{ formatCost(stats.today_cost) }}</span
                   >
                 </p>
               </div>
@@ -150,19 +161,19 @@
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >${{ formatCost(stats.total_actual_cost) }}</span
+                    >{{ t('admin.dashboard.actual') }} USD {{ formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >${{ formatCost(stats.total_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >${{ formatCost(stats.total_cost) }}</span
+                    >{{ t('admin.dashboard.standard') }} USD {{ formatCost(stats.total_cost) }}</span
                   >
                 </p>
               </div>
@@ -300,6 +311,7 @@
           <!-- Charts Grid -->
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
             <ModelDistributionChart
+              :filters="reportQueryContext"
               :model-stats="modelStats"
               :enable-ranking-view="true"
               :ranking-items="rankingItems"
@@ -313,7 +325,7 @@
               :end-date="endDate"
               @ranking-click="goToUserUsage"
             />
-            <TokenUsageTrend :trend-data="trendData" :loading="chartsLoading" />
+            <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
           </div>
 
           <!-- User Usage Trend (Full Width) -->
@@ -333,6 +345,13 @@
                 {{ t('admin.dashboard.noDataAvailable') }}
               </div>
             </div>
+            <div v-if="!userTrendLoading && userTrendChartData" class="mt-4 max-h-64 overflow-auto">
+              <table class="w-full whitespace-nowrap text-right text-xs" data-testid="user-trend-table">
+                <caption>{{ t('admin.dashboard.tokens') }} · {{ reportTimeZone }} · Top 12</caption>
+                <thead><tr><th scope="col" class="p-2 text-left">{{ t('usage.time') }}</th><th v-for="(dataset, index) in userTrendChartData.datasets" :key="index" scope="col" class="p-2">{{ dataset.label }}</th></tr></thead>
+                <tbody><tr v-for="(date, dateIndex) in userTrendChartData.labels" :key="date"><th scope="row" class="p-2 text-left font-normal">{{ date }}</th><td v-for="(dataset, index) in userTrendChartData.datasets" :key="index" class="p-2">{{ Number.isFinite(dataset.data[dateIndex]) ? dataset.data[dateIndex] : '-' }}</td></tr></tbody>
+              </table>
+            </div>
           </div>
         </div>
       </template>
@@ -341,15 +360,23 @@
 </template>
 
 <script setup lang="ts">
+import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
+import { isKnownAmount } from '@/utils/money'
+import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
+const reportProps = defineProps<{ timeZone?: string }>()
+const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
+const reportQueryContext = { timezone: reportTimeZone }
+
+import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
+import type { DashboardStats } from '@/types'
 import { adminAPI } from '@/api/admin'
 import type {
-  DashboardStats,
   TrendDataPoint,
   ModelStat,
   UserUsageTrendPoint,
@@ -387,6 +414,7 @@ ChartJS.register(
   Filler
 )
 
+const historyGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
@@ -411,9 +439,7 @@ let rankingLoadSeq = 0
 const rankingLimit = 12
 
 // Helper function to format date in local timezone
-const formatLocalDate = (date: Date): string => {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-}
+const formatLocalDate = (date: Date): string => formatReportDateInput(date, reportTimeZone)
 
 const getLast24HoursRangeDates = (): { start: string; end: string } => {
   const end = new Date()
@@ -557,7 +583,7 @@ const userTrendChartData = computed(() => {
 
   const datasets = Array.from(userGroups.values()).map((group, idx) => ({
     label: group.name,
-    data: sortedDates.map((date) => group.data.get(date) || 0),
+    data: sortedDates.map((date) => group.data.get(date) ?? NaN),
     borderColor: colors[idx % colors.length],
     backgroundColor: `${colors[idx % colors.length]}20`,
     fill: false,
@@ -592,6 +618,11 @@ const formatNumber = (value: number | null | undefined): string => {
   return toFiniteNumber(value).toLocaleString()
 }
 
+// 账号成本缺失时明确显示不可用：降级概览(overview fallback)不返回该字段，
+// 直接走 formatCost 会把未知值渲染成 0.0000，等于低估账号成本。
+const formatAccountCost = (value: number | null | undefined): string =>
+  isKnownAmount(value) ? formatCost(value) : t('common.notAvailable')
+
 const formatCost = (value: number | null | undefined): string => {
   const safeValue = toFiniteNumber(value)
   if (safeValue >= 1000) {
@@ -616,7 +647,7 @@ const goToUserUsage = (item: UserSpendingRankingItem) => {
     path: '/admin/usage',
     query: {
       user_id: String(item.user_id),
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value
     }
   })
@@ -652,7 +683,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
   chartsLoading.value = true
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value,
       granularity: granularity.value,
       include_stats: includeStats,
@@ -665,11 +696,25 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     if (includeStats && response.stats) {
       stats.value = response.stats
     }
-    trendData.value = response.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(response.trend || [], granularity.value)
     modelStats.value = response.models || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
-    appStore.showError(t('admin.dashboard.failedToLoad'))
+    trendData.value = []
+    modelStats.value = []
+    if (includeStats) stats.value = null
+    historyGap.value = historyGapFromError(error)
+    if (!historyGap.value) appStore.showError(t('admin.dashboard.failedToLoad'))
+    // A failed snapshot has no partial payload. Fetch the independent overview explicitly.
+    if (includeStats && historyGap.value) {
+      try {
+        const overview = await adminAPI.dashboard.getStats()
+        if (currentSeq === chartLoadSeq) stats.value = overview
+      } catch (overviewError) {
+        console.error('Error loading dashboard overview:', overviewError)
+      }
+    }
     console.error('Error loading dashboard snapshot:', error)
   } finally {
     if (currentSeq === chartLoadSeq) {
@@ -684,7 +729,7 @@ const loadUsersTrend = async () => {
   userTrendLoading.value = true
   try {
     const response = await adminAPI.dashboard.getUserUsageTrend({
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value,
       granularity: granularity.value,
       limit: 12
@@ -708,7 +753,7 @@ const loadUserSpendingRanking = async () => {
   rankingError.value = false
   try {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
-      start_date: startDate.value,
+      ...reportQueryContext, start_date: startDate.value,
       end_date: endDate.value,
       limit: rankingLimit
     })

@@ -7,9 +7,9 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"net/http"
 	"regexp"
-	"strconv"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
@@ -34,80 +34,51 @@ var geminiCLITmpDirRegex = regexp.MustCompile(`/\.gemini/tmp/([A-Fa-f0-9]{64})`)
 // GeminiV1BetaListModels proxies:
 // GET /v1beta/models
 func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
-	apiKey, ok := middleware.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil {
-		googleError(c, http.StatusUnauthorized, "Invalid API key")
-		return
-	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
-	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
+	h.publicGoogleModels(c)
+}
 
-	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
-	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
-			return models
+// appendUpstreamGeminiModels preserves unknown model metadata and envelope fields.
+//
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
+func appendUpstreamGeminiModels(body []byte, extra []gemini.Model) ([]byte, bool) {
+	var envelope map[string]json.RawMessage
+	if json.Unmarshal(body, &envelope) != nil || envelope == nil {
+		return body, false
+	}
+	var models []json.RawMessage
+	raw, exists := envelope["models"]
+	if !exists || len(bytes.TrimSpace(raw)) == 0 || bytes.TrimSpace(raw)[0] != '[' || json.Unmarshal(raw, &models) != nil {
+		return body, false
+	}
+	seen := make(map[string]bool, len(models))
+	for _, raw := range models {
+		var model struct {
+			Name string `json:"name"`
 		}
-		filtered := make([]gemini.Model, 0, len(models))
-		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
-				filtered = append(filtered, model)
-			}
+		if json.Unmarshal(raw, &model) != nil {
+			return body, false
 		}
-		return filtered
+		seen[model.Name] = true
 	}
-
-	// 强制 antigravity 模式：返回 antigravity 支持的模型列表
-	if forcePlatform == service.PlatformAntigravity {
-		if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-			agModels := antigravity.DefaultGeminiModels()
-			filtered := make([]antigravity.GeminiModel, 0, len(agModels))
-			for _, model := range agModels {
-				if apiKey.Group.ModelAllowlist.Allows(model.Name) {
-					filtered = append(filtered, model)
-				}
-			}
-			c.JSON(http.StatusOK, antigravity.GeminiModelsListResponse{Models: filtered})
-			return
+	changed := false
+	for _, model := range extra {
+		if seen[model.Name] {
+			continue
 		}
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModelsList())
-		return
-	}
-
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
-	if err != nil {
-		// 没有 gemini 账户，检查是否有 antigravity 账户可用
-		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
-		if hasAntigravity {
-			// antigravity 账户使用静态模型列表
-			c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(gemini.DefaultModels())})
-			return
+		raw, err := json.Marshal(model)
+		if err != nil {
+			return body, false
 		}
-		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
-		return
+		models = append(models, raw)
+		seen[model.Name] = true
+		changed = true
 	}
-
-	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models")
-	if err != nil {
-		googleError(c, http.StatusBadGateway, err.Error())
-		return
+	if !changed {
+		return body, true
 	}
-	if shouldFallbackGeminiModels(res) {
-		c.JSON(http.StatusOK, gemini.ModelsListResponse{Models: filterGeminiModels(gemini.DefaultModels())})
-		return
-	}
-	if apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		if filtered, dropped, ok := filterUpstreamGeminiModelsBody(res.Body, apiKey.Group.ModelAllowlist); ok && dropped {
-			// 只在确有条目被过滤时替换响应体；全命中或解析失败时保持原始响应，
-			// 统一经 writeUpstreamResponse 写出（保留全部上游响应头）。
-			res.Body = filtered
-		}
-	}
-	writeUpstreamResponse(c, res)
+	envelope["models"], _ = json.Marshal(models)
+	merged, err := json.Marshal(envelope)
+	return merged, err == nil
 }
 
 // filterUpstreamGeminiModelsBody 按白名单过滤上游 /v1beta/models 响应中的
@@ -160,63 +131,7 @@ func filterUpstreamGeminiModelsBody(body []byte, allowlist service.GroupModelAll
 // GeminiV1BetaGetModel proxies:
 // GET /v1beta/models/{model}
 func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
-	apiKey, ok := middleware.GetAPIKeyFromContext(c)
-	if !ok || apiKey == nil {
-		googleError(c, http.StatusUnauthorized, "Invalid API key")
-		return
-	}
-	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组
-	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
-	if !hasForcePlatform && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-		return
-	}
-
-	modelName := strings.TrimSpace(c.Param("model"))
-	if modelName == "" {
-		googleError(c, http.StatusBadRequest, "Missing model in URL")
-		return
-	}
-	// 模型名会被拼进上游 URL 的 path，先在入口校验片段合规性，
-	// 见 service/upstream_path_guard.go。
-	if !service.IsSafeGeminiModelPathSegment(modelName) {
-		googleError(c, http.StatusBadRequest, "Invalid model in URL")
-		return
-	}
-	if resolvedModel, ok := service.ResolvedUpstreamModelFromContext(c.Request.Context()); ok && strings.TrimSpace(resolvedModel) != "" {
-		modelName = strings.TrimSpace(resolvedModel)
-	}
-
-	// 强制 antigravity 模式：返回 antigravity 模型信息
-	if forcePlatform == service.PlatformAntigravity {
-		c.JSON(http.StatusOK, antigravity.FallbackGeminiModel(modelName))
-		return
-	}
-
-	account, err := h.geminiCompatService.SelectAccountForAIStudioEndpoints(c.Request.Context(), apiKey.GroupID)
-	if err != nil {
-		// 没有 gemini 账户，检查是否有 antigravity 账户可用
-		hasAntigravity, _ := h.geminiCompatService.HasAntigravityAccounts(c.Request.Context(), apiKey.GroupID)
-		if hasAntigravity {
-			// antigravity 账户使用静态模型信息
-			c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
-			return
-		}
-		markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
-		googleError(c, http.StatusServiceUnavailable, "No available Gemini accounts: "+err.Error())
-		return
-	}
-
-	res, err := h.geminiCompatService.ForwardAIStudioGET(c.Request.Context(), account, "/v1beta/models/"+modelName)
-	if err != nil {
-		googleError(c, http.StatusBadGateway, err.Error())
-		return
-	}
-	if shouldFallbackGeminiModel(modelName, res) {
-		c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
-		return
-	}
-	writeUpstreamResponse(c, res)
+	h.publicGoogleModels(c)
 }
 
 // GeminiV1BetaModels proxies Gemini native REST endpoints like:
@@ -241,12 +156,13 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		zap.Any("group_id", apiKey.GroupID),
 	)
 
-	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组
-	if !middleware.HasForcePlatform(c) {
-		if effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
-			googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
-			return
-		}
+	// 检查平台：优先使用强制平台（/antigravity 路由，中间件已设置 request.Context），否则要求 gemini 分组。
+	// 平台筛选本身由动作分发表完成（gemini/antigravity → gateway.generate_content，
+	// OpenCode 自己的 Google 协议列 → opencode.generate_content），这里保留的检查是
+	// 分组平台声明与到达的适配器必须一致。
+	if !middleware.HasForcePlatform(c) && effectiveAPIKeyPlatform(c, apiKey) != service.PlatformGemini {
+		googleError(c, http.StatusBadRequest, "API key group platform is not gemini")
+		return
 	}
 
 	modelName, action, err := parseGeminiModelAction(strings.TrimPrefix(c.Param("modelAction"), "/"))
@@ -265,6 +181,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	}
 
 	stream := action == "streamGenerateContent"
+	if alt := c.Query("alt"); alt != "" && alt != "json" && alt != "sse" {
+		googleError(c, http.StatusBadRequest, "alt must be json or sse")
+		return
+	}
 	reqLog = reqLog.With(zap.String("model", modelName), zap.String("action", action), zap.Bool("stream", stream))
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
@@ -283,6 +203,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 
 	setOpsRequestContext(c, modelName, stream)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(stream, false)))
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, modelName, "gemini", h.maxAccountSwitches)()
 	pricingCtx, pricingAt := service.WithGatewayTokenRequestPricing(c.Request.Context())
 	c.Request = c.Request.WithContext(pricingCtx)
 
@@ -312,7 +233,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	userReleaseFunc, err := geminiConcurrency.AcquireUserSlotWithWait(c, authSubject.UserID, authSubject.Concurrency, stream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gemini.user_slot_acquire_failed", zap.Error(err))
-		googleError(c, http.StatusTooManyRequests, err.Error())
+		googleConcurrencyError(c, err, "user")
 		return
 	}
 	// 确保请求取消时也会释放槽位，避免长连接被动中断造成泄漏
@@ -324,28 +245,37 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	// 2) billing eligibility check (after wait)
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gemini.billing_eligibility_check_failed", zap.Error(err))
-		status, _, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, _, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		googleError(c, status, message)
+		return
+	}
+
+	// Period budget hold: insufficient budget is rejected before the upstream.
+	if !reserveGatewayRequestBudget(c, apiKey, modelName, body) {
 		return
 	}
 
 	// 3) select account (sticky session based on request body)
 	// 优先使用 Gemini CLI 的会话标识（privileged-user-id + tmp 目录哈希）
-	sessionHash := extractGeminiCLISessionHash(c, body)
-	if sessionHash == "" {
-		// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
-		parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
-		if parsedReq != nil {
-			parsedReq.SessionContext = &service.SessionContext{
-				ClientIP:  ip.GetClientIP(c),
-				UserAgent: c.GetHeader("User-Agent"),
-				APIKeyID:  apiKey.ID,
+	var sessionHash string
+	if h.cfg != nil && h.cfg.Gateway.SessionAffinityEnabled {
+		parsed, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
+		sessionHash = h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsed, extractGeminiCLISessionHash(c, body))
+	} else {
+		sessionHash = extractGeminiCLISessionHash(c, body)
+		if sessionHash == "" {
+			// Fallback: 使用通用的会话哈希生成逻辑（适用于其他客户端）
+			parsedReq, _ := service.ParseGatewayRequest(service.NewRequestBodyRef(body), domain.PlatformGemini)
+			if parsedReq != nil {
+				parsedReq.SessionContext = &service.SessionContext{
+					ClientIP:  ip.GetClientIP(c),
+					UserAgent: c.GetHeader("User-Agent"),
+					APIKeyID:  apiKey.ID,
+				}
 			}
+			sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
 		}
-		sessionHash = h.gatewayService.GenerateSessionHash(parsedReq)
 	}
 	sessionKey := sessionHash
 	if sessionHash != "" {
@@ -448,6 +378,10 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	for {
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, modelName, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 		if err != nil {
+			if failoverClientGone(c) {
+				reqLog.Info("gemini.account_select_aborted_client_disconnected", zap.Error(err))
+				return
+			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, modelName, modelName, service.PlatformGemini)
 				if !cls.ModelNotFound {
@@ -540,7 +474,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			)
 			if err != nil {
 				reqLog.Warn("gemini.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
-				googleError(c, http.StatusTooManyRequests, err.Error())
+				googleConcurrencyError(c, err, "account")
 				return
 			}
 			if accountWaitCounted {
@@ -602,6 +536,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 			accountReleaseFunc()
 		}
 		if err != nil {
+			if writeGatewayTPMRequestError(c, err) {
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				failoverAction := fs.HandleFailoverError(c.Request.Context(), h.gatewayService, account.ID, account.Platform, account.GetPoolModeRetryCount(), failoverErr)
@@ -616,7 +553,8 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					return
 				}
 			}
-			// ForwardNative already wrote the response
+			// 转发层已写出错误响应；客户端断开时转发层不写，响应未提交则标记 499。
+			failoverClientGone(c)
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			return
 		}
@@ -706,6 +644,10 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 }
 
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
+	if failoverErr != nil && failoverErr.TPM != nil {
+		writeGatewayTPMError(c, failoverErr.TPM)
+		return
+	}
 	if failoverErr == nil {
 		googleError(c, http.StatusBadGateway, "Upstream request failed")
 		return
@@ -771,6 +713,10 @@ type pathParseError struct{ msg string }
 func (e *pathParseError) Error() string { return e.msg }
 
 func googleError(c *gin.Context, status int, message string) {
+	if c != nil && c.Request != nil && writeGatewayTPMError(c, service.GatewayRequestPlanFromContext(c.Request.Context()).TPMAdmissionRejection()) {
+		return
+	}
+	message = logredact.RedactDiagnostic(message)
 	c.JSON(status, gin.H{
 		"error": gin.H{
 			"code":    status,
@@ -780,27 +726,7 @@ func googleError(c *gin.Context, status int, message string) {
 	})
 }
 
-func writeUpstreamResponse(c *gin.Context, res *service.UpstreamHTTPResult) {
-	if res == nil {
-		googleError(c, http.StatusBadGateway, "Empty upstream response")
-		return
-	}
-	for k, vv := range res.Headers {
-		// Avoid overriding content-length and hop-by-hop headers.
-		if strings.EqualFold(k, "Content-Length") || strings.EqualFold(k, "Transfer-Encoding") || strings.EqualFold(k, "Connection") {
-			continue
-		}
-		for _, v := range vv {
-			c.Writer.Header().Add(k, v)
-		}
-	}
-	contentType := res.Headers.Get("Content-Type")
-	if contentType == "" {
-		contentType = "application/json"
-	}
-	c.Data(res.StatusCode, contentType, res.Body)
-}
-
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func shouldFallbackGeminiModels(res *service.UpstreamHTTPResult) bool {
 	if res == nil {
 		return true
@@ -820,6 +746,7 @@ func shouldFallbackGeminiModels(res *service.UpstreamHTTPResult) bool {
 	return false
 }
 
+//nolint:unused // referenced only from //go:build unit tests, so the default lint pass cannot see its callers.
 func shouldFallbackGeminiModel(modelName string, res *service.UpstreamHTTPResult) bool {
 	if shouldFallbackGeminiModels(res) {
 		return true
@@ -888,4 +815,10 @@ func derefGroupID(groupID *int64) int64 {
 		return 0
 	}
 	return *groupID
+}
+
+// googleConcurrencyError preserves the common slot failure status in the Google envelope.
+func googleConcurrencyError(c *gin.Context, err error, slotType string) {
+	status, _, _, message := concurrencyErrorResponse(err, slotType)
+	googleError(c, status, message)
 }

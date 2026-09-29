@@ -346,6 +346,7 @@ func TestUpdateCredentialsAtomicallyClearsProbeForOpenAIAPIKeyIdentityChange(t *
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("(?s)SELECT id FROM accounts.*legacy-mapping-upgrade.*FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
 		WithArgs(`{"api_key":"sk-new"}`, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -438,6 +439,7 @@ func TestUpdateCredentialsRollsBackWhenOutboxFails(t *testing.T) {
 	t.Cleanup(func() { _ = client.Close() })
 
 	mock.ExpectBegin()
+	mock.ExpectQuery("(?s)SELECT id FROM accounts.*legacy-mapping-upgrade.*FOR UPDATE").WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	mock.ExpectExec(`(?s)UPDATE accounts.*credentials IS DISTINCT FROM \$1::jsonb.*- 'upstream_billing_probe'`).
 		WithArgs(`{"api_key":"sk-new"}`, int64(27)).
 		WillReturnResult(sqlmock.NewResult(0, 1))
@@ -477,7 +479,7 @@ func TestBulkUpdateRollsBackWhenOutboxFails(t *testing.T) {
 func updatedAccountRows(id int64, extra string) *sqlmock.Rows {
 	now := time.Now()
 	return sqlmock.NewRows(dbaccount.Columns).AddRow(
-		id, now, now, nil, "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
+		id, now, now, int64(1), nil, int64(0), "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
 		[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, 1, nil, 1, 1.0,
 		service.StatusActive, nil, nil, nil, false, true, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, service.QuotaDimensionGlobal,

@@ -46,7 +46,7 @@ func (r *grokCredentialHandlerRepo) ListSchedulableByPlatform(_ context.Context,
 	out := make([]service.Account, 0, len(r.accounts))
 	for _, account := range r.accounts {
 		if account.Platform == platform && account.IsSchedulable() {
-			out = append(out, account)
+			out = append(out, preparedGatewayFixtureAccount(account))
 		}
 	}
 	return out, nil
@@ -68,7 +68,7 @@ func (r *grokCredentialHandlerRepo) GetByID(_ context.Context, id int64) (*servi
 	}
 	for _, account := range r.accounts {
 		if account.ID == id {
-			copy := account
+			copy := preparedGatewayFixtureAccount(account)
 			copy.Credentials = cloneCredentialMap(account.Credentials)
 			return &copy, nil
 		}
@@ -259,11 +259,11 @@ func (c *grokCredentialHandlerTokenCache) DeleteAccessToken(context.Context, str
 	return c.deleteErr
 }
 
-func (c *grokCredentialHandlerTokenCache) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (c *grokCredentialHandlerTokenCache) AcquireRefreshLock(context.Context, string, string, time.Duration) (bool, error) {
 	return true, nil
 }
 
-func (c *grokCredentialHandlerTokenCache) ReleaseRefreshLock(context.Context, string) error {
+func (c *grokCredentialHandlerTokenCache) ReleaseRefreshLock(context.Context, string, string) error {
 	return nil
 }
 
@@ -924,11 +924,10 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	cfg.Gateway.MaxAccountSwitches = 3
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-	gateway := service.NewOpenAIGatewayService(
+	gateway := service.ProvideOpenAIGatewayService(
 		repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, provider, nil, nil, nil, nil, nil,
-	)
+		&service.DeferredService{}, nil, provider, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },

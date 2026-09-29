@@ -133,8 +133,11 @@ func (s *OpenAIGatewayService) nativeAnthropicTargetURL(account *Account) (strin
 	if err != nil {
 		return "", fmt.Errorf("invalid base_url: %w", err)
 	}
-	if account.IsOpenCodeGo() || account.IsCommandCode() {
-		// OpenCode Go 的 Chat Completions base 带 /v1；用版本感知拼接避免 /v1/v1/messages。
+	if account.IsOpenCodeGo() || account.IsCommandCode() || account.Platform == PlatformHunyuan {
+		// OpenCode Go / Command Code 的 Chat Completions base 带 /v1，TokenHub 的
+		// OpenAI 兼容 base 同样以版本段结尾（如 tokenhub.tencentmaas.com/v1）：
+		// 用版本感知拼接避免 /v1/v1/messages，TokenHub 文档路径为 {host}/v1/messages
+		// （1823/130079）。
 		return buildOpenAIEndpointURL(validatedURL, "/v1/messages"), nil
 	}
 	return strings.TrimRight(validatedURL, "/") + "/v1/messages", nil
@@ -208,6 +211,10 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 		setHeaderRaw(req.Header, "anthropic-version", "2023-06-01")
 	}
 
+	// 官方 OpenCode / Command Code 上游收敛为规范客户端 UA：客户端透传的编程库
+	// UA 会命中其前置 Cloudflare bot 拦截（CF 1010/403），并被计入账号 403 strike。
+	applyOpenCodeUpstreamUserAgent(account, targetURL, req.Header)
+
 	// 账号级请求头覆写（最终生效，覆盖上面所有来源的同名头）
 	account.ApplyHeaderOverrides(req.Header)
 	payloads := append([][]byte{body}, sessionBodies...)
@@ -249,12 +256,6 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	}
 
 	usage := parseClaudeUsageFromResponseBody(body)
-	if IsForceCacheBilling(ctx) && usage.InputTokens > 0 {
-		body, err = classifyAnthropicResponseInputAsCacheRead(body, usage)
-		if err != nil {
-			return nil, err
-		}
-	}
 
 	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
@@ -410,8 +411,14 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	}
 	inPartialEvent := false
 
+	defer func() { _ = resp.Body.Close() }()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, true, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, true, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if !clientDisconnected {
@@ -446,11 +453,14 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			line := ev.line
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				trimmed := strings.TrimSpace(data)
+				if rejected := anthropicStreamRejectionFailover(c, trimmed); rejected != nil {
+					return nil, rejected
+				}
 				observer.ObserveAnthropic([]byte(trimmed))
 				if anthropicStreamEventIsTerminal("", trimmed) {
 					sawTerminalEvent = true
 				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
+				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" && !IsStreamHeartbeatData(trimmed) {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
@@ -466,10 +476,10 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				restored := string(reverseToolNamesIfPresent(c, []byte(line)))
 				if _, err := io.WriteString(w, restored); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if _, err := io.WriteString(w, "\n"); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				} else if line == "" {
 					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
 					flusher.Flush()
@@ -511,7 +521,7 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			}
 			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, canceling upstream with observed usage: account=%d", account.ID)
 				continue
 			}
 			flusher.Flush()

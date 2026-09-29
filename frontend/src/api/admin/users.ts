@@ -1,11 +1,13 @@
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS, hostedQuotaKey } from '@/constants/platforms'
 /**
  * Admin Users API endpoints
  * Handles user management for administrators
  */
 
 import { apiClient } from '../client'
-import type { AdminUser, UpdateUserRequest, PaginatedResponse, ApiKey } from '@/types'
+import type { AdminUser, UpdateUserRequest } from '@/types/admin'
+import type { PaginatedResponse } from '@/types/common'
+import type { ApiKey } from '@/types/user'
 
 export interface AdminBindAuthIdentityChannelRequest {
   channel: string
@@ -83,7 +85,7 @@ export async function list(
   }
 ): Promise<PaginatedResponse<AdminUser>> {
   // Build params with attribute filters in attr[id]=value format
-  const params: Record<string, any> = {
+  const params: Record<string, unknown> = {
     page,
     page_size: pageSize,
     status: filters?.status,
@@ -229,22 +231,47 @@ export async function getUserApiKeys(id: number): Promise<PaginatedResponse<ApiK
 
 /**
  * Get user's usage statistics
+ *
+ * 后端已改为真实聚合（按 period 解析时间窗后读 usage_logs），返回窗口、可用性标记
+ * 与请求/Token/费用/平均耗时等真实值。当前面板没有任何视图调用该函数（保留为未使用），
+ * 保留它是因为该管理端接口仍对外暴露，类型需要与真实响应一致。
+ *
  * @param id - User ID
- * @param period - Time period
+ * @param period - Time period (today/week/month)
  * @returns User usage statistics
  */
 export async function getUserUsageStats(
   id: number,
   period: string = 'month'
 ): Promise<{
+  period: string
+  start_time: string
+  end_time: string
+  available: boolean
   total_requests: number
-  total_cost: number
   total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cache_read_tokens: number
+  total_cost: number
+  total_actual_cost: number
+  total_account_cost: number
+  avg_duration_ms: number
 }> {
   const { data } = await apiClient.get<{
+    period: string
+    start_time: string
+    end_time: string
+    available: boolean
     total_requests: number
-    total_cost: number
     total_tokens: number
+    input_tokens: number
+    output_tokens: number
+    cache_read_tokens: number
+    total_cost: number
+    total_actual_cost: number
+    total_account_cost: number
+    avg_duration_ms: number
   }>(`/admin/users/${id}/usage`, {
     params: { period }
   })
@@ -289,7 +316,7 @@ export async function getUserBalanceHistory(
   pageSize: number = 20,
   type?: string
 ): Promise<BalanceHistoryResponse> {
-  const params: Record<string, any> = { page, page_size: pageSize }
+  const params: Record<string, unknown> = { page, page_size: pageSize }
   if (type) params.type = type
   const { data } = await apiClient.get<BalanceHistoryResponse>(
     `/admin/users/${id}/balance-history`,
@@ -331,10 +358,11 @@ export async function bindUserAuthIdentity(
 /**
  * Platform quota types
  */
-export type PlatformQuotaPlatform = (typeof CONCRETE_PLATFORM_OPTIONS)[number]['value']
+export type PlatformQuotaPlatform = (typeof QUOTA_PLATFORM_OPTIONS)[number]['value']
 export type PlatformQuotaWindow = 'daily' | 'weekly' | 'monthly'
 
 export interface PlatformQuotaItem {
+  account_type?: string
   platform: PlatformQuotaPlatform
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
@@ -351,6 +379,7 @@ export interface PlatformQuotaItem {
 }
 
 export interface PlatformQuotaUpdateItem {
+  account_type?: string
   platform: PlatformQuotaPlatform
   daily_limit_usd: number | null
   weekly_limit_usd: number | null
@@ -361,6 +390,12 @@ export interface PlatformQuotasResponse {
   platform_quotas: PlatformQuotaItem[]
 }
 
+export function normalizeHostedQuotaResponse(data: PlatformQuotasResponse): PlatformQuotasResponse {
+  return { ...data, platform_quotas: data.platform_quotas.map(row => ({
+    ...row, platform: hostedQuotaKey(row.platform, row.account_type) as PlatformQuotaPlatform
+  })) }
+}
+
 /**
  * Get user's platform quotas
  */
@@ -368,7 +403,7 @@ export async function getPlatformQuotas(id: number): Promise<PlatformQuotasRespo
   const { data } = await apiClient.get<PlatformQuotasResponse>(
     `/admin/users/${id}/platform-quotas`
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 /**
@@ -382,7 +417,7 @@ export async function updatePlatformQuotas(
     `/admin/users/${id}/platform-quotas`,
     { quotas }
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 /**
@@ -397,7 +432,7 @@ export async function resetPlatformQuotaWindow(
     `/admin/users/${id}/platform-quotas/reset`,
     { platform, window }
   )
-  return data
+  return normalizeHostedQuotaResponse(data)
 }
 
 export const usersAPI = {

@@ -3,13 +3,14 @@ import { flushPromises, mount } from '@vue/test-utils'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account } from '@/types'
 
-const { getUsage } = vi.hoisted(() => ({
+const { getUsage, queryQuota } = vi.hoisted(() => ({
+  queryQuota: vi.fn(),
   getUsage: vi.fn()
 }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
-    cnProviders: { queryQuota: vi.fn().mockResolvedValue({ success: false, unsupported: true }) },
+    cnProviders: { queryQuota },
     accounts: {
       getUsage
     }
@@ -90,34 +91,138 @@ const cnUsageCellStubs = {
   }
 }
 
+const localOnlyAccounts = [
+  ['qianwen', undefined], ['qianfan', undefined], ['hunyuan', undefined],
+  ['mistral', undefined], ['volcengine', undefined],
+  ['zhipu', 'payg'], ['zhipu', ''], ['zhipu', undefined],
+  ['minimax', 'payg'], ['minimax', ''], ['minimax', undefined], ['opencode_go', 'zen'],
+] as const
+
 describe('AccountUsageCell', () => {
-  it.each([
-    ['zhipu', 'payg'], ['minimax', 'payg'], ['opencode_go', 'zen'],
-  ] as const)('shows local daily statistics for %s %s without probing upstream', async (platform, account_mode) => {
+  it.each(localOnlyAccounts)('renders missing/loading/zero/nonzero local statistics for %s %s without probing upstream', async (platform, accountMode) => {
     const wrapper = mount(AccountUsageCell, {
-      props: { account: makeAccount({ platform, type: 'apikey', credentials: { account_mode } }) },
-      global: { stubs: cnUsageCellStubs }
+      props: { account: makeAccount({ platform, type: 'apikey', credentials: { account_mode: accountMode } }) }
     })
+    const explanation = () => wrapper.find('[data-testid="local-usage-explanation"]')
+    const placeholder = () => wrapper.findAll('div').some(element => element.text() === '-')
     await flushPromises()
-    expect(wrapper.get('[data-testid="local-usage-explanation"]').text()).toContain('noUpstreamUsageApi')
-    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
-    expect(getUsage).not.toHaveBeenCalled()
+    expect(explanation().text()).toBe('admin.accounts.usageWindow.noUpstreamUsageApi')
+    expect(placeholder()).toBe(true)
+    expect(wrapper.text()).not.toContain('A $0.00')
     await wrapper.setProps({ todayStatsLoading: true })
+    expect(explanation().exists()).toBe(true)
     expect(wrapper.find('.animate-pulse').exists()).toBe(true)
-    await wrapper.setProps({ todayStatsLoading: false, todayStats: { requests: 12, tokens: 1200, cost: 2.5 } })
-    expect(wrapper.text()).toContain('12 req')
-    expect(wrapper.text()).toContain('tokens')
-    expect(wrapper.text()).toContain('A $2.50')
+    expect(placeholder()).toBe(false)
+    await wrapper.setProps({ todayStatsLoading: false, todayStats: { requests: 12, tokens: 1200, cost: 2.5, user_cost: 3 } })
+    expect(explanation().exists()).toBe(true)
+    expect(wrapper.find('.animate-pulse').exists()).toBe(false)
+    expect(placeholder()).toBe(false)
+    for (const value of ['12 req', '1.2K tokens', 'A $2.50', 'U $3.00']) expect(wrapper.text()).toContain(value)
     await wrapper.setProps({ todayStats: { requests: 0, tokens: 0, cost: 0 } })
-    expect(wrapper.text()).toContain('0 req')
-    expect(wrapper.text()).toContain('A $0.00')
-    await wrapper.setProps({ account: makeAccount({ platform, type: 'apikey', credentials: { account_mode: platform === 'opencode_go' ? 'go' : 'coding' } }) })
-    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
-    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    for (const value of ['0 req', '0 tokens', 'A $0.00']) expect(wrapper.text()).toContain(value)
+    expect(wrapper.text()).not.toContain('U $')
+    await wrapper.setProps({ todayStats: { requests: 0, tokens: 0, cost: 0, user_cost: 0 } })
+    expect(wrapper.text()).toContain('U $0.00')
+    await wrapper.setProps({ todayStats: null })
+    expect(explanation().exists()).toBe(true)
+    expect(placeholder()).toBe(true)
+    expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-provider-quota"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'CNProviderBalanceCell' }).exists()).toBe(false)
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(queryQuota).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
+  it.each([
+    ['zhipu', 'payg', 'coding'], ['minimax', 'payg', 'coding'], ['opencode_go', 'zen', 'go'],
+  ] as const)('preserves local-only fallback across %s mode and account switches', async (platform, localMode, quotaMode) => {
+    const localAccount = makeAccount({ platform, type: 'apikey', credentials: { account_mode: localMode } })
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: localAccount, todayStats: { requests: 12, tokens: 1200, cost: 2.5 } },
+      global: { stubs: cnUsageCellStubs }
+    })
+    await wrapper.setProps({ account: { ...localAccount, credentials: { account_mode: quotaMode } } })
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    await wrapper.setProps({ account: localAccount })
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('12 req')
+    await wrapper.setProps({ account: makeAccount({ id: 9008, platform: 'qianwen', type: 'apikey' }), todayStats: null, todayStatsLoading: true })
+    expect(wrapper.text()).not.toContain('12 req')
+    expect(wrapper.find('.animate-pulse').exists()).toBe(true)
+    await wrapper.setProps({ todayStatsLoading: false, todayStats: { requests: 7, tokens: 70, cost: 1 } })
+    expect(wrapper.text()).toContain('7 req')
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    await wrapper.setProps({ account: makeAccount({ id: 9009, platform: 'openai', type: 'apikey' }), todayStats: null })
+    expect(wrapper.text()).toBe('-')
+    expect(getUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([...localOnlyAccounts, ['commandcode', undefined]] as const)('keeps Ollama and configured local quota separate for %s %s', async (platform, accountMode) => {
+    const localAccount = makeAccount({ platform, type: 'apikey', credentials: { account_mode: accountMode }, quota_daily_limit: 10, quota_daily_used: 2 })
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: localAccount, todayStats: { requests: 3, tokens: 30, cost: 0.5 } },
+      global: { stubs: { ...cnUsageCellStubs, UsageProgressBar: { props: ['label', 'utilization'], template: '<div data-test="quota-bar">{{ label }}|{{ utilization }}</div>' } } }
+    })
+    expect(wrapper.get('[data-test="quota-bar"]').text()).toBe('1d|20')
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(platform !== 'commandcode')
+    await wrapper.setProps({ account: { ...localAccount, ollama_cloud_usage: makeOllamaUsage(localAccount.id) } })
+    expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
+    expect(wrapper.text()).toContain('3 req')
+    expect(wrapper.get('[data-test="quota-bar"]').text()).toBe('1d|20')
+    expect(getUsage).not.toHaveBeenCalled()
+    expect(queryQuota).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['kimi', 'coding', 'cn-quota-cell'], ['kimi', 'payg', 'cn-balance-cell'],
+    ['deepseek', 'payg', 'cn-balance-cell'], ['opencode_go', '', 'cn-quota-cell'],
+  ] as const)('preserves supported %s %s quota or balance display', async (platform, accountMode, cell) => {
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ platform, type: 'apikey', credentials: { account_mode: accountMode } }) },
+      global: { stubs: cnUsageCellStubs }
+    })
+    await flushPromises()
+    expect(wrapper.find(`[data-test="${cell}"]`).exists()).toBe(true)
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps local-only content across viewport changes and late CommandCode probe results', async () => {
+    let finishProbe!: (result: { success: boolean; tiers: { window: string; used_percent: number }[] }) => void
+    queryQuota.mockImplementationOnce(() => new Promise(resolve => { finishProbe = resolve }))
+    let changeViewport!: (event: { matches: boolean }) => void
+    vi.mocked(window.matchMedia).mockReturnValue({
+      matches: true,
+      addEventListener: (_event: string, listener: typeof changeViewport) => { changeViewport = listener },
+      removeEventListener: vi.fn(),
+    } as unknown as MediaQueryList)
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ id: 98001, platform: 'commandcode', type: 'apikey' }) }
+    })
+    await flushPromises()
+    expect(queryQuota).toHaveBeenCalledWith(98001)
+    await wrapper.setProps({ account: makeAccount({ id: 98002, platform: 'qianwen', type: 'apikey' }), todayStats: { requests: 7, tokens: 70, cost: 1 } })
+    changeViewport({ matches: false })
+    finishProbe({ success: true, tiers: [{ window: '5h', used_percent: 42 }] })
+    await flushPromises()
+    changeViewport({ matches: true })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="local-usage-explanation"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'UsageProgressBar' }).exists()).toBe(false)
+    expect(wrapper.text()).toContain('7 req')
+    expect(wrapper.text()).not.toContain('42%')
+    expect(queryQuota).toHaveBeenCalledTimes(1)
+    expect(getUsage).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
 
   it.each(['commandcode', 'qianwen'] as const)('explains local-only usage for %s with and without traffic', async (platform) => {
     const wrapper = mount(AccountUsageCell, {
@@ -148,7 +253,8 @@ describe('AccountUsageCell', () => {
     await flushPromises()
     expect(getUsage).toHaveBeenCalledWith(account.id)
     expect(wrapper.find('[data-test="cursor-monthly"]').text()).toContain('gpt-4')
-    expect(wrapper.text()).toContain('admin.accounts.cursor.unlimited')
+    expect(wrapper.text()).toContain('admin.accounts.cursor.quotaUnknown')
+    expect(wrapper.text()).not.toContain('admin.accounts.cursor.unlimited')
     await wrapper.find('[data-test="cursor-monthly"] button').trigger('click')
     await flushPromises()
     expect(getUsage).toHaveBeenLastCalledWith(account.id, 'active', true)
@@ -167,6 +273,7 @@ describe('AccountUsageCell', () => {
   })
   beforeEach(() => {
     getUsage.mockReset()
+    queryQuota.mockReset().mockResolvedValue({ success: false, unsupported: true })
     Object.defineProperty(window, 'matchMedia', {
       writable: true,
       value: vi.fn().mockImplementation(() => ({
@@ -240,8 +347,11 @@ describe('AccountUsageCell', () => {
             platform,
             type: 'apikey',
             credentials: { account_mode: 'coding' },
+            quota_daily_limit: 10,
+            quota_daily_used: 2,
             ollama_cloud_usage: makeOllamaUsage(9002)
-          })
+          }),
+          todayStats: { requests: 3, tokens: 30, cost: 0.5 }
         },
         global: {
           stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
@@ -251,6 +361,8 @@ describe('AccountUsageCell', () => {
       await flushPromises()
 
       expect(wrapper.find('[data-test="embedded-ollama"]').exists()).toBe(true)
+      expect(wrapper.text()).toContain('3 req')
+      expect(wrapper.findComponent({ name: 'UsageProgressBar' }).props('utilization')).toBe(20)
       expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(false)
       expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(false)
       expect(wrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(false)

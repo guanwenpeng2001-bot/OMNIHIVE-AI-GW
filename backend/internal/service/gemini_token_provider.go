@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log"
 	"log/slog"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -53,7 +52,7 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
-	if account.Platform != PlatformGemini || (account.Type != AccountTypeOAuth && account.Type != AccountTypeServiceAccount) {
+	if !account.MatchesPlatform(PlatformGemini, "") || (account.Type != AccountTypeOAuth && account.Type != AccountTypeServiceAccount) {
 		return "", errors.New("not a gemini oauth or service account")
 	}
 	if account.Type == AccountTypeServiceAccount {
@@ -87,14 +86,18 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 			}
 			slog.Debug("gemini_token_lock_held_use_old", "account_id", account.ID)
 		} else {
+			if !tokenRequestBindingEqual(account, result.Account) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			account = result.Account
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
 	} else if needsRefresh && p.tokenCache != nil {
 		// Backward-compatible test path when refreshAPI is not injected.
-		locked, lockErr := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, 30*time.Second)
+		lockOwner := newRefreshLockOwner()
+		locked, lockErr := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, lockOwner, 30*time.Second)
 		if lockErr == nil && locked {
-			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, cacheKey) }()
+			defer releaseRefreshLock(ctx, p.tokenCache, cacheKey, lockOwner)
 		} else if lockErr != nil {
 			slog.Warn("gemini_token_lock_failed", "account_id", account.ID, "error", lockErr)
 		}
@@ -146,6 +149,9 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if p.tokenCache != nil {
 		latestAccount, isStale := CheckTokenVersion(ctx, account, p.accountRepo)
 		if isStale && latestAccount != nil {
+			if !tokenRequestBindingEqual(account, latestAccount) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			slog.Debug("gemini_token_version_stale_use_latest", "account_id", account.ID)
 			accessToken = latestAccount.GetCredential("access_token")
 			if strings.TrimSpace(accessToken) == "" {
@@ -164,7 +170,7 @@ func (p *GeminiTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 					ttl = time.Minute
 				}
 			}
-			_ = p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl)
+			_ = p.tokenCache.SetAccessToken(ctx, GeminiTokenCacheKey(account), accessToken, ttl)
 		}
 	}
 
@@ -181,9 +187,7 @@ func GeminiTokenCacheKey(account *Account) string {
 			return vertexServiceAccountCacheKey(account, key)
 		}
 	}
-	projectID := strings.TrimSpace(account.GetCredential("project_id"))
-	if projectID != "" {
-		return "gemini:" + projectID
-	}
-	return "gemini:account:" + strconv.FormatInt(account.ID, 10)
+	// A project can be shared by distinct OAuth principals. Cache tokens and
+	// serialize refreshes by credential owner, independent of project discovery.
+	return "gemini:account:" + AccountRuntimeIdentityKey(account)
 }

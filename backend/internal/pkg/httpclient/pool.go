@@ -16,6 +16,7 @@
 package httpclient
 
 import (
+	"crypto/sha256"
 	"fmt"
 	"net"
 	"net/http"
@@ -26,17 +27,18 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
-	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 )
 
 // Transport 连接池默认配置
 const (
+	sharedClientLimit          = 128
+	sharedClientTTL            = 15 * time.Minute
+	defaultMaxConnsPerHost     = 100              // Match the shared idle socket budget; excess callers wait with their context.
 	defaultMaxIdleConns        = 100              // 最大空闲连接数
 	defaultMaxIdleConnsPerHost = 10               // 每个主机最大空闲连接数
 	defaultIdleConnTimeout     = 90 * time.Second // 空闲连接超时时间（建议小于上游 LB 超时）
 	defaultDialTimeout         = 5 * time.Second  // TCP 连接超时（含代理握手），代理不通时快速失败
 	defaultTLSHandshakeTimeout = 5 * time.Second  // TLS 握手超时
-	validatedHostTTL           = 30 * time.Second // DNS Rebinding 校验缓存 TTL
 )
 
 // Options 定义共享 HTTP 客户端的构建参数
@@ -51,37 +53,64 @@ type Options struct {
 	// 可选的连接池参数（不设置则使用默认值）
 	MaxIdleConns        int // 最大空闲连接总数（默认 100）
 	MaxIdleConnsPerHost int // 每主机最大空闲连接（默认 10）
-	MaxConnsPerHost     int // 每主机最大连接数（默认 0 无限制）
+	MaxConnsPerHost     int // 每主机最大连接数（默认 100）
 }
 
 // sharedClients 存储按配置参数缓存的 http.Client 实例
-var sharedClients sync.Map
+type sharedClientEntry struct {
+	accessOrder uint64
+	client      *http.Client
+	lastUsed    time.Time
+}
 
-// 允许测试替换校验函数，生产默认指向真实实现。
-var validateResolvedIP = urlvalidator.ValidateResolvedIP
+var sharedClients = make(map[string]sharedClientEntry)
+var sharedClientsMu sync.Mutex
+var sharedClientAccessOrder uint64
 
-// GetClient 返回共享的 HTTP 客户端实例
-// 性能优化：相同配置复用同一客户端，避免重复创建 Transport
-// 安全说明：代理配置失败时直接返回错误，不会回退到直连，避免 IP 关联风险
+// GetClient applies a bounded LRU and idle TTL. Eviction closes only idle sockets.
 func GetClient(opts Options) (*http.Client, error) {
 	key := buildClientKey(opts)
-	if cached, ok := sharedClients.Load(key); ok {
-		if client, ok := cached.(*http.Client); ok {
-			return client, nil
+	sharedClientsMu.Lock()
+	defer sharedClientsMu.Unlock()
+	now := time.Now()
+	sharedClientAccessOrder++
+	for cachedKey, entry := range sharedClients {
+		if now.Sub(entry.lastUsed) >= sharedClientTTL {
+			entry.client.CloseIdleConnections()
+			delete(sharedClients, cachedKey)
 		}
 	}
-
+	if entry, ok := sharedClients[key]; ok {
+		entry.lastUsed = now
+		entry.accessOrder = sharedClientAccessOrder
+		sharedClients[key] = entry
+		return entry.client, nil
+	}
 	client, err := buildClient(opts)
 	if err != nil {
 		return nil, err
 	}
-
-	actual, _ := sharedClients.LoadOrStore(key, client)
-	if c, ok := actual.(*http.Client); ok {
-		return c, nil
+	if len(sharedClients) >= sharedClientLimit {
+		var oldestKey string
+		var oldest uint64
+		for cachedKey, entry := range sharedClients {
+			if oldest == 0 || entry.accessOrder < oldest {
+				oldestKey, oldest = cachedKey, entry.accessOrder
+			}
+		}
+		sharedClients[oldestKey].client.CloseIdleConnections()
+		delete(sharedClients, oldestKey)
 	}
+	sharedClients[key] = sharedClientEntry{client: client, lastUsed: now, accessOrder: sharedClientAccessOrder}
 	return client, nil
 }
+
+type idleClosingTransport struct {
+	http.RoundTripper
+	closeIdle func()
+}
+
+func (transport idleClosingTransport) CloseIdleConnections() { transport.closeIdle() }
 
 func buildClient(opts Options) (*http.Client, error) {
 	transport, err := buildTransport(opts)
@@ -91,9 +120,12 @@ func buildClient(opts Options) (*http.Client, error) {
 
 	var rt http.RoundTripper = transport
 	if opts.ValidateResolvedIP && !opts.AllowPrivateHosts {
-		rt = newValidatedTransport(transport)
+		rt = NewPublicTransport(transport)
 	}
-	rt = servertiming.WrapRoundTripper(rt)
+	// Both *http.Transport and *PublicTransport implement CloseIdleConnections; the
+	// ok value is intentionally dropped because buildTransport never returns nil.
+	closer, _ := rt.(interface{ CloseIdleConnections() })
+	rt = idleClosingTransport{RoundTripper: servertiming.WrapRoundTripper(rt), closeIdle: closer.CloseIdleConnections}
 	return &http.Client{
 		Transport: rt,
 		Timeout:   opts.Timeout,
@@ -111,6 +143,10 @@ func buildTransport(opts Options) (*http.Transport, error) {
 		maxIdleConnsPerHost = defaultMaxIdleConnsPerHost
 	}
 
+	maxConnsPerHost := opts.MaxConnsPerHost
+	if maxConnsPerHost <= 0 {
+		maxConnsPerHost = defaultMaxConnsPerHost
+	}
 	transport := &http.Transport{
 		DialContext: (&net.Dialer{
 			Timeout: defaultDialTimeout,
@@ -118,7 +154,7 @@ func buildTransport(opts Options) (*http.Transport, error) {
 		TLSHandshakeTimeout:   defaultTLSHandshakeTimeout,
 		MaxIdleConns:          maxIdleConns,
 		MaxIdleConnsPerHost:   maxIdleConnsPerHost,
-		MaxConnsPerHost:       opts.MaxConnsPerHost, // 0 表示无限制
+		MaxConnsPerHost:       maxConnsPerHost,
 		IdleConnTimeout:       defaultIdleConnTimeout,
 		ResponseHeaderTimeout: opts.ResponseHeaderTimeout,
 	}
@@ -144,7 +180,7 @@ func buildTransport(opts Options) (*http.Transport, error) {
 }
 
 func buildClientKey(opts Options) string {
-	return fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(fmt.Sprintf("%s|%s|%s|%t|%t|%t|%d|%d|%d",
 		strings.TrimSpace(opts.ProxyURL),
 		opts.Timeout.String(),
 		opts.ResponseHeaderTimeout.String(),
@@ -154,60 +190,5 @@ func buildClientKey(opts Options) string {
 		opts.MaxIdleConns,
 		opts.MaxIdleConnsPerHost,
 		opts.MaxConnsPerHost,
-	)
-}
-
-type validatedTransport struct {
-	base           http.RoundTripper
-	validatedHosts sync.Map // map[string]time.Time, value 为过期时间
-	now            func() time.Time
-}
-
-func newValidatedTransport(base http.RoundTripper) *validatedTransport {
-	return &validatedTransport{
-		base: base,
-		now:  time.Now,
-	}
-}
-
-func (t *validatedTransport) isValidatedHost(host string, now time.Time) bool {
-	if t == nil {
-		return false
-	}
-	raw, ok := t.validatedHosts.Load(host)
-	if !ok {
-		return false
-	}
-	expireAt, ok := raw.(time.Time)
-	if !ok {
-		t.validatedHosts.Delete(host)
-		return false
-	}
-	if now.Before(expireAt) {
-		return true
-	}
-	t.validatedHosts.Delete(host)
-	return false
-}
-
-func (t *validatedTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	if req != nil && req.URL != nil {
-		host := strings.ToLower(strings.TrimSpace(req.URL.Hostname()))
-		if host != "" {
-			now := time.Now()
-			if t != nil && t.now != nil {
-				now = t.now()
-			}
-			if !t.isValidatedHost(host, now) {
-				if err := validateResolvedIP(host); err != nil {
-					return nil, err
-				}
-				t.validatedHosts.Store(host, now.Add(validatedHostTTL))
-			}
-		}
-	}
-	if t == nil || t.base == nil {
-		return nil, fmt.Errorf("validated transport base is nil")
-	}
-	return t.base.RoundTrip(req)
+	))))
 }

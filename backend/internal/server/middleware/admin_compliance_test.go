@@ -2,6 +2,7 @@ package middleware
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -61,7 +62,12 @@ func TestAdminComplianceGuardBlocksAdminRouteWhenMissing(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusLocked, w.Code)
-	require.Contains(t, w.Body.String(), "ADMIN_COMPLIANCE_ACK_REQUIRED")
+	var envelope map[string]any
+	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &envelope))
+	require.Equal(t, float64(http.StatusLocked), envelope["code"])
+	require.Equal(t, "ADMIN_COMPLIANCE_ACK_REQUIRED", envelope["reason"])
+	metadata, _ := envelope["metadata"].(map[string]any)
+	require.Equal(t, service.AdminComplianceVersion, metadata["version"])
 }
 
 func TestAdminComplianceGuardBypassesComplianceEndpoint(t *testing.T) {

@@ -6,6 +6,12 @@ import "net/http"
 // HTTPStatusToGoogleStatus maps HTTP status codes to Google-style error status strings.
 func HTTPStatusToGoogleStatus(status int) string {
 	switch status {
+	case http.StatusServiceUnavailable:
+		return "UNAVAILABLE"
+	case http.StatusGatewayTimeout, http.StatusRequestTimeout:
+		return "DEADLINE_EXCEEDED"
+	case http.StatusRequestEntityTooLarge:
+		return "RESOURCE_EXHAUSTED"
 	case http.StatusBadRequest:
 		return "INVALID_ARGUMENT"
 	case http.StatusUnauthorized:
@@ -16,6 +22,8 @@ func HTTPStatusToGoogleStatus(status int) string {
 		return "NOT_FOUND"
 	case http.StatusTooManyRequests:
 		return "RESOURCE_EXHAUSTED"
+	case 499: // client closed request
+		return "CANCELLED"
 	default:
 		if status >= 500 {
 			return "INTERNAL"

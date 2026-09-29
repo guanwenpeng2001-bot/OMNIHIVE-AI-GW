@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"math"
 	"net/http"
 	"strconv"
@@ -16,15 +17,11 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkgerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -168,7 +165,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		return
 	}
 	body = parsedReq.Body.Bytes()
+	if !validateMessagesMaxTokens(c, body) {
+		return
+	}
 	reqModel := parsedReq.Model
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "anthropic", h.maxAccountSwitches, h.maxAccountSwitchesGemini)()
+	requestBudget := service.GatewayRequestPlanFromContext(c.Request.Context()).Snapshot()
 	reqStream := parsedReq.Stream
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
@@ -256,11 +258,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	// 2. 【新增】Wait后二次检查余额/订阅
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.handleStreamingAwareError(c, status, code, message, streamStarted)
+		return
+	}
+
+	// 2.5 周期预算预留：预算不足直接拒绝，不进入上游（并发下不无条件透支）
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
 		return
 	}
 
@@ -273,10 +278,12 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}
-	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsedReq, "")
 
-	// [DEBUG-STICKY] 打印会话 hash 生成结果
-	reqLog.Info("sticky.session_hash_generated",
+	// [DEBUG-STICKY] 逐请求身份信息只走 debug 级别：session_hash/账号绑定属现场排查细节，
+	// 默认 info 级别下每请求滚动会让日志量与会话关联被淹没；聚合指标仍见
+	// maybeLogCompatibilityFallbackMetrics 的采样日志。
+	reqLog.Debug("sticky.session_hash_generated",
 		zap.String("session_hash", sessionHash),
 		zap.String("metadata_user_id_raw", parsedReq.MetadataUserID),
 	)
@@ -299,8 +306,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	var sessionBoundAccountID int64
 	if sessionKey != "" {
 		sessionBoundAccountID, _ = h.gatewayService.GetCachedSessionAccountID(c.Request.Context(), apiKey.GroupID, sessionKey)
-		// [DEBUG-STICKY] 打印粘性会话查询结果
-		reqLog.Info("sticky.cache_lookup",
+		// [DEBUG-STICKY] 打印粘性会话查询结果（逐请求 debug）
+		reqLog.Debug("sticky.cache_lookup",
 			zap.String("session_key", sessionKey),
 			zap.Int64("bound_account_id", sessionBoundAccountID),
 		)
@@ -313,13 +320,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			c.Request = c.Request.WithContext(ctx)
 		}
 	} else {
-		reqLog.Info("sticky.no_session_key", zap.String("session_hash", sessionHash))
+		reqLog.Debug("sticky.no_session_key", zap.String("session_hash", sessionHash))
 	}
 	// 判断是否真的绑定了粘性会话：有 sessionKey 且已经绑定到某个账号
 	hasBoundSession := sessionKey != "" && sessionBoundAccountID > 0
 
 	if platform == service.PlatformGemini {
-		fs := NewFailoverState(h.maxAccountSwitchesGemini, hasBoundSession)
+		fs := NewFailoverState(requestBudget.MaxAccountSwitchesGemini, hasBoundSession)
 
 		// 单账号分组提前设置 SingleAccountRetry 标记，让 Service 层首次 503 就不设模型限流标记。
 		// 避免单账号分组收到 503 (MODEL_CAPACITY_EXHAUSTED) 时设 29s 限流，导致后续请求连续快速失败。
@@ -331,6 +338,10 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 		for {
 			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, "", int64(0)) // Gemini 不使用会话限制
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, service.PlatformGemini)
 					if !cls.ModelNotFound {
@@ -494,10 +505,13 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				accountReleaseFunc()
 			}
 			if err != nil {
+				if writeGatewayTPMRequestError(c, err) {
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
 						h.handleFailoverExhausted(c, failoverErr, service.PlatformGemini, true)
 						return
 					}
@@ -642,7 +656,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 	}()
 
 	for {
-		fs := NewFailoverState(h.maxAccountSwitches, hasBoundSession)
+		fs := NewFailoverState(requestBudget.MaxAccountSwitches, hasBoundSession)
 		retryWithFallback := false
 
 		for {
@@ -653,14 +667,22 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 
 			// 选择支持该模型的账号
-			reqLog.Info("sticky.selecting_account",
+			reqLog.Debug("sticky.selecting_account",
 				zap.String("session_key", sessionKey),
 				zap.Int64("sticky_bound_account_id", sessionBoundAccountID),
 				zap.Bool("has_bound_session", hasBoundSession),
 				zap.Int("failed_account_count", len(fs.FailedAccountIDs)),
 			)
-			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
+			// 只有本主干会在每次尝试内把出站模型改写成被选中目标的模型，因此只有它
+			// 启用有序目标推进（见 service.WithCompositeTargetAdvancement）。
+			selection, err := h.gatewayService.SelectAccountWithLoadAwareness(
+				service.WithCompositeTargetAdvancement(c.Request.Context()),
+				currentAPIKey.GroupID, sessionKey, reqModel, fs.FailedAccountIDs, parsedReq.MetadataUserID, subject.UserID)
 			if err != nil {
+				if failoverClientGone(c) {
+					reqLog.Info("gateway.account_select_aborted_client_disconnected", zap.Error(err))
+					return
+				}
 				if len(fs.FailedAccountIDs) == 0 {
 					cls := classifyNoAccountErrorFromGin(c, h.gatewayService, currentAPIKey, reqModel, reqModel, platform)
 					if !cls.ModelNotFound {
@@ -701,9 +723,26 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			}
 			account := selection.Account
 			setOpsSelectedAccount(c, account.ID, account.Platform)
+			// 有序目标 fallback：后续计费/归属按本次尝试实际使用的目标平台计算。
+			if selection.CompositeTarget != nil && selection.CompositeTarget.TargetPlatform != "" {
+				platform = selection.CompositeTarget.TargetPlatform
+			}
+			// 受控脱敏暴露：只回传白名单字段（provider/region），不含账号身份与凭据。
+			for headerKey, headerValue := range service.CompositeTargetExposureHeaders(selection.CompositeTarget) {
+				c.Header(headerKey, headerValue)
+			}
+			// 日志同样只记录白名单事实，便于运维按 provider/region 定位实际上游
+			// （gateway trace 已由 request_id 记录），绝不记录账号身份或凭据。
+			if attribution, ok := service.CompositeTargetAttributionOf(selection.CompositeTarget); ok {
+				reqLog.Info("composite.target_selected",
+					zap.String("upstream_provider", attribution.Provider),
+					zap.String("upstream_region", attribution.Region),
+					zap.Int("target_position", selection.CompositeTarget.Position),
+				)
+			}
 
-			// [DEBUG-STICKY] 打印账号选择结果
-			reqLog.Info("sticky.account_selected",
+			// [DEBUG-STICKY] 打印账号选择结果（逐请求 debug）
+			reqLog.Debug("sticky.account_selected",
 				zap.Int64("selected_account_id", account.ID),
 				zap.String("account_name", account.Name),
 				zap.Bool("slot_acquired", selection.Acquired),
@@ -806,7 +845,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 等待路径保持既有 eager 绑定（无门时 helper 直接绑定）；调度器已
 			// 抢槽的直达路径无门时由选号内部绑定，这里只在门下补准入后绑定。
 			if selection.ProfitGateActive() || !selection.Acquired {
-				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(admissionCtx, currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySessionAfterProfitAdmission(service.WithSelectionStickyTTL(admissionCtx, selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
@@ -864,6 +903,19 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// 注入回调到 ParsedRequest：使用外层 wrapper 以便提前清理 AfterFunc
 			attemptParsedReq.OnUpstreamAccepted = queueRelease
 			// ===== 用户消息串行队列 END =====
+
+			// 有序目标 fallback：中间件只按首个目标改写过一次模型，换目标后必须
+			// 在渠道映射之前把本次尝试的模型改成被选中目标的 upstream 模型。
+			if selection.CompositeTarget != nil {
+				if targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel); targetModel != "" && targetModel != attemptParsedReq.Model {
+					attemptParsedReq.Model = targetModel
+					if err := attemptParsedReq.ReplaceBody(h.gatewayService.ReplaceModelInBody(attemptParsedReq.Body.Bytes(), targetModel)); err != nil {
+						h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to parse request body")
+						return
+					}
+					reqModel = targetModel
+				}
+			}
 
 			// 渠道模型映射只作用于本次账号尝试，避免 failover 后污染原始 ParsedRequest。
 			if channelMapping.Mapped {
@@ -1009,10 +1061,8 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						}
 						fallbackAPIKey := cloneAPIKeyWithGroup(apiKey, fallbackGroup)
 						if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), fallbackAPIKey.User, fallbackAPIKey, fallbackGroup, nil, service.PlatformFromAPIKey(fallbackAPIKey)); err != nil {
-							status, code, message, retryAfter := billingErrorDetails(err)
-							if retryAfter > 0 {
-								c.Header("Retry-After", strconv.Itoa(retryAfter))
-							}
+							status, code, message, _ := billingErrorDetails(err)
+							writeAdmissionRejectionHeaders(c, err)
 							h.handleStreamingAwareError(c, status, code, message, streamStarted)
 							return
 						}
@@ -1036,7 +1086,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					// 流式内容已写入客户端，无法撤销，禁止 failover 以防止流拼接腐化
-					if c.Writer.Size() != writerSizeBeforeForward {
+					if c.Writer.Size() != writerSizeBeforeForward && !gatewayStreamHasOnlyHeartbeats(c) {
 						h.handleFailoverExhausted(c, failoverErr, account.Platform, true)
 						return
 					}
@@ -1105,7 +1155,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 			// - 粘性账号因负载/RPM 被跳过、选中了其他账号：不覆盖原绑定，
 			//   下次请求粘性账号恢复后仍可命中
 			if sessionKey != "" && (sessionBoundAccountID == 0 || sessionBoundAccountID == account.ID) {
-				if err := h.gatewayService.BindStickySession(c.Request.Context(), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
+				if err := h.gatewayService.BindStickySession(service.WithSelectionStickyTTL(c.Request.Context(), selection), currentAPIKey.GroupID, sessionKey, account.ID); err != nil {
 					reqLog.Warn("gateway.bind_sticky_session_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 				}
 			}
@@ -1126,86 +1176,14 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 // Returns models based on account configurations (model_mapping whitelist)
 // Falls back to default models if no whitelist is configured
 func (h *GatewayHandler) Models(c *gin.Context) {
-	apiKey, _ := middleware2.GetAPIKeyFromContext(c)
-
-	var groupID *int64
-	var platform string
-
-	if apiKey != nil && apiKey.Group != nil {
-		groupID = &apiKey.Group.ID
-		platform = apiKey.Group.Platform
-	}
-	if forcedPlatform, ok := middleware2.GetForcePlatformFromContext(c); ok && strings.TrimSpace(forcedPlatform) != "" {
-		platform = forcedPlatform
-	}
-
-	if platform == service.PlatformOpenAI && apiKey != nil && apiKey.Group != nil &&
-		apiKey.Group.Platform == service.PlatformOpenAI && apiKey.Group.CodexModelsManifestConfig.Enabled {
-		h.pinnedOpenAIModels(c, apiKey.Group)
-		return
-	}
-
-	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(c.Request.Context(), groupID)
-		if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-			source := availableModels
-			if len(source) == 0 {
-				source = defaultModelIDsForPlatform(service.PlatformComposite)
-			}
-			writeAllowlistedModelsList(c, service.PlatformComposite, apiKey.Group.ModelAllowlist.FilterForListing(source))
-			return
-		}
-		if len(availableModels) > 0 {
-			writeModelsList(c, service.PlatformComposite, availableModels)
-			return
-		}
-		writeModelsList(c, service.PlatformComposite, defaultModelIDsForPlatform(service.PlatformComposite))
-		return
-	}
-
-	// Get available models from account configurations for the selected group platform.
-	availableModels := h.gatewayService.GetAvailableModels(c.Request.Context(), groupID, platform)
-	if apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
-		source := modelListingSource(platform, availableModels, defaultModelIDsForPlatform(platform))
-		writeAllowlistedModelsList(c, platform, apiKey.Group.ModelAllowlist.FilterForListing(source))
-		return
-	}
-
-	if len(availableModels) > 0 {
-		writeModelsList(c, platform, availableModels)
-		return
-	}
-
-	// Fallback to default models
-	if platform == service.PlatformCursor {
-		writeModelsList(c, platform, service.DefaultCursorModelIDs())
-		return
-	}
-	if platform == service.PlatformOpenAI {
-		writeModelsListResponse(c, openai.DefaultModels)
-		return
-	}
-
-	if platform == service.PlatformGemini {
-		writeModelsListResponse(c, geminicli.DefaultModels)
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, xai.DefaultModelIDs())
-		return
-	}
-
-	if platform == service.PlatformAnthropic {
-		writeModelsListResponse(c, claude.DefaultModels)
-		return
-	}
-	writeModelsList(c, platform, service.DefaultModelIDsForPlatform(platform))
+	h.publicModels(c)
 }
 
 // CodexModels returns the effective group model list using the manifest shape
 // expected by Codex custom providers. Official OpenAI groups continue to use
 // OpenAIGatewayHandler.CodexModels so their live upstream metadata is preserved.
 func (h *GatewayHandler) CodexModels(c *gin.Context) {
+	publicModelHeaders(c, "")
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || apiKey == nil || apiKey.Group == nil {
 		h.errorResponse(c, http.StatusUnauthorized, "invalid_request_error", "API key group is required")
@@ -1216,7 +1194,11 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	if value, exists := middleware2.GetForcePlatformFromContext(c); exists {
 		forcedPlatform = strings.TrimSpace(value)
 	}
-	modelIDs := h.codexModelIDsForGroup(c.Request.Context(), apiKey.Group, forcedPlatform)
+	modelIDs, err := h.codexModelIDsForGroupChecked(c.Request.Context(), apiKey.Group, forcedPlatform)
+	if err != nil {
+		h.errorResponse(c, http.StatusServiceUnavailable, "api_error", "Model catalog unavailable")
+		return
+	}
 	modelIDs = service.FilterCodexModelIDsForGroup(modelIDs, apiKey.Group)
 	body, err := h.gatewayService.BuildCodexModelsManifestForGroup(
 		c.Request.Context(),
@@ -1238,9 +1220,9 @@ func (h *GatewayHandler) CodexModels(c *gin.Context) {
 	c.Data(http.StatusOK, "application/json", body)
 }
 
-func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *service.Group, platformOverride string) []string {
+func (h *GatewayHandler) codexModelIDsForGroupChecked(ctx context.Context, group *service.Group, platformOverride string) ([]string, error) {
 	if h == nil || h.gatewayService == nil || group == nil {
-		return nil
+		return nil, nil
 	}
 
 	groupID := &group.ID
@@ -1249,41 +1231,50 @@ func (h *GatewayHandler) codexModelIDsForGroup(ctx context.Context, group *servi
 		platform = group.Platform
 	}
 	if platform == service.PlatformComposite {
-		availableModels := h.compositeAvailableModels(ctx, groupID)
+		availableModels, err := h.compositeAvailableModelsChecked(ctx, groupID)
+		if err != nil {
+			return nil, err
+		}
 		fallbackModels := defaultCodexModelIDsForPlatform(service.PlatformComposite)
 		if group.ModelAllowlistEnabled() {
 			source := availableModels
 			if len(source) == 0 {
 				source = fallbackModels
 			}
-			return group.ModelAllowlist.FilterForListing(source)
+			return group.ModelAllowlist.FilterForListing(source), nil
 		}
 		if len(availableModels) > 0 {
-			return availableModels
+			return availableModels, nil
 		}
-		return fallbackModels
+		return fallbackModels, nil
 	}
 
-	availableModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+	availableModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
+	if err != nil {
+		return nil, err
+	}
 	fallbackModels := defaultCodexModelIDsForPlatform(platform)
 	if group.ModelAllowlistEnabled() {
-		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels))
+		return group.ModelAllowlist.FilterForListing(modelListingSource(platform, availableModels, fallbackModels)), nil
 	}
 	if len(availableModels) > 0 {
-		return availableModels
+		return availableModels, nil
 	}
-	return fallbackModels
+	return fallbackModels, nil
 }
 
-func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *int64) []string {
+func (h *GatewayHandler) compositeAvailableModelsChecked(ctx context.Context, groupID *int64) ([]string, error) {
 	if h == nil || h.gatewayService == nil {
-		return nil
+		return nil, nil
 	}
 	seen := make(map[string]struct{})
 	models := make([]string, 0)
 	schedulablePlatforms := h.gatewayService.GetSchedulablePlatforms(ctx, groupID)
-	for _, platform := range []string{service.PlatformAnthropic, service.PlatformGemini, service.PlatformOpenAI, service.PlatformAntigravity, service.PlatformGrok, service.PlatformKimi, service.PlatformZhipu, service.PlatformDeepseek, service.PlatformMiniMax, service.PlatformOpenCodeGo, service.PlatformCursor, service.PlatformQianwen, service.PlatformCommandCode} {
-		platformModels := h.gatewayService.GetAvailableModels(ctx, groupID, platform)
+	for _, platform := range service.ConcretePlatforms() {
+		platformModels, err := h.gatewayService.GetAvailableModelsChecked(ctx, groupID, platform)
+		if err != nil {
+			return nil, err
+		}
 		if len(platformModels) == 0 {
 			// CN 供应商没有静态默认模型列表（defaultModelIDsForPlatform 的
 			// default 分支是 Claude 列表），composite 下只暴露账号映射键。
@@ -1303,128 +1294,7 @@ func (h *GatewayHandler) compositeAvailableModels(ctx context.Context, groupID *
 			models = append(models, model)
 		}
 	}
-	return models
-}
-
-func writeModelsList(c *gin.Context, platform string, modelIDs []string) {
-	if platform == service.PlatformCursor {
-		models := make([]openai.Model, 0, len(modelIDs))
-		for _, modelID := range modelIDs {
-			models = append(models, openai.Model{ID: modelID, Object: "model", Type: "model", DisplayName: modelID, OwnedBy: "cursor"})
-		}
-		writeModelsListResponse(c, models)
-		return
-	}
-	if platform == service.PlatformOpenAI {
-		writeOpenAIModelsList(c, modelIDs)
-		return
-	}
-	if platform == service.PlatformGrok {
-		writeGrokModelsList(c, modelIDs)
-		return
-	}
-	models := make([]claude.Model, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		models = append(models, claude.Model{
-			ID:          modelID,
-			Type:        "model",
-			DisplayName: modelID,
-			CreatedAt:   "2024-01-01T00:00:00Z",
-		})
-	}
-	writeModelsListResponse(c, models)
-}
-
-func writeAllowlistedModelsList(c *gin.Context, platform string, modelIDs []string) {
-	if platform == service.PlatformOpenAI {
-		writeOpenAIModelsList(c, modelIDs)
-		return
-	}
-	writeModelsList(c, platform, modelIDs)
-}
-
-type grokReasoningEffortOption struct {
-	Value   string `json:"value"`
-	Label   string `json:"label"`
-	Default bool   `json:"default,omitempty"`
-}
-
-type grokModelListItem struct {
-	xai.Model
-	SupportsReasoningEffort bool                        `json:"supportsReasoningEffort,omitempty"`
-	ReasoningEffort         string                      `json:"reasoningEffort,omitempty"`
-	ReasoningEfforts        []grokReasoningEffortOption `json:"reasoningEfforts,omitempty"`
-}
-
-func writeGrokModelsList(c *gin.Context, modelIDs []string) {
-	defaults := xai.DefaultModels()
-	defaultsByID := make(map[string]xai.Model, len(defaults))
-	for _, model := range defaults {
-		defaultsByID[model.ID] = model
-	}
-
-	models := make([]grokModelListItem, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		model, ok := defaultsByID[modelID]
-		if !ok {
-			model = xai.Model{
-				ID:          modelID,
-				Object:      "model",
-				OwnedBy:     "xai",
-				DisplayName: modelID,
-			}
-		}
-		item := grokModelListItem{Model: model}
-		if grokModelSupportsConfigurableReasoning(modelID) {
-			item.SupportsReasoningEffort = true
-			item.ReasoningEffort = "high"
-			efforts := []grokReasoningEffortOption{
-				{Value: "low", Label: "Low"},
-				{Value: "medium", Label: "Medium"},
-				{Value: "high", Label: "High", Default: true},
-			}
-			if service.GrokSupportsXHighReasoningEffort(modelID) {
-				efforts = append(efforts, grokReasoningEffortOption{Value: "xhigh", Label: "xHigh"})
-			}
-			item.ReasoningEfforts = efforts
-		}
-		models = append(models, item)
-	}
-
-	writeModelsListResponse(c, models)
-}
-
-func grokModelSupportsConfigurableReasoning(modelID string) bool {
-	switch strings.ToLower(strings.TrimSpace(modelID)) {
-	case "grok-4.6", "grok-4.6-latest", "grok-4.5", "grok-4.5-latest", "grok", "grok-latest", "grok-build", "grok-build-latest", "grok-build-0.1":
-		return true
-	default:
-		return false
-	}
-}
-
-func writeOpenAIModelsList(c *gin.Context, modelIDs []string) {
-	defaultsByID := make(map[string]openai.Model, len(openai.DefaultModels))
-	for _, model := range openai.DefaultModels {
-		defaultsByID[model.ID] = model
-	}
-
-	models := make([]openai.Model, 0, len(modelIDs))
-	for _, modelID := range modelIDs {
-		if model, ok := defaultsByID[modelID]; ok {
-			models = append(models, model)
-			continue
-		}
-		models = append(models, openai.Model{
-			ID:          modelID,
-			Object:      "model",
-			Created:     1704067200,
-			OwnedBy:     "openai",
-			Type:        "model",
-			DisplayName: modelID,
-		})
-	}
-	writeModelsListResponse(c, models)
+	return models, nil
 }
 
 // modelListingSource 汇总模型列表过滤的候选来源：账号映射键（availableModels）
@@ -1452,6 +1322,9 @@ func defaultCodexModelIDsForPlatform(platform string) []string {
 }
 
 func defaultModelIDsForPlatform(platform string) []string {
+	if service.IsChatOnlyPlatform(platform) || platform == service.PlatformBedrock {
+		return nil
+	}
 	return service.DefaultModelIDsForPlatform(platform)
 }
 
@@ -1478,7 +1351,11 @@ func mergeModelIDs(primary, secondary []string) []string {
 // GET /antigravity/models
 // 分组级模型白名单开启时按白名单过滤。
 func (h *GatewayHandler) AntigravityModels(c *gin.Context) {
-	models := antigravity.DefaultModels()
+	if h.gatewayService != nil {
+		h.Models(c)
+		return
+	}
+	models := []antigravity.ClaudeModel{}
 	if apiKey, ok := middleware2.GetAPIKeyFromContext(c); ok && apiKey != nil && apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled() {
 		filtered := make([]antigravity.ClaudeModel, 0, len(models))
 		for _, model := range models {
@@ -1626,10 +1503,9 @@ func (h *GatewayHandler) buildAPIKeyDailyUsage(c *gin.Context, userID, apiKeyID 
 
 // usageQuotaLimited 处理 quota_limited 模式的响应
 func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, apiKey *service.APIKey, usageData gin.H, dailyUsage any, modelStats any) {
-	resp := gin.H{
-		"mode":    "quota_limited",
-		"isValid": apiKey.Status == service.StatusAPIKeyActive || apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.Status == service.StatusAPIKeyExpired,
-		"status":  apiKey.Status,
+	resp := gin.H{"mode": "quota_limited"}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 
 	// 总额度信息
@@ -1698,12 +1574,6 @@ func (h *GatewayHandler) usageQuotaLimited(c *gin.Context, ctx context.Context, 
 		}
 	}
 
-	// 过期时间
-	if apiKey.ExpiresAt != nil {
-		resp["expires_at"] = apiKey.ExpiresAt
-		resp["days_until_expiry"] = apiKey.GetDaysUntilExpiry()
-	}
-
 	if usageData != nil {
 		resp["usage"] = usageData
 	}
@@ -1723,9 +1593,11 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 	if apiKey.Group != nil && apiKey.Group.IsSubscriptionType() {
 		resp := gin.H{
 			"mode":     "unrestricted",
-			"isValid":  true,
 			"planName": apiKey.Group.Name,
 			"unit":     "USD",
+		}
+		for key, value := range usageAvailabilityFields(apiKey) {
+			resp[key] = value
 		}
 
 		// 订阅信息可能不在 context 中（/v1/usage 路径跳过了中间件的计费检查）
@@ -1767,11 +1639,13 @@ func (h *GatewayHandler) usageUnrestricted(c *gin.Context, ctx context.Context, 
 
 	resp := gin.H{
 		"mode":      "unrestricted",
-		"isValid":   true,
 		"planName":  "钱包余额",
 		"remaining": latestUser.Balance,
 		"unit":      "USD",
 		"balance":   latestUser.Balance,
+	}
+	for key, value := range usageAvailabilityFields(apiKey) {
+		resp[key] = value
 	}
 	if usageData != nil {
 		resp["usage"] = usageData
@@ -1841,6 +1715,10 @@ func (h *GatewayHandler) handleConcurrencyError(c *gin.Context, err error, slotT
 }
 
 func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, platform string, streamStarted bool) {
+	if failoverErr != nil && failoverErr.TPM != nil {
+		writeGatewayTPMError(c, failoverErr.TPM)
+		return
+	}
 	statusCode := failoverErr.StatusCode
 	responseBody := failoverErr.ResponseBody
 	if service.IsOpenAISilentRefusalErrorBody(responseBody) {
@@ -1890,20 +1768,7 @@ func (h *GatewayHandler) handleFailoverExhaustedSimple(c *gin.Context, statusCod
 }
 
 func (h *GatewayHandler) mapUpstreamError(statusCode int) (int, string, string) {
-	switch statusCode {
-	case 401:
-		return http.StatusBadGateway, "upstream_error", "Upstream authentication failed, please contact administrator"
-	case 403:
-		return http.StatusBadGateway, "upstream_error", "Upstream access forbidden, please contact administrator"
-	case 429:
-		return http.StatusTooManyRequests, "rate_limit_error", "Upstream rate limit exceeded, please retry later"
-	case 529:
-		return http.StatusServiceUnavailable, "overloaded_error", "Upstream service overloaded, please retry later"
-	case 500, 502, 503, 504:
-		return http.StatusBadGateway, "upstream_error", "Upstream service temporarily unavailable"
-	default:
-		return http.StatusBadGateway, "upstream_error", "Upstream request failed"
-	}
+	return upstreamClientErrorMapping(statusCode, true)
 }
 
 // handleStreamingAwareError handles errors that may occur after streaming has started
@@ -1926,20 +1791,10 @@ func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, statu
 				return
 			}
 		}
-		// Stream already started, send error as SSE event then close
-		flusher, ok := c.Writer.(http.Flusher)
-		if ok {
-			// SSE 错误事件固定 schema，使用 Quote 直拼可避免额外 Marshal 分配。
-			errorCode := ""
-			if code != "" {
-				errorCode = `,"code":` + strconv.Quote(code)
-			}
-			errorEvent := `data: {"type":"error","error":{"type":` + strconv.Quote(errType) + errorCode + `,"message":` + strconv.Quote(message) + `}}` + "\n\n"
-			if _, err := fmt.Fprint(c.Writer, errorEvent); err != nil {
-				_ = c.Error(err)
-			}
-			flusher.Flush()
+		if code == "" {
+			code = errType
 		}
+		gatewayerror.WriteStream(c, status, code, message)
 		return
 	}
 
@@ -1951,8 +1806,13 @@ func (h *GatewayHandler) handleStreamingAwareErrorWithCode(c *gin.Context, statu
 // Writer 已被写过时（ping 已 flush）走 streamStarted 分支，
 // 让 handleStreamingAwareError 通过 SSE 发协议合规的终止事件，
 // 否则下游收到的就是 silent EOF。
+// 客户端已断开时不补写，响应未提交则标记 499（见 failoverClientGone）。
 func (h *GatewayHandler) ensureForwardErrorResponse(c *gin.Context, streamStarted bool) bool {
 	if c == nil || c.Writer == nil {
+		return false
+	}
+	if c.Request != nil && errors.Is(c.Request.Context().Err(), context.Canceled) {
+		failoverClientGone(c)
 		return false
 	}
 	if service.IsResponseCommitted(c) {
@@ -2036,18 +1896,17 @@ func (h *GatewayHandler) checkClaudeCodeVersion(c *gin.Context) bool {
 
 // errorResponse 返回Claude API格式的错误响应
 func (h *GatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	if c != nil && c.Request != nil && writeGatewayTPMError(c, service.GatewayRequestPlanFromContext(c.Request.Context()).TPMAdmissionRejection()) {
+		return
+	}
 	h.errorResponseWithCode(c, status, errType, "", message)
 }
 
 func (h *GatewayHandler) errorResponseWithCode(c *gin.Context, status int, errType, code, message string) {
-	errorObject := gin.H{"type": errType, "message": message}
-	if code != "" {
-		errorObject["code"] = code
+	if code == "" {
+		code = errType
 	}
-	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": errorObject,
-	})
+	gatewayerror.Write(c, status, code, message)
 }
 
 // CountTokens handles token counting endpoint
@@ -2126,10 +1985,8 @@ func (h *GatewayHandler) CountTokens(c *gin.Context) {
 	// 校验 billing eligibility（订阅/余额）
 	// 【注意】不计算并发，但需要校验订阅/余额
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -2378,9 +2235,9 @@ func sendMockInterceptResponse(c *gin.Context, model string, interceptType Inter
 }
 
 // extractQuotaResetSeconds 从 quota 错误的 metadata 中提取 window_resets_at 并计算
-// 距重置剩余秒数。fallback 路径必须返回 ≥1 秒，避免客户端立即重试无限循环。
+// 距重置剩余秒数。没有可信的未来重置时间时返回 0，调用者省略 Retry-After。
 func extractQuotaResetSeconds(err error) int {
-	const fallback = 60
+	const fallback = 0
 	appErr := pkgerrors.FromError(err)
 	if appErr == nil {
 		return fallback
@@ -2400,14 +2257,20 @@ func extractQuotaResetSeconds(err error) int {
 	}
 	secs := time.Until(resetAt).Seconds()
 	if secs <= 0 {
-		// reset 时间已过：cache 与 DB 应该正在自愈，返回 fallback 让客户端按常规节奏退避，
-		// 避免返回 1 秒导致客户端立即重试仍触发限额的退避循环。
+		// 过去的 reset 不能证明下一个窗口何时恢复。
 		return fallback
 	}
 	return int(math.Ceil(secs))
 }
 
 func billingErrorDetails(err error) (status int, code, message string, retryAfter int) {
+	// 网关实例过载/排队超时：这是网关自身容量，不是上游账号容量，返回 503 让客户端重试。
+	if errors.Is(err, service.ErrGatewayOverloaded) || errors.Is(err, service.ErrGatewayAdmissionTimeout) {
+		return http.StatusServiceUnavailable, pkgerrors.Reason(err), pkgerrors.Message(err), 0
+	}
+	if errors.Is(err, service.ErrInsufficientBalance) {
+		return http.StatusTooManyRequests, "insufficient_quota", "Insufficient account balance", 0
+	}
 	if errors.Is(err, service.ErrBillingServiceUnavailable) {
 		msg := pkgerrors.Message(err)
 		if msg == "" {
@@ -2417,21 +2280,21 @@ func billingErrorDetails(err error) (status int, code, message string, retryAfte
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit5hExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit1dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	if errors.Is(err, service.ErrAPIKeyRateLimit7dExceeded) {
 		msg := pkgerrors.Message(err)
-		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, 0
+		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, extractQuotaResetSeconds(err)
 	}
 	// 用户/分组 RPM 超限统一映射为 HTTP 429；保留与其它 rate_limit 一致的错误码便于客户端分类。
-	// 返回 Retry-After 秒数（当前分钟剩余秒数），让 SDK 自动退避。
+	// 仅使用真实窗口元数据；没有 Redis 窗口时间时不根据本机时钟伪造重置。
 	if errors.Is(err, service.ErrGroupRPMExceeded) || errors.Is(err, service.ErrUserRPMExceeded) {
 		msg := pkgerrors.Message(err)
-		retrySeconds := 60 - int(time.Now().Unix()%60)
+		retrySeconds := extractQuotaResetSeconds(err)
 		return http.StatusTooManyRequests, "rate_limit_exceeded", msg, retrySeconds
 	}
 	if errors.Is(err, service.ErrUserPlatformDailyQuotaExhausted) ||
@@ -2478,52 +2341,19 @@ func (h *GatewayHandler) maybeLogCompatibilityFallbackMetrics(reqLog *zap.Logger
 }
 
 func (h *GatewayHandler) submitUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
-		return
-	}
-	task = wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
-		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
-			return
-		}
-		// 池已停止（进程关停窗口）：计费任务不能静默丢失，降级为内联同步执行。
-		// 显式配置的 drop/sample 溢出丢弃仍按配置语义保留。
-		logger.L().With(
-			zap.String("component", "handler.gateway.messages"),
-		).Warn("gateway.usage_record_task_stopped_sync_fallback")
-	}
-	// 回退路径：worker 池未注入或已停止时同步执行，避免退回到无界 goroutine 模式。
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.gateway.messages"),
-				zap.Any("panic", recovered),
-			).Error("gateway.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	submitUsageRecordTaskWithFallback(parent, h.usageRecordWorkerPool, task, usageRecordTaskLogger{
+		component:    "handler.gateway.messages",
+		stoppedEvent: "gateway.usage_record_task_stopped_sync_fallback",
+		panicEvent:   "gateway.usage_record_task_panic_recovered",
+	})
 }
 
 // submitMandatoryUsageRecordTask never silently drops billing work on pool overflow.
 func (h *GatewayHandler) submitMandatoryUsageRecordTask(parent context.Context, task service.UsageRecordTask) {
-	if task == nil {
-		return
-	}
-	task = wrapUsageRecordTaskContext(parent, task)
-	// Freeze and persist before any queue boundary; settlement owns the queue.
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-	defer func() {
-		if recovered := recover(); recovered != nil {
-			logger.L().With(
-				zap.String("component", "handler.gateway.usage"),
-				zap.Any("panic", recovered),
-			).Error("gateway.usage_record_task_panic_recovered")
-		}
-	}()
-	task(ctx)
+	submitMandatoryUsageRecordTaskInline(parent, task, usageRecordTaskLogger{
+		component:  "handler.gateway.usage",
+		panicEvent: "gateway.usage_record_task_panic_recovered",
+	})
 }
 
 // getUserMsgQueueMode 获取当前请求的 UMQ 模式

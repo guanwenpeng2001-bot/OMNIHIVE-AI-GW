@@ -14,6 +14,12 @@
         <p class="mt-2 text-gray-500 dark:text-dark-400">{{ t('setup.description') }}</p>
       </div>
 
+      <div class="mb-6">
+        <label for="setup-bootstrap-token" class="mb-2 block text-sm font-medium">{{ t('setup.bootstrapToken') }}</label>
+        <input id="setup-bootstrap-token" type="password" autocomplete="off" class="input w-full"
+          @input="setSetupBootstrapToken(($event.target as HTMLInputElement).value)" />
+        <p class="mt-2 text-sm text-gray-500">{{ t('setup.bootstrapTokenHint') }}</p>
+      </div>
       <!-- Progress Steps -->
       <div class="mb-8">
         <div class="flex items-center justify-center">
@@ -499,9 +505,11 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { testDatabase, testRedis, install, type InstallRequest } from '@/api/setup'
+import { testDatabase, testRedis, install, setSetupBootstrapToken, type InstallRequest } from '@/api/setup'
 import { buildGatewayUrl } from '@/api/client'
 import Select from '@/components/common/Select.vue'
 import Toggle from '@/components/common/Toggle.vue'
@@ -595,7 +603,7 @@ async function testDatabaseConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
+      extractApiErrorMessage(err, t('setup.connectionFailed'))
   } finally {
     testingDb.value = false
   }
@@ -612,7 +620,7 @@ async function testRedisConnection() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Connection failed'
+      extractApiErrorMessage(err, t('setup.connectionFailed'))
   } finally {
     testingRedis.value = false
   }
@@ -637,7 +645,7 @@ async function performInstall() {
   } catch (error: unknown) {
     const err = error as { response?: { data?: { detail?: string; message?: string } }; message?: string }
     errorMessage.value =
-      err.response?.data?.detail || err.response?.data?.message || err.message || 'Installation failed'
+      extractApiErrorMessage(err, t('setup.installationFailed'))
   } finally {
     installing.value = false
   }

@@ -13,12 +13,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-
 	"github.com/gin-gonic/gin"
 )
 
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
+	tokenCache           DingTalkTokenCache
 	cfg                  *config.Config
 	authService          *service.AuthService
 	userService          *service.UserService
@@ -179,7 +179,7 @@ func (h *AuthHandler) isBackendModeEnabled(ctx context.Context) bool {
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req RegisterRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -212,7 +212,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 	var req SendVerifyCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -239,7 +239,7 @@ func (h *AuthHandler) SendVerifyCode(c *gin.Context) {
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -301,7 +301,7 @@ type Login2FARequest struct {
 func (h *AuthHandler) Login2FA(c *gin.Context) {
 	var req Login2FARequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -374,25 +374,7 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		if err := applyPendingOAuthBinding(
-			c.Request.Context(),
-			h.entClient(),
-			h.authService,
-			h.userService,
-			pendingSession,
-			decision,
-			&user.ID,
-			true,
-			true,
-		); err != nil {
-			response.ErrorFrom(c, infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err))
-			return
-		}
-		if _, err := pendingSvc.ConsumeBrowserSession(
-			c.Request.Context(),
-			pendingSession.SessionToken,
-			pendingSession.BrowserSessionKey,
-		); err != nil {
+		if err := h.authService.CompletePendingOAuthBindLogin(c.Request.Context(), h.userService, pendingSession, decision, user.ID); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}
@@ -483,7 +465,7 @@ func (h *AuthHandler) ValidatePromoCode(c *gin.Context) {
 
 	var req ValidatePromoCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -550,7 +532,7 @@ func (h *AuthHandler) ValidateInvitationCode(c *gin.Context) {
 
 	var req ValidateInvitationCodeRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -604,7 +586,7 @@ type ForgotPasswordResponse struct {
 func (h *AuthHandler) ForgotPassword(c *gin.Context) {
 	var req ForgotPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -650,7 +632,7 @@ type ResetPasswordResponse struct {
 func (h *AuthHandler) ResetPassword(c *gin.Context) {
 	var req ResetPasswordRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -685,7 +667,7 @@ type RefreshTokenResponse struct {
 func (h *AuthHandler) RefreshToken(c *gin.Context) {
 	var req RefreshTokenRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 

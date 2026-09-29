@@ -57,6 +57,14 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 			return nil, fmt.Errorf("invalid grok voice endpoint path")
 		}
 	}
+	if baseEndpoint == "tts" && c != nil && c.Request != nil && strings.HasSuffix(strings.TrimRight(c.Request.URL.Path, "/"), "/audio/speech") {
+		converted, err := prepareGrokSpeechBody(body)
+		if err != nil {
+			writeGrokMediaErrorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+			return nil, err
+		}
+		body, contentType = converted, "application/json"
+	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, err
@@ -93,7 +101,7 @@ func (s *OpenAIGatewayService) ForwardGrokVoice(ctx context.Context, c *gin.Cont
 		proxyURL = account.Proxy.URL()
 	}
 	started := time.Now()
-	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
+	resp, err := generationDo(s.httpUpstream, req, proxyURL, account.ID, account.Concurrency)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(started).Milliseconds())
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
@@ -138,7 +146,10 @@ func (s *OpenAIGatewayService) ProxyGrokRealtime(ctx context.Context, c *gin.Con
 	return s.ProxyGrokRealtimeConn(ctx, c, client, upstream)
 }
 
-type GrokRealtimeUpstream struct{ conn openAIWSClientConn }
+type GrokRealtimeUpstream struct {
+	conn      openAIWSClientConn
+	accountID int64
+}
 
 // GrokRealtimeDialError preserves an HTTP status returned before WebSocket
 // upgrade so handlers can apply the normal Grok account policy.
@@ -158,6 +169,11 @@ func (u *GrokRealtimeUpstream) Close() error {
 }
 
 func (s *OpenAIGatewayService) OpenGrokRealtime(ctx context.Context, account *Account, token, model string) (*GrokRealtimeUpstream, error) {
+	if account != nil {
+		if err := checkUnboundedTPMSession(ctx, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	if s == nil || account == nil || account.Platform != PlatformGrok {
 		return nil, fmt.Errorf("grok realtime account is required")
 	}
@@ -186,7 +202,7 @@ func (s *OpenAIGatewayService) OpenGrokRealtime(ctx context.Context, account *Ac
 	if err != nil {
 		return nil, &GrokRealtimeDialError{StatusCode: status, Err: err}
 	}
-	return &GrokRealtimeUpstream{conn: conn}, nil
+	return &GrokRealtimeUpstream{conn: conn, accountID: account.ID}, nil
 }
 
 // HandleGrokRealtimeUpstreamError applies the shared Grok account policy to a
@@ -204,7 +220,7 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 	}
 	conn := upstream.conn
 
-	ctx, cancel := context.WithCancel(ctx)
+	ctx, cancel := AttemptExecutionContext(ctx)
 	defer cancel()
 	errCh := make(chan error, 2)
 	var audioObserved atomic.Bool
@@ -229,6 +245,13 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 
 	// Client → upstream (JSON events only)
 	go func() {
+		logicalTurn := 0
+		var turnPlan *GatewayRequestPlan
+		defer func() {
+			if turnPlan != nil {
+				turnPlan.Finalize(false)
+			}
+		}()
 		for {
 			kind, msg, readErr := client.Read(ctx)
 			if readErr != nil {
@@ -246,7 +269,20 @@ func (s *OpenAIGatewayService) ProxyGrokRealtimeConn(ctx context.Context, c *gin
 				errCh <- fmt.Errorf("invalid realtime event: %w", unmarshalErr)
 				return
 			}
-			if writeErr := conn.WriteJSON(ctx, raw); writeErr != nil {
+			turnContext := ctx
+			if gjson.GetBytes(raw, "type").String() == "response.create" {
+				logicalTurn++
+				BeginAttemptStreamTurn(ctx, logicalTurn)
+				if turnPlan != nil {
+					turnPlan.Finalize(false)
+				}
+				if parent := GatewayRequestPlanFromContext(ctx); parent != nil {
+					spec := parent.Snapshot()
+					spec.ExecutionID = fmt.Sprintf("%s:turn:%d", spec.ExecutionID, logicalTurn)
+					turnContext, turnPlan = s.CaptureRequestTurn(ctx, spec)
+				}
+			}
+			if writeErr := generationWS(turnContext, upstream.accountID, raw, func(sendContext context.Context) error { return conn.WriteJSON(sendContext, raw) }); writeErr != nil {
 				errCh <- writeErr
 				return
 			}

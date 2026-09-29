@@ -33,6 +33,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	promptCacheKey string,
 	defaultMappedModel string,
 ) (*OpenAIForwardResult, error) {
+	// 工具 Schema 清洗必须先于所有分流：下游每条路径（原生 Anthropic 直通、
+	// Chat Completions 转换、Responses 转换）都会把 tools 原样带给上游，而
+	// xAI / Moonshot 等严格校验方会因 input_schema 里的 required:null 或
+	// type:null 直接 400。
+	if sanitized, changed, err := sanitizeOpenAIResponsesToolSchemasForPlatform(body, account.Platform); err != nil {
+		return nil, err
+	} else if changed {
+		body = sanitized
+	}
 	rememberOpenCodeInboundBody(c, body)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -140,6 +149,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// 3. Convert Anthropic → Responses after compatibility-only replay guard.
 	responsesReq, err := apicompat.AnthropicToResponses(&anthropicReq)
 	if err != nil {
+		writeAnthropicError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert anthropic to responses: %w", err)
 	}
 
@@ -1016,7 +1026,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 
 		eventType := strings.TrimSpace(event.Type)
 		isBareErrorEvent := eventType == "error"
-		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || isBareErrorEvent
+		isTerminalEvent := isOpenAICompatResponsesTerminalEvent(eventType) || apicompat.ResponsesStreamEventFailed(&event)
 		if isTerminalEvent {
 			terminalEventType = eventType
 			if event.Response != nil {
@@ -1032,7 +1042,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			}
 			// cyber_policy 致命不可重试：标记供 handler 事后记录；以 Anthropic SSE error 事件
 			// 回写让客户端感知并停止重试（F4），丢弃后续转换输出。
-			if eventType == "response.failed" || isBareErrorEvent {
+			if apicompat.ResponsesStreamEventFailed(&event) {
 				payloadBytes := []byte(payload)
 				if hit, code, msg := detectOpenAICyberPolicy(payloadBytes); hit {
 					MarkOpsCyberPolicy(c, CyberPolicyMark{
@@ -1112,7 +1122,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				writeStreamHeaders()
 				if _, err := fmt.Fprint(c.Writer, sse); err != nil {
 					clientDisconnected = true
-					logger.L().Info("openai messages stream: client disconnected, continuing to drain upstream for billing",
+					logger.L().Info("openai messages stream: client disconnected, canceling upstream with observed usage",
 						zap.String("request_id", requestID),
 					)
 					break
@@ -1184,6 +1194,9 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 		return processDataLine(payload)
 	}
 
+	defer func() { _ = resp.Body.Close() }()
+	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 	// ── Determine keepalive interval ──
 	keepaliveInterval := time.Duration(0)
 	if s.cfg != nil && s.cfg.Gateway.StreamKeepaliveInterval > 0 {
@@ -1193,7 +1206,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	// ── No keepalive: fast synchronous path (no goroutine overhead) ──
 	if streamInterval <= 0 && keepaliveInterval <= 0 {
 		var parser openAICompatSSEFrameParser
-		for scanner.Scan() {
+		for !clientDisconnected && c.Request.Context().Err() == nil && scanner.Scan() {
 			line := scanner.Text()
 			if isOpenAICompatDoneSentinelLine(line) {
 				return missingTerminalErr()
@@ -1205,6 +1218,10 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 			if processFrame(frame) {
 				return finalizeStream()
 			}
+		}
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
 		}
 		if err := scanner.Err(); err != nil {
 			handleScanErr(err)
@@ -1265,7 +1282,14 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 	var parser openAICompatSSEFrameParser
 
 	for {
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
+		}
 		select {
+		case <-c.Request.Context().Done():
+			clientDisconnected = true
+			return resultWithUsage(), c.Request.Context().Err()
 		case ev, ok := <-events:
 			if !ok {
 				// Upstream closed

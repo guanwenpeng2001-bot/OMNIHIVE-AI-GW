@@ -10,11 +10,14 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/lib/pq"
 )
 
 type schedulerOutboxRepository struct {
-	db *sql.DB
+	db  *sql.DB
+	dsn string
 }
 
 type schedulerOutboxCleanupLease struct {
@@ -234,5 +237,96 @@ func schedulerOutboxEventSupportsDedup(eventType string) bool {
 		return true
 	default:
 		return false
+	}
+}
+
+// ProvideSchedulerOutboxRepository keeps the SQL-only constructor available to tests.
+func ProvideSchedulerOutboxRepository(db *sql.DB, cfg *config.Config) service.SchedulerOutboxRepository {
+	return &schedulerOutboxRepository{db: db, dsn: cfg.Database.DSNWithTimezone(cfg.Timezone)}
+}
+
+func readCatalogGeneration(ctx context.Context, executor sqlExecutor, scope string) (int64, error) {
+	rows, err := executor.QueryContext(ctx, "SELECT generation FROM model_catalog_generations WHERE scope = $1", scope)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return 0, err
+		}
+		return 0, sql.ErrNoRows
+	}
+	var generation int64
+	if err := rows.Scan(&generation); err != nil {
+		return 0, err
+	}
+	return generation, rows.Err()
+}
+
+func (r *accountRepository) ModelCatalogGeneration(ctx context.Context, scope string) (int64, error) {
+	return readCatalogGeneration(ctx, r.sql, scope)
+}
+func (r *groupRepository) ModelCatalogGeneration(ctx context.Context, scope string) (int64, error) {
+	return readCatalogGeneration(ctx, r.sql, scope)
+}
+func (r *errorPassthroughRepository) ModelCatalogGeneration(ctx context.Context, scope string) (int64, error) {
+	return readCatalogGeneration(ctx, r.client, scope)
+}
+func (r *schedulerOutboxRepository) ModelCatalogGeneration(ctx context.Context, scope string) (int64, error) {
+	return readCatalogGeneration(ctx, r.db, scope)
+}
+
+// Notifications are only hints. Every reconnect (nil notification) and periodic
+// repair reads committed state; this consumer never touches scheduler watermarks.
+func (r *schedulerOutboxRepository) WatchModelCatalog(ctx context.Context, invalidate func()) {
+	if r.dsn == "" {
+		return
+	}
+	listener := pq.NewListener(r.dsn, 100*time.Millisecond, 10*time.Second, nil)
+	defer func() { _ = listener.Close() }()
+
+	listening := make(chan error, 1)
+	go func() { listening <- listener.Listen("model_catalog_changed") }()
+	select {
+	case <-ctx.Done():
+		_ = listener.Close()
+		<-listening
+		return
+	case err := <-listening:
+		if err != nil {
+			return
+		}
+	}
+
+	ticker := time.NewTicker(time.Second)
+	defer ticker.Stop()
+	var observed int64 = -1
+	reconcile := func() {
+		readCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		generation, err := r.ModelCatalogGeneration(readCtx, "catalog")
+		if err != nil {
+			invalidate()
+			return
+		}
+		if generation > observed {
+			invalidate()
+			observed = generation
+		}
+	}
+	reconcile()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case _, open := <-listener.Notify:
+			if !open {
+				return
+			}
+			reconcile()
+		case <-ticker.C:
+			reconcile()
+		}
 	}
 }

@@ -1,3 +1,5 @@
+import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
+import { normalizeApiError } from '@/utils/apiError'
 /**
  * Vue Router configuration for Sub2API frontend
  * Defines all application routes with lazy loading and navigation guards
@@ -13,11 +15,26 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
+import { lazyIdentityScoped } from './identityScope'
+import { paymentRouteComponent } from '@/components/payment/paymentRoute'
+import { workspacesAPI } from '@/api/workspaces'
 
 /**
  * Route definitions with lazy loading
  */
 const routes: RouteRecordRaw[] = [
+  {
+    path: '/workspaces', name: 'Workspaces',
+    component: () => import('@/views/user/WorkspacesView.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, titleKey: 'workspaces.title' },
+  },
+  {
+    path: '/admin/compliance',
+    name: 'AdminCompliance',
+    // The global mandatory dialog owns this gate; mount no restricted view.
+    component: { render: () => null },
+    meta: { requiresAuth: true, requiresAdmin: true, title: 'Compliance' }
+  },
   // ==================== Setup Routes ====================
   {
     path: '/setup',
@@ -204,6 +221,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/help',
+    name: 'HelpGuide',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
+  },
+  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),
@@ -341,7 +364,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/result',
     name: 'PaymentResult',
-    component: () => import('@/views/user/PaymentResultView.vue'),
+    component: () => import('@/views/user/PaymentResultView.vue').then(({ default: component }) => paymentRouteComponent(component, 'result')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
@@ -353,7 +376,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/stripe',
     name: 'StripePayment',
-    component: () => import('@/views/user/StripePaymentView.vue'),
+    component: () => import('@/views/user/StripePaymentView.vue').then(({ default: component }) => paymentRouteComponent(component, 'stripe')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
@@ -365,7 +388,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/payment/airwallex',
     name: 'AirwallexPayment',
-    component: () => import('@/views/user/AirwallexPaymentView.vue'),
+    component: () => import('@/views/user/AirwallexPaymentView.vue').then(({ default: component }) => paymentRouteComponent(component, 'airwallex')),
     meta: {
       requiresAuth: false,
       requiresAdmin: false,
@@ -726,6 +749,32 @@ const routes: RouteRecordRaw[] = [
   }
 ]
 
+const workspaceResourcePaths = new Set(['/admin/accounts', '/admin/groups', '/admin/proxies', '/admin/channels/pricing', '/admin/channels/monitor', '/keys', '/monitor'])
+for (const resourceRoute of [...routes]) {
+  if (!workspaceResourcePaths.has(resourceRoute.path)) continue
+  const suffix = resourceRoute.path.replace(/^\/admin/, '')
+  routes.push({
+    ...resourceRoute,
+    path: `/workspaces/:workspace_id${suffix}`,
+    name: `Workspace${String(resourceRoute.name)}`,
+    meta: { ...resourceRoute.meta, requiresAdmin: false },
+    beforeEnter: async to => {
+      try {
+        const workspace = (await workspacesAPI.list()).find(item => String(item.id) === to.params.workspace_id)
+        return workspace && (suffix === '/keys' || workspace.role === 'admin') ? true : '/workspaces'
+      } catch { return '/workspaces' }
+    },
+  } as RouteRecordRaw)
+}
+
+// Wrap lazy protected pages so their local state belongs to one login session.
+for (const route of routes) {
+  if (route.meta?.requiresAuth !== true || typeof route.component !== 'function') continue
+  const load = route.component as () => Promise<{ default: import('vue').Component }>
+  const admin = route.meta.requiresAdmin === true
+  route.component = lazyIdentityScoped(load, admin)
+}
+
 /**
  * Create router instance
  */
@@ -736,6 +785,9 @@ const router = createRouter({
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
+    }
+    if (_to.path === '/help' && /^#(?:quick|keys|models|clients|usage|billing|faq)$/.test(_to.hash)) {
+      return { el: _to.hash, top: 96 }
     }
     // Scroll to top for new routes
     return { top: 0 }
@@ -798,7 +850,9 @@ router.beforeEach(async (to, _from, next) => {
     ...(appStore.cachedPublicSettings?.custom_menu_items ?? []),
     ...(authStore.isAdmin ? adminSettingsStore.customMenuItems : []),
   ]
-  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems)
+  document.title = resolveRouteDocumentTitle(to, appStore.siteName, customMenuItems, {
+    billingMode: resolveSiteBillingMode(appStore.cachedPublicSettings),
+  })
 
   // Check if route requires authentication
   const requiresAuth = to.meta.requiresAuth !== false // Default to true
@@ -890,17 +944,46 @@ router.beforeEach(async (to, _from, next) => {
     return
   }
 
+  let stillAuthorizedAdmin: (() => boolean) | undefined
   if (requiresAdmin && authStore.isAdmin) {
     const adminComplianceStore = useAdminComplianceStore()
-    if (!adminComplianceStore.initialized) {
-      try {
-        await adminComplianceStore.fetchStatus()
-      } catch (error) {
-        const err = error as { status?: number; code?: string; metadata?: Record<string, string> }
-        if (err.status === 423 && err.code === 'ADMIN_COMPLIANCE_ACK_REQUIRED') {
-          adminComplianceStore.requireAcknowledgement(err.metadata)
-        }
+    const identityRevision = adminComplianceStore.getIdentityRevision()
+    const identity = [authStore.user?.id, authStore.user?.role, authStore.sessionRevision]
+    const sameIdentity = () => identityRevision === adminComplianceStore.getIdentityRevision() &&
+      identity[0] === authStore.user?.id &&
+      identity[1] === authStore.user?.role && identity[2] === authStore.sessionRevision
+    stillAuthorizedAdmin = () => sameIdentity() && authStore.isAuthenticated && authStore.isAdmin &&
+      adminComplianceStore.status?.required === false
+    try {
+      await adminComplianceStore.fetchStatus()
+    } catch (error) {
+      if (!sameIdentity()) {
+        next(false)
+        return
       }
+      const err = normalizeApiError(error)
+      // Unknown status is fail-closed too. The gate retains the logout path.
+      adminComplianceStore.requireAcknowledgement(
+        err.status === 423 && err.reason === 'ADMIN_COMPLIANCE_ACK_REQUIRED' ? err.metadata : undefined
+      )
+    }
+    if (!sameIdentity() || !authStore.isAuthenticated || !authStore.isAdmin) {
+      next(false)
+      return
+    }
+    if (adminComplianceStore.status?.required !== false && to.path !== '/admin/compliance') {
+      next({ path: '/admin/compliance', query: { redirect: to.fullPath } })
+      return
+    }
+    if (to.path === '/admin/compliance') {
+      if (adminComplianceStore.status?.required === false) {
+        const redirect = to.query.redirect
+        next(typeof redirect === 'string' && redirect.startsWith('/admin/') &&
+          !redirect.startsWith('/admin/compliance') ? redirect : '/admin/dashboard')
+      } else {
+        next()
+      }
+      return
     }
   }
 
@@ -914,6 +997,11 @@ router.beforeEach(async (to, _from, next) => {
     } catch (error) {
       console.warn('Failed to load public settings in route guard', error)
     }
+  }
+
+  if (stillAuthorizedAdmin && !stillAuthorizedAdmin()) {
+    next(false)
+    return
   }
 
   // Only an explicit value from successfully loaded settings can disable a route.
@@ -982,13 +1070,19 @@ router.beforeEach(async (to, _from, next) => {
 /**
  * Navigation guard: End loading and trigger prefetch
  */
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
   // 结束导航加载状态
   navigationLoading.endNavigation()
 
+  if (failure) return
+
   // 懒初始化预加载（首次导航时创建，传入 router 实例）
   if (!routePrefetch) {
-    routePrefetch = useRoutePrefetch(router)
+    routePrefetch = useRoutePrefetch(router, (route) => {
+      const auth = useAuthStore()
+      return auth.isAuthenticated && (!route.meta.requiresAdmin ||
+        (auth.isAdmin && useAdminComplianceStore().status?.required === false))
+    })
   }
   // 触发路由预加载（在浏览器空闲时执行）
   routePrefetch.triggerPrefetch(to)

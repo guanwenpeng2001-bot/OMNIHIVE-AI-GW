@@ -1748,6 +1748,9 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 		return nil, err
 	}
 	timeout := time.Duration(cfg.TimeoutMS) * time.Millisecond
+	if timeout <= 0 || timeout > maxContentModerationTimeoutMS*time.Millisecond {
+		timeout = defaultContentModerationTimeoutMS * time.Millisecond
+	}
 	reqCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
@@ -1758,7 +1761,7 @@ func (s *ContentModerationService) callModerationOnceWithInput(ctx context.Conte
 	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client, err := s.moderationHTTPClient(ctx, cfg)
+	client, err := s.moderationHTTPClient(reqCtx, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -1927,9 +1930,12 @@ func (s *ContentModerationService) applyFlaggedAccountSideEffects(ctx context.Co
 			slog.Warn("content_moderation.ban_get_user_failed", "user_id", *log.UserID, "error", err)
 			return false
 		}
+		// Retire the key that triggered the hit regardless of the owner's role. An
+		// admin owner keeps their session; only the offending key is disabled.
+		keyDisabled := s.disableTriggeredAPIKey(ctx, log)
 		if user.IsAdmin() {
-			slog.Warn("content_moderation.autoban_skipped_admin", "user_id", *log.UserID, "role", user.Role, "count", count, "threshold", cfg.BanThreshold)
-			// TODO: Disable the triggering API key instead when API key mutation is available here.
+			slog.Warn("content_moderation.autoban_admin_key_disabled", "user_id", *log.UserID, "role", user.Role, "count", count, "threshold", cfg.BanThreshold, "api_key_id", contentModerationLogAPIKeyID(log), "key_disabled", keyDisabled)
+			log.AutoBanned = keyDisabled
 			return false
 		}
 		if user.Status != StatusDisabled {
@@ -1946,6 +1952,33 @@ func (s *ContentModerationService) applyFlaggedAccountSideEffects(ctx context.Co
 		log.AutoBanned = true
 	}
 	return autoBanJustApplied
+}
+
+// disableTriggeredAPIKey disables the API key that produced the flagged request. The
+// disposition is independent of the owner's role, so an admin's offending key is
+// retired without disabling the admin's session.
+func (s *ContentModerationService) disableTriggeredAPIKey(ctx context.Context, log *ContentModerationLog) bool {
+	if s == nil || log == nil || log.APIKeyID == nil || *log.APIKeyID <= 0 {
+		return false
+	}
+	apiKeyID := *log.APIKeyID
+	setter, ok := s.authCacheInvalidator.(apiKeyStatusSetter)
+	if !ok {
+		return false
+	}
+	if _, err := setter.SetAPIKeyStatus(ctx, apiKeyID, StatusAPIKeyDisabled); err != nil {
+		slog.Warn("content_moderation.disable_key_failed", "api_key_id", apiKeyID, "error", err)
+		return false
+	}
+	slog.Info("content_moderation.disabled_key", "api_key_id", apiKeyID, "user_id", contentModerationEmailUserID(log))
+	return true
+}
+
+func contentModerationLogAPIKeyID(log *ContentModerationLog) int64 {
+	if log == nil || log.APIKeyID == nil {
+		return 0
+	}
+	return *log.APIKeyID
 }
 
 func (s *ContentModerationService) sendFlaggedNotificationSideEffects(ctx context.Context, cfg *ContentModerationConfig, log *ContentModerationLog, autoBanJustApplied bool) {

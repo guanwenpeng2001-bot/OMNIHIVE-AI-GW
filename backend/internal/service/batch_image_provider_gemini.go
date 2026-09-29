@@ -41,10 +41,42 @@ type GeminiUploadedFile struct {
 type GeminiBatchJob struct {
 	Name     string               `json:"name"`
 	State    string               `json:"state"`
+	Done     bool                 `json:"done"`
+	Metadata *GeminiBatchMetadata `json:"metadata"`
 	Dest     *GeminiBatchDest     `json:"dest"`
 	Response *GeminiBatchResponse `json:"response"`
 	Error    *GeminiBatchError    `json:"error"`
 	Raw      map[string]any       `json:"-"`
+}
+
+type GeminiBatchMetadata struct {
+	State string `json:"state"`
+}
+
+// UnmarshalJSON accepts google.rpc.Status integer codes as well as the older
+// SDK-shaped string codes. REST Operation evidence: ai.google.dev/api/batch-api,
+// verified 2026-09-21.
+func (e *GeminiBatchError) UnmarshalJSON(data []byte) error {
+	var wire struct {
+		Code    json.RawMessage `json:"code"`
+		Message string          `json:"message"`
+		Status  string          `json:"status"`
+	}
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	e.Message, e.Status = wire.Message, wire.Status
+	e.Code = ""
+	if len(wire.Code) > 0 && string(wire.Code) != "null" {
+		if err := json.Unmarshal(wire.Code, &e.Code); err != nil {
+			var number json.Number
+			if err := json.Unmarshal(wire.Code, &number); err != nil {
+				return err
+			}
+			e.Code = number.String()
+		}
+	}
+	return nil
 }
 
 type GeminiBatchDest struct {
@@ -69,6 +101,13 @@ type GeminiAPIBatchImageProvider struct {
 	client GeminiBatchClient
 }
 
+// geminiBatchNotCreatedError proves Submit stopped before calling CreateBatch.
+// Errors from CreateBatch must remain ambiguous, even for HTTP failures.
+type geminiBatchNotCreatedError struct{ cause error }
+
+func (e *geminiBatchNotCreatedError) Error() string { return e.cause.Error() }
+func (e *geminiBatchNotCreatedError) Unwrap() error { return e.cause }
+
 func NewGeminiAPIBatchImageProvider(client GeminiBatchClient) *GeminiAPIBatchImageProvider {
 	if client == nil {
 		client = NewGeminiBatchHTTPClient("", nil)
@@ -89,11 +128,11 @@ func (p *GeminiAPIBatchImageProvider) SupportsAccount(account *Account) bool {
 
 func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImageJob, account *Account, input BatchImageInput) (*BatchProviderJob, error) {
 	if account == nil || account.Platform != PlatformGemini || account.Type != AccountTypeAPIKey {
-		return nil, ErrBatchImageProviderUnsupportedAccount
+		return nil, &geminiBatchNotCreatedError{ErrBatchImageProviderUnsupportedAccount}
 	}
 	apiKey := batchImageProviderAPIKey(account)
 	if apiKey == "" {
-		return nil, ErrBatchImageProviderMissingAPIKey
+		return nil, &geminiBatchNotCreatedError{ErrBatchImageProviderMissingAPIKey}
 	}
 	if input.BatchID == "" && job != nil {
 		input.BatchID = job.BatchID
@@ -104,7 +143,7 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 
 	jsonl, err := BuildGeminiBatchJSONL(input)
 	if err != nil {
-		return nil, err
+		return nil, &geminiBatchNotCreatedError{err}
 	}
 
 	displayName := strings.TrimSpace(input.DisplayName)
@@ -114,13 +153,16 @@ func (p *GeminiAPIBatchImageProvider) Submit(ctx context.Context, job *BatchImag
 
 	uploaded, err := p.client.UploadJSONL(ctx, apiKey, displayName, bytes.NewReader(jsonl))
 	if err != nil {
-		return nil, mapGeminiClientError(err)
+		return nil, &geminiBatchNotCreatedError{mapGeminiClientError(err)}
 	}
 	if uploaded == nil || strings.TrimSpace(uploaded.Name) == "" {
-		return nil, geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini upload response is missing file name", nil)
+		return nil, &geminiBatchNotCreatedError{geminiProviderError("GEMINI_INVALID_RESPONSE", "Gemini upload response is missing file name", nil)}
 	}
 
 	batch, err := p.client.CreateBatch(ctx, apiKey, input.Model, uploaded.Name, displayName)
+	if IsTPMAdmissionError(err) {
+		return nil, &geminiBatchNotCreatedError{err}
+	}
 	if err != nil {
 		return nil, mapGeminiClientError(err)
 	}
@@ -622,6 +664,19 @@ func (c *GeminiBatchHTTPClient) doBatchJob(req *http.Request) (*GeminiBatchJob, 
 	if err := c.doJSON(req, &job); err != nil {
 		return nil, err
 	}
+	if job.Metadata != nil && job.State == "" {
+		job.State = strings.Replace(job.Metadata.State, "BATCH_STATE_", "JOB_STATE_", 1)
+	}
+	if job.Done {
+		if job.Error != nil {
+			job.State = "JOB_STATE_FAILED"
+			if job.Error.Code == "1" || job.Error.Status == "CANCELLED" {
+				job.State = "JOB_STATE_CANCELLED"
+			}
+		} else if job.Response != nil {
+			job.State = "JOB_STATE_SUCCEEDED"
+		}
+	}
 	job.Raw = map[string]any{}
 	return &job, nil
 }
@@ -639,7 +694,13 @@ func (c *GeminiBatchHTTPClient) doNoBody(req *http.Request) error {
 }
 
 func (c *GeminiBatchHTTPClient) doJSON(req *http.Request, out any) error {
-	resp, err := c.client.Do(req)
+	var resp *http.Response
+	var err error
+	if req.Method == http.MethodPost && strings.HasSuffix(req.URL.Path, ":batchGenerateContent") {
+		resp, err = generationBatchHTTP(req, c.client)
+	} else {
+		resp, err = c.client.Do(req)
+	}
 	if err != nil {
 		return err
 	}

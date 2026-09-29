@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 )
 
@@ -172,6 +173,22 @@ func (s *SchedulerSnapshotService) Start() {
 		return
 	}
 
+	if watcher, ok := s.outboxRepo.(interface{ WatchModelCatalog(context.Context, func()) }); ok {
+		s.wg.Add(1)
+		go func() {
+			defer s.wg.Done()
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			finished := make(chan struct{})
+			go func() { defer close(finished); watcher.WatchModelCatalog(ctx, InvalidateModelCatalogCaches) }()
+			select {
+			case <-s.stopCh:
+				cancel()
+				<-finished
+			case <-finished:
+			}
+		}()
+	}
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
@@ -225,7 +242,7 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] cache read failed: bucket=%s err=%v", bucket.String(), err)
 		} else if hit {
-			return derefAccounts(cached), useMixed, nil
+			return workspaceSchedulableAccounts(ctx, derefAccounts(cached)), useMixed, nil
 		}
 		token, err := s.cache.CaptureBucketWriteToken(ctx, bucket)
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -258,7 +275,8 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		return nil, useMixed, ctxErr
 	}
 
-	if s.cache != nil && canPublish {
+	_, workspaceScoped := domain.WorkspaceScope(ctx)
+	if s.cache != nil && canPublish && !workspaceScoped {
 		if err := s.cache.SetSnapshot(fallbackCtx, bucket, writeToken, accounts); err != nil {
 			if errors.Is(err, ErrSchedulerBucketRetired) || errors.Is(err, ErrSchedulerBucketWriteFenced) {
 				slog.Debug("[Scheduler] cache publish fenced", "bucket", bucket.String())
@@ -268,7 +286,25 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
-	return accounts, useMixed, nil
+	return workspaceSchedulableAccounts(ctx, accounts), useMixed, nil
+}
+
+func workspaceSchedulableAccounts(ctx context.Context, accounts []Account) []Account {
+	workspaceID, scoped := domain.WorkspaceScope(ctx)
+	if !scoped {
+		return accounts
+	}
+	filtered := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		owner := account.WorkspaceID
+		if owner == 0 {
+			owner = domain.DefaultWorkspaceID
+		}
+		if owner == workspaceID {
+			filtered = append(filtered, account)
+		}
+	}
+	return filtered
 }
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (*Account, error) {
@@ -286,6 +322,12 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 		if err != nil {
 			logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] account cache read failed: id=%d err=%v", accountID, err)
 		} else if account != nil {
+			if len(workspaceSchedulableAccounts(ctx, []Account{*account})) == 0 {
+				return nil, ErrAccountNotFound
+			}
+			if _, referenced := CredentialReference(account.Credentials); referenced {
+				return s.accountRepo.GetByID(ctx, accountID)
+			}
 			return account, nil
 		}
 	}
@@ -466,6 +508,20 @@ func (s *SchedulerSnapshotService) cleanupConsumedOutbox(watermark int64) {
 
 func (s *SchedulerSnapshotService) handleOutboxEvent(ctx context.Context, event SchedulerOutboxEvent, seen map[batchSeenKey]struct{}) error {
 	switch event.EventType {
+	case SchedulerOutboxEventModelCatalogChanged:
+		InvalidateModelCatalogCaches()
+		if scope, _ := event.Payload["scope"].(string); scope != "catalog" {
+			return nil
+		}
+		if err := s.handleBulkAccountEvent(ctx, event.Payload, seen); err != nil {
+			return err
+		}
+		for _, groupID := range parseInt64Slice(event.Payload["group_ids"]) {
+			if err := s.handleGroupEvent(ctx, &groupID, seen); err != nil {
+				return err
+			}
+		}
+		return nil
 	case SchedulerOutboxEventAccountLastUsed:
 		return s.handleLastUsedEvent(ctx, event.Payload)
 	case SchedulerOutboxEventAccountBulkChanged:
@@ -608,6 +664,11 @@ func (s *SchedulerSnapshotService) handleBulkAccountEvent(ctx context.Context, p
 			continue
 		}
 		accountGroupIDs := s.normalizeGroupIDs(account.GroupIDs)
+		if account.IsBedrock() {
+			addPlatformGroups(PlatformBedrock, accountGroupIDs)
+			addPlatformGroups(PlatformAnthropic, accountGroupIDs)
+			continue
+		}
 		switch account.Platform {
 		case PlatformAnthropic, PlatformGemini, PlatformOpenAI, PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformCursor, PlatformQianwen, PlatformCommandCode:
 			addPlatformGroups(account.Platform, accountGroupIDs)
@@ -817,6 +878,14 @@ func (s *SchedulerSnapshotService) rebuildByAccount(ctx context.Context, account
 	}
 
 	buckets := s.bucketsForPlatform(account.Platform, groupIDs, seen)
+	canonicalPlatform := domain.CanonicalPlatform(account.Platform)
+	if canonicalPlatform != account.Platform {
+		buckets = append(buckets, s.bucketsForPlatform(canonicalPlatform, groupIDs, seen)...)
+	}
+	legacyPlatform := domain.HostedQuotaKey(canonicalPlatform, account.Type)
+	if legacyPlatform != account.Platform && legacyPlatform != canonicalPlatform {
+		buckets = append(buckets, s.bucketsForPlatform(legacyPlatform, groupIDs, seen)...)
+	}
 	if account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled() {
 		buckets = append(buckets, s.bucketsForPlatform(PlatformAnthropic, groupIDs, seen)...)
 		buckets = append(buckets, s.bucketsForPlatform(PlatformGemini, groupIDs, seen)...)

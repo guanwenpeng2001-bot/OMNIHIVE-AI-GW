@@ -242,3 +242,60 @@ describe('useRoutePrefetch', () => {
     })
   })
 })
+
+describe('prefetch concurrency and policy', () => {
+  beforeEach(() => vi.useFakeTimers())
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals() })
+  it('shares overlapping in-flight imports and retries only failures', async () => {
+    let finish!: () => void
+    const load = vi.fn().mockImplementationOnce(() => new Promise<void>(resolve => { finish = resolve })).mockResolvedValue({})
+    const router = { getRoutes: () => [
+      { path: '/keys', components: { default: load } },
+      { path: '/usage', components: { default: load } }
+    ] } as unknown as Router
+    const prefetch = useRoutePrefetch(router)
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(load).toHaveBeenCalledTimes(1)
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(prefetch.prefetchedRoutes.value.has('/dashboard')).toBe(true)
+    prefetch.resetPrefetchState()
+    load.mockRejectedValueOnce(new Error('offline'))
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(prefetch.prefetchedRoutes.value.size).toBe(0)
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(load).toHaveBeenCalledTimes(3)
+  })
+  it('honors Save-Data and rechecks authorization before idle work', async () => {
+    const load = vi.fn().mockResolvedValue({})
+    const router = { getRoutes: () => [{ path: '/keys', components: { default: load } }] } as unknown as Router
+    let authorized = true
+    const prefetch = useRoutePrefetch(router, () => authorized)
+    vi.stubGlobal('navigator', { connection: { saveData: true } })
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(load).not.toHaveBeenCalled()
+    vi.stubGlobal('navigator', { connection: { saveData: false } })
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    authorized = false
+    await vi.advanceTimersByTimeAsync(1100)
+    expect(load).not.toHaveBeenCalled()
+  })
+  it('does not restore completion after a pending request was reset', async () => {
+    let finish!: () => void
+    const load = () => new Promise<void>(resolve => { finish = resolve })
+    const router = { getRoutes: () => [{ path: '/keys', components: { default: load } }] } as unknown as Router
+    const prefetch = useRoutePrefetch(router)
+    prefetch.triggerPrefetch(createMockRoute('/dashboard'))
+    await vi.advanceTimersByTimeAsync(1100)
+    prefetch.resetPrefetchState()
+    finish()
+    await vi.advanceTimersByTimeAsync(0)
+    expect(prefetch.prefetchedRoutes.value.size).toBe(0)
+  })
+})

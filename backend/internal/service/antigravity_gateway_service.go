@@ -10,7 +10,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
@@ -61,7 +60,7 @@ const (
 	// 超过此上限将不再重试，直接返回 503
 	antigravitySingleAccountSmartRetryTotalMaxWait = 30 * time.Second
 
-	// MODEL_CAPACITY_EXHAUSTED 全局去重：重试全部失败后的 cooldown 时间
+	// MODEL_CAPACITY_EXHAUSTED 身份隔离冷却：重试全部失败后的 cooldown 时间
 	antigravityModelCapacityCooldown = 10 * time.Second
 )
 
@@ -70,12 +69,6 @@ const (
 var antigravityPassthroughErrorMessages = []string{
 	"prompt is too long",
 }
-
-// MODEL_CAPACITY_EXHAUSTED 全局去重：避免多个并发请求同时对同一模型进行容量耗尽重试
-var (
-	modelCapacityExhaustedMu    sync.RWMutex
-	modelCapacityExhaustedUntil = make(map[string]time.Time) // modelName -> cooldown until
-)
 
 const (
 	antigravityForwardBaseURLEnv  = "GATEWAY_ANTIGRAVITY_FORWARD_BASE_URL"
@@ -256,13 +249,17 @@ func (s *AntigravityGatewayService) handleAntigravityModelRateLimitBeforePolicy(
 }
 
 // mapAntigravityModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底（DefaultAntigravityModelMapping）
+// 显式账户映射优先；裸 Gemini 名仅从有效目录选取思考变体，再使用既有默认映射。
 // 注意：返回空字符串表示模型不被支持，调度时会过滤掉该账号
 func mapAntigravityModel(account *Account, requestedModel string) string {
 	if account == nil {
 		return ""
 	}
 	requestedModel = strings.TrimPrefix(requestedModel, "models/")
+	// Scheduling and forwarding share the same evidence-backed default target.
+	if variant, resolved := resolveGeminiThinkingVariantForLevel(account, requestedModel, ""); resolved {
+		return variant
+	}
 
 	// 获取映射表（未配置时自动使用 DefaultAntigravityModelMapping）
 	mapping := account.GetModelMapping()
@@ -292,8 +289,17 @@ func mapAntigravityModel(account *Account, requestedModel string) string {
 }
 
 // getMappedModel 获取映射后的模型名
-// 完全依赖映射配置：账户映射（通配符）→ 默认映射兜底
+// 使用默认思考档位，供连接测试等没有请求体配置的入口使用。
 func (s *AntigravityGatewayService) getMappedModel(account *Account, requestedModel string) string {
+	return s.getMappedModelForThinkingLevel(account, requestedModel, "")
+}
+
+// getMappedModelForThinkingLevel resolves bare Gemini names only through the
+// account's approved catalog; all callers retain the existing send-time check.
+func (s *AntigravityGatewayService) getMappedModelForThinkingLevel(account *Account, requestedModel string, thinkingLevel string) string {
+	if mapped, ok := resolveGeminiThinkingVariantForLevel(account, requestedModel, thinkingLevel); ok {
+		return mapped
+	}
 	return mapAntigravityModel(account, requestedModel)
 }
 
@@ -319,8 +325,9 @@ func applyThinkingModelSuffix(mappedModel string, thinkingEnabled bool) string {
 	if !thinkingEnabled {
 		return mappedModel
 	}
-	if mappedModel == "claude-sonnet-4-5" {
-		return "claude-sonnet-4-5-thinking"
+	if mappedModel == antigravityThinkingModelBase {
+		// 别名与限流域规范化共用同一份定义，避免两处各写一份。
+		return antigravityThinkingModelAlias()
 	}
 	return mappedModel
 }

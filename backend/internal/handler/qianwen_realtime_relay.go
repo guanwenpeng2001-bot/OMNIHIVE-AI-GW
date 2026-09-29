@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -57,6 +59,13 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		h.errorResponse(c, 503, "api_error", "Realtime requires concurrency slot TTL of at least three minutes")
 		return
 	}
+	model := c.Query("model")
+	defer beginGatewayRequestPlan(c, h.gatewayService, key, model, "realtime", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, key, model, nil) {
+		return
+	}
 	ctx, release, err := h.upstreamJobs.RegisterQianwenRealtime(c.Request.Context())
 	if err != nil {
 		h.errorResponse(c, 503, "api_error", "Application is draining")
@@ -82,7 +91,6 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		return
 	}
 	defer userSlot.ReleaseFunc()
-	model := c.Query("model")
 	mapping, restricted := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, key.GroupID, model)
 	if restricted {
 		h.errorResponse(c, 403, "permission_error", "Realtime model restricted by channel")
@@ -123,14 +131,15 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 		}
 		defer slot.ReleaseFunc()
 	}
-	snapshot, err := service.QianwenRealtimeBillingSnapshot(key.Group, account, key, forwardModel, subscription)
+	snapshot, err := service.QianwenRealtimeBillingSnapshot(ctx, key.Group, account, key, forwardModel, subscription)
 	if err != nil {
 		h.errorResponse(c, 422, "unsupported_operation_error", err.Error())
 		return
 	}
 	snapshot.RequestedModel = model
 	if key.GroupID != nil {
-		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(time.Now())
+		pricingAt := service.GatewayRequestPlanFromContext(ctx).Snapshot().PricingAt
+		snapshot.RateMultiplier = h.gatewayService.ResolveUserGroupRateMultiplier(ctx, key.UserID, *key.GroupID, key.Group.RateMultiplier) * key.Group.PeakMultiplierAt(pricingAt)
 	}
 	session, err := h.upstreamJobs.StartQianwenRealtime(ctx, &service.UpstreamJob{Platform: service.PlatformQianwen, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: snapshot})
 	if err != nil {
@@ -153,6 +162,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	upstream, err := h.gatewayService.OpenQianwenRealtime(dialCtx, account, snapshot.Model)
 	cancel()
 	if err != nil {
+		if writeGatewayTPMError(c, err) {
+			return
+		}
 		finishCode = "handshake_failed"
 		h.errorResponse(c, 502, "upstream_error", "DashScope realtime upstream handshake failed")
 		return
@@ -164,16 +176,34 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	defer conn.CloseNow()
+	defer func() {
+		if err := conn.CloseNow(); err != nil {
+			slog.Debug("Qianwen realtime connection cleanup failed")
+		}
+	}()
 	reqLog := requestLogger(c, "handler.qianwen_realtime")
 	receipts := map[string]bool{}
 	turn := 0
+	var turnPlan *service.GatewayRequestPlan
+	defer func() {
+		if turnPlan != nil {
+			turnPlan.Finalize(false)
+		}
+	}()
 	err = service.RelayQianwenRealtime(ctx, conn, upstream, service.QianwenRealtimeCallbacks{
 		BeforeCommit: func(turnCtx context.Context, text string) error {
 			if err := eligible(turnCtx); err != nil {
-				return errors.New("Realtime billing eligibility rejected")
+				return errors.New("realtime billing eligibility rejected")
 			}
 			turn++
+			if turnPlan != nil {
+				turnPlan.Finalize(false)
+			}
+			spec := service.GatewayRequestPlanFromContext(ctx).Snapshot()
+			spec.ExecutionID = session.PublicRequestID + ":" + strconv.Itoa(turn)
+			spec.UpstreamModel = snapshot.Model
+			_, turnPlan = h.gatewayService.CaptureRequestTurn(ctx, spec)
+			turnCtx = service.WithGatewayRequestPlan(turnCtx, turnPlan)
 			if err := h.auditQianwenRealtimeTurn(turnCtx, c, reqLog, key, subject, model, text, turn); err != nil {
 				return err
 			}
@@ -225,7 +255,7 @@ func (h *OpenAIGatewayHandler) auditQianwenRealtimeTurn(ctx context.Context, c *
 	}
 	audit, _ := json.Marshal(gin.H{"model": model, "messages": []any{gin.H{"role": "user", "content": text}}})
 	if decision := h.checkSecurityAuditStage(auditContext, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit, stage); decision != nil && !decision.AllowNextStage {
-		return errors.New("Realtime content rejected by security audit")
+		return errors.New("realtime content rejected by security audit")
 	}
 	return nil
 }

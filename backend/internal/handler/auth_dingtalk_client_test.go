@@ -2,11 +2,15 @@ package handler
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
@@ -140,4 +144,259 @@ func TestDingTalkClient_GetDeptInfo_ErrCode60003(t *testing.T) {
 	apiErr, ok := err.(*DingTalkAPIError)
 	require.True(t, ok)
 	require.Equal(t, "60003", apiErr.Code)
+}
+
+func TestDingTalkSharedTokenRefreshExpiryAndIdentity(t *testing.T) {
+	cache := newDingTalkTokenCacheFake()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		_, _ = writer.Write([]byte(`{"accessToken":"shared-token","expireIn":7200}`))
+	}))
+	defer server.Close()
+	config := dingTalkClientConfig{ClientID: "app", ClientSecret: "secret", TokenURL: server.URL}
+	first := &DingTalkClient{cfg: config, httpClient: server.Client(), tokenCache: cache}
+	second := &DingTalkClient{cfg: config, httpClient: server.Client(), tokenCache: cache}
+	var workers sync.WaitGroup
+	for _, client := range []*DingTalkClient{first, second} {
+		workers.Add(1)
+		go func(client *DingTalkClient) {
+			defer workers.Done()
+			token, err := client.GetAppToken(context.Background())
+			assert.NoError(t, err)
+			assert.Equal(t, "shared-token", token)
+		}(client)
+	}
+	workers.Wait()
+	require.EqualValues(t, 1, calls.Load())
+	require.Equal(t, 7000*time.Second, cache.TTL(first.appTokenCacheKey()))
+	require.False(t, cache.Exists(first.appTokenCacheKey()+":refresh"))
+	cache.FastForward(7000 * time.Second)
+	_, err := second.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 2, calls.Load())
+	second.cfg.ClientSecret = "rotated"
+	require.NotEqual(t, first.appTokenCacheKey(), second.appTokenCacheKey())
+	_, err = second.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.EqualValues(t, 3, calls.Load())
+}
+
+func TestDingTalkSharedTokenLockWaitCancellation(t *testing.T) {
+	cache := newDingTalkTokenCacheFake()
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls.Add(1)
+		_, _ = w.Write([]byte(`{"accessToken":"unexpected","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), tokenCache: cache}
+	require.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "other-owner"))
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	cache.afterAcquire = cancel // Cancel after observing the other owner's lock.
+	_, err := client.GetAppToken(ctx)
+	require.ErrorIs(t, err, context.Canceled)
+	require.Zero(t, calls.Load())
+	owner, err := cache.Get(context.Background(), client.appTokenCacheKey()+":refresh")
+	require.NoError(t, err)
+	require.Equal(t, "other-owner", owner)
+}
+
+func TestDingTalkSharedTokenRedisCancellationDoesNotFetch(t *testing.T) {
+	for _, command := range []string{"get", "set"} {
+		for _, scenario := range []struct {
+			name         string
+			err          error
+			cancelParent bool
+		}{
+			{"canceled_error", context.Canceled, false},
+			{"deadline_error", context.DeadlineExceeded, false},
+			{"parent_canceled", context.Canceled, true},
+		} {
+			t.Run(command+"/"+scenario.name, func(t *testing.T) {
+				cache := newDingTalkTokenCacheFake()
+				var calls atomic.Int32
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					calls.Add(1)
+					_, _ = w.Write([]byte(`{"accessToken":"unexpected","expireIn":7200}`))
+				}))
+				defer server.Close()
+				client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), tokenCache: cache}
+				require.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "other-owner"))
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				injected := fmt.Errorf("redis operation: %w", scenario.err)
+				var intercepted bool
+				cache.before = func(ctx context.Context, operation string) error {
+					if operation != command {
+						return nil
+					}
+					intercepted = true
+					if scenario.cancelParent {
+						cancel()
+						return ctx.Err()
+					}
+					return injected
+				}
+				// Error-only cases keep the caller live so HTTP cannot mask a fallback;
+				// parent_canceled reproduces cancellation inside the Redis operation.
+				token, err := client.GetAppToken(ctx)
+				require.True(t, intercepted)
+				assert.ErrorIs(t, err, scenario.err)
+				if !scenario.cancelParent {
+					assert.Same(t, injected, err)
+				}
+				assert.Empty(t, token)
+				assert.Zero(t, calls.Load(), "Redis cancellation must not reach upstream")
+				cache.before = nil
+				owner, err := cache.Get(context.Background(), client.appTokenCacheKey()+":refresh")
+				require.NoError(t, err)
+				require.Equal(t, "other-owner", owner)
+			})
+		}
+	}
+}
+
+func TestDingTalkRedisFailureFallsBackWithoutLocalToken(t *testing.T) {
+	cache := newDingTalkTokenCacheFake()
+	cache.err = fmt.Errorf("cache unavailable")
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		_, _ = writer.Write([]byte(`{"accessToken":"fresh","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client := &DingTalkClient{cfg: dingTalkClientConfig{TokenURL: server.URL}, httpClient: server.Client(), tokenCache: cache, appToken: "stale", appTokenExp: time.Now().Add(time.Hour)}
+	for attempt := 0; attempt < 2; attempt++ {
+		token, err := client.GetAppToken(context.Background())
+		require.NoError(t, err)
+		require.Equal(t, "fresh", token)
+	}
+	require.EqualValues(t, 2, calls.Load())
+}
+
+func TestDingTalkRefreshCannotPublishOrUnlockNewOwner(t *testing.T) {
+	cache := newDingTalkTokenCacheFake()
+	client := &DingTalkClient{tokenCache: cache}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		cache.FastForward(31 * time.Second)
+		assert.NoError(t, cache.Set(client.appTokenCacheKey()+":refresh", "new-owner"))
+		assert.NoError(t, cache.Set(client.appTokenCacheKey(), "newer-token"))
+		_, _ = writer.Write([]byte(`{"accessToken":"older-token","expireIn":7200}`))
+	}))
+	defer server.Close()
+	client.cfg.TokenURL, client.httpClient = server.URL, server.Client()
+	returned, err := client.GetAppToken(context.Background())
+	require.NoError(t, err)
+	require.Equal(t, "newer-token", returned)
+	token, err := cache.Get(context.Background(), client.appTokenCacheKey())
+	require.NoError(t, err)
+	require.Equal(t, "newer-token", token)
+	owner, err := cache.Get(context.Background(), client.appTokenCacheKey()+":refresh")
+	require.NoError(t, err)
+	require.Equal(t, "new-owner", owner)
+}
+
+// dingTalkTokenCacheFake models only the shared token and refresh ownership contract.
+type dingTalkTokenCacheFake struct {
+	mu           sync.Mutex
+	values       map[string]string
+	ttls         map[string]time.Duration
+	err          error
+	before       func(context.Context, string) error
+	afterAcquire func()
+}
+
+func newDingTalkTokenCacheFake() *dingTalkTokenCacheFake {
+	return &dingTalkTokenCacheFake{values: make(map[string]string), ttls: make(map[string]time.Duration)}
+}
+
+func (c *dingTalkTokenCacheFake) Get(ctx context.Context, key string) (string, error) {
+	if c.before != nil {
+		if err := c.before(ctx, "get"); err != nil {
+			return "", err
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.values[key], c.err
+}
+
+func (c *dingTalkTokenCacheFake) AcquireRefresh(ctx context.Context, key, owner string, ttl time.Duration) (bool, error) {
+	if c.before != nil {
+		if err := c.before(ctx, "set"); err != nil {
+			return false, err
+		}
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.afterAcquire != nil {
+		defer c.afterAcquire()
+	}
+	if c.err != nil {
+		return false, c.err
+	}
+	if _, exists := c.values[key]; exists {
+		return false, nil
+	}
+	c.values[key], c.ttls[key] = owner, ttl
+	return true, nil
+}
+
+func (c *dingTalkTokenCacheFake) ReleaseRefresh(_ context.Context, key, owner string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.values[key] == owner {
+		delete(c.values, key)
+		delete(c.ttls, key)
+	}
+	return c.err
+}
+
+func (c *dingTalkTokenCacheFake) Publish(_ context.Context, lockKey, key, owner, token string, ttl time.Duration) (bool, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.err != nil {
+		return false, c.err
+	}
+	if c.values[lockKey] != owner {
+		return false, nil
+	}
+	c.values[key], c.ttls[key] = token, ttl
+	return true, nil
+}
+
+func (c *dingTalkTokenCacheFake) Set(key, value string) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.values[key] = value
+	delete(c.ttls, key)
+	return nil
+}
+
+func (c *dingTalkTokenCacheFake) TTL(key string) time.Duration {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ttls[key]
+}
+
+func (c *dingTalkTokenCacheFake) Exists(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	_, exists := c.values[key]
+	return exists
+}
+
+func (c *dingTalkTokenCacheFake) FastForward(elapsed time.Duration) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	for key, ttl := range c.ttls {
+		if ttl <= elapsed {
+			delete(c.ttls, key)
+			delete(c.values, key)
+		} else {
+			c.ttls[key] -= elapsed
+		}
+	}
 }

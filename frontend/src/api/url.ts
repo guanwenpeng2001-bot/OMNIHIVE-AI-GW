@@ -1,3 +1,5 @@
+import { workspaceRequestURL } from './workspaceScope'
+
 const DEFAULT_API_BASE_URL = '/api/v1'
 const API_BASE_URL = normalizeAPIBaseURL(import.meta.env.VITE_API_BASE_URL)
 
@@ -26,17 +28,22 @@ export function buildApiUrl(path: string): string {
   } else if (suffix.startsWith(`${DEFAULT_API_BASE_URL}/`)) {
     suffix = suffix.slice(DEFAULT_API_BASE_URL.length)
   }
-  return `${base}${suffix}`
+  const scopedSuffix = typeof window === 'undefined' ? suffix : workspaceRequestURL(suffix, window.location.pathname)
+  return `${base}${scopedSuffix}`
 }
 
 export function buildGatewayUrl(path: string): string {
   const suffix = normalizePath(path)
   try {
-    const origin =
-      typeof window === 'undefined'
-        ? new URL(getAPIBaseURL()).origin
-        : new URL(getAPIBaseURL(), window.location.origin).origin
-    return `${origin}${suffix}`
+    const base = typeof window === 'undefined'
+      ? new URL(getAPIBaseURL())
+      : new URL(getAPIBaseURL(), window.location.origin)
+    // A reverse proxy may mount both management and gateway routes below a prefix.
+    // Only derive that prefix from the known management API suffix.
+    const prefix = base.pathname.endsWith(DEFAULT_API_BASE_URL)
+      ? base.pathname.slice(0, -DEFAULT_API_BASE_URL.length)
+      : ''
+    return `${base.origin}${prefix}${suffix}`
   } catch {
     return suffix
   }

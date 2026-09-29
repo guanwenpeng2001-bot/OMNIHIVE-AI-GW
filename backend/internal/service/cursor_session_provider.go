@@ -43,12 +43,7 @@ func NewCursorSessionProvider(cache CursorSessionCache) *CursorSessionProvider {
 }
 
 func cursorSessionKey(account *Account) string {
-	if account.Type == AccountTypeOAuth {
-		digest := sha256.Sum256([]byte(account.GetCredential("access_token") + "\x00" + account.GetCredential("refresh_token")))
-		return fmt.Sprintf("cursor:session:%d:%x", account.ID, digest)
-	}
-	digest := sha256.Sum256([]byte(account.GetCredential("api_key")))
-	return fmt.Sprintf("cursor:session:%d:%x", account.ID, digest)
+	return "cursor:session:" + AccountRuntimeIdentityKey(account)
 }
 
 // rejectedToken is empty for ordinary reads. A rejected token is replaced once;
@@ -119,7 +114,8 @@ func (provider *CursorSessionProvider) GetSessionToken(ctx context.Context, acco
 		if completed.Err != nil {
 			return "", completed.Err
 		}
-		return completed.Val.(string), nil
+		token, _ := completed.Val.(string)
+		return token, nil
 	}
 }
 
@@ -135,7 +131,8 @@ func (provider *CursorSessionProvider) getOAuthSessionToken(ctx context.Context,
 		if completed.Err != nil {
 			return "", completed.Err
 		}
-		return completed.Val.(string), nil
+		token, _ := completed.Val.(string)
+		return token, nil
 	}
 }
 

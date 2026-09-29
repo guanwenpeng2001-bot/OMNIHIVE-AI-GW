@@ -27,6 +27,7 @@ import (
 	"golang.org/x/net/http2"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyurl"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/proxyutil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
@@ -76,6 +77,8 @@ const (
 	defaultOpenAIHTTP2FallbackErrorThreshold = 2
 	defaultOpenAIHTTP2FallbackWindow         = 60 * time.Second
 	defaultOpenAIHTTP2FallbackTTL            = 10 * time.Minute
+	openAIHTTP2ReadIdleTimeout               = 15 * time.Second
+	openAIHTTP2PingTimeout                   = 15 * time.Second
 	// 长流 HTTP/2 连接健康探测：池化连接被代理/NAT
 	// 静默掐断会成为“死连接”（两端都以为存活），请求落上去会挂到 TCP 重传超时
 	// （分钟级）。Go 的 http2.Transport 默认 ReadIdleTimeout=0（不发健康 PING），
@@ -126,6 +129,7 @@ type openAIHTTP2Settings struct {
 // upstreamClientEntry 上游客户端缓存条目
 // 记录客户端实例及其元数据，用于连接池管理和淘汰策略
 type upstreamClientEntry struct {
+	publicClient *http.Client // Separate pools pinned to validated public IPs.
 	client       *http.Client // HTTP 客户端实例
 	proxyKey     string       // 代理标识（用于检测代理变更）
 	poolKey      string       // 连接池配置标识（用于检测配置变更）
@@ -197,7 +201,16 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 // 注意:
 //   - 调用方必须关闭 resp.Body，否则会导致 inFlight 计数泄漏
 //   - inFlight > 0 的客户端不会被淘汰，确保活跃请求不被中断
-func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
+func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (response *http.Response, requestError error) {
+	requestContext, cancelRequest := service.AttemptExecutionContext(req.Context())
+	req = req.WithContext(requestContext)
+	defer func() {
+		if response == nil || response.Body == nil || requestError != nil {
+			cancelRequest()
+		} else {
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
+		}
+	}()
 	applyGrokCLIProxyHeaders(req)
 	if err := s.validateRequestHost(req); err != nil {
 		return nil, err
@@ -214,7 +227,7 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 	}
 
 	// 执行请求
-	client := s.httpClientForUpstreamRequest(entry.client, req)
+	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
 	resp, err := servertiming.Do(client, req)
 	if err != nil {
@@ -243,7 +256,16 @@ func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID i
 //
 // profile 为 nil 时不启用 TLS 指纹，行为与 Do 方法相同。
 // profile 非 nil 时使用指定的 Profile 进行 TLS 指纹伪装。
-func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
+func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (response *http.Response, requestError error) {
+	requestContext, cancelRequest := service.AttemptExecutionContext(req.Context())
+	req = req.WithContext(requestContext)
+	defer func() {
+		if response == nil || response.Body == nil || requestError != nil {
+			cancelRequest()
+		} else {
+			response.Body = &cancelOnCloseBody{ReadCloser: response.Body, cancel: cancelRequest}
+		}
+	}()
 	if profile == nil {
 		return s.Do(req, proxyURL, accountID, accountConcurrency)
 	}
@@ -278,7 +300,7 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 		return nil, err
 	}
 
-	client := s.httpClientForUpstreamRequest(entry.client, req)
+	client := s.httpClientForUpstreamRequest(s.requestClient(entry, req), req)
 	client = httpClientWithGrokAccessDeniedFallback(client)
 	resp, err := servertiming.Do(client, req)
 	if err != nil {
@@ -298,8 +320,51 @@ func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, acco
 	return resp, nil
 }
 
-// httpClientForUpstreamRequest 按请求上下文的标记派生客户端：禁用重定向，或对重定向的每一跳做主机校验。
-// 派生的克隆与缓存客户端共享 Transport；未打标记时原样返回。
+// requestClient keeps restricted requests out of unrestricted connection pools.
+func (s *httpUpstreamService) requestClient(entry *upstreamClientEntry, req *http.Request) *http.Client {
+	if s.shouldValidateResolvedIP() || (req != nil && service.HTTPUpstreamPublicHostsOnly(req.Context())) {
+		return entry.publicClient
+	}
+	return entry.client
+}
+
+type cancelOnCloseBody struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+	err    error
+	readMu sync.Mutex
+	closed bool
+}
+
+func (b *cancelOnCloseBody) Read(buffer []byte) (int, error) {
+	b.readMu.Lock()
+	defer b.readMu.Unlock()
+	if b.closed {
+		return 0, http.ErrBodyReadAfterClose
+	}
+	return b.ReadCloser.Read(buffer)
+}
+
+func (b *cancelOnCloseBody) Close() error {
+	b.once.Do(func() {
+		// Cancel before closing, including before closing a decompressor. In Go
+		// 1.27 an early HTTP/1 close concurrent with Read can otherwise leave an
+		// EOF waiter on a reused connection and stall subsequent responses.
+		// Fully consumed responses have already released their transport request,
+		// so cancelling here preserves normal keep-alive reuse.
+		b.cancel()
+		// Wait for an active read to observe cancellation before touching the
+		// body or decompressor. Do not hold readMu while cancelling the request.
+		b.readMu.Lock()
+		defer b.readMu.Unlock()
+		b.closed = true
+		b.err = b.ReadCloser.Close()
+	})
+	return b.err
+}
+
+// httpClientForUpstreamRequest applies redirect policy without changing pools.
 func (s *httpUpstreamService) httpClientForUpstreamRequest(client *http.Client, req *http.Request) *http.Client {
 	if client == nil || req == nil {
 		return client
@@ -574,9 +639,10 @@ func (s *httpUpstreamService) getClientEntryWithTLS(proxyURL string, accountID i
 	}
 
 	entry := &upstreamClientEntry{
-		client:   client,
-		proxyKey: proxyKey,
-		poolKey:  poolKey,
+		client:       client,
+		publicClient: &http.Client{Transport: httpclient.NewPublicTransport(transport), CheckRedirect: s.redirectChecker},
+		proxyKey:     proxyKey,
+		poolKey:      poolKey,
 	}
 	atomic.StoreInt64(&entry.lastUsed, nowUnix)
 	if markInFlight {
@@ -729,6 +795,7 @@ func (s *httpUpstreamService) getClientEntry(proxyURL string, accountID int64, a
 	}
 	entry := &upstreamClientEntry{
 		client:       client,
+		publicClient: &http.Client{Transport: httpclient.NewPublicTransport(transport), CheckRedirect: s.redirectChecker},
 		proxyKey:     proxyKey,
 		poolKey:      poolKey,
 		protocolMode: protocolMode,
@@ -773,6 +840,9 @@ func (s *httpUpstreamService) removeClientLocked(key string, entry *upstreamClie
 		// 关闭空闲连接，释放系统资源
 		// 注意：这不会中断活跃连接
 		entry.client.CloseIdleConnections()
+		if entry.publicClient != nil {
+			entry.publicClient.CloseIdleConnections()
+		}
 	}
 }
 
@@ -918,7 +988,7 @@ func (s *httpUpstreamService) resolvePoolSettings(isolation string, accountConcu
 func (s *httpUpstreamService) applyProfilePoolSettings(settings poolSettings, profile service.HTTPUpstreamProfile) poolSettings {
 	switch profile {
 	case service.HTTPUpstreamProfileOpenAI:
-		settings.responseHeaderTimeout = 0
+		settings.responseHeaderTimeout = defaultResponseHeaderTimeout
 		if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIResponseHeaderTimeout > 0 {
 			settings.responseHeaderTimeout = time.Duration(s.cfg.Gateway.OpenAIResponseHeaderTimeout) * time.Second
 		}
@@ -1281,7 +1351,7 @@ func defaultPoolSettings(cfg *config.Config) poolSettings {
 		if cfg.Gateway.IdleConnTimeoutSeconds > 0 {
 			idleConnTimeout = time.Duration(cfg.Gateway.IdleConnTimeoutSeconds) * time.Second
 		}
-		if cfg.Gateway.ResponseHeaderTimeout >= 0 {
+		if cfg.Gateway.ResponseHeaderTimeout > 0 {
 			responseHeaderTimeout = time.Duration(cfg.Gateway.ResponseHeaderTimeout) * time.Second
 		}
 	}
@@ -1340,7 +1410,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		transport.ForceAttemptHTTP2 = true
 		// 显式配置 http2 并启用 PING 健康探测，剔除代理/NAT 静默掐断的死连接，
 		// 避免请求挂在死连接上直到 TCP 重传超时（分钟级）。
-		if _, err := enableHTTP2KeepAlive(transport); err != nil {
+		if _, err := enableHTTP2KeepAlive(transport, protocolMode); err != nil {
 			return nil, err
 		}
 	case upstreamProtocolModeOpenAIH1:
@@ -1361,7 +1431,7 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 // Go 默认惰性配置 http2 且 ReadIdleTimeout=0（不发健康 PING），无法检测被代理/NAT
 // 静默掐断的死连接。此处主动设置 ReadIdleTimeout/PingTimeout，让死连接被提前 PING
 // 出并关闭，请求得以重建连接而非挂到 TCP 重传超时。返回底层 *http2.Transport 便于测试。
-func enableHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, error) {
+func enableHTTP2KeepAlive(transport *http.Transport, protocolMode string) (*http2.Transport, error) {
 	h2, err := http2.ConfigureTransports(transport)
 	if err != nil {
 		return nil, err
@@ -1369,6 +1439,16 @@ func enableHTTP2KeepAlive(transport *http.Transport) (*http2.Transport, error) {
 	if h2 != nil {
 		h2.ReadIdleTimeout = longStreamHTTP2ReadIdleTimeout
 		h2.PingTimeout = longStreamHTTP2PingTimeout
+		if protocolMode == upstreamProtocolModeOpenAIH2 {
+			h2.ReadIdleTimeout = openAIHTTP2ReadIdleTimeout
+			h2.PingTimeout = openAIHTTP2PingTimeout
+		}
+		// Preserve the native Go 1.27 settings when a public-host transport
+		// clones this transport; registered alternate protocols are not cloned.
+		transport.HTTP2 = &http.HTTP2Config{
+			SendPingTimeout: h2.ReadIdleTimeout,
+			PingTimeout:     h2.PingTimeout,
+		}
 	}
 	return h2, nil
 }

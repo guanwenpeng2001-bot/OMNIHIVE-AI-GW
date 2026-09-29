@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -111,6 +110,12 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	}
 
 	reqLog = reqLog.With(zap.String("model", requestModel))
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, requestModel, "media", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, requestModel, body) {
+		return
+	}
 	setOpsRequestContext(c, requestModel, false)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeSync))
 
@@ -152,10 +157,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("grok_media.billing_eligibility_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -182,19 +185,12 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 	// 也防止已计费的在途视频任务因绑定账号被门排除而查询返回伪 404。
 	requestCtx := service.WithOpenAIProfitControlSuppressed(c.Request.Context())
 	profitVetoCount := 0
-	failedAccountIDs := make(map[int64]struct{})
-	sameAccountRetryCount := make(map[int64]int)
-	var lastFailoverErr *service.UpstreamFailoverError
+	failoverState := NewFailoverState(h.maxAccountSwitches, false)
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	mediaEligibilityRejected := false
-	switchCount := 0
 	videoCreateStartedAt := ""
 	if isGrokVideoCreateEndpoint(endpoint) {
 		videoCreateStartedAt = service.GrokVideoPendingCreatedAtNow()
-	}
-	maxAccountSwitches := h.maxAccountSwitches
-	if maxAccountSwitches <= 0 {
-		maxAccountSwitches = 3
 	}
 	routingStart := time.Now()
 	requiredCapability := grokMediaRequiredCapability(endpoint)
@@ -225,7 +221,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				"",
 				sessionHash,
 				routingModel,
-				failedAccountIDs,
+				failoverState.FailedAccountIDs,
 				service.OpenAIUpstreamTransportHTTPSSE,
 				requiredCapability,
 				false,
@@ -251,15 +247,15 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			}
 			reqLog.Warn("grok_media.account_select_failed",
 				zap.Error(err),
-				zap.Int("excluded_account_count", len(failedAccountIDs)),
+				zap.Int("excluded_account_count", len(failoverState.FailedAccountIDs)),
 			)
 			if endpoint.IsGenerationRequest() && errors.Is(err, service.ErrNoAvailableAccounts) &&
-				(len(failedAccountIDs) == 0 || (mediaEligibilityRejected && lastFailoverErr == nil)) {
+				(len(failoverState.FailedAccountIDs) == 0 || (mediaEligibilityRejected && failoverState.LastFailoverErr == nil)) {
 				markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				h.errorResponse(c, http.StatusServiceUnavailable, "grok_media_no_eligible_account", "No eligible Grok media accounts")
 				return
 			}
-			if len(failedAccountIDs) == 0 {
+			if len(failoverState.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, requestModel, routingModel, service.PlatformGrok)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
@@ -267,8 +263,8 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 				h.errorResponse(c, cls.Status, cls.ErrType, cls.Message)
 				return
 			}
-			if lastFailoverErr != nil {
-				h.handleFailoverExhausted(c, lastFailoverErr, false)
+			if failoverState.LastFailoverErr != nil {
+				h.handleFailoverExhausted(c, failoverState.LastFailoverErr, false)
 			} else {
 				h.errorResponse(c, http.StatusBadGateway, "api_error", "Upstream request failed")
 			}
@@ -314,18 +310,18 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 			if !eligible {
 				releaseAccount()
 				mediaEligibilityRejected = true
-				failedAccountIDs[account.ID] = struct{}{}
+				failoverState.FailedAccountIDs[account.ID] = struct{}{}
 				reqLog.Warn("grok_media.account_eligibility_rejected",
 					zap.Int64("account_id", account.ID),
 					zap.String("reason", eligibilityReason),
 					zap.Bool("probe_failed", eligibilityErr != nil),
 				)
-				if switchCount >= maxAccountSwitches {
+				if failoverState.SwitchCount >= failoverState.MaxSwitches {
 					markOpsRoutingCapacityLimited(c)
 					h.errorResponse(c, http.StatusServiceUnavailable, "grok_media_no_eligible_account", "No eligible Grok media accounts")
 					return
 				}
-				switchCount++
+				failoverState.SwitchCount++
 				continue
 			}
 		}
@@ -345,7 +341,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		if slotResult == openAISlotAcquireProfitVetoed {
 			// 媒体路径已显式豁免利润门（suppress 标记），此分支仅防御性兜底，
 			// 同样受否决上限约束。
-			if !recordOpenAIProfitVeto(failedAccountIDs, account.ID, &profitVetoCount) {
+			if !recordOpenAIProfitVeto(failoverState.FailedAccountIDs, account.ID, &profitVetoCount) {
 				h.handleOpenAIProfitVetoExhausted(c, streamStarted, reqLog, profitVetoCount)
 				return
 			}
@@ -396,43 +392,22 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
-				if failoverErr.RetryableOnSameAccount {
-					retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
-					if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
-						sameAccountRetryCount[account.ID]++
-						retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
-						reqLog.Warn("grok_media.pool_mode_same_account_retry",
-							zap.Int64("account_id", account.ID),
-							zap.Int("upstream_status", failoverErr.StatusCode),
-							zap.Int("retry_limit", retryLimit),
-							zap.Int("retry_count", sameAccountRetryCount[account.ID]),
-							zap.Duration("retry_delay", retryDelay),
-						)
-						select {
-						case <-requestCtx.Done():
-							return
-						case <-time.After(retryDelay):
-						}
-						continue
-					}
-				}
-				h.gatewayService.RecordOpenAIAccountSwitch()
-				failedAccountIDs[account.ID] = struct{}{}
-				lastFailoverErr = failoverErr
-				if switchCount >= maxAccountSwitches {
-					h.handleFailoverExhausted(c, failoverErr, false)
+				switch failoverState.HandleFailoverError(requestCtx, nil, account.ID, account.Platform, effectiveSameAccountRetryLimit(failoverErr, account), failoverErr) {
+				case FailoverCanceled:
+					return
+				case FailoverExhausted:
+					h.handleFailoverExhausted(c, failoverErr, streamStarted)
 					return
 				}
-				switchCount++
-				if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, switchCount, &oauth429FailoverState) {
+				if h.gatewayService.ShouldStopOpenAIOAuth429Failover(account, failoverErr.StatusCode, failoverState.SwitchCount, &oauth429FailoverState) {
 					h.handleFailoverExhausted(c, failoverErr, false)
 					return
 				}
 				reqLog.Warn("grok_media.upstream_failover_switching",
 					zap.Int64("account_id", account.ID),
 					zap.Int("upstream_status", failoverErr.StatusCode),
-					zap.Int("switch_count", switchCount),
-					zap.Int("max_switches", maxAccountSwitches),
+					zap.Int("switch_count", failoverState.SwitchCount),
+					zap.Int("max_switches", failoverState.MaxSwitches),
 				)
 				continue
 			}
@@ -500,7 +475,7 @@ func (h *OpenAIGatewayHandler) handleGrokMedia(c *gin.Context, endpoint service.
 		}
 		reqLog.Debug("grok_media.request_completed",
 			zap.Int64("account_id", account.ID),
-			zap.Int("switch_count", switchCount),
+			zap.Int("switch_count", failoverState.SwitchCount),
 		)
 		return
 	}

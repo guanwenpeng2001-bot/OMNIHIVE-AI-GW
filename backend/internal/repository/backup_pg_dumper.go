@@ -7,23 +7,26 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/shirou/gopsutil/v4/disk"
 )
 
 // PgDumper implements service.DBDumper using pg_dump/psql
 type PgDumper struct {
-	cfg            *config.DatabaseConfig
-	db             *sql.DB
-	commandContext func(context.Context, string, ...string) *exec.Cmd
+	cfg              *config.DatabaseConfig
+	db               *sql.DB
+	commandContext   func(context.Context, string, ...string) *exec.Cmd
+	restoreDiskUsage func(context.Context, string) (*disk.UsageStat, error)
 }
 
 // NewPgDumper creates a new PgDumper
-func NewPgDumper(cfg *config.Config, db *sql.DB) service.DBDumper {
+func NewPgDumper(cfg *config.Config, db *sql.DB) *PgDumper {
 	return &PgDumper{
 		cfg:            &cfg.Database,
 		db:             db,
@@ -105,17 +108,61 @@ func discardSQLConnection(conn *sql.Conn) {
 	_ = conn.Close()
 }
 
-// Restore executes psql to restore from a streaming reader
+// Restore validates the entire input before psql can commit any changes.
 func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	// A gzip/S3 reader can fail after yielding valid SQL. Piping it directly to
+	// psql turns that failure into EOF, which may commit an incomplete restore.
+	// Stage the complete SQL privately (CreateTemp uses 0600) before execution.
+	script, err := os.CreateTemp("", "sub2api-restore-*.sql")
+	if err != nil {
+		return fmt.Errorf("create restore script: %w", err)
+	}
+	defer func() {
+		_ = script.Close()
+		_ = os.Remove(script.Name())
+	}()
+	usage := d.restoreDiskUsage
+	if usage == nil {
+		usage = disk.UsageWithContext
+	}
+	writer := &restoreScriptWriter{ctx: ctx, file: script, usage: usage}
+	// Hide Reader.WriteTo so every chunk is bounded and capacity is rechecked
+	// throughout decompression, even when the final SQL size is unknown.
+	if _, err := io.CopyBuffer(writer, struct{ io.Reader }{data}, make([]byte, 1024*1024)); err != nil {
+		return fmt.Errorf("read complete restore script: %w", err)
+	}
+	if err := script.Sync(); err != nil {
+		return fmt.Errorf("sync restore script: %w", err)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := script.Seek(0, io.SeekStart); err != nil {
+		return fmt.Errorf("rewind restore script: %w", err)
+	}
 	args := []string{
 		"-h", d.cfg.Host,
 		"-p", fmt.Sprintf("%d", d.cfg.Port),
 		"-U", d.cfg.User,
 		"-d", d.cfg.DBName,
 		"--single-transaction",
+		"--no-psqlrc",
+		"--no-password",
+		"--set", "ON_ERROR_STOP=on",
+		"--file", "-",
 	}
 
-	cmd := exec.CommandContext(ctx, "psql", args...)
+	// --single-transaction requires -c or -f; explicitly read the dump from
+	// stdin as a script and fail on SQL errors so a rollback cannot look like
+	// a successful restore. Ignore local psqlrc files for deterministic behavior.
+	commandContext := d.commandContext
+	if commandContext == nil {
+		commandContext = exec.CommandContext
+	}
+	cmd := commandContext(ctx, "psql", args...)
 	if d.cfg.Password != "" {
 		cmd.Env = append(cmd.Environ(), "PGPASSWORD="+d.cfg.Password)
 	}
@@ -123,13 +170,37 @@ func (d *PgDumper) Restore(ctx context.Context, data io.Reader) error {
 		cmd.Env = append(cmd.Environ(), "PGSSLMODE="+d.cfg.SSLMode)
 	}
 
-	cmd.Stdin = data
+	cmd.Stdin = script
 
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("%v: %s", err, string(output))
 	}
 	return nil
+}
+
+// Keep a small reserve for other processes sharing the temporary filesystem.
+// This is a best-effort check; actual write errors must still abort staging.
+const restoreDiskReserveBytes = 16 * 1024 * 1024
+
+type restoreScriptWriter struct {
+	ctx   context.Context
+	file  *os.File
+	usage func(context.Context, string) (*disk.UsageStat, error)
+}
+
+func (w *restoreScriptWriter) Write(p []byte) (int, error) {
+	if err := w.ctx.Err(); err != nil {
+		return 0, err
+	}
+	usage, err := w.usage(w.ctx, filepath.Dir(w.file.Name()))
+	if err != nil {
+		return 0, fmt.Errorf("check restore disk space: %w", err)
+	}
+	if usage.Free < uint64(len(p))+restoreDiskReserveBytes {
+		return 0, fmt.Errorf("insufficient disk space for restore script")
+	}
+	return w.file.Write(p)
 }
 
 // cmdReadCloser wraps a command stdout pipe and waits for the process on Close

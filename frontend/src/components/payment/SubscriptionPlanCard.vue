@@ -121,8 +121,8 @@ import {
   platformIconClass,
   platformButtonClass,
   platformDiscountClass,
-  platformLabel,
 } from '@/utils/platformColors'
+import { getPlatformLabel } from '@/constants/platforms'
 
 const props = defineProps<{ plan: SubscriptionPlan; activeSubscriptions?: UserSubscription[] }>()
 const emit = defineEmits<{ select: [plan: SubscriptionPlan] }>()
@@ -141,7 +141,7 @@ const textClass = computed(() => platformTextClass(platform.value))
 const iconClass = computed(() => platformIconClass(platform.value))
 const btnClass = computed(() => platformButtonClass(platform.value))
 const discountClass = computed(() => platformDiscountClass(platform.value))
-const pLabel = computed(() => platformLabel(platform.value))
+const pLabel = computed(() => getPlatformLabel(platform.value, t))
 
 const discountText = computed(() => {
   if (!props.plan.original_price || props.plan.original_price <= 0) return ''

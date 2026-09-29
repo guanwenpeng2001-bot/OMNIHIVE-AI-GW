@@ -9,6 +9,8 @@ import (
 	"flag"
 	"log"
 	"net/http"
+	// #nosec G108 -- pprof exposure is opt-in via SUB2API_PPROF and bound to 127.0.0.1:6060 only.
+	_ "net/http/pprof"
 	"os"
 	"os/signal"
 	"strings"
@@ -104,9 +106,15 @@ func runSetupServer() {
 	// Register setup routes
 	setup.RegisterRoutes(r)
 
-	// Serve embedded frontend if available
+	// Serve embedded frontend if available. The setup wizard is unusable without
+	// a panel, so an unusable asset tree must stop startup with a clear record
+	// instead of panicking or running a wizard nobody can open.
 	if web.HasEmbeddedFrontend() {
-		r.Use(web.ServeEmbeddedFrontend())
+		serveFrontend, err := web.ServeEmbeddedFrontend()
+		if err != nil {
+			log.Fatalf("embedded frontend assets are unusable: %v", err)
+		}
+		r.Use(serveFrontend)
 	}
 
 	// Get server address from config.yaml or environment variables (SERVER_HOST, SERVER_PORT)
@@ -184,6 +192,16 @@ func runMainServer() {
 			log.Fatalf("Failed to start server: %v", err)
 		}
 	}()
+
+	// SUB2API_PPROF=1 时在 127.0.0.1:6060 暴露 pprof（仅本机，排障用）。
+	if os.Getenv("SUB2API_PPROF") == "1" {
+		go func() {
+			log.Printf("pprof listening on 127.0.0.1:6060")
+			if err := http.ListenAndServe("127.0.0.1:6060", nil); err != nil {
+				log.Printf("pprof server exited: %v", err)
+			}
+		}()
+	}
 
 	log.Printf("Server started on %s", app.Server.Addr)
 

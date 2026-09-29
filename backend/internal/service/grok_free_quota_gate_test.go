@@ -34,6 +34,22 @@ func (r *grokFreeQuotaAccountRepoStub) ListSchedulableByPlatform(context.Context
 	return append([]Account(nil), r.accounts...), nil
 }
 
+// GetByIDs 支持一轮选号的候选批次载入（复核路径不再逐个候选单查）。
+func (r *grokFreeQuotaAccountRepoStub) GetByIDs(_ context.Context, ids []int64) ([]*Account, error) {
+	wanted := make(map[int64]struct{}, len(ids))
+	for _, id := range ids {
+		wanted[id] = struct{}{}
+	}
+	result := make([]*Account, 0, len(ids))
+	for index := range r.accounts {
+		if _, ok := wanted[r.accounts[index].ID]; !ok {
+			continue
+		}
+		result = append(result, &r.accounts[index])
+	}
+	return result, nil
+}
+
 func (r *grokFreeQuotaUsageRepoStub) GetAccountWindowStatsBatch(_ context.Context, accountIDs []int64, start time.Time) (map[int64]*usagestats.AccountStats, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()

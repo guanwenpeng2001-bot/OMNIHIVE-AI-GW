@@ -1,0 +1,26 @@
+{
+  "baseline": {
+    "identity_revision": "2",
+    "rules_revision": "9007199254740993",
+    "snapshot_revision": "0"
+  },
+  "complete": false,
+  "discovered_count": 0,
+  "effective_snapshot": null,
+  "eligible_count": 0,
+  "excluded_count": 0,
+  "last_attempt_at": null,
+  "last_error": null,
+  "last_success_at": null,
+  "observed_at": null,
+  "snapshot": null,
+  "snapshot_revision": null,
+  "staleness": "unknown",
+  "state": {
+    "identity_revision": "2",
+    "legacy_policy_revision": 0,
+    "rules_revision": "9007199254740993"
+  },
+  "synced": false,
+  "warnings": []
+}

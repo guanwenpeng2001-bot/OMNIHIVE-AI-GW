@@ -628,6 +628,22 @@ describe("admin SettingsView email domain quota copy", () => {
 });
 
 describe("admin SettingsView payment visible method controls", () => {
+  it("associates the active settings panel with keyboard-selected tabs", async () => {
+    const wrapper = mountView();
+    document.body.appendChild(wrapper.element);
+    await flushPromises();
+    const tabs = wrapper.findAll('[role="tab"]');
+    const panel = wrapper.get('[role="tabpanel"]');
+    expect(tabs.every(tab => tab.attributes('aria-controls') === panel.attributes('id'))).toBe(true);
+    expect(panel.attributes('aria-labelledby')).toBe('settings-tab-general');
+    await wrapper.get('#settings-tab-general').trigger('keydown', { key: 'End' });
+    await new Promise(resolve => requestAnimationFrame(resolve));
+    expect(panel.attributes('aria-labelledby')).toBe('settings-tab-backup');
+    expect(document.activeElement).toBe(wrapper.get('#settings-tab-backup').element);
+    expect(wrapper.findAll('[role="tab"][tabindex="0"]')).toHaveLength(1);
+    wrapper.unmount();
+  });
+
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();

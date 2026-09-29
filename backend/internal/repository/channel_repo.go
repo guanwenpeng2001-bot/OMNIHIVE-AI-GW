@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
@@ -46,9 +47,9 @@ func (r *channelRepository) Create(ctx context.Context, channel *service.Channel
 			return err
 		}
 		err = tx.QueryRowContext(ctx,
-			`INSERT INTO channels (name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+			`INSERT INTO channels (name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, workspace_id) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
 			 RETURNING id, created_at, updated_at`,
-			channel.Name, channel.Description, channel.Status, modelMappingJSON, channel.BillingModelSource, channel.RestrictModels, channel.Features, featuresConfigJSON, channel.ApplyPricingToAccountStats,
+			channel.Name, channel.Description, channel.Status, modelMappingJSON, channel.BillingModelSource, channel.RestrictModels, channel.Features, featuresConfigJSON, channel.ApplyPricingToAccountStats, domain.ResourceWorkspaceID(ctx),
 		).Scan(&channel.ID, &channel.CreatedAt, &channel.UpdatedAt)
 		if err != nil {
 			if isUniqueViolation(err) {
@@ -87,7 +88,7 @@ func (r *channelRepository) GetByID(ctx context.Context, id int64) (*service.Cha
 	var modelMappingJSON, featuresConfigJSON []byte
 	err := r.db.QueryRowContext(ctx,
 		`SELECT id, name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, created_at, updated_at
-		 FROM channels WHERE id = $1`, id,
+		 FROM channels WHERE id = $1 AND `+workspacePredicate(ctx, "workspace_id"), id,
 	).Scan(&ch.ID, &ch.Name, &ch.Description, &ch.Status, &modelMappingJSON, &ch.BillingModelSource, &ch.RestrictModels, &ch.Features, &featuresConfigJSON, &ch.ApplyPricingToAccountStats, &ch.CreatedAt, &ch.UpdatedAt)
 	if err == sql.ErrNoRows {
 		return nil, service.ErrChannelNotFound
@@ -130,8 +131,8 @@ func (r *channelRepository) Update(ctx context.Context, channel *service.Channel
 			return err
 		}
 		result, err := tx.ExecContext(ctx,
-			`UPDATE channels SET name = $1, description = $2, status = $3, model_mapping = $4, billing_model_source = $5, restrict_models = $6, features = $7, features_config = $8, apply_pricing_to_account_stats = $9, updated_at = NOW()
-			 WHERE id = $10`,
+			`UPDATE channels SET name = $1, description = $2, status = $3, model_mapping = $4, billing_model_source = $5, restrict_models = $6, features = $7, features_config = $8::jsonb || CASE WHEN features_config ? 'model_plaza_confirmation' THEN jsonb_build_object('model_plaza_confirmation', features_config->'model_plaza_confirmation') ELSE '{}'::jsonb END, apply_pricing_to_account_stats = $9, updated_at = NOW()
+			 WHERE id = $10 AND `+workspacePredicate(ctx, "workspace_id"),
 			channel.Name, channel.Description, channel.Status, modelMappingJSON, channel.BillingModelSource, channel.RestrictModels, channel.Features, featuresConfigJSON, channel.ApplyPricingToAccountStats, channel.ID,
 		)
 		if err != nil {
@@ -171,7 +172,7 @@ func (r *channelRepository) Update(ctx context.Context, channel *service.Channel
 }
 
 func (r *channelRepository) Delete(ctx context.Context, id int64) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM channels WHERE id = $1`, id)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM channels WHERE id = $1 AND `+workspacePredicate(ctx, "workspace_id"), id)
 	if err != nil {
 		return fmt.Errorf("delete channel: %w", err)
 	}
@@ -183,7 +184,7 @@ func (r *channelRepository) Delete(ctx context.Context, id int64) error {
 }
 
 func (r *channelRepository) List(ctx context.Context, params pagination.PaginationParams, status, search string) ([]service.Channel, *pagination.PaginationResult, error) {
-	where := []string{"1=1"}
+	where := []string{workspacePredicate(ctx, "c.workspace_id")}
 	args := []any{}
 	argIdx := 1
 
@@ -308,7 +309,7 @@ func channelListOrderBy(params pagination.PaginationParams) string {
 
 func (r *channelRepository) ListAll(ctx context.Context) ([]service.Channel, error) {
 	rows, err := r.db.QueryContext(ctx,
-		`SELECT id, name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, created_at, updated_at FROM channels ORDER BY id`,
+		`SELECT id, name, description, status, model_mapping, billing_model_source, restrict_models, features, features_config, apply_pricing_to_account_stats, created_at, updated_at FROM channels WHERE `+workspacePredicate(ctx, "workspace_id")+` ORDER BY id`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("query all channels: %w", err)
@@ -394,7 +395,7 @@ func (r *channelRepository) batchLoadGroupIDs(ctx context.Context, channelIDs []
 func (r *channelRepository) ExistsByName(ctx context.Context, name string) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM channels WHERE name = $1)`, name,
+		`SELECT EXISTS(SELECT 1 FROM channels WHERE name = $1 AND `+workspacePredicate(ctx, "workspace_id")+`)`, name,
 	).Scan(&exists)
 	return exists, err
 }
@@ -402,7 +403,7 @@ func (r *channelRepository) ExistsByName(ctx context.Context, name string) (bool
 func (r *channelRepository) ExistsByNameExcluding(ctx context.Context, name string, excludeID int64) (bool, error) {
 	var exists bool
 	err := r.db.QueryRowContext(ctx,
-		`SELECT EXISTS(SELECT 1 FROM channels WHERE name = $1 AND id != $2)`, name, excludeID,
+		`SELECT EXISTS(SELECT 1 FROM channels WHERE name = $1 AND id != $2 AND `+workspacePredicate(ctx, "workspace_id")+`)`, name, excludeID,
 	).Scan(&exists)
 	return exists, err
 }

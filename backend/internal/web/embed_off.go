@@ -5,7 +5,6 @@ package web
 
 import (
 	"context"
-	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -22,7 +21,7 @@ type FrontendServer struct{}
 
 // NewFrontendServer returns an error when frontend is not embedded
 func NewFrontendServer(settingsProvider PublicSettingsProvider) (*FrontendServer, error) {
-	return nil, errors.New("frontend not embedded")
+	return nil, errFrontendNotEmbedded
 }
 
 // InvalidateCache is a no-op for non-embed builds
@@ -36,11 +35,11 @@ func (s *FrontendServer) Middleware() gin.HandlerFunc {
 	}
 }
 
-func ServeEmbeddedFrontend() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.String(http.StatusNotFound, "Frontend not embedded. Build with -tags embed to include frontend.")
-		c.Abort()
-	}
+// ServeEmbeddedFrontend reports that this build carries no panel assets. It
+// returns an error instead of installing a handler that would answer every
+// panel route with a 404 while looking healthy.
+func ServeEmbeddedFrontend() (gin.HandlerFunc, error) {
+	return nil, errFrontendNotEmbedded
 }
 
 func HasEmbeddedFrontend() bool {

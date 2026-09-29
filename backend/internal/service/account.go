@@ -15,18 +15,20 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai_compat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 )
 
 type Account struct {
+	TPMLimit                int64
+	WorkspaceID             int64
 	ID                      int64
 	Name                    string
 	Notes                   *string
 	Platform                string
 	Type                    string
 	Credentials             map[string]any
+	CredentialRevision      string
 	Extra                   map[string]any
 	ProxyID                 *int64
 	ProxyFallbackOriginID   *int64
@@ -66,6 +68,10 @@ type Account struct {
 	GroupIDs      []int64
 	Groups        []*Group
 
+	// Request-local credential owner evidence, never persisted or serialized.
+	modelCatalogCredentialAccount *Account
+	modelCatalogReadEvidence      *catalogReadEvidence
+
 	// model_mapping 热路径缓存（非持久化字段）
 	modelMappingCache               map[string]string
 	modelMappingCacheReady          bool
@@ -82,6 +88,18 @@ type Account struct {
 	headerOverrideCacheRawPtr         uintptr
 	headerOverrideCacheRawLen         int
 	headerOverrideCacheRawSig         uint64
+
+	// 上游模型目录/元数据快照热路径缓存（非持久化字段，签名验证防脏读）。
+	// 仅缓存 map[string]any 形态（仓库从 JSONB 解码的读路径）；
+	// 写路径（refresh 发布）为整体赋值，会替换 map 使签名失效。
+	catalogMemoReady    bool
+	catalogMemoPtr      uintptr
+	catalogMemoKeysSig  uint64
+	catalogMemoValue    *AccountModelCatalogSnapshot // 解码后、populate 前的快照；nil=无有效目录
+	metadataMemoReady   bool
+	metadataMemoPtr     uintptr
+	metadataMemoKeysSig uint64
+	metadataMemoValue   *UpstreamModelMetadataSnapshot // nil=无快照
 }
 
 type OpenAIEndpointCapability string
@@ -104,6 +122,11 @@ const (
 	// credentials["openai_capabilities"] 配置集。仅用于生图意图的 /v1/responses
 	// 调度，避免把请求调度到会在 forward 阶段被降级为 Chat Completions 的账号（#4417）。
 	OpenAIEndpointCapabilityResponses OpenAIEndpointCapability = "responses"
+	// OpenAIEndpointCapabilityGenerateContent keeps Google-protocol generation off
+	// accounts whose hosted plan publishes no Google-shaped route: OpenCode Go has
+	// no such column while Zen does, so the scheduler must skip a Go-plan account
+	// instead of selecting it and failing after the request was claimed.
+	OpenAIEndpointCapabilityGenerateContent OpenAIEndpointCapability = "generate_content"
 )
 
 const openAIEndpointCapabilitiesCredentialKey = "openai_capabilities"
@@ -261,7 +284,7 @@ func (a *Account) IsPrivacySet() bool {
 }
 
 func (a *Account) IsGemini() bool {
-	return a.Platform == PlatformGemini
+	return a.MatchesPlatform(PlatformGemini, "")
 }
 
 func (a *Account) IsGrok() bool {
@@ -298,7 +321,7 @@ func (a *Account) IsCNProvider() bool {
 // openai/grok 原生走 OpenAI 网关；国产供应商同为 OpenAI Chat Completions
 // 兼容上游，也经 OpenAI 网关转发。OpenCode 同样经 OpenAI 网关按模型分流。
 func (a *Account) IsOpenAICompatible() bool {
-	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode())
+	return a != nil && (a.Platform == PlatformOpenAI || a.Platform == PlatformGrok || a.IsCNProvider() || a.IsOpenCodeGo() || a.IsCommandCode() || IsChatOnlyPlatform(a.Platform))
 }
 
 func (a *Account) GeminiOAuthType() string {
@@ -636,7 +659,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 	}
 	if len(rawMapping) == 0 {
 		if a.IsGeminiGoogleOne() {
-			return geminicli.GoogleOneModelMapping()
+			return GoogleOneModelMapping()
 		}
 		// Antigravity 平台使用默认映射
 		if a.Platform == domain.PlatformAntigravity {
@@ -683,7 +706,7 @@ func (a *Account) resolveModelMapping(rawMapping map[string]any) map[string]stri
 
 	// Antigravity 平台使用默认映射
 	if a.IsGeminiGoogleOne() {
-		return geminicli.GoogleOneModelMapping()
+		return GoogleOneModelMapping()
 	}
 	if a.Platform == domain.PlatformAntigravity {
 		return domain.DefaultAntigravityModelMapping
@@ -699,6 +722,30 @@ func mapPtr(m map[string]any) uintptr {
 		return 0
 	}
 	return reflect.ValueOf(m).Pointer()
+}
+
+// extraValueIdentity 返回 Extra 值的廉价身份签名：map[string]any 形态用指针 +
+// 顶层键 FNV（仓库从 JSONB 解码的读路径）；其他形态 ok=false，调用方回退直接解码。
+// 写路径（refresh 发布）对 Extra[key] 是整体赋值，会替换 map 使指针/签名失效。
+func extraValueIdentity(raw any) (ptr uintptr, keysSig uint64, ok bool) {
+	m, isMap := raw.(map[string]any)
+	if !isMap {
+		return 0, 0, false
+	}
+	if len(m) == 0 {
+		return mapPtr(m), 0, true
+	}
+	keys := make([]string, 0, len(m))
+	for k := range m {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	h := fnv.New64a()
+	for _, k := range keys {
+		_, _ = h.Write([]byte(k))
+		_, _ = h.Write([]byte{0})
+	}
+	return mapPtr(m), h.Sum64(), true
 }
 
 func modelMappingSignature(rawMapping map[string]any) uint64 {
@@ -1280,7 +1327,20 @@ func (a *Account) IsInterceptWarmupEnabled() bool {
 }
 
 func (a *Account) IsBedrock() bool {
-	return a.Platform == PlatformAnthropic && a.Type == AccountTypeBedrock
+	return a != nil && domain.MatchesPlatformIdentity(a.Platform, a.Type, PlatformAnthropic, AccountTypeBedrock)
+}
+
+// UsesBedrockCatalog retains the full Bedrock/Converse adapter when the legacy
+// standalone hosting identity is migrated to an Anthropic account type.
+func (a *Account) UsesBedrockCatalog() bool {
+	if !a.IsBedrock() {
+		return false
+	}
+	return a.Platform == PlatformBedrock || a.Extra["hosted_bedrock_runtime"] == "converse"
+}
+
+func (a *Account) MatchesPlatform(platform, accountType string) bool {
+	return a != nil && domain.MatchesPlatformIdentity(a.Platform, a.Type, platform, accountType)
 }
 
 func (a *Account) IsBedrockAPIKey() bool {
@@ -1353,7 +1413,7 @@ func (a *Account) IsOpenAIApiKey() bool {
 // 适用 openai、国产 OpenAI 兼容供应商（kimi/zhipu/deepseek）与 OpenCode Go；
 // grok 走 GetGrokBaseURL，此处对 grok 返回 "" 以保持原有行为。
 func (a *Account) GetOpenAIBaseURL() string {
-	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() {
+	if !a.IsOpenAI() && !a.IsCNProvider() && !a.IsOpenCodeGo() && !a.IsCommandCode() && !IsChatOnlyPlatform(a.Platform) {
 		return ""
 	}
 	if a.IsMultiProtocolAPIKey() && a.IsAdaptiveAPIProtocol() {
@@ -1369,6 +1429,10 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 	}
 	// 平台默认 base_url：CN 供应商按 account_mode 选择 payg / coding 默认值。
+	// 后期平台（hunyuan / volcengine / qianfan）同样按模式取默认值：套餐（Coding Plan /
+	// Token Plan）的 Base URL 与按量付费不同，且厂商要求专属 API Key（腾讯云 1823/130092、
+	// 火山方舟 Coding Plan 个人版快速开始、千帆 Token Plan 个人版文档，2026-09-23 抓取）。
+	// 未设模式时保持原有按量付费默认值；上面已优先返回凭据里的显式 base_url，用户填了就用他的。
 	switch a.Platform {
 	case PlatformKimi:
 		if a.GetAccountMode() == AccountModeCoding {
@@ -1386,6 +1450,23 @@ func (a *Account) GetOpenAIBaseURL() string {
 		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
+	case PlatformQianfan:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultQianfanCodingBaseURL
+		}
+		return qianfanDefaultBaseURL
+	case PlatformHunyuan:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultHunyuanCodingBaseURL
+		}
+		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
+	case PlatformVolcengine:
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultVolcengineCodingBaseURL
+		}
+		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
 	case PlatformOpenCodeGo:
@@ -1516,6 +1597,16 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			return DefaultQianwenAnthropicBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxAnthropicBaseURL
+		case PlatformHunyuan:
+			// TokenHub serves the Anthropic Messages path on the same
+			// version-suffixed site as the OpenAI paths (1823/130078); the trunk
+			// appends the protocol path with the version-aware builder. Coding Plan
+			// accounts use Tencent's plan-specific Anthropic path instead (1823/130092,
+			// captured 2026-09-23).
+			if a.GetAccountMode() == AccountModeCoding {
+				return DefaultHunyuanCodingAnthropicBaseURL
+			}
+			return hunyuanCompatibilityBaseURL
 		case PlatformCommandCode:
 			return DefaultCommandCodeBaseURL
 		case PlatformOpenCodeGo:
@@ -1583,6 +1674,19 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 		return DefaultQianwenAnthropicBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
+	case PlatformQianfan:
+		return qianfanDefaultBaseURL
+	case PlatformHunyuan:
+		// 套餐（Coding Plan）账号的 Anthropic 兼容路径与按量付费的 TokenHub 站点不同；
+		// 上游路径由 nativeAnthropicTargetURL 版本感知拼接为 {base}/v1/messages。
+		if a.GetAccountMode() == AccountModeCoding {
+			return DefaultHunyuanCodingAnthropicBaseURL
+		}
+		return hunyuanCompatibilityBaseURL
+	case PlatformMistral:
+		return mistralDefaultBaseURL
+	case PlatformVolcengine:
+		return volcengineRuntimeBaseURL
 	case PlatformCommandCode:
 		return DefaultCommandCodeBaseURL
 	case PlatformOpenCodeGo:
@@ -1790,7 +1894,7 @@ func (a *Account) GetOpenAIProtocolAPIKey() string {
 	if a == nil {
 		return ""
 	}
-	if a.IsMultiProtocolAPIKey() {
+	if a.IsMultiProtocolAPIKey() || IsChatOnlyPlatform(a.Platform) {
 		if a.Type != AccountTypeAPIKey {
 			return ""
 		}
@@ -1865,6 +1969,18 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 	if !a.IsOpenAICompatible() {
 		return false
 	}
+	if IsChatOnlyPlatform(a.Platform) {
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
+		// Chat-only is a platform classification, not a permanent capability
+		// denial: an action whose adapter the platform action matrix has bound is
+		// executable by this API-key account, so the scheduler must not veto it.
+		// The OpenAI-shaped chat trunk stays available because every chat-only
+		// entry is defined by it.
+		action := openAIEndpointCapabilityAction(capability)
+		return action == "" || domain.PlatformAction(domain.ActionIdentity{Platform: a.Platform, HostedAccountType: a.Type}, action).Status == domain.ActionImplemented
+	}
 	if a.IsGrok() {
 		switch capability {
 		case OpenAIEndpointCapabilityChatCompletions:
@@ -1910,6 +2026,19 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		if a.Type != AccountTypeAPIKey {
 			return false
 		}
+	case OpenAIEndpointCapabilityGenerateContent:
+		// Only OpenCode publishes a Google-protocol column, and its Go plan
+		// publishes none: the Zen/Pay-as-you-go column is the only account mode
+		// that can serve {base}/models/{model}:generateContent.
+		if !a.IsOpenCodeGo() {
+			return false
+		}
+		if a.IsOpenCodeGoPlan() {
+			return false
+		}
+		if a.Type != AccountTypeAPIKey {
+			return false
+		}
 	default:
 		return false
 	}
@@ -1922,6 +2051,29 @@ func (a *Account) SupportsOpenAIEndpointCapability(capability OpenAIEndpointCapa
 		return true
 	}
 	return configured[string(capability)]
+}
+
+// openAIEndpointCapabilityAction maps a scheduler capability to the gateway
+// action that decides it. Capabilities that are not platform×action cells (the
+// Grok media family) return "" and keep the per-platform switch in
+// SupportsOpenAIEndpointCapability.
+func openAIEndpointCapabilityAction(capability OpenAIEndpointCapability) string {
+	switch capability {
+	case OpenAIEndpointCapabilityChatCompletions:
+		return "chat"
+	case OpenAIEndpointCapabilityEmbeddings:
+		return "embeddings"
+	case OpenAIEndpointCapabilityAlphaSearch:
+		return "alpha_search"
+	case OpenAIEndpointCapabilityLive:
+		return "live"
+	case OpenAIEndpointCapabilityResponses:
+		return "responses"
+	case OpenAIEndpointCapabilityGenerateContent:
+		return "generate_content"
+	default:
+		return ""
+	}
 }
 
 // GrokMediaGenerationEligibility reports whether a Grok account may receive

@@ -4,8 +4,13 @@ package admin
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
+	"github.com/DATA-DOG/go-sqlmock"
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -47,6 +52,10 @@ func (s *grokRefreshAdminService) UpdateAccount(_ context.Context, id int64, inp
 	}, nil
 }
 
+func (s *grokRefreshAdminService) GetAccount(_ context.Context, id int64) (*service.Account, error) {
+	return &service.Account{ID: id, Platform: service.PlatformGrok, Type: service.AccountTypeOAuth, Credentials: s.updatedCredentials}, nil
+}
+
 func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 	t.Parallel()
 
@@ -73,9 +82,10 @@ func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 		nil,
 	)
 	account := &service.Account{
-		ID:       4227,
-		Platform: service.PlatformGrok,
-		Type:     service.AccountTypeOAuth,
+		ID:             4227,
+		QuotaDimension: "global",
+		Platform:       service.PlatformGrok,
+		Type:           service.AccountTypeOAuth,
 		Credentials: map[string]any{
 			"access_token":       "old-access",
 			"refresh_token":      "old-refresh",
@@ -84,6 +94,16 @@ func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 			"entitlement_status": "ACTIVE",
 		},
 	}
+	database, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, database)))
+	handler.SetCredentialDraftService(service.NewAuthPendingIdentityService(client))
+	encoded, err := json.Marshal(account.Credentials)
+	require.NoError(t, err)
+	mock.ExpectBegin()
+	mock.ExpectQuery(`SELECT .* FROM "accounts" .* FOR UPDATE`).WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "credentials", "extra", "quota_dimension"}).AddRow(account.ID, account.Platform, account.Type, encoded, []byte(`{}`), "global"))
+	mock.ExpectCommit()
 
 	updated, warning, err := handler.refreshSingleAccount(context.Background(), account)
 	require.NoError(t, err)
@@ -96,4 +116,5 @@ func TestRefreshSingleAccountRoutesGrokThroughGrokOAuthService(t *testing.T) {
 	require.Equal(t, "SUPER_GROK", adminSvc.updatedCredentials["subscription_tier"])
 	require.Equal(t, "ACTIVE", adminSvc.updatedCredentials["entitlement_status"])
 	require.Equal(t, adminSvc.updatedCredentials, updated.Credentials)
+	require.NoError(t, mock.ExpectationsWereMet())
 }

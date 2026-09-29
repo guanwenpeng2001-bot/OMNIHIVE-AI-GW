@@ -71,6 +71,8 @@
 </template>
 
 <script lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 // Shared across remounts; setup-local maps are recreated for every account row.
 const commandCodeLastProbeAt = new Map<number, number>()
 </script>
@@ -170,20 +172,7 @@ onMounted(() => {
   handleProbe()
 })
 
-const extractErrorMessage = (e: unknown): string => {
-  const err = e as {
-    message?: string
-    reason?: string
-    response?: { data?: { message?: string; error?: string } }
-  }
-  return (
-    err?.message ||
-    err?.reason ||
-    err?.response?.data?.message ||
-    err?.response?.data?.error ||
-    t('common.error')
-  )
-}
+const extractErrorMessage = (error: unknown): string => extractApiErrorMessage(error, t('common.error'))
 
 const truncatedError = computed(() => {
   if (!error.value) return ''

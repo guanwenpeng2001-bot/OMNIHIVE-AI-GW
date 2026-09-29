@@ -35,6 +35,8 @@
   </section>
 </template>
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { syncQianwenPricing, type QianwenPricingResponse } from '@/api/admin/qianwenPricing'
@@ -66,7 +68,7 @@ async function sync(apply: boolean) {
     if (result.result.status === 'ready') previewSignature.value = signature.value
   } catch (err: unknown) {
     const detail = err as { message?: string; response?: { data?: { message?: string } } }
-    error.value = `${t('admin.accounts.qianwenPricing.failed')}: ${detail.response?.data?.message || detail.message || ''}`
+    error.value = `${t('admin.accounts.qianwenPricing.failed')}: ${extractApiErrorMessage(detail, '') || ''}`
   } finally { busy.value = false }
 }
 </script>

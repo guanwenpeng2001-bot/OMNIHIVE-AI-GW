@@ -167,7 +167,7 @@
             :class="activeTab === section.platform ? 'channel-tab-active' : 'channel-tab-inactive'"
           >
             <PlatformIcon :platform="section.platform" size="xs" :class="platformTextClass(section.platform)" />
-            <span :class="platformTextClass(section.platform)">{{ t('admin.groups.platforms.' + section.platform, section.platform) }}</span>
+            <span :class="platformTextClass(section.platform)">{{ getPlatformLabel(section.platform, t) }}</span>
           </button>
         </div>
 
@@ -247,7 +247,7 @@
                     @change="togglePlatform(p)"
                   />
                   <PlatformIcon :platform="p" size="xs" :class="platformTextClass(p)" />
-                  <span :class="platformTextClass(p)">{{ t('admin.groups.platforms.' + p, p) }}</span>
+                  <span :class="platformTextClass(p)">{{ getPlatformLabel(p, t) }}</span>
                 </label>
               </div>
             </div>
@@ -431,7 +431,7 @@
                   >
                     {{ syncingPlatform === section.platform ? t('admin.channels.form.syncingModels') : t('admin.channels.form.syncLatestModels') }}
                   </button>
-                  <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.newPlatforms.pricingUnsupported') }}</span>
+                  <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.platformDetails.pricingUnsupported') }}</span>
                   <button type="button" @click="addPricingEntry(sIdx)" class="text-xs text-primary-600 hover:text-primary-700">
                     + {{ t('common.add', 'Add') }}
                   </button>
@@ -453,7 +453,11 @@
                   enable-tier-multipliers
                   @update="updatePricingEntry(sIdx, idx, $event)"
                   @remove="removePricingEntry(sIdx, idx)"
-                />
+                >
+                  <template #insights>
+                    <ChannelPricingInsights :entry="entry" :platform="section.platform" :group-ids="section.group_ids" />
+                  </template>
+                </PricingEntryCard>
               </div>
             </div>
 
@@ -589,6 +593,9 @@
               </div>
             </div>
           </div>
+          <template v-if="editingChannel">
+            <ModelPlazaConfirmation v-for="groupID in editingChannel.group_ids" :key="`${editingChannel.id}:${groupID}`" :channel-id="editingChannel.id" :group-id="groupID" :group-name="getGroupNameById(groupID)" />
+          </template>
         </form>
       </div>
 
@@ -629,7 +636,10 @@
 </template>
 
 <script setup lang="ts">
-import { CONCRETE_PLATFORM_OPTIONS, platformSupportsPricingSync } from '@/constants/platforms'
+import type { ChannelStatus, BillingModelSource } from '@/constants/channel'
+import ModelPlazaConfirmation from '@/components/modelPlaza/ModelPlazaConfirmation.vue'
+import ChannelPricingInsights from '@/components/admin/channel/ChannelPricingInsights.vue'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsPricingSync } from '@/constants/platforms'
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -637,7 +647,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { adminAPI } from '@/api/admin'
 import type { Channel, ChannelModelPricing, CreateChannelRequest, UpdateChannelRequest, AccountStatsPricingRule } from '@/api/admin/channels'
 import type { PricingFormEntry } from '@/components/admin/channel/types'
-import { apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
+import { copyPricingFacts, apiIntervalsToForm, apiTimePricingToForm, createDefaultTimePricingForm, findModelConflict, formIntervalsToAPI, formTimePricingToAPI, isValidPositiveMultiplier, mTokToPerToken, perTokenToMTok, validateIntervals, validateTimePricing } from '@/components/admin/channel/types'
 import type { AdminGroup, GroupPlatform } from '@/types'
 import type { Column } from '@/components/common/types'
 import { platformTextClass, platformBadgeLightClass } from '@/utils/platformColors'
@@ -726,7 +736,7 @@ const billingModelSourceOptions = computed(() => [
 const channels = ref<Channel[]>([])
 const loading = ref(false)
 const searchQuery = ref('')
-const filters = reactive({ status: '' })
+const filters = reactive<{ status: ChannelStatus | '' }>({ status: '' })
 const pagination = reactive({
   page: 1,
   page_size: getPersistedPageSize(),
@@ -756,9 +766,9 @@ const allChannelsForConflict = ref<Channel[]>([])
 const form = reactive({
   name: '',
   description: '',
-  status: 'active',
+  status: 'active' as ChannelStatus,
   restrict_models: false,
-  billing_model_source: 'channel_mapped' as string,
+  billing_model_source: 'channel_mapped' as BillingModelSource,
   platforms: [] as PlatformSection[],
   apply_pricing_to_account_stats: false,
 })
@@ -1084,6 +1094,7 @@ function accountStatsRulesToAPI(): AccountStatsPricingRule[] {
         pricing: rule.pricing
           .filter(p => p.models.length > 0)
           .map(p => ({
+            ...copyPricingFacts(p),
             platform: section.platform,
             models: p.models,
             billing_mode: p.billing_mode,
@@ -1127,6 +1138,7 @@ function formToAPI(): { group_ids: number[], model_pricing: ChannelModelPricing[
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) continue
       model_pricing.push({
+        ...copyPricingFacts(entry),
         platform: section.platform,
         models: entry.models,
         billing_mode: entry.billing_mode,
@@ -1231,6 +1243,7 @@ function apiToForm(channel: Channel): PlatformSection[] {
     const pricing = (channel.model_pricing || [])
       .filter(p => (p.platform || 'anthropic') === platform)
       .map(p => ({
+            ...copyPricingFacts(p),
         models: p.models || [],
         billing_mode: p.billing_mode,
         input_price: perTokenToMTok(p.input_price),
@@ -1425,6 +1438,7 @@ function distributeRulesToPlatforms(apiRules: AccountStatsPricingRule[]) {
       group_ids: [...(apiRule.group_ids || [])],
       account_ids: [...(apiRule.account_ids || [])],
       pricing: (apiRule.pricing || []).map(p => ({
+            ...copyPricingFacts(p),
         models: [...(p.models || [])],
         billing_mode: p.billing_mode,
         input_price: perTokenToMTok(p.input_price),
@@ -1485,14 +1499,14 @@ async function handleSubmit() {
   // Check for pricing entries with empty models (would be silently skipped)
   for (const section of form.platforms.filter(s => s.enabled)) {
     if (section.group_ids.length === 0) {
-      const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+      const platformLabel = getPlatformLabel(section.platform, t)
       appStore.showError(t('admin.channels.noGroupsSelected', { platform: platformLabel }))
       activeTab.value = section.platform
       return
     }
     for (const entry of section.model_pricing) {
       if (entry.models.length === 0) {
-        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const platformLabel = getPlatformLabel(section.platform, t)
         appStore.showError(t('admin.channels.emptyModelsInPricing', { platform: platformLabel }))
         activeTab.value = section.platform
         return
@@ -1503,11 +1517,12 @@ async function handleSubmit() {
   // Check model pattern conflicts per platform (duplicate / wildcard overlap)
   for (const section of form.platforms.filter(s => s.enabled)) {
     // Collect all pricing models for this platform
-    const allModels: string[] = []
+    const modelsByMode = new Map<string, string[]>()
     for (const entry of section.model_pricing) {
-      allModels.push(...entry.models)
+      const mode = entry.billing_mode || 'token'
+      modelsByMode.set(mode, [...(modelsByMode.get(mode) || []), ...entry.models])
     }
-    const pricingConflict = findModelConflict(allModels)
+    const pricingConflict = [...modelsByMode.values()].map(findModelConflict).find(Boolean)
     if (pricingConflict) {
       appStore.showError(
         t('admin.channels.modelConflict',
@@ -1550,7 +1565,7 @@ async function handleSubmit() {
       if (!isValidPositiveMultiplier(entry.fast_multiplier) ||
           !isValidPositiveMultiplier(entry.flex_multiplier) ||
           !isValidPositiveMultiplier(entry.max_reasoning_effort_multiplier)) {
-        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const platformLabel = getPlatformLabel(section.platform, t)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
         appStore.showError(`${platformLabel} - ${modelLabel}: ${t('admin.channels.form.multiplierPositive')}`)
         activeTab.value = section.platform
@@ -1559,7 +1574,7 @@ async function handleSubmit() {
       if (!entry.intervals || entry.intervals.length === 0) continue
       const intervalErr = validateIntervals(entry.intervals, entry.billing_mode, t)
       if (intervalErr) {
-        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const platformLabel = getPlatformLabel(section.platform, t)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
         appStore.showError(`${platformLabel} - ${modelLabel}: ${intervalErr}`)
         activeTab.value = section.platform
@@ -1573,7 +1588,7 @@ async function handleSubmit() {
     for (const entry of section.model_pricing) {
       const timePricingError = validateTimePricing(entry.time_pricing, t)
       if (timePricingError) {
-        const platformLabel = t('admin.groups.platforms.' + section.platform, section.platform)
+        const platformLabel = getPlatformLabel(section.platform, t)
         const modelLabel = entry.models.join(', ') || t('admin.channels.form.unnamed')
         appStore.showError(`${platformLabel} - ${modelLabel}: ${timePricingError}`)
         activeTab.value = section.platform

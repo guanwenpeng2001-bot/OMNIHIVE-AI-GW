@@ -72,116 +72,11 @@ func (h *UsageHandler) List(c *gin.Context) {
 		exactTotal = parsed
 	}
 
-	// Parse filters
-	var userID, apiKeyID, accountID, groupID int64
-	if userIDStr := c.Query("user_id"); userIDStr != "" {
-		id, err := strconv.ParseInt(userIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid user_id")
-			return
-		}
-		userID = id
-	}
-
-	if apiKeyIDStr := c.Query("api_key_id"); apiKeyIDStr != "" {
-		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid api_key_id")
-			return
-		}
-		apiKeyID = id
-	}
-
-	if accountIDStr := c.Query("account_id"); accountIDStr != "" {
-		id, err := strconv.ParseInt(accountIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid account_id")
-			return
-		}
-		accountID = id
-	}
-
-	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
-		id, err := strconv.ParseInt(groupIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid group_id")
-			return
-		}
-		groupID = id
-	}
-
-	model := c.Query("model")
-	requestID := strings.TrimSpace(c.Query("request_id"))
-	billingMode := strings.TrimSpace(c.Query("billing_mode"))
-
-	var requestType *int16
-	var stream *bool
-	if requestTypeStr := strings.TrimSpace(c.Query("request_type")); requestTypeStr != "" {
-		parsed, err := service.ParseUsageRequestType(requestTypeStr)
-		if err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-		value := int16(parsed)
-		requestType = &value
-	} else if streamStr := c.Query("stream"); streamStr != "" {
-		val, err := strconv.ParseBool(streamStr)
-		if err != nil {
-			response.BadRequest(c, "Invalid stream value, use true or false")
-			return
-		}
-		stream = &val
-	}
-
-	nativeCompactionV2, err := parseOptionalBoolDashboardFilter(c, "native_compaction_v2")
-	if err != nil {
-		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
+	filters, ok := parseAdminUsageFilters(c)
+	if !ok {
 		return
 	}
-
-	var billingType *int8
-	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
-		val, err := strconv.ParseInt(billingTypeStr, 10, 8)
-		if err != nil {
-			response.BadRequest(c, "Invalid billing_type")
-			return
-		}
-		bt := int8(val)
-		billingType = &bt
-	}
-
-	var upstreamModelMismatch *bool
-	if raw := strings.TrimSpace(c.Query("upstream_model_mismatch")); raw != "" {
-		value, err := strconv.ParseBool(raw)
-		if err != nil {
-			response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
-			return
-		}
-		upstreamModelMismatch = &value
-	}
-
-	// Parse date range
-	var startTime, endTime *time.Time
-	userTZ := c.Query("timezone") // Get user's timezone from request
-	if startDateStr := c.Query("start_date"); startDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
-		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
-			return
-		}
-		startTime = &t
-	}
-
-	if endDateStr := c.Query("end_date"); endDateStr != "" {
-		t, err := timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
-		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
-			return
-		}
-		// Use half-open range [start, end), move to next calendar day start (DST-safe).
-		t = t.AddDate(0, 0, 1)
-		endTime = &t
-	}
+	filters.ExactTotal = exactTotal
 
 	params := pagination.PaginationParams{
 		Page:      page,
@@ -189,25 +84,6 @@ func (h *UsageHandler) List(c *gin.Context) {
 		SortBy:    c.DefaultQuery("sort_by", "created_at"),
 		SortOrder: c.DefaultQuery("sort_order", "desc"),
 	}
-	filters := usagestats.UsageLogFilters{
-		UserID:                userID,
-		APIKeyID:              apiKeyID,
-		AccountID:             accountID,
-		GroupID:               groupID,
-		RequestID:             requestID,
-		Model:                 model,
-		ModelFilterSource:     usagestats.ModelSourceRequested,
-		RequestType:           requestType,
-		Stream:                stream,
-		NativeCompactionV2:    nativeCompactionV2,
-		BillingType:           billingType,
-		BillingMode:           billingMode,
-		UpstreamModelMismatch: upstreamModelMismatch,
-		StartTime:             startTime,
-		EndTime:               endTime,
-		ExactTotal:            exactTotal,
-	}
-
 	records, result, err := h.usageService.ListWithFilters(c.Request.Context(), params, filters)
 	if err != nil {
 		response.ErrorFrom(c, err)
@@ -225,117 +101,18 @@ func (h *UsageHandler) List(c *gin.Context) {
 // GET /api/v1/admin/usage/stats
 func (h *UsageHandler) Stats(c *gin.Context) {
 	// Parse filters - same as List endpoint
-	var userID, apiKeyID, accountID, groupID int64
-	if userIDStr := c.Query("user_id"); userIDStr != "" {
-		id, err := strconv.ParseInt(userIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid user_id")
-			return
-		}
-		userID = id
-	}
-
-	if apiKeyIDStr := c.Query("api_key_id"); apiKeyIDStr != "" {
-		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid api_key_id")
-			return
-		}
-		apiKeyID = id
-	}
-
-	if accountIDStr := c.Query("account_id"); accountIDStr != "" {
-		id, err := strconv.ParseInt(accountIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid account_id")
-			return
-		}
-		accountID = id
-	}
-
-	if groupIDStr := c.Query("group_id"); groupIDStr != "" {
-		id, err := strconv.ParseInt(groupIDStr, 10, 64)
-		if err != nil {
-			response.BadRequest(c, "Invalid group_id")
-			return
-		}
-		groupID = id
-	}
-
-	model := c.Query("model")
-	billingMode := strings.TrimSpace(c.Query("billing_mode"))
-
-	var requestType *int16
-	var stream *bool
-	if requestTypeStr := strings.TrimSpace(c.Query("request_type")); requestTypeStr != "" {
-		parsed, err := service.ParseUsageRequestType(requestTypeStr)
-		if err != nil {
-			response.BadRequest(c, err.Error())
-			return
-		}
-		value := int16(parsed)
-		requestType = &value
-	} else if streamStr := c.Query("stream"); streamStr != "" {
-		val, err := strconv.ParseBool(streamStr)
-		if err != nil {
-			response.BadRequest(c, "Invalid stream value, use true or false")
-			return
-		}
-		stream = &val
-	}
-
-	nativeCompactionV2, err := parseOptionalBoolDashboardFilter(c, "native_compaction_v2")
-	if err != nil {
-		response.BadRequest(c, "Invalid native_compaction_v2 value, use true or false")
+	filters, ok := parseAdminUsageFilters(c)
+	if !ok {
 		return
 	}
 
-	var billingType *int8
-	if billingTypeStr := c.Query("billing_type"); billingTypeStr != "" {
-		val, err := strconv.ParseInt(billingTypeStr, 10, 8)
-		if err != nil {
-			response.BadRequest(c, "Invalid billing_type")
-			return
-		}
-		bt := int8(val)
-		billingType = &bt
-	}
-
-	var upstreamModelMismatch *bool
-	if raw := strings.TrimSpace(c.Query("upstream_model_mismatch")); raw != "" {
-		value, err := strconv.ParseBool(raw)
-		if err != nil {
-			response.BadRequest(c, "Invalid upstream_model_mismatch value, use true or false")
-			return
-		}
-		upstreamModelMismatch = &value
-	}
-
-	// Parse date range
-	userTZ := c.Query("timezone")
-	now := timezone.NowInUserLocation(userTZ)
-	var startTime, endTime time.Time
-
-	startDateStr := c.Query("start_date")
-	endDateStr := c.Query("end_date")
-
-	if startDateStr != "" && endDateStr != "" {
-		var err error
-		startTime, err = timezone.ParseInUserLocation("2006-01-02", startDateStr, userTZ)
-		if err != nil {
-			response.BadRequest(c, "Invalid start_date format, use YYYY-MM-DD")
-			return
-		}
-		endTime, err = timezone.ParseInUserLocation("2006-01-02", endDateStr, userTZ)
-		if err != nil {
-			response.BadRequest(c, "Invalid end_date format, use YYYY-MM-DD")
-			return
-		}
-		// 与 SQL 条件 created_at < end 对齐，使用次日 00:00 作为上边界（DST-safe）。
-		endTime = endTime.AddDate(0, 0, 1)
-	} else {
-		period := c.DefaultQuery("period", "today")
-		switch period {
+	// A range is required for the totals; fall back to the period selector only
+	// when the caller did not pass a complete date range.
+	if c.Query("start_date") == "" || c.Query("end_date") == "" {
+		userTZ := c.Query("timezone")
+		now := timezone.NowInUserLocation(userTZ)
+		var startTime time.Time
+		switch c.DefaultQuery("period", "today") {
 		case "today":
 			startTime = timezone.StartOfDayInUserLocation(now, userTZ)
 		case "week":
@@ -345,25 +122,8 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		default:
 			startTime = timezone.StartOfDayInUserLocation(now, userTZ)
 		}
-		endTime = now
-	}
-
-	// Build filters and call GetStatsWithFilters
-	filters := usagestats.UsageLogFilters{
-		UserID:                userID,
-		APIKeyID:              apiKeyID,
-		AccountID:             accountID,
-		GroupID:               groupID,
-		Model:                 model,
-		ModelFilterSource:     usagestats.ModelSourceRequested,
-		RequestType:           requestType,
-		Stream:                stream,
-		NativeCompactionV2:    nativeCompactionV2,
-		BillingType:           billingType,
-		BillingMode:           billingMode,
-		UpstreamModelMismatch: upstreamModelMismatch,
-		StartTime:             &startTime,
-		EndTime:               &endTime,
+		filters.StartTime = &startTime
+		filters.EndTime = &now
 	}
 
 	var stats *usagestats.UsageStats

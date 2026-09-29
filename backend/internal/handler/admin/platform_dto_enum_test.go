@@ -16,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
@@ -42,7 +43,7 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 		}
 		return true
 	})
-	migration, err := os.ReadFile("../../../migrations/244_channel_monitor_minimax_opencode.sql")
+	migration, err := os.ReadFile("../../../migrations/264_platform_monitor_storage.sql")
 	require.NoError(t, err)
 	match := regexp.MustCompile(`provider IN \(([^)]+)\)`).FindStringSubmatch(string(migration))
 	require.Len(t, match, 2)
@@ -50,13 +51,13 @@ func TestAllPlatformDTOEnumsMatchAuthorities(t *testing.T) {
 	for _, value := range strings.Split(match[1], ",") {
 		monitors = append(monitors, strings.Trim(strings.TrimSpace(value), "'"))
 	}
-	require.Len(t, concrete, 13)
+	require.ElementsMatch(t, domain.ConcretePlatforms(), concrete)
 	// Storage preserves historical Cursor rows, but V1 monitor DTOs must not
 	// grant permission to create/edit them or enable unsupported active probes.
 	require.ElementsMatch(t, concrete, monitors, "monitor storage must retain every concrete platform")
 	var writableMonitors []string
 	for _, provider := range monitors {
-		if provider != "cursor" {
+		if descriptor, ok := domain.LookupPlatform(provider); ok && (descriptor.ActiveProbe || descriptor.QuotaMonitor) {
 			writableMonitors = append(writableMonitors, provider)
 		}
 	}

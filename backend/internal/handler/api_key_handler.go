@@ -44,6 +44,16 @@ type CreateAPIKeyRequest struct {
 	RateLimit5h *float64 `json:"rate_limit_5h"`
 	RateLimit1d *float64 `json:"rate_limit_1d"`
 	RateLimit7d *float64 `json:"rate_limit_7d"`
+
+	// Period budget (USD): one explicit period, separate from RPM/TPM and from
+	// the legacy USD windows above. LegacyBudgetAnchor keeps 5h/1d/7d compatible.
+	LegacyBudgetAnchor    string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      string  `json:"budget_period_mode"`
+	BudgetLimit           float64 `json:"budget_limit"`
+	BudgetDurationSeconds int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          string  `json:"budget_anchor"`
+	BudgetCalendarUnit    string  `json:"budget_calendar_unit"`
+	BudgetTimezone        string  `json:"budget_timezone"`
 }
 
 // UpdateAPIKeyRequest represents the update API key request payload
@@ -61,7 +71,18 @@ type UpdateAPIKeyRequest struct {
 	RateLimit5h         *float64 `json:"rate_limit_5h"`
 	RateLimit1d         *float64 `json:"rate_limit_1d"`
 	RateLimit7d         *float64 `json:"rate_limit_7d"`
-	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 重置限速用量
+	ResetRateLimitUsage *bool    `json:"reset_rate_limit_usage"` // 面板自助重置被拒绝；管理员用审计化调整
+
+	// Period budget (nil = no change). ClearBudget removes a self-set budget; an
+	// enforced platform budget cannot be changed or cleared from the panel.
+	LegacyBudgetAnchor    *string  `json:"legacy_budget_anchor"`
+	BudgetPeriodMode      *string  `json:"budget_period_mode"`
+	BudgetLimit           *float64 `json:"budget_limit"`
+	BudgetDurationSeconds *int64   `json:"budget_duration_seconds"`
+	BudgetAnchor          *string  `json:"budget_anchor"`
+	BudgetCalendarUnit    *string  `json:"budget_calendar_unit"`
+	BudgetTimezone        *string  `json:"budget_timezone"`
+	ClearBudget           *bool    `json:"clear_budget"`
 }
 
 func validAPIKeyLimit(v float64) bool { return !math.IsNaN(v) && !math.IsInf(v, 0) && v >= 0 }
@@ -82,6 +103,9 @@ func validateAPIKeyCreateRequest(req CreateAPIKeyRequest) error {
 	if req.ExpiresInDays != nil && *req.ExpiresInDays <= 0 {
 		return errors.New("invalid expires_in_days")
 	}
+	if !validAPIKeyLimit(req.BudgetLimit) {
+		return errors.New("invalid budget_limit")
+	}
 	return nil
 }
 
@@ -97,6 +121,9 @@ func validateAPIKeyUpdateRequest(req UpdateAPIKeyRequest) error {
 	}
 	if req.RateLimit7d != nil && !validAPIKeyLimit(*req.RateLimit7d) {
 		return errors.New("invalid rate_limit_7d")
+	}
+	if req.BudgetLimit != nil && !validAPIKeyLimit(*req.BudgetLimit) {
+		return errors.New("invalid budget_limit")
 	}
 	return nil
 }
@@ -140,11 +167,36 @@ func (h *APIKeyHandler) List(c *gin.Context) {
 		return
 	}
 
-	out := make([]dto.APIKey, 0, len(keys))
+	// 列表同样给出有效 RPM：按分组去重解析，避免逐 Key 重复查组与覆盖。
+	out := make([]apiKeyListEntry, 0, len(keys))
+	effectiveByGroup := make(map[int64]*service.APIKeyEffectiveRPM, len(keys))
 	for i := range keys {
-		out = append(out, *dto.APIKeyFromService(&keys[i]))
+		entry := apiKeyListEntry{APIKey: *dto.APIKeyFromService(&keys[i])}
+		groupID := int64(0)
+		if keys[i].GroupID != nil {
+			groupID = *keys[i].GroupID
+		}
+		effective, cached := effectiveByGroup[groupID]
+		if !cached {
+			effective = h.apiKeyService.EffectiveRPM(c.Request.Context(), &keys[i])
+			effectiveByGroup[groupID] = effective
+		}
+		entry.EffectiveRPM = effective
+		out = append(out, entry)
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
+}
+
+// apiKeyListEntry / apiKeyDetailResponse 保持既有字段原形，仅追加有效 RPM 说明。
+// 用户可见的限额只来自用户/组维度，绝不包含上游账号额度。
+type apiKeyListEntry struct {
+	dto.APIKey
+	EffectiveRPM *service.APIKeyEffectiveRPM `json:"effective_rpm,omitempty"`
+}
+
+type apiKeyDetailResponse struct {
+	dto.APIKey
+	EffectiveRPM *service.APIKeyEffectiveRPM `json:"effective_rpm,omitempty"`
 }
 
 // GetByID handles getting a single API key
@@ -174,7 +226,12 @@ func (h *APIKeyHandler) GetByID(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, dto.APIKeyFromService(key))
+	// 有效 RPM 与 Key 详情同源返回：用户可见的来源/限值/重置时间只由
+	// 用户与组维度决定，不含任何上游账号额度。
+	response.Success(c, apiKeyDetailResponse{
+		APIKey:       *dto.APIKeyFromService(key),
+		EffectiveRPM: h.apiKeyService.EffectiveRPM(c.Request.Context(), key),
+	})
 }
 
 // Create handles creating a new API key
@@ -216,13 +273,20 @@ func (h *APIKeyHandler) Create(c *gin.Context) {
 	if req.RateLimit7d != nil {
 		svcReq.RateLimit7d = *req.RateLimit7d
 	}
+	svcReq.LegacyBudgetAnchor = req.LegacyBudgetAnchor
+	svcReq.BudgetPeriodMode = req.BudgetPeriodMode
+	svcReq.BudgetLimit = req.BudgetLimit
+	svcReq.BudgetDurationSeconds = req.BudgetDurationSeconds
+	svcReq.BudgetAnchor = req.BudgetAnchor
+	svcReq.BudgetCalendarUnit = req.BudgetCalendarUnit
+	svcReq.BudgetTimezone = req.BudgetTimezone
 
 	executeUserIdempotentJSON(c, "user.api_keys.create", req, service.DefaultWriteIdempotencyTTL(), func(ctx context.Context) (any, error) {
 		key, err := h.apiKeyService.Create(ctx, subject.UserID, svcReq)
 		if err != nil {
 			return nil, err
 		}
-		return dto.APIKeyFromService(key), nil
+		return dto.APIKeyCredentialIssue{APIKey: dto.APIKeyFromService(key), Secret: key.Key}, nil
 	})
 }
 
@@ -252,14 +316,22 @@ func (h *APIKeyHandler) Update(c *gin.Context) {
 	}
 
 	svcReq := service.UpdateAPIKeyRequest{
-		IPWhitelist:         req.IPWhitelist,
-		IPBlacklist:         req.IPBlacklist,
-		Quota:               req.Quota,
-		ResetQuota:          req.ResetQuota,
-		RateLimit5h:         req.RateLimit5h,
-		RateLimit1d:         req.RateLimit1d,
-		RateLimit7d:         req.RateLimit7d,
-		ResetRateLimitUsage: req.ResetRateLimitUsage,
+		IPWhitelist:           req.IPWhitelist,
+		IPBlacklist:           req.IPBlacklist,
+		Quota:                 req.Quota,
+		ResetQuota:            req.ResetQuota,
+		RateLimit5h:           req.RateLimit5h,
+		RateLimit1d:           req.RateLimit1d,
+		RateLimit7d:           req.RateLimit7d,
+		ResetRateLimitUsage:   req.ResetRateLimitUsage,
+		LegacyBudgetAnchor:    req.LegacyBudgetAnchor,
+		BudgetPeriodMode:      req.BudgetPeriodMode,
+		BudgetLimit:           req.BudgetLimit,
+		BudgetDurationSeconds: req.BudgetDurationSeconds,
+		BudgetAnchor:          req.BudgetAnchor,
+		BudgetCalendarUnit:    req.BudgetCalendarUnit,
+		BudgetTimezone:        req.BudgetTimezone,
+		ClearBudget:           req.ClearBudget,
 	}
 	if req.Name != "" {
 		svcReq.Name = &req.Name
@@ -355,4 +427,100 @@ func (h *APIKeyHandler) GetUserGroupRates(c *gin.Context) {
 	}
 
 	response.Success(c, rates)
+}
+
+// RotateAPIKeyCredentialRequest controls a credential rotation.
+type RotateAPIKeyCredentialRequest struct {
+	// GraceTTLHours overrides the dual-read window for the previous secret. Zero
+	// uses the configured default (24h).
+	GraceTTLHours *int `json:"grace_ttl_hours"`
+	// RevokePrevious makes the previous secret stop working immediately instead of
+	// staying valid through the grace window.
+	RevokePrevious *bool `json:"revoke_previous"`
+}
+
+// RotateCredential rotates an existing key's secret in place, keeping its identity.
+// POST /api/v1/api-keys/:id/credentials/rotate
+func (h *APIKeyHandler) RotateCredential(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	var req RotateAPIKeyCredentialRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+	if req.GraceTTLHours != nil && *req.GraceTTLHours < 0 {
+		response.BadRequest(c, "Invalid request: grace_ttl_hours must be non-negative")
+		return
+	}
+
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID {
+		response.NotFound(c, "API key not found")
+		return
+	}
+
+	var graceTTL time.Duration
+	if req.GraceTTLHours != nil {
+		graceTTL = time.Duration(*req.GraceTTLHours) * time.Hour
+	}
+	revokePrevious := req.RevokePrevious != nil && *req.RevokePrevious
+
+	issue, err := h.apiKeyService.RotateAPIKey(c.Request.Context(), keyID, graceTTL, revokePrevious, service.ConfigurationActor(c.Request.Context()))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, dto.APIKeyCredentialIssue{
+		APIKey:     dto.APIKeyFromService(issue.APIKey),
+		Secret:     issue.Secret,
+		GraceUntil: issue.GraceUntil,
+	})
+}
+
+// RevokeCredential immediately revokes a key's graceful (previous) credentials.
+// POST /api/v1/api-keys/:id/credentials/revoke
+func (h *APIKeyHandler) RevokeCredential(c *gin.Context) {
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+
+	keyID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid key ID")
+		return
+	}
+
+	key, err := h.apiKeyService.GetByID(c.Request.Context(), keyID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if key.UserID != subject.UserID {
+		response.NotFound(c, "API key not found")
+		return
+	}
+
+	revoked, err := h.apiKeyService.RevokeAPIKeyCredentials(c.Request.Context(), keyID, service.ConfigurationActor(c.Request.Context()))
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"revoked_credentials": revoked})
 }

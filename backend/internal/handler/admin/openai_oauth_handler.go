@@ -18,6 +18,7 @@ import (
 
 // OpenAIOAuthHandler handles OpenAI OAuth-related operations
 type OpenAIOAuthHandler struct {
+	credentialDraftHandler
 	openaiOAuthService *service.OpenAIOAuthService
 	adminService       service.AdminService
 	quotaService       openAIQuotaService
@@ -125,6 +126,12 @@ func (h *OpenAIOAuthHandler) GenerateAuthURL(c *gin.Context) {
 		return
 	}
 
+	reference, err := beginCredentialAuthorization(c, h.credentialDrafts, "openai:oauth", result.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	result.SessionID = reference
 	response.Success(c, result)
 }
 
@@ -146,6 +153,13 @@ func (h *OpenAIOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "openai:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.openaiOAuthService.ExchangeCode(c.Request.Context(), &service.OpenAIExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
@@ -158,7 +172,7 @@ func (h *OpenAIOAuthHandler) ExchangeCode(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformOpenAI, service.AccountTypeOAuth, h.openaiOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 // OpenAIRefreshTokenRequest represents the request for refreshing OpenAI token
@@ -170,21 +184,22 @@ type OpenAIRefreshTokenRequest struct {
 }
 
 type OpenAICodexPATCreateRequest struct {
-	AccessToken             string         `json:"access_token" binding:"required"`
-	Name                    string         `json:"name"`
-	Notes                   *string        `json:"notes"`
-	GroupIDs                []int64        `json:"group_ids"`
-	ProxyID                 *int64         `json:"proxy_id"`
-	Concurrency             *int           `json:"concurrency"`
-	Priority                *int           `json:"priority"`
-	RateMultiplier          *float64       `json:"rate_multiplier"`
-	LoadFactor              *int           `json:"load_factor"`
-	ExpiresAt               *int64         `json:"expires_at"`
-	AutoPauseOnExpired      *bool          `json:"auto_pause_on_expired"`
-	CredentialExtras        map[string]any `json:"credential_extras"`
-	Extra                   map[string]any `json:"extra"`
-	SkipDefaultGroupBind    *bool          `json:"skip_default_group_bind"`
-	ConfirmMixedChannelRisk *bool          `json:"confirm_mixed_channel_risk"`
+	TPMLimit                service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
+	AccessToken             string                   `json:"access_token" binding:"required"`
+	Name                    string                   `json:"name"`
+	Notes                   *string                  `json:"notes"`
+	GroupIDs                []int64                  `json:"group_ids"`
+	ProxyID                 *int64                   `json:"proxy_id"`
+	Concurrency             *int                     `json:"concurrency"`
+	Priority                *int                     `json:"priority"`
+	RateMultiplier          *float64                 `json:"rate_multiplier"`
+	LoadFactor              *int                     `json:"load_factor"`
+	ExpiresAt               *int64                   `json:"expires_at"`
+	AutoPauseOnExpired      *bool                    `json:"auto_pause_on_expired"`
+	CredentialExtras        map[string]any           `json:"credential_extras"`
+	Extra                   map[string]any           `json:"extra"`
+	SkipDefaultGroupBind    *bool                    `json:"skip_default_group_bind"`
+	ConfirmMixedChannelRisk *bool                    `json:"confirm_mixed_channel_risk"`
 }
 
 // RefreshToken refreshes an OpenAI OAuth token
@@ -225,7 +240,7 @@ func (h *OpenAIOAuthHandler) RefreshToken(c *gin.Context) {
 		return
 	}
 
-	response.Success(c, tokenInfo)
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformOpenAI, service.AccountTypeOAuth, h.openaiOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
 // RefreshAccountToken refreshes token for a specific OpenAI account
@@ -311,7 +326,13 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		return
 	}
 
-	// Exchange code for tokens
+	sessionID, err := consumeCredentialAuthorization(c, h.credentialDrafts, "openai:oauth", req.SessionID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	req.SessionID = sessionID
+
 	tokenInfo, err := h.openaiOAuthService.ExchangeCode(c.Request.Context(), &service.OpenAIExchangeCodeInput{
 		SessionID:   req.SessionID,
 		Code:        req.Code,
@@ -324,42 +345,9 @@ func (h *OpenAIOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 		return
 	}
 
-	// Build credentials from token info
-	credentials := h.openaiOAuthService.BuildAccountCredentials(tokenInfo)
-
-	platform := oauthPlatformFromPath(c)
-
-	// Use email as default name if not provided
-	name := req.Name
-	if name == "" && tokenInfo.Email != "" {
-		name = tokenInfo.Email
-	}
-	if name == "" {
-		name = "OpenAI OAuth Account"
-	}
-
-	// Create account
-	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name:        name,
-		Platform:    platform,
-		Type:        "oauth",
-		Credentials: credentials,
-		Extra:       nil,
-		ProxyID:     req.ProxyID,
-		Concurrency: req.Concurrency,
-		Priority:    req.Priority,
-		GroupIDs:    req.GroupIDs,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, dto.AccountFromService(account))
+	respondCredentialDraft(c, h.credentialDrafts, oauthPlatformFromPath(c), service.AccountTypeOAuth, h.openaiOAuthService.BuildAccountCredentials(tokenInfo))
 }
 
-// CreateAccountFromCodexPAT creates an OpenAI OAuth account from a Codex at-* personal access token.
-// POST /api/v1/admin/openai/create-from-codex-pat
 func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 	var req OpenAICodexPATCreateRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -409,65 +397,7 @@ func (h *OpenAIOAuthHandler) CreateAccountFromCodexPAT(c *gin.Context) {
 		h.openaiOAuthService.BuildAccountCredentials(tokenInfo),
 		sanitizeCodexImportCredentialExtras(req.CredentialExtras),
 	)
-	extra := mergeCodexImportMap(req.Extra, map[string]any{
-		"import_source":       "codex_personal_access_token",
-		"auth_provider":       "codex_personal_access_token",
-		"imported_at":         time.Now().UTC().Format(time.RFC3339),
-		"access_token_sha256": codexTokenFingerprint(req.AccessToken),
-	})
-
-	concurrency := 3
-	if req.Concurrency != nil {
-		concurrency = *req.Concurrency
-	}
-	priority := 50
-	if req.Priority != nil {
-		priority = *req.Priority
-	}
-	skipDefaultGroupBind := false
-	if req.SkipDefaultGroupBind != nil {
-		skipDefaultGroupBind = *req.SkipDefaultGroupBind
-	}
-
-	account, err := h.adminService.CreateAccount(c.Request.Context(), &service.CreateAccountInput{
-		Name:                  buildOpenAICodexPATAccountName(req.Name, tokenInfo),
-		Notes:                 req.Notes,
-		Platform:              service.PlatformOpenAI,
-		Type:                  service.AccountTypeOAuth,
-		Credentials:           credentials,
-		Extra:                 extra,
-		ProxyID:               req.ProxyID,
-		Concurrency:           concurrency,
-		Priority:              priority,
-		RateMultiplier:        req.RateMultiplier,
-		LoadFactor:            req.LoadFactor,
-		GroupIDs:              req.GroupIDs,
-		ExpiresAt:             req.ExpiresAt,
-		AutoPauseOnExpired:    req.AutoPauseOnExpired,
-		SkipDefaultGroupBind:  skipDefaultGroupBind,
-		SkipMixedChannelCheck: req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk,
-	})
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
-	response.Success(c, dto.AccountFromService(account))
-}
-
-func buildOpenAICodexPATAccountName(name string, tokenInfo *service.OpenAITokenInfo) string {
-	name = strings.TrimSpace(name)
-	if name != "" {
-		return name
-	}
-	if tokenInfo != nil {
-		for _, candidate := range []string{tokenInfo.Email, tokenInfo.ChatGPTAccountID, tokenInfo.ChatGPTUserID} {
-			if candidate = strings.TrimSpace(candidate); candidate != "" {
-				return candidate
-			}
-		}
-	}
-	return "Codex PAT Account"
+	respondCredentialDraft(c, h.credentialDrafts, service.PlatformOpenAI, service.AccountTypeOAuth, credentials)
 }
 
 // QueryQuota queries the rate-limit / quota usage for an OpenAI account.

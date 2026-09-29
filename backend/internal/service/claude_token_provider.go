@@ -99,14 +99,18 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 				}
 			}
 		} else {
+			if !tokenRequestBindingEqual(account, result.Account) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			account = result.Account
 			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
 	} else if needsRefresh && p.tokenCache != nil {
 		// Backward-compatible test path when refreshAPI is not injected.
-		locked, lockErr := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, 30*time.Second)
+		lockOwner := newRefreshLockOwner()
+		locked, lockErr := p.tokenCache.AcquireRefreshLock(ctx, cacheKey, lockOwner, 30*time.Second)
 		if lockErr == nil && locked {
-			defer func() { _ = p.tokenCache.ReleaseRefreshLock(ctx, cacheKey) }()
+			defer releaseRefreshLock(ctx, p.tokenCache, cacheKey, lockOwner)
 		} else if lockErr != nil {
 			slog.Warn("claude_token_lock_failed", "account_id", account.ID, "error", lockErr)
 		} else {
@@ -127,6 +131,9 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 	if p.tokenCache != nil {
 		latestAccount, isStale := CheckTokenVersion(ctx, account, p.accountRepo)
 		if isStale && latestAccount != nil {
+			if !tokenRequestBindingEqual(account, latestAccount) {
+				return "", ErrAccountRuntimeIdentityChanged
+			}
 			slog.Debug("claude_token_version_stale_use_latest", "account_id", account.ID)
 			accessToken = latestAccount.GetCredential("access_token")
 			if strings.TrimSpace(accessToken) == "" {
@@ -152,7 +159,7 @@ func (p *ClaudeTokenProvider) GetAccessToken(ctx context.Context, account *Accou
 					ttl = time.Minute
 				}
 			}
-			if err := p.tokenCache.SetAccessToken(ctx, cacheKey, accessToken, ttl); err != nil {
+			if err := p.tokenCache.SetAccessToken(ctx, ClaudeTokenCacheKey(account), accessToken, ttl); err != nil {
 				slog.Warn("claude_token_cache_set_failed", "account_id", account.ID, "error", err)
 			}
 		}

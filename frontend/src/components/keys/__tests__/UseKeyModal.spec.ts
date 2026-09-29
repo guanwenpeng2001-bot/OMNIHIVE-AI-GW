@@ -1,4 +1,3 @@
-import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
@@ -40,6 +39,29 @@ describe('UseKeyModal', () => {
   afterEach(() => {
     vi.unstubAllGlobals()
     saveAsMock.mockClear()
+  })
+
+  // T2-3.5：没有配置公开 API 地址时必须明确提示，而不是回退到控制台域名。
+  it('prompts when no public API address is configured and renders no client config', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-example', baseUrl: '', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    expect(wrapper.find('[data-testid="client-config-base-url-missing"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('keys.useKeyModal.baseUrlMissing')
+    expect(wrapper.findAll('pre')).toHaveLength(0)
+    wrapper.unmount()
+  })
+
+  it('shows the configured address and the generation-endpoint boundary', () => {
+    const wrapper = mount(UseKeyModal, {
+      props: { show: true, apiKey: 'sk-example', baseUrl: 'https://example.com/v1', platform: 'anthropic' },
+      global: { stubs: { BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true } }
+    })
+    expect(wrapper.find('[data-testid="client-config-base-url-missing"]').exists()).toBe(false)
+    expect(wrapper.findAll('pre').length).toBeGreaterThan(0)
+    expect(wrapper.get('[data-testid="generation-endpoint-hint"]').text()).toContain('keys.useKeyModal.generationEntryHint')
+    wrapper.unmount()
   })
 
   it('omits the attribution override from every standard Claude Code setup form', async () => {
@@ -233,8 +255,8 @@ describe('UseKeyModal', () => {
     expect(parsedSettings.env).not.toHaveProperty('CLAUDE_CODE_ATTRIBUTION_HEADER')
     expect(wrapper.text()).toContain('keys.useKeyModal.claudeSettingsHint')
     expect(wrapper.text()).toContain('keys.useKeyModal.grok.claudeNote')
-    expect(wrapper.find('nav[aria-label="Client"]').classes()).toContain('min-w-max')
-    expect(wrapper.find('nav[aria-label="Client"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true)
+    expect(wrapper.find('nav[aria-label="keys.useKeyModal.clientLabel"]').classes()).toContain('min-w-max')
+    expect(wrapper.find('nav[aria-label="keys.useKeyModal.clientLabel"]').element.parentElement?.classList.contains('overflow-x-auto')).toBe(true)
 
     const cmdTab = wrapper.findAll('button').find(
       (button) => button.text().trim() === 'Windows CMD'
@@ -793,9 +815,11 @@ describe('UseKeyModal', () => {
     const windowsConfig = wrapper.findAll('pre code')
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.sub2api]'))
-    expect(windowsConfig).toContain(
-      'model_catalog_json = "%userprofile%\\\\.codex\\\\codex-models.json"'
-    )
+    // Codex does not expand %userprofile% in config.toml; it only expands ~/.
+    expect(windowsConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
+    expect(windowsConfig).not.toContain('%userprofile%')
+    expect(wrapper.get('[data-testid="codex-model-catalog"]').text())
+      .toContain('%userprofile%\\.codex\\codex-models.json')
   })
 
   it.each(['anthropic', 'gemini', 'antigravity', 'kimi', 'zhipu', 'minimax'] as const)(
@@ -939,7 +963,18 @@ describe('UseKeyModal', () => {
       await tab.trigger('click')
       const config = JSON.parse(wrapper.get('pre code').text())
       expect(Object.keys(config.provider)).toEqual([platform])
-      expect(Object.keys(config.provider[platform].models)).toEqual(getModelsByPlatform(platform))
+      expect(Object.keys(config.provider[platform].models)).toEqual([])
+      const fetchModels = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ models: [{ slug: 'key-visible-model', display_name: 'Key visible model' }] }) })
+      vi.stubGlobal('fetch', fetchModels)
+      await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
+      await flushPromises()
+      expect(fetchModels).toHaveBeenCalledWith(expect.stringContaining('/v1/models?'), expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer sk-example' }) }))
+      const loadedConfig = JSON.parse(wrapper.get('pre code').text())
+      expect(Object.keys(loadedConfig.provider[platform].models)).toEqual(['key-visible-model'])
+      await wrapper.setProps({ apiKey: 'sk-other-key' })
+      expect(Object.keys(JSON.parse(wrapper.get('pre code').text()).provider[platform].models)).toEqual([])
+      vi.unstubAllGlobals()
+
       expect(config.provider[platform].options).toEqual({ baseURL: 'https://example.com/v1', apiKey: 'sk-example' })
       expect(config.provider[platform].npm).toBe('@ai-sdk/openai-compatible')
       wrapper.unmount()

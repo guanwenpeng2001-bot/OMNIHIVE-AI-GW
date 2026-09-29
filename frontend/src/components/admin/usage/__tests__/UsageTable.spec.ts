@@ -306,7 +306,7 @@ describe('admin UsageTable tooltip', () => {
     wrapper.unmount()
   })
 
-  it('uses eight decimal places for missing cost values', async () => {
+  it('distinguishes missing cost values from explicit zero', async () => {
     const wrapper = mount(UsageTable, {
       props: {
         data: [{ ...baseImageRow, billing_mode: 'per_request', image_count: 0, total_cost: undefined, actual_cost: undefined }],
@@ -318,7 +318,7 @@ describe('admin UsageTable tooltip', () => {
     const triggers = wrapper.findAll('.group.relative')
     await triggers[triggers.length - 1].trigger('mouseenter')
     const amounts = wrapper.get('.fixed').findAll('span').map(span => span.text()).filter(text => text.startsWith('$'))
-    expect(amounts).toEqual(['$0.00000000', '$0.00000000', '$0.00000000', '$0.00000000'])
+    expect(amounts).toEqual(['$-', '$-', '$-', '$-'])
     wrapper.unmount()
   })
 
@@ -852,5 +852,21 @@ describe('admin UsageTable deleted-user badge', () => {
 
     expect(wrapper.text()).not.toContain('Deleted')
     expect(wrapper.text()).toContain('active@test.com')
+  })
+})
+
+
+describe('ledger formatting across table and detail', () => {
+  it.each([0, 1e-8, -1e-8, 123.12345678])('keeps %s at eight decimals without formatting counts as currency', async amount => {
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ ...baseImageRow, billing_mode: 'per_request', image_count: 0, actual_cost: amount, total_cost: amount }], loading: false, columns: [] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain(`$${amount.toFixed(8)}`)
+    const triggers = wrapper.findAll('.group.relative')
+    await triggers[triggers.length - 1].trigger('mouseenter')
+    expect(wrapper.get('.fixed').text()).toContain(`$${amount.toFixed(8)}`)
+    expect(wrapper.text()).not.toContain('$2 images')
+    wrapper.unmount()
   })
 })

@@ -4,6 +4,8 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
+	TPMLimit    int64                    `json:"tpm_limit"`
+	WorkspaceID int64                    `json:"workspace_id"`
 	Version     int                      `json:"version"`
 	APIKeyID    int64                    `json:"api_key_id"`
 	UserID      int64                    `json:"user_id"`
@@ -22,10 +24,19 @@ type APIKeyAuthSnapshot struct {
 	// Expiration field for API Key expiration feature
 	ExpiresAt *time.Time `json:"expires_at,omitempty"` // Expiration time (nil = never expires)
 
+	// CredentialValidUntil bounds the lifetime of a cached entry when the presented
+	// secret is a graceful (rotated-away) credential.
+	CredentialValidUntil *time.Time `json:"credential_valid_until,omitempty"`
+
 	// Rate limit configuration (only limits, not usage - usage read from Redis at check time)
 	RateLimit5h float64 `json:"rate_limit_5h"`
 	RateLimit1d float64 `json:"rate_limit_1d"`
 	RateLimit7d float64 `json:"rate_limit_7d"`
+
+	// Period budget policy (opt-in). It is cached with the rest of the auth
+	// projection so the gateway can decide whether a request must reserve budget
+	// without an extra database round trip per request.
+	BudgetPolicy *APIKeyBudgetPolicy `json:"budget_policy,omitempty"`
 }
 
 // APIKeyAuthUserSnapshot 用户快照
@@ -57,6 +68,8 @@ type APIKeyAuthUserSnapshot struct {
 
 // APIKeyAuthGroupSnapshot 分组快照
 type APIKeyAuthGroupSnapshot struct {
+	TPMLimit                        int64                         `json:"tpm_limit"`
+	AccountType                     string                        `json:"account_type,omitempty"`
 	ID                              int64                         `json:"id"`
 	Name                            string                        `json:"name"`
 	Platform                        string                        `json:"platform"`

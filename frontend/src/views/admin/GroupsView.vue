@@ -1,479 +1,18 @@
 <template>
   <AppLayout>
-    <TablePageLayout>
-      <template #filters>
-        <div
-          class="flex flex-col justify-between gap-4 lg:flex-row lg:items-start"
-        >
-          <!-- Left: fuzzy search + filters (can wrap to multiple lines) -->
-          <div class="flex flex-1 flex-wrap items-center gap-3">
-            <div class="relative w-full sm:w-64">
-              <Icon
-                name="search"
-                size="md"
-                class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
-              />
-              <input
-                v-model="searchQuery"
-                type="text"
-                :placeholder="t('admin.groups.searchGroups')"
-                class="input pl-10"
-                @input="handleSearch"
-              />
-            </div>
-            <Select
-              v-model="filters.platform"
-              :options="platformFilterOptions"
-              :placeholder="t('admin.groups.allPlatforms')"
-              class="w-44"
-              @change="loadGroups"
-            />
-            <Select
-              v-model="filters.status"
-              :options="statusOptions"
-              :placeholder="t('admin.groups.allStatus')"
-              class="w-40"
-              @change="loadGroups"
-            />
-            <Select
-              v-if="!authStore.isSimpleMode"
-              v-model="filters.is_exclusive"
-              :options="exclusiveOptions"
-              :placeholder="t('admin.groups.allGroups')"
-              class="w-44"
-              @change="loadGroups"
-            />
-          </div>
-
-          <!-- Right: actions -->
-          <div
-            class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto"
-          >
-            <button
-              @click="loadGroups"
-              :disabled="loading"
-              class="btn btn-secondary"
-              :title="t('common.refresh')"
-            >
-              <Icon
-                name="refresh"
-                size="md"
-                :class="loading ? 'animate-spin' : ''"
-              />
-            </button>
-            <div class="relative" ref="columnDropdownRef">
-              <button
-                @click="showColumnDropdown = !showColumnDropdown"
-                class="btn btn-secondary"
-                :title="t('admin.groups.columnSettings')"
-              >
-                <Icon name="grid" size="md" class="mr-2" />
-                <span class="hidden md:inline">{{
-                  t("admin.groups.columnSettings")
-                }}</span>
-              </button>
-              <div
-                v-if="showColumnDropdown"
-                class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
-              >
-                <button
-                  v-for="col in toggleableColumns"
-                  :key="col.key"
-                  @click="toggleColumn(col.key)"
-                  class="flex w-full items-center justify-between px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-                >
-                  <span>{{ col.label }}</span>
-                  <Icon
-                    v-if="isColumnVisible(col.key)"
-                    name="check"
-                    size="sm"
-                    class="text-primary-500"
-                    :stroke-width="2"
-                  />
-                </button>
-              </div>
-            </div>
-            <button
-              v-if="!authStore.isSimpleMode"
-              @click="openSortModal"
-              class="btn btn-secondary"
-              :title="t('admin.groups.sortOrder')"
-            >
-              <Icon name="arrowsUpDown" size="md" class="mr-2" />
-              {{ t("admin.groups.sortOrder") }}
-            </button>
-            <button
-              @click="openCreateModal"
-              class="btn btn-primary"
-              data-tour="groups-create-btn"
-            >
-              <Icon name="plus" size="md" class="mr-2" />
-              {{ t("admin.groups.createGroup") }}
-            </button>
-          </div>
-        </div>
-      </template>
-
-      <template #table>
-        <DataTable
-          :columns="columns"
-          :data="groups"
-          :loading="loading"
-          :server-side-sort="true"
-          default-sort-key="sort_order"
-          default-sort-order="asc"
-          @sort="handleSort"
-        >
-          <template #cell-name="{ value }">
-            <span class="font-medium text-gray-900 dark:text-white">{{
-              value
-            }}</span>
-          </template>
-
-          <template #cell-id="{ value }">
-            <span class="font-mono text-xs text-gray-500 dark:text-gray-400"
-              >#{{ value }}</span
-            >
-          </template>
-
-          <template #cell-platform="{ value }">
-            <span
-              :class="[
-                'inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-xs font-medium',
-                value === 'anthropic'
-                  ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                  : value === 'openai'
-                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                    : value === 'antigravity'
-                      ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                      : value === 'grok'
-                        ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                        : value === 'kimi'
-                          ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-                          : value === 'zhipu'
-                            ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                            : value === 'deepseek'
-                              ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                              : value === 'minimax'
-                                ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-                              : value === 'opencode_go'
-                                ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                                : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-              ]"
-            >
-              <PlatformIcon :platform="value" size="xs" />
-              {{ t("admin.groups.platforms." + value) }}
-            </span>
-          </template>
-
-          <template #cell-billing_type="{ row }">
-            <div class="space-y-1">
-              <!-- Type Badge -->
-              <span
-                :class="[
-                  'inline-block rounded-full px-2 py-0.5 text-xs font-medium',
-                  row.subscription_type === 'subscription'
-                    ? 'bg-violet-100 text-violet-700 dark:bg-violet-900/30 dark:text-violet-400'
-                    : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300',
-                ]"
-              >
-                {{
-                  row.subscription_type === "subscription"
-                    ? t("admin.groups.subscription.subscription")
-                    : t("admin.groups.subscription.standard")
-                }}
-              </span>
-              <!-- Subscription Limits - compact single line -->
-              <div
-                v-if="row.subscription_type === 'subscription'"
-                class="space-y-0.5 text-xs text-gray-500 dark:text-gray-400"
-              >
-                <div
-                  v-if="
-                    row.daily_limit_usd ||
-                    row.weekly_limit_usd ||
-                    row.monthly_limit_usd
-                  "
-                  class="flex flex-wrap items-center gap-x-1 gap-y-0.5"
-                >
-                  <span v-if="row.daily_limit_usd" class="whitespace-nowrap">
-                    <span
-                      v-if="usageLoading"
-                      class="font-medium text-gray-400 dark:text-gray-500"
-                      >—</span
-                    >
-                    <span
-                      v-else
-                      :class="
-                        getQuotaUsageClass(
-                          usageMap.get(row.id)?.today_cost ?? 0,
-                          row.daily_limit_usd
-                        )
-                      "
-                      >{{
-                        formatUsd(usageMap.get(row.id)?.today_cost ?? 0)
-                      }}</span
-                    >
-                    <span class="text-gray-400 dark:text-gray-500">
-                      / {{ formatUsd(row.daily_limit_usd) }}/{{
-                        t("admin.groups.limitDay")
-                      }}</span
-                    >
-                  </span>
-                  <span
-                    v-if="
-                      row.daily_limit_usd &&
-                      (row.weekly_limit_usd || row.monthly_limit_usd)
-                    "
-                    class="mx-1 text-gray-300 dark:text-gray-600"
-                    >·</span
-                  >
-                  <span v-if="row.weekly_limit_usd" class="whitespace-nowrap"
-                    >{{ formatUsd(row.weekly_limit_usd) }}/{{
-                      t("admin.groups.limitWeek")
-                    }}</span
-                  >
-                  <span
-                    v-if="row.weekly_limit_usd && row.monthly_limit_usd"
-                    class="mx-1 text-gray-300 dark:text-gray-600"
-                    >·</span
-                  >
-                  <span v-if="row.monthly_limit_usd" class="whitespace-nowrap"
-                    >{{ formatUsd(row.monthly_limit_usd) }}/{{
-                      t("admin.groups.limitMonth")
-                    }}</span
-                  >
-                </div>
-                <span v-else class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.subscription.noLimit")
-                }}</span>
-                <div class="text-gray-400 dark:text-gray-500">
-                  {{ t("admin.groups.usageTotal") }}
-                  <span class="ml-1 font-medium text-gray-600 dark:text-gray-300"
-                    >{{
-                      usageLoading
-                        ? "—"
-                        : formatUsd(usageMap.get(row.id)?.total_cost ?? 0)
-                    }}</span
-                  >
-                </div>
-              </div>
-            </div>
-          </template>
-
-          <template #cell-rate_multiplier="{ value }">
-            <span class="text-sm text-gray-700 dark:text-gray-300"
-              >{{ value }}x</span
-            >
-          </template>
-
-          <template #cell-is_exclusive="{ value }">
-            <span :class="['badge', value ? 'badge-primary' : 'badge-gray']">
-              {{
-                value ? t("admin.groups.exclusive") : t("admin.groups.public")
-              }}
-            </span>
-          </template>
-
-          <template #cell-account_count="{ row }">
-            <div class="space-y-0.5 text-xs">
-              <div>
-                <span class="text-gray-500 dark:text-gray-400">{{
-                  t("admin.groups.accountsAvailable")
-                }}</span>
-                <span
-                  class="ml-1 font-medium text-emerald-600 dark:text-emerald-400"
-                  >{{ row.active_account_count || 0 }}</span
-                >
-                <span
-                  class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
-                  >{{ t("admin.groups.accountsUnit") }}</span
-                >
-              </div>
-              <div v-if="row.rate_limited_account_count">
-                <span class="text-gray-500 dark:text-gray-400">{{
-                  t("admin.groups.accountsRateLimited")
-                }}</span>
-                <span
-                  class="ml-1 font-medium text-amber-600 dark:text-amber-400"
-                  >{{ row.rate_limited_account_count }}</span
-                >
-                <span
-                  class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
-                  >{{ t("admin.groups.accountsUnit") }}</span
-                >
-              </div>
-              <div>
-                <span class="text-gray-500 dark:text-gray-400">{{
-                  t("admin.groups.accountsTotal")
-                }}</span>
-                <span
-                  class="ml-1 font-medium text-gray-700 dark:text-gray-300"
-                  >{{ row.account_count || 0 }}</span
-                >
-                <span
-                  class="ml-1 inline-flex items-center rounded bg-gray-100 px-1.5 py-0.5 font-medium text-gray-800 dark:bg-dark-600 dark:text-gray-300"
-                  >{{ t("admin.groups.accountsUnit") }}</span
-                >
-              </div>
-            </div>
-          </template>
-
-          <template #cell-capacity="{ row }">
-            <GroupCapacityBadge
-              v-if="capacityMap.get(row.id)"
-              :concurrency-used="capacityMap.get(row.id)!.concurrencyUsed"
-              :concurrency-max="capacityMap.get(row.id)!.concurrencyMax"
-              :sessions-used="capacityMap.get(row.id)!.sessionsUsed"
-              :sessions-max="capacityMap.get(row.id)!.sessionsMax"
-              :rpm-used="capacityMap.get(row.id)!.rpmUsed"
-              :rpm-max="capacityMap.get(row.id)!.rpmMax"
-            />
-            <span v-else class="text-xs text-gray-400">—</span>
-          </template>
-
-          <template #cell-usage="{ row }">
-            <div v-if="usageLoading" class="text-xs text-gray-400">—</div>
-            <div v-else class="space-y-0.5 text-xs">
-              <div class="text-gray-500 dark:text-gray-400">
-                <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageToday")
-                }}</span>
-                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
-                  >${{
-                    formatCost(usageMap.get(row.id)?.today_cost ?? 0)
-                  }}</span
-                >
-              </div>
-              <div class="text-gray-500 dark:text-gray-400">
-                <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageYesterday")
-                }}</span>
-                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
-                  >${{
-                    formatCost(usageMap.get(row.id)?.yesterday_cost ?? 0)
-                  }}</span
-                >
-              </div>
-              <div class="text-gray-500 dark:text-gray-400">
-                <span class="text-gray-400 dark:text-gray-500">{{
-                  t("admin.groups.usageTotal")
-                }}</span>
-                <span class="ml-1 font-medium text-gray-700 dark:text-gray-300"
-                  >${{
-                    formatCost(usageMap.get(row.id)?.total_cost ?? 0)
-                  }}</span
-                >
-              </div>
-            </div>
-          </template>
-
-          <template #cell-status="{ value }">
-            <span
-              :class="[
-                'badge',
-                value === 'active' ? 'badge-success' : 'badge-danger',
-              ]"
-            >
-              {{ t("admin.accounts.status." + value) }}
-            </span>
-          </template>
-
-          <template #cell-actions="{ row }">
-            <div class="flex items-center gap-1">
-              <button
-                @click="handleEdit(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-              >
-                <Icon name="edit" size="sm" />
-                <span class="text-xs">{{ t("common.edit") }}</span>
-              </button>
-              <button
-                v-if="!authStore.isSimpleMode"
-                data-testid="group-duplicate"
-                :title="
-                  duplicatingGroupIds.has(row.id)
-                    ? t('admin.groups.duplicating')
-                    : t('admin.groups.duplicate')
-                "
-                :disabled="duplicatingGroupIds.has(row.id)"
-                @click="handleDuplicate(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-primary-600 disabled:cursor-not-allowed disabled:opacity-50 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-              >
-                <Icon name="copy" size="sm" />
-                <span class="text-xs">
-                  {{
-                    duplicatingGroupIds.has(row.id)
-                      ? t("admin.groups.duplicating")
-                      : t("admin.groups.duplicate")
-                  }}
-                </span>
-              </button>
-              <button
-                v-if="!authStore.isSimpleMode && row.platform === 'composite'"
-                data-testid="group-composite-routes"
-                @click="handleCompositeRoutes(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-cyan-600 dark:hover:bg-dark-700 dark:hover:text-cyan-400"
-              >
-                <Icon name="swap" size="sm" />
-                <span class="text-xs">{{
-                  t("admin.groups.compositeRoutes.action")
-                }}</span>
-              </button>
-              <button
-                v-if="!authStore.isSimpleMode"
-                data-testid="group-rate-multipliers"
-                @click="handleRateMultipliers(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-purple-600 dark:hover:bg-dark-700 dark:hover:text-purple-400"
-              >
-                <Icon name="dollar" size="sm" />
-                <span class="text-xs">{{
-                  t("admin.groups.rateMultipliers")
-                }}</span>
-              </button>
-              <button
-                v-if="!authStore.isSimpleMode"
-                data-testid="group-rpm-overrides"
-                @click="handleRPMOverrides(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-orange-600 dark:hover:bg-dark-700 dark:hover:text-orange-400"
-              >
-                <Icon name="bolt" size="sm" />
-                <span class="text-xs">{{
-                  t("admin.groups.rpmOverrides")
-                }}</span>
-              </button>
-              <button
-                @click="handleDelete(row)"
-                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-              >
-                <Icon name="trash" size="sm" />
-                <span class="text-xs">{{ t("common.delete") }}</span>
-              </button>
-            </div>
-          </template>
-
-          <template #empty>
-            <EmptyState
-              :title="t('admin.groups.noGroupsYet')"
-              :description="t('admin.groups.createFirstGroup')"
-              :action-text="t('admin.groups.createGroup')"
-              @action="openCreateModal"
-            />
-          </template>
-        </DataTable>
-      </template>
-
-      <template #pagination>
-        <Pagination
-          v-if="pagination.total > 0"
-          :page="pagination.page"
-          :total="pagination.total"
-          :page-size="pagination.page_size"
-          @update:page="handlePageChange"
-          @update:pageSize="handlePageSizeChange"
-        />
-      </template>
-    </TablePageLayout>
+    <ModelAccessGroupsPanel />
+    <GroupsTable
+      :controller="groupsListController"
+      :duplicating-group-ids="duplicatingGroupIds"
+      @create="openCreateModal"
+      @sort="openSortModal"
+      @edit="handleEdit"
+      @delete="handleDelete"
+      @duplicate="handleDuplicate"
+      @rateMultipliers="handleRateMultipliers"
+      @rpmOverrides="handleRPMOverrides"
+      @compositeRoutes="handleCompositeRoutes"
+    />
 
     <!-- Create Group Modal -->
     <BaseDialog
@@ -627,6 +166,7 @@
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
         <div>
+          <TpmLimitField v-model="createForm.tpm_limit" />
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
             v-model.number="createForm.rpm_limit"
@@ -2265,6 +1805,7 @@
           />
         </div>
         <div>
+          <TpmLimitField v-model="editForm.tpm_limit" />
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
           <input
             v-model.number="editForm.rpm_limit"
@@ -3786,465 +3327,10 @@
     />
 
     <!-- Sort Order Modal -->
-    <BaseDialog
-      :show="showSortModal"
-      :title="t('admin.groups.sortOrder')"
-      width="normal"
-      @close="closeSortModal"
-    >
-      <div class="space-y-4">
-        <p class="text-sm text-gray-500 dark:text-gray-400">
-          {{ t("admin.groups.sortOrderHint") }}
-        </p>
-        <VueDraggable
-          v-model="sortableGroups"
-          :animation="200"
-          class="space-y-2"
-        >
-          <div
-            v-for="group in sortableGroups"
-            :key="group.id"
-            class="flex cursor-grab items-center gap-3 rounded-lg border border-gray-200 bg-white p-3 transition-shadow hover:shadow-md active:cursor-grabbing dark:border-dark-600 dark:bg-dark-700"
-          >
-            <div class="text-gray-400">
-              <Icon name="menu" size="md" />
-            </div>
-            <div class="flex-1">
-              <div class="font-medium text-gray-900 dark:text-white">
-                {{ group.name }}
-              </div>
-              <div class="text-xs text-gray-500 dark:text-gray-400">
-                <span
-                  :class="[
-                    'inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium',
-                    group.platform === 'anthropic'
-                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                      : group.platform === 'openai'
-                        ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400'
-                        : group.platform === 'antigravity'
-                          ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                          : group.platform === 'grok'
-                            ? 'bg-zinc-200 text-zinc-800 dark:bg-zinc-700 dark:text-zinc-100'
-                            : group.platform === 'kimi'
-                              ? 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400'
-                              : group.platform === 'zhipu'
-                                ? 'bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400'
-                                : group.platform === 'deepseek'
-                                  ? 'bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-400'
-                                  : group.platform === 'minimax'
-                                    ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/30 dark:text-rose-400'
-                                  : group.platform === 'opencode_go'
-                                    ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-                                    : 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-                  ]"
-                >
-                  {{ t("admin.groups.platforms." + group.platform) }}
-                </span>
-              </div>
-            </div>
-            <div class="text-sm text-gray-400">#{{ group.id }}</div>
-          </div>
-        </VueDraggable>
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end gap-3 pt-4">
-          <button
-            @click="closeSortModal"
-            type="button"
-            class="btn btn-secondary"
-          >
-            {{ t("common.cancel") }}
-          </button>
-          <button
-            @click="saveSortOrder"
-            :disabled="sortSubmitting"
-            class="btn btn-primary"
-          >
-            <svg
-              v-if="sortSubmitting"
-              class="-ml-1 mr-2 h-4 w-4 animate-spin"
-              fill="none"
-              viewBox="0 0 24 24"
-            >
-              <circle
-                class="opacity-25"
-                cx="12"
-                cy="12"
-                r="10"
-                stroke="currentColor"
-                stroke-width="4"
-              ></circle>
-              <path
-                class="opacity-75"
-                fill="currentColor"
-                d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-              ></path>
-            </svg>
-            {{ sortSubmitting ? t("common.saving") : t("common.save") }}
-          </button>
-        </div>
-      </template>
-    </BaseDialog>
+    <GroupSortDialog :controller="groupSortingController" />
 
     <!-- Composite Routes Modal -->
-    <BaseDialog
-      :show="showCompositeRoutesModal"
-      :title="
-        compositeRoutesGroup
-          ? t('admin.groups.compositeRoutes.titleWithGroup', {
-              name: compositeRoutesGroup.name,
-            })
-          : t('admin.groups.compositeRoutes.title')
-      "
-      width="wide"
-      @close="closeCompositeRoutesModal"
-    >
-      <div class="grid gap-5 lg:grid-cols-[minmax(0,1.15fr)_minmax(320px,0.85fr)]">
-        <section class="min-w-0">
-          <div class="mb-3 flex items-center justify-between gap-3">
-            <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t("admin.groups.compositeRoutes.routes") }}
-            </h3>
-            <button
-              type="button"
-              class="btn btn-secondary btn-sm"
-              :disabled="compositeRoutesLoading"
-              @click="loadCompositeRoutes"
-            >
-              <Icon
-                name="refresh"
-                size="sm"
-                :class="compositeRoutesLoading ? 'animate-spin' : ''"
-              />
-            </button>
-          </div>
-
-          <div
-            class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600"
-          >
-            <div
-              v-if="compositeRoutesLoading"
-              class="flex h-36 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
-            >
-              {{ t("common.loading") }}
-            </div>
-            <div
-              v-else-if="compositeRoutes.length === 0"
-              class="flex h-36 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
-            >
-              {{ t("admin.groups.compositeRoutes.empty") }}
-            </div>
-            <div v-else class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
-                <thead class="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-gray-400">
-                  <tr>
-                    <th class="px-3 py-2">
-                      {{ t("admin.groups.compositeRoutes.publicModel") }}
-                    </th>
-                    <th class="px-3 py-2">
-                      {{ t("admin.groups.compositeRoutes.target") }}
-                    </th>
-                    <th class="px-3 py-2">
-                      {{ t("admin.groups.compositeRoutes.scope") }}
-                    </th>
-                    <th class="px-3 py-2 text-right">
-                      {{ t("admin.groups.columns.actions") }}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody class="divide-y divide-gray-100 bg-white dark:divide-dark-700 dark:bg-dark-900">
-                  <tr
-                    v-for="route in compositeRoutes"
-                    :key="route.id"
-                    :class="!route.enabled && 'opacity-60'"
-                  >
-                    <td class="max-w-[15rem] px-3 py-2">
-                      <div class="break-all font-medium text-gray-900 dark:text-white">
-                        {{ route.public_model }}
-                      </div>
-                      <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span class="badge badge-gray">{{
-                          compositeRouteMatchLabel(route.match_type)
-                        }}</span>
-                        <span
-                          v-if="!route.enabled"
-                          class="badge badge-danger"
-                        >
-                          {{ t("admin.accounts.status.inactive") }}
-                        </span>
-                      </div>
-                    </td>
-                    <td class="px-3 py-2">
-                      <div class="flex items-center gap-1.5 text-gray-900 dark:text-white">
-                        <PlatformIcon :platform="route.target_platform" size="xs" />
-                        <span>{{ formatCompositePlatform(route.target_platform) }}</span>
-                      </div>
-                      <div class="mt-1 break-all text-xs text-gray-500 dark:text-gray-400">
-                        {{ route.upstream_model || route.public_model }}
-                      </div>
-                    </td>
-                    <td class="px-3 py-2">
-                      <div class="text-gray-700 dark:text-gray-300">
-                        {{ formatCompositeEndpoint(route.endpoint) }}
-                      </div>
-                      <div class="text-xs text-gray-500 dark:text-gray-400">
-                        {{ t("admin.groups.compositeRoutes.priority") }}:
-                        {{ route.priority }}
-                      </div>
-                    </td>
-                    <td class="px-3 py-2">
-                      <div class="flex justify-end gap-1">
-                        <button
-                          type="button"
-                          class="rounded p-1.5 text-gray-500 hover:bg-gray-100 hover:text-primary-600 dark:hover:bg-dark-700 dark:hover:text-primary-400"
-                          :title="t('common.edit')"
-                          @click="editCompositeRoute(route)"
-                        >
-                          <Icon name="edit" size="sm" />
-                        </button>
-                        <button
-                          type="button"
-                          class="rounded p-1.5 text-gray-500 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
-                          :title="t('common.delete')"
-                          @click="deleteCompositeRoute(route)"
-                        >
-                          <Icon name="trash" size="sm" />
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </section>
-
-        <section class="space-y-5">
-          <form class="space-y-3" @submit.prevent="saveCompositeRoute">
-            <div class="flex items-center justify-between gap-3">
-              <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-                {{
-                  compositeRouteEditingId
-                    ? t("admin.groups.compositeRoutes.editRoute")
-                    : t("admin.groups.compositeRoutes.addRoute")
-                }}
-              </h3>
-              <button
-                v-if="compositeRouteEditingId"
-                type="button"
-                class="text-xs font-medium text-gray-500 hover:text-gray-700 dark:text-gray-400 dark:hover:text-gray-200"
-                @click="resetCompositeRouteForm"
-              >
-                {{ t("common.cancel") }}
-              </button>
-            </div>
-
-            <div>
-              <label class="input-label">{{
-                t("admin.groups.compositeRoutes.publicModel")
-              }}</label>
-              <input
-                v-model.trim="compositeRouteForm.public_model"
-                type="text"
-                class="input"
-                required
-                placeholder="openrouter/gpt-5"
-              />
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label class="input-label">{{
-                  t("admin.groups.compositeRoutes.matchType")
-                }}</label>
-                <Select
-                  v-model="compositeRouteForm.match_type"
-                  :options="compositeRouteMatchOptions"
-                />
-              </div>
-              <div>
-                <label class="input-label">{{
-                  t("admin.groups.compositeRoutes.endpoint")
-                }}</label>
-                <Select
-                  v-model="compositeRouteForm.endpoint"
-                  :options="compositeRouteEndpointOptions"
-                />
-              </div>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
-              <div>
-                <label class="input-label">{{
-                  t("admin.groups.compositeRoutes.targetPlatform")
-                }}</label>
-                <Select
-                  v-model="compositeRouteForm.target_platform"
-                  :options="compositeRoutePlatformOptions"
-                />
-              </div>
-              <div>
-                <label class="input-label">{{
-                  t("admin.groups.compositeRoutes.priority")
-                }}</label>
-                <input
-                  v-model.number="compositeRouteForm.priority"
-                  type="number"
-                  min="1"
-                  step="1"
-                  class="input"
-                />
-              </div>
-            </div>
-
-            <div>
-              <label class="input-label">{{
-                t("admin.groups.compositeRoutes.upstreamModel")
-              }}</label>
-              <input
-                v-model.trim="compositeRouteForm.upstream_model"
-                type="text"
-                class="input"
-                placeholder="gpt-5"
-              />
-              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-                {{ t("admin.groups.compositeRoutes.upstreamModelHint") }}
-              </p>
-            </div>
-
-            <div>
-              <label class="input-label">{{
-                t("admin.groups.compositeRoutes.notes")
-              }}</label>
-              <textarea
-                v-model.trim="compositeRouteForm.notes"
-                rows="2"
-                class="input"
-              ></textarea>
-            </div>
-
-            <div class="flex items-center justify-between gap-3">
-              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <input
-                  v-model="compositeRouteForm.enabled"
-                  type="checkbox"
-                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
-                />
-                {{ t("admin.groups.compositeRoutes.enabled") }}
-              </label>
-              <button
-                type="submit"
-                class="btn btn-primary"
-                :disabled="compositeRouteSaving"
-              >
-                <Icon
-                  v-if="!compositeRouteSaving"
-                  name="check"
-                  size="sm"
-                  class="mr-2"
-                />
-                {{ compositeRouteEditingId ? t("common.update") : t("common.create") }}
-              </button>
-            </div>
-          </form>
-
-          <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-            <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
-              {{ t("admin.groups.compositeRoutes.preview") }}
-            </h3>
-            <div class="space-y-3">
-              <input
-                v-model.trim="compositePreviewModel"
-                type="text"
-                class="input"
-                placeholder="openrouter/gpt-5"
-                @keyup.enter="previewCompositeRoute"
-              />
-              <div class="flex gap-2">
-                <Select
-                  v-model="compositePreviewEndpoint"
-                  :options="compositeRouteEndpointOptions"
-                  class="min-w-0 flex-1"
-                />
-                <button
-                  type="button"
-                  class="btn btn-secondary"
-                  :disabled="compositePreviewLoading || !compositePreviewModel"
-                  @click="previewCompositeRoute"
-                >
-                  <Icon name="play" size="sm" />
-                </button>
-              </div>
-
-              <div
-                v-if="compositePreviewDecision"
-                class="rounded-lg border border-gray-200 bg-gray-50 p-3 text-sm dark:border-dark-600 dark:bg-dark-800"
-              >
-                <div class="mb-2 flex items-center gap-2">
-                  <span
-                    :class="[
-                      'badge',
-                      compositePreviewDecision.matched
-                        ? 'badge-success'
-                        : 'badge-danger',
-                    ]"
-                  >
-                    {{
-                      compositePreviewDecision.matched
-                        ? t("admin.groups.compositeRoutes.matched")
-                        : t("admin.groups.compositeRoutes.notMatched")
-                    }}
-                  </span>
-                  <span class="badge badge-gray">
-                    {{
-                      compositeRouteSourceLabel(
-                        compositePreviewDecision.source,
-                      )
-                    }}
-                  </span>
-                </div>
-                <div
-                  v-if="compositePreviewDecision.matched"
-                  class="space-y-1 text-gray-700 dark:text-gray-300"
-                >
-                  <div>
-                    {{ t("admin.groups.compositeRoutes.targetPlatform") }}:
-                    {{
-                      formatCompositePlatform(
-                        compositePreviewDecision.target_platform,
-                      )
-                    }}
-                  </div>
-                  <div class="break-all">
-                    {{ t("admin.groups.compositeRoutes.upstreamModel") }}:
-                    {{ compositePreviewDecision.upstream_model }}
-                  </div>
-                </div>
-                <div
-                  v-else
-                  class="text-gray-500 dark:text-gray-400"
-                >
-                  {{ compositePreviewDecision.reason }}
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-      </div>
-
-      <template #footer>
-        <div class="flex justify-end pt-4">
-          <button
-            type="button"
-            class="btn btn-secondary"
-            @click="closeCompositeRoutesModal"
-          >
-            {{ t("common.close") }}
-          </button>
-        </div>
-      </template>
-    </BaseDialog>
+    <CompositeRoutesDialog :controller="compositeRoutesController" />
 
     <!-- Group Rate Multipliers Modal -->
     <GroupRateMultipliersModal
@@ -4265,6 +3351,8 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue';
+import ModelAccessGroupsPanel from '@/components/model-access/ModelAccessGroupsPanel.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
@@ -4274,43 +3362,35 @@ import { adminAPI } from "@/api/admin";
 import type {
   AdminGroup,
   CodexModelsManifestConfig,
-  CompositeModelRoute,
-  CompositeModelRouteInput,
-  CompositeRouteDecision,
-  CompositeRouteEndpoint,
-  CompositeRouteMatchType,
   GroupPlatform,
   SubscriptionType,
 } from "@/types";
 import {
-  CONCRETE_PLATFORM_OPTIONS,
-  GROUP_PLATFORM_OPTIONS,
+  getPlatformLabel,
   platformSupportsOAuth,
+  PRODUCT_GROUP_PLATFORM_OPTIONS,
+  PRODUCT_PLATFORM_OPTIONS,
 } from "@/constants/platforms";
-import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
-import TablePageLayout from "@/components/layout/TablePageLayout.vue";
-import DataTable from "@/components/common/DataTable.vue";
-import Pagination from "@/components/common/Pagination.vue";
 import Toggle from "@/components/common/Toggle.vue";
 import BaseDialog from "@/components/common/BaseDialog.vue";
 import ConfirmDialog from "@/components/common/ConfirmDialog.vue";
-import EmptyState from "@/components/common/EmptyState.vue";
 import Select from "@/components/common/Select.vue";
-import PlatformIcon from "@/components/common/PlatformIcon.vue";
 import Icon from "@/components/icons/Icon.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
-import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import CodexManifestAccountsField from "@/components/admin/group/CodexManifestAccountsField.vue";
 import GroupPricingCard from "./GroupPricingCard.vue";
-import { emptyGroupPricing, groupPricingFromAPI, groupPricingToAPI, type GroupPricingEntry } from "./groupsModelPricing";
-import { VueDraggable } from "vue-draggable-plus";
+import {
+  emptyGroupPricing,
+  groupPricingFromAPI,
+  groupPricingToAPI,
+  type GroupPricingEntry,
+} from "./groupsModelPricing";
 import { createStableObjectKeyResolver } from "@/utils/stableObjectKey";
 import { extractApiErrorMessage } from "@/utils/apiError";
 import { useKeyedDebouncedSearch } from "@/composables/useKeyedDebouncedSearch";
-import { getPersistedPageSize } from "@/composables/usePersistedPageSize";
 import {
   createDefaultMessagesDispatchFormState,
   messagesDispatchConfigToFormState,
@@ -4366,6 +3446,26 @@ import {
   serializeVideoModelPrices,
   videoModelPriceFamilyRows,
 } from "./groupsVideoModelPricing";
+import { useGroupsList } from "./groups/useGroupsList";
+import { useGroupSorting } from "./groups/useGroupSorting";
+import { useCompositeRoutes } from "./groups/useCompositeRoutes";
+import GroupsTable from "./groups/GroupsTable.vue";
+import GroupSortDialog from "./groups/GroupSortDialog.vue";
+import CompositeRoutesDialog from "./groups/CompositeRoutesDialog.vue";
+const groupsListController = useGroupsList([...PRODUCT_GROUP_PLATFORM_OPTIONS]);
+const {
+  showColumnDropdown,
+  columnDropdownRef,
+  platformOptions,
+  groups,
+  loadGroups,
+} = groupsListController;
+const groupSortingController = useGroupSorting(loadGroups);
+const { openSortModal } = groupSortingController;
+const compositeRoutesController = useCompositeRoutes([
+  ...PRODUCT_PLATFORM_OPTIONS,
+]);
+const { handleCompositeRoutes } = compositeRoutesController;
 
 const supportsLivePlatform = (platform: string): boolean =>
   platform === "openai" || platform === "composite";
@@ -4376,210 +3476,6 @@ const { t } = useI18n();
 const appStore = useAppStore();
 const authStore = useAuthStore();
 const onboardingStore = useOnboardingStore();
-
-const ALWAYS_VISIBLE_COLUMNS = new Set(["name", "actions"]);
-// Default hidden columns (hidden on first load / after schema bumps).
-const DEFAULT_HIDDEN_COLUMNS = ["id"];
-const HIDDEN_COLUMNS_KEY = "group-hidden-columns";
-// Bump when adding new default-hidden columns so existing admins pick them up once.
-const COLUMN_SETTINGS_VERSION_KEY = "group-column-settings-version";
-const COLUMN_SETTINGS_VERSION = 2;
-const VERSION_NEW_HIDDEN_COLUMNS: Record<number, string[]> = {
-  2: ["id"],
-};
-
-const allColumns = computed<Column[]>(() => {
-  const basic: Column[] = [
-    { key: "name", label: t("admin.groups.columns.name"), sortable: true },
-    { key: "id", label: t("admin.groups.columns.id"), sortable: true },
-    { key: "platform", label: t("admin.groups.columns.platform"), sortable: true },
-    { key: "account_count", label: t("admin.groups.columns.accounts"), sortable: true },
-    { key: "status", label: t("admin.groups.columns.status"), sortable: true },
-    { key: "actions", label: t("admin.groups.columns.actions"), sortable: false },
-  ];
-  if (authStore.isSimpleMode) return basic;
-  return [
-    ...basic.slice(0, 3),
-    { key: "billing_type", label: t("admin.groups.columns.billingType"), sortable: true },
-    { key: "rate_multiplier", label: t("admin.groups.columns.rateMultiplier"), sortable: true },
-    { key: "is_exclusive", label: t("admin.groups.columns.type"), sortable: true },
-    basic[3],
-    { key: "capacity", label: t("admin.groups.columns.capacity"), sortable: false },
-    { key: "usage", label: t("admin.groups.columns.usage"), sortable: false },
-    ...basic.slice(4),
-  ];
-});
-
-const toggleableColumns = computed(() =>
-  allColumns.value.filter((col) => !ALWAYS_VISIBLE_COLUMNS.has(col.key)),
-);
-const hiddenColumns = reactive<Set<string>>(new Set());
-const showColumnDropdown = ref(false);
-const columnDropdownRef = ref<HTMLElement | null>(null);
-
-const getValidHiddenColumnKeys = () =>
-  new Set(toggleableColumns.value.map((col) => col.key));
-
-const loadSavedColumns = () => {
-  hiddenColumns.clear();
-  try {
-    const saved = localStorage.getItem(HIDDEN_COLUMNS_KEY);
-    const validKeys = getValidHiddenColumnKeys();
-
-    if (saved) {
-      const parsed = JSON.parse(saved);
-      if (Array.isArray(parsed)) {
-        parsed
-          .filter(
-            (key): key is string =>
-              typeof key === "string" && validKeys.has(key),
-          )
-          .forEach((key) => hiddenColumns.add(key));
-      }
-
-      // Existing admins: auto-hide columns newly added as default-hidden.
-      const storedVersion = Number(
-        localStorage.getItem(COLUMN_SETTINGS_VERSION_KEY) ?? "1",
-      );
-      if (storedVersion < COLUMN_SETTINGS_VERSION) {
-        let mutated = false;
-        for (let v = storedVersion + 1; v <= COLUMN_SETTINGS_VERSION; v++) {
-          for (const key of VERSION_NEW_HIDDEN_COLUMNS[v] ?? []) {
-            if (validKeys.has(key) && !hiddenColumns.has(key)) {
-              hiddenColumns.add(key);
-              mutated = true;
-            }
-          }
-        }
-        if (mutated) {
-          saveColumnsToStorage();
-        } else {
-          localStorage.setItem(
-            COLUMN_SETTINGS_VERSION_KEY,
-            String(COLUMN_SETTINGS_VERSION),
-          );
-        }
-      }
-    } else {
-      DEFAULT_HIDDEN_COLUMNS.forEach((key) => {
-        if (validKeys.has(key)) hiddenColumns.add(key);
-      });
-      saveColumnsToStorage();
-    }
-  } catch (error) {
-    console.error("Failed to load group column settings:", error);
-    DEFAULT_HIDDEN_COLUMNS.forEach((key) => hiddenColumns.add(key));
-  }
-};
-
-const saveColumnsToStorage = () => {
-  try {
-    const validKeys = getValidHiddenColumnKeys();
-    const keys = [...hiddenColumns].filter((key) => validKeys.has(key));
-    localStorage.setItem(HIDDEN_COLUMNS_KEY, JSON.stringify(keys));
-    localStorage.setItem(
-      COLUMN_SETTINGS_VERSION_KEY,
-      String(COLUMN_SETTINGS_VERSION),
-    );
-  } catch (error) {
-    console.error("Failed to save group column settings:", error);
-  }
-};
-
-const isColumnVisible = (key: string) => !hiddenColumns.has(key);
-const hasVisibleUsageSummaryConsumer = computed(
-  () => !authStore.isSimpleMode && (isColumnVisible("usage") || isColumnVisible("billing_type")),
-);
-const hasVisibleCapacityColumn = computed(() => !authStore.isSimpleMode && isColumnVisible("capacity"));
-
-const toggleColumn = (key: string) => {
-  const validKeys = getValidHiddenColumnKeys();
-  if (!validKeys.has(key)) return;
-
-  const wasHidden = hiddenColumns.has(key);
-  if (wasHidden) {
-    hiddenColumns.delete(key);
-  } else {
-    hiddenColumns.add(key);
-  }
-  saveColumnsToStorage();
-
-  if (wasHidden && (key === "usage" || key === "billing_type")) {
-    loadUsageSummary();
-  }
-  if (wasHidden && key === "capacity") {
-    loadCapacitySummary();
-  }
-};
-
-const columns = computed<Column[]>(() =>
-  allColumns.value.filter(
-    (col) => ALWAYS_VISIBLE_COLUMNS.has(col.key) || !hiddenColumns.has(col.key),
-  ),
-);
-
-if (typeof window !== "undefined") {
-  loadSavedColumns();
-}
-
-// Filter options
-const statusOptions = computed(() => [
-  { value: "", label: t("admin.groups.allStatus") },
-  { value: "active", label: t("admin.accounts.status.active") },
-  { value: "inactive", label: t("admin.accounts.status.inactive") },
-]);
-
-const exclusiveOptions = computed(() => [
-  { value: "", label: t("admin.groups.allGroups") },
-  { value: "true", label: t("admin.groups.exclusive") },
-  { value: "false", label: t("admin.groups.nonExclusive") },
-]);
-
-const platformOptions = computed(() =>
-  GROUP_PLATFORM_OPTIONS.filter(
-    (option) => !authStore.isSimpleMode || option.value !== "composite",
-  ),
-);
-
-const platformFilterOptions = computed(() => [
-  { value: "", label: t("admin.groups.allPlatforms") },
-  ...GROUP_PLATFORM_OPTIONS,
-]);
-
-const compositeRoutePlatformOptions = computed(() => [
-  ...CONCRETE_PLATFORM_OPTIONS,
-]);
-
-const compositeRouteEndpointOptions = computed(() => [
-  { value: "any", label: t("admin.groups.compositeRoutes.endpoints.any") },
-  {
-    value: "messages",
-    label: t("admin.groups.compositeRoutes.endpoints.messages"),
-  },
-  {
-    value: "count_tokens",
-    label: t("admin.groups.compositeRoutes.endpoints.countTokens"),
-  },
-  {
-    value: "responses",
-    label: t("admin.groups.compositeRoutes.endpoints.responses"),
-  },
-  {
-    value: "chat_completions",
-    label: t("admin.groups.compositeRoutes.endpoints.chatCompletions"),
-  },
-  {
-    value: "embeddings",
-    label: t("admin.groups.compositeRoutes.endpoints.embeddings"),
-  },
-  { value: "images", label: t("admin.groups.compositeRoutes.endpoints.images") },
-  { value: "gemini", label: t("admin.groups.compositeRoutes.endpoints.gemini") },
-]);
-
-const compositeRouteMatchOptions = computed(() => [
-  { value: "exact", label: t("admin.groups.compositeRoutes.match.exact") },
-  { value: "prefix", label: t("admin.groups.compositeRoutes.match.prefix") },
-]);
 
 const editStatusOptions = computed(() => [
   { value: "active", label: t("admin.accounts.status.active") },
@@ -4670,7 +3566,7 @@ const canCopyAccountsFromGroup = (targetPlatform: GroupPlatform, sourcePlatform:
 
 const copyAccountsGroupLabel = (g: AdminGroup) => {
   const count = g.account_count || 0;
-  const platform = t("admin.groups.platforms." + g.platform);
+  const platform = getPlatformLabel(g.platform, t);
   return `${g.name} - ${platform} (${t("admin.groups.accountsCount", { count })})`;
 };
 
@@ -4702,48 +3598,6 @@ const copyAccountsGroupOptionsForEdit = computed(() => {
   }));
 });
 
-const groups = ref<AdminGroup[]>([]);
-const loading = ref(false);
-type GroupUsageSummary = {
-  today_cost: number;
-  yesterday_cost: number;
-  total_cost: number;
-};
-
-const usageMap = ref<Map<number, GroupUsageSummary>>(new Map());
-const usageLoading = ref(false);
-const capacityMap = ref<
-  Map<
-    number,
-    {
-      concurrencyUsed: number;
-      concurrencyMax: number;
-      sessionsUsed: number;
-      sessionsMax: number;
-      rpmUsed: number;
-      rpmMax: number;
-    }
-  >
->(new Map());
-const searchQuery = ref("");
-const filters = reactive({
-  platform: "",
-  status: "",
-  is_exclusive: "",
-});
-const pagination = reactive({
-  page: 1,
-  page_size: getPersistedPageSize(),
-  total: 0,
-  pages: 0,
-});
-const sortState = reactive({
-  sort_by: "sort_order",
-  sort_order: "asc" as "asc" | "desc",
-});
-
-let abortController: AbortController | null = null;
-
 const showCreateModal = ref(false);
 const showEditModal = ref(false);
 const showDeleteDialog = ref(false);
@@ -4756,9 +3610,7 @@ let liveCapabilityRequest: Promise<{
   supported: boolean;
   reason?: string;
 }> | null = null;
-const showSortModal = ref(false);
 const submitting = ref(false);
-const sortSubmitting = ref(false);
 const editingGroup = ref<AdminGroup | null>(null);
 const deletingGroup = ref<AdminGroup | null>(null);
 const duplicatingGroupIds = reactive(new Set<number>());
@@ -4766,39 +3618,6 @@ const showRateMultipliersModal = ref(false);
 const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
-const sortableGroups = ref<AdminGroup[]>([]);
-type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
-type CompositeRouteFormState = {
-  public_model: string;
-  match_type: CompositeRouteMatchType;
-  target_platform: ConcreteGroupPlatform;
-  upstream_model: string;
-  endpoint: CompositeRouteEndpoint;
-  priority: number;
-  enabled: boolean;
-  notes: string;
-};
-
-const showCompositeRoutesModal = ref(false);
-const compositeRoutesGroup = ref<AdminGroup | null>(null);
-const compositeRoutes = ref<CompositeModelRoute[]>([]);
-const compositeRoutesLoading = ref(false);
-const compositeRouteSaving = ref(false);
-const compositeRouteEditingId = ref<number | null>(null);
-const compositePreviewModel = ref("");
-const compositePreviewEndpoint = ref<CompositeRouteEndpoint>("any");
-const compositePreviewLoading = ref(false);
-const compositePreviewDecision = ref<CompositeRouteDecision | null>(null);
-const compositeRouteForm = reactive<CompositeRouteFormState>({
-  public_model: "",
-  match_type: "exact",
-  target_platform: "openai",
-  upstream_model: "",
-  endpoint: "any",
-  priority: 100,
-  enabled: true,
-  notes: "",
-});
 const createMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const editMessagesDispatchDefaults = createDefaultMessagesDispatchFormState();
 const createModelAllowlistState = reactive(createInitialModelAllowlistState());
@@ -4930,6 +3749,7 @@ const createForm = reactive({
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
+  tpm_limit: 0,
   rpm_limit: 0 as number,
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
@@ -5296,6 +4116,7 @@ const editForm = reactive({
   // 从分组复制账号
   copy_accounts_from_group_ids: [] as number[],
   // 分组级 RPM 限制（每用户每分钟最大请求数；0 = 不限制）
+  tpm_limit: 0,
   rpm_limit: 0 as number,
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
@@ -5366,7 +4187,7 @@ const formatImagePricePreview = (value: number | string | null | undefined) => {
   if (!Number.isFinite(price) || price < 0) {
     return t("admin.groups.imagePricing.notConfigured");
   }
-  return `$${price.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return `${price.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
 };
 
 const formatVideoPricePreview = (value: number | string | null | undefined) => {
@@ -5377,7 +4198,7 @@ const formatVideoPricePreview = (value: number | string | null | undefined) => {
   if (!Number.isFinite(price) || price < 0) {
     return t("admin.groups.videoPricing.notConfigured");
   }
-  return `$${price.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
+  return `${price.toFixed(6).replace(/0+$/, "").replace(/\.$/, "")}`;
 };
 
 const buildImageFinalPricePreview = (form: ImagePricingFormState) => {
@@ -5515,169 +4336,6 @@ const cancelUnsupportedLive = () => {
   pendingLiveForm.value = null;
 };
 
-const loadGroups = async () => {
-  if (abortController) {
-    abortController.abort();
-  }
-  const currentController = new AbortController();
-  abortController = currentController;
-  const { signal } = currentController;
-  loading.value = true;
-  try {
-    const response = await adminAPI.groups.list(
-      pagination.page,
-      pagination.page_size,
-      {
-        platform: (filters.platform as GroupPlatform) || undefined,
-        status: filters.status as any,
-        is_exclusive: !authStore.isSimpleMode && filters.is_exclusive
-          ? filters.is_exclusive === "true"
-          : undefined,
-        search: searchQuery.value.trim() || undefined,
-        sort_by: sortState.sort_by,
-        sort_order: sortState.sort_order,
-      },
-      { signal },
-    );
-    if (signal.aborted) return;
-    groups.value = response.items;
-    pagination.total = response.total;
-    pagination.pages = response.pages;
-    if (hasVisibleUsageSummaryConsumer.value) {
-      loadUsageSummary();
-    } else {
-      usageLoading.value = false;
-    }
-    if (hasVisibleCapacityColumn.value) {
-      loadCapacitySummary();
-    }
-  } catch (error: any) {
-    if (
-      signal.aborted ||
-      error?.name === "AbortError" ||
-      error?.code === "ERR_CANCELED"
-    ) {
-      return;
-    }
-    appStore.showError(t("admin.groups.failedToLoad"));
-    console.error("Error loading groups:", error);
-  } finally {
-    if (abortController === currentController && !signal.aborted) {
-      loading.value = false;
-    }
-  }
-};
-
-const formatCost = (cost: number): string => {
-  if (cost >= 1000) return cost.toFixed(0);
-  if (cost >= 100) return cost.toFixed(1);
-  return cost.toFixed(2);
-};
-
-const formatUsd = (cost: number | null | undefined): string =>
-  `$${formatCost(cost ?? 0)}`;
-
-const getQuotaUsageClass = (
-  used: number,
-  limit: number | null | undefined,
-): string => {
-  if (!limit || limit <= 0) {
-    return "font-medium text-gray-700 dark:text-gray-300";
-  }
-  const ratio = used / limit;
-  if (ratio >= 1) {
-    return "font-semibold text-red-600 dark:text-red-400";
-  }
-  if (ratio >= 0.8) {
-    return "font-semibold text-amber-600 dark:text-amber-400";
-  }
-  return "font-medium text-gray-700 dark:text-gray-300";
-};
-
-const loadUsageSummary = async () => {
-  if (!hasVisibleUsageSummaryConsumer.value) {
-    usageLoading.value = false;
-    return;
-  }
-  usageLoading.value = true;
-  try {
-    const data = await adminAPI.groups.getUsageSummary();
-    const map = new Map<number, GroupUsageSummary>();
-    for (const item of data) {
-      map.set(item.group_id, {
-        today_cost: item.today_cost,
-        yesterday_cost: item.yesterday_cost,
-        total_cost: item.total_cost,
-      });
-    }
-    usageMap.value = map;
-  } catch (error) {
-    console.error("Error loading group usage summary:", error);
-  } finally {
-    usageLoading.value = false;
-  }
-};
-
-const loadCapacitySummary = async () => {
-  if (!hasVisibleCapacityColumn.value) {
-    return;
-  }
-  try {
-    const data = await adminAPI.groups.getCapacitySummary();
-    const map = new Map<
-      number,
-      {
-        concurrencyUsed: number;
-        concurrencyMax: number;
-        sessionsUsed: number;
-        sessionsMax: number;
-        rpmUsed: number;
-        rpmMax: number;
-      }
-    >();
-    for (const item of data) {
-      map.set(item.group_id, {
-        concurrencyUsed: item.concurrency_used,
-        concurrencyMax: item.concurrency_max,
-        sessionsUsed: item.sessions_used,
-        sessionsMax: item.sessions_max,
-        rpmUsed: item.rpm_used,
-        rpmMax: item.rpm_max,
-      });
-    }
-    capacityMap.value = map;
-  } catch (error) {
-    console.error("Error loading group capacity summary:", error);
-  }
-};
-
-let searchTimeout: ReturnType<typeof setTimeout>;
-const handleSearch = () => {
-  clearTimeout(searchTimeout);
-  searchTimeout = setTimeout(() => {
-    pagination.page = 1;
-    loadGroups();
-  }, 300);
-};
-
-const handlePageChange = (page: number) => {
-  pagination.page = page;
-  loadGroups();
-};
-
-const handlePageSizeChange = (pageSize: number) => {
-  pagination.page_size = pageSize;
-  pagination.page = 1;
-  loadGroups();
-};
-
-const handleSort = (key: string, order: 'asc' | 'desc') => {
-  sortState.sort_by = key;
-  sortState.sort_order = order;
-  pagination.page = 1;
-  loadGroups();
-};
-
 const openCreateModal = () => {
   showCreateModal.value = true;
   loadModelAllowlistCandidates("create", 0, createForm.platform);
@@ -5739,6 +4397,7 @@ const closeCreateModal = () => {
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
+  createForm.tpm_limit = 0;
   createForm.rpm_limit = 0;
   createForm.max_reasoning_effort = "";
   createForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
@@ -6034,6 +4693,7 @@ const handleEdit = async (group: AdminGroup) => {
   ];
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
+  editForm.tpm_limit = group.tpm_limit ?? 0;
   editForm.rpm_limit = group.rpm_limit ?? 0;
   editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
     group.platform,
@@ -6353,188 +5013,6 @@ const handleDuplicate = async (group: AdminGroup) => {
   }
 };
 
-const compositeRouteMatchLabel = (matchType: CompositeRouteMatchType) =>
-  compositeRouteMatchOptions.value.find((option) => option.value === matchType)
-    ?.label || matchType;
-
-const formatCompositeEndpoint = (endpoint: CompositeRouteEndpoint) =>
-  compositeRouteEndpointOptions.value.find((option) => option.value === endpoint)
-    ?.label || endpoint;
-
-const formatCompositePlatform = (platform: string) => {
-  if (!platform) return "—";
-  return t(`admin.groups.platforms.${platform}`);
-};
-
-const compositeRouteSourceLabel = (source: string) => {
-  if (source === "route") return t("admin.groups.compositeRoutes.sources.route");
-  if (source === "detector") {
-    return t("admin.groups.compositeRoutes.sources.detector");
-  }
-  return source || "—";
-};
-
-const resetCompositeRouteForm = () => {
-  compositeRouteEditingId.value = null;
-  compositeRouteForm.public_model = "";
-  compositeRouteForm.match_type = "exact";
-  compositeRouteForm.target_platform = "openai";
-  compositeRouteForm.upstream_model = "";
-  compositeRouteForm.endpoint = "any";
-  compositeRouteForm.priority = 100;
-  compositeRouteForm.enabled = true;
-  compositeRouteForm.notes = "";
-};
-
-const toCompositeRouteInput = (): CompositeModelRouteInput => ({
-  public_model: compositeRouteForm.public_model.trim(),
-  match_type: compositeRouteForm.match_type,
-  target_platform: compositeRouteForm.target_platform,
-  upstream_model: compositeRouteForm.upstream_model.trim(),
-  endpoint: compositeRouteForm.endpoint,
-  priority: Number(compositeRouteForm.priority) || 100,
-  enabled: compositeRouteForm.enabled,
-  notes: compositeRouteForm.notes.trim(),
-});
-
-const loadCompositeRoutes = async () => {
-  if (!compositeRoutesGroup.value) return;
-  compositeRoutesLoading.value = true;
-  try {
-    const routes = await adminAPI.groups.listCompositeRoutes(
-      compositeRoutesGroup.value.id,
-    );
-    compositeRoutes.value = routes.sort((a, b) => {
-      if (a.priority !== b.priority) return a.priority - b.priority;
-      return a.id - b.id;
-    });
-  } catch (error: any) {
-    appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
-        t("admin.groups.compositeRoutes.failedToLoad"),
-    );
-    console.error("Error loading composite routes:", error);
-  } finally {
-    compositeRoutesLoading.value = false;
-  }
-};
-
-const handleCompositeRoutes = async (group: AdminGroup) => {
-  compositeRoutesGroup.value = group;
-  compositePreviewModel.value = "";
-  compositePreviewEndpoint.value = "any";
-  compositePreviewDecision.value = null;
-  resetCompositeRouteForm();
-  showCompositeRoutesModal.value = true;
-  await loadCompositeRoutes();
-};
-
-const closeCompositeRoutesModal = () => {
-  showCompositeRoutesModal.value = false;
-  compositeRoutesGroup.value = null;
-  compositeRoutes.value = [];
-  compositePreviewDecision.value = null;
-  resetCompositeRouteForm();
-};
-
-const editCompositeRoute = (route: CompositeModelRoute) => {
-  compositeRouteEditingId.value = route.id;
-  compositeRouteForm.public_model = route.public_model;
-  compositeRouteForm.match_type = route.match_type;
-  compositeRouteForm.target_platform = route.target_platform;
-  compositeRouteForm.upstream_model = route.upstream_model;
-  compositeRouteForm.endpoint = route.endpoint;
-  compositeRouteForm.priority = route.priority || 100;
-  compositeRouteForm.enabled = route.enabled;
-  compositeRouteForm.notes = route.notes || "";
-};
-
-const saveCompositeRoute = async () => {
-  if (!compositeRoutesGroup.value) return;
-  if (!compositeRouteForm.public_model.trim()) {
-    appStore.showError(t("admin.groups.compositeRoutes.publicModelRequired"));
-    return;
-  }
-  compositeRouteSaving.value = true;
-  try {
-    const payload = toCompositeRouteInput();
-    if (compositeRouteEditingId.value) {
-      await adminAPI.groups.updateCompositeRoute(
-        compositeRoutesGroup.value.id,
-        compositeRouteEditingId.value,
-        payload,
-      );
-      appStore.showSuccess(t("admin.groups.compositeRoutes.routeUpdated"));
-    } else {
-      await adminAPI.groups.createCompositeRoute(
-        compositeRoutesGroup.value.id,
-        payload,
-      );
-      appStore.showSuccess(t("admin.groups.compositeRoutes.routeCreated"));
-    }
-    resetCompositeRouteForm();
-    await loadCompositeRoutes();
-  } catch (error: any) {
-    appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
-        t("admin.groups.compositeRoutes.failedToSave"),
-    );
-    console.error("Error saving composite route:", error);
-  } finally {
-    compositeRouteSaving.value = false;
-  }
-};
-
-const deleteCompositeRoute = async (route: CompositeModelRoute) => {
-  if (!compositeRoutesGroup.value) return;
-  if (!window.confirm(t("admin.groups.compositeRoutes.deleteConfirm"))) return;
-  try {
-    await adminAPI.groups.deleteCompositeRoute(
-      compositeRoutesGroup.value.id,
-      route.id,
-    );
-    if (compositeRouteEditingId.value === route.id) {
-      resetCompositeRouteForm();
-    }
-    appStore.showSuccess(t("admin.groups.compositeRoutes.routeDeleted"));
-    await loadCompositeRoutes();
-  } catch (error: any) {
-    appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
-        t("admin.groups.compositeRoutes.failedToDelete"),
-    );
-    console.error("Error deleting composite route:", error);
-  }
-};
-
-const previewCompositeRoute = async () => {
-  if (!compositeRoutesGroup.value || !compositePreviewModel.value.trim()) {
-    return;
-  }
-  compositePreviewLoading.value = true;
-  try {
-    compositePreviewDecision.value = await adminAPI.groups.previewCompositeRoute(
-      compositeRoutesGroup.value.id,
-      {
-        model: compositePreviewModel.value.trim(),
-        endpoint: compositePreviewEndpoint.value,
-      },
-    );
-  } catch (error: any) {
-    appStore.showError(
-      error.response?.data?.detail ||
-        error.response?.data?.message ||
-        t("admin.groups.compositeRoutes.failedToPreview"),
-    );
-    console.error("Error previewing composite route:", error);
-  } finally {
-    compositePreviewLoading.value = false;
-  }
-};
-
 const handleDelete = (group: AdminGroup) => {
   deletingGroup.value = group;
   showDeleteDialog.value = true;
@@ -6551,7 +5029,7 @@ const confirmDelete = async () => {
     loadGroups();
   } catch (error: any) {
     appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToDelete"),
+      extractApiErrorMessage(error, '') || t("admin.groups.failedToDelete"),
     );
     console.error("Error deleting group:", error);
   }
@@ -6729,50 +5207,6 @@ const handleClickOutside = (event: MouseEvent) => {
   }
   if (columnDropdownRef.value && !columnDropdownRef.value.contains(target)) {
     showColumnDropdown.value = false;
-  }
-};
-
-// 打开排序弹窗
-const openSortModal = async () => {
-  try {
-    // 获取所有分组（不分页）
-    const allGroups = await adminAPI.groups.getAll();
-    // 按 sort_order 排序
-    sortableGroups.value = [...allGroups].sort(
-      (a, b) => a.sort_order - b.sort_order,
-    );
-    showSortModal.value = true;
-  } catch (error) {
-    appStore.showError(t("admin.groups.failedToLoad"));
-    console.error("Error loading groups for sorting:", error);
-  }
-};
-
-// 关闭排序弹窗
-const closeSortModal = () => {
-  showSortModal.value = false;
-  sortableGroups.value = [];
-};
-
-// 保存排序
-const saveSortOrder = async () => {
-  sortSubmitting.value = true;
-  try {
-    const updates = sortableGroups.value.map((g, index) => ({
-      id: g.id,
-      sort_order: index * 10,
-    }));
-    await adminAPI.groups.updateSortOrder(updates);
-    appStore.showSuccess(t("admin.groups.sortOrderUpdated"));
-    closeSortModal();
-    loadGroups();
-  } catch (error: any) {
-    appStore.showError(
-      error.response?.data?.detail || t("admin.groups.failedToUpdateSortOrder"),
-    );
-    console.error("Error updating sort order:", error);
-  } finally {
-    sortSubmitting.value = false;
   }
 };
 

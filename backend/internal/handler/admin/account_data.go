@@ -58,23 +58,25 @@ type DataProxy struct {
 // 影子的独立调度配置(priority/并发/分组/status 管理员可单独调)亦不在本备份范围,属已知局限
 // (外审第6轮裁决:保持排除 + 前端警告,而非升级格式做完整往返)。
 type DataAccount struct {
-	Name               string         `json:"name"`
-	Notes              *string        `json:"notes,omitempty"`
-	Platform           string         `json:"platform"`
-	Type               string         `json:"type"`
-	Credentials        map[string]any `json:"credentials"`
-	Extra              map[string]any `json:"extra,omitempty"`
-	ProxyKey           *string        `json:"proxy_key,omitempty"`
-	Concurrency        int            `json:"concurrency"`
-	Priority           int            `json:"priority"`
-	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
-	ExpiresAt          *int64         `json:"expires_at,omitempty"`
-	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired,omitempty"`
+	TPMLimit           service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
+	Name               string                   `json:"name"`
+	Notes              *string                  `json:"notes,omitempty"`
+	Platform           string                   `json:"platform"`
+	Type               string                   `json:"type"`
+	Credentials        map[string]any           `json:"credentials"`
+	Extra              map[string]any           `json:"extra,omitempty"`
+	ProxyKey           *string                  `json:"proxy_key,omitempty"`
+	Concurrency        int                      `json:"concurrency"`
+	Priority           int                      `json:"priority"`
+	RateMultiplier     *float64                 `json:"rate_multiplier,omitempty"`
+	ExpiresAt          *int64                   `json:"expires_at,omitempty"`
+	AutoPauseOnExpired *bool                    `json:"auto_pause_on_expired,omitempty"`
 }
 
 type DataImportRequest struct {
-	Data                 DataPayload `json:"data"`
-	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
+	Data                    DataPayload `json:"data"`
+	SkipDefaultGroupBind    *bool       `json:"skip_default_group_bind"`
+	ConfirmMixedChannelRisk *bool       `json:"confirm_mixed_channel_risk,omitempty"`
 }
 
 type DataImportResult struct {
@@ -207,6 +209,7 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Credentials:        acc.Credentials,
 			Extra:              acc.Extra,
 			ProxyKey:           proxyKey,
+			TPMLimit:           service.OptionalTPMLimit{Value: acc.TPMLimit, Present: true},
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
 			RateMultiplier:     acc.RateMultiplier,
@@ -243,6 +246,22 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 }
 
 func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
+	var result DataImportResult
+	if err := requireCredentialDraftStore(h.credentialDrafts); err != nil {
+		return result, err
+	}
+	err := h.credentialDrafts.RunAccountWriteTransaction(ctx, func(transactionContext context.Context) error {
+		var err error
+		result, err = h.importDataInTransaction(transactionContext, req)
+		return err
+	})
+	if err != nil {
+		return DataImportResult{}, err
+	}
+	return result, nil
+}
+
+func (h *AccountHandler) importDataInTransaction(ctx context.Context, req DataImportRequest) (DataImportResult, error) {
 	skipDefaultGroupBind := true
 	if req.SkipDefaultGroupBind != nil {
 		skipDefaultGroupBind = *req.SkipDefaultGroupBind
@@ -275,21 +294,21 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			key = buildProxyKey(item.Protocol, item.Host, item.Port, item.Username, item.Password)
 		}
 		if err := validateDataProxy(item); err != nil {
-			result.ProxyFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:     "proxy",
-				Name:     item.Name,
-				ProxyKey: key,
-				Message:  err.Error(),
-			})
-			continue
+			return result, infraerrors.BadRequest("INVALID_ACCOUNT_IMPORT", err.Error())
 		}
 		normalizedStatus := normalizeProxyStatus(item.Status)
 		if existingID, ok := proxyKeyToID[key]; ok {
 			proxyKeyToID[key] = existingID
 			result.ProxyReused++
 			if normalizedStatus != "" {
-				if proxy, getErr := h.adminService.GetProxy(ctx, existingID); getErr == nil && proxy != nil && proxy.Status != normalizedStatus {
+				proxy, getErr := h.adminService.GetProxy(ctx, existingID)
+				if getErr != nil {
+					return result, getErr
+				}
+				if proxy == nil {
+					return result, service.ErrProxyNotFound
+				}
+				if proxy.Status != normalizedStatus {
 					// 同步 status 时传入完整字段，避免零值覆盖已存在代理的有效期/fallback 配置。
 					var existingExpiresAt *time.Time
 					if item.ExpiresAt != nil {
@@ -304,9 +323,11 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 					if item.BackupProxyName != "" {
 						if bid, ok := proxyNameToID[item.BackupProxyName]; ok {
 							existingBackupProxyID = &bid
+						} else {
+							return result, infraerrors.BadRequest("INVALID_ACCOUNT_IMPORT", fmt.Sprintf("backup_proxy_name %q not found", item.BackupProxyName))
 						}
 					}
-					_, _ = h.adminService.UpdateProxy(ctx, existingID, &service.UpdateProxyInput{
+					_, updateErr := h.adminService.UpdateProxy(ctx, existingID, &service.UpdateProxyInput{
 						Status:         normalizedStatus,
 						ExpiresAt:      existingExpiresAt,
 						ClearExpiresAt: existingExpiresAt == nil,
@@ -321,6 +342,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 						Username:       &proxy.Username,
 						Password:       &proxy.Password,
 					})
+					if updateErr != nil {
+						return result, updateErr
+					}
 				}
 			}
 			continue
@@ -340,14 +364,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			if bid, ok := proxyNameToID[item.BackupProxyName]; ok {
 				backupProxyID = &bid
 			} else {
-				// 查不到备用代理：降级 fallback_mode=none，记录 warning
-				fallbackMode = service.FallbackModeNone
-				result.Errors = append(result.Errors, DataImportError{
-					Kind:     "proxy",
-					Name:     item.Name,
-					ProxyKey: key,
-					Message:  fmt.Sprintf("backup_proxy_name %q not found, fallback_mode downgraded to none", item.BackupProxyName),
-				})
+				return result, infraerrors.BadRequest("INVALID_ACCOUNT_IMPORT", fmt.Sprintf("backup_proxy_name %q not found", item.BackupProxyName))
 			}
 		}
 
@@ -364,14 +381,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			ExpiryWarnDays: item.ExpiryWarnDays,
 		})
 		if createErr != nil {
-			result.ProxyFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:     "proxy",
-				Name:     item.Name,
-				ProxyKey: key,
-				Message:  createErr.Error(),
-			})
-			continue
+			return result, accountWriteError(createErr)
 		}
 		proxyKeyToID[key] = created.ID
 		// 把新建代理的 name 也加入反查表，供后续批内代理引用
@@ -382,7 +392,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 		if normalizedStatus != "" && normalizedStatus != created.Status {
 			// 新建后同步 status 时，传入完整字段，避免零值覆盖刚创建的有效期/fallback 配置。
-			_, _ = h.adminService.UpdateProxy(ctx, created.ID, &service.UpdateProxyInput{
+			_, updateErr := h.adminService.UpdateProxy(ctx, created.ID, &service.UpdateProxyInput{
 				Status:         normalizedStatus,
 				ExpiresAt:      expiresAt,
 				ClearExpiresAt: expiresAt == nil,
@@ -397,6 +407,9 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				Username:       &created.Username,
 				Password:       &created.Password,
 			})
+			if updateErr != nil {
+				return result, updateErr
+			}
 		}
 	}
 
@@ -406,13 +419,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 	for i := range dataPayload.Accounts {
 		item := dataPayload.Accounts[i]
 		if err := validateDataAccount(item); err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:    "account",
-				Name:    item.Name,
-				Message: err.Error(),
-			})
-			continue
+			return result, infraerrors.BadRequest("INVALID_ACCOUNT_IMPORT", err.Error())
 		}
 
 		var proxyID *int64
@@ -420,69 +427,63 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			if id, ok := proxyKeyToID[*item.ProxyKey]; ok {
 				proxyID = &id
 			} else {
-				result.AccountFailed++
-				result.Errors = append(result.Errors, DataImportError{
-					Kind:     "account",
-					Name:     item.Name,
-					ProxyKey: *item.ProxyKey,
-					Message:  "proxy_key not found",
-				})
-				continue
+				return result, infraerrors.BadRequest("INVALID_ACCOUNT_IMPORT", "proxy_key not found")
 			}
 		}
 
 		enrichCredentialsFromIDToken(&item)
+		// 引用标识是本部署内的本地绑定，不随备份/导入跨账号迁移；备份中的
+		// resolved 明文保留，导入条目按 inline 形式落地（与既有备份口径一致）。
+		service.StripCredentialReferenceKeys(item.Credentials)
 
 		accountInput := &service.CreateAccountInput{
-			Name:                 item.Name,
-			Notes:                item.Notes,
-			Platform:             item.Platform,
-			Type:                 item.Type,
-			Credentials:          item.Credentials,
-			Extra:                item.Extra,
-			ProxyID:              proxyID,
-			Concurrency:          item.Concurrency,
-			Priority:             item.Priority,
-			RateMultiplier:       item.RateMultiplier,
-			GroupIDs:             nil,
-			ExpiresAt:            item.ExpiresAt,
-			AutoPauseOnExpired:   item.AutoPauseOnExpired,
-			SkipDefaultGroupBind: skipDefaultGroupBind,
+			SkipMixedChannelCheck: req.ConfirmMixedChannelRisk != nil && *req.ConfirmMixedChannelRisk,
+			Name:                  item.Name,
+			Notes:                 item.Notes,
+			Platform:              item.Platform,
+			Type:                  item.Type,
+			Credentials:           item.Credentials,
+			Extra:                 item.Extra,
+			ProxyID:               proxyID,
+			TPMLimit:              item.TPMLimit.Value,
+			Concurrency:           item.Concurrency,
+			Priority:              item.Priority,
+			RateMultiplier:        item.RateMultiplier,
+			GroupIDs:              nil,
+			ExpiresAt:             item.ExpiresAt,
+			AutoPauseOnExpired:    item.AutoPauseOnExpired,
+			SkipDefaultGroupBind:  skipDefaultGroupBind,
 		}
 
 		created, err := h.adminService.CreateAccount(ctx, accountInput)
 		if err != nil {
-			result.AccountFailed++
-			result.Errors = append(result.Errors, DataImportError{
-				Kind:    "account",
-				Name:    item.Name,
-				Message: err.Error(),
-			})
-			continue
+			return result, accountWriteError(err)
 		}
 		// 收集 Antigravity OAuth 账号，稍后异步设置隐私
 		if created.Platform == service.PlatformAntigravity && created.Type == service.AccountTypeOAuth {
 			privacyAccounts = append(privacyAccounts, created)
 		}
-		h.scheduleGrokImportProbe(created)
+		service.AfterAccountWriteCommit(ctx, func() { h.scheduleGrokImportProbe(created) })
 		result.AccountCreated++
 	}
 
 	// 异步设置 Antigravity 隐私，避免大量导入时阻塞请求
 	if len(privacyAccounts) > 0 {
 		adminSvc := h.adminService
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					slog.Error("import_antigravity_privacy_panic", "recover", r)
+		service.AfterAccountWriteCommit(ctx, func() {
+			go func() {
+				defer func() {
+					if r := recover(); r != nil {
+						slog.Error("import_antigravity_privacy_panic", "recover", r)
+					}
+				}()
+				bgCtx := context.Background()
+				for _, acc := range privacyAccounts {
+					adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
 				}
+				slog.Info("import_antigravity_privacy_done", "count", len(privacyAccounts))
 			}()
-			bgCtx := context.Background()
-			for _, acc := range privacyAccounts {
-				adminSvc.ForceAntigravityPrivacy(bgCtx, acc)
-			}
-			slog.Info("import_antigravity_privacy_done", "count", len(privacyAccounts))
-		}()
+		})
 	}
 
 	return result, nil

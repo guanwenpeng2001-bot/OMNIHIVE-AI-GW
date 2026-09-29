@@ -1076,6 +1076,10 @@ func (state *opsCaptureWriterState) shouldCapture() bool {
 // - Streaming errors after the response has started (SSE) may still need explicit logging.
 func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		finishBudget := installAttemptBudget(c)
+		defer finishBudget()
+		finishIngress := service.BeginOpsIngress()
+		defer finishIngress()
 		originalWriter := c.Writer
 		w := acquireOpsCaptureWriter(originalWriter)
 		w.setContext(c)
@@ -1139,11 +1143,13 @@ func OpsErrorLoggerMiddleware(ops *service.OpsService) gin.HandlerFunc {
 
 		// Skip logging if a passthrough rule with skip_monitoring=true matched.
 		if shouldSkipFinalOpsFailure(c) {
+			service.RecordOpsSuppressedFailure(true)
 			return
 		}
 
 		// Skip logging if the error should be filtered based on settings
-		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Message, string(body), c.Request.URL.Path) {
+		if shouldSkipOpsErrorLog(c.Request.Context(), ops, parsed.Message, string(body), c.Request.URL.Path) || shouldSkipOpsClientClosed(c, ops, status) {
+			service.RecordOpsSuppressedFailure(false)
 			return
 		}
 
@@ -1434,11 +1440,13 @@ func opsStreamErrorsAllRequestScoped(streamErrs []service.OpsStreamError) bool {
 func logOpsStreamErrorValue(c *gin.Context, ops *service.OpsService, wireStatus int, streamErr service.OpsStreamError) {
 	// 命中 skip_monitoring=true 透传规则的请求跳过落库，与其它分支一致。
 	if streamErr.SkipMonitoring || (streamErr.Turn == 0 && !streamErr.RequestScoped && shouldSkipFinalOpsFailure(c)) {
+		service.RecordOpsSuppressedFailure(true)
 		return
 	}
 
 	// 复用与 status>=400 分支相同的设置过滤（context canceled / 无可用账号等）。
 	if shouldSkipOpsErrorLog(c.Request.Context(), ops, streamErr.Message, streamErr.Message, c.Request.URL.Path) {
+		service.RecordOpsSuppressedFailure(false)
 		return
 	}
 
@@ -1911,12 +1919,7 @@ func parseOpsSSEFailure(body []byte) (parsedOpsError, bool) {
 				parsed.ErrorType = ""
 			}
 			parsed.Message, _ = errObj["message"].(string)
-			switch code := errObj["code"].(type) {
-			case string:
-				parsed.Code = strings.TrimSpace(code)
-			case float64:
-				parsed.Code = strconvItoa(int(code))
-			}
+			parsed.Code = opsJSONScalarString(errObj["code"])
 			parsed.StatusCode = opsJSONInt(errObj["status_code"])
 			if parsed.StatusCode == 0 {
 				parsed.StatusCode = opsJSONInt(errObj["status"])
@@ -2489,6 +2492,21 @@ func shouldSkipOpsErrorLog(ctx context.Context, ops *service.OpsService, message
 	}
 
 	return false
+}
+
+// shouldSkipOpsClientClosed 按 IgnoreContextCanceled 过滤纯客户端取消的 499。
+// 499 表示客户端在响应提交前断开（见 failoverClientGone），通常不带
+// "context canceled" 文案，shouldSkipOpsErrorLog 的文本过滤命中不了。
+// 本次请求未观察到上游错误时是纯客户端取消；已有上游错误的 499 表示上游失败后
+// 客户端没等到换号结果就离开，仍按上游失败落库。
+func shouldSkipOpsClientClosed(c *gin.Context, ops *service.OpsService, status int) bool {
+	if status != statusClientClosedRequest || ops == nil {
+		return false
+	}
+	if !ops.OpsAdvancedSettingsSnapshot().IgnoreContextCanceled {
+		return false
+	}
+	return !hasOpsUpstreamErrorContext(c)
 }
 
 // shouldSkipOpsErrorLogForCyber：cyber_policy 命中的请求由 recordCyberPolicyIfMarked

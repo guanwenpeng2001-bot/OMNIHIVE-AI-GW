@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -98,6 +99,13 @@ func cloneAccountJSONMap(value map[string]any) (map[string]any, error) {
 }
 
 var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
+	// Discovery evidence, review revisions and probe state belong to the source account.
+	UpstreamModelCatalogExtraKey:      {},
+	UpstreamModelCatalogStateExtraKey: {},
+	UpstreamModelMetadataExtraKey:     {},
+	UpstreamModelAllowlistExtraKey:    {},
+	ModelAvailabilityExtraKey:         {},
+	ModelProbeBudgetExtraKey:          {},
 	// A retry identity belongs to the operation that created one copy, not to later copies.
 	duplicateAccountOperationIDExtraKey: {},
 	// External sync identity belongs to one local account only.
@@ -272,6 +280,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 	if err != nil {
 		return nil, fmt.Errorf("clone account credentials: %w", err)
 	}
+	StripCredentialReferenceKeys(credentials)
 	if source.IsCursorNative() {
 		delete(credentials, "machine_id")
 		delete(credentials, "mac_machine_id")
@@ -310,6 +319,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
+		TPMLimit:              source.TPMLimit,
 		Concurrency:           source.Concurrency,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
@@ -418,6 +428,9 @@ func normalizeOpenAILongContextBillingUpdateExtra(account *Account, input *Updat
 // Grok media eligibility helpers live in account_grok_media_eligibility.go.
 
 func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]any) (*Account, error) {
+	if input.TPMLimit < 0 {
+		return nil, fmt.Errorf("tpm_limit must be non-negative")
+	}
 	// Probe/session state is system-managed. New accounts always start with automatic refresh disabled.
 	delete(accountExtra, UpstreamBillingProbeEnabledExtraKey)
 	delete(accountExtra, UpstreamBillingRateSyncEnabledExtraKey)
@@ -434,10 +447,14 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Credentials: input.Credentials,
 		Extra:       accountExtra,
 		ProxyID:     input.ProxyID,
+		TPMLimit:    input.TPMLimit,
 		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:    input.Priority,
 		Status:      StatusActive,
 		Schedulable: true,
+	}
+	if err := validateExpandedPlatformAccount(account); err != nil {
+		return nil, err
 	}
 	if err := NormalizeCursorAccount(account); err != nil {
 		return nil, err
@@ -540,6 +557,17 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err := s.ValidateAccountGroupBindings(ctx, groupIDs); err != nil {
 		return nil, err
 	}
+	if dbent.TxFromContext(ctx) != nil {
+		groups := make([]AccountGroup, 0, len(groupIDs))
+		for position, groupID := range groupIDs {
+			groups = append(groups, AccountGroup{GroupID: groupID, Priority: position + 1})
+		}
+		if err := s.accountDuplicateRepo.CreateWithAccountGroups(ctx, account, groups); err != nil {
+			return nil, err
+		}
+		// The draft confirmation caller publishes effects after committing.
+		return account, nil
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, err
 	}
@@ -586,6 +614,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	defer s.captureRuntimeInvalidation(ctx, account)()
 	previousCredentials := account.Credentials
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
@@ -802,6 +831,12 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 	// 只在指针非 nil 时更新 Concurrency（支持设置为 0）
+	if input.TPMLimit != nil {
+		if *input.TPMLimit < 0 {
+			return nil, fmt.Errorf("tpm_limit must be non-negative")
+		}
+		account.TPMLimit = *input.TPMLimit
+	}
 	if input.Concurrency != nil {
 		account.Concurrency = normalizeAccountConcurrency(account.Platform, account.Type, *input.Concurrency)
 	}
@@ -863,6 +898,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if err := validateExpandedPlatformAccount(account); err != nil {
+		return nil, err
+	}
 	if err := NormalizeCursorAccount(account); err != nil {
 		return nil, err
 	}
@@ -890,6 +928,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if cursorRefreshStateRecovered {
 		recovery, ok := s.accountRepo.(CursorAccountRecoveryRepository)
 		if !ok {
+			//nolint:staticcheck // ST1005: surfaced verbatim to the admin API caller, so the capitalised wording is client-visible.
 			return nil, errors.New("Cursor account recovery repository is not configured")
 		}
 		if err := recovery.UpdateWithCursorRefreshRecovery(ctx, account, requestedProbeEnabledUpdate, requestedRateSyncEnabledUpdate, input.RateMultiplier); err != nil {
@@ -954,7 +993,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.GroupIDs = *input.GroupIDs
 	}
 	// 账号编辑（模型映射/配额/分组）落库成功后立即失效网关模型列表缓存。
-	InvalidateAvailableModelsCacheForAccount(account)
+	if dbent.TxFromContext(ctx) == nil {
+		InvalidateAvailableModelsCacheForAccount(account)
+	}
 
 	// Credentials-only Cursor reauthorization already has the persisted account.
 	// A redundant read must not turn a committed PKCE login into a failed session.
@@ -973,6 +1014,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if s.runtimeInvalidator != nil {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		defer s.captureRuntimeInvalidation(ctx, account)()
+	}
+
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -1043,12 +1092,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if input.Concurrency != nil || len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if s.runtimeInvalidator != nil || input.Concurrency != nil || len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
 		}
 		cachedTargets = loaded
+	}
+
+	if s.runtimeInvalidator != nil {
+		for _, target := range cachedTargets {
+			defer s.captureRuntimeInvalidation(ctx, target)()
+		}
 	}
 	for _, target := range cachedTargets {
 		if !target.IsCursor() {
@@ -1174,7 +1229,11 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	}
 
 	// Prepare bulk updates for columns and JSONB fields.
+	if input.TPMLimit != nil && *input.TPMLimit < 0 {
+		return nil, fmt.Errorf("tpm_limit must be non-negative")
+	}
 	repoUpdates := AccountBulkUpdate{
+		TPMLimit:                   input.TPMLimit,
 		Credentials:                input.Credentials,
 		Extra:                      input.Extra,
 		ProbeEnabled:               input.ProbeEnabled,
@@ -1354,6 +1413,14 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
+	if s.runtimeInvalidator != nil {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		defer s.captureRuntimeInvalidation(ctx, account)()
+	}
+
 	// 级联删除 spark 影子账号（先删影子，再删母账号）
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {
@@ -1886,4 +1953,11 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 	}
 	applyAntigravityPrivacyMode(account, mode)
 	return mode
+}
+
+func validateExpandedPlatformAccount(account *Account) error {
+	if account.Platform == PlatformComposite || (IsChatOnlyPlatform(account.Platform) && account.Type != AccountTypeAPIKey) || (account.Platform == PlatformBedrock && account.Type != AccountTypeBedrock) {
+		return infraerrors.BadRequest("INVALID_PLATFORM_ACCOUNT_TYPE", "Account type does not match the platform runtime")
+	}
+	return nil
 }

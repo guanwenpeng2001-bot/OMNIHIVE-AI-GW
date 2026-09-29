@@ -117,11 +117,25 @@ export default {
   // Key Usage Query Page
   keyUsage: {
     title: 'API Key 用量查询',
-    subtitle: '输入您的 API Key 以查看实时消费金额与使用状态',
-    placeholder: 'sk-ant-mirror-xxxxxxxxxxxx',
+    subtitle: '登录后可按 Key ID 查询自己的密钥；也可粘贴外部持有的密钥查询用量与状态',
+    placeholder: '粘贴你的 API Key（本站默认为 sk- 开头的密钥）',
     query: '查询',
     querying: '查询中...',
-    privacyNote: '您的 Key 仅在浏览器本地处理，不会被存储',
+    privacyNote: '粘贴的密钥只用作本次 /v1/usage 请求头，不写入浏览器存储；查询会发往本站。',
+    secretQuery: {
+      title: '外部密钥查询（粘贴完整密钥）'
+    },
+    sessionQuery: {
+      title: '按 Key ID 查询（登录会话）',
+      description: '直接选择自己的密钥查询配额、限速与按日用量，不需要粘贴密钥。',
+      keyLabel: '我的密钥',
+      placeholder: '请选择密钥',
+      noKeys: '当前账号没有可查询的密钥。',
+      noGroup: '未绑定分组',
+      signedOutHint: '登录后可选择自己的密钥直接按 Key ID 查询，无需粘贴密钥。'
+    },
+    panelModeNotice:
+      '本结果来自登录会话：展示面板已知的配额、限速、过期时间与按日用量。逐请求 token 明细需要密钥本身（只在创建或轮换时显示一次），不在此展示；订阅窗口请在「我的订阅」查看。',
     dateRange: '统计范围:',
     dateRangeToday: '今日',
     dateRange7d: '7 天',
@@ -192,6 +206,10 @@ export default {
 
   // Setup Wizard
   setup: {
+    connectionFailed: '连接失败',
+    installationFailed: '安装失败',
+    bootstrapToken: '本机安装凭据',
+    bootstrapTokenHint: '从服务器数据目录读取 setup-bootstrap-token；凭据每次请求后自动轮换，安装窗口为 30 分钟。',
     title: 'Sub2API 安装向导',
     description: '配置您的 Sub2API 实例',
     database: {

@@ -94,7 +94,7 @@ func TestFetchOpenAIAccountModelsOAuthLabelsLocalImageModelsLikeUpstream(t *test
 		byID[model.ID] = model.DisplayName
 	}
 	require.Equal(t, "GPT-5.6 Sol", byID["gpt-5.6-sol"], "upstream slug must not be the only label source")
-	require.Equal(t, "GPT Image 2.5 Flare", byID["gpt-image-2.5-flare"], "locally added models use the same naming rule")
+	require.Equal(t, "gpt-image-2.5-flare", byID["gpt-image-2.5-flare"], "locally added models use the approved preset label")
 }
 
 func TestFetchOpenAIAccountModelsOAuthRespectsImageAllowlist(t *testing.T) {

@@ -83,3 +83,8 @@ deploy/redis_data/
 .claude/
 issues/
 CLAUDE.md
+
+# Local process and dependency audit artifacts
+.pi/
+**/.pi/
+**/audit.json

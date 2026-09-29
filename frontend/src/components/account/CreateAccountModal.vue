@@ -3,8 +3,28 @@
     :show="show"
     :title="t('admin.accounts.createAccount')"
     width="wide"
-    @close="handleClose"
+    @close="handleClose(true)"
   >
+    <p v-if="presetError" role="alert" class="mb-3 text-sm text-red-600">
+      {{ presetError }} <button type="button" class="underline" @click="reloadPresets">{{ t('common.refresh') }}</button>
+    </p>
+    <section v-if="createdCatalogAccounts.length" data-testid="created-catalog-accounts" class="space-y-4">
+      <p role="status">{{ t('admin.accounts.modelSync.savedReviewRequired') }}</p>
+      <div v-for="saved in createdCatalogAccounts" :key="saved.id">
+        <h3 class="font-medium">#{{ saved.id }} · {{ t('admin.accounts.modelSync.configureModels') }}</h3>
+        <ModelWhitelistSelector :active="show" :account-id="saved.id" :platform="saved.platform" :model-value="[]" catalog-only @catalog-applied="emit('created')" />
+      </div>
+    </section>
+    <section v-if="pendingAccountRequests.length" class="space-y-4" data-testid="account-review">
+      <h2 class="input-label" tabindex="-1">{{ t('admin.accounts.modelSync.configureModels') }}</h2>
+      <Select v-if="pendingAccountRequests.length > 1" v-model="selectedReviewIndex" :options="pendingAccountRequests.map((payload, index) => ({ value: index, label: payload.name }))" />
+      <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
+      <AccountModelConfigurationSection v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings"
+        :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
+        :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" :capability-defaults-json="capabilityDefaultsJSON" />
+      <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
+    </section>
+    <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
     <!-- Step Indicator for OAuth accounts -->
     <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
@@ -70,28 +90,140 @@
       <!-- Platform Selection - Segmented Control Style -->
       <div>
         <label class="input-label">{{ t('admin.accounts.platform') }}</label>
-        <div class="mt-2 flex flex-wrap rounded-lg bg-gray-100 p-1 dark:bg-dark-700" data-tour="account-form-platform">
-          <button v-for="option in CONCRETE_PLATFORM_OPTIONS" :key="option.value"
-            type="button" :data-testid="`${option.value}-platform`" @click="selectPlatform(option.value)"
-            :class="['flex items-center justify-center gap-2 rounded-md px-3 py-2.5 text-sm font-medium transition-all', form.platform === option.value ? 'bg-white text-primary-600 shadow-sm dark:bg-dark-600 dark:text-primary-400' : 'text-gray-600 hover:text-gray-900 dark:text-gray-400 dark:hover:text-gray-200']">
-            <PlatformIcon :platform="option.value" size="sm" />{{ getPlatformLabel(option.value, t) }}
+        <AccountPlatformSelector :model-value="accountCategory === 'bedrock' ? 'bedrock' : accountCategory === 'service_account' ? 'vertex' : form.platform" @select="selectPlatform" />
+      </div>
+      <!-- Account Type Selection (Cursor): 三张一级卡先于协议与凭据，直接决定实际请求类型 -->
+      <div v-if="form.platform === 'cursor'">
+        <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="cursor-key-mode-auto"
+            @click="accountCategory = 'oauth-based'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'oauth-based'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'oauth-based'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="sparkles" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.auto') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.autoDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            data-testid="cursor-key-mode-official"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.official') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.officialDesc') }}</span>
+            </div>
+          </button>
+          <button
+            type="button"
+            data-testid="cursor-key-mode-relay"
+            @click="accountCategory = 'upstream'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'upstream'
+                ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
+                : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
+            ]" role="radio" :aria-checked="accountCategory === 'upstream'" :tabindex="accountCategory === 'upstream' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'upstream'
+                  ? 'bg-zinc-900 text-white'
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="server" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cursor.relay') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cursor.relayDesc') }}</span>
+            </div>
           </button>
         </div>
       </div>
-      <NewPlatformNotice :platform="form.platform" :api-key="apiKeyValue" />
-      <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
-      <div v-if="form.platform === 'cursor' && cursorKeyMode === 'relay'" class="flex items-center justify-between gap-4">
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.autoProbeHint') }}</p>
+      <!-- Account Type (Command Code): 只读说明，无模式切换、无伪造额度 -->
+      <div v-if="form.platform === 'commandcode'" data-tour="account-form-type">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <div data-testid="commandcode-account-type-card" role="note" class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-700/40">
+          <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeTitle') }}</p>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.commandcodeAccountTypeDescription') }}</p>
         </div>
-        <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
       </div>
-      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @success="emit('created'); handleClose()" />
+      <!-- Account Type (后加平台)：后端只声明 API Key 一种账号类型，用与 Anthropic / Cursor 一致的卡片结构渲染 -->
+      <div v-if="declaredProtocolPlatform" data-testid="late-platform-account-type">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
+          <button
+            type="button"
+            data-testid="late-platform-account-type-apikey"
+            @click="accountCategory = 'apikey'"
+            :class="[
+              'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
+              accountCategory === 'apikey'
+                ? cnAccentActiveClass
+                : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
+          >
+            <div
+              :class="[
+                'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg',
+                accountCategory === 'apikey'
+                  ? cnAccentIconClass
+                  : 'bg-gray-100 text-gray-500 dark:bg-dark-600 dark:text-gray-400'
+              ]"
+            >
+              <Icon name="key" size="sm" />
+            </div>
+            <div>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.apiKey') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.platformDetails.apiKeyOnlyAccountTypeDescription') }}</span>
+            </div>
+          </button>
+        </div>
+      </div>
+      <div v-if="showsAccountTypeSummary" data-testid="account-type-summary">
+        <p class="input-label">{{ t('admin.accounts.accountType') }}</p>
+        <p class="rounded-lg border-2 border-primary-500 bg-primary-50 p-3 text-sm font-medium text-gray-900 dark:bg-primary-900/20 dark:text-white">{{ t('admin.accounts.apiKey') }}</p>
+      </div>
       <!-- Account Type Selection (Anthropic) -->
       <div v-if="form.platform === 'anthropic'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-4" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -100,7 +232,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-orange-500 bg-orange-50 dark:bg-orange-900/20'
                 : 'border-gray-200 hover:border-orange-300 dark:border-dark-600 dark:hover:border-orange-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -130,7 +262,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -160,7 +292,7 @@
               accountCategory === 'bedrock'
                 ? 'border-amber-500 bg-amber-50 dark:bg-amber-900/20'
                 : 'border-gray-200 hover:border-amber-300 dark:border-dark-600 dark:hover:border-amber-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'bedrock'" :tabindex="accountCategory === 'bedrock' ? 0 : -1"
           >
             <div
               :class="[
@@ -190,7 +322,7 @@
               accountCategory === 'service_account'
                 ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
                 : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
               :class="[
@@ -221,7 +353,7 @@
       <!-- Account Type Selection (OpenAI) -->
       <div v-if="form.platform === 'openai'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-2 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -230,7 +362,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-green-500 bg-green-50 dark:bg-green-900/20'
                 : 'border-gray-200 hover:border-green-300 dark:border-dark-600 dark:hover:border-green-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -256,7 +388,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -280,7 +412,7 @@
       <!-- Account Type Selection (Grok) -->
       <div v-if="form.platform === 'grok'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -289,7 +421,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-zinc-800 bg-zinc-50 dark:bg-zinc-900/30'
                 : 'border-gray-200 hover:border-zinc-400 dark:border-dark-600 dark:hover:border-zinc-600'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -316,7 +448,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -336,10 +468,10 @@
         </div>
       </div>
 
-      <!-- OpenCode Zen vs Go -->
-      <div v-if="isOpenCodeGoPlatform">
+      <!-- OpenCode Zen vs Go：该平台唯一的一级账号入口 -->
+      <div v-if="isOpenCodeGoPlatform" data-tour="account-form-type">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="openCodeAccountMode = 'zen'"
@@ -348,7 +480,7 @@
               openCodeAccountMode === 'zen'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="openCodeAccountMode === 'zen'" :tabindex="openCodeAccountMode === 'zen' ? 0 : -1"
           >
             <div
               :class="[
@@ -371,7 +503,7 @@
               openCodeAccountMode === 'go'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="openCodeAccountMode === 'go'" :tabindex="openCodeAccountMode === 'go' ? 0 : -1"
           >
             <div
               :class="[
@@ -389,10 +521,11 @@
         </div>
       </div>
 
-      <!-- Account Mode Selection (Kimi / Zhipu / DeepSeek) -->
-      <div v-if="isCNPlatform && form.platform !== 'qianwen'">
+      <!-- Account Mode Selection (国产多协议供应商 + 后加四家)：账号一级入口；DeepSeek / Mistral 保留单项按量付费卡，
+           千问没有套餐端点不显示此卡。后加平台的 API Key 类型卡另有一个锚点（见 cnModeTourAnchor） -->
+      <div v-if="accountModeCardVisible">
         <label class="input-label">{{ t('admin.accounts.cnProviders.accountMode.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" data-tour="account-form-mode">
+        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-2" :data-tour="cnModeTourAnchor" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.accountMode.title')" @keydown="navigateAccountChoices">
           <!-- Pay-as-you-go (token balance) -->
           <button
             type="button"
@@ -402,7 +535,7 @@
               accountMode === 'payg'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="accountMode === 'payg'" :tabindex="accountMode === 'payg' ? 0 : -1"
           >
             <div
               :class="[
@@ -419,9 +552,9 @@
               <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cnProviders.accountMode.paygDesc') }}</span>
             </div>
           </button>
-          <!-- Coding Plan (kimi / zhipu only — DeepSeek has no coding plan) -->
+          <!-- Coding Plan：DeepSeek 与 Mistral 官方只有按量付费，不给它们编造套餐入口 -->
           <button
-            v-if="form.platform !== 'deepseek'"
+            v-if="codingPlanModeVisible"
             type="button"
             @click="accountMode = 'coding'"
             :class="[
@@ -429,7 +562,7 @@
               accountMode === 'coding'
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="accountMode === 'coding'" :tabindex="accountMode === 'coding' ? 0 : -1"
           >
             <div
               :class="[
@@ -443,27 +576,29 @@
             </div>
             <div>
               <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.cnProviders.accountMode.coding') }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.cnProviders.accountMode.codingDesc') }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(codingModeDescriptionKey) }}</span>
             </div>
           </button>
         </div>
+        <p v-if="paygOnlyNoteKey" class="input-hint" data-testid="account-mode-payg-only-note">{{ t(paygOnlyNoteKey) }}</p>
       </div>
 
-      <!-- API Protocol Selection (Kimi / Zhipu / DeepSeek / OpenCode) -->
-      <div v-if="isMultiProtocolPlatform" class="mt-4">
+      <!-- API Protocol Selection (国产多协议平台 / 后加平台 / Cursor Relay)：同一份网格与选项计算 -->
+      <div v-if="isMultiProtocolPlatform || declaredProtocolPlatform || isCursorRelay" class="mt-4">
         <label class="input-label">{{ t('admin.accounts.cnProviders.apiProtocol.title') }}</label>
-        <div class="mt-2 grid grid-cols-1 gap-3 sm:grid-cols-3">
+        <div class="mt-2 grid grid-cols-1 gap-3" :class="isCursorRelay ? 'sm:grid-cols-2' : 'sm:grid-cols-3'" data-testid="account-protocol-choices" role="radiogroup" :aria-label="t('admin.accounts.cnProviders.apiProtocol.title')" @keydown="navigateAccountChoices">
           <button
-            v-for="opt in cnProtocolOptions"
+            v-for="opt in accountProtocolOptions"
             :key="opt.value"
             type="button"
+            :data-testid="opt.testId"
             @click="apiProtocol = opt.value"
             :class="[
               'flex items-center gap-3 rounded-lg border-2 p-3 text-left transition-all',
               apiProtocol === opt.value
                 ? cnAccentActiveClass
                 : 'border-gray-200 hover:border-gray-400 dark:border-dark-600 dark:hover:border-gray-600'
-            ]"
+            ]" role="radio" :aria-checked="apiProtocol === opt.value" :tabindex="apiProtocol === opt.value ? 0 : -1"
           >
             <div
               :class="[
@@ -476,12 +611,23 @@
               <Icon :name="opt.value === 'adaptive' ? 'swap' : opt.value === 'anthropic' ? 'sparkles' : opt.value === 'responses' ? 'terminal' : 'chat'" size="sm" />
             </div>
             <div>
-              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}`) }}</span>
-              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.cnProviders.apiProtocol.${opt.labelKey}Desc`) }}</span>
+              <span class="block text-sm font-medium text-gray-900 dark:text-white">{{ t(opt.titleKey) }}</span>
+              <span class="text-xs text-gray-500 dark:text-gray-400">{{ t(opt.descriptionKey) }}</span>
             </div>
           </button>
         </div>
       </div>
+
+      <!-- Cursor 凭据与专用授权：协议（Relay）之后，仅保留父级已选模式的字段 -->
+      <CursorKeyFields v-if="form.platform === 'cursor'" :mode="cursorKeyMode" v-model:auto-credentials="cursorAutoCredentials" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
+      <div v-if="isCursorRelay" class="flex items-center justify-between gap-4">
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
+          <p class="input-hint">{{ t('admin.accounts.upstreamBilling.autoProbeHint') }}</p>
+        </div>
+        <Toggle v-model="upstreamBillingAutoProbeEnabled" data-testid="upstream-billing-auto-probe" :aria-label="t('admin.accounts.upstreamBilling.autoProbe')" />
+      </div>
+      <CursorBrowserAuthorization v-if="form.platform === 'cursor' && cursorKeyMode === 'auto' && !validateModelRestrictions('combined', allowedModels, modelMappings).length" :client-version="cursorClientVersion" :account="{ ...form, platform: 'cursor', type: 'oauth', credentials: { model_mapping: buildModelMappingObject('combined', allowedModels, modelMappings) }, auto_pause_on_expired: autoPauseOnExpired }" @busy="cursorAuthorizing = $event" @draft="stageCursorAuthorization" />
 
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
@@ -528,7 +674,7 @@
             {{ t('admin.accounts.gemini.helpButton') }}
           </button>
         </div>
-        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type">
+        <div class="mt-2 grid grid-cols-3 gap-3" data-tour="account-form-type" role="radiogroup" :aria-label="t('admin.accounts.gemini.helpButton')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="accountCategory = 'oauth-based'"
@@ -537,7 +683,7 @@
               accountCategory === 'oauth-based'
                 ? 'border-blue-500 bg-blue-50 dark:bg-blue-900/20'
                 : 'border-gray-200 hover:border-blue-300 dark:border-dark-600 dark:hover:border-blue-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'oauth-based'" :tabindex="accountCategory === 'oauth-based' ? 0 : -1"
           >
             <div
               :class="[
@@ -567,7 +713,7 @@
               accountCategory === 'apikey'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'apikey'" :tabindex="accountCategory === 'apikey' ? 0 : -1"
           >
             <div
               :class="[
@@ -609,7 +755,7 @@
               accountCategory === 'service_account'
                 ? 'border-sky-500 bg-sky-50 dark:bg-sky-900/20'
                 : 'border-gray-200 hover:border-sky-300 dark:border-dark-600 dark:hover:border-sky-700'
-            ]"
+            ]" role="radio" :aria-checked="accountCategory === 'service_account'" :tabindex="accountCategory === 'service_account' ? 0 : -1"
           >
             <div
               :class="[
@@ -913,7 +1059,11 @@
         <p class="input-hint">{{ t('admin.accounts.openai.codexImageToolDesc') }}</p>
         <div v-if="accountCategory === 'oauth-based'" class="space-y-3">
           <label class="input-label">{{ t('admin.accounts.openai.planType') }}
-            <input v-model="createPlanType" class="input" />
+            <div class="mt-2 grid grid-cols-2 gap-3 sm:grid-cols-3" role="radiogroup" :aria-label="t('admin.accounts.openai.planType')" @keydown="navigateAccountChoices">
+              <button v-for="option in createPlanTypeOptions" :key="option.value" type="button" @click="createPlanType = option.value"
+                :class="['rounded-lg border-2 p-3 text-left text-sm', createPlanType === option.value ? 'border-primary-500 bg-primary-50 dark:bg-primary-900/20' : 'border-gray-200 dark:border-dark-600']" role="radio" :aria-checked="createPlanType === option.value" :tabindex="createPlanType === option.value ? 0 : -1">{{ option.label }}</button>
+            </div>
+            <input v-model="createPlanType" class="input mt-2" :aria-label="t('admin.accounts.openai.planType')" />
           </label>
           <p class="input-hint">{{ t('admin.accounts.openai.planTypeDesc') }}</p>
           <label v-for="window in ['5h', '7d'] as const" :key="window" class="block input-label">
@@ -931,21 +1081,11 @@
           </div>
         </div>
       </div>
-      <div v-if="accountCategory === 'service_account'" class="space-y-3">
-        <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="form.platform" />
-        <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
-          <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
-          <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
-          <button type="button" class="btn btn-secondary" @click="modelMappings.splice(index, 1)">{{ t('common.delete') }}</button>
-        </div>
-        <button type="button" class="btn btn-secondary" @click="modelMappings.push({ from: '', to: '' })">{{ t('common.add') }}</button>
-      </div>
+
       <!-- Account Type Selection (Antigravity - OAuth or Upstream) -->
       <div v-if="form.platform === 'antigravity'">
         <label class="input-label">{{ t('admin.accounts.accountType') }}</label>
-        <div class="mt-2 grid grid-cols-2 gap-3">
+        <div class="mt-2 grid grid-cols-2 gap-3" role="radiogroup" :aria-label="t('admin.accounts.accountType')" @keydown="navigateAccountChoices">
           <button
             type="button"
             @click="antigravityAccountType = 'oauth'"
@@ -954,7 +1094,7 @@
               antigravityAccountType === 'oauth'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="antigravityAccountType === 'oauth'" :tabindex="antigravityAccountType === 'oauth' ? 0 : -1"
           >
             <div
               :class="[
@@ -980,7 +1120,7 @@
               antigravityAccountType === 'upstream'
                 ? 'border-purple-500 bg-purple-50 dark:bg-purple-900/20'
                 : 'border-gray-200 hover:border-purple-300 dark:border-dark-600 dark:hover:border-purple-700'
-            ]"
+            ]" role="radio" :aria-checked="antigravityAccountType === 'upstream'" :tabindex="antigravityAccountType === 'upstream' ? 0 : -1"
           >
             <div
               :class="[
@@ -1017,7 +1157,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
           <input
-            v-model="upstreamBaseUrl"
+            v-model="upstreamBaseUrl" data-account-field="upstreamBaseUrl"
             type="text"
             required
             class="input"
@@ -1028,7 +1168,7 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.apiKey') }}</label>
           <input
-            v-model="upstreamApiKey"
+            v-model="upstreamApiKey" data-account-field="upstreamApiKey"
             type="password"
             required
             class="input font-mono"
@@ -1109,7 +1249,7 @@
           <div>
             <label class="input-label">Project ID</label>
             <input
-              v-model="vertexProjectId"
+              v-model="vertexProjectId" data-account-field="vertexProjectId"
               type="text"
               class="input font-mono"
               readonly
@@ -1119,7 +1259,7 @@
           <div>
             <label class="input-label">Location</label>
             <select
-              v-model="vertexLocation"
+              v-model="vertexLocation" data-account-field="vertexLocation"
               required
               class="input font-mono"
             >
@@ -1142,96 +1282,7 @@
         </div>
       </div>
 
-      <!-- Antigravity model restriction (applies to OAuth + Upstream) -->
       <!-- Antigravity 只支持模型映射模式，不支持白名单模式 -->
-      <div v-if="form.platform === 'antigravity'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <!-- Mapping Mode Only (no toggle for Antigravity) -->
-        <div>
-          <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-            <p class="text-xs text-purple-700 dark:text-purple-400">
-              {{ t('admin.accounts.mapRequestModels') }}
-            </p>
-          </div>
-
-          <div v-if="antigravityModelMappings.length > 0" class="mb-3 space-y-2">
-            <div
-              v-for="(mapping, index) in antigravityModelMappings"
-              :key="getAntigravityModelMappingKey(mapping)"
-              class="space-y-1"
-            >
-              <div class="flex items-center gap-2">
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    !isValidWildcardPattern(mapping.from) ? 'border-red-500 dark:border-red-500' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg class="h-4 w-4 flex-shrink-0 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3" />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  :class="[
-                    'input flex-1',
-                    mapping.to.includes('*') ? 'border-red-500 dark:border-red-500' : ''
-                  ]"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeAntigravityModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-              <!-- 校验错误提示 -->
-              <p v-if="!isValidWildcardPattern(mapping.from)" class="text-xs text-red-500">
-                {{ t('admin.accounts.wildcardOnlyAtEnd') }}
-              </p>
-              <p v-if="mapping.to.includes('*')" class="text-xs text-red-500">
-                {{ t('admin.accounts.targetNoWildcard') }}
-              </p>
-            </div>
-          </div>
-
-          <button
-            type="button"
-            @click="addAntigravityModelMapping"
-            class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-          >
-            <svg class="mr-1 inline h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4" />
-            </svg>
-            {{ t('admin.accounts.addMapping') }}
-          </button>
-
-          <div class="flex flex-wrap gap-2">
-            <button
-              v-for="preset in antigravityPresetMappings"
-              :key="preset.label"
-              type="button"
-              @click="addAntigravityPresetMapping(preset.from, preset.to)"
-              :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-            >
-              + {{ preset.label }}
-            </button>
-          </div>
-        </div>
-      </div>
 
       <!-- Add Method (only for Anthropic OAuth-based type) -->
       <div v-if="form.platform === 'anthropic' && isOAuthFlow">
@@ -1265,7 +1316,7 @@
         <div v-if="!isMultiProtocolPlatform || apiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
           <input
-            v-model="apiKeyBaseUrl"
+            v-model="apiKeyBaseUrl" data-account-field="apiKeyBaseUrl"
             type="text"
             class="input"
             :placeholder="apiKeyBaseUrlPlaceholder"
@@ -1277,7 +1328,7 @@
             @select="apiKeyBaseUrl = $event"
           />
           <CnBaseUrlPresets
-            v-if="isCNPlatform && !isOpenCodeGoPlatform"
+            v-if="showsCnBaseUrlPresets"
             class="mt-2"
             :platform="cnPresetPlatform"
             :mode="accountMode"
@@ -1301,7 +1352,7 @@
               />
             </div>
           </div>
-          <p v-if="!cnSupportsNativeResponses(form.platform)" class="input-hint">
+          <p v-if="!hasDeclaredNativeResponses(form.platform)" class="input-hint">
             {{ t('admin.accounts.cnProviders.apiProtocol.responsesFallbackDesc') }}
           </p>
         </div>
@@ -1314,13 +1365,14 @@
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKeyRequired') }}</label>
           <input
-            v-model="apiKeyValue"
+            v-model="apiKeyValue" data-account-field="apiKeyValue"
             type="password"
             required
             class="input font-mono"
             :placeholder="apiKeyValuePlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
+          <p v-if="form.platform === 'qianwen' && apiKeyValue.trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
         </div>
 
         <!-- Only verified billing-probe platforms expose this control. -->
@@ -1348,198 +1400,6 @@
             <option value="aistudio_paid">{{ t('admin.accounts.gemini.tier.aiStudio.paid') }}</option>
           </select>
           <p class="input-hint">{{ t('admin.accounts.gemini.tier.aiStudioHint') }}</p>
-        </div>
-
-        <!-- Model Restriction Section (Antigravity 已在上层条件排除) -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <div
-            v-if="isOpenAIModelRestrictionDisabled"
-            class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-          >
-            <p class="text-xs text-amber-700 dark:text-amber-400">
-              {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-            </p>
-          </div>
-
-          <template v-else>
-            <!-- Mode Toggle -->
-            <div class="mb-4 flex gap-2">
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'whitelist'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'whitelist'
-                    ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelWhitelist') }}
-              </button>
-              <button
-                type="button"
-                @click="modelRestrictionMode = 'mapping'"
-                :class="[
-                  'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                  modelRestrictionMode === 'mapping'
-                    ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                    : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                ]"
-              >
-                <svg
-                  class="mr-1.5 inline h-4 w-4"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"
-                  />
-                </svg>
-                {{ t('admin.accounts.modelMapping') }}
-              </button>
-            </div>
-
-            <!-- Whitelist Mode -->
-            <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector
-                :active="show"
-                v-model="allowedModels"
-                :platform="form.platform"
-                :sync-credentials="syncPreviewCredentials"
-                @upstream-synced="upstreamModelsPreviewed = true"
-              />
-              <p class="text-xs text-gray-500 dark:text-gray-400">
-                {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-                <span v-if="allowedModels.length === 0">{{
-                  t('admin.accounts.supportsAllModels')
-                }}</span>
-              </p>
-            </div>
-
-            <!-- Mapping Mode -->
-            <div v-else>
-              <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-                <p class="text-xs text-purple-700 dark:text-purple-400">
-                  <svg
-                    class="mr-1 inline h-4 w-4"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
-                    />
-                  </svg>
-                  {{ t('admin.accounts.mapRequestModels') }}
-                </p>
-              </div>
-
-            <!-- Model Mapping List -->
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              <svg
-                class="mr-1 inline h-4 w-4"
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-              >
-                <path
-                  stroke-linecap="round"
-                  stroke-linejoin="round"
-                  stroke-width="2"
-                  d="M12 4v16m8-8H4"
-                />
-              </svg>
-              {{ t('admin.accounts.addMapping') }}
-            </button>
-
-              <!-- Quick Add Buttons -->
-              <div class="flex flex-wrap gap-2">
-                <button
-                  v-for="preset in presetMappings"
-                  :key="preset.label"
-                  type="button"
-                  @click="addPresetMapping(preset.from, preset.to)"
-                  :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-                >
-                  + {{ preset.label }}
-                </button>
-              </div>
-            </div>
-          </template>
         </div>
 
         <!-- Pool Mode Section -->
@@ -1751,7 +1611,7 @@
       </div>
 
       <!-- Bedrock credentials (only for Anthropic Bedrock type) -->
-      <div v-if="form.platform === 'anthropic' && accountCategory === 'bedrock'" class="space-y-4">
+      <div v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'bedrock'" class="space-y-4">
         <!-- Auth Mode Radio -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockAuthMode') }}</label>
@@ -1782,7 +1642,7 @@
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockAccessKeyId') }}</label>
             <input
-              v-model="bedrockAccessKeyId"
+              v-model="bedrockAccessKeyId" data-account-field="bedrockAccessKeyId"
               type="text"
               required
               class="input font-mono"
@@ -1792,7 +1652,7 @@
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockSecretAccessKey') }}</label>
             <input
-              v-model="bedrockSecretAccessKey"
+              v-model="bedrockSecretAccessKey" data-account-field="bedrockSecretAccessKey"
               type="password"
               required
               class="input font-mono"
@@ -1813,7 +1673,7 @@
         <div v-if="bedrockAuthMode === 'apikey'">
           <label class="input-label">{{ t('admin.accounts.bedrockApiKeyInput') }}</label>
           <input
-            v-model="bedrockApiKeyValue"
+            v-model="bedrockApiKeyValue" data-account-field="bedrockApiKeyValue"
             type="password"
             required
             class="input font-mono"
@@ -1823,12 +1683,12 @@
         <!-- Shared: Region -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockRegion') }}</label>
-          <BedrockRegionSelect v-model="bedrockRegion" />
+          <BedrockRegionSelect v-model="bedrockRegion" data-account-field="bedrockRegion" />
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
-        <!-- Shared: Force Global -->
-        <div>
+        <!-- Legacy Anthropic Bedrock region-prefix rewrite -->
+        <div v-if="form.platform === 'anthropic'">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="bedrockForceGlobal"
@@ -1838,81 +1698,6 @@
             <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.bedrockForceGlobal') }}</span>
           </label>
           <p class="input-hint mt-1">{{ t('admin.accounts.bedrockForceGlobalHint') }}</p>
-        </div>
-
-        <!-- Model Restriction Section for Bedrock -->
-        <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
-          <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
-              v-model="allowedModels"
-              platform="anthropic"
-              :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{ t('admin.accounts.supportsAllModels') }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else class="space-y-3">
-            <div v-for="(mapping, index) in modelMappings" :key="index" class="flex items-center gap-2">
-              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
-              <span class="text-gray-400">→</span>
-              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
-              <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
-                <Icon name="trash" size="sm" />
-              </button>
-            </div>
-            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-            <!-- Bedrock Preset Mappings -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in bedrockPresets"
-                :key="preset.from"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
         </div>
 
         <!-- Pool Mode Section for Bedrock -->
@@ -2127,7 +1912,7 @@
 
       <!-- Grok OAuth / Cursor relay Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
-        v-if="(form.platform === 'grok' && isOAuthFlow) || (form.platform === 'cursor' && cursorKeyMode === 'relay')"
+        v-if="(form.platform === 'grok' && isOAuthFlow) || isCursorRelay"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="mb-3 flex items-center justify-between">
@@ -2167,148 +1952,6 @@
             @update:rows="headerOverrideRows = $event"
           />
         </div>
-      </div>
-
-      <!-- OpenAI OAuth Model Mapping (OAuth 类型没有 apikey 容器，需要独立的模型映射区域) -->
-      <div
-        v-if="((form.platform === 'openai' || form.platform === 'grok') && isOAuthFlow) || form.platform === 'cursor'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <label class="input-label">{{ t('admin.accounts.modelRestriction') }}</label>
-
-        <div
-          v-if="isOpenAIModelRestrictionDisabled"
-          class="mb-3 rounded-lg bg-amber-50 p-3 dark:bg-amber-900/20"
-        >
-          <p class="text-xs text-amber-700 dark:text-amber-400">
-            {{ t('admin.accounts.openai.modelRestrictionDisabledByPassthrough') }}
-          </p>
-        </div>
-
-        <template v-else>
-          <!-- Mode Toggle -->
-          <div class="mb-4 flex gap-2">
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'whitelist'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'whitelist'
-                  ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelWhitelist') }}
-            </button>
-            <button
-              type="button"
-              @click="modelRestrictionMode = 'mapping'"
-              :class="[
-                'flex-1 rounded-lg px-4 py-2 text-sm font-medium transition-all',
-                modelRestrictionMode === 'mapping'
-                  ? 'bg-purple-100 text-purple-700 dark:bg-purple-900/30 dark:text-purple-400'
-                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-              ]"
-            >
-              {{ t('admin.accounts.modelMapping') }}
-            </button>
-          </div>
-
-          <!-- Whitelist Mode -->
-          <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
-              v-model="allowedModels"
-              :platform="form.platform"
-              :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
-            />
-            <p class="text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
-              <span v-if="allowedModels.length === 0">{{
-                t('admin.accounts.supportsAllModels')
-              }}</span>
-            </p>
-          </div>
-
-          <!-- Mapping Mode -->
-          <div v-else>
-            <div class="mb-3 rounded-lg bg-purple-50 p-3 dark:bg-purple-900/20">
-              <p class="text-xs text-purple-700 dark:text-purple-400">
-                {{ t('admin.accounts.mapRequestModels') }}
-              </p>
-            </div>
-
-            <div v-if="modelMappings.length > 0" class="mb-3 space-y-2">
-              <div
-                v-for="(mapping, index) in modelMappings"
-                :key="'oauth-' + getModelMappingKey(mapping)"
-                class="flex items-center gap-2"
-              >
-                <input
-                  v-model="mapping.from"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.requestModel')"
-                />
-                <svg
-                  class="h-4 w-4 flex-shrink-0 text-gray-400"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    stroke-width="2"
-                    d="M14 5l7 7m0 0l-7 7m7-7H3"
-                  />
-                </svg>
-                <input
-                  v-model="mapping.to"
-                  type="text"
-                  class="input flex-1"
-                  :placeholder="t('admin.accounts.actualModel')"
-                />
-                <button
-                  type="button"
-                  @click="removeModelMapping(index)"
-                  class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
-                >
-                  <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path
-                      stroke-linecap="round"
-                      stroke-linejoin="round"
-                      stroke-width="2"
-                      d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"
-                    />
-                  </svg>
-                </button>
-              </div>
-            </div>
-
-            <button
-              type="button"
-              @click="addModelMapping"
-              class="mb-3 w-full rounded-lg border-2 border-dashed border-gray-300 px-4 py-2 text-gray-600 transition-colors hover:border-gray-400 hover:text-gray-700 dark:border-dark-500 dark:text-gray-400 dark:hover:border-dark-400 dark:hover:text-gray-300"
-            >
-              + {{ t('admin.accounts.addMapping') }}
-            </button>
-
-            <!-- Quick Add Buttons -->
-            <div class="flex flex-wrap gap-2">
-              <button
-                v-for="preset in presetMappings"
-                :key="'oauth-' + preset.label"
-                type="button"
-                @click="addPresetMapping(preset.from, preset.to)"
-                :class="['rounded-lg px-3 py-1 text-xs transition-colors', preset.color]"
-              >
-                + {{ preset.label }}
-              </button>
-            </div>
-          </div>
-        </template>
       </div>
 
       <!-- Temp Unschedulable Rules -->
@@ -2493,7 +2136,7 @@
 
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
         <div class="mb-3">
@@ -2663,7 +2306,7 @@
 
             <div>
               <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
-              <div class="flex gap-2">
+              <div class="flex gap-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.strategy')" @keydown="navigateAccountChoices">
                 <button
                   type="button"
                   @click="rpmStrategy = 'tiered'"
@@ -2672,7 +2315,7 @@
                     rpmStrategy === 'tiered'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'tiered'" :tabindex="rpmStrategy === 'tiered' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}</div>
@@ -2687,7 +2330,7 @@
                     rpmStrategy === 'sticky_exempt'
                       ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
                       : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
+                  ]" role="radio" :aria-checked="rpmStrategy === 'sticky_exempt'" :tabindex="rpmStrategy === 'sticky_exempt' ? 0 : -1"
                 >
                   <div class="text-center">
                     <div>{{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}</div>
@@ -2718,7 +2361,7 @@
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
               {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
             </p>
-            <div class="flex space-x-2">
+            <div class="flex space-x-2" role="radiogroup" :aria-label="t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint')" @keydown="navigateAccountChoices">
               <button type="button" v-for="opt in umqModeOptions" :key="opt.value"
                 @click="userMsgQueueMode = opt.value"
                 :class="[
@@ -2726,7 +2369,7 @@
                   userMsgQueueMode === opt.value
                     ? 'bg-primary-600 text-white border-primary-600'
                     : 'bg-white dark:bg-dark-700 text-gray-700 dark:text-gray-300 border-gray-300 dark:border-dark-500 hover:bg-gray-50 dark:hover:bg-dark-600'
-                ]">
+                ]" role="radio" :aria-checked="userMsgQueueMode === opt.value" :tabindex="userMsgQueueMode === opt.value ? 0 : -1">
                 {{ opt.label }}
               </button>
             </div>
@@ -2887,6 +2530,7 @@
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
+          <TpmLimitField v-model="form.tpm_limit" />
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input data-testid="account-concurrency" v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
@@ -3017,7 +2661,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3046,7 +2690,7 @@
       </div>
 
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between gap-4">
@@ -3065,7 +2709,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
-        v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
+        v-if="['anthropic', 'bedrock'].includes(form.platform) && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <div class="flex items-center justify-between">
@@ -3406,6 +3050,9 @@
         />
       </div>
 
+      <p v-if="form.proxy_id || headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [form.proxy_id ? t('admin.accounts.modelSync.scopeProxy') : '', headerOverrideEnabled ? t('admin.accounts.modelSync.scopeHeaders') : ''].filter(Boolean).join(', ') }) }}</p>
+
+      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
     </form>
 
     <!-- Step 2: OAuth Authorization -->
@@ -3447,9 +3094,15 @@
 
     </div>
 
+    </div>
     <template #footer>
-      <div v-if="step === 1" class="flex justify-end gap-3">
-        <button @click="handleClose" type="button" class="btn btn-secondary">
+      <button v-if="createdCatalogAccounts.length" type="button" class="btn btn-secondary" @click="handleClose(true)">{{ t('common.close') }}</button>
+      <div v-else-if="pendingAccountRequests.length" class="flex flex-wrap justify-end gap-3">
+        <button type="button" class="btn btn-secondary" :disabled="reviewSubmitting" @click="cancelAccountReview">{{ t('common.back') }}</button>
+        <button type="button" class="btn btn-primary" data-testid="confirm-account-review" :disabled="reviewSubmitting || currentOAuthLoading" @click="confirmAccountReview()">{{ t('common.confirm') }}</button>
+      </div>
+      <div v-else-if="step === 1" class="flex justify-end gap-3">
+        <button @click="handleClose(true)" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
         <button
@@ -3760,25 +3413,27 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
+import { focusAccountCredentialField } from './accountCredentialFields'
+import { navigateAccountChoices } from './accountChoiceNavigation'
+import { apiClient } from '@/api/client'
+import { buildPlanTypeOptions } from './credentialsBuilder'
+import { credentialsFromAuthorization, readAccountCredentialDraft, type AccountWorkflowRequest, type AccountCredentialDraft } from './accountCredentialDraft'
+
+import AccountPlatformSelector from './AccountPlatformSelector.vue'
+import AccountModelConfigurationSection from './AccountModelConfigurationSection.vue'
+import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
-import { buildCursorCredentials } from './credentialsBuilder'
-import { ref, reactive, computed, watch } from 'vue'
+import { extractApiErrorCode, extractApiErrorMessage } from '@/utils/apiError'
+import { buildCursorCredentials, resolveCursorRelayProtocol } from './credentialsBuilder'
+import { ref, reactive, computed, watch, nextTick, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { platformSelectionClass, platformSelectionIconClass } from '@/utils/platformColors'
 import { useAppStore } from '@/stores/app'
 
-import {
-  claudeModels,
-  getPresetMappingsByPlatform,
-  getModelsByPlatform,
-  commonErrorCodes,
-  buildModelMappingObject,
-  validateModelRestrictions,
-  fetchAntigravityDefaultMappings,
-  isValidWildcardPattern
-} from '@/composables/useModelWhitelist'
+import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors } from '@/composables/useModelWhitelist'
 import { adminAPI } from '@/api/admin'
 import { useQuotaNotifyState } from '@/composables/useQuotaNotifyState'
 import {
@@ -3813,12 +3468,13 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
+import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
-import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
-import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
+import { CONCRETE_PLATFORM_OPTIONS, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
@@ -3828,19 +3484,28 @@ import {
   applyInterceptWarmup,
   applyOpenCodeGoProtocolRules,
   cloneOpenCodeGoProtocolRules,
-  cnSupportsNativeResponses,
+  declaredPlatformApiProtocols,
+  declaredPlatformNativeProtocols,
   defaultCNAdaptiveBaseUrls,
   defaultCNBaseUrl,
   defaultOpenCodeProtocolRules,
+  hasDeclaredNativeResponses,
+  hasPlatformBaseUrlPresets,
   isCNProviderPlatform,
+  isDeclaredProtocolPlatform,
   isMultiProtocolApiKeyPlatform,
+  platformPresetUrls,
+  showsAccountModeCard,
+  showsCodingPlanMode,
   DEFAULT_COMMANDCODE_PROTOCOL_RULES,
   isHeaderOverrideCapable,
   validateHeaderOverrideRows,
   type CnAccountMode,
   type CnApiProtocol,
+  type CnBaseUrlPresetPlatform,
   type CnNativeApiProtocol,
   type CnProviderPlatform,
+  type DeclaredProtocolPlatform,
   type HeaderOverrideRow,
   type OpenCodeAccountMode,
   type OpenCodeGoProtocolRule
@@ -3913,14 +3578,19 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
-  return t('admin.accounts.apiKeyHint')
+  return form.platform === 'anthropic' ? t('admin.accounts.apiKeyHint') : ''
 })
 
-// Base URL / API Key 占位符：国产供应商随账号类型变化。
+// Base URL / API Key 占位符：国产供应商与后加四家都随账号类型变化
+// （套餐与按量付费的站点不同）。后加平台的站点根取自唯一来源 CHAT_PLATFORM_BASE_URLS，
+// 不再回落到 Anthropic 的占位符。
 const apiKeyBaseUrlPlaceholder = computed(() => {
   if (isMultiProtocolPlatform.value) {
     const mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     return defaultCNBaseUrl(form.platform, mode, apiProtocol.value) || 'https://api.example.com'
+  }
+  if (isDeclaredProtocolPlatform(form.platform)) {
+    return defaultCNBaseUrl(form.platform, accountMode.value, apiProtocol.value) || CHAT_PLATFORM_BASE_URLS[form.platform]
   }
   switch (form.platform) {
     case 'openai':
@@ -3955,6 +3625,15 @@ const apiKeyValuePlaceholder = computed(() => {
     case 'minimax':
     case 'opencode_go':
       return 'sk-...'
+    // 后加平台：能查到官方文档给出 Key 前缀的按文档给（千帆 bce-v3/ALTAK-），
+    // 查不到固定前缀的（腾讯云 TokenHub 仅说明脱敏显示、Mistral 不透明串、方舟 UUID）用中性占位，
+    // 一律不套用 Anthropic 的 sk-ant-，也不自行编造 sk- 前缀。
+    case 'qianfan':
+      return 'bce-v3/ALTAK-...'
+    case 'hunyuan':
+    case 'mistral':
+    case 'volcengine':
+      return '<api-key>'
     default:
       return 'sk-ant-...'
   }
@@ -4037,7 +3716,7 @@ interface TempUnschedRuleForm {
 // State
 const step = ref(1)
 const submitting = ref(false)
-const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account'>('oauth-based') // UI selection for account category
+const accountCategory = ref<'oauth-based' | 'apikey' | 'bedrock' | 'service_account' | 'upstream'>('oauth-based') // UI selection for account category
 const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-token'
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
@@ -4060,34 +3739,106 @@ const adaptiveBaseUrls = ref<Record<CnNativeApiProtocol, string>>({
   anthropic: '',
   responses: ''
 })
-const isCNPlatform = computed(() => isCNProviderPlatform(form.platform))
+// 账号类型卡（payg / coding）的覆盖平台：国产多协议供应商 + 后加四家。
+// 可见性由 credentialsBuilder 的 showsAccountModeCard / showsCodingPlanMode 单一决定，
+// 千问无卡、DeepSeek 与 Mistral 只有按量付费一项。
+const accountModeCardVisible = computed(() => showsAccountModeCard(form.platform))
+const codingPlanModeVisible = computed(() => showsCodingPlanMode(form.platform))
+/**
+ * 后加四家的模式卡文案差量（既有国产平台不改文案）：三家有编程套餐的平台要写清
+ * 套餐与按量付费的 Base URL 与 Key 互不通用（腾讯 TokenHub 原文"互不通用，请勿混用"）；
+ * Mistral 官方只有按量付费，需在单项卡下说明原因。
+ */
+const LATE_PLATFORM_ACCOUNT_MODE_COPY: Record<DeclaredProtocolPlatform, { codingDescKey?: string; paygOnlyNoteKey?: string }> = {
+  hunyuan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  volcengine: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  qianfan: { codingDescKey: 'admin.accounts.cnProviders.accountMode.codingIsolatedDesc' },
+  mistral: { paygOnlyNoteKey: 'admin.accounts.cnProviders.accountMode.paygOnlyNote' }
+}
+const latePlatformAccountModeCopy = computed(() =>
+  isDeclaredProtocolPlatform(form.platform) ? LATE_PLATFORM_ACCOUNT_MODE_COPY[form.platform] : undefined
+)
+const codingModeDescriptionKey = computed(
+  () => latePlatformAccountModeCopy.value?.codingDescKey ?? 'admin.accounts.cnProviders.accountMode.codingDesc'
+)
+const paygOnlyNoteKey = computed(() => latePlatformAccountModeCopy.value?.paygOnlyNoteKey ?? '')
 const isOpenCodeGoPlatform = computed(() => form.platform === 'opencode_go')
 const isMultiProtocolPlatform = computed(() => isMultiProtocolApiKeyPlatform(form.platform))
+// 后加平台（混元 / 火山方舟 / 千帆 / Mistral）：协议集合来自后端 domain/platform_capabilities.go
+// 的 MessagesPOST / ResponsesPOST 声明，不再按 "是不是 chat-only" 一刀切成 chat_completions。
+const declaredProtocolPlatform = computed<DeclaredProtocolPlatform | null>(() =>
+  isDeclaredProtocolPlatform(form.platform) ? form.platform : null
+)
+// Cursor Relay 是 upstream 分类，不能因此进入国产多协议能力集合（端点预设、多 URL、account_mode、规则序列化）。
+const isCursorRelay = computed(() => form.platform === 'cursor' && accountCategory.value === 'upstream')
+// 双模式平台（Kimi/智谱/MiniMax/OpenCode）的一级入口就是模式卡本身，不再叠加只读 "API Key" 摘要。
+const isDualModeAccountPlatform = computed(() => ['kimi', 'zhipu', 'minimax', 'opencode_go'].includes(form.platform))
+const showsAccountTypeSummary = computed(() => !isDualModeAccountPlatform.value && form.platform !== 'commandcode' &&
+  declaredProtocolPlatform.value === null &&
+  !['anthropic', 'openai', 'gemini', 'antigravity', 'grok', 'cursor'].includes(form.platform))
+// 官方站点预设：国产供应商（Kimi / 智谱 / DeepSeek / MiniMax / 千问）+ 后加四家
+// （混元 / 火山方舟 / 千帆 / Mistral）。自适应档由多端点编辑器接管，固定协议档才展示预设。
+const showsCnBaseUrlPresets = computed(() => hasPlatformBaseUrlPresets(form.platform) &&
+  apiProtocol.value !== 'adaptive')
+// DeepSeek 保留旧的单项按量付费锚点；后加平台已有 API Key 类型卡占着 account-form-type，
+// 模式卡改用模式锚点，避免同一个 data-tour 落在两个元素上。
+const cnModeTourAnchor = computed(() => form.platform === 'deepseek' || isDeclaredProtocolPlatform(form.platform)
+  ? 'account-form-mode'
+  : 'account-form-type')
 function currentOpenCodeOrCNMode(): CnAccountMode | OpenCodeAccountMode {
   return isOpenCodeGoPlatform.value ? openCodeAccountMode.value : accountMode.value
 }
 // CnBaseUrlPresets 的 platform prop 是平台字面量联合类型，模板里不能写
 // `as` 断言（其中的 `|` 会被 eslint 误判为 Vue2 filter 语法），经此 computed 传递。
-const cnPresetPlatform = computed<CnProviderPlatform>(() => {
+// 兜底值不可达：只有 hasPlatformBaseUrlPresets 为真的平台才会渲染预设组件。
+const cnPresetPlatform = computed<CnBaseUrlPresetPlatform>(() => {
   if (isCNProviderPlatform(form.platform)) {
+    return form.platform
+  }
+  if (isDeclaredProtocolPlatform(form.platform)) {
     return form.platform
   }
   return 'kimi'
 })
-const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode'>(() => {
+const adaptivePresetPlatform = computed<CnProviderPlatform | 'opencode_go' | 'commandcode' | DeclaredProtocolPlatform>(() => {
   if (form.platform === 'commandcode') return 'commandcode'
   if (form.platform === 'opencode_go') return 'opencode_go'
+  if (isDeclaredProtocolPlatform(form.platform)) return form.platform
   return cnPresetPlatform.value
 })
-// 当前平台可选的协议档（responses 仅 deepseek / kimi）。
-const cnProtocolOptions = computed<Array<{ value: CnApiProtocol; labelKey: string }>>(() => {
-  const opts: Array<{ value: CnApiProtocol; labelKey: string }> = [
-    { value: 'adaptive', labelKey: 'adaptive' },
-    { value: 'chat_completions', labelKey: 'chatCompletions' },
-    { value: 'anthropic', labelKey: 'anthropic' }
+// 协议网格的唯一选项来源：国产多协议平台 / 后加平台 / Cursor Relay 各自取档，标题与说明仍走既有词条。
+interface AccountProtocolOption {
+  value: CnApiProtocol
+  titleKey: string
+  descriptionKey: string
+  testId?: string
+}
+/** 协议卡的标题 / 说明词条：后加平台与国产多协议平台共用同一套既有词条。 */
+const API_PROTOCOL_TEXT: Record<CnApiProtocol, { titleKey: string; descriptionKey: string }> = {
+  adaptive: { titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.adaptiveDesc' },
+  chat_completions: { titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletionsDesc' },
+  anthropic: { titleKey: 'admin.accounts.cnProviders.apiProtocol.anthropic', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.anthropicDesc' },
+  responses: { titleKey: 'admin.accounts.cnProviders.apiProtocol.responses', descriptionKey: 'admin.accounts.cnProviders.apiProtocol.responsesDesc' }
+}
+const accountProtocolOptions = computed<AccountProtocolOption[]>(() => {
+  if (isCursorRelay.value) {
+    return [
+      { value: 'adaptive', titleKey: 'admin.accounts.cnProviders.apiProtocol.adaptive', descriptionKey: 'admin.accounts.cursor.relayAdaptiveDesc', testId: 'cursor-relay-protocol-adaptive' },
+      { value: 'chat_completions', titleKey: 'admin.accounts.cnProviders.apiProtocol.chatCompletions', descriptionKey: 'admin.accounts.cursor.relayChatCompletionsDesc', testId: 'cursor-relay-protocol-chat_completions' }
+    ]
+  }
+  // 后加平台：选项集合逐条来自后端声明（含 mistral 的单一 chat_completions），不自行加档。
+  if (declaredProtocolPlatform.value) {
+    return declaredPlatformApiProtocols(declaredProtocolPlatform.value)
+      .map(value => ({ value, ...API_PROTOCOL_TEXT[value] }))
+  }
+  const opts: AccountProtocolOption[] = [
+    { value: 'adaptive', ...API_PROTOCOL_TEXT.adaptive },
+    { value: 'chat_completions', ...API_PROTOCOL_TEXT.chat_completions },
+    { value: 'anthropic', ...API_PROTOCOL_TEXT.anthropic }
   ]
-  if (cnSupportsNativeResponses(form.platform)) {
-    opts.push({ value: 'responses', labelKey: 'responses' })
+  if (hasDeclaredNativeResponses(form.platform)) {
+    opts.push({ value: 'responses', ...API_PROTOCOL_TEXT.responses })
   }
   return opts
 })
@@ -4096,7 +3847,7 @@ const cnAdaptiveProtocolOptions = computed<Array<{ value: CnNativeApiProtocol; l
     { value: 'chat_completions', labelKey: 'chatCompletions' },
     { value: 'anthropic', labelKey: 'anthropic' }
   ]
-  if (cnSupportsNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
+  if (hasDeclaredNativeResponses(form.platform)) opts.push({ value: 'responses', labelKey: 'responses' })
   return opts
 })
 
@@ -4110,10 +3861,24 @@ const cnAccentActiveClass = computed(() => platformSelectionClass(form.platform)
 const cnAccentIconClass = computed(() => platformSelectionIconClass(form.platform))
 // 切换国产供应商平台：强制 apikey 类型，deepseek 无 coding 套餐故锁定 payg，
 // 协议回落 adaptive，并把 base url 重置为该平台默认端点。
-function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value']) {
+function selectPlatform(platform: typeof CONCRETE_PLATFORM_OPTIONS[number]['value'] | 'vertex') {
+  if (platform === 'vertex') { form.platform = 'gemini'; accountCategory.value = 'service_account'; form.type = 'service_account'; return }
+  if (platform === 'bedrock') { form.platform = 'anthropic'; accountCategory.value = 'bedrock'; form.type = 'bedrock'; return }
+  if ((platform === 'anthropic' || platform === 'gemini') && (accountCategory.value === 'bedrock' || accountCategory.value === 'service_account')) accountCategory.value = 'oauth-based'
   if (isCNProviderPlatform(platform)) return selectCNPlatform(platform)
   if (platform === 'opencode_go') return selectOpenCodeGoPlatform()
   form.platform = platform
+
+  if (isChatOnlyPlatform(platform)) {
+    form.type = 'apikey'
+    accountCategory.value = 'apikey'
+    // 后加平台没有套餐时（Mistral）不能再沿用上一个平台的 coding 模式：默认回落 payg，
+    // 三家有编程套餐的平台由模式卡自行选择（默认同样按量付费，不替用户假设订阅）。
+    accountMode.value = 'payg'
+    // 协议选项由后端声明决定（见 accountProtocolOptions / declaredProtocolPlatform），
+    // 默认保持既有的 chat_completions 直通，用户可在协议卡上切到已声明的原生协议。
+    apiProtocol.value = 'chat_completions'
+  }
   if (platform === 'commandcode') {
     form.type = 'apikey'
     accountCategory.value = 'apikey'
@@ -4157,7 +3922,7 @@ watch(openCodeAccountMode, (mode, previousMode) => {
     }
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
   } else {
-    apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, apiProtocol.value)
+    if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl('opencode_go', previousMode, apiProtocol.value)) apiKeyBaseUrl.value = defaultCNBaseUrl('opencode_go', mode, apiProtocol.value)
   }
   const previousRules = JSON.stringify(defaultOpenCodeProtocolRules(previousMode))
   if (JSON.stringify(openCodeGoProtocolRules.value) === previousRules) {
@@ -4165,6 +3930,17 @@ watch(openCodeAccountMode, (mode, previousMode) => {
   }
 })
 watch(accountMode, (mode, previousMode) => {
+  // 后加四家只有单一 base url 输入（协议卡不进入多端点编辑器），切模式直接换默认站点：
+  // 套餐与按量付费的站点不同，把按量地址留给套餐 Key 会打到错的计费口径
+  // （火山方舟明确：用按量地址不会消耗套餐额度，而是产生额外费用）。
+  if (isDeclaredProtocolPlatform(form.platform)) {
+    const previousOfficialUrls = platformPresetUrls(form.platform, previousMode)
+    const current = apiKeyBaseUrl.value.trim()
+    if (!current || previousOfficialUrls.includes(current)) {
+      apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
+    }
+    return
+  }
   if (!isMultiProtocolPlatform.value || isOpenCodeGoPlatform.value) return
   if (apiProtocol.value === 'adaptive') {
     const previousDefaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, previousMode)
@@ -4177,52 +3953,32 @@ watch(accountMode, (mode, previousMode) => {
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
     return
   }
-  apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
+  if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl(form.platform, previousMode, apiProtocol.value)) apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, mode, apiProtocol.value)
 })
-watch(apiProtocol, (protocol) => {
+watch(apiProtocol, (protocol, previousProtocol) => {
   if (!isMultiProtocolPlatform.value) return
   if (protocol === 'adaptive') {
     const defaults = defaultCNAdaptiveBaseUrls(adaptivePresetPlatform.value, currentOpenCodeOrCNMode())
     for (const item of cnAdaptiveProtocolOptions.value) {
       if (!adaptiveBaseUrls.value[item.value]) adaptiveBaseUrls.value[item.value] = defaults[item.value]
     }
+    if (previousProtocol !== 'adaptive' && apiKeyBaseUrl.value.trim()) adaptiveBaseUrls.value[previousProtocol] = apiKeyBaseUrl.value.trim()
     apiKeyBaseUrl.value = adaptiveBaseUrls.value.chat_completions
     return
   }
-  apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
+  if (previousProtocol === 'adaptive') {
+    apiKeyBaseUrl.value = adaptiveBaseUrls.value[protocol] || defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
+    return
+  }
+  if (!apiKeyBaseUrl.value || apiKeyBaseUrl.value === defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), previousProtocol)) apiKeyBaseUrl.value = defaultCNBaseUrl(form.platform, currentOpenCodeOrCNMode(), protocol)
 })
 // 点击预设端点：同时回填 base url、账号类型与协议。
 function onCnPresetSelect(preset: { mode: CnAccountMode; protocol: CnApiProtocol; url: string }) {
+  if (preset.protocol !== 'adaptive') adaptiveBaseUrls.value[preset.protocol] = preset.url
   accountMode.value = preset.mode
   apiProtocol.value = preset.protocol
   apiKeyBaseUrl.value = preset.url
 }
-
-const syncPreviewCredentials = computed(() => {
-  if (!apiKeyValue.value && !(form.platform === 'cursor' && cursorKeyMode.value === 'auto' && cursorAutoCredentials.value.access_token)) return undefined
-  const baseUrl = isMultiProtocolPlatform.value && apiProtocol.value === 'adaptive'
-    ? adaptiveBaseUrls.value.chat_completions.trim() || apiKeyBaseUrl.value.trim()
-    : apiKeyBaseUrl.value.trim()
-  const modelMapping = buildModelMappingObject(
-    modelRestrictionMode.value,
-    allowedModels.value,
-    modelMappings.value
-  )
-  return {
-    platform: form.platform,
-    type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : cursorKeyMode.value === 'auto' ? 'oauth' : 'apikey') : form.type,
-    base_url: baseUrl || undefined,
-    api_key: form.platform === 'cursor' && cursorKeyMode.value === 'auto' ? undefined : apiKeyValue.value,
-    credentials: form.platform === 'cursor'
-      ? buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
-      : isMultiProtocolPlatform.value ? {
-        account_mode: currentOpenCodeOrCNMode(),
-        api_protocol: apiProtocol.value,
-        ...(apiProtocol.value === 'adaptive' ? { api_base_urls: { ...adaptiveBaseUrls.value, chat_completions: baseUrl } } : {})
-      } : undefined,
-    ...(modelMapping ? { model_mapping: modelMapping } : {})
-  }
-})
 
 const editQuotaLimit = ref<number | null>(null)
 const editQuotaDailyLimit = ref<number | null>(null)
@@ -4237,7 +3993,11 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
-const upstreamModelsPreviewed = ref(false)
+const capabilityDefaultsJSON = ref('')
+const createdCatalogAccounts = ref<Array<{ id: number; platform: string }>>([])
+const rememberCatalogAccount = (id: number | undefined, platform: string) => {
+  if (id && !createdCatalogAccounts.value.some(account => account.id === id)) createdCatalogAccounts.value.push({ id, platform })
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4358,8 +4118,14 @@ const upstreamApiKey = ref('') // For upstream type: API key
 const antigravityModelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const antigravityWhitelistModels = ref<string[]>([])
 const antigravityModelMappings = ref<ModelMapping[]>([])
-const antigravityPresetMappings = computed(() => getPresetMappingsByPlatform('antigravity'))
-const bedrockPresets = computed(() => getPresetMappingsByPlatform('bedrock'))
+const workflowAllowedModels = computed({
+  get: () => form.platform === 'antigravity' ? antigravityWhitelistModels.value : allowedModels.value,
+  set: (models: string[]) => { if (form.platform === 'antigravity') antigravityWhitelistModels.value = models; else allowedModels.value = models }
+})
+const workflowModelMappings = computed({
+  get: () => form.platform === 'antigravity' ? antigravityModelMappings.value : modelMappings.value,
+  set: (mappings: ModelMapping[]) => { if (form.platform === 'antigravity') antigravityModelMappings.value = mappings; else modelMappings.value = mappings }
+})
 
 // Bedrock credentials
 const bedrockAuthMode = ref<'sigv4' | 'apikey'>('sigv4')
@@ -4377,9 +4143,9 @@ const vertexLocation = ref('global')
 const vertexServiceAccountDragActive = ref(false)
 const tempUnschedEnabled = ref(false)
 const tempUnschedRules = ref<TempUnschedRuleForm[]>([])
-const getModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-model-mapping')
+
 const getOpenAICompactModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-openai-compact-model-mapping')
-const getAntigravityModelMappingKey = createStableObjectKeyResolver<ModelMapping>('create-antigravity-model-mapping')
+
 const getTempUnschedRuleKey = createStableObjectKeyResolver<TempUnschedRuleForm>('create-temp-unsched-rule')
 const geminiOAuthType = ref<'code_assist' | 'google_one' | 'ai_studio'>('google_one')
 const geminiAIStudioOAuthEnabled = ref(false)
@@ -4462,7 +4228,6 @@ const mixedChannelWarningDetails = ref<{ groupName: string; currentPlatform: str
 )
 const mixedChannelWarningRawMessage = ref('')
 const mixedChannelWarningAction = ref<(() => Promise<void>) | null>(null)
-const antigravityMixedChannelConfirmed = ref(false)
 const showAdvancedOAuth = ref(false)
 const showGeminiHelpDialog = ref(false)
 
@@ -4563,8 +4328,6 @@ const geminiHelpLinks = {
   countryChange: 'https://policies.google.com/country-association-form'
 }
 
-// Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4595,19 +4358,29 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
-const cursorKeyMode = ref<'official' | 'relay' | 'auto'>('official')
-watch(cursorKeyMode, () => {
+// Cursor 模式由 accountCategory 派生：三张一级卡是唯一的写入来源，预览与创建读同一个实际类型。
+const cursorKeyMode = computed<'official' | 'relay' | 'auto'>(() => {
+  if (accountCategory.value === 'oauth-based') return 'auto'
+  if (accountCategory.value === 'upstream') return 'relay'
+  return 'official'
+})
+// 只有真正的 Cursor 模式变化才清理 Cursor 草稿；离开 Cursor 后其他平台的分类变化不得再清掉目标平台端点。
+watch(cursorKeyMode, (mode) => {
+  if (form.platform !== 'cursor') return
   allowedModels.value = []
   modelMappings.value = []
   apiKeyBaseUrl.value = ''
   apiKeyValue.value = ''
   cursorAutoCredentials.value = {}
   cursorClientVersion.value = ''
+  // Relay 不跨模式保存草稿：重新进入时回到后端默认协议，避免把上一个模式的协议带进上游路由。
+  if (mode === 'relay') apiProtocol.value = 'adaptive'
 })
 const cursorAutoCredentials = ref<Record<string, string>>({})
 const cursorAuthorizing = ref(false)
 const cursorClientVersion = ref('')
 const form = reactive({
+  tpm_limit: 0,
   name: '',
   notes: '',
   platform: 'anthropic' as AccountPlatform,
@@ -4622,7 +4395,7 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-// Helper to check if current type needs OAuth flow
+// Helper to check if current type needs OAuth flow（公共两步 OAuth；Cursor 专用授权不走这里）
 const isOAuthFlow = computed(() => {
   if (form.platform === 'cursor') return false
   // Antigravity upstream 类型不需要 OAuth 流程
@@ -4630,7 +4403,7 @@ const isOAuthFlow = computed(() => {
     return false
   }
   // Bedrock 类型不需要 OAuth 流程
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     return false
   }
   return accountCategory.value === 'oauth-based'
@@ -4666,6 +4439,23 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
+const modelCandidateIdentity = computed(() => ({ host: form.platform === 'antigravity' && antigravityAccountType.value === 'upstream' ? upstreamBaseUrl.value : apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
+
+const { presets: platformPresets, error: presetError, reload: reloadPresets } = usePlatformModelPresets(
+  () => [form.platform], modelCandidateIdentity, () => props.show
+)
+const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, modelCandidateIdentity.value, platformPresets.value))
+
+// Defaults belong to one open draft; old responses cannot populate another identity.
+let mappingGeneration = 0
+watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
+const loadAntigravityMappings = async () => {
+  const request = ++mappingGeneration
+  await reloadPresets()
+  const mappings = presetMappings.value.map(({ from, to }) => ({ from, to }))
+  if (request === mappingGeneration && props.show && form.platform === 'antigravity') antigravityModelMappings.value = [...mappings]
+}
+
 // Watchers
 watch(
   () => props.show,
@@ -4675,14 +4465,12 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Start with an explicit empty selection; candidates remain available in the picker.
+      allowedModels.value = []
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
-        fetchAntigravityDefaultMappings().then(mappings => {
-          antigravityModelMappings.value = [...mappings]
-        })
+        void loadAntigravityMappings()
         antigravityWhitelistModels.value = []
       } else {
         antigravityWhitelistModels.value = []
@@ -4705,8 +4493,13 @@ watch(
       return
     }
     // Bedrock 类型
-    if (form.platform === 'anthropic' && category === 'bedrock') {
+    if (['anthropic', 'bedrock'].includes(form.platform) && category === 'bedrock') {
       form.type = 'bedrock' as AccountType
+      return
+    }
+    // Cursor 三张一级卡统一映射为实际请求类型：Auto/官方/Relay 分别是 oauth/apikey/upstream。
+    if (form.platform === 'cursor') {
+      form.type = category === 'oauth-based' ? 'oauth' : category === 'upstream' ? 'upstream' : 'apikey'
       return
     }
     if ((form.platform === 'gemini' || form.platform === 'anthropic') && category === 'service_account') {
@@ -4724,6 +4517,9 @@ watch(
 watch(
   () => form.platform,
   (newPlatform) => {
+    // 离开 Cursor 时先消除只对 Relay 有效的 upstream 分类，再走目标平台原有默认规则；
+    // 否则类型卡会停在无对应项的第三态，而目标平台端点又可能被晚到的 Cursor 清理覆盖。
+    if (newPlatform !== 'cursor' && accountCategory.value === 'upstream') accountCategory.value = 'apikey'
     cursorAutoCredentials.value = {}
     cursorClientVersion.value = ''
     if (newPlatform === 'cursor') { accountCategory.value = 'apikey'; form.type = 'apikey' }
@@ -4733,24 +4529,21 @@ watch(
       apiKeyBaseUrl.value = defaultCNBaseUrl(newPlatform, mode, apiProtocol.value)
     } else {
       apiKeyBaseUrl.value =
-        newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
+        CHAT_PLATFORM_BASE_URLS[newPlatform] ?? (newPlatform === 'cursor' ? '' : (newPlatform === 'openai')
           ? 'https://api.openai.com'
           : newPlatform === 'gemini'
             ? 'https://generativelanguage.googleapis.com'
             : newPlatform === 'grok'
               ? 'https://api.x.ai/v1'
-              : 'https://api.anthropic.com'
+              : 'https://api.anthropic.com')
     }
     // Clear model-related settings
     allowedModels.value = []
-    upstreamModelsPreviewed.value = false
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
-      fetchAntigravityDefaultMappings().then(mappings => {
-        antigravityModelMappings.value = [...mappings]
-      })
+      void loadAntigravityMappings()
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
@@ -4771,7 +4564,7 @@ watch(
     if (newPlatform !== 'gemini' && newPlatform !== 'anthropic' && accountCategory.value === 'service_account') {
       accountCategory.value = 'oauth-based'
     }
-    if (newPlatform !== 'anthropic' && accountCategory.value === 'bedrock') {
+    if (!['anthropic', 'bedrock'].includes(newPlatform) && accountCategory.value === 'bedrock') {
       accountCategory.value = 'oauth-based'
     }
     // Reset Bedrock fields when switching platforms
@@ -4861,16 +4654,6 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   geminiOAuthType.value = oauthType
 }
 
-// Auto-fill related models when switching to whitelist mode or changing platform
-watch(
-  [modelRestrictionMode, () => form.platform],
-  ([newMode]) => {
-    if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
-    }
-  }
-)
-
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
   ([, platform]) => {
@@ -4881,9 +4664,6 @@ watch(
 )
 
 // Model mapping helpers
-const addModelMapping = () => {
-  modelMappings.value.push({ from: '', to: '' })
-}
 
 const addOpenAICompactModelMapping = () => {
   openAICompactModelMappings.value.push({ from: '', to: '' })
@@ -4891,34 +4671,6 @@ const addOpenAICompactModelMapping = () => {
 
 const removeOpenAICompactModelMapping = (index: number) => {
   openAICompactModelMappings.value.splice(index, 1)
-}
-
-const removeModelMapping = (index: number) => {
-  modelMappings.value.splice(index, 1)
-}
-
-const addPresetMapping = (from: string, to: string) => {
-  if (modelMappings.value.some((m) => m.from === from)) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  modelMappings.value.push({ from, to })
-}
-
-const addAntigravityModelMapping = () => {
-  antigravityModelMappings.value.push({ from: '', to: '' })
-}
-
-const removeAntigravityModelMapping = (index: number) => {
-  antigravityModelMappings.value.splice(index, 1)
-}
-
-const addAntigravityPresetMapping = (from: string, to: string) => {
-  if (antigravityModelMappings.value.some((m) => m.from === from)) {
-    appStore.showInfo(t('admin.accounts.mappingExists', { model: from }))
-    return
-  }
-  antigravityModelMappings.value.push({ from, to })
 }
 
 // Error code toggle helper
@@ -5057,7 +4809,6 @@ const splitTempUnschedKeywords = (value: string) => {
     .filter((item) => item.length > 0)
 }
 
-const needsMixedChannelCheck = (platform: AccountPlatform) => platform === 'antigravity' || platform === 'anthropic'
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
   const details = resp?.details
@@ -5090,52 +4841,11 @@ const openMixedChannelDialog = (opts: {
   showMixedChannelWarning.value = true
 }
 
-const withAntigravityConfirmFlag = (payload: CreateAccountRequest): CreateAccountRequest => {
-  if (needsMixedChannelCheck(payload.platform) && antigravityMixedChannelConfirmed.value) {
-    return {
-      ...payload,
-      confirm_mixed_channel_risk: true
-    }
-  }
-  const cloned = { ...payload }
-  delete cloned.confirm_mixed_channel_risk
-  return cloned
-}
-
-const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<void>): Promise<boolean> => {
-  if (!needsMixedChannelCheck(form.platform)) {
-    return true
-  }
-  if (antigravityMixedChannelConfirmed.value) {
-    return true
-  }
-
-  try {
-    const result = await adminAPI.accounts.checkMixedChannelRisk({
-      platform: form.platform,
-      group_ids: form.group_ids
-    })
-    if (!result.has_risk) {
-      return true
-    }
-    openMixedChannelDialog({
-      response: result,
-      onConfirm: async () => {
-        antigravityMixedChannelConfirmed.value = true
-        await onConfirm()
-      }
-    })
-    return false
-  } catch (error: any) {
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
-    return false
-  }
-}
-
 const createSchedulingThreshold = ref<number | null>(null)
 const createGrokToolCache = ref(true)
 const createImageTool = ref('inherit')
 const createPlanType = ref('')
+const createPlanTypeOptions = computed(() => buildPlanTypeOptions(createPlanType.value, t('admin.accounts.openai.planTypeClear')))
 const createPauseThresholds = reactive<Record<'5h' | '7d', number | null>>({ '5h': null, '7d': null })
 const createAutoReset = ref(false)
 const createResetThresholds = reactive({ '5h': 100, '7d': 100 })
@@ -5150,9 +4860,109 @@ watch(() => props.show, (show) => {
   createAutoReset.value = false
   createResetThresholds['5h'] = createResetThresholds['7d'] = 100
 })
-const createWithOptions = (payload: CreateAccountRequest) => {
+const accountReviewPending = Symbol('account-review-pending')
+let reviewGeneration = 0
+const pendingAccountRequests = ref<AccountWorkflowRequest[]>([])
+const reviewedDraftPayloads = new Map<string, string>()
+watch(() => props.show, show => { if (!show) { reviewGeneration++; void cancelAccountReview() } }, { flush: 'sync' })
+watch(() => pendingAccountRequests.value.length, async (count, previous) => {
+  if (count && !previous) {
+    await nextTick()
+    document.querySelector<HTMLElement>('[data-testid="account-review"] h2')?.focus()
+  }
+})
+onBeforeUnmount(() => { void cancelAccountReview() })
+const reviewError = ref('')
+const reviewSubmitting = ref(false)
+const selectedReviewIndex = ref(0)
+const selectedReviewRequest = computed(() => pendingAccountRequests.value[selectedReviewIndex.value])
+const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccountRequests.value.map(payload => ({
+  ...payload,
+  credentials: { ...payload.credentials, model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {} }
+})))
+const credentialPreview = computed(() => {
+  const payload = reviewedRequests.value[selectedReviewIndex.value]
+  if (!payload) return undefined
+  return { platform: payload.platform, type: payload.type, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
+    ...(!payload.credential_draft ? {
+      base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
+      api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
+    } : {}),
+    model_mapping: buildModelMappingObject('combined', workflowAllowedModels.value, workflowModelMappings.value) ?? {},
+    credential_draft: payload.credential_draft, credential_draft_revision: payload.credential_draft_revision }
+})
+// 复核预览的连接身份：任一连接输入（含 Relay 协议）变化都要让在途结果失效，
+// 复用 ModelWhitelistSelector 已有的上下文修订栅栏，不新增全局状态。
+const previewConnectionContext = computed(() => [
+  form.platform, form.type, form.proxy_id, apiProtocol.value, accountMode.value, openCodeAccountMode.value, headerOverrideEnabled.value, headerOverrideRows.value
+])
+async function cancelAccountReview() {
+  if (reviewSubmitting.value) return
+  const cancelled = pendingAccountRequests.value
+  pendingAccountRequests.value = []
+  reviewedDraftPayloads.clear()
+  selectedReviewIndex.value = 0
+  reviewError.value = ''
+  await Promise.allSettled(cancelled.filter(payload => payload.credential_draft).map(payload =>
+    apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(payload.credential_draft!)}`)))
+}
+async function confirmAccountReview(confirmedPayloads?: AccountWorkflowRequest[]) {
+  if (reviewSubmitting.value) return
+  const payloads = JSON.parse(JSON.stringify(confirmedPayloads ?? reviewedRequests.value)) as AccountWorkflowRequest[]
+  if (!payloads.length) return
+  const errors = validateModelRestrictions('combined', workflowAllowedModels.value, workflowModelMappings.value)
+  if (errors.length) { reviewError.value = translateModelRestrictionErrors(errors, t); return }
+  reviewSubmitting.value = true
+  reviewError.value = ''
+  try {
+    for (const payload of payloads) {
+      if (payload.credential_draft) {
+        const reviewPayload = { ...payload }
+        delete reviewPayload.credential_draft_revision
+        const fingerprint = JSON.stringify(reviewPayload)
+        if (reviewedDraftPayloads.get(payload.credential_draft) !== fingerprint) {
+          const { data } = await apiClient.post<AccountCredentialDraft>(`/admin/accounts/credential-drafts/${encodeURIComponent(payload.credential_draft)}/review`, payload)
+          payload.credential_draft_revision = data.revision
+          const current = pendingAccountRequests.value.find(request => request.credential_draft === payload.credential_draft)
+          if (current) current.credential_draft_revision = data.revision
+          reviewedDraftPayloads.set(payload.credential_draft, fingerprint)
+        }
+      }
+    }
+    if (JSON.stringify(reviewedRequests.value) !== JSON.stringify(payloads.map(payload => { const clean = { ...payload }; delete clean.confirm_mixed_channel_risk; return clean }))) return
+    const result = await adminAPI.accounts.batchCreate(payloads)
+    for (const [index, saved] of result.results.entries()) {
+      if (!saved.success || !saved.id) continue
+      const payload = payloads[index]
+      rememberCatalogAccount(saved.id, payload.platform)
+      if (payload.upstream_billing_probe_enabled === true && (payload.type === 'apikey' || payload.type === 'upstream')) {
+        try { await adminAPI.accounts.probeUpstreamBilling(saved.id) }
+        catch { appStore.showWarning(t('admin.accounts.upstreamBilling.probeFailed')) }
+      }
+    }
+    pendingAccountRequests.value = []
+    appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: result.success }))
+    emit('created')
+  } catch (error: unknown) {
+    if (extractApiErrorCode(error) === 'mixed_channel_warning') {
+      const revision = JSON.stringify(reviewedRequests.value)
+      openMixedChannelDialog({ message: extractApiErrorMessage(error), onConfirm: async () => {
+        if (revision !== JSON.stringify(reviewedRequests.value)) return
+        await confirmAccountReview(payloads.map(payload => ({ ...payload, confirm_mixed_channel_risk: true })))
+      } })
+    } else reviewError.value = extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))
+  } finally { reviewSubmitting.value = false }
+}
+async function stageCursorAuthorization(draft: AccountCredentialDraft) {
+  try { await createWithOptions({ ...form, platform: 'cursor', type: 'oauth', credentials: { ...draft }, auto_pause_on_expired: autoPauseOnExpired.value }) }
+  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error)) }
+}
+const createWithOptions = async (payload: CreateAccountRequest) => {
+  const generation = reviewGeneration
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (['openai', 'anthropic', 'grok'].includes(payload.platform) && createSchedulingThreshold.value != null && String(createSchedulingThreshold.value).trim() !== '') {
     const threshold = Number(createSchedulingThreshold.value)
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) throw new Error(t('admin.accounts.accountSchedulingThresholdOverrideHint'))
@@ -5183,67 +4993,41 @@ const createWithOptions = (payload: CreateAccountRequest) => {
       if (createAutoReset.value) extra.auto_reset_credit_enabled = true
     }
   }
-  return adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+  let draft = readAccountCredentialDraft(credentials)
+  const manualCursorDraft = !draft && payload.platform === 'cursor' && payload.type === 'oauth'
+  if (manualCursorDraft) {
+    const authorizationCredentials = Object.fromEntries(Object.entries(credentials).filter(([key]) => ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id', 'client_version'].includes(key)))
+    const { data } = await apiClient.post<AccountCredentialDraft>('/admin/accounts/credential-drafts', { credentials: authorizationCredentials })
+    draft = data
+  }
+  if (!props.show || generation !== reviewGeneration) {
+    if (draft) await apiClient.delete(`/admin/accounts/credential-drafts/${encodeURIComponent(draft.credential_draft)}`).catch(() => {})
+    throw accountReviewPending
+  }
+  const request: AccountWorkflowRequest = { ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) }
+  if (draft) {
+    request.credential_draft = draft.credential_draft
+    request.credential_draft_revision = draft.revision
+    const envelopeFields = ['credential_draft', 'revision', 'platform', 'type', 'expires_at']
+    const authorizationFields = manualCursorDraft ? ['access_token', 'refresh_token', 'machine_id', 'mac_machine_id'] : []
+    request.credentials = Object.fromEntries(Object.entries(credentials).filter(([key]) => !envelopeFields.includes(key) && !authorizationFields.includes(key)))
+  }
+  delete request.confirm_mixed_channel_risk
+  pendingAccountRequests.value.push(request)
+  throw accountReviewPending
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
-  try {
-    const account = await createWithOptions(withAntigravityConfirmFlag(payload))
-    const modelMapping = payload.credentials.model_mapping
-    const hasConcreteMappedTarget = payload.type === 'apikey' &&
-      typeof modelMapping === 'object' &&
-      modelMapping !== null &&
-      Object.values(modelMapping).some((target) =>
-        typeof target === 'string' && target.trim() !== '' && !target.includes('*')
-      )
-    if (upstreamModelsPreviewed.value || hasConcreteMappedTarget) {
-      try {
-        const result = await adminAPI.accounts.syncUpstreamModels(account.id)
-        const warnings = result.warnings ?? []
-        if (warnings.some(warning => warning.code === 'upstream_model_metadata_incomplete')) {
-          appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
-        } else if (warnings.some(warning => warning.code === 'upstream_model_metadata_partial')) {
-          appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
-        }
-      } catch {
-        appStore.showWarning(t('admin.accounts.syncUpstreamModelsFailed'))
-      }
-    }
-    if (
-      (payload.type === 'apikey' || (payload.platform === 'cursor' && payload.type === 'upstream')) &&
-      payload.upstream_billing_probe_enabled === true
-    ) {
-      try {
-        await adminAPI.accounts.probeUpstreamBilling(account.id)
-      } catch {
-        appStore.showWarning(t('admin.accounts.upstreamBilling.probeFailed'))
-      }
-    }
-    appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
-    handleClose()
-  } catch (error: any) {
-    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
-      openMixedChannelDialog({
-        message: error.response?.data?.message,
-        onConfirm: async () => {
-          antigravityMixedChannelConfirmed.value = true
-          await submitCreateAccount(payload)
-        }
-      })
-      return
-    }
-    appStore.showError(error.response?.data?.message || error.response?.data?.detail || t('admin.accounts.failedToCreate'))
-  } finally {
-    submitting.value = false
-  }
+  try { await createWithOptions(payload) }
+  catch (error) { if (error !== accountReviewPending) appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToCreate'))) }
+  finally { submitting.value = false }
 }
 
-// Methods
 const resetForm = () => {
+  createdCatalogAccounts.value = []
+  capabilityDefaultsJSON.value = ''
   cursorAutoCredentials.value = {}
-  cursorKeyMode.value = 'official'
   cursorClientVersion.value = ''
   cursorAuthorizing.value = false
   step.value = 1
@@ -5253,6 +5037,7 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
+  form.tpm_limit = 0
   form.concurrency = 10
   form.load_factor = null
   form.priority = 1
@@ -5282,13 +5067,11 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
-  allowedModels.value = [...claudeModels] // Default fill related models
+  allowedModels.value = []
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
-  fetchAntigravityDefaultMappings().then(mappings => {
-    antigravityModelMappings.value = [...mappings]
-  })
+  antigravityModelMappings.value = []
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''
@@ -5357,13 +5140,13 @@ const resetForm = () => {
   antigravityOAuth.resetState()
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
-  antigravityMixedChannelConfirmed.value = false
-  upstreamModelsPreviewed.value = false
   clearMixedChannelDialog()
 }
 
-const handleClose = () => {
-  antigravityMixedChannelConfirmed.value = false
+const handleClose = (explicit = false) => {
+  if (reviewSubmitting.value) return
+  if (pendingAccountRequests.value.length) { if (explicit) void cancelAccountReview(); else return }
+  if (createdCatalogAccounts.value.length && !explicit) return
   clearMixedChannelDialog()
   emit('close')
 }
@@ -5445,10 +5228,9 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
-  const extra = buildOpenAIExtra()
-  if (!extra) {
-    return undefined
-  }
+  const extra = { ...buildOpenAIExtra() }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
   }
@@ -5481,15 +5263,7 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 }
 
 // Helper function to create account with mixed channel warning handling
-const doCreateAccount = async (payload: CreateAccountRequest) => {
-  const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-    await submitCreateAccount(payload)
-  })
-  if (!canContinue) {
-    return
-  }
-  await submitCreateAccount(payload)
-}
+const doCreateAccount = submitCreateAccount
 
 // Handle mixed channel warning confirmation
 const handleMixedChannelConfirm = async () => {
@@ -5572,21 +5346,28 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
+  try { parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } catch { appStore.showError(t('admin.accounts.modelSync.invalidDeclaration')); return }
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
-  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
+  if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
-    if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
+    // Relay 只允许 Adaptive / Chat Completions：非空非法值必须让用户改选，不静默回落也不抛未捕获异常。
+    const relayProtocol = isCursorRelay.value ? resolveCursorRelayProtocol(apiProtocol.value) : null
+    if (isCursorRelay.value) {
+      if (!apiKeyBaseUrl.value.trim()) { focusAccountCredentialField('create-account-form', 'apiKeyBaseUrl'); appStore.showError(t('admin.accounts.baseUrlRequired')); return }
+      if (!relayProtocol) { appStore.showError(t('admin.accounts.cursor.unsupportedRelayProtocol', { protocol: apiProtocol.value })); return }
+    }
     if (!form.name.trim() || (cursorKeyMode.value !== 'auto' && !apiKeyValue.value.trim())) { appStore.showError(t('admin.accounts.pleaseEnterApiKey')); return }
-    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
+    const credentials = buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl: apiKeyBaseUrl.value, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value, apiProtocol: relayProtocol ?? undefined })
     const mapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (mapping) credentials.model_mapping = mapping
-    if (cursorKeyMode.value === 'relay') {
+    if (isCursorRelay.value) {
       const headerError = headerOverrideEnabled.value && validateHeaderOverrideRows(headerOverrideRows.value)
       if (headerError) { appStore.showError(t(`admin.accounts.headerOverride.${headerError}`)); return }
       applyHeaderOverride(credentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
     }
-    await createAccountAndFinish('cursor', cursorKeyMode.value === 'auto' ? 'oauth' : cursorKeyMode.value === 'official' ? 'apikey' : 'upstream', credentials)
+    await createAccountAndFinish('cursor', form.type, credentials)
     return
   }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
@@ -5595,23 +5376,18 @@ const handleSubmit = async () => {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
-    const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
-      step.value = 2
-    })
-    if (!canContinue) {
-      return
-    }
     step.value = 2
     return
   }
 
   // For Bedrock type, create directly
-  if (form.platform === 'anthropic' && accountCategory.value === 'bedrock') {
+  if (['anthropic', 'bedrock'].includes(form.platform) && accountCategory.value === 'bedrock') {
     if (!form.name.trim()) {
       appStore.showError(t('admin.accounts.pleaseEnterAccountName'))
       return
     }
 
+    if (!bedrockRegion.value.trim()) { focusAccountCredentialField('create-account-form', 'bedrockRegion'); appStore.showError(t('admin.accounts.bedrockRegion') + ': ' + t('common.required')); return }
     const credentials: Record<string, unknown> = {
       auth_mode: bedrockAuthMode.value,
       aws_region: bedrockRegion.value.trim() || 'us-east-1',
@@ -5619,10 +5395,12 @@ const handleSubmit = async () => {
 
     if (bedrockAuthMode.value === 'sigv4') {
       if (!bedrockAccessKeyId.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockAccessKeyId')
         appStore.showError(t('admin.accounts.bedrockAccessKeyIdRequired'))
         return
       }
       if (!bedrockSecretAccessKey.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockSecretAccessKey')
         appStore.showError(t('admin.accounts.bedrockSecretAccessKeyRequired'))
         return
       }
@@ -5633,19 +5411,19 @@ const handleSubmit = async () => {
       }
     } else {
       if (!bedrockApiKeyValue.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'bedrockApiKeyValue')
         appStore.showError(t('admin.accounts.bedrockApiKeyRequired'))
         return
       }
       credentials.api_key = bedrockApiKeyValue.value.trim()
     }
 
-    if (bedrockForceGlobal.value) {
+    if (form.platform === 'anthropic' && bedrockForceGlobal.value) {
       credentials.aws_force_global = 'true'
     }
 
     // Model mapping
-    const modelMapping = buildModelMappingObject(
-      modelRestrictionMode.value, allowedModels.value, modelMappings.value
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value
     )
     if (modelMapping) {
       credentials.model_mapping = modelMapping
@@ -5663,7 +5441,7 @@ const handleSubmit = async () => {
 
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 
-    await createAccountAndFinish('anthropic', 'bedrock' as AccountType, credentials)
+    await createAccountAndFinish(form.platform, 'bedrock' as AccountType, credentials)
     return
   }
 
@@ -5674,10 +5452,12 @@ const handleSubmit = async () => {
       return
     }
     if (!upstreamBaseUrl.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'upstreamBaseUrl')
       appStore.showError(t('admin.accounts.upstream.pleaseEnterBaseUrl'))
       return
     }
     if (!upstreamApiKey.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'upstreamApiKey')
       appStore.showError(t('admin.accounts.upstream.pleaseEnterApiKey'))
       return
     }
@@ -5689,10 +5469,7 @@ const handleSubmit = async () => {
     }
 
     // Antigravity 只使用映射模式
-    const antigravityModelMapping = buildModelMappingObject(
-      'mapping',
-      [],
-      antigravityModelMappings.value
+    const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
     )
     if (antigravityModelMapping) {
       credentials.model_mapping = antigravityModelMapping
@@ -5714,6 +5491,7 @@ const handleSubmit = async () => {
       return
     }
     if (!vertexLocation.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'vertexLocation')
       appStore.showError(t('admin.accounts.vertexLocationRequired'))
       return
     }
@@ -5730,6 +5508,7 @@ const handleSubmit = async () => {
 
   // For apikey type, create directly
   if (!apiKeyValue.value.trim()) {
+    focusAccountCredentialField('create-account-form', 'apiKeyValue')
     appStore.showError(t('admin.accounts.pleaseEnterApiKey'))
     return
   }
@@ -5756,7 +5535,26 @@ const handleSubmit = async () => {
   // 国产供应商：账号模式 + 协议 + 对应端点写入凭据；后端按 account_mode 路由
   // 额度/余额探测，按 api_protocol 路由转发端点与格式。注意 CN apikey 走本函数
   // 的通用路径（直接 doCreateAccount），不经过 createAccountAndFinish。
-  if (isMultiProtocolApiKeyPlatform(form.platform)) {
+  // 后加平台：账号类型（payg / coding）与协议集合同样进凭据。三家有编程套餐的平台在 coding
+  // 档下换成厂商的套餐专属站点（Base URL 与 Key 与按量付费互不通用）；协议集合来自后端声明
+  // （platform_capabilities.go 的 MessagesPOST / ResponsesPOST），已声明的协议共用同一站点根。
+  if (declaredProtocolPlatform.value) {
+    const mode = currentOpenCodeOrCNMode()
+    const typedSite = apiKeyBaseUrl.value.trim()
+    const site = (typedSite || defaultCNBaseUrl(form.platform, mode, apiProtocol.value)).trim()
+    credentials.account_mode = mode
+    credentials.api_protocol = apiProtocol.value
+    credentials.base_url = site
+    if (apiProtocol.value === 'adaptive') {
+      const protocolBaseUrls: Record<string, string> = {}
+      for (const protocol of declaredPlatformNativeProtocols(declaredProtocolPlatform.value)) {
+        // 用户填了地址就对每个协议生效；没填时逐协议取默认站点——套餐档下混元的 OpenAI 根
+        // 与 Anthropic 根不同（/coding/v3 与 /coding/anthropic），把一个根写进所有协议会打到错的路径。
+        protocolBaseUrls[protocol] = typedSite || defaultCNBaseUrl(form.platform, mode, protocol) || site
+      }
+      credentials.api_base_urls = protocolBaseUrls
+    }
+  } else if (isMultiProtocolApiKeyPlatform(form.platform)) {
     credentials.account_mode = form.platform === 'opencode_go' ? openCodeAccountMode.value : accountMode.value
     credentials.api_protocol = apiProtocol.value
     if (apiProtocol.value === 'adaptive') {
@@ -5789,7 +5587,7 @@ const handleSubmit = async () => {
 
   // Add model mapping if configured（OpenAI 开启自动透传时不应用）
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
@@ -5950,7 +5748,7 @@ const createAccountAndFinish = async (
     if (!credentials.base_url) {
       credentials.base_url = apiKeyBaseUrl.value.trim() || 'https://api.x.ai/v1'
     }
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     } else {
@@ -5965,6 +5763,7 @@ const createAccountAndFinish = async (
     credentials,
     extra: finalExtra,
     proxy_id: form.proxy_id,
+    tpm_limit: form.tpm_limit,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
@@ -6006,17 +5805,17 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], form.proxy_id)
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${grokOAuth.error.value || t('admin.accounts.oauth.authFailed')}`)
           grokOAuth.error.value = ''
           continue
         }
 
-        const credentials = grokOAuth.buildCredentials(tokenInfo)
+        const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
         applyGrokOAuthUpstreamConfig(credentials)
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName = refreshTokens.length > 1 ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}` : (form.name || tokenInfo.email || 'Grok OAuth Account')
 
-        const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+        const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
         if (modelMapping) {
           credentials.model_mapping = modelMapping
         }
@@ -6032,7 +5831,8 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6041,13 +5841,18 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6083,7 +5888,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
 
   const credentials: Record<string, unknown> = {}
   applyGrokOAuthUpstreamConfig(credentials)
-  const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+  const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
   if (modelMapping) {
     credentials.model_mapping = modelMapping
   }
@@ -6095,12 +5900,14 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   try {
     const result = await adminAPI.grok.createFromSSO({
       sso_tokens: ssoTokens,
+      ...(capabilityDefaultsJSON.value.trim() ? { extra: { model_capability_defaults: parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } } : {}),
       name: form.name || undefined,
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,
       group_ids: form.group_ids,
       credentials,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -6108,33 +5915,20 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       auto_pause_on_expired: autoPauseOnExpired.value
     })
 
-    const successCount = result.created?.length || 0
-    const failedCount = result.failed?.length || 0
-    if (successCount > 0 && failedCount === 0) {
-      appStore.showSuccess(
-        ssoTokens.length > 1
-          ? t('admin.accounts.oauth.batchSuccess', { count: successCount })
-          : t('admin.accounts.accountCreated')
-      )
-      emit('created')
-      handleClose()
-    } else if (successCount > 0 && failedCount > 0) {
-      // Same as OpenAI/Grok RT: keep input, show failures, refresh list.
-      appStore.showWarning(
-        t('admin.accounts.oauth.batchPartialSuccess', { success: successCount, failed: failedCount })
-      )
-      grokOAuth.error.value = (result.failed || [])
-        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
-        .join('\n')
-      emit('created')
-    } else {
-      grokOAuth.error.value = (result.failed || [])
-        .map((item) => `#${item.index}: ${item.error || 'Unknown error'}`)
-        .join('\n') || t('admin.accounts.oauth.grok.failedToConvertSSO')
-      appStore.showError(t('admin.accounts.oauth.batchFailed'))
+    for (const item of result.ready ?? []) {
+      if (!item.draft) continue
+      try {
+        await createWithOptions({ ...form, name: item.name || form.name || `Grok #${item.index}`, platform: 'grok', type: 'oauth', credentials: { ...item.draft }, auto_pause_on_expired: autoPauseOnExpired.value })
+      } catch (error) { if (error !== accountReviewPending) throw error }
     }
-  } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || error.message || t('admin.accounts.oauth.grok.failedToConvertSSO')
+    if (result.failed?.length) {
+      await cancelAccountReview()
+      grokOAuth.error.value = result.failed.map(item => `#${item.index}: ${item.error || t('admin.accounts.oauth.authFailed')}`).join('\n')
+      appStore.showError(grokOAuth.error.value)
+    }
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.grok.failedToConvertSSO'))
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -6181,7 +5975,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           continue
         }
 
-        const credentials = grokOAuth.buildCredentials(tokenInfo)
+        const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
         applyGrokOAuthUpstreamConfig(credentials)
         const extra = grokOAuth.buildExtraInfo(tokenInfo)
         const accountName =
@@ -6189,8 +5983,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
             ? `${form.name || tokenInfo.email || 'Grok OAuth Account'} #${i + 1}`
             : form.name || tokenInfo.email || 'Grok OAuth Account'
 
-        const modelMapping = buildModelMappingObject(
-          modelRestrictionMode.value,
+        const modelMapping = buildModelMappingObject('combined',
           allowedModels.value,
           modelMappings.value
         )
@@ -6209,7 +6002,8 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -6218,13 +6012,18 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           auto_pause_on_expired: autoPauseOnExpired.value
         })
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         lines.length > 1
@@ -6275,14 +6074,14 @@ const handleOpenAIExchange = async (authCode: string) => {
     )
     if (!tokenInfo) return
 
-    const credentials = oauthClient.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => oauthClient.buildCredentials(tokenInfo))
     const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
     const extra = buildOpenAIExtra(oauthExtra)
     const shouldCreateOpenAI = form.platform === 'openai'
 
     // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
     if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-      const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+      const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
       if (modelMapping) {
         credentials.model_mapping = modelMapping
       }
@@ -6308,7 +6107,8 @@ const handleOpenAIExchange = async (authCode: string) => {
         credentials,
         extra: withUpstreamRequestIdHeader(extra),
         proxy_id: form.proxy_id,
-        concurrency: form.concurrency,
+        tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
         load_factor: form.load_factor ?? undefined,
         priority: form.priority,
         rate_multiplier: form.rate_multiplier,
@@ -6321,8 +6121,9 @@ const handleOpenAIExchange = async (authCode: string) => {
 
     emit('created')
     handleClose()
-  } catch (error: any) {
-    oauthClient.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    oauthClient.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6336,7 +6137,7 @@ const OPENAI_MOBILE_RT_CLIENT_ID = 'app_LlGpXReQgckcGGUo2JrYvtJK'
 const buildOpenAICodexImportCredentialExtras = (): Record<string, unknown> | null => {
   const credentials: Record<string, unknown> = {}
   if (!isOpenAIModelRestrictionDisabled.value) {
-    const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+    const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
     if (modelMapping) {
       credentials.model_mapping = modelMapping
     }
@@ -6413,7 +6214,8 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -6425,43 +6227,16 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       update_existing: true
     })
 
-    const successCount = result.created + result.updated
-    const params = {
-      created: result.created,
-      updated: result.updated,
-      skipped: result.skipped,
-      failed: result.failed
+    for (const item of result.ready ?? []) pendingAccountRequests.value.push(item.account)
+    if (result.failed > 0) {
+      await cancelAccountReview()
+      oauthClient.error.value = formatCodexImportMessages(result.errors)
+      appStore.showError(oauthClient.error.value || t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     }
-
-    if (successCount > 0 && result.failed === 0) {
-      appStore.showSuccess(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
-      emit('created')
-      handleClose()
-      return
-    }
-
-    const errorText = formatCodexImportMessages(result.errors)
-    const warningText = formatCodexImportMessages(result.warnings)
-    oauthClient.error.value = [errorText, warningText].filter(Boolean).join('\n')
-
-    if (result.failed === 0) {
-      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportSuccess', params))
-      return
-    }
-
-    if (successCount > 0) {
-      appStore.showWarning(t('admin.accounts.oauth.openai.codexSessionImportPartial', params))
-      emit('created')
-      return
-    }
-
-    appStore.showError(t('admin.accounts.oauth.openai.codexSessionImportFailed'))
-  } catch (error: any) {
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      t('admin.accounts.oauth.openai.codexSessionImportFailed')
+      extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexSessionImportFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6486,12 +6261,13 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 
   try {
     const extra = buildOpenAICodexImportExtra()
-    await adminAPI.accounts.createOpenAICodexPAT({
+    const account = await adminAPI.accounts.createOpenAICodexPAT({
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
       proxy_id: form.proxy_id,
-      concurrency: form.concurrency,
+      tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
       load_factor: form.load_factor ?? undefined,
       priority: form.priority,
       rate_multiplier: form.rate_multiplier,
@@ -6502,15 +6278,13 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       extra: withUpstreamRequestIdHeader(extra)
     })
 
-    appStore.showSuccess(t('admin.accounts.accountCreated'))
-    emit('created')
-    handleClose()
-  } catch (error: any) {
+    const draft = readAccountCredentialDraft(account)
+    if (!draft) throw new Error(t('admin.accounts.oauth.authFailed'))
+    await createWithOptions({ ...form, platform: 'openai', type: 'oauth', credentials: { ...draft }, extra: withUpstreamRequestIdHeader(extra), auto_pause_on_expired: autoPauseOnExpired.value })
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
     oauthClient.error.value =
-      error.response?.data?.detail ||
-      error.response?.data?.message ||
-      error.message ||
-      t('admin.accounts.oauth.openai.codexPatImportFailed')
+      extractApiErrorMessage(error, t('admin.accounts.oauth.openai.codexPatImportFailed'))
     appStore.showError(oauthClient.error.value)
   } finally {
     oauthClient.loading.value = false
@@ -6550,13 +6324,13 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         )
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${oauthClient.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${oauthClient.error.value || t('admin.accounts.oauth.authFailed')}`)
           oauthClient.error.value = ''
           continue
         }
 
-        const credentials = oauthClient.buildCredentials(tokenInfo)
-        if (clientId) {
+        const credentials = credentialsFromAuthorization(tokenInfo, () => oauthClient.buildCredentials(tokenInfo))
+        if (clientId && !readAccountCredentialDraft(credentials)) {
           credentials.client_id = clientId
         }
         const oauthExtra = oauthClient.buildExtraInfo(tokenInfo) as Record<string, unknown> | undefined
@@ -6564,7 +6338,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 
         // Add model mapping for OpenAI OAuth accounts（透传模式下不应用）
         if (shouldCreateOpenAI && !isOpenAIModelRestrictionDisabled.value) {
-          const modelMapping = buildModelMappingObject(modelRestrictionMode.value, allowedModels.value, modelMappings.value)
+          const modelMapping = buildModelMappingObject('combined', allowedModels.value, modelMappings.value)
           if (modelMapping) {
             credentials.model_mapping = modelMapping
           }
@@ -6589,7 +6363,8 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             credentials,
             extra: withUpstreamRequestIdHeader(extra),
             proxy_id: form.proxy_id,
-            concurrency: form.concurrency,
+            tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
             load_factor: form.load_factor ?? undefined,
             priority: form.priority,
             rate_multiplier: form.rate_multiplier,
@@ -6600,14 +6375,19 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
         }
 
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
     // Show results
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6668,19 +6448,19 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
         )
         if (!tokenInfo) {
           failedCount++
-          errors.push(`#${i + 1}: ${antigravityOAuth.error.value || 'Validation failed'}`)
+          errors.push(`#${i + 1}: ${antigravityOAuth.error.value || t('admin.accounts.oauth.authFailed')}`)
           antigravityOAuth.error.value = ''
           continue
         }
 
-        const credentials = antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i])
+        const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i]))
         applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
-        
+
         // Generate account name with index for batch
         const accountName = refreshTokens.length > 1 ? `${form.name} #${i + 1}` : form.name
 
         // Note: Antigravity doesn't have buildExtraInfo, so we pass empty extra or rely on credentials
-        const createPayload = withAntigravityConfirmFlag({
+        const createPayload: CreateAccountRequest = {
           name: accountName,
           notes: form.notes,
           platform: 'antigravity',
@@ -6688,24 +6468,30 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader({}),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
           group_ids: form.group_ids,
           expires_at: form.expires_at,
           auto_pause_on_expired: autoPauseOnExpired.value
-        })
+        }
         await createWithOptions(createPayload)
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
-        const errMsg = error.response?.data?.detail || error.message || 'Unknown error'
+        const errMsg = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
         errors.push(`#${i + 1}: ${errMsg}`)
       }
     }
 
     // Show results
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0 && failedCount === 0) {
       appStore.showSuccess(
         refreshTokens.length > 1
@@ -6755,11 +6541,12 @@ const handleGeminiExchange = async (authCode: string) => {
     })
     if (!tokenInfo) return
 
-    const credentials = geminiOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => geminiOAuth.buildCredentials(tokenInfo))
     const extra = geminiOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('gemini', 'oauth', credentials, extra)
-  } catch (error: any) {
-    geminiOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    geminiOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(geminiOAuth.error.value)
   } finally {
     geminiOAuth.loading.value = false
@@ -6790,22 +6577,20 @@ const handleAntigravityExchange = async (authCode: string) => {
     })
 		if (!tokenInfo) return
 
-		const credentials = antigravityOAuth.buildCredentials(tokenInfo)
+		const credentials = credentialsFromAuthorization(tokenInfo, () => antigravityOAuth.buildCredentials(tokenInfo))
 		applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
 		applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
 		// Antigravity 只使用映射模式
-		const antigravityModelMapping = buildModelMappingObject(
-			'mapping',
-			[],
-			antigravityModelMappings.value
+		const antigravityModelMapping = buildModelMappingObject('combined', antigravityWhitelistModels.value, antigravityModelMappings.value
 		)
 		if (antigravityModelMapping) {
 			credentials.model_mapping = antigravityModelMapping
 		}
 		const extra = buildAntigravityExtra()
 		await createAccountAndFinish('antigravity', 'oauth', credentials, extra)
-  } catch (error: any) {
-    antigravityOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    antigravityOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(antigravityOAuth.error.value)
   } finally {
     antigravityOAuth.loading.value = false
@@ -6837,12 +6622,13 @@ const handleGrokExchange = async (authCode: string) => {
     })
     if (!tokenInfo) return
 
-    const credentials = grokOAuth.buildCredentials(tokenInfo)
+    const credentials = credentialsFromAuthorization(tokenInfo, () => grokOAuth.buildCredentials(tokenInfo))
     applyGrokOAuthUpstreamConfig(credentials)
     const extra = grokOAuth.buildExtraInfo(tokenInfo)
     await createAccountAndFinish('grok', 'oauth', credentials, extra)
-  } catch (error: any) {
-    grokOAuth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    grokOAuth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(grokOAuth.error.value)
   } finally {
     grokOAuth.loading.value = false
@@ -6930,8 +6716,9 @@ const handleAnthropicExchange = async (authCode: string) => {
     const credentials: Record<string, unknown> = { ...tokenInfo }
     applyInterceptWarmup(credentials, interceptWarmupRequests.value, 'create')
     await createAccountAndFinish(form.platform, addMethod.value as AccountType, credentials, extra)
-  } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
     appStore.showError(oauth.error.value)
   } finally {
     oauth.loading.value = false
@@ -7069,7 +6856,8 @@ const handleCookieAuth = async (sessionKey: string) => {
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
           proxy_id: form.proxy_id,
-          concurrency: form.concurrency,
+          tpm_limit: form.tpm_limit,
+    concurrency: form.concurrency,
           load_factor: form.load_factor ?? undefined,
           priority: form.priority,
           rate_multiplier: form.rate_multiplier,
@@ -7079,17 +6867,22 @@ const handleCookieAuth = async (sessionKey: string) => {
         })
 
         successCount++
-      } catch (error: any) {
+      } catch (error: unknown) {
+    if (error === accountReviewPending) continue
         failedCount++
         errors.push(
           t('admin.accounts.oauth.keyAuthFailed', {
             index: i + 1,
-            error: error.response?.data?.detail || t('admin.accounts.oauth.authFailed')
+            error: extractApiErrorMessage(error, t('admin.accounts.oauth.authFailed'))
           })
         )
       }
     }
 
+    if (pendingAccountRequests.value.length) {
+      if (failedCount > 0) { await cancelAccountReview(); appStore.showError(errors.join('\n')) }
+      return
+    }
     if (successCount > 0) {
       appStore.showSuccess(t('admin.accounts.oauth.successCreated', { count: successCount }))
       if (failedCount === 0) {
@@ -7103,8 +6896,9 @@ const handleCookieAuth = async (sessionKey: string) => {
     if (failedCount > 0) {
       oauth.error.value = errors.join('\n')
     }
-  } catch (error: any) {
-    oauth.error.value = error.response?.data?.detail || t('admin.accounts.oauth.cookieAuthFailed')
+  } catch (error: unknown) {
+    if (error === accountReviewPending) return
+    oauth.error.value = extractApiErrorMessage(error, t('admin.accounts.oauth.cookieAuthFailed'))
   } finally {
     oauth.loading.value = false
   }

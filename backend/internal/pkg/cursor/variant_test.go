@@ -46,8 +46,8 @@ func TestResolveModelVariant(t *testing.T) {
 	require.Equal(t, "family-high", got)
 	_, err = ResolveModelVariant("picker", RunOptions{Fast: &yes}, []AvailableModel{{ID: "picker", RunSlug: "plain"}})
 	require.Error(t, err)
-	require.Len(t, FallbackModels(), 38)
-	for _, model := range FallbackModels() {
+	require.NotEmpty(t, ProtocolVariantModels())
+	for _, model := range ProtocolVariantModels() {
 		resolved, err := ResolveModel(model.ID, "", nil)
 		require.NoError(t, err)
 		require.NotEmpty(t, resolved)

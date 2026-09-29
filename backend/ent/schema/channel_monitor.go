@@ -26,6 +26,7 @@ func (ChannelMonitor) Annotations() []schema.Annotation {
 func (ChannelMonitor) Mixin() []ent.Mixin {
 	return []ent.Mixin{
 		mixins.TimeMixin{},
+		mixins.WorkspaceMixin{},
 	}
 }
 
@@ -36,7 +37,7 @@ func (ChannelMonitor) Fields() []ent.Field {
 			MaxLen(100),
 		field.Enum("provider").
 			Values("openai", "anthropic", "gemini", "grok",
-				"antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"),
+				"antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode", "minimax", "opencode_go", "cursor", "volcengine", "qianfan", "hunyuan", "mistral", "bedrock"),
 		// check_mode: 'probe' | 'quota' | 'quota_probe'
 		//   probe       - LLM 探活（默认，原有行为）
 		//   quota       - 仅查关联账号的用量/余额（零 LLM 成本；endpoint/api_key 可空）

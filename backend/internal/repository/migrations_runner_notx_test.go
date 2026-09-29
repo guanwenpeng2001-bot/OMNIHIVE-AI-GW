@@ -232,6 +232,48 @@ CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_effective_upstream_model_
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
+func TestApplyMigrationsFS_NonTransactionalMigration_SessionIDIndexRepairsInvalidIndexBeforeRecording(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(usageLogsSessionIDIndexMigration).
+		WillReturnError(sql.ErrNoRows)
+	mock.ExpectQuery("SELECT namespace.nspname, relation.relname").
+		WillReturnRows(sqlmock.NewRows([]string{"schema", "table"}).AddRow("public", "usage_logs"))
+	mock.ExpectQuery("SELECT relkind = 'p'").
+		WithArgs(`"public"."usage_logs"`).
+		WillReturnRows(sqlmock.NewRows([]string{"partitioned"}).AddRow(false))
+	mock.ExpectQuery("SELECT index_state.indisvalid AND index_state.indisready").
+		WithArgs(`"public"."idx_usage_logs_session_id"`, `"public"."usage_logs"`).
+		WillReturnRows(sqlmock.NewRows([]string{"valid", "matches"}).AddRow(false, true))
+	mock.ExpectExec(`REINDEX INDEX CONCURRENTLY "public"\."idx_usage_logs_session_id"`).
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectQuery("SELECT indisvalid AND indisready FROM pg_index").
+		WithArgs(`"public"."idx_usage_logs_session_id"`).
+		WillReturnRows(sqlmock.NewRows([]string{"valid"}).AddRow(true))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(usageLogsSessionIDIndexMigration, sqlmock.AnyArg()).
+		WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").
+		WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{
+		usageLogsSessionIDIndexMigration: &fstest.MapFile{Data: []byte(`
+CREATE INDEX CONCURRENTLY IF NOT EXISTS idx_usage_logs_session_id
+    ON usage_logs (session_id)
+    WHERE session_id IS NOT NULL;
+`)},
+	}
+
+	err = applyMigrationsFS(context.Background(), db, fsys)
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
 func TestApplyMigrationsFS_PaymentOrdersOutTradeNoUniqueMigration_FailsFastOnDuplicatePrecheck(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)

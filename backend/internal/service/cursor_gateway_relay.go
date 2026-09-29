@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -18,9 +19,10 @@ import (
 
 func cursorRelayURL(account *Account, endpoint string) string {
 	protocol := APIProtocolChatCompletions
-	if endpoint == "/messages" {
+	switch endpoint {
+	case "/messages":
 		protocol = APIProtocolAnthropic
-	} else if endpoint == "/responses" {
+	case "/responses":
 		protocol = APIProtocolResponses
 	}
 	base := strings.TrimSpace(account.GetCredential("base_url"))
@@ -119,16 +121,25 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 	if json.Unmarshal(body, &metadata) != nil {
 		return nil, fmt.Errorf("cursor: malformed relay request")
 	}
-	converted, err := cursorConvertRelayRequest(body, inbound, upstream)
+	// Resolve once before conversion so capability checks and transport agree.
+	mapped := account.GetMappedModel(metadata.Model)
+	var payload map[string]json.RawMessage
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return nil, err
+	}
+	payload["model"], _ = json.Marshal(mapped)
+	mappedBody, err := json.Marshal(payload)
 	if err != nil {
 		return nil, err
 	}
-	var payload map[string]json.RawMessage
+	converted, err := cursorConvertRelayRequest(mappedBody, inbound, upstream)
+	if err != nil {
+		return nil, err
+	}
+	payload = nil
 	if err = json.Unmarshal(converted, &payload); err != nil {
 		return nil, err
 	}
-	mapped := account.GetMappedModel(metadata.Model)
-	payload["model"], _ = json.Marshal(mapped)
 	// Compatibility request converters default to streaming; preserve caller intent.
 	payload["stream"], _ = json.Marshal(metadata.Stream)
 	if metadata.Stream && upstream == APIProtocolChatCompletions {
@@ -154,11 +165,22 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 		deleteHeaderAllForms(request.Header, "anthropic-version")
 		request.Header.Set("anthropic-version", "2023-06-01")
 	}
-	response, err := cursor.Do(gateway.relayClient, request, false)
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, mapped, catalogProtocolEndpoint(upstream)); err != nil {
+			return nil, err
+		}
+	}
+	response, err := generationHTTP(request, account.ID, func(request *http.Request) (*http.Response, error) {
+		return cursor.Do(gateway.relayClient, request, false)
+	})
 	if err != nil {
 		return nil, cursorFailover(err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor relay response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		return nil, cursorFailover(&cursor.HTTPError{Status: response.StatusCode})
 	}

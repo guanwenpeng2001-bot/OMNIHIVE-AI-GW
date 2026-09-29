@@ -6,7 +6,6 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -100,7 +99,7 @@ func (s *CNProviderBalanceService) QueryBalanceForAccount(ctx context.Context, a
 	if err := validatePayGAccount(account); err != nil {
 		return nil, err
 	}
-	key := "cn_balance:" + strconv.FormatInt(account.ID, 10)
+	key := "cn_balance:" + AccountRuntimeIdentityKey(account)
 	resultCh := s.flight.DoChan(key, func() (any, error) {
 		probeCtx, cancel := context.WithTimeout(context.Background(), cnBalanceUpstreamTimeout+5*time.Second)
 		defer cancel()
@@ -235,7 +234,7 @@ func (s *CNProviderBalanceService) queryBalanceForAccount(ctx context.Context, a
 		// 余额探测成功即清除响应式 402/429 写下的 balance_low 标记。
 		cnExtraKey(provider, cnBalanceExtraSuffixLow): false,
 	}
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
 		slog.Warn("cn_balance_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
 		result.Persisted = true

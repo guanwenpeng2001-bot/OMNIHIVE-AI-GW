@@ -2,10 +2,10 @@ package middleware
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -78,6 +78,17 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		// 同 api_key_auth.go：早退中断前也写入 Ops 回退 key，便于错误日志展示
 		// user/group/platform。
 		SetOpsFallbackAPIKey(c, apiKey)
+		workspaceID := apiKey.WorkspaceID
+		if workspaceID == 0 {
+			workspaceID = domain.DefaultWorkspaceID
+		}
+		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), workspaceID))
+		policyContext, policyErr := apiKeyService.AttachModelAccessPolicy(c.Request.Context(), apiKey.ID)
+		if policyErr != nil {
+			c.AbortWithStatusJSON(503, gin.H{"error": gin.H{"type": "service_unavailable", "message": "Model access policy unavailable"}})
+			return
+		}
+		c.Request = c.Request.WithContext(policyContext)
 
 		// disabled / 未知状态 → 无条件拦截（expired 和 quota_exhausted 留给计费阶段，
 		// 与主中间件 api_key_auth.go 保持一致）。
@@ -94,12 +105,9 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			clientIP := ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL())
 			allowed, _ := ip.CheckIPRestrictionWithCompiledRules(clientIP, apiKey.CompiledIPWhitelist, apiKey.CompiledIPBlacklist)
 			if !allowed {
-				if clientIP == "" {
-					clientIP = "unknown"
-				}
 				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonIPRestriction)
 				MarkIngressRejected(c, IngressRejectIPRestricted)
-				abortWithGoogleError(c, 403, fmt.Sprintf("Access denied. Your IP is %s", clientIP))
+				abortWithGoogleError(c, 403, "Access denied")
 				return
 			}
 		}
@@ -127,7 +135,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		if !validateAPIKeyGroupAllowed(apiKey) {
 			service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 			MarkIngressRejected(c, IngressRejectGroupNotAllowed)
-			abortWithGoogleError(c, 403, "API Key 所属专属分组不再允许当前用户使用")
+			abortWithGoogleError(c, 403, "API key group is no longer available to this user")
 			return
 		}
 
@@ -148,20 +156,20 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		// Key 状态检查（状态字段可能因后台异步刷新而滞后，故显式拦截）。
 		switch apiKey.Status {
 		case service.StatusAPIKeyQuotaExhausted:
-			abortWithGoogleError(c, 429, "API key 额度已用完")
+			abortWithGoogleError(c, 429, "API key quota exhausted")
 			return
 		case service.StatusAPIKeyExpired:
-			abortWithGoogleError(c, 403, "API key 已过期")
+			abortWithGoogleError(c, 403, "API key has expired")
 			return
 		}
 
 		// 运行时过期/配额检查（即使状态是 active，也要检查时间和用量，与主中间件一致）。
 		if apiKey.IsExpired() {
-			abortWithGoogleError(c, 403, "API key 已过期")
+			abortWithGoogleError(c, 403, "API key has expired")
 			return
 		}
 		if apiKey.IsQuotaExhausted() {
-			abortWithGoogleError(c, 429, "API key 额度已用完")
+			abortWithGoogleError(c, 429, "API key quota exhausted")
 			return
 		}
 
@@ -201,7 +209,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			c.Set(string(ContextKeySubscription), subscription)
 		} else {
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
-				abortWithGoogleError(c, 403, "Insufficient account balance")
+				abortWithGoogleError(c, 429, "Insufficient account balance")
 				return
 			}
 		}
@@ -253,8 +261,10 @@ func extractAPIKeyForGoogle(c *gin.Context) string {
 	return ""
 }
 
+// Native Gemini SDKs support query key on /v1beta/; headers remain preferred.
+// This compatibility does not extend to /v1 or similarly prefixed paths.
 func allowGoogleQueryKey(path string) bool {
-	return strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta")
+	return strings.HasPrefix(path, "/v1beta/") || strings.HasPrefix(path, "/antigravity/v1beta/")
 }
 
 func abortWithGoogleError(c *gin.Context, status int, message string) {

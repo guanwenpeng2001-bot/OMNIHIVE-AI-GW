@@ -30,6 +30,7 @@ type dashboardTrendCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
@@ -45,6 +46,7 @@ type dashboardModelGroupCacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 }
 
@@ -89,9 +91,14 @@ func (h *DashboardHandler) getUsageTrendCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.TrendDataPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardTrendCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		Granularity:           granularity,
@@ -104,13 +111,14 @@ func (h *DashboardHandler) getUsageTrendCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardTrendCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetUsageTrendWithUsageFilters(ctx, startTime, endTime, granularity, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			Model: model, RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
 	if err != nil {
@@ -129,9 +137,14 @@ func (h *DashboardHandler) getModelStatsCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.ModelStat, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		UserID:                userID,
@@ -143,13 +156,14 @@ func (h *DashboardHandler) getModelStatsCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardModelStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetModelStatsWithUsageFiltersBySource(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		}, modelSource)
 	})
 	if err != nil {
@@ -167,9 +181,14 @@ func (h *DashboardHandler) getGroupStatsCached(
 	stream *bool,
 	nativeCompactionV2 *bool,
 	billingType *int8,
+	billingMode string,
 	upstreamModelMismatch *bool,
 ) ([]usagestats.GroupStat, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardModelGroupCacheKey{
 		StartTime:             startTime.UTC().Format(time.RFC3339),
 		EndTime:               endTime.UTC().Format(time.RFC3339),
 		UserID:                userID,
@@ -180,13 +199,14 @@ func (h *DashboardHandler) getGroupStatsCached(
 		Stream:                stream,
 		NativeCompactionV2:    nativeCompactionV2,
 		BillingType:           billingType,
+		BillingMode:           billingMode,
 		UpstreamModelMismatch: upstreamModelMismatch,
 	})
 	entry, hit, err := dashboardGroupStatsCache.GetOrLoad(key, func() (any, error) {
 		return h.dashboardService.GetGroupStatsWithUsageFilters(ctx, startTime, endTime, usagestats.UsageLogFilters{
 			UserID: userID, APIKeyID: apiKeyID, AccountID: accountID, GroupID: groupID,
 			RequestType: requestType, Stream: stream, NativeCompactionV2: nativeCompactionV2, BillingType: billingType,
-			UpstreamModelMismatch: upstreamModelMismatch,
+			BillingMode: billingMode, UpstreamModelMismatch: upstreamModelMismatch,
 		})
 	})
 	if err != nil {
@@ -197,7 +217,11 @@ func (h *DashboardHandler) getGroupStatsCached(
 }
 
 func (h *DashboardHandler) getAPIKeyUsageTrendCached(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.APIKeyUsageTrendPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
 		StartTime:   startTime.UTC().Format(time.RFC3339),
 		EndTime:     endTime.UTC().Format(time.RFC3339),
 		Granularity: granularity,
@@ -214,7 +238,11 @@ func (h *DashboardHandler) getAPIKeyUsageTrendCached(ctx context.Context, startT
 }
 
 func (h *DashboardHandler) getUserUsageTrendCached(ctx context.Context, startTime, endTime time.Time, granularity string, limit int) ([]usagestats.UserUsageTrendPoint, bool, error) {
-	key := mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
+	revision, err := h.dashboardService.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	key := revision + ":" + mustMarshalDashboardCacheKey(dashboardEntityTrendCacheKey{
 		StartTime:   startTime.UTC().Format(time.RFC3339),
 		EndTime:     endTime.UTC().Format(time.RFC3339),
 		Granularity: granularity,

@@ -1,8 +1,14 @@
+import createAccountSource from '../CreateAccountModal.vue?raw'
+import editAccountSource from '../EditAccountModal.vue?raw'
+import englishAccounts from '@/i18n/locales/en/admin/accounts'
+import chineseAccounts from '@/i18n/locales/zh/admin/accounts'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
 import { mount, flushPromises } from '@vue/test-utils'
 
 const {
+  catalogRead,
+  allowlistWrite,
   updateAccountMock,
   checkMixedChannelRiskMock,
   authIsSimpleMode,
@@ -12,6 +18,8 @@ const {
   showSuccessMock,
   showErrorMock
 } = vi.hoisted(() => ({
+  catalogRead: vi.fn().mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } }),
+  allowlistWrite: vi.fn(),
   updateAccountMock: vi.fn(),
   syncUpstreamModelsMock: vi.fn(),
   showInfoMock: vi.fn(),
@@ -57,6 +65,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
+  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: catalogRead, updateModelAllowlist: allowlistWrite, syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
@@ -65,12 +74,18 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      // 保留插值参数，便于断言带 {protocol} 的提示确实带上了账号原值；无参数时与裸键相等。
+      t: (key: string, params?: Record<string, unknown>) => (params ? `${key} ${JSON.stringify(params)}` : key)
     })
   }
 })
 
+import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
 import EditAccountModal from '../EditAccountModal.vue'
+import CursorKeyFields from '../CursorKeyFields.vue'
+import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
   name: 'BaseDialog',
@@ -318,7 +333,7 @@ function buildOpenAIOAuthParentAccount() {
   } as any
 }
 
-function mountModal(account = buildAccount(), renderGroupSelector = false) {
+function mountModal(account = buildAccount(), renderGroupSelector = false, realCatalog = false) {
   return mount(EditAccountModal, {
     props: {
       show: true,
@@ -333,23 +348,39 @@ function mountModal(account = buildAccount(), renderGroupSelector = false) {
         Icon: true,
         ProxySelector: true,
         GroupSelector: renderGroupSelector ? false : GroupSelectorStub,
-        ModelWhitelistSelector: ModelWhitelistSelectorStub
+        ModelWhitelistSelector: realCatalog ? false : ModelWhitelistSelectorStub
       }
     }
   })
 }
 
 describe('EditAccountModal', () => {
-  it.each(['partial', 'incomplete'] as const)('uses the correct severity for %s capability metadata', async (status) => {
+  it('edits the token limit without changing the concurrency setting', async () => {
+    const account = { ...buildAccount(), tpm_limit: 31 }
+    updateAccountMock.mockReset().mockResolvedValue({ ...account, tpm_limit: 47 })
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const input = wrapper.get('[data-testid="tpm-limit-field"] input')
+    expect((input.element as HTMLInputElement).value).toBe('31')
+    await input.setValue('47')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalled()
+    expect(updateAccountMock.mock.calls[0][1]).toMatchObject({ tpm_limit: 47, concurrency: account.concurrency })
+    wrapper.unmount()
+  })
+
+  it.each(['partial', 'incomplete'] as const)('keeps Toasts quiet for %s capability metadata', async (status) => {
     showInfoMock.mockReset()
     showWarningMock.mockReset()
     showSuccessMock.mockReset()
     showErrorMock.mockReset()
     syncUpstreamModelsMock.mockResolvedValue({
-      models: ['gemini-new-model'],
+      candidate_models: ['gemini-new-model'], models: ['gemini-new-model'],
       warnings: [{ code: `upstream_model_metadata_${status}`, message: 'metadata status' }],
     })
-    const wrapper = mountModal(buildAntigravityAccount())
+    const wrapper = mountModal(buildAntigravityAccount(), false, true)
     await flushPromises()
     const syncButton = wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')
     expect(syncButton).toBeDefined()
@@ -358,11 +389,10 @@ describe('EditAccountModal', () => {
 
     expect(syncUpstreamModelsMock).toHaveBeenCalledWith(3, false)
     if (status === 'partial') {
-      expect(showInfoMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataPartial')
-      expect(showSuccessMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsSuccess')
+      expect(showInfoMock).not.toHaveBeenCalled()
       expect(showWarningMock).not.toHaveBeenCalled()
     } else {
-      expect(showWarningMock).toHaveBeenCalledWith('admin.accounts.syncUpstreamModelsMetadataIncomplete')
+      expect(showWarningMock).not.toHaveBeenCalled()
       expect(showSuccessMock).not.toHaveBeenCalled()
     }
     expect(showErrorMock).not.toHaveBeenCalled()
@@ -374,6 +404,80 @@ describe('EditAccountModal', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it.each(['editApiKey', 'editApiProtocol', 'editGeminiTier', 'editPlanType', 'capabilityDefaultsJSON'])('invalidates preview on %s changes without fetching on each edit', async field => {
+    catalogRead.mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } })
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Native'], models: ['Native'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: 1, digest: 'original' } })
+    const wrapper = mountModal(buildAccount(), false, true)
+    await flushPromises()
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    const reads = catalogRead.mock.calls.length
+    ;(wrapper.vm as unknown as Record<string, unknown>)[field] = 'changed'
+    await flushPromises()
+    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
+    expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeDefined()
+    expect(catalogRead.mock.calls.length).toBe(reads)
+    expect(syncUpstreamModelsMock).toHaveBeenCalledOnce()
+    wrapper.unmount()
+  })
+
+  it('changes the saved allowlist with a reason and lossless revision, then reads it back', async () => {
+    const account = buildAccount()
+    const initial = { synced: true, warnings: [], state: { rules_revision: '9007199254740993' }, effective_snapshot: { discovered_models: ['Native'], eligible_models: [{ id: 'Native' }] } }
+    catalogRead.mockResolvedValueOnce(initial).mockResolvedValueOnce({ ...initial, state: { rules_revision: '9007199254740994' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '9007199254740994' })
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
+    await panel.get('[data-testid="allowlist-models"]').setValue('NotDiscovered')
+    await panel.get('[data-testid="allowlist-reason"]').setValue('restrict account scope')
+    await panel.get('[data-testid="save-allowlist"]').trigger('click')
+    expect(allowlistWrite).not.toHaveBeenCalled()
+    expect(panel.text()).toContain('modelSync.allowlistInvalid')
+    await panel.get('[data-testid="allowlist-models"]').setValue('Native')
+    await panel.get('[data-testid="save-allowlist"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, { enabled: true, models: ['Native'], reason: 'restrict account scope', expected_rules_revision: '9007199254740993' })
+    expect(catalogRead).toHaveBeenLastCalledWith(account.id)
+    wrapper.unmount()
+  })
+
+  it('invalidates a reviewed snapshot on credential changes and saves specifications before a fresh confirmation', async () => {
+    const account = buildAccount()
+    const declaration = { schema_version: 1, reason: 'verified deployment', models: { Private: { supports_function_calling: false } } }
+    const updated = { ...account, extra: { ...account.extra, model_capability_defaults: declaration } }
+    updateAccountMock.mockReset().mockResolvedValue(updated)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: account.id, digest: 'before' } })
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    const vm = wrapper.vm as unknown as { editApiKey: string; capabilityDefaultsJSON: string }
+    vm.editApiKey = 'rotated-key'
+    vm.capabilityDefaultsJSON = JSON.stringify(declaration)
+    await flushPromises()
+    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
+    expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledOnce()
+    expect(updateAccountMock.mock.calls[0][1]).toMatchObject({ credentials: { api_key: 'rotated-key' }, extra: { model_capability_defaults: declaration } })
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeUndefined()
+    const review = { account_id: account.id, digest: 'after-rotation' }
+    syncUpstreamModelsMock.mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '2', review }).mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], applied: true })
+    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(account.id, true, '2', undefined, review)
+    wrapper.unmount()
+  })
 
   it.each([['apikey', 'ai_studio', 'aistudio_free', 'aistudio_paid'], ['oauth', 'google_one', 'google_one_free', 'google_ai_ultra'], ['oauth', 'code_assist', 'gcp_standard', 'gcp_enterprise']])('loads and saves Gemini %s %s tier', async (type, oauthType, initial, selected) => {
     const account = { ...buildAccount(), platform: 'gemini', type, credentials: { tier_id: initial, oauth_type: oauthType, api_key: 'key', access_token: 'token', model_mapping: { 'gemini-2.5-flash': 'gemini-2.5-flash' } } } as any
@@ -415,26 +519,47 @@ describe('EditAccountModal', () => {
     wrapper.unmount()
   })
 
-  it('keeps Cursor native identity and omits the key when left blank', async () => {
-    const account = { ...buildAccount(), platform: 'cursor', type: 'apikey', credentials_status: { has_api_key: true }, credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17' } } as any
+  it.each([
+    { type: 'oauth', mode: 'auto', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17', access_token: 'stored-token' } },
+    { type: 'apikey', mode: 'official', credentials: { machine_id: 'a'.repeat(64), mac_machine_id: 'b'.repeat(64), client_version: '3.16.17' } },
+    { type: 'upstream', mode: 'relay', credentials: { base_url: 'https://relay.example/v1', api_protocol: 'adaptive' } }
+  ] as const)('keeps stored Cursor account types read only ($type)', async ({ type, mode, credentials }) => {
+    const account = { ...buildAccount(), platform: 'cursor', type, credentials_status: { has_api_key: true }, credentials: { ...credentials } } as any
     updateAccountMock.mockReset().mockResolvedValue(account)
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     const wrapper = mountModal(account)
+    await flushPromises()
+
     const modeButtons = wrapper.get('[data-testid="cursor-key-mode"]').findAll('button')
     expect(modeButtons).toHaveLength(3)
     for (const button of modeButtons) {
       expect(button.attributes('disabled')).toBeDefined()
       await button.trigger('click')
     }
-    expect(wrapper.get('[data-testid="cursor-key-mode-official"]').attributes('aria-pressed')).toBe('true')
-    expect(wrapper.get<HTMLInputElement>('[data-testid="cursor-api-key"]').element.value).toBe('')
-    await wrapper.get('form').trigger('submit.prevent')
+    for (const option of ['auto', 'official', 'relay']) {
+      expect(wrapper.get(`[data-testid="cursor-key-mode-${option}"]`).attributes('aria-checked')).toBe(option === mode ? 'true' : 'false')
+    }
+    expect(wrapper.findComponent(CursorKeyFields).props('mode')).toBe(mode)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     const payload = updateAccountMock.mock.calls[0]?.[1]
+    // 只读类型不借重排允许互转：保存请求不携带 type/platform 改写。
+    expect(updateAccountMock.mock.calls[0]?.[0]).toBe(account.id)
+    expect(payload).not.toHaveProperty('type')
+    expect(payload).not.toHaveProperty('platform')
+    if (mode === 'relay') {
+      expect(payload.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive' })
+    } else {
+      expect(payload.credentials).toEqual({
+        client_version: '3.16.17',
+        machine_id: 'a'.repeat(64),
+        mac_machine_id: 'b'.repeat(64)
+      })
+      expect(payload.credentials).not.toHaveProperty('api_key')
+      expect(payload.credentials).not.toHaveProperty('base_url')
+    }
     expect(payload.concurrency).toBe(1)
-    expect(payload.credentials.machine_id).toBe('a'.repeat(64))
-    expect(payload.credentials).not.toHaveProperty('api_key')
-    expect(payload.credentials).not.toHaveProperty('base_url')
     wrapper.unmount()
   })
 
@@ -658,7 +783,7 @@ describe('EditAccountModal', () => {
     })
   })
 
-  it('treats a legacy OpenCode account without account_mode as GO', async () => {
+  it('keeps legacy OpenCode mode as Go', async () => {
     const account = buildAccount()
     account.platform = 'opencode_go'
     account.credentials = {
@@ -808,6 +933,121 @@ describe('EditAccountModal', () => {
     })
   })
 
+  it.each([
+    ['opencode_go', 'adaptive'],
+    ['qianwen', 'adaptive'],
+    ['commandcode', 'adaptive'],
+    ['kimi', 'chat_completions'],
+    ['zhipu', 'chat_completions'],
+    ['deepseek', 'chat_completions'],
+    ['minimax', 'chat_completions']
+  ] as const)('hydrates missing protocols using backend platform defaults (%s)', async (platform, expectedProtocol) => {
+    const account = buildAccount()
+    account.platform = platform
+    account.credentials = { api_key: 'sk-cn', account_mode: 'payg', base_url: 'https://relay.example.com/v1' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    // 回填后的选项与保存值一致，而不是新建默认的一套。
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
+    expect(pressed).toHaveLength(1)
+    expect(pressed[0]!.text()).toContain(`admin.accounts.cnProviders.apiProtocol.${expectedProtocol === 'adaptive' ? 'adaptive' : 'chatCompletions'}`)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials.api_protocol).toBe(expectedProtocol)
+    // 缺失协议不改 legacy base_url 的含义：固定协议继续用它，Adaptive 落入 chat 槽位。
+    expect(credentials.base_url).toBe('https://relay.example.com/v1')
+    if (expectedProtocol === 'adaptive') {
+      expect(credentials.api_base_urls.chat_completions).toBe('https://relay.example.com/v1')
+    } else {
+      expect(credentials).not.toHaveProperty('api_base_urls')
+    }
+  })
+
+  it.each([
+    ['opencode_go', true],
+    ['qianwen', true],
+    ['kimi', true],
+    ['deepseek', true],
+    ['minimax', true],
+    ['zhipu', false],
+    ['commandcode', false]
+  ] as const)('keeps an explicit protocol and custom endpoints when editing %s', async (platform, supportsNativeResponses) => {
+    const account = buildAccount()
+    account.platform = platform
+    account.credentials = {
+      api_key: 'sk-cn',
+      account_mode: 'payg',
+      api_protocol: 'chat_completions',
+      base_url: 'https://relay.example.com/v1',
+      api_base_urls: {
+        chat_completions: 'https://relay.example.com/v1',
+        anthropic: 'https://relay.example.com/anthropic',
+        responses: 'https://relay.example.com/responses'
+      }
+    }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const labels = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').map(button => button.text())
+    expect(labels.filter(text => text.includes('admin.accounts.cnProviders.apiProtocol.responses'))).toHaveLength(supportsNativeResponses ? 1 : 0)
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
+    expect(pressed).toHaveLength(1)
+    expect(pressed[0]!.text()).toContain('admin.accounts.cnProviders.apiProtocol.chatCompletions')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials.api_protocol).toBe('chat_completions')
+    expect(credentials.base_url).toBe('https://relay.example.com/v1')
+    expect(credentials).not.toHaveProperty('api_base_urls')
+  })
+
+  it.each([
+    ['kimi', 'responses'],
+    ['deepseek', 'responses'],
+    ['minimax', 'responses'],
+    ['opencode_go', 'responses'],
+    ['qianwen', 'responses'],
+    ['zhipu', 'chat_completions'],
+    ['commandcode', 'adaptive']
+  ] as const)('resolves a stored Responses protocol by platform support (%s)', async (platform, expectedProtocol) => {
+    const account = buildAccount()
+    account.platform = platform
+    account.credentials = { api_key: 'sk-cn', account_mode: 'payg', api_protocol: 'responses', base_url: 'https://relay.example.com/v1' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    const pressed = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('button').filter(button => button.attributes('aria-checked') === 'true')
+    expect(pressed).toHaveLength(1)
+    expect(pressed[0]!.text()).toContain(`admin.accounts.cnProviders.apiProtocol.${expectedProtocol === 'adaptive' ? 'adaptive' : expectedProtocol === 'responses' ? 'responses' : 'chatCompletions'}`)
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials.api_protocol).toBe(expectedProtocol)
+    expect(credentials.base_url).toBe('https://relay.example.com/v1')
+    if (expectedProtocol === 'adaptive') {
+      expect(credentials.api_base_urls.chat_completions).toBe('https://relay.example.com/v1')
+    } else {
+      expect(credentials).not.toHaveProperty('api_base_urls')
+    }
+  })
+
   it('switches account mode through described cards and saves the selection', async () => {
     const account = buildAccount()
     account.platform = 'zhipu'
@@ -818,11 +1058,11 @@ describe('EditAccountModal', () => {
     await flushPromises()
     const cards = wrapper.get('[data-testid="edit-accountMode"]').findAll('button')
     expect(cards).toHaveLength(2)
-    expect(cards[0].attributes('aria-pressed')).toBe('true')
+    expect(cards[0].attributes('aria-checked')).toBe('true')
     expect(cards[1].text()).toContain('admin.accounts.cnProviders.accountMode.codingDesc')
     await cards[1].trigger('click')
-    expect(cards[1].attributes('aria-pressed')).toBe('true')
-    expect(cards[0].attributes('aria-pressed')).toBe('false')
+    expect(cards[1].attributes('aria-checked')).toBe('true')
+    expect(cards[0].attributes('aria-checked')).toBe('false')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.account_mode).toBe('coding')
     wrapper.unmount()
@@ -847,7 +1087,7 @@ describe('EditAccountModal', () => {
     expect(adaptiveButton).toBeDefined()
     expect(adaptiveButton!.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptiveDesc')
     await adaptiveButton!.trigger('click')
-    expect(adaptiveButton!.attributes('aria-pressed')).toBe('true')
+    expect(adaptiveButton!.attributes('aria-checked')).toBe('true')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
 
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
@@ -1194,6 +1434,13 @@ describe('EditAccountModal', () => {
   })
 
   it('loads and submits Grok OAuth model mapping edits', async () => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([
+      { platform: 'grok', provider_profile: 'xai', models: [
+        { id: 'grok-imagine-image', display_name: 'Imagine Image' },
+        { id: 'grok-imagine-video', display_name: 'Imagine Video' }
+      ] }
+    ] as Awaited<ReturnType<typeof getPlatformModelPresets>>)
+
     const account = buildGrokOAuthAccount()
     updateAccountMock.mockReset()
     checkMixedChannelRiskMock.mockReset()
@@ -1201,8 +1448,10 @@ describe('EditAccountModal', () => {
     updateAccountMock.mockResolvedValue(account)
 
     const wrapper = mountModal(account)
+    await flushPromises()
     expect(wrapper.text()).toContain('Imagine Image')
     expect(wrapper.text()).toContain('Imagine Video')
+    vi.mocked(getPlatformModelPresets).mockResolvedValue([])
 
     const inputWithValue = (value: string) => {
       const input = wrapper
@@ -1909,7 +2158,7 @@ it.each([
 ])('classifies Antigravity sync %s errors', async (reason, key) => {
   showErrorMock.mockReset()
   syncUpstreamModelsMock.mockRejectedValueOnce({ reason: `upstream_model_sync_${reason}`, message: 'normalized error' })
-  const wrapper = mountModal(buildAntigravityAccount())
+  const wrapper = mountModal(buildAntigravityAccount(), false, true)
   await flushPromises()
   await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
   await flushPromises()
@@ -1924,17 +2173,150 @@ describe('Cursor lossless modal submissions', () => {
     checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
     showErrorMock.mockReset()
   })
-  it.each(['oauth', 'apikey', 'upstream'])('preserves mixed mappings and protocol when renaming %s', async (type) => {
+  it.each(['oauth', 'apikey'] as const)('preserves mixed mappings without relay fields when renaming %s', async (type) => {
     const account = buildAccount()
     account.platform = 'cursor'
     account.type = type
-    account.credentials = { api_key: 'test-key', access_token: 'token', base_url: 'https://relay.example/v1', api_protocol: 'anthropic', model_mapping: { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' } }
+    account.credentials_status = { has_api_key: true }
+    account.credentials = { model_mapping: { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' } }
     const wrapper = mountModal(account)
     await wrapper.get('input').setValue('Renamed')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
-    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toMatchObject({ model_mapping: account.credentials.model_mapping, api_protocol: 'anthropic' })
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toMatchObject({ model_mapping: { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' } })
+    for (const relayField of ['api_protocol', 'base_url', 'api_base_urls']) {
+      expect(credentials).not.toHaveProperty(relayField)
+    }
+    wrapper.unmount()
+  })
+  it.each(['oauth', 'apikey'] as const)('does not carry historical relay fields from a mixed native %s account', async (type) => {
+    const account = buildAccount()
+    account.platform = 'cursor'
+    account.type = type
+    account.credentials = { api_key: 'stale-key', access_token: 'stale-token', base_url: 'https://stale.example/v1', api_protocol: 'anthropic', api_base_urls: { anthropic: 'https://stale.example/anthropic' }, model_mapping: { ExactModel: 'ExactModel' } }
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const credentials = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(credentials).toMatchObject({ model_mapping: { ExactModel: 'ExactModel' } })
+    for (const relayField of ['api_protocol', 'base_url', 'api_base_urls', 'api_key', 'access_token']) {
+      expect(credentials).not.toHaveProperty(relayField)
+    }
+    wrapper.unmount()
+  })
+  it('round trips Cursor Chat without replacing its key', async () => {
+    const storedMapping = { ExactModel: 'ExactModel', 'alias-*': 'TargetModel' }
+    const account = { ...buildAccount(), platform: 'cursor', type: 'upstream', credentials_status: { has_api_key: true }, credentials: { base_url: 'https://relay.example/v1', api_protocol: 'chat_completions', model_mapping: storedMapping } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    // 打开时回填 Chat：不回显秘密，key 留空也不要求重输。
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('false')
+    const apiKeyInput = wrapper.get<HTMLInputElement>('[data-testid="cursor-api-key"]')
+    expect(apiKeyInput.element.value).toBe('')
+    expect(apiKeyInput.attributes('required')).toBeUndefined()
+
+    await wrapper.get('input').setValue('Renamed')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({
+      base_url: 'https://relay.example/v1',
+      api_protocol: 'chat_completions',
+      model_mapping: storedMapping
+    })
+    wrapper.unmount()
+
+    // 重新载入仍为 Chat；切到 Adaptive 再保存/载入亦一致，且地址不被重置。
+    const saved = { ...account, credentials: { ...account.credentials, ...updateAccountMock.mock.calls[0]?.[1]?.credentials } }
+    const reopened = mountModal(saved)
+    await flushPromises()
+    expect(reopened.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
+    await reopened.get('[data-testid="cursor-relay-protocol-adaptive"]').trigger('click')
+    expect(reopened.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
+    await reopened.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(2)
+    expect(updateAccountMock.mock.calls[1]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'adaptive', model_mapping: storedMapping })
+    reopened.unmount()
+
+    // replace：显式输入新 Key 后提交新值（keep 语义只针对留空）。
+    const adaptiveSaved = { ...saved, credentials: { ...saved.credentials, api_protocol: 'adaptive' } }
+    const replaced = mountModal(adaptiveSaved)
+    await flushPromises()
+    expect(replaced.get('[data-testid="cursor-relay-protocol-adaptive"]').attributes('aria-checked')).toBe('true')
+    await replaced.get('[data-testid="cursor-api-key"]').setValue('crsr_replaced')
+    await replaced.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(3)
+    expect(updateAccountMock.mock.calls[2]?.[1]?.credentials).toEqual({ api_key: 'crsr_replaced', base_url: 'https://relay.example/v1', api_protocol: 'adaptive', model_mapping: storedMapping })
+    replaced.unmount()
+  })
+  it('requires an explicit supported protocol for a legacy relay', async () => {
+    const account = { ...buildAccount(), platform: 'cursor', type: 'upstream', credentials_status: { has_api_key: true }, credentials: { base_url: 'https://relay.example/v1', api_protocol: 'anthropic', model_mapping: { ExactModel: 'ExactModel' } } } as any
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    showErrorMock.mockReset()
+    const wrapper = mountModal(account)
+    await flushPromises()
+
+    // 不预选合法值：原值只读回显在提示里，网格无选中项。
+    for (const button of wrapper.get('[data-testid="cursor-relay-protocol"]').findAll('button')) {
+      expect(button.attributes('aria-checked')).toBe('false')
+    }
+    const unsupported = wrapper.get('[data-testid="cursor-relay-protocol-unsupported"]')
+    expect(unsupported.text()).toContain('admin.accounts.cursor.unsupportedRelayProtocol')
+    expect(unsupported.text()).toContain('"protocol":"anthropic"')
+
+    // 只改名称直接保存：不发任何请求，也不静默换协议。
+    await wrapper.get('input').setValue('Renamed')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    expect(checkMixedChannelRiskMock).not.toHaveBeenCalled()
+    expect(showErrorMock).toHaveBeenCalledWith(expect.stringContaining('admin.accounts.cursor.unsupportedRelayProtocol'))
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-unsupported"]').exists()).toBe(true)
+
+    // 明确改选合法协议后才提交。
+    await wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').trigger('click')
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
+    expect(wrapper.find('[data-testid="cursor-relay-protocol-unsupported"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials).toEqual({ base_url: 'https://relay.example/v1', api_protocol: 'chat_completions', model_mapping: { ExactModel: 'ExactModel' } })
+    wrapper.unmount()
+  })
+  it('does not carry protocol or credential intents across edited accounts', async () => {
+    const first = { ...buildAccount(), platform: 'cursor', type: 'upstream', credentials_status: { has_api_key: true }, credentials: { base_url: 'https://first.example/v1', api_protocol: 'chat_completions' } } as any
+    const second = { ...buildAccount(), id: 2, platform: 'zhipu', credentials_status: { has_api_key: true }, credentials: { account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://second.example/v1' } } as any
+    updateAccountMock.mockReset().mockResolvedValue(second)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(first)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="cursor-relay-protocol-chat_completions"]').attributes('aria-checked')).toBe('true')
+    await wrapper.get('[data-testid="cursor-api-key"]').setValue('typed-for-first')
+    await wrapper.get('[data-testid="cursor-relay-protocol-adaptive"]').trigger('click')
+
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ account: second, show: true })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="cursor-key-mode"]').exists()).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('[data-account-field="editApiKey"]').element.value).toBe('')
+    expect(wrapper.findAll('[data-testid="edit-apiProtocol"] button').find(button => button.attributes('aria-checked') === 'true')?.text()).toContain('admin.accounts.cnProviders.apiProtocol.adaptive')
+
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const payload = updateAccountMock.mock.calls[0]?.[1]?.credentials
+    expect(payload).toMatchObject({ account_mode: 'coding', api_protocol: 'adaptive', base_url: 'https://second.example/v1' })
+    expect(payload).not.toHaveProperty('api_key')
+    expect(payload.api_base_urls.chat_completions).toBe('https://second.example/v1')
     wrapper.unmount()
   })
   it('does not carry mappings across sequential relay edits', async () => {
@@ -1955,7 +2337,7 @@ describe('Cursor lossless modal submissions', () => {
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
     expect(updateAccountMock).not.toHaveBeenCalled()
-    expect(showErrorMock).toHaveBeenCalledWith(expect.stringContaining('Mapping row 1'))
+    expect(showErrorMock).toHaveBeenCalledWith(expect.stringContaining('admin.accounts.modelValidation.invalidWildcard'))
     wrapper.unmount()
   })
 })
@@ -1966,13 +2348,13 @@ it('does not save a late Antigravity catalog into a different account', async ()
   syncUpstreamModelsMock.mockImplementationOnce(() => new Promise(r => { resolve = r }))
   updateAccountMock.mockReset().mockResolvedValue({})
   checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
-  const wrapper = mountModal(buildAntigravityAccount())
+  const wrapper = mountModal(buildAntigravityAccount(), false, true)
   await flushPromises()
   await wrapper.findAll('button').find(b => b.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
   const second = { ...buildAntigravityAccount(), id: 987, credentials: { ...buildAntigravityAccount().credentials, model_mapping: { ExistingExact: 'ExistingExact' } } }
   await wrapper.setProps({ show: false })
   await wrapper.setProps({ account: second, show: true })
-  resolve({ models: ['late-model'] })
+  resolve({ candidate_models: ['late-model'], models: ['late-model'] })
   await flushPromises()
   expect(updateAccountMock).not.toHaveBeenCalled()
   await wrapper.get('form#edit-account-form').trigger('submit.prevent')
@@ -1981,4 +2363,189 @@ it('does not save a late Antigravity catalog into a different account', async ()
   expect(updateAccountMock.mock.calls[0]?.[0]).toBe(987)
   expect(updateAccountMock.mock.calls[0]?.[1]?.credentials.model_mapping).toEqual({ ExistingExact: 'ExistingExact' })
   wrapper.unmount()
+})
+
+describe('Management error contract edit confirmation', () => {
+  it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
+    const account = buildAccount()
+    account.platform = 'anthropic'
+    account.credentials = { api_key: 'review-key' }
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockReset().mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm group', metadata: { group_id: 27, group_name: 'Review group', current_platform: 'Anthropic', other_platform: 'Antigravity' } }).mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents(ConfirmDialog).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(JSON.stringify(updateAccountMock.mock.calls[0][1]))
+    dialog.vm.$emit(action)
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(updateAccountMock).toHaveBeenCalledTimes(action === 'confirm' ? 2 : 1)
+    if (action === 'confirm') {
+      expect(updateAccountMock.mock.calls[1][1]).toEqual({ ...payload, confirm_mixed_channel_risk: true })
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    } else {
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    }
+    wrapper.unmount()
+  })
+})
+
+
+describe('editor candidate identity and additive discovery', () => {
+  it.each([
+    ['bedrock', 'bedrock', 'us-east-1'],
+    ['anthropic', 'bedrock', 'eu-west-1'],
+    ['gemini', 'service_account', 'us-central1']
+  ])('keeps native presets out of %s/%s and permits manual IDs', async (platform, type, region) => {
+    vi.mocked(getPlatformModelPresets).mockResolvedValueOnce([
+      { platform: 'anthropic', provider_profile: 'native', models: [{ id: 'claude-native-fixture' }] },
+      { platform: 'gemini', provider_profile: 'native', models: [{ id: 'gemini-native-fixture' }] }
+    ] as any)
+    const account = type === 'service_account' ? buildVertexAccount() : {
+      ...buildAccount(), platform, type,
+      credentials: { auth_mode: 'api_key', api_key: 'fixture', aws_region: region }
+    }
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const selector = wrapper.findAllComponents(ModelWhitelistSelector).find(component => !component.props('catalogOnly'))!
+    await selector.findAll('button').find(button => button.text() === 'admin.accounts.fillRelatedModels')!.trigger('click')
+    expect(selector.props('modelValue')).toEqual([])
+    expect(selector.props('platform')).toBe(platform)
+    expect(selector.props('candidateIdentity')).toMatchObject({ type, region, profile: '', mode: 'payg' })
+    await selector.get('input[aria-label="admin.accounts.customModelName"]').setValue('hosted-custom-id')
+    await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+    expect(selector.props('modelValue')).toEqual(['hosted-custom-id'])
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('adds sparse discovery (complete=%s) while retaining selections and the saved snapshot', async discoveryComplete => {
+    const snapshot = { discovered_models: ['saved-native'], eligible_models: [{ id: 'saved-native' }] }
+    const summary = { synced: true, warnings: [], state: { rules_revision: '1' }, effective_snapshot: snapshot }
+    catalogRead.mockResolvedValueOnce(summary)
+    syncUpstreamModelsMock.mockReset().mockResolvedValue({
+      discovered_models: ['new-native'], candidate_models: ['new-native'], eligible_models: [],
+      models: [], discovery_complete: discoveryComplete, complete: false, capability_status: 'incomplete',
+      review: { account_id: 1, digest: 'review' }
+    })
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(buildAccount(), false, true)
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
+    const add = panel.get('[data-testid="add-preview-models"]')
+    expect(add.attributes('disabled')).toBeUndefined()
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)
+    await add.trigger('click')
+    await flushPromises()
+    expect(panel.props('modelValue')).toEqual(['gpt-5.2', 'new-native'])
+    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('result').discovered_models).toEqual(['new-native'])
+    expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('summary').effective_snapshot).toEqual({
+      discovered_models: ['saved-native'], eligible_models: [{ id: 'saved-native' }]
+    })
+    expect(syncUpstreamModelsMock.mock.calls).toEqual([[1, false]])
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+})
+
+
+describe('late platform edit mode, protocol and endpoint persistence', () => {
+  const platforms = [
+    { platform: 'hunyuan', payg: 'https://tokenhub.tencentmaas.com/v1', coding: 'https://api.lkeap.cloud.tencent.com/coding/v3', anthropic: 'https://api.lkeap.cloud.tencent.com/coding/anthropic', protocols: 4 },
+    { platform: 'volcengine', payg: 'https://ark.cn-beijing.volces.com/api/v3', coding: 'https://ark.cn-beijing.volces.com/api/coding/v3', anthropic: null, protocols: 3 },
+    { platform: 'qianfan', payg: 'https://qianfan.baidubce.com/v2', coding: 'https://qianfan.baidubce.com/v2/tokenplan/personal', anthropic: null, protocols: 3 },
+    { platform: 'mistral', payg: 'https://api.mistral.ai/v1', coding: null, anthropic: null, protocols: 1 }
+  ]
+  it.each(platforms)('normalizes legacy choices and saves the mode-aware fallback for $platform', async ({ platform, coding, payg }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'coding', api_protocol: 'chat_completions', base_url: coding ?? payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('[data-account-field="editBaseUrl"]').setValue('')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: coding ? 'coding' : 'payg', api_protocol: 'chat_completions', base_url: coding ?? payg })
+    wrapper.unmount()
+  })
+  it.each(platforms.filter(entry => entry.coding))('saves adaptive coding endpoints for $platform', async ({ platform, payg, coding, anthropic }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'payg', api_protocol: 'adaptive', base_url: payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    await wrapper.get('[data-testid="edit-accountMode"]').findAll('button')[1].trigger('click')
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const expectedEndpoints = anthropic ? { chat_completions: coding, responses: coding, anthropic } : { chat_completions: coding, responses: coding }
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: 'coding', api_protocol: 'adaptive', base_url: coding })
+    expect(updateAccountMock.mock.calls[0][1].credentials.api_base_urls).toEqual(expectedEndpoints)
+    wrapper.unmount()
+  })
+  it.each(platforms)('persists supported mode and protocol edits with exact presets for $platform', async ({ platform, payg, coding, anthropic, protocols }) => {
+    const account = { ...buildAccount(), platform, credentials: { api_key: 'test-key', account_mode: 'payg', api_protocol: 'chat_completions', base_url: payg } }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const modeCards = wrapper.get('[data-testid="edit-accountMode"]').findAll('[role="radio"]')
+    expect(modeCards).toHaveLength(coding ? 2 : 1)
+    expect(wrapper.get('[data-testid="edit-apiProtocol"]').findAll('[role="radio"]')).toHaveLength(protocols)
+    expect(wrapper.findAll('[data-testid="cn-base-url-preset"]').map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(`(${payg.replace('https://', '')})`)]))
+    if (coding) {
+      await modeCards[1].trigger('click')
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[data-account-field="editBaseUrl"]').element.value).toBe(coding)
+      const presets = wrapper.findAll('[data-testid="cn-base-url-preset"]')
+      expect(presets.map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(coding.replace('https://', ''))]))
+      expect(presets.map(preset => preset.text())).not.toEqual(expect.arrayContaining([expect.stringContaining(`(${payg.replace('https://', '')})`)]))
+      await presets[0].trigger('click')
+    } else {
+      await modeCards[0].trigger('click')
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: coding ? 'coding' : 'payg', api_protocol: 'chat_completions', base_url: coding ?? payg })
+    if (coding) {
+      await wrapper.setProps({ account: { ...account, credentials: { ...account.credentials, ...updateAccountMock.mock.calls[0][1].credentials } } })
+      await flushPromises()
+      const nextProtocol = anthropic ? 'anthropic' : 'responses'
+      const nextBaseUrl = anthropic ?? coding
+      updateAccountMock.mockClear()
+      const protocolCards = wrapper.get('[data-testid="edit-apiProtocol"]').findAll('[role="radio"]')
+      await protocolCards.find(card => card.text().includes(`apiProtocol.${nextProtocol}`))!.trigger('click')
+      await flushPromises()
+      expect(wrapper.get<HTMLInputElement>('[data-account-field="editBaseUrl"]').element.value).toBe(nextBaseUrl)
+      expect(wrapper.findAll('[data-testid="cn-base-url-preset"]').map(preset => preset.text())).toEqual(expect.arrayContaining([expect.stringContaining(nextBaseUrl.replace('https://', ''))]))
+      await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+      await flushPromises()
+      expect(updateAccountMock.mock.calls[0][1].credentials).toMatchObject({ account_mode: 'coding', api_protocol: nextProtocol, base_url: nextBaseUrl })
+    }
+    for (const radio of wrapper.findAll('[role="radio"]')) {
+      expect(radio.attributes('aria-checked')).toMatch(/^(true|false)$/)
+      expect(radio.attributes()).not.toHaveProperty('aria-pressed')
+    }
+    wrapper.unmount()
+  })
+})
+
+
+describe('account form semantic and localized validation regressions', () => {
+  it.each([['create', createAccountSource], ['edit', editAccountSource]])('%s uses localized required Base URL errors', (_name, source) => {
+    expect(source).toContain("showError(t('admin.accounts.baseUrlRequired'))")
+    expect(source).not.toContain("showError('Base URL is required.')")
+    expect(englishAccounts.accounts.baseUrlRequired).toBe('Base URL is required.')
+    expect(chineseAccounts.accounts.baseUrlRequired).toBe('请填写 Base URL。')
+  })
+  it('never assigns toggle button aria-pressed to editing radio cards', () => {
+    expect(editAccountSource).not.toContain(':aria-pressed=')
+  })
 })

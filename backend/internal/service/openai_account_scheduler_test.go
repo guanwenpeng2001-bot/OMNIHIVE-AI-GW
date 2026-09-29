@@ -34,6 +34,19 @@ func (r schedulerTestOpenAIAccountRepo) GetByID(ctx context.Context, id int64) (
 	return nil, errors.New("account not found")
 }
 
+// GetByIDs 支持一轮选号的候选批次载入（复核路径不再逐个候选单查）。
+func (r schedulerTestOpenAIAccountRepo) GetByIDs(ctx context.Context, ids []int64) ([]*Account, error) {
+	result := make([]*Account, 0, len(ids))
+	for _, id := range ids {
+		account, err := r.GetByID(ctx, id)
+		if err != nil {
+			continue
+		}
+		result = append(result, account)
+	}
+	return result, nil
+}
+
 func (r schedulerTestOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {
 	var result []Account
 	for _, acc := range r.accounts {
@@ -1906,7 +1919,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshUsageWind
 // inversion) gets excluded from scheduling, and a paused account never receives traffic to
 // refresh its snapshot. When the snapshot is stale (codex_usage_updated_at older than the
 // staleness bound) the account must be allowed a request so it can self-heal from the real
-// response headers — independent of the window's reset time.
+// response headers when no valid future window reset is known.
 func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnapshotSkipsPause_Issue2994(t *testing.T) {
 	ctx := context.Background()
 	primary := Account{
@@ -1920,8 +1933,7 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleUsageSnap
 		Extra: map[string]any{
 			"codex_5h_used_percent":   99.0,
 			"auto_pause_5h_threshold": 0.95,
-			// Window has NOT reset yet, so the reset guard stays inactive.
-			"codex_5h_reset_at": time.Now().Add(time.Hour).Format(time.RFC3339),
+			// No reset time is known, so stale snapshot self-heal applies.
 			// Snapshot is stale: older than openAICodexAutoPauseStaleAfter (2h).
 			"codex_usage_updated_at": time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
 		},
@@ -1954,6 +1966,33 @@ func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_FreshExhausted
 			"codex_5h_reset_at":       time.Now().Add(time.Hour).Format(time.RFC3339),
 			// Snapshot refreshed 1 minute ago: not stale, so the account stays paused.
 			"codex_usage_updated_at": time.Now().Add(-time.Minute).Format(time.RFC3339),
+		},
+	}
+	secondary := Account{ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}
+	svc := &OpenAIGatewayService{accountRepo: schedulerTestOpenAIAccountRepo{accounts: []Account{primary, secondary}}, cfg: &config.Config{}}
+
+	account, err := svc.SelectAccountForModelWithExclusions(ctx, nil, "", "gpt-5.1", nil)
+	require.NoError(t, err)
+	require.NotNil(t, account)
+	require.Equal(t, int64(35802), account.ID)
+}
+
+func TestOpenAIGatewayService_SelectAccountForModelWithExclusions_StaleWeeklySnapshotRetainsPauseUntilReset(t *testing.T) {
+	ctx := context.Background()
+	primary := Account{
+		ID:          35801,
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Status:      StatusActive,
+		Schedulable: true,
+		Concurrency: 1,
+		Priority:    0,
+		Extra: map[string]any{
+			"codex_7d_used_percent":   99.0,
+			"auto_pause_7d_threshold": 0.95,
+			"codex_7d_reset_at":       time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+			// A stale weekly snapshot still describes an exhausted window until its known reset.
+			"codex_usage_updated_at": time.Now().Add(-3 * time.Hour).Format(time.RFC3339),
 		},
 	}
 	secondary := Account{ID: 35802, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true, Concurrency: 1, Priority: 5}

@@ -34,10 +34,12 @@ func (tx cursorEditTestTx) QueryContext(ctx context.Context, query string, args 
 		query = "SELECT true, false, true, NULL, NULL, NULL, NULL, NULL, NULL FROM accounts WHERE id = ?"
 		args = args[:1]
 	}
-	return tx.Tx.(*entsql.Tx).QueryContext(ctx, query, args...)
+	entTx, _ := tx.Tx.(*entsql.Tx)
+	return entTx.QueryContext(ctx, query, args...)
 }
 func (tx cursorEditTestTx) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
-	return tx.Tx.(*entsql.Tx).ExecContext(ctx, query, args...)
+	entTx, _ := tx.Tx.(*entsql.Tx)
+	return entTx.ExecContext(ctx, query, args...)
 }
 
 func newCursorEditTestRepository(t *testing.T) (*accountRepository, *dbent.Client, *sql.DB) {

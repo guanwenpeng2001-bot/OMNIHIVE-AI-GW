@@ -3,7 +3,7 @@
     <div class="mx-auto max-w-[1600px]" :class="activeTab === 'config' && draft ? 'pb-28' : 'pb-8'">
       <header class="mb-6 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary-600 dark:text-primary-400">{{ t('nav.securityAudit') }}</p>
+          <p class="text-xs font-semibold uppercase tracking-[0.16em] text-primary-700 dark:text-primary-400">{{ t('nav.securityAudit') }}</p>
           <h1 class="mt-1 text-2xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ t('admin.promptAudit.title') }}</h1>
           <p class="mt-2 max-w-3xl text-sm text-gray-500 dark:text-dark-300">{{ t('admin.promptAudit.description') }}</p>
         </div>
@@ -25,7 +25,7 @@
               v-for="tab in pageTabs"
               :key="tab.id"
               type="button"
-              role="tab"
+              role="tab" :id="`prompt-audit-tab-${tab.id}`" :aria-controls="`prompt-audit-panel-${tab.id}`" :tabindex="activeTab === tab.id ? 0 : -1" @keydown="handleTabKeydown"
               class="tab"
               :class="{ 'tab-active': activeTab === tab.id }"
               :aria-selected="activeTab === tab.id"
@@ -38,7 +38,7 @@
         </div>
 
         <main class="card px-4 sm:px-6 lg:px-8">
-          <div v-show="activeTab === 'config'" data-test="tab-panel-config">
+          <div v-show="activeTab === 'config'" id="prompt-audit-panel-config" aria-labelledby="prompt-audit-tab-config" tabindex="0" role="tabpanel" data-test="tab-panel-config">
             <RuntimeOverview :runtime="runtime" :loading="loading.runtime" :error="loadErrors.runtime" @refresh="loadRuntime" />
 
             <template v-if="draft">
@@ -54,7 +54,7 @@
             </template>
           </div>
 
-          <div v-show="activeTab === 'events'" data-test="tab-panel-events">
+          <div v-show="activeTab === 'events'" id="prompt-audit-panel-events" aria-labelledby="prompt-audit-tab-events" tabindex="0" role="tabpanel" data-test="tab-panel-events">
             <div
               v-if="draft?.enabled && !draft.store_pass_events"
               data-test="pass-events-disabled-notice"
@@ -429,4 +429,15 @@ function formatDate(value: string): string {
 }
 
 onMounted(loadInitial)
+
+function handleTabKeydown(event: KeyboardEvent) {
+  if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return
+  event.preventDefault()
+  const buttons = Array.from((event.currentTarget as HTMLElement).closest('[role="tablist"]')!.querySelectorAll<HTMLButtonElement>('[role="tab"]'))
+  const currentIndex = buttons.indexOf(event.currentTarget as HTMLButtonElement)
+  const nextIndex = event.key === 'Home' ? 0 : event.key === 'End' ? buttons.length - 1 : (currentIndex + (event.key === 'ArrowRight' ? 1 : -1) + buttons.length) % buttons.length
+  buttons[nextIndex]?.click()
+  buttons[nextIndex]?.focus()
+}
+
 </script>

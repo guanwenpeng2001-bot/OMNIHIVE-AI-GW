@@ -23,6 +23,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -59,19 +60,19 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	// 2. Convert CC → Responses → Anthropic (chained conversion)
 	responsesReq, err := apicompat.ChatCompletionsToResponses(&ccReq)
 	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 	}
+	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
+	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
+	responsesReq.Model = upstreamModel
 	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
 	if err != nil {
-		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", "Failed to convert request")
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
 	}
 
-	// 3. Model mapping（OpenAI 网关统一入口的映射语义）
-	billingModel := resolveOpenAIForwardModel(account, originalModel, defaultMappedModel)
-	upstreamModel := normalizeOpenAIModelForUpstream(account, billingModel)
-	anthropicReq.Model = upstreamModel
+	preserveChatCompletionTokenLimit(&ccReq, anthropicReq)
 
 	// 4. Force upstream streaming（客户端原始终决定响应格式；
 	// 上游恒为流式，非流式由缓冲路径组装）。
@@ -111,7 +112,7 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, anthropicBody, apiKey, targetURL, body)
+	upstreamReq, forwardedBody, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, anthropicBody, apiKey, targetURL, body)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, fmt.Errorf("build upstream request: %w", err)
@@ -135,8 +136,9 @@ func (s *OpenAIGatewayService) forwardChatCompletionsViaNativeAnthropic(
 		return nil, fmt.Errorf("upstream error: %d %s", resp.StatusCode, upstreamMsg)
 	}
 
-	reasoningEffort := extractCCReasoningEffortFromBody(body, upstreamModel, billingModel, originalModel)
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, billingModel)
+	// Bill the Anthropic effort actually sent upstream (for example xhigh → max).
+	reasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(forwardedBody, "output_config.effort").String())
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, forwardedBody, upstreamModel)
 
 	if clientStream {
 		return s.handleCCStreamingFromNativeAnthropic(resp, c, originalModel, billingModel, upstreamModel, reasoningEffort, startTime, includeUsage)
@@ -167,7 +169,7 @@ func (s *OpenAIGatewayService) handleCCBufferedFromNativeAnthropic(
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
 
-	// 读间隔上限：上游挂住 SSE 时中止组装（缓冲路径尚未提交响应头，可回 502）。
+	// Bound idle upstream reads; cancellation closes resp.Body immediately.
 	streamInterval := s.anthropicNativeStreamInterval()
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
@@ -354,12 +356,13 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 		}
 	}
 
-	// 读间隔上限：上游挂住 SSE（不发数据也不断连）时结束排水。上游 ctx 为
-	// WithoutCancel 且 http.Client 无整体 Timeout，无此界限则客户端断开后
-	// scanner.Scan() 永久阻塞（见 anthropic native pump 文件注释）。
+	// Bound idle upstream reads; cancellation closes resp.Body immediately.
 	streamInterval := s.anthropicNativeStreamInterval()
 	pump := newAnthropicNativeLinePump(scanner, streamInterval)
 	defer pump.stop()
+	defer func() { _ = resp.Body.Close() }()
+	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 
 	logReadErr := func(err error) {
 		if !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
@@ -384,7 +387,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 
 	writeChunk := func(chunk apicompat.ChatCompletionsChunk) bool {
 		if clientDisconnected {
-			return false // 已断开：不再写客户端，只排水上游累计 usage
+			return false // The loop stops before reading another event.
 		}
 		sse, err := apicompat.ChatChunkToSSE(chunk)
 		if err != nil {
@@ -405,7 +408,7 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 			firstTokenMs = &ms
 		}
 
-		// usage 恒累计（含客户端断开后的排水阶段，payg 上游照常计费）。
+		// Merge usage from the already-observed event, including a failed write.
 		if event.Type == "message_delta" && event.Usage != nil {
 			mergeAnthropicUsage(&usage, *event.Usage)
 		}
@@ -433,8 +436,16 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 	}
 
 	for {
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
+		}
 		line, rerr := pump.next()
 		if rerr != nil {
+			if c.Request.Context().Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), c.Request.Context().Err()
+			}
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
 				return onIdle()
 			}
@@ -447,6 +458,10 @@ func (s *OpenAIGatewayService) handleCCStreamingFromNativeAnthropic(
 
 		dataLine, rerr := pump.next()
 		if rerr != nil {
+			if c.Request.Context().Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), c.Request.Context().Err()
+			}
 			if errors.Is(rerr, errAnthropicNativeStreamIdle) {
 				return onIdle()
 			}

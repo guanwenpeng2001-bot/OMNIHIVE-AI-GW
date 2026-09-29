@@ -41,13 +41,6 @@ function ladderModel(tiers: number): PlazaModel {
       image_input_price: null,
       image_output_price: null,
       per_request_price: null,
-      intervals: []
-    },
-    official_pricing: {
-      input_price: 5e-6,
-      output_price: 3e-5,
-      cache_write_price: null,
-      cache_read_price: null,
       intervals
     }
   }
@@ -68,6 +61,8 @@ function group(overrides: Partial<ModelPlazaGroup> = {}): ModelPlazaGroup {
     is_exclusive: false,
     image_rate_independent: false,
     image_rate_multiplier: 1,
+    video_rate_independent: false,
+    video_rate_multiplier: 1,
     long_context_pricing_enabled: true,
     models: [ladderModel(2)],
     ...overrides
@@ -90,7 +85,7 @@ function mountSection(g: ModelPlazaGroup) {
 const NOTE = 'modelPlaza.detail.longContextDisabledNote'
 
 describe('PlazaGroupSection 长上下文说明', () => {
-  it('分组关闭阶梯且组内有官方阶梯模型时显示说明', () => {
+  it('分组关闭阶梯且组内有渠道阶梯模型时显示说明', () => {
     const wrapper = mountSection(group({ long_context_pricing_enabled: false }))
     expect(wrapper.text()).toContain(NOTE)
   })
@@ -100,11 +95,11 @@ describe('PlazaGroupSection 长上下文说明', () => {
     expect(wrapper.text()).not.toContain(NOTE)
   })
 
-  it('分组关闭但没有官方阶梯模型时不显示', () => {
+  it('分组关闭阶梯时单档模型也显示说明', () => {
     const wrapper = mountSection(
       group({ long_context_pricing_enabled: false, models: [ladderModel(1)] })
     )
-    expect(wrapper.text()).not.toContain(NOTE)
+    expect(wrapper.text()).toContain(NOTE)
   })
 
   it('旧后端缺少开关字段时不显示', () => {

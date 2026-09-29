@@ -57,9 +57,13 @@ type MonitorQuotaSnapshot struct {
 	BalanceLow bool `json:"balance_low,omitempty"`
 	// CredentialInvalid 上游 401/403 鉴权失败（区别于网络/解析错误），
 	// 检测状态据此推导 failed 而非 error。
-	CredentialInvalid bool      `json:"credential_invalid,omitempty"`
-	Error             string    `json:"error,omitempty"` // Success=false 时的错误摘要
-	FetchedAt         time.Time `json:"fetched_at"`
+	CredentialInvalid bool `json:"credential_invalid,omitempty"`
+	// Unsupported 表示该平台/模式根本没有可用的额度观测源（例如智谱 payg 无公开
+	// 余额端点）。与 CredentialInvalid 一样属于配置事实，不是渠道故障：抓取器
+	// 不会为此发上游请求，检测状态推导为 degraded（配置问题）而不是 error（告警）。
+	Unsupported bool      `json:"unsupported,omitempty"`
+	Error       string    `json:"error,omitempty"` // Success=false 时的错误摘要
+	FetchedAt   time.Time `json:"fetched_at"`
 }
 
 // MonitorBalance 单币种余额条目。

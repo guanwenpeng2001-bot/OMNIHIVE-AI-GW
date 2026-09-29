@@ -10,8 +10,8 @@
           </svg>
         </div>
         <div>
-          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.balance') }}</p>
-          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400">${{ formatBalance(balance) }}</p>
+          <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.balance') }} (USD)</p>
+          <p class="text-xl font-bold text-emerald-600 dark:text-emerald-400" :title="`USD ${formatLedgerAmount(balance)}`">${{ formatBalance(balance) }}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.available') }}</p>
         </div>
       </div>
@@ -54,13 +54,13 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayCost') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.today_actual_cost || 0) }}</span>
-            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.today_cost || 0) }}</span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ formatCost(stats?.today_actual_cost) }}</span>
+            <span class="text-sm font-normal text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ formatCost(stats?.today_cost) }}</span>
           </p>
           <p class="text-xs">
             <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">${{ formatCost(stats?.total_actual_cost || 0) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / ${{ formatCost(stats?.total_cost || 0) }}</span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ formatCost(stats?.total_actual_cost) }}</span>
+            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ formatCost(stats?.total_cost) }}</span>
           </p>
         </div>
       </div>
@@ -225,7 +225,8 @@
 </template>
 
 <script setup lang="ts">
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { formatBalanceAmount, formatLedgerAmount } from '@/utils/money'
+import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel } from '@/constants/platforms'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -250,23 +251,9 @@ const props = defineProps<{
 }>()
 const { t } = useI18n()
 
-const PLATFORM_LABELS: Record<string, string> = {
-  anthropic: 'Claude',
-  openai: 'OpenAI',
-  gemini: 'Gemini',
-  antigravity: 'Antigravity',
-  grok: 'Grok',
-  kimi: 'Kimi',
-  zhipu: 'Zhipu GLM',
-  deepseek: 'DeepSeek',
-  minimax: 'MiniMax',
-  cursor: 'Cursor',
-}
-
-const platformLabel = (p: string) =>
-  ['qianwen', 'commandcode', 'opencode_go'].includes(p)
-    ? t(`monitorCommon.providers.${p}`)
-    : PLATFORM_LABELS[p] ?? p
+// 平台名统一取自共享词条表 admin.accounts.platforms.*（getPlatformLabel），
+// 避免本页自建一份缺平台的名表后回落到机器 id。
+const platformLabel = (p: string) => getPlatformLabel(p, t)
 
 // 处理"各平台之和 < 总值"的差值：后端按平台聚合时过滤了无法归属平台的行
 // （group 与 account 都缺 platform）。这里把差值作为"其他"卡片显式展示，
@@ -389,14 +376,10 @@ function formatResetTime(iso: string | null | undefined): string {
   })
 }
 
-const formatBalance = (b: number) =>
-  new Intl.NumberFormat('en-US', {
-    minimumFractionDigits: 2,
-    maximumFractionDigits: 2
-  }).format(b)
+const formatBalance = formatBalanceAmount
 
 const formatNumber = (n: number) => n.toLocaleString()
-const formatCost = (c: number) => c.toFixed(4)
+const formatCost = formatLedgerAmount
 const formatTokens = (t: number) => {
   if (t >= 1_000_000) return `${(t / 1_000_000).toFixed(1)}M`
   if (t >= 1000) return `${(t / 1000).toFixed(1)}K`

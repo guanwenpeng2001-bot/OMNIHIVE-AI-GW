@@ -589,6 +589,39 @@ func TestOpenAIGatewayService_BindHTTPResponseAccount(t *testing.T) {
 	require.False(t, owned)
 }
 
+func TestOpenAIGatewayService_BindHTTPResponseAccount_DetachesCanceledRequestContext(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	groupID := int64(4201)
+	c.Set("api_key", &APIKey{ID: 501, GroupID: &groupID})
+	SetOpenAIHTTPResponseOwner(c, 601, 501)
+
+	cache := &responseBindContextProbeCache{}
+	svc := &OpenAIGatewayService{cache: cache}
+	account := &Account{ID: 37001, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	requestCtx, cancelRequest := context.WithCancel(context.WithValue(context.Background(), responseBindProbeKey{}, "request-value"))
+	cancelRequest()
+	startedAt := time.Now()
+
+	svc.bindHTTPResponseAccount(requestCtx, c, account, "resp_http_canceled_001")
+
+	require.Len(t, cache.setContextErrors, 3)
+	for _, contextErr := range cache.setContextErrors {
+		require.NoError(t, contextErr, "response affinity writes must survive downstream cancellation")
+	}
+	require.Len(t, cache.setDeadlines, 3)
+	for _, deadline := range cache.setDeadlines {
+		require.True(t, deadline.After(startedAt))
+		require.LessOrEqual(t, deadline.Sub(startedAt), openAIWSStateStoreRedisTimeout+100*time.Millisecond)
+		require.Equal(t, cache.setDeadlines[0], deadline, "all writes must share one timeout budget")
+	}
+	require.Equal(t, []any{"request-value", "request-value", "request-value"}, cache.setValues)
+	require.Len(t, cache.sessionBindings, 3)
+	require.Contains(t, cache.sessionBindings, openAIWSResponseAccountCacheKey("resp_http_canceled_001"))
+}
+
 func TestOpenAIGatewayService_GenerateExplicitSessionHash_SkipsContentFallback(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := &OpenAIGatewayService{}
@@ -708,6 +741,27 @@ func (c stubConcurrencyCache) GetAccountWaitingCount(ctx context.Context, accoun
 type stubGatewayCache struct {
 	sessionBindings map[string]int64
 	deletedSessions map[string]int
+}
+
+type responseBindProbeKey struct{}
+
+type responseBindContextProbeCache struct {
+	stubGatewayCache
+	setContextErrors []error
+	setDeadlines     []time.Time
+	setValues        []any
+}
+
+func (c *responseBindContextProbeCache) SetSessionAccountID(ctx context.Context, groupID int64, sessionHash string, accountID int64, ttl time.Duration) error {
+	c.setContextErrors = append(c.setContextErrors, ctx.Err())
+	c.setValues = append(c.setValues, ctx.Value(responseBindProbeKey{}))
+	if deadline, ok := ctx.Deadline(); ok {
+		c.setDeadlines = append(c.setDeadlines, deadline)
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return c.stubGatewayCache.SetSessionAccountID(ctx, groupID, sessionHash, accountID, ttl)
 }
 
 func (c *stubGatewayCache) GetSessionAccountID(ctx context.Context, groupID int64, sessionHash string) (int64, error) {
@@ -1588,9 +1642,7 @@ func TestOpenAIStreamingContextCanceledReturnsIncompleteErrorWithoutInjectingErr
 	}
 
 	_, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
-	if err == nil || !strings.Contains(err.Error(), "stream usage incomplete") {
-		t.Fatalf("expected incomplete stream error, got %v", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if strings.Contains(rec.Body.String(), "event: error") || strings.Contains(rec.Body.String(), "stream_read_error") {
 		t.Fatalf("expected no injected SSE error event, got %q", rec.Body.String())
 	}
@@ -2346,9 +2398,7 @@ func TestOpenAIStreamingClientDisconnectDrainsUpstreamUsage(t *testing.T) {
 
 	result, err := svc.handleStreamingResponse(c.Request.Context(), resp, c, &Account{ID: 1}, time.Now(), "model", "model")
 	_ = pr.Close()
-	if err != nil {
-		t.Fatalf("expected nil error, got %v", err)
-	}
+	require.ErrorIs(t, err, context.Canceled)
 	if result == nil || result.usage == nil {
 		t.Fatalf("expected usage result")
 	}
@@ -2988,7 +3038,7 @@ func TestOpenAIUpdateCodexUsageSnapshotFromHeaders(t *testing.T) {
 	headers.Set("x-codex-primary-reset-after-seconds", "600")
 	headers.Set("x-codex-secondary-reset-after-seconds", "86400")
 
-	svc.UpdateCodexUsageSnapshotFromHeaders(context.Background(), 123, headers)
+	svc.UpdateCodexUsageSnapshotForAccount(context.Background(), &Account{ID: 123}, headers)
 
 	select {
 	case updates := <-repo.updateExtraCalls:

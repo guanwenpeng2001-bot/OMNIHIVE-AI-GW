@@ -24,7 +24,13 @@ func QianwenVideoBillingSnapshot(group *Group, account *Account, key *APIKey, bo
 	if account != nil {
 		mapped = account.GetMappedModel(model)
 	}
-	if !json.Valid(body) || !strings.HasPrefix(mapped, "wan2.") {
+	if !json.Valid(body) {
+		return UpstreamJobBilling{}, fmt.Errorf("unsupported video model")
+	}
+	if isQianwenVaceVideoModel(mapped) {
+		return qianwenVaceBillingSnapshot(group, account, key, model, mapped, body, subscription)
+	}
+	if !strings.HasPrefix(mapped, "wan2.") {
 		return UpstreamJobBilling{}, fmt.Errorf("unsupported video model")
 	}
 	var resolution string
@@ -71,6 +77,10 @@ func QianwenVideoBillingSnapshot(group *Group, account *Account, key *APIKey, bo
 	}
 	return b, nil
 }
+func isQianwenVideoJobModel(model string) bool {
+	return strings.HasPrefix(model, "wan2.") || isQianwenVaceVideoModel(model)
+}
+
 func videoUsageResolution(size string) string {
 	// Official Wan text-to-video tiers include square and 4:3 sizes whose
 	// shorter edge is not the tier name. Keep these explicit, not estimated.
@@ -104,7 +114,7 @@ func videoUsageResolution(size string) string {
 // with a matching official resolution are currently interpretable.
 func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, command *UsageBillingCommand, chargeErr error) {
 	defer func() { recordJobPricingFailure(upstreamJob, chargeErr) }()
-	if upstreamJob.Platform != PlatformQianwen || upstreamJob.Family != "video" || !strings.HasPrefix(upstreamJob.Billing.Model, "wan2.") {
+	if upstreamJob.Platform != PlatformQianwen || upstreamJob.Family != "video" || !isQianwenVideoJobModel(upstreamJob.Billing.Model) {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	billingSnapshot := upstreamJob.Billing
@@ -170,6 +180,37 @@ func QianwenVideoJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 	return log, cmd, nil
 }
 
+// OpenQianwenVideoContent downloads a settled video result. Like the ASR
+// transcript fetch, this is an unsigned request to a documented provider
+// result host (dashscope-result-*.aliyuncs.com, per the official Wan and ASR
+// API references): no account headers, cookies, proxy credentials or redirects
+// cross this boundary. The caller must close Body.
+func OpenQianwenVideoContent(ctx context.Context, rawURL string) (*http.Response, error) {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Scheme != "https" || u.User != nil || u.Fragment != "" || u.Port() != "" || !strings.HasPrefix(u.Hostname(), "dashscope-result-") || !strings.HasSuffix(u.Hostname(), ".aliyuncs.com") {
+		return nil, fmt.Errorf("unsupported video result origin")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("video result unavailable")
+	}
+	client := &http.Client{Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("video result unavailable")
+	}
+	if resp.StatusCode != http.StatusOK {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("video result HTTP %d", resp.StatusCode)
+	}
+	const maxVideoContentBytes = 256 << 20
+	if resp.ContentLength < 0 || resp.ContentLength > maxVideoContentBytes {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("video result exceeds limit")
+	}
+	return resp, nil
+}
+
 func (s *OpenAIGatewayService) SubmitQianwenVideo(ctx context.Context, account *Account, body []byte) (UpstreamJobUpdate, error) {
 	var payload map[string]json.RawMessage
 	if err := json.Unmarshal(body, &payload); err != nil {
@@ -222,7 +263,7 @@ func (s *OpenAIGatewayService) qianwenVideoRequest(ctx context.Context, account 
 	if err != nil {
 		return UpstreamJobUpdate{}, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	raw, err := io.ReadAll(io.LimitReader(resp.Body, 2<<20))
 	if err != nil {
 		return UpstreamJobUpdate{}, err

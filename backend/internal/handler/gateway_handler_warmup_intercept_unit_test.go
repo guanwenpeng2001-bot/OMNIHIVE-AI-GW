@@ -157,12 +157,18 @@ func (f *fakeConcurrencyCache) CleanupExpiredAccountSlotKeys(context.Context) er
 func (f *fakeConcurrencyCache) CleanupStaleProcessSlots(context.Context, string) error  { return nil }
 
 func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*service.Account) (*GatewayHandler, func()) {
+	for i, account := range accounts {
+		if account != nil {
+			copy := preparedGatewayFixtureAccount(*account)
+			accounts[i] = &copy
+		}
+	}
 	t.Helper()
 
 	schedulerCache := &fakeSchedulerCache{accounts: accounts}
 	schedulerSnapshot := service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil)
 
-	gwSvc := service.NewGatewayService(
+	gwSvc := service.ProvideGatewayService(
 		nil, // accountRepo (not used: scheduler snapshot hit)
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
@@ -191,7 +197,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // compositeResolver
 		nil, // balanceNotifyService
 		nil, // userPlatformQuotaRepo
-	)
+		service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 
 	// RunModeSimple：跳过计费检查，避免引入 repo/cache 依赖。
 	cfg := &config.Config{RunMode: config.RunModeSimple}

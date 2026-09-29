@@ -66,6 +66,7 @@ func (s *OpsService) GetDashboardOverview(ctx context.Context, filter *OpsDashbo
 	}
 
 	overview.HealthScore = computeDashboardHealthScore(time.Now().UTC(), overview)
+	overview.Diagnostics = SnapshotOpsDiagnostics()
 
 	return overview, nil
 }

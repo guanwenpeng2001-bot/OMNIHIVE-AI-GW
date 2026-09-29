@@ -4,7 +4,7 @@
  */
 
 import { apiClient } from '../client'
-import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types'
+import type { GrokBillingSummary, GrokQuotaWindow, WindowStats } from '@/types/admin'
 
 export type { GrokBillingSummary, GrokQuotaWindow } from '@/types'
 
@@ -56,6 +56,7 @@ export interface GrokTokenInfo {
 }
 
 export interface GrokSSOToOAuthRequest {
+  tpm_limit?: number
   sso_tokens: string[]
   name?: string
   notes?: string | null
@@ -72,6 +73,7 @@ export interface GrokSSOToOAuthRequest {
 }
 
 export interface GrokSSOToOAuthItemResult {
+  draft?: { credential_draft: string; revision: string; platform: string; type: string; expires_at: string }
   index: number
   name?: string
   email?: string
@@ -80,6 +82,7 @@ export interface GrokSSOToOAuthItemResult {
 }
 
 export interface GrokSSOToOAuthResponse {
+  ready?: GrokSSOToOAuthItemResult[]
   created: GrokSSOToOAuthItemResult[]
   failed: GrokSSOToOAuthItemResult[]
 }

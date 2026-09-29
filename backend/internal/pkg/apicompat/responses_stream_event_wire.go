@@ -231,3 +231,22 @@ func reasoningSummaryWire(summary []ResponsesSummary) []map[string]any {
 	}
 	return out
 }
+
+// UnmarshalJSON preserves the distinction between zero and absent sequence.
+func (e *ResponsesStreamEvent) UnmarshalJSON(data []byte) error {
+	type alias ResponsesStreamEvent
+	var wire struct {
+		*alias
+		Sequence *int `json:"sequence_number"`
+	}
+	*e = ResponsesStreamEvent{}
+	wire.alias = (*alias)(e)
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return err
+	}
+	if wire.Sequence != nil {
+		e.SequenceNumber = *wire.Sequence
+		e.sequencePresent = true
+	}
+	return nil
+}

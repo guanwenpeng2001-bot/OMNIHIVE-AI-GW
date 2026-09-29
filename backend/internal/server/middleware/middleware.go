@@ -2,10 +2,12 @@ package middleware
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/gatewayerror"
 	"net/http"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -60,36 +62,16 @@ func GetForcePlatformFromContext(c *gin.Context) (string, bool) {
 	return platform, ok
 }
 
-// ErrorResponse 标准错误响应结构
-type ErrorResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// ErrorResponse shares the management response contract.
+type ErrorResponse = response.Response
 
-// NewErrorResponse 创建错误响应
-func NewErrorResponse(code, message string) ErrorResponse {
-	return ErrorResponse{
-		Code:    code,
-		Message: message,
-	}
-}
-
-// AbortWithError 中断请求并返回JSON错误
+// AbortWithError stops a request with the shared management envelope.
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
-	c.JSON(statusCode, NewErrorResponse(code, message))
-	c.Abort()
-}
-
-// abortWithOpenAIQuotaError writes the OpenAI-compatible insufficient quota response.
-func abortWithOpenAIQuotaError(c *gin.Context, statusCode int, message string) {
-	c.JSON(statusCode, gin.H{
-		"error": gin.H{
-			"message": message,
-			"type":    "insufficient_quota",
-			"param":   nil,
-			"code":    "insufficient_quota",
-		},
-	})
+	if c.GetBool("gateway_protocol_errors") {
+		gatewayerror.Write(c, statusCode, code, message)
+	} else {
+		response.ErrorWithDetails(c, statusCode, message, code, nil)
+	}
 	c.Abort()
 }
 
@@ -100,20 +82,14 @@ func abortWithOpenAIQuotaError(c *gin.Context, statusCode int, message string) {
 // GatewayErrorWriter 定义网关错误响应格式（不同协议使用不同格式）
 type GatewayErrorWriter func(c *gin.Context, status int, message string)
 
+// APIKeyGroupUnassignedMessage is shared by all gateway protocol error writers.
+const APIKeyGroupUnassignedMessage = "API Key is not assigned to any group and cannot be used. Select a group for this key on the console's API Keys page, then retry. API 密钥未绑定分组，请前往控制台「API 密钥」页为该密钥选择分组后重试。"
+
 // AnthropicErrorWriter 按 Anthropic API 规范输出错误；error.type 随状态码映射
 // （404 -> not_found_error，403 -> permission_error，其余 api_error）。
 func AnthropicErrorWriter(c *gin.Context, status int, message string) {
-	errorType := "api_error"
-	switch status {
-	case http.StatusNotFound:
-		errorType = "not_found_error"
-	case http.StatusForbidden:
-		errorType = "permission_error"
-	}
-	c.JSON(status, gin.H{
-		"type":  "error",
-		"error": gin.H{"type": errorType, "message": message},
-	})
+	status, body := gatewayerror.Envelope("anthropic", status, "request_failed", message)
+	c.JSON(status, body)
 }
 
 // GoogleErrorWriter 按 Google API 规范输出错误
@@ -154,7 +130,7 @@ func RequireGroupAssignment(settingService *service.SettingService, writeError G
 		}
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned)
 		MarkIngressRejected(c, IngressRejectGroupUnassigned)
-		writeError(c, http.StatusForbidden, "API Key is not assigned to any group and cannot be used. Please contact the administrator to assign it to a group.")
+		writeError(c, http.StatusForbidden, APIKeyGroupUnassignedMessage)
 		c.Abort()
 	}
 }

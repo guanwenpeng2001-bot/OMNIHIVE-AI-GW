@@ -9,10 +9,8 @@ import (
 	"net/url"
 	"strings"
 
-	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/oauth"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -67,7 +65,7 @@ func (h *AuthHandler) emailOAuthStart(c *gin.Context, provider string) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	state, err := oauth.GenerateState()
+	state, err := h.issueOAuthState(c, provider)
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.InternalServer("OAUTH_STATE_GEN_FAILED", "failed to generate oauth state").WithCause(err))
 		return
@@ -130,6 +128,11 @@ func (h *AuthHandler) emailOAuthCallback(c *gin.Context, provider string) {
 		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid oauth state", "")
 		return
 	}
+	if err := h.consumeOAuthState(c, provider, state); err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid or consumed oauth state", "")
+		return
+	}
+
 	expectedProvider, _ := readCookieDecoded(c, emailOAuthProviderCookie)
 	if !strings.EqualFold(strings.TrimSpace(expectedProvider), provider) {
 		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid oauth provider", "")
@@ -210,18 +213,11 @@ func (h *AuthHandler) emailOAuthCallbackWithProfile(
 		return
 	}
 
-	fragment := url.Values{}
-	fragment.Set("access_token", tokenPair.AccessToken)
-	fragment.Set("refresh_token", tokenPair.RefreshToken)
-	fragment.Set("expires_in", fmt.Sprintf("%d", tokenPair.ExpiresIn))
-	fragment.Set("token_type", "Bearer")
-	fragment.Set("redirect", redirectTo)
-	redirectWithFragment(c, frontendCallback, fragment)
+	h.redirectOAuthTokenPair(c, frontendCallback, tokenPair, redirectTo)
 }
 
 func (h *AuthHandler) emailOAuthShouldCreatePendingRegistration(ctx context.Context, input service.EmailOAuthIdentityInput) (bool, error) {
-	client := h.entClient()
-	if client == nil {
+	if _, err := h.pendingIdentityService(); err != nil {
 		return false, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready")
 	}
 	identityUser, err := h.findOAuthIdentityUser(ctx, service.PendingAuthIdentityKey{
@@ -239,7 +235,7 @@ func (h *AuthHandler) emailOAuthShouldCreatePendingRegistration(ctx context.Cont
 		}
 		return false, nil
 	}
-	if _, err := findUserByNormalizedEmail(ctx, client, email); err != nil {
+	if _, err := h.authService.FindUserByNormalizedEmail(ctx, email); err != nil {
 		if errors.Is(err, service.ErrUserNotFound) {
 			return true, nil
 		}
@@ -345,7 +341,7 @@ type completeEmailOAuthRequest struct {
 func (h *AuthHandler) completeEmailOAuthRegistration(c *gin.Context, provider string) {
 	var req completeEmailOAuthRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		response.BadRequest(c, "Invalid request: "+err.Error())
+		response.BadRequest(c, "Invalid request")
 		return
 	}
 
@@ -384,18 +380,10 @@ func (h *AuthHandler) completeEmailOAuthRegistration(c *gin.Context, provider st
 		return
 	}
 
-	client := h.entClient()
-	if client == nil {
+	if _, err := h.pendingIdentityService(); err != nil {
 		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready"))
 		return
 	}
-	tx, err := client.Tx(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to consume pending oauth session").WithCause(err))
-		return
-	}
-	defer func() { _ = tx.Rollback() }()
-	txCtx := dbent.NewTxContext(c.Request.Context(), tx)
 	sessionForBinding := *session
 	sessionForBinding.UpstreamIdentityClaims = clonePendingMap(session.UpstreamIdentityClaims)
 	if strings.TrimSpace(req.InvitationCode) != "" {
@@ -403,41 +391,20 @@ func (h *AuthHandler) completeEmailOAuthRegistration(c *gin.Context, provider st
 	}
 	decision, err := h.ensurePendingOAuthAdoptionDecision(c, session.ID, oauthAdoptionDecisionRequest{})
 	if err != nil {
-		_ = tx.Rollback()
 		_ = h.authService.RollbackOAuthEmailAccountCreation(c.Request.Context(), user.ID, strings.TrimSpace(req.InvitationCode))
 		response.ErrorFrom(c, err)
 		return
 	}
-	if err := applyPendingOAuthBinding(txCtx, client, h.authService, h.userService, &sessionForBinding, decision, &user.ID, true, false); err != nil {
-		_ = tx.Rollback()
+	clearSessionCookies, err := h.authService.FinalizePendingOAuthRegistration(c.Request.Context(), h.userService, &sessionForBinding, decision, user, req.InvitationCode, affiliateCode, nil)
+	if err != nil {
 		_ = h.authService.RollbackOAuthEmailAccountCreation(c.Request.Context(), user.ID, strings.TrimSpace(req.InvitationCode))
-		respondPendingOAuthBindingApplyError(c, err)
-		return
-	}
-	if err := h.authService.FinalizeOAuthEmailAccount(
-		txCtx,
-		user,
-		strings.TrimSpace(req.InvitationCode),
-		strings.TrimSpace(session.ProviderType),
-		affiliateCode,
-	); err != nil {
-		_ = tx.Rollback()
-		_ = h.authService.RollbackOAuthEmailAccountCreation(c.Request.Context(), user.ID, strings.TrimSpace(req.InvitationCode))
+		if clearSessionCookies {
+			clearCookies()
+		}
 		response.ErrorFrom(c, err)
 		return
 	}
-	if err := consumePendingOAuthBrowserSessionTx(c.Request.Context(), tx, session); err != nil {
-		_ = tx.Rollback()
-		_ = h.authService.RollbackOAuthEmailAccountCreation(c.Request.Context(), user.ID, strings.TrimSpace(req.InvitationCode))
-		clearCookies()
-		response.ErrorFrom(c, err)
-		return
-	}
-	if err := tx.Commit(); err != nil {
-		_ = h.authService.RollbackOAuthEmailAccountCreation(c.Request.Context(), user.ID, strings.TrimSpace(req.InvitationCode))
-		response.ErrorFrom(c, infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to consume pending oauth session").WithCause(err))
-		return
-	}
+
 	h.authService.ApplyOAuthSignupPromoCode(c.Request.Context(), user.ID, pendingOAuthPromoCode(session))
 	h.authService.RecordSuccessfulLogin(c.Request.Context(), user.ID)
 	clearCookies()

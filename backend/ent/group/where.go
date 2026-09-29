@@ -65,9 +65,24 @@ func UpdatedAt(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
+// WorkspaceID applies equality check predicate on the "workspace_id" field. It's identical to WorkspaceIDEQ.
+func WorkspaceID(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
 // DeletedAt applies equality check predicate on the "deleted_at" field. It's identical to DeletedAtEQ.
 func DeletedAt(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDeletedAt, v))
+}
+
+// TpmLimit applies equality check predicate on the "tpm_limit" field. It's identical to TpmLimitEQ.
+func TpmLimit(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
+func AccountType(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountType, v))
 }
 
 // Name applies equality check predicate on the "name" field. It's identical to NameEQ.
@@ -425,6 +440,46 @@ func UpdatedAtLTE(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldLTE(FieldUpdatedAt, v))
 }
 
+// WorkspaceIDEQ applies the EQ predicate on the "workspace_id" field.
+func WorkspaceIDEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDNEQ applies the NEQ predicate on the "workspace_id" field.
+func WorkspaceIDNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDIn applies the In predicate on the "workspace_id" field.
+func WorkspaceIDIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDNotIn applies the NotIn predicate on the "workspace_id" field.
+func WorkspaceIDNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDGT applies the GT predicate on the "workspace_id" field.
+func WorkspaceIDGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDGTE applies the GTE predicate on the "workspace_id" field.
+func WorkspaceIDGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLT applies the LT predicate on the "workspace_id" field.
+func WorkspaceIDLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLTE applies the LTE predicate on the "workspace_id" field.
+func WorkspaceIDLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldWorkspaceID, v))
+}
+
 // DeletedAtEQ applies the EQ predicate on the "deleted_at" field.
 func DeletedAtEQ(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDeletedAt, v))
@@ -473,6 +528,111 @@ func DeletedAtIsNil() predicate.Group {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// TpmLimitEQ applies the EQ predicate on the "tpm_limit" field.
+func TpmLimitEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitNEQ applies the NEQ predicate on the "tpm_limit" field.
+func TpmLimitNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitIn applies the In predicate on the "tpm_limit" field.
+func TpmLimitIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitNotIn applies the NotIn predicate on the "tpm_limit" field.
+func TpmLimitNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitGT applies the GT predicate on the "tpm_limit" field.
+func TpmLimitGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldTpmLimit, v))
+}
+
+// TpmLimitGTE applies the GTE predicate on the "tpm_limit" field.
+func TpmLimitGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldTpmLimit, v))
+}
+
+// TpmLimitLT applies the LT predicate on the "tpm_limit" field.
+func TpmLimitLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldTpmLimit, v))
+}
+
+// TpmLimitLTE applies the LTE predicate on the "tpm_limit" field.
+func TpmLimitLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldTpmLimit, v))
+}
+
+// AccountTypeEQ applies the EQ predicate on the "account_type" field.
+func AccountTypeEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldAccountType, v))
+}
+
+// AccountTypeNEQ applies the NEQ predicate on the "account_type" field.
+func AccountTypeNEQ(v string) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldAccountType, v))
+}
+
+// AccountTypeIn applies the In predicate on the "account_type" field.
+func AccountTypeIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldAccountType, vs...))
+}
+
+// AccountTypeNotIn applies the NotIn predicate on the "account_type" field.
+func AccountTypeNotIn(vs ...string) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldAccountType, vs...))
+}
+
+// AccountTypeGT applies the GT predicate on the "account_type" field.
+func AccountTypeGT(v string) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldAccountType, v))
+}
+
+// AccountTypeGTE applies the GTE predicate on the "account_type" field.
+func AccountTypeGTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldAccountType, v))
+}
+
+// AccountTypeLT applies the LT predicate on the "account_type" field.
+func AccountTypeLT(v string) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldAccountType, v))
+}
+
+// AccountTypeLTE applies the LTE predicate on the "account_type" field.
+func AccountTypeLTE(v string) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldAccountType, v))
+}
+
+// AccountTypeContains applies the Contains predicate on the "account_type" field.
+func AccountTypeContains(v string) predicate.Group {
+	return predicate.Group(sql.FieldContains(FieldAccountType, v))
+}
+
+// AccountTypeHasPrefix applies the HasPrefix predicate on the "account_type" field.
+func AccountTypeHasPrefix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasPrefix(FieldAccountType, v))
+}
+
+// AccountTypeHasSuffix applies the HasSuffix predicate on the "account_type" field.
+func AccountTypeHasSuffix(v string) predicate.Group {
+	return predicate.Group(sql.FieldHasSuffix(FieldAccountType, v))
+}
+
+// AccountTypeEqualFold applies the EqualFold predicate on the "account_type" field.
+func AccountTypeEqualFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldEqualFold(FieldAccountType, v))
+}
+
+// AccountTypeContainsFold applies the ContainsFold predicate on the "account_type" field.
+func AccountTypeContainsFold(v string) predicate.Group {
+	return predicate.Group(sql.FieldContainsFold(FieldAccountType, v))
 }
 
 // NameEQ applies the EQ predicate on the "name" field.

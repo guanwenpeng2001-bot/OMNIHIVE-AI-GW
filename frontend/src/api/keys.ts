@@ -1,10 +1,12 @@
+import { postIdempotentCreate } from './idempotency'
 /**
  * API Keys management endpoints
  * Handles CRUD operations for user API keys
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type { ApiKey, ApiKeyPeriodBudgetRequest, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 /**
  * List all API keys for current user
@@ -55,7 +57,8 @@ export async function getById(id: number): Promise<ApiKey> {
  * @param quota - Optional quota limit in USD (0 = unlimited)
  * @param expiresInDays - Optional days until expiry (undefined = never expires)
  * @param rateLimitData - Optional rate limit fields
- * @returns Created API key
+ * @param budgetData - Optional period budget (USD) fields, separate from rate limits
+ * @returns The created key plus its secret, which is shown only once
  */
 export async function create(
   name: string,
@@ -65,8 +68,9 @@ export async function create(
   ipBlacklist?: string[],
   quota?: number,
   expiresInDays?: number,
-  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number }
-): Promise<ApiKey> {
+  rateLimitData?: { rate_limit_5h?: number; rate_limit_1d?: number; rate_limit_7d?: number },
+  budgetData?: ApiKeyPeriodBudgetRequest
+): Promise<ApiKeyCredentialIssue> {
   const payload: CreateApiKeyRequest = { name }
   if (groupId !== undefined) {
     payload.group_id = groupId
@@ -95,8 +99,73 @@ export async function create(
   if (rateLimitData?.rate_limit_7d && rateLimitData.rate_limit_7d > 0) {
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
   }
+  if (budgetData) {
+    if (budgetData.legacy_budget_anchor) {
+      payload.legacy_budget_anchor = budgetData.legacy_budget_anchor
+    }
+    if (budgetData.budget_period_mode) {
+      payload.budget_period_mode = budgetData.budget_period_mode
+    }
+    if (budgetData.budget_limit !== undefined) {
+      payload.budget_limit = budgetData.budget_limit
+    }
+    if (budgetData.budget_duration_seconds !== undefined) {
+      payload.budget_duration_seconds = budgetData.budget_duration_seconds
+    }
+    if (budgetData.budget_anchor) {
+      payload.budget_anchor = budgetData.budget_anchor
+    }
+    if (budgetData.budget_calendar_unit) {
+      payload.budget_calendar_unit = budgetData.budget_calendar_unit
+    }
+    if (budgetData.budget_timezone) {
+      payload.budget_timezone = budgetData.budget_timezone
+    }
+  }
 
-  const { data } = await apiClient.post<ApiKey>('/keys', payload)
+  return postIdempotentCreate<ApiKeyCredentialIssue>('/keys', payload)
+}
+
+/**
+ * Issue returned once when a key is created or rotated: the plaintext secret is
+ * never readable again from any endpoint.
+ */
+export interface ApiKeyCredentialIssue {
+  api_key: ApiKey
+  secret: string
+  grace_until?: string | null
+}
+
+export interface RotateApiKeyOptions {
+  grace_ttl_hours?: number
+  revoke_previous?: boolean
+}
+
+/**
+ * Rotate a key's secret in place, keeping its identity and history.
+ * @param id - API key ID
+ * @param options - Optional grace window and immediate-revoke flag
+ * @returns The key plus the new secret, shown once
+ */
+export async function rotate(id: number, options?: RotateApiKeyOptions): Promise<ApiKeyCredentialIssue> {
+  const payload: RotateApiKeyOptions = {}
+  if (options?.grace_ttl_hours !== undefined) {
+    payload.grace_ttl_hours = options.grace_ttl_hours
+  }
+  if (options?.revoke_previous !== undefined) {
+    payload.revoke_previous = options.revoke_previous
+  }
+  const { data } = await apiClient.post<ApiKeyCredentialIssue>(`/keys/${id}/credentials/rotate`, payload)
+  return data
+}
+
+/**
+ * Revoke a key's previous (grace) credentials immediately.
+ * @param id - API key ID
+ * @returns Count of revoked credentials
+ */
+export async function revokeCredentials(id: number): Promise<{ revoked_credentials: number }> {
+  const { data } = await apiClient.post<{ revoked_credentials: number }>(`/keys/${id}/credentials/revoke`, {})
   return data
 }
 
@@ -137,7 +206,9 @@ export const keysAPI = {
   create,
   update,
   delete: deleteKey,
-  toggleStatus
+  toggleStatus,
+  rotate,
+  revokeCredentials
 }
 
 export default keysAPI

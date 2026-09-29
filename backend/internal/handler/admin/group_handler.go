@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"strconv"
 	"strings"
 	"time"
@@ -140,6 +141,7 @@ type simpleModeGroupResponse struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
 	Platform    string `json:"platform"`
+	AccountType string `json:"account_type,omitempty"`
 	Status      string `json:"status"`
 
 	AccountCount            int64     `json:"account_count,omitempty"`
@@ -156,6 +158,7 @@ func groupForSimpleMode(group *service.Group) *simpleModeGroupResponse {
 	}
 	return &simpleModeGroupResponse{
 		ID: group.ID, Name: group.Name, Description: group.Description, Platform: group.Platform,
+		AccountType:        group.RequiredAccountType(),
 		Status:             group.Status,
 		AccountCount:       group.AccountCount,
 		ActiveAccountCount: group.ActiveAccountCount, RateLimitedAccountCount: group.RateLimitedAccountCount,
@@ -167,7 +170,7 @@ func sanitizeCreateGroupRequestForSimpleMode(req *CreateGroupRequest) {
 	if req == nil {
 		return
 	}
-	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, Platform: req.Platform}
+	allowed := CreateGroupRequest{Name: req.Name, Description: req.Description, Platform: req.Platform, AccountType: req.AccountType}
 	allowed.RateMultiplier = 1
 	allowed.SubscriptionType = service.SubscriptionTypeStandard
 	*req = allowed
@@ -182,9 +185,11 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
+	TPMLimit                  service.OptionalTPMLimit      `json:"tpm_limit,omitzero"`
+	AccountType               string                        `json:"account_type"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
-	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode composite"`
+	Platform                  string                        `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine composite"`
 	RateMultiplier            float64                       `json:"rate_multiplier"`
 	IsExclusive               bool                          `json:"is_exclusive"`
 	SubscriptionType          string                        `json:"subscription_type" binding:"omitempty,oneof=standard subscription"`
@@ -256,9 +261,11 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
+	TPMLimit                  service.OptionalTPMLimit       `json:"tpm_limit,omitzero"`
+	AccountType               *string                        `json:"account_type"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
-	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode composite"`
+	Platform                  string                         `json:"platform" binding:"omitempty,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine composite"`
 	RateMultiplier            *float64                       `json:"rate_multiplier"`
 	IsExclusive               *bool                          `json:"is_exclusive"`
 	Status                    string                         `json:"status" binding:"omitempty,oneof=active inactive"`
@@ -330,14 +337,34 @@ type UpdateGroupRequest struct {
 }
 
 type CompositeRouteRequest struct {
-	PublicModel    string `json:"public_model" binding:"required"`
-	MatchType      string `json:"match_type" binding:"omitempty,oneof=exact prefix"`
-	TargetPlatform string `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode"`
-	UpstreamModel  string `json:"upstream_model"`
-	Endpoint       string `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
-	Priority       int    `json:"priority"`
-	Enabled        *bool  `json:"enabled"`
-	Notes          string `json:"notes"`
+	AccountType    *string                        `json:"account_type"`
+	PublicModel    string                         `json:"public_model" binding:"required"`
+	MatchType      string                         `json:"match_type" binding:"omitempty,oneof=exact prefix"`
+	TargetPlatform string                         `json:"target_platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode qianfan hunyuan mistral bedrock volcengine"`
+	UpstreamModel  string                         `json:"upstream_model"`
+	Endpoint       string                         `json:"endpoint" binding:"omitempty,oneof=any messages count_tokens responses chat_completions embeddings images gemini"`
+	Priority       int                            `json:"priority"`
+	Enabled        *bool                          `json:"enabled"`
+	Notes          string                         `json:"notes"`
+	Targets        *[]CompositeRouteTargetRequest `json:"targets"`
+}
+
+// CompositeRouteTargetRequest is one admin-declared ordered fallback target.
+// Absent fields keep the documented defaults: weight 100, legacy latency
+// preference, legacy sticky-session TTL, enabled, and no region/provider
+// constraint. Platform validity is enforced by the service so the same rules
+// apply to every caller.
+type CompositeRouteTargetRequest struct {
+	Position           int     `json:"position"`
+	TargetPlatform     string  `json:"target_platform"`
+	AccountType        *string `json:"account_type"`
+	UpstreamModel      string  `json:"upstream_model"`
+	Region             string  `json:"region"`
+	Provider           string  `json:"provider"`
+	LatencyPreference  string  `json:"latency_preference"`
+	SchedulingWeight   *int    `json:"scheduling_weight"`
+	AffinityTTLSeconds *int    `json:"affinity_ttl_seconds"`
+	Enabled            *bool   `json:"enabled"`
 }
 
 type CompositeRoutePreviewRequest struct {
@@ -509,6 +536,10 @@ func (h *GroupHandler) PreviewCompositeRoute(c *gin.Context) {
 }
 
 func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool) service.CompositeRouteInput {
+	accountType := ""
+	if req.AccountType != nil {
+		accountType = *req.AccountType
+	}
 	enabled := defaultEnabled
 	if req.Enabled != nil {
 		enabled = *req.Enabled
@@ -517,12 +548,53 @@ func compositeRouteRequestToInput(req CompositeRouteRequest, defaultEnabled bool
 		PublicModel:    req.PublicModel,
 		MatchType:      req.MatchType,
 		TargetPlatform: req.TargetPlatform,
+		AccountType:    accountType,
+		AccountTypeSet: req.AccountType != nil,
 		UpstreamModel:  req.UpstreamModel,
 		Endpoint:       req.Endpoint,
 		Priority:       req.Priority,
 		Enabled:        enabled,
 		Notes:          req.Notes,
+		Targets:        compositeRouteTargetsToInput(req.Targets),
 	}
+}
+
+func compositeRouteTargetsToInput(targets *[]CompositeRouteTargetRequest) []service.CompositeRouteTarget {
+	if targets == nil {
+		return nil
+	}
+	out := make([]service.CompositeRouteTarget, 0, len(*targets))
+	for index, target := range *targets {
+		accountType := ""
+		if target.AccountType != nil {
+			accountType = *target.AccountType
+		}
+		weight := 0
+		if target.SchedulingWeight != nil {
+			weight = *target.SchedulingWeight
+		}
+		affinityTTL := 0
+		if target.AffinityTTLSeconds != nil {
+			affinityTTL = *target.AffinityTTLSeconds
+		}
+		targetEnabled := true
+		if target.Enabled != nil {
+			targetEnabled = *target.Enabled
+		}
+		out = append(out, service.CompositeRouteTarget{
+			Position:           index,
+			TargetPlatform:     target.TargetPlatform,
+			AccountType:        accountType,
+			UpstreamModel:      target.UpstreamModel,
+			Region:             target.Region,
+			Provider:           target.Provider,
+			LatencyPreference:  target.LatencyPreference,
+			SchedulingWeight:   weight,
+			AffinityTTLSeconds: affinityTTL,
+			Enabled:            targetEnabled,
+		})
+	}
+	return out
 }
 
 func parsePositiveIDParam(c *gin.Context, name string) (int64, bool) {
@@ -662,9 +734,11 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
+		TPMLimit:                        req.TPMLimit.Value,
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
+		AccountType:                     req.AccountType,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		SubscriptionType:                req.SubscriptionType,
@@ -807,9 +881,11 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
+		TPMLimit:                        req.TPMLimit.Pointer(),
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
+		AccountType:                     req.AccountType,
 		RateMultiplier:                  req.RateMultiplier,
 		IsExclusive:                     req.IsExclusive,
 		Status:                          req.Status,
@@ -918,14 +994,40 @@ func (h *GroupHandler) GetStats(c *gin.Context) {
 		return
 	}
 
-	// Return mock data for now
+	ctx := c.Request.Context()
+	// 归属校验：先确认该分组存在，再按它聚合。少了这一步就会把 :id 丢掉，
+	// 返回与其他分组无关的数字（原实现恒返回 0）。
+	if _, err := h.adminService.GetGroup(ctx, groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	if h.dashboardService == nil {
+		response.Error(c, http.StatusServiceUnavailable, "Group usage statistics are unavailable")
+		return
+	}
+
+	totals, err := h.dashboardService.GetGroupUsageTotals(ctx, groupID)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "Failed to get group usage totals")
+		return
+	}
+	totalKeys, activeKeys, err := h.adminService.GetGroupAPIKeyCounts(ctx, groupID)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
 	response.Success(c, gin.H{
-		"total_api_keys":  0,
-		"active_api_keys": 0,
-		"total_requests":  0,
-		"total_cost":      0.0,
+		"group_id":        groupID,
+		"total_api_keys":  totalKeys,
+		"active_api_keys": activeKeys,
+		"total_requests":  totals.Requests,
+		"total_cost":      totals.TotalCost,
+		"actual_cost":     totals.ActualCost,
+		// 请求数/标准计费只能回溯到原始账本保留窗口起点；调用方不得当成历史全量。
+		"usage_window_start": totals.WindowStart.UTC().Format(time.RFC3339),
+		"usage_window_end":   totals.WindowEnd.UTC().Format(time.RFC3339),
 	})
-	_ = groupID // TODO: implement actual stats
 }
 
 // GetUsageSummary returns today's, yesterday's, and cumulative cost for all groups.

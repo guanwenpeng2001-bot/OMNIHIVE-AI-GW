@@ -30,8 +30,8 @@
           <!-- Current balance: prominent display on the right -->
           <div class="flex-shrink-0 text-right">
             <p class="text-xs text-gray-500 dark:text-dark-400">{{ t('admin.users.currentBalance') }}</p>
-            <p class="text-xl font-bold text-gray-900 dark:text-white">
-              ${{ user.balance?.toFixed(2) || '0.00' }}
+            <p class="text-xl font-bold text-gray-900 dark:text-white" :title="formatMoney(user.balance, 'USD', 'ledger')">
+              {{ formatMoney(user.balance) }}
             </p>
           </div>
         </div>
@@ -42,7 +42,7 @@
             <template v-else>&nbsp;</template>
           </p>
           <p class="ml-4 flex-shrink-0 text-xs text-gray-500 dark:text-dark-400">
-            {{ t('admin.users.totalRecharged') }}: <span class="font-semibold text-emerald-600 dark:text-emerald-400">${{ totalRecharged.toFixed(2) }}</span>
+            {{ t('admin.users.totalRecharged') }}: <span class="font-semibold text-emerald-600 dark:text-emerald-400">{{ formatMoney(totalRecharged) }}</span>
           </p>
         </div>
       </div>
@@ -175,7 +175,8 @@
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type BalanceHistoryItem } from '@/api/admin'
-import { formatDateTime } from '@/utils/format'
+import { formatMoney, formatLedgerAmount } from '@/utils/money'
+import { formatDateTimeWithZone as formatDateTime } from '@/utils/format'
 import type { AdminUser } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Select from '@/components/common/Select.vue'
@@ -192,6 +193,7 @@ const total = ref(0)
 const totalRecharged = ref(0)
 const pageSize = 15
 const typeFilter = ref('')
+let requestGeneration = 0
 
 const totalPages = computed(() => Math.ceil(total.value / pageSize) || 1)
 
@@ -207,8 +209,12 @@ const typeOptions = computed(() => [
 ])
 
 // Watch modal open
-watch(() => props.show, (v) => {
-  if (v && props.user) {
+watch(() => [props.show, props.user?.id] as const, ([visible], _previous, onCleanup) => {
+  onCleanup(() => { requestGeneration++ })
+  history.value = []
+  total.value = 0
+  totalRecharged.value = 0
+  if (visible && props.user) {
     typeFilter.value = ''
     loadHistory(1)
   }
@@ -216,6 +222,7 @@ watch(() => props.show, (v) => {
 
 const loadHistory = async (page: number) => {
   if (!props.user) return
+  const currentGeneration = ++requestGeneration
   loading.value = true
   currentPage.value = page
   try {
@@ -225,13 +232,15 @@ const loadHistory = async (page: number) => {
       pageSize,
       typeFilter.value || undefined
     )
+    if (currentGeneration !== requestGeneration) return
     history.value = res.items || []
     total.value = res.total || 0
     totalRecharged.value = res.total_recharged || 0
   } catch (error) {
+    if (currentGeneration !== requestGeneration) return
     console.error('Failed to load balance history:', error)
   } finally {
-    loading.value = false
+    if (currentGeneration === requestGeneration) loading.value = false
   }
 }
 
@@ -314,7 +323,7 @@ const getItemTitle = (item: BalanceHistoryItem) => {
 const formatValue = (item: BalanceHistoryItem) => {
   if (isBalanceType(item.type)) {
     const sign = item.value >= 0 ? '+' : ''
-    return `${sign}$${item.value.toFixed(2)}`
+    return `${sign}${formatLedgerAmount(item.value)} USD`
   }
   if (isSubscriptionType(item.type)) {
     const days = item.validity_days || Math.round(item.value)

@@ -1,0 +1,18 @@
+export default {
+  title: 'Workspaces',
+  description: 'Manage resources and delegate administration within a workspace.',
+  name: 'Workspace name',
+  create: 'Create workspace',
+  members: 'Members and delegation',
+  userID: 'User ID',
+  role: 'Role',
+  member: 'Member',
+  admin: 'Workspace administrator',
+  save: 'Save membership',
+  remove: 'Remove membership',
+  resources: 'Resources',
+  select: 'Select a workspace',
+  empty: 'No workspaces are available.',
+  default: 'Default workspace',
+  saved: 'Membership updated',
+}

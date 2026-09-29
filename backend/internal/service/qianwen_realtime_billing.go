@@ -20,9 +20,10 @@ var ErrQianwenRealtimeCapacity = errors.New("realtime session concurrency limit 
 var ErrQianwenRealtimeConflict = errors.New("conflicting realtime receipt")
 
 type QianwenRealtimeSnapshot struct {
-	SessionID    string `json:"session_id"`
-	Region       string `json:"region"`
-	PriceVersion string `json:"price_version"`
+	PriceQuote   *ModelUnitPrice `json:"price_quote,omitempty"`
+	SessionID    string          `json:"session_id"`
+	Region       string          `json:"region"`
+	PriceVersion string          `json:"price_version"`
 }
 
 // The lease lasts longer than the absolute 120s relay + 12s handshake + 5s
@@ -62,7 +63,7 @@ func IsQianwenRealtimeModel(model string) bool {
 	return false
 }
 
-func QianwenRealtimeBillingSnapshot(group *Group, account *Account, key *APIKey, model string, subscription *UserSubscription) (UpstreamJobBilling, error) {
+func QianwenRealtimeBillingSnapshot(ctx context.Context, group *Group, account *Account, key *APIKey, model string, subscription *UserSubscription) (UpstreamJobBilling, error) {
 	b := UpstreamJobBilling{RequestedModel: model}
 	if group == nil || account == nil || key == nil || account.Platform != PlatformQianwen {
 		return b, ErrUpstreamJobTariff
@@ -76,13 +77,34 @@ func QianwenRealtimeBillingSnapshot(group *Group, account *Account, key *APIKey,
 	if region == "singapore" {
 		b.UnitPrice = 0.13 / 10000
 	}
-	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(time.Now())
+	pricingAt := time.Now()
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && !plan.Snapshot().PricingAt.IsZero() {
+		pricingAt = plan.Snapshot().PricingAt
+	}
+	b.RateMultiplier = group.RateMultiplier * group.PeakMultiplierAt(pricingAt)
 	b.AccountRateMultiplier = account.BillingRateMultiplier()
 	b.KeyQuota, b.KeyRateLimit, b.AccountQuota = key.Quota > 0, key.HasRateLimits(), account.HasAnyQuotaLimit()
 	if subscription != nil {
 		b.SubscriptionID = &subscription.ID
 	}
 	b.Realtime = &QianwenRealtimeSnapshot{Region: region, PriceVersion: QianwenRealtimePriceVersion}
+	descriptor, found, err := NewModelPricingResolver(nil, nil).configuredPriceDescriptor(ctx, PricingInput{Model: model, Group: group})
+	if err != nil {
+		return b, err
+	}
+	if found {
+		quote, quoteErr := descriptor.UnitPrice("character", "output", "")
+		if quoteErr != nil {
+			return b, quoteErr
+		}
+		if quote.Cost == nil {
+			return b, fmt.Errorf("%w: realtime character cost missing", ErrModelPricingUnavailable)
+		}
+		b.UnitPrice = *quote.Sales
+		b.Realtime.PriceQuote = &quote
+		b.Realtime.PriceVersion = "operator-character-quote"
+	}
+
 	if !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) {
 		return b, ErrUpstreamJobTariff
 	}
@@ -108,7 +130,10 @@ func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 	defer func() { recordJobPricingFailure(j, chargeErr) }()
 	b := j.Billing
 	r := b.Realtime
-	if j.Platform != PlatformQianwen || r == nil || r.SessionID == "" || r.PriceVersion != QianwenRealtimePriceVersion || !IsQianwenRealtimeModel(b.Model) || !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) {
+	if j.Platform != PlatformQianwen || r == nil || r.SessionID == "" || (r.PriceVersion != QianwenRealtimePriceVersion && r.PriceVersion != "operator-character-quote") || !IsQianwenRealtimeModel(b.Model) || !finitePositive(b.RateMultiplier) || !finitePositive(b.AccountRateMultiplier) {
+		return nil, nil, ErrUpstreamJobTariff
+	}
+	if r.PriceQuote != nil && r.PriceVersion != "operator-character-quote" {
 		return nil, nil, ErrUpstreamJobTariff
 	}
 	expected := 0.143353 / 10000
@@ -116,6 +141,13 @@ func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 		expected = 0.13 / 10000
 	} else if r.Region != "beijing" {
 		return nil, nil, ErrUpstreamJobTariff
+	}
+	if r.PriceVersion == "operator-character-quote" {
+		quote := r.PriceQuote
+		if quote == nil || quote.Sales == nil || quote.Cost == nil || quote.Currency != "USD" || quote.Unit != "character" || quote.Dimension != "output" || !validBillingNumber(*quote.Sales) || !validBillingNumber(*quote.Cost) || b.UnitPrice != *quote.Sales {
+			return nil, nil, ErrUpstreamJobTariff
+		}
+		expected = *quote.Sales
 	}
 	if b.UnitPrice != expected {
 		return nil, nil, ErrUpstreamJobTariff
@@ -126,13 +158,20 @@ func QianwenRealtimeCharge(j *UpstreamJob) (usageLog *UsageLog, command *UsageBi
 	}
 	total := QuantizeUsageBillingAmount(float64(n) * b.UnitPrice)
 	actual := QuantizeUsageBillingAmount(total * b.RateMultiplier)
-	accountCost := QuantizeUsageBillingAmount(total * b.AccountRateMultiplier)
-	if n > 0 && (!finitePositive(actual) || !finitePositive(accountCost)) {
+	upstreamTotal := total
+	if r.PriceQuote != nil {
+		upstreamTotal = QuantizeUsageBillingAmount(float64(n) * *r.PriceQuote.Cost)
+	}
+	accountCost := QuantizeUsageBillingAmount(upstreamTotal * b.AccountRateMultiplier)
+	if !validBillingNumber(actual) || !validBillingNumber(accountCost) {
 		return nil, nil, ErrUpstreamJobTariff
 	}
 	mode, source, version := "realtime", "dashscope-official-usd-"+r.Region, r.PriceVersion
+	if r.PriceQuote != nil {
+		source = "qianwen_realtime_group"
+	}
 	tier := fmt.Sprintf("qwen3_tts_characters:%d", n)
-	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &total, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
+	log := &UsageLog{UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, RequestID: j.PublicRequestID, Model: b.Model, RequestedModel: b.RequestedModel, UpstreamModel: &b.Model, GroupID: j.GroupID, SubscriptionID: b.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: b.RateMultiplier, AccountRateMultiplier: &b.AccountRateMultiplier, AccountStatsCost: &upstreamTotal, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	cmd := &UsageBillingCommand{RequestID: j.PublicRequestID, RequestFingerprint: j.RequestFingerprint, UserID: j.UserID, APIKeyID: j.APIKeyID, AccountID: j.AccountID, AccountType: AccountTypeAPIKey, Model: b.Model, MediaType: "realtime", BalanceCost: actual}
 	if b.SubscriptionID != nil {
 		log.BillingType = BillingTypeSubscription

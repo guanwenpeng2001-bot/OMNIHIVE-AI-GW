@@ -1160,7 +1160,7 @@ func (s *OpenAIGatewayService) tryWriteOpenAIImagesStreamEvent(
 		if clientDisconnected != nil {
 			*clientDisconnected = true
 		}
-		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected, continue draining upstream for billing")
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected, canceling upstream with observed usage")
 		return false
 	}
 	if lastWriteAt != nil {
@@ -1626,11 +1626,17 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 		return streamErr
 	}
 
+	defer func() { _ = resp.Body.Close() }()
+	stopCancellation := context.AfterFunc(c.Request.Context(), func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 	streamInterval := s.openAIImageStreamDataInterval()
 	keepaliveInterval := s.openAIImageStreamKeepaliveInterval()
 	if streamInterval <= 0 && keepaliveInterval <= 0 {
 		reader := bufio.NewReader(resp.Body)
 		for {
+			if clientDisconnected || c.Request.Context().Err() != nil {
+				return usage, imageCount, imageOutputSizes, firstTokenMs, context.Canceled
+			}
 			line, err := reader.ReadBytes('\n')
 			done, processErr := processLine(line)
 			if processErr != nil {
@@ -1724,7 +1730,12 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 	}
 
 	for {
+		if clientDisconnected || c.Request.Context().Err() != nil {
+			return usage, imageCount, imageOutputSizes, firstTokenMs, context.Canceled
+		}
 		select {
+		case <-c.Request.Context().Done():
+			return usage, imageCount, imageOutputSizes, firstTokenMs, c.Request.Context().Err()
 		case ev, ok := <-events:
 			if !ok {
 				if done, processErr := flushData(); processErr != nil {
@@ -1772,7 +1783,7 @@ func (s *OpenAIGatewayService) handleOpenAIImagesOAuthStreamingResponse(
 			}
 			if _, writeErr := io.WriteString(c.Writer, ":\n\n"); writeErr != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images responses stream client disconnected during keepalive, continue draining upstream for billing")
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images responses stream client disconnected during keepalive, canceling upstream with observed usage")
 				continue
 			}
 			flusher.Flush()
@@ -1941,7 +1952,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 			usage, imageCount, imageOutputSizes, firstTokenMs, err = s.handleOpenAIImagesOAuthStreamingResponse(resp, c, startTime, parsed.ResponseFormat, openAIImagesStreamPrefix(parsed), upstreamModel)
 		}
 		if err != nil {
-			if imageCount > 0 {
+			if imageCount > 0 || usage != (OpenAIUsage{}) {
 				return &OpenAIForwardResult{
 					RequestID:                     resp.Header.Get("x-request-id"),
 					UpstreamHeaders:               resp.Header,
@@ -1952,6 +1963,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesOAuth(
 					UpstreamResponseModel:         observedUpstreamResponseModel(c),
 					UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
 					Stream:                        parsed.Stream,
+					ClientDisconnect:              true,
 					ResponseHeaders:               resp.Header.Clone(),
 					Duration:                      time.Since(startTime),
 					FirstTokenMs:                  firstTokenMs,

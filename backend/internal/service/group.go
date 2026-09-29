@@ -15,11 +15,35 @@ type OpenAIMessagesDispatchModelConfig = domain.OpenAIMessagesDispatchModelConfi
 type GroupCodexModelsManifestConfig = domain.GroupCodexModelsManifestConfig
 type ReasoningEffortMapping = domain.ReasoningEffortMapping
 
+// RequiredAccountType preserves a restriction expressed using the legacy hosted
+// platform name until the explicit account_type column has been backfilled.
+func (g *Group) RequiredAccountType() string {
+	if g == nil {
+		return ""
+	}
+	if g.AccountType != "" {
+		return g.AccountType
+	}
+	return domain.HostedAccountType(g.Platform)
+}
+
+func (g *Group) AllowsAccount(account *Account) bool {
+	if g == nil || account == nil {
+		return false
+	}
+	if g.Platform == PlatformComposite {
+		return g.RequiredAccountType() == "" || g.RequiredAccountType() == account.Type
+	}
+	return account.MatchesPlatform(g.Platform, g.RequiredAccountType())
+}
+
 type Group struct {
+	TPMLimit       int64
 	ID             int64
 	Name           string
 	Description    string
 	Platform       string
+	AccountType    string
 	RateMultiplier float64
 	// 高峰时段倍率：peak_rate_enabled 为 true 且当前时刻处于 [PeakStart, PeakEnd) 时，
 	// token 计费倍率额外乘以 PeakRateMultiplier。详见 PeakMultiplierAt。
@@ -464,7 +488,7 @@ func profitControlPlatformSupported(platform string) bool {
 	switch platform {
 	case PlatformOpenAI, PlatformAnthropic, PlatformGemini, PlatformGrok, PlatformAntigravity,
 		PlatformCursor, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax,
-		PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode:
+		PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode, PlatformHunyuan, PlatformMistral, PlatformQianfan, PlatformVolcengine, PlatformBedrock:
 		return true
 	default:
 		return false

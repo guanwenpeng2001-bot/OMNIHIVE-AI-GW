@@ -41,7 +41,13 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 			return decision, fmt.Errorf("list composite routes: %w", err)
 		}
 		if route, ok := matchCompositeRoute(routes, model, endpoint); ok {
-			upstreamModel := strings.TrimSpace(route.UpstreamModel)
+			targets := route.EffectiveTargets()
+			if len(targets) == 0 {
+				decision.Reason = "composite route has no enabled target"
+				return decision, nil
+			}
+			primary := targets[0]
+			upstreamModel := strings.TrimSpace(primary.UpstreamModel)
 			if upstreamModel == "" {
 				upstreamModel = model
 			}
@@ -50,9 +56,11 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				Source:         CompositeRouteSourceExplicit,
 				GroupID:        groupID,
 				PublicModel:    model,
-				TargetPlatform: route.TargetPlatform,
+				TargetPlatform: primary.TargetPlatform,
+				AccountType:    primary.AccountType,
 				UpstreamModel:  upstreamModel,
 				Endpoint:       endpoint,
+				Targets:        targets,
 				Route:          &route,
 			}, nil
 		}
@@ -86,8 +94,10 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 				GroupID:        groupID,
 				PublicModel:    model,
 				TargetPlatform: platform,
+				AccountType:    ownership.AccountType,
 				UpstreamModel:  model,
 				Endpoint:       endpoint,
+				Targets:        singleCompositeRouteTarget(platform, ownership.AccountType, model),
 			}, nil
 		}
 	}
@@ -101,10 +111,26 @@ func (r *CompositeRouteResolver) Resolve(ctx context.Context, groupID int64, mod
 			TargetPlatform: platform,
 			UpstreamModel:  model,
 			Endpoint:       endpoint,
+			Targets:        singleCompositeRouteTarget(platform, "", model),
 		}, nil
 	}
 	decision.Reason = "no explicit route or built-in detector match"
 	return decision, nil
+}
+
+// singleCompositeRouteTarget builds the only target of a detector- or
+// account-owned composite decision. Ordered fallback is configured on explicit
+// routes only.
+func singleCompositeRouteTarget(platform, accountType, upstreamModel string) []CompositeRouteTarget {
+	return []CompositeRouteTarget{{
+		Position:          0,
+		TargetPlatform:    platform,
+		AccountType:       accountType,
+		UpstreamModel:     upstreamModel,
+		LatencyPreference: CompositeTargetLatencyDefault,
+		SchedulingWeight:  CompositeTargetDefaultWeight,
+		Enabled:           true,
+	}}
 }
 
 func matchCompositeRoute(routes []CompositeModelRoute, model, endpoint string) (CompositeModelRoute, bool) {

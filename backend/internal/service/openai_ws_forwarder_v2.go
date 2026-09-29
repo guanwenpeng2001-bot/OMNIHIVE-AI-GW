@@ -35,6 +35,8 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	lastFailureReason string,
 	agentTaskRecoveryTried *bool,
 ) (*OpenAIForwardResult, error) {
+	ctx, cancelAttempt := AttemptExecutionContext(ctx)
+	defer cancelAttempt()
 	if s == nil || account == nil {
 		return nil, wrapOpenAIWSFallback("invalid_state", errors.New("service or account is nil"))
 	}
@@ -328,6 +330,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
+	if err := validateAccountForwardModel(ctx, s.accountRepo, account, strings.TrimSpace(fmt.Sprint(payload["model"])), "responses"); err != nil {
+		return nil, err
+	}
 	if err := s.performOpenAIWSGeneratePrewarm(
 		ctx,
 		lease,
@@ -385,23 +390,17 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	lastEventType := ""
 	upstreamTerminalEvent := ""
 	clientDisconnected := false
-	clientDisconnectDrainStartedAt := time.Time{}
 	readTimeout := s.openAIWSReadTimeout()
 	upstreamReadCtx := ctx
-	upstreamReadDetached := false
 	clientRequestCanceled := func() bool {
-		return ctx != nil && errors.Is(ctx.Err(), context.Canceled)
+		return ctx != nil && ctx.Err() != nil
 	}
 	markClientDisconnected := func(cause string) {
 		if clientDisconnected {
 			return
 		}
 		clientDisconnected = true
-		clientDisconnectDrainStartedAt = time.Now()
-		if !upstreamReadDetached {
-			upstreamReadCtx = context.WithoutCancel(ctx)
-			upstreamReadDetached = true
-		}
+		lease.MarkBroken()
 		logOpenAIWSModeInfo(
 			"client_disconnected account_id=%d conn_id=%s cause=%s events=%d token_events=%d",
 			account.ID,
@@ -488,7 +487,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 			return
 		}
 		markClientDisconnected("downstream_write_error")
-		logger.LegacyPrintf("service.openai_gateway", "[OpenAI WS Mode] client disconnected, continue draining upstream: account=%d", account.ID)
+		logger.LegacyPrintf("service.openai_gateway", "[OpenAI WS Mode] client disconnected, cancel upstream and preserve observed usage: account=%d", account.ID)
 	}
 	flushBufferedStreamEvents := func(reason string) {
 		if len(bufferedStreamEvents) == 0 {
@@ -514,31 +513,22 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 
-	// Keep per-read timeouts unchanged for connected clients. Once a client
-	// disconnects, use the same timeout as a bounded total drain budget.
+	// Keep per-read timeouts; client cancellation stops the active generation.
 	var pendingJSONDocuments [][]byte
 
 readLoop:
 	for {
 		markClientRequestCanceled()
+		if clientDisconnected {
+			break readLoop
+		}
 		var message []byte
 		var readErr error
-		readUsedDetachedContext := upstreamReadDetached
 		if len(pendingJSONDocuments) > 0 {
 			message = pendingJSONDocuments[0]
 			pendingJSONDocuments = pendingJSONDocuments[1:]
 		} else {
 			currentReadTimeout := readTimeout
-			if clientDisconnected && !clientDisconnectDrainStartedAt.IsZero() {
-				remaining := readTimeout - time.Since(clientDisconnectDrainStartedAt)
-				if remaining <= 0 {
-					lease.MarkBroken()
-					break readLoop
-				}
-				if remaining < currentReadTimeout {
-					currentReadTimeout = remaining
-				}
-			}
 			message, readErr = lease.ReadMessageWithContextTimeout(upstreamReadCtx, currentReadTimeout)
 			if readErr == nil {
 				if documents, repaired := splitOpenAIConcatenatedJSONDocuments(message); repaired {
@@ -594,9 +584,6 @@ readLoop:
 				truncateOpenAIWSLogValue(lastEventType, openAIWSLogValueMaxLen),
 			)
 			if clientDisconnected {
-				if !readUsedDetachedContext && errors.Is(readErr, context.Canceled) && clientRequestCanceled() {
-					continue
-				}
 				break
 			}
 			if !wroteDownstream {

@@ -190,6 +190,14 @@ func TestQianwenNativeAudioRecordUsageMissingPriceIsError(t *testing.T) {
 	key.Group.AudioTTSPricePerMillionChars = nil
 	result := &OpenAIForwardResult{Model: "qwen3-tts-flash", UpstreamModel: "qwen3-tts-flash", UpstreamEndpoint: QianwenNativeMultimodalPath, AudioUsage: &AudioUsage{Mode: "tts", DurationOrUnits: 3.0 / 1e6}}
 	err := billing.RecordUsage(context.Background(), &OpenAIRecordUsageInput{Result: result, Account: qianwenTestAccount(), User: &User{ID: 20123}, APIKey: key})
-	require.ErrorContains(t, err, "explicit nonnegative group audio rate")
-	require.Nil(t, repo.lastLog)
+	require.ErrorIs(t, err, ErrUsageSettlementNeedsReview)
+	receipt := billing.usageSettlement.repo.(*recordUsageReceiptFixture).receipt
+	require.Equal(t, UsageSettlementNeedsReview, receipt.State)
+	require.Zero(t, repo.calls)
+	// The standard missing-price path records unpriced usage evidence, never a
+	// successful free receipt or a debit.
+	require.NotNil(t, (&receipt.Usage))
+	require.Equal(t, PricingStateUnpriced, (&receipt.Usage).PricingState)
+	require.Zero(t, (&receipt.Usage).ActualCost)
+	require.Empty(t, (&receipt.Usage).PricingSnapshot)
 }

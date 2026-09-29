@@ -7,7 +7,7 @@ package service
 //     CN 上游必错）；
 //  2. 计费候选链对 CN 账号过滤 claude-* 兜底候选（防按 Claude 原价误计 CN 流量）；
 //  3. 空候选按 ErrModelPricingUnavailable 处理（零成本落账而非丢弃 usage 记录）；
-//  4. Responses×anthropic 流式转换器客户端断开后继续排水、usage 汇总完整。
+//  4. Responses×anthropic 流式转换器断开后停止读取，仅保留已观察 usage。
 
 import (
 	"context"
@@ -101,12 +101,12 @@ func TestResponsesStreamingFromNativeAnthropic_ClientDisconnectDrainsUsage(t *te
 	res, err := svc.handleResponsesStreamingFromNativeAnthropic(
 		resp, c, "glm-4.7", "glm-4.7", "glm-4.7", nil, time.Now(), apicompat.ResponsesClientToolMapping{})
 
-	require.NoError(t, err, "断开排水至上游自然结束应返回 nil error（usage 走成功路径落账）")
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, res)
 	require.True(t, res.ClientDisconnect)
 	require.Equal(t, 10, res.Usage.InputTokens, "input_tokens 应来自 message_start")
-	require.Equal(t, 5, res.Usage.OutputTokens,
-		"output_tokens 必须来自排水读到的末尾 message_delta（断开即弃时会是 1）")
+	require.Equal(t, 1, res.Usage.OutputTokens,
+		"only message_start usage observed before the failed write may be settled")
 }
 
 func TestHandle403_CNProviderHTMLBodySkipsAccountPenalty(t *testing.T) {

@@ -595,7 +595,7 @@ func (r *fakeBatchImageRepository) UpdateBatchImageJobProviderSubmit(_ context.C
 	return nil
 }
 
-func (r *fakeBatchImageRepository) RecordBatchImageJobSubmitFailure(_ context.Context, batchID, code, message string, markFailed bool) error {
+func (r *fakeBatchImageRepository) RecordBatchImageJobSubmitFailure(_ context.Context, batchID, code, message string, markFailed bool, expectedVersion int) error {
 	job, ok := r.jobs[batchID]
 	if !ok {
 		return ErrBatchImageJobNotFound

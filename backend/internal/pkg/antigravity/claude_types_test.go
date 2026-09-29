@@ -1,17 +1,21 @@
-package antigravity
+package antigravity_test
 
-import "testing"
+import (
+	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"testing"
+)
 
-func TestDefaultModels_ContainsNewAndLegacyImageModels(t *testing.T) {
+func TestRegistryAntigravityPreservesReviewedIDsWithoutInventingVariants(t *testing.T) {
 	t.Parallel()
 
-	models := DefaultModels()
-	byID := make(map[string]ClaudeModel, len(models))
+	models := service.AntigravityPresetModels()
+	byID := make(map[string]antigravity.ClaudeModel, len(models))
 	for _, m := range models {
 		byID[m.ID] = m
 	}
 
-	requiredIDs := []string{
+	excludedIDs := []string{
 		"claude-fable-5-1",
 		"claude-fable-5",
 		"claude-opus-4-8",
@@ -21,26 +25,29 @@ func TestDefaultModels_ContainsNewAndLegacyImageModels(t *testing.T) {
 		"gemini-3.1-flash-image",
 		"gemini-3.1-flash-image-preview",
 		"gemini-3-pro-image", // legacy compatibility
-		"gemini-3.6-flash",
 		"gemini-3.6-flash-high",
 		"gemini-3.6-flash-low",
 		"gemini-3.6-flash-medium",
 		"gemini-3.6-flash-tiered",
-		"gemini-3.7-flash",
 		"gemini-3.7-flash-high",
 		"gemini-3.7-flash-low",
 		"gemini-3.7-flash-medium",
 		"gemini-3.7-flash-tiered",
-		"gemini-3.8-flash",
 		"gemini-3.8-flash-high",
 		"gemini-3.8-flash-low",
 		"gemini-3.8-flash-medium",
 		"gemini-3.8-flash-tiered",
 	}
 
-	for _, id := range requiredIDs {
+	// The 2026-09-20 approved review did not establish these exact wire IDs.
+	for _, id := range excludedIDs {
+		if _, ok := byID[id]; ok {
+			t.Fatalf("unreviewed candidate alias %q was invented", id)
+		}
+	}
+	for _, id := range []string{"claude-opus-4.6", "claude-sonnet-4.6", "gemini-3.6-flash", "gemini-3.7-flash", "gemini-3.8-flash"} {
 		if _, ok := byID[id]; !ok {
-			t.Fatalf("expected model %q to be exposed in DefaultModels", id)
+			t.Fatalf("reviewed candidate %q missing", id)
 		}
 	}
 }

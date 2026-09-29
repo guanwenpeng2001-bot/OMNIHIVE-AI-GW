@@ -1,48 +1,119 @@
-/**
- * Centralized API error message extraction
- *
- * The API client interceptor rejects with a plain object: { status, code, message, error }
- * This utility extracts the user-facing message from any error shape.
- */
-
-interface ApiErrorLike {
-  status?: number
-  code?: number | string
-  message?: string
-  error?: string
+/** The sole compatibility boundary for management API errors. */
+export interface NormalizedApiError {
+  status: number
+  code: number
   reason?: string
-  metadata?: Record<string, unknown>
-  response?: {
-    data?: {
-      detail?: string
-      message?: string
-      code?: number | string
-    }
+  message: string
+  metadata: Record<string, unknown>
+}
+
+const normalizedErrors = new WeakSet<object>()
+
+function record(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown> : {}
+}
+
+function text(value: unknown): string | undefined {
+  return typeof value === 'string' && value.trim() ? value : undefined
+}
+
+function httpStatus(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 100 && value <= 599
+    ? value : undefined
+}
+
+/** Normalize current envelopes, legacy string code/error, Axios, and local failures once. */
+export function normalizeApiError(error: unknown): NormalizedApiError {
+  if (error && typeof error === 'object' && normalizedErrors.has(error)) {
+    return error as NormalizedApiError
   }
+  const source = record(error)
+  const response = record(source.response)
+  const data = record(response.data)
+  const envelope = Object.keys(data).length ? data : source
+  const nestedError = record(envelope.error)
+  const status = httpStatus(response.status) ?? httpStatus(source.status) ?? httpStatus(envelope.code) ?? 0
+  const legacyError = text(envelope.error)
+  const reason = text(envelope.reason) ?? text(envelope.code) ?? text(nestedError.code)
+    ?? (legacyError && /^[a-z][a-z0-9_]*$/i.test(legacyError) ? legacyError : undefined)
+  const result: NormalizedApiError = {
+    status,
+    code: status,
+    reason,
+    message: text(envelope.detail) ?? text(envelope.message) ?? text(nestedError.message)
+      ?? (legacyError !== reason ? legacyError : undefined) ?? text(source.message) ?? text(error) ?? '',
+    metadata: record(envelope.metadata ?? envelope.details),
+  }
+  normalizedErrors.add(result)
+  return result
+}
+
+/** Stable machine reason; numeric HTTP codes are never treated as domain reasons. */
+export function extractApiErrorCode(error: unknown): string | undefined {
+  return normalizeApiError(error).reason
+}
+
+export function extractApiErrorStatus(error: unknown): number | undefined {
+  return normalizeApiError(error).status || undefined
+}
+
+export function extractApiErrorMetadata(error: unknown): Record<string, unknown> {
+  return normalizeApiError(error).metadata
 }
 
 /**
- * Extract the error code from an API error object.
+ * 错误正文的读取上限：错误信封只有几百字节，超过它说明拿到的是文件本体，
+ * 不该为了读错误把整份导出读进内存。
+ */
+export const ERROR_ENVELOPE_DECODE_LIMIT_BYTES = 64 * 1024
+
+function binaryBodySize(body: object): number | undefined {
+  const { size, byteLength } = body as { size?: unknown; byteLength?: unknown }
+  if (typeof size === 'number') return size
+  if (typeof byteLength === 'number') return byteLength
+  return undefined
+}
+
+/** 裸 ArrayBuffer 也认跨 realm 实例（测试环境里的 ArrayBuffer 不一定与页面同源）。 */
+function isBinaryBuffer(body: object): boolean {
+  return ArrayBuffer.isView(body) || Object.prototype.toString.call(body) === '[object ArrayBuffer]'
+}
+
+/** 读取二进制正文：jsdom 与旧浏览器的 Blob 没有 text()，用 FileReader 兜底。 */
+function readBinaryBodyText(body: object): Promise<string> {
+  const text = (body as { text?: unknown }).text
+  if (typeof text === 'function') return (text as (this: object) => Promise<string>).call(body)
+  if (isBinaryBuffer(body)) return Promise.resolve(new TextDecoder().decode(body as ArrayBuffer))
+  if (typeof FileReader === 'undefined') return Promise.reject(new Error('no reader for a binary error body'))
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '')
+    reader.onerror = () => reject(reader.error ?? new Error('failed to read the error body'))
+    reader.readAsText(body as Blob)
+  })
+}
+
+/**
+ * 把二进制错误正文（`responseType: 'blob'` 的请求拿到的是 Blob）解码成 JSON 信封。
  *
- * Prefers the string `reason` (e.g. "PAYMENT_PROVIDER_MISCONFIGURED") over the
- * numeric HTTP `code`, because reason is granular enough to drive i18n lookup
- * while HTTP code is not.
+ * 服务端的 409 守卫在 Blob 里仍然是 JSON；在进入规范化之前把它读回来，
+ * `reason` 与 `metadata` 才不会在公共拦截器里丢掉。超过上限、不是 JSON 对象、
+ * 读取或解析失败都返回 undefined（调用方保留原值），错误处理本身不会再抛。
  */
-export function extractApiErrorCode(err: unknown): string | undefined {
-  if (!err || typeof err !== 'object') return undefined
-  const e = err as ApiErrorLike
-  const code = e.reason ?? e.code ?? e.response?.data?.code
-  return code != null ? String(code) : undefined
-}
-
-/**
- * Extract metadata (interpolation params) from an API error object.
- * Backend errors carry `metadata` with template variables that fill i18n placeholders.
- */
-export function extractApiErrorMetadata(err: unknown): Record<string, unknown> | undefined {
-  if (!err || typeof err !== 'object') return undefined
-  const e = err as ApiErrorLike
-  return e.metadata
+export async function decodeErrorEnvelopeBody(body: unknown): Promise<unknown> {
+  if (typeof body !== 'object' || body === null) return undefined
+  const size = binaryBodySize(body)
+  if (size === undefined && !isBinaryBuffer(body)) return undefined
+  if (size !== undefined && (size === 0 || size > ERROR_ENVELOPE_DECODE_LIMIT_BYTES)) return undefined
+  try {
+    const raw = await readBinaryBodyText(body)
+    if (raw.length > ERROR_ENVELOPE_DECODE_LIMIT_BYTES) return undefined
+    const parsed: unknown = JSON.parse(raw)
+    return parsed !== null && typeof parsed === 'object' ? parsed : undefined
+  } catch {
+    return undefined
+  }
 }
 
 type TranslateFn = (key: string, params?: Record<string, unknown>) => string
@@ -125,29 +196,7 @@ export function extractApiErrorMessage(
   fallback = 'Unknown error',
   i18nMap?: Record<string, string>,
 ): string {
-  if (!err) return fallback
-
-  // Try i18n mapping by error code first
-  if (i18nMap) {
-    const code = extractApiErrorCode(err)
-    if (code && i18nMap[code]) return i18nMap[code]
-  }
-
-  // Plain object from API client interceptor (most common case)
-  if (typeof err === 'object' && err !== null) {
-    const e = err as ApiErrorLike
-    // Interceptor shape: { message, error }
-    if (e.message) return e.message
-    if (e.error) return e.error
-    // Legacy axios shape: { response.data.detail }
-    if (e.response?.data?.detail) return e.response.data.detail
-    if (e.response?.data?.message) return e.response.data.message
-  }
-
-  // Standard Error
-  if (err instanceof Error) return err.message
-
-  // Last resort
-  const str = String(err)
-  return str === '[object Object]' ? fallback : str
+  const error = normalizeApiError(err)
+  if (error.reason && i18nMap?.[error.reason]) return i18nMap[error.reason]
+  return error.message || fallback
 }

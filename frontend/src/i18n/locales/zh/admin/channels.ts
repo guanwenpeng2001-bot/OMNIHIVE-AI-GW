@@ -27,6 +27,8 @@ export default {
         billingModePerRequest: '按次',
         billingModeImage: '按图片',
         billingModeVideo: '按视频',
+        videoPrice: '视频单价',
+        unitPerSecond: '/ 秒',
         inputPrice: '输入',
         outputPrice: '输出',
         cacheWritePrice: '缓存写入',
@@ -43,6 +45,22 @@ export default {
 
     // Channel Management
     channels: {
+      insights: {
+        title: '能力与价格偏差（只读）',
+        readOnly: '规格来自所选已保存账号的证据，不授予调用权限，也不修改价格。',
+        needGroup: '请先选择分组，以读取关联账号的证据。',
+        account: '证据账号', chooseAccount: '选择关联账号', model: '模型', profile: '部署身份 / 任务类型 / 完整度',
+        field: '能力', value: '值', supported: '支持', unsupported: '不支持', knownEmpty: '已知为空', partial: '部分观测',
+        compare: '比较草稿价格', retry: '重试', failed: '读取定价详情失败，请重试。',
+        sourcePreview: '换源影响预览', candidate: '候选 LiteLLM 目录 JSON', group: '已保存分组', inputTokens: '样本输入 token 数', outputTokens: '样本输出 token 数',
+        sampleHint: '样本为新的文本请求、标准挡位、无缓存及推理附加费。读取已保存的分组和渠道配置，使用预览时刻的分组倍率，不含尚未保存的草稿价；单个样本不代表完整账单预测。',
+        referenceHint: '比较基准：当前生效的价格目录（可能含本地覆盖），并非已核验的厂商报价。百分比 = 绝对差额 / 基准值，仅大于 10% 提醒；作用域、币种、单位或条件不明时不比较。',
+        reference_to_reference: '当前参考价 → 候选参考价', channel_to_reference: '渠道草稿价 → 参考价',
+        comparable: '可比较', incomparable: '不可比较', missing: '价格缺失 / 继承', new_charge: '零基准新增收费',
+        channelBaseline: '渠道草稿价 / 分母', referenceCompared: '参考价',
+        baseline: '比较基准 / 分母', compared: '待比较价格', savedCharge: '已保存配置样本费用', added: '新增', removed: '移除',
+        fields: { context_window: '上下文 / 输入上限', max_context_window: '总上下文上限', max_output_tokens: '输出上限', input_modalities: '输入模态', output_modalities: '输出模态', supports_function_calling: '工具调用', reasoning: '推理', reasoning_control: '推理控制 / 挡位 / 预算', supported_reasoning_levels: '推理挡位', embedding_dimensions: '嵌入维度', task_limits: '任务类型限制' }
+      },
       title: '渠道管理',
       description: '管理渠道和自定义模型定价',
       searchChannels: '搜索渠道...',

@@ -4,12 +4,14 @@ package ent
 
 import (
 	"context"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"time"
 
 	"entgo.io/ent/dialect/sql"
 	"entgo.io/ent/dialect/sql/sqlgraph"
+	"entgo.io/ent/dialect/sql/sqljson"
 	"entgo.io/ent/schema/field"
 	"github.com/Wei-Shaw/sub2api/ent/compositemodelroute"
 	"github.com/Wei-Shaw/sub2api/ent/group"
@@ -52,6 +54,20 @@ func (_u *CompositeModelRouteUpdate) SetNillableDeletedAt(v *time.Time) *Composi
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *CompositeModelRouteUpdate) ClearDeletedAt() *CompositeModelRouteUpdate {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *CompositeModelRouteUpdate) SetAccountType(v string) *CompositeModelRouteUpdate {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdate) SetNillableAccountType(v *string) *CompositeModelRouteUpdate {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
 	return _u
 }
 
@@ -194,6 +210,24 @@ func (_u *CompositeModelRouteUpdate) ClearNotes() *CompositeModelRouteUpdate {
 	return _u
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdate {
+	_u.mutation.SetOrderedTargets(v)
+	return _u
+}
+
+// AppendOrderedTargets appends value to the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) AppendOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdate {
+	_u.mutation.AppendOrderedTargets(v)
+	return _u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdate) ClearOrderedTargets() *CompositeModelRouteUpdate {
+	_u.mutation.ClearOrderedTargets()
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdate) SetGroup(v *Group) *CompositeModelRouteUpdate {
 	return _u.SetGroupID(v.ID)
@@ -254,6 +288,11 @@ func (_u *CompositeModelRouteUpdate) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *CompositeModelRouteUpdate) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PublicModel(); ok {
 		if err := compositemodelroute.PublicModelValidator(v); err != nil {
 			return &ValidationError{Name: "public_model", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.public_model": %w`, err)}
@@ -306,6 +345,9 @@ func (_u *CompositeModelRouteUpdate) sqlSave(ctx context.Context) (_node int, er
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(compositemodelroute.FieldDeletedAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)
 	}
@@ -335,6 +377,17 @@ func (_u *CompositeModelRouteUpdate) sqlSave(ctx context.Context) (_node int, er
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedOrderedTargets(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldOrderedTargets, value)
+		})
+	}
+	if _u.mutation.OrderedTargetsCleared() {
+		_spec.ClearField(compositemodelroute.FieldOrderedTargets, field.TypeJSON)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -408,6 +461,20 @@ func (_u *CompositeModelRouteUpdateOne) SetNillableDeletedAt(v *time.Time) *Comp
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (_u *CompositeModelRouteUpdateOne) ClearDeletedAt() *CompositeModelRouteUpdateOne {
 	_u.mutation.ClearDeletedAt()
+	return _u
+}
+
+// SetAccountType sets the "account_type" field.
+func (_u *CompositeModelRouteUpdateOne) SetAccountType(v string) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetAccountType(v)
+	return _u
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_u *CompositeModelRouteUpdateOne) SetNillableAccountType(v *string) *CompositeModelRouteUpdateOne {
+	if v != nil {
+		_u.SetAccountType(*v)
+	}
 	return _u
 }
 
@@ -550,6 +617,24 @@ func (_u *CompositeModelRouteUpdateOne) ClearNotes() *CompositeModelRouteUpdateO
 	return _u
 }
 
+// SetOrderedTargets sets the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) SetOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdateOne {
+	_u.mutation.SetOrderedTargets(v)
+	return _u
+}
+
+// AppendOrderedTargets appends value to the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) AppendOrderedTargets(v jsontext.Value) *CompositeModelRouteUpdateOne {
+	_u.mutation.AppendOrderedTargets(v)
+	return _u
+}
+
+// ClearOrderedTargets clears the value of the "ordered_targets" field.
+func (_u *CompositeModelRouteUpdateOne) ClearOrderedTargets() *CompositeModelRouteUpdateOne {
+	_u.mutation.ClearOrderedTargets()
+	return _u
+}
+
 // SetGroup sets the "group" edge to the Group entity.
 func (_u *CompositeModelRouteUpdateOne) SetGroup(v *Group) *CompositeModelRouteUpdateOne {
 	return _u.SetGroupID(v.ID)
@@ -623,6 +708,11 @@ func (_u *CompositeModelRouteUpdateOne) defaults() error {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *CompositeModelRouteUpdateOne) check() error {
+	if v, ok := _u.mutation.AccountType(); ok {
+		if err := compositemodelroute.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.account_type": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.PublicModel(); ok {
 		if err := compositemodelroute.PublicModelValidator(v); err != nil {
 			return &ValidationError{Name: "public_model", err: fmt.Errorf(`ent: validator failed for field "CompositeModelRoute.public_model": %w`, err)}
@@ -692,6 +782,9 @@ func (_u *CompositeModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *Com
 	if _u.mutation.DeletedAtCleared() {
 		_spec.ClearField(compositemodelroute.FieldDeletedAt, field.TypeTime)
 	}
+	if value, ok := _u.mutation.AccountType(); ok {
+		_spec.SetField(compositemodelroute.FieldAccountType, field.TypeString, value)
+	}
 	if value, ok := _u.mutation.PublicModel(); ok {
 		_spec.SetField(compositemodelroute.FieldPublicModel, field.TypeString, value)
 	}
@@ -721,6 +814,17 @@ func (_u *CompositeModelRouteUpdateOne) sqlSave(ctx context.Context) (_node *Com
 	}
 	if _u.mutation.NotesCleared() {
 		_spec.ClearField(compositemodelroute.FieldNotes, field.TypeString)
+	}
+	if value, ok := _u.mutation.OrderedTargets(); ok {
+		_spec.SetField(compositemodelroute.FieldOrderedTargets, field.TypeJSON, value)
+	}
+	if value, ok := _u.mutation.AppendedOrderedTargets(); ok {
+		_spec.AddModifier(func(u *sql.UpdateBuilder) {
+			sqljson.Append(u, compositemodelroute.FieldOrderedTargets, value)
+		})
+	}
+	if _u.mutation.OrderedTargetsCleared() {
+		_spec.ClearField(compositemodelroute.FieldOrderedTargets, field.TypeJSON)
 	}
 	if _u.mutation.GroupCleared() {
 		edge := &sqlgraph.EdgeSpec{

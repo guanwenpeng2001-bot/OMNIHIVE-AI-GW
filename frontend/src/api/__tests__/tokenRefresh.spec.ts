@@ -194,4 +194,41 @@ describe('refreshAuthTokens', () => {
     expect(localStorage.getItem('auth_token')).toBeNull()
     expect(localStorage.getItem('refresh_token')).toBeNull()
   })
+  it('does not share an old in-flight refresh with a new session', async () => {
+    vi.useFakeTimers()
+    seedSession()
+    let resolveOld!: (value: ReturnType<typeof refreshedResponse>) => void
+    mockedPost.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve }))
+    const { refreshAuthTokens, advanceAuthSession } = await import('@/api/tokenRefresh')
+    const old = refreshAuthTokens()
+    const rejected = expect(old).rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+    seedSession({ auth_token: 'new-login', refresh_token: 'new-login-refresh' })
+    advanceAuthSession()
+    mockedPost.mockResolvedValueOnce(refreshedResponse())
+    await expect(refreshAuthTokens()).resolves.toMatchObject({ access_token: 'new-access' })
+    resolveOld(refreshedResponse())
+    await vi.advanceTimersByTimeAsync(1100)
+    await rejected
+    expect(mockedPost).toHaveBeenCalledTimes(2)
+    expect(localStorage.getItem('auth_token')).toBe('new-access')
+  })
+
+  it('checks the original request identity before reading a new session', async () => {
+    seedSession()
+    const { refreshAuthTokens, captureAuthSession } = await import('@/api/tokenRefresh')
+    const session = captureAuthSession()
+    localStorage.setItem('auth_user', JSON.stringify({ id: 8 }))
+    await expect(refreshAuthTokens({ session, failedAccessToken: 'old-access' }))
+      .rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+    expect(mockedPost).not.toHaveBeenCalled()
+  })
+
+  it('requires an original identity snapshot to adopt a token that already changed', async () => {
+    seedSession({ auth_token: 'another-session-access' })
+    const { refreshAuthTokens } = await import('@/api/tokenRefresh')
+    await expect(refreshAuthTokens({ failedAccessToken: 'old-access' }))
+      .rejects.toMatchObject({ code: 'AUTH_SESSION_CHANGED' })
+    expect(mockedPost).not.toHaveBeenCalled()
+  })
+
 })

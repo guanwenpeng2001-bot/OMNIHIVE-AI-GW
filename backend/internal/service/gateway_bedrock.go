@@ -60,6 +60,9 @@ func (s *GatewayService) forwardBedrock(
 	parsed *ParsedRequest,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	if account.UsesBedrockCatalog() {
+		return s.forwardBedrockPlatform(ctx, c, account, parsed, startTime)
+	}
 	reqModel := parsed.Model
 	reqStream := parsed.Stream
 	body := parsed.Body.Bytes()
@@ -197,7 +200,10 @@ func (s *GatewayService) executeBedrockUpstream(
 			return nil, err
 		}
 
-		resp, err = s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
+		if err := validateAccountForwardModel(ctx, s.accountRepo, account, modelID, "messages"); err != nil {
+			return nil, err
+		}
+		resp, err = generationDoWithTLS(s.httpUpstream, upstreamReq, proxyURL, account.ID, account.Concurrency, nil)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()

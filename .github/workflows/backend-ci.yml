@@ -12,14 +12,18 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
-      - name: Check deployment scripts
+      - name: Reject tracked process artifacts
+        shell: bash
         run: |
-          /bin/bash -n deploy/apple-container.sh
-          /bin/bash deploy/tests/apple-container-test.sh
-          /bin/sh deploy/tests/docker-compose-security-test.sh
-          /bin/sh deploy/tests/docker-compose-gateway-env-test.sh
-          /bin/sh deploy/tests/docker-runtime-resources-test.sh
-          /bin/sh deploy/test-caddyfile-cache.sh
+          set -eu
+          tracked_pi="$(git ls-files -- '.pi' ':(glob)**/.pi/**')" || exit $?
+          if [ -n "$tracked_pi" ]; then
+            printf '%s\n' '::error::Tracked .pi process artifacts detected' "$tracked_pi"
+            exit 1
+          fi
+          printf '%s\n' 'No tracked .pi process artifacts'
+      - name: Check deployment scripts
+        run: make test-shell
 
   test:
     runs-on: ubuntu-latest
@@ -42,12 +46,13 @@ jobs:
         run: make test-integration
 
   postgres:
-    name: PostgreSQL / ${{ matrix.test }}
+    name: PostgreSQL ${{ matrix.postgres }} / ${{ matrix.test-case.test }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
+        postgres: [18, 16, 15]
+        test-case:
           - test: TestUpstreamJobPostgres
             package: ./internal/repository
             tag: unit
@@ -96,10 +101,10 @@ jobs:
           - test: TestAccountConfigurationPostgres
             package: ./internal/repository
             tag: unit
-            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,discovery_and_key_rotation_merge_only_changed_fields,explicit_null_mapping_is_treated_as_empty,failed_outbox_rolls_back_before_cache_refresh
+            required-subtests: stale_edit_preserves_usage_windows_and_managed_limits,manual_bulk_token_rotation_invalidates_stable_subject,same_baseline_first_commit_wins_and_preserves_aliases,rule_edits_conflict_with_pending_discovery,failed_outbox_rolls_back_before_cache_refresh
     services:
       postgres:
-        image: postgres:16
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: postgres
           POSTGRES_PASSWORD: postgres
@@ -124,9 +129,10 @@ jobs:
         env:
           UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
           NEW_PLATFORMS_TEST_POSTGRES_DSN: postgres://postgres:postgres@localhost:5432/postgres?sslmode=disable
-          REQUIRED_TEST: ${{ matrix.test }}
-          TEST_PACKAGE: ${{ matrix.package }}
-          TEST_TAG: ${{ matrix.tag }}
+          SUB2API_TEST_POSTGRES_IMAGE: postgres:${{ matrix.postgres }}
+          REQUIRED_TEST: ${{ matrix.test-case.test }}
+          TEST_PACKAGE: ${{ matrix.test-case.package }}
+          TEST_TAG: ${{ matrix.test-case.tag }}
         shell: bash
         run: |
           set -o pipefail
@@ -135,8 +141,8 @@ jobs:
         if: always()
         working-directory: backend
         env:
-          REQUIRED_TEST: ${{ matrix.test }}
-          REQUIRED_SUBTESTS: ${{ matrix.required-subtests }}
+          REQUIRED_TEST: ${{ matrix.test-case.test }}
+          REQUIRED_SUBTESTS: ${{ matrix.test-case.required-subtests }}
         run: |
           python3 - <<'PY'
           import json
@@ -169,6 +175,62 @@ jobs:
           print(f"Verified executed PASS events: {sorted(passed)}")
           PY
 
+  required-round:
+    name: Required round PG${{ matrix.services.postgres }}/Redis${{ matrix.services.redis }} / ${{ matrix.gate }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        gate: [usage-coverage, catalog, affinity]
+        services:
+          - postgres: 18
+            redis: 8
+          - postgres: 16
+            redis: 7
+          - postgres: 15
+            redis: 7
+    services:
+      postgres:
+        image: postgres:${{ matrix.services.postgres }}
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: stats_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d stats_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+      redis:
+        image: redis:${{ matrix.services.redis }}-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: true
+          cache-dependency-path: backend/go.sum
+      - name: Create catalog test database
+        if: matrix.gate == 'catalog'
+        run: docker exec "${{ job.services.postgres.id }}" createdb -U postgres job_test
+      - name: Run required round tests (no skips)
+        env:
+          # Job-local disposable services, never a shared database or Redis.
+          USAGE_STATS_TEST_DSN: postgres://postgres:postgres@localhost:5432/stats_test?sslmode=disable
+          UPSTREAM_JOB_TEST_DSN: postgres://postgres:postgres@localhost:5432/job_test?sslmode=disable
+          AFFINITY_REDIS_TEST_ADDR: localhost:6379
+        run: make test-required-${{ matrix.gate }}
+
   frontend:
     runs-on: ubuntu-latest
     steps:
@@ -176,14 +238,14 @@ jobs:
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
-          version: 11
+          version: 11.25.0
       - name: Setup Node.js
         uses: actions/setup-node@v6
         with:
-          node-version: '20'
+          node-version: '24'
           cache: 'pnpm'
           cache-dependency-path: frontend/pnpm-lock.yaml
-      # The critical vitest list includes the platform contract spec, which shells out to
+      # The full vitest suite includes the platform contract spec, which shells out to
       # `go test` (execFileSync in frontend/src/constants/__tests__/platforms.spec.ts).
       # Without this the job depends on whatever Go the runner image happens to ship,
       # while backend/go.mod requires a specific version.
@@ -197,15 +259,16 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: pnpm install --frozen-lockfile
-      - name: Frontend typecheck and critical vitest
-        run: make test-frontend
+      - name: Frontend static checks
+        run: make test-frontend-check
+      - name: Full frontend regression suite and coverage
+        working-directory: frontend
+        run: pnpm run test:coverage
 
   golangci-lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0 # The fixed lint baseline must be available for the diff.
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -219,5 +282,5 @@ jobs:
         uses: golangci/golangci-lint-action@v9
         with:
           version: v2.13
-          args: --timeout=30m --new-from-rev=c51166151bbfda1e34b8d8b7ec77435a45648c24
+          args: --timeout=30m
           working-directory: backend

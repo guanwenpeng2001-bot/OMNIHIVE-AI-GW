@@ -65,13 +65,17 @@ func ProvideSchedulerCache(rdb *redis.Client, cfg *config.Config) service.Schedu
 
 // ProviderSet is the Wire provider set for all repositories
 var ProviderSet = wire.NewSet(
+	NewModelAccessRepository,
+	NewWorkspaceRepository,
 	NewUserRepository,
 	NewAPIKeyRepository,
+	NewAPIKeyCredentialRepository,
 	NewGroupRepository,
 	NewAdminGroupRepository,
 	NewCompositeModelRouteRepository,
-	NewAccountRepository,
-	NewAdminAccountRepository,
+	ProvideAccountRepositoryWithSecrets,
+	ProvideAdminAccountRepositoryWithSecrets,
+	NewCredentialSecretRepository,
 	NewScheduledTestPlanRepository,   // 定时测试计划仓储
 	NewScheduledTestResultRepository, // 定时测试结果仓储
 	NewProxyRepository,
@@ -133,7 +137,7 @@ var ProviderSet = wire.NewSet(
 	NewBatchImageDownloadLimiter,
 	NewLeaderLockCache,
 	ProvideSchedulerCache,
-	NewSchedulerOutboxRepository,
+	ProvideSchedulerOutboxRepository,
 	NewAuthCacheInvalidationOutboxRepository,
 	NewProxyLatencyCache,
 	NewTotpCache,
@@ -168,6 +172,29 @@ var ProviderSet = wire.NewSet(
 	NewGeminiOAuthClient,
 	NewGeminiCliCodeAssistClient,
 	NewGeminiDriveClient,
+
+	// 数据/缓存端口绑定：实现文件只返回具体类型，因此不再 import service 包；
+	// 端口接口契约在这里（DI 层）显式绑定，避免数据层反向依赖业务层。
+	wire.Bind(new(service.RedeemCache), new(*redeemCache)),
+	wire.Bind(new(service.UpdateCache), new(*updateCache)),
+	wire.Bind(new(service.GeminiTokenCache), new(*geminiTokenCache)),
+	wire.Bind(new(service.CursorSessionCache), new(*cursorSessionCache)),
+	wire.Bind(new(service.LeaderLockCache), new(*leaderLockCache)),
+	wire.Bind(new(service.ErrorPassthroughCache), new(*errorPassthroughCache)),
+	wire.Bind(new(service.TLSFingerprintProfileCache), new(*tlsFingerprintProfileCache)),
+	wire.Bind(new(service.ChannelCachePubSub), new(*channelCache)),
+	wire.Bind(new(service.ContentModerationHashCache), new(*contentModerationHashCache)),
+	wire.Bind(new(service.RPMCache), new(*RPMCacheImpl)),
+	wire.Bind(new(service.UserRPMCache), new(*userRPMCacheImpl)),
+	wire.Bind(new(service.UserMsgQueueCache), new(*userMsgQueueCache)),
+	wire.Bind(new(service.DBDumper), new(*PgDumper)),
+	wire.Bind(new(service.ClaudeOAuthClient), new(*claudeOAuthService)),
+	wire.Bind(new(service.GeminiOAuthClient), new(*geminiOAuthClient)),
+	wire.Bind(new(service.GeminiCliCodeAssistClient), new(*geminiCliCodeAssistClient)),
+	wire.Bind(new(service.AnnouncementReadRepository), new(*announcementReadRepository)),
+	wire.Bind(new(service.ErrorPassthroughRepository), new(*errorPassthroughRepository)),
+	wire.Bind(new(service.TLSFingerprintProfileRepository), new(*tlsFingerprintProfileRepository)),
+	wire.Bind(new(service.SecretEncryptor), new(*AESEncryptor)),
 
 	ProvideEnt,
 	ProvideSQLDB,

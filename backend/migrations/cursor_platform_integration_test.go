@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/repository"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	_ "github.com/lib/pq"
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,7 @@ import (
 // This test only creates and deletes its own throwaway database; it never
 // applies migrations against the database named in the administrative DSN.
 func TestCursorPlatformMigrationFreshAndUpgrade(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "CURSOR_TEST_POSTGRES_DSN")
 	dsn := os.Getenv("CURSOR_TEST_POSTGRES_DSN")
 	if dsn == "" {
 		t.Skip("set CURSOR_TEST_POSTGRES_DSN to run PostgreSQL integration")

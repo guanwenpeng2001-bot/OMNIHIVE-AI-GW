@@ -6,9 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -48,6 +48,12 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		return
 	}
 	model := strings.TrimSpace(gjson.GetBytes(request.Session, "model").String())
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, model, "live", h.maxAccountSwitches)()
+	// 入口前置 hold：媒体/音频/realtime/异步 job 在调用上游之前先按估算占用周期预算，
+	// 结算时按实际消耗修正；没有周期预算的 Key 不产生额外工作（T3-2.2）。
+	if !reserveGatewayRequestBudget(c, apiKey, model, nil) {
+		return
+	}
 	if !compositeTargetPlatformAllowed(c, apiKey, model, service.PlatformOpenAI) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live only supports OpenAI models for Composite groups")
 		return
@@ -93,10 +99,8 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 		subscription,
 		service.QuotaPlatform(c.Request.Context(), apiKey),
 	); err != nil {
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.errorResponse(c, status, code, message)
 		return
 	}
@@ -119,6 +123,9 @@ func (h *OpenAIGatewayHandler) Live(c *gin.Context) {
 	identity := liveCallIdentity(c, apiKey, subject.UserID, subscription)
 	created, err := h.gatewayService.CreateLiveCall(c.Request.Context(), request, identity, subject.Concurrency)
 	if err != nil {
+		if writeGatewayTPMError(c, err) {
+			return
+		}
 		h.writeLiveCreateError(c, err)
 		return
 	}
@@ -235,8 +242,13 @@ func (h *OpenAIGatewayHandler) LiveSideband(c *gin.Context) {
 		h.errorResponse(c, http.StatusNotFound, "not_found_error", "Live call not found")
 		return
 	}
+	if !liveOriginAllowed(c.Request, h.cfg) {
+		h.errorResponse(c, http.StatusForbidden, "permission_error", "Origin is not allowed")
+		return
+	}
 	downstream, err := coderws.Accept(c.Writer, c.Request, &coderws.AcceptOptions{
-		InsecureSkipVerify: true,
+		// The exact origin was checked above against same-origin and CORS policy.
+		InsecureSkipVerify: c.GetHeader("Origin") != "",
 	})
 	if err != nil {
 		return
@@ -254,4 +266,30 @@ func liveEnabledForAPIKey(apiKey *service.APIKey) bool {
 		apiKey.Group != nil &&
 		(apiKey.Group.Platform == service.PlatformOpenAI || apiKey.Group.Platform == service.PlatformComposite) &&
 		apiKey.Group.AllowLive
+}
+
+func liveOriginAllowed(request *http.Request, cfg *config.Config) bool {
+	origin := request.Header.Get("Origin")
+	if origin == "" {
+		return true
+	}
+	if cfg != nil {
+		for _, allowed := range cfg.CORS.AllowedOrigins {
+			if allowed == "*" || strings.EqualFold(strings.TrimSpace(allowed), origin) {
+				return true
+			}
+		}
+	}
+	parsed, err := url.Parse(origin)
+	if err != nil || parsed.Host == "" || (parsed.Scheme != "http" && parsed.Scheme != "https") || parsed.User != nil || parsed.RawQuery != "" || parsed.Fragment != "" || parsed.Path != "" {
+		return false
+	}
+	scheme := "http"
+	if request.TLS != nil {
+		scheme = "https"
+	}
+	if strings.EqualFold(parsed.Host, request.Host) && parsed.Scheme == scheme {
+		return true
+	}
+	return false
 }

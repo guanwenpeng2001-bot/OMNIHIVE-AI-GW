@@ -19,8 +19,12 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// FieldWorkspaceID holds the string denoting the workspace_id field in the database.
+	FieldWorkspaceID = "workspace_id"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
 	FieldDeletedAt = "deleted_at"
+	// FieldTpmLimit holds the string denoting the tpm_limit field in the database.
+	FieldTpmLimit = "tpm_limit"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldKey holds the string denoting the key field in the database.
@@ -67,6 +71,8 @@ const (
 	EdgeGroup = "group"
 	// EdgeUsageLogs holds the string denoting the usage_logs edge name in mutations.
 	EdgeUsageLogs = "usage_logs"
+	// EdgeCredentials holds the string denoting the credentials edge name in mutations.
+	EdgeCredentials = "credentials"
 	// Table holds the table name of the apikey in the database.
 	Table = "api_keys"
 	// UserTable is the table that holds the user relation/edge.
@@ -90,6 +96,13 @@ const (
 	UsageLogsInverseTable = "usage_logs"
 	// UsageLogsColumn is the table column denoting the usage_logs relation/edge.
 	UsageLogsColumn = "api_key_id"
+	// CredentialsTable is the table that holds the credentials relation/edge.
+	CredentialsTable = "api_key_credentials"
+	// CredentialsInverseTable is the table name for the APIKeyCredential entity.
+	// It exists in this package in order to avoid circular dependency with the "apikeycredential" package.
+	CredentialsInverseTable = "api_key_credentials"
+	// CredentialsColumn is the table column denoting the credentials relation/edge.
+	CredentialsColumn = "api_key_id"
 )
 
 // Columns holds all SQL columns for apikey fields.
@@ -97,7 +110,9 @@ var Columns = []string{
 	FieldID,
 	FieldCreatedAt,
 	FieldUpdatedAt,
+	FieldWorkspaceID,
 	FieldDeletedAt,
+	FieldTpmLimit,
 	FieldUserID,
 	FieldKey,
 	FieldName,
@@ -136,14 +151,20 @@ func ValidColumn(column string) bool {
 //
 //	import _ "github.com/Wei-Shaw/sub2api/ent/runtime"
 var (
-	Hooks        [1]ent.Hook
-	Interceptors [1]ent.Interceptor
+	Hooks        [2]ent.Hook
+	Interceptors [2]ent.Interceptor
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
+	DefaultWorkspaceID int64
+	// DefaultTpmLimit holds the default value on creation for the "tpm_limit" field.
+	DefaultTpmLimit int64
+	// TpmLimitValidator is a validator for the "tpm_limit" field. It is called by the builders before save.
+	TpmLimitValidator func(int64) error
 	// KeyValidator is a validator for the "key" field. It is called by the builders before save.
 	KeyValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
@@ -188,9 +209,19 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByWorkspaceID orders the results by the workspace_id field.
+func ByWorkspaceID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWorkspaceID, opts...).ToFunc()
+}
+
 // ByDeletedAt orders the results by the deleted_at field.
 func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
+}
+
+// ByTpmLimit orders the results by the tpm_limit field.
+func ByTpmLimit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTpmLimit, opts...).ToFunc()
 }
 
 // ByUserID orders the results by the user_id field.
@@ -310,6 +341,20 @@ func ByUsageLogs(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
 		sqlgraph.OrderByNeighborTerms(s, newUsageLogsStep(), append([]sql.OrderTerm{term}, terms...)...)
 	}
 }
+
+// ByCredentialsCount orders the results by credentials count.
+func ByCredentialsCount(opts ...sql.OrderTermOption) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborsCount(s, newCredentialsStep(), opts...)
+	}
+}
+
+// ByCredentials orders the results by credentials terms.
+func ByCredentials(term sql.OrderTerm, terms ...sql.OrderTerm) OrderOption {
+	return func(s *sql.Selector) {
+		sqlgraph.OrderByNeighborTerms(s, newCredentialsStep(), append([]sql.OrderTerm{term}, terms...)...)
+	}
+}
 func newUserStep() *sqlgraph.Step {
 	return sqlgraph.NewStep(
 		sqlgraph.From(Table, FieldID),
@@ -329,5 +374,12 @@ func newUsageLogsStep() *sqlgraph.Step {
 		sqlgraph.From(Table, FieldID),
 		sqlgraph.To(UsageLogsInverseTable, FieldID),
 		sqlgraph.Edge(sqlgraph.O2M, false, UsageLogsTable, UsageLogsColumn),
+	)
+}
+func newCredentialsStep() *sqlgraph.Step {
+	return sqlgraph.NewStep(
+		sqlgraph.From(Table, FieldID),
+		sqlgraph.To(CredentialsInverseTable, FieldID),
+		sqlgraph.Edge(sqlgraph.O2M, false, CredentialsTable, CredentialsColumn),
 	)
 }

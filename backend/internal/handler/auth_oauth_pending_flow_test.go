@@ -2259,7 +2259,7 @@ func TestResolvePendingOAuthTargetUserIDNormalizesLegacySpacingAndCase(t *testin
 		Save(ctx)
 	require.NoError(t, err)
 
-	resolvedUserID, err := resolvePendingOAuthTargetUserID(ctx, client, session)
+	resolvedUserID, err := service.ResolvePendingOAuthTargetUserID(ctx, client, session)
 	require.NoError(t, err)
 	require.Equal(t, existingUser.ID, resolvedUserID)
 }

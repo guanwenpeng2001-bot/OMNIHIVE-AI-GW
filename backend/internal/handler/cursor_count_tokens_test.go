@@ -45,7 +45,8 @@ func TestCursorCountTokensLocalWithoutAnthropicRequests(t *testing.T) {
 			var result map[string]any
 			require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &result))
 			if tc.status == http.StatusOK {
-				require.Greater(t, result["input_tokens"].(float64), float64(0))
+				inputTokens, _ := result["input_tokens"].(float64)
+				require.Greater(t, inputTokens, float64(0))
 			} else {
 				require.Equal(t, "error", result["type"])
 			}

@@ -90,6 +90,7 @@ type wildcardMappingEntry struct {
 
 // channelCache 渠道缓存快照（扁平化哈希结构，热路径 O(1) 查找）
 type channelCache struct {
+	generation int64
 	// 热路径查找
 	pricingByGroupModel     map[channelModelKey]*ChannelModelPricing            // (groupID, platform, model) → 定价
 	wildcardByGroupPlatform map[channelGroupPlatformKey][]*wildcardPricingEntry // (groupID, platform) → 通配符定价（按配置顺序，先匹配先使用）
@@ -158,6 +159,7 @@ type ChannelCachePubSub interface {
 
 // ChannelService 渠道管理服务
 type ChannelService struct {
+	visibleModels        *VisibleModelResolver
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
@@ -185,16 +187,24 @@ func NewChannelService(repo ChannelRepository, groupRepo GroupRepository, authCa
 
 // loadCache 加载或返回缓存的渠道数据
 func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.channels == s {
+		return plan.channelSnapshot, plan.channelError
+	}
+	generation, authoritative, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+	if versionErr != nil {
+		return s.buildCache(ctx)
+	}
+
 	if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
-		if time.Since(cached.loadedAt) < channelCacheTTL {
+		if time.Since(cached.loadedAt) < channelCacheTTL && (!authoritative || cached.generation == generation) {
 			return cached, nil
 		}
 	}
 
-	result, err, _ := s.cacheSF.Do("channel_cache", func() (any, error) {
+	result, err, _ := s.cacheSF.Do(fmt.Sprintf("channel_cache:%d", generation), func() (any, error) {
 		// 双重检查
 		if cached, ok := s.cache.Load().(*channelCache); ok && cached != nil {
-			if time.Since(cached.loadedAt) < channelCacheTTL {
+			if time.Since(cached.loadedAt) < channelCacheTTL && (!authoritative || cached.generation == generation) {
 				return cached, nil
 			}
 		}
@@ -244,7 +254,10 @@ func expandPricingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 				})
 			} else {
 				key := channelModelKey{groupID: gid, platform: pricingPlatform, model: normalizeChannelPricingModelName(model)}
-				cache.pricingByGroupModel[key] = pricing
+				existing := cache.pricingByGroupModel[key]
+				if existing == nil || pricing.BillingMode == "" || pricing.BillingMode == BillingModeToken {
+					cache.pricingByGroupModel[key] = pricing
+				}
 			}
 		}
 	}
@@ -279,6 +292,7 @@ func expandMappingToCache(cache *channelCache, ch *Channel, gid int64, platform 
 // 通过回退 loadedAt 使剩余 TTL = channelErrorTTL。
 func (s *ChannelService) storeErrorCache() {
 	errorCache := newEmptyChannelCache()
+	errorCache.generation = -1
 	errorCache.loadedAt = time.Now().Add(-(channelCacheTTL - channelErrorTTL))
 	s.cache.Store(errorCache)
 }
@@ -286,6 +300,8 @@ func (s *ChannelService) storeErrorCache() {
 // buildCache 从数据库构建渠道缓存。
 // 使用独立 context 避免请求取消导致空值被长期缓存。
 func (s *ChannelService) buildCache(ctx context.Context) (*channelCache, error) {
+	generation, _, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+
 	dbCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), channelCacheDBTimeout)
 	defer cancel()
 
@@ -295,7 +311,10 @@ func (s *ChannelService) buildCache(ctx context.Context) (*channelCache, error) 
 	}
 
 	cache := populateChannelCache(channels, groupPlatforms)
-	s.cache.Store(cache)
+	cache.generation = generation
+	if versionErr == nil {
+		s.cache.Store(cache)
+	}
 	return cache, nil
 }
 
@@ -678,6 +697,11 @@ func validateChannelConfig(pricing []ChannelModelPricing, mapping map[string]map
 // validatePricingEntries 校验定价条目（冲突检测 + 区间校验 + 计费模式校验），
 // 同时用于主渠道定价和 account_stats_pricing_rules 的内部定价。
 func validatePricingEntries(pricing []ChannelModelPricing) error {
+	for _, card := range pricing {
+		if err := validateModelPriceVariants(card.PriceVariants); err != nil {
+			return err
+		}
+	}
 	if err := validateQianwenThinkingPrices(pricing); err != nil {
 		return err
 	}
@@ -748,6 +772,18 @@ func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 
 func checkBillingModeRequirements(p ChannelModelPricing) error {
 	if p.BillingMode == BillingModePerRequest || p.BillingMode == BillingModeImage || p.BillingMode == BillingModeVideo {
+		if len(p.PriceVariants) > 0 {
+			for _, variant := range p.PriceVariants {
+				descriptor := &ModelPricingDescriptor{Model: variant.ID, PricingAt: time.Now(), Variants: []ModelPriceVariant{variant}}
+				if !priceVariantActive(variant, descriptor.PricingAt) {
+					continue
+				}
+				if _, err := descriptor.UnitPrice(billingModeUnit(p.BillingMode), "output", ""); err != nil {
+					return infraerrors.BadRequest("BILLING_MODE_MISSING_PRICE", err.Error())
+				}
+			}
+			return nil
+		}
 		if p.PerRequestPrice == nil && len(p.Intervals) == 0 {
 			return infraerrors.BadRequest(
 				"BILLING_MODE_MISSING_PRICE",
@@ -854,6 +890,10 @@ func (s *ChannelService) Create(ctx context.Context, input *CreateChannelInput) 
 		return nil, err
 	}
 
+	if channel.FeaturesConfig == nil {
+		channel.FeaturesConfig = map[string]any{}
+	}
+	channel.FeaturesConfig[PlazaConfirmationConfigKey] = PlazaConfirmationConfig{Groups: map[string][]PlazaConfirmedModel{}}
 	if err := s.repo.Create(ctx, channel); err != nil {
 		return nil, fmt.Errorf("create channel: %w", err)
 	}
@@ -885,6 +925,7 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 		return nil, fmt.Errorf("get channel: %w", err)
 	}
 
+	plazaConfig := ChannelPlazaConfirmation(channel)
 	if err := s.applyUpdateInput(ctx, channel, input); err != nil {
 		return nil, err
 	}
@@ -895,6 +936,11 @@ func (s *ChannelService) Update(ctx context.Context, id int64, input *UpdateChan
 	if err := validateAccountStatsPricingRules(channel.AccountStatsPricingRules); err != nil {
 		return nil, err
 	}
+
+	if channel.FeaturesConfig == nil {
+		channel.FeaturesConfig = map[string]any{}
+	}
+	channel.FeaturesConfig[PlazaConfirmationConfigKey] = plazaConfig
 
 	oldGroupIDs := s.getOldGroupIDs(ctx, id)
 
@@ -1088,7 +1134,12 @@ func validateNoConflictingModels(pricingList []ChannelModelPricing) error {
 	byPlatform := make(map[string][]modelEntry)
 	for _, p := range pricingList {
 		for _, model := range p.Models {
-			byPlatform[p.Platform] = append(byPlatform[p.Platform], toPricingModelEntry(model))
+			mode := p.BillingMode
+			if mode == "" {
+				mode = BillingModeToken
+			}
+			identity := p.Platform + ":" + string(mode)
+			byPlatform[identity] = append(byPlatform[identity], toPricingModelEntry(model))
 		}
 	}
 	for platform, entries := range byPlatform {

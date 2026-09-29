@@ -34,8 +34,9 @@ type dashboardStatsRangeFetcher interface {
 }
 
 type dashboardStatsCacheEntry struct {
-	Stats     *usagestats.DashboardStats `json:"stats"`
-	UpdatedAt int64                      `json:"updated_at"`
+	CoverageRevision string                     `json:"coverage_revision,omitempty"`
+	Stats            *usagestats.DashboardStats `json:"stats"`
+	UpdatedAt        int64                      `json:"updated_at"`
 }
 
 // DashboardService 提供管理员仪表盘统计服务。
@@ -105,7 +106,7 @@ func NewDashboardService(usageRepo UsageLogRepository, aggRepo DashboardAggregat
 func (s *DashboardService) GetDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
 	if s.cache != nil {
 		cached, fresh, err := s.getCachedDashboardStats(ctx)
-		if err == nil && cached != nil {
+		if err == nil && cached != nil && cached.Coverage != nil {
 			s.refreshAggregationStaleness(cached)
 			if !fresh {
 				s.refreshDashboardStatsAsync()
@@ -221,6 +222,61 @@ func (s *DashboardService) GetGroupUsageSummary(ctx context.Context, todayStart 
 	return results, nil
 }
 
+// GroupUsageTotals 单个分组在原始用量账本保留窗口内的真实累计用量。
+// WindowStart 是保留窗口起点：早于该点的历史只存在于分组日汇总（仅实际费用），
+// 请求数无法回溯，因此调用方必须把窗口一并展示，不能当成历史全量。
+type GroupUsageTotals struct {
+	Requests    int64     `json:"requests"`
+	TotalCost   float64   `json:"total_cost"`
+	ActualCost  float64   `json:"actual_cost"`
+	WindowStart time.Time `json:"window_start"`
+	WindowEnd   time.Time `json:"window_end"`
+}
+
+// GetGroupUsageTotals 按传入分组聚合真实用量；不再返回写死的零。
+func (s *DashboardService) GetGroupUsageTotals(ctx context.Context, groupID int64) (*GroupUsageTotals, error) {
+	type groupUsageTotalsRepo interface {
+		GetGroupUsageTotals(context.Context, int64) (*GroupUsageTotals, error)
+	}
+	repo, ok := s.usageRepo.(groupUsageTotalsRepo)
+	if !ok {
+		return nil, fmt.Errorf("usage repository does not expose group usage totals")
+	}
+	totals, err := repo.GetGroupUsageTotals(ctx, groupID)
+	if err != nil {
+		return nil, fmt.Errorf("get group usage totals: %w", err)
+	}
+	return totals, nil
+}
+
+// RealtimeWindowStats 最近一小段窗口内由本地原始账本观测到的请求量与响应耗时。
+//
+// CoverageComplete=false 表示窗口起点早于账本保留水位，窗口内的行已经被清理，
+// 此时 Requests/AverageResponseTimeMs 保持 nil——不可观测就是不可观测，不用 0 冒充。
+type RealtimeWindowStats struct {
+	Requests              *int64
+	AverageResponseTimeMs *float64
+	WindowStart           time.Time
+	WindowEnd             time.Time
+	CoverageComplete      bool
+}
+
+// GetRealtimeWindowStats 查询窗口内的真实请求观测（usage_logs 即本地账本）。
+func (s *DashboardService) GetRealtimeWindowStats(ctx context.Context, start, end time.Time) (*RealtimeWindowStats, error) {
+	type realtimeWindowStatsRepo interface {
+		GetRealtimeWindowStats(context.Context, time.Time, time.Time) (*RealtimeWindowStats, error)
+	}
+	repo, ok := s.usageRepo.(realtimeWindowStatsRepo)
+	if !ok {
+		return nil, fmt.Errorf("usage repository does not expose realtime window stats")
+	}
+	stats, err := repo.GetRealtimeWindowStats(ctx, start, end)
+	if err != nil {
+		return nil, fmt.Errorf("get realtime window stats: %w", err)
+	}
+	return stats, nil
+}
+
 func (s *DashboardService) getCachedDashboardStats(ctx context.Context) (*usagestats.DashboardStats, bool, error) {
 	data, err := s.cache.GetDashboardStats(ctx)
 	if err != nil {
@@ -237,19 +293,26 @@ func (s *DashboardService) getCachedDashboardStats(ctx context.Context) (*usages
 		return nil, false, ErrDashboardStatsCacheMiss
 	}
 
+	revision, err := s.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, false, err
+	}
+	if revision != entry.CoverageRevision {
+		return nil, false, ErrDashboardStatsCacheMiss
+	}
 	age := time.Since(time.Unix(entry.UpdatedAt, 0))
 	return entry.Stats, age <= s.cacheFreshTTL, nil
 }
 
 func (s *DashboardService) refreshDashboardStats(ctx context.Context) (*usagestats.DashboardStats, error) {
-	stats, err := s.fetchDashboardStats(ctx)
+	stats, revision, err := s.fetchDashboardStatsForCache(ctx)
 	if err != nil {
 		return nil, err
 	}
 	s.applyAggregationStatus(ctx, stats)
 	cacheCtx, cancel := s.cacheOperationContext()
 	defer cancel()
-	s.saveDashboardStatsCache(cacheCtx, stats)
+	s.saveDashboardStatsCache(cacheCtx, stats, revision)
 	return stats, nil
 }
 
@@ -267,7 +330,7 @@ func (s *DashboardService) refreshDashboardStatsAsync() {
 		ctx, cancel := context.WithTimeout(context.Background(), s.refreshTimeout)
 		defer cancel()
 
-		stats, err := s.fetchDashboardStats(ctx)
+		stats, revision, err := s.fetchDashboardStatsForCache(ctx)
 		if err != nil {
 			logger.LegacyPrintf("service.dashboard", "[Dashboard] 仪表盘缓存异步刷新失败: %v", err)
 			return
@@ -275,7 +338,7 @@ func (s *DashboardService) refreshDashboardStatsAsync() {
 		s.applyAggregationStatus(ctx, stats)
 		cacheCtx, cancel := s.cacheOperationContext()
 		defer cancel()
-		s.saveDashboardStatsCache(cacheCtx, stats)
+		s.saveDashboardStatsCache(cacheCtx, stats, revision)
 	}()
 }
 
@@ -290,14 +353,15 @@ func (s *DashboardService) fetchDashboardStats(ctx context.Context) (*usagestats
 	return s.usageRepo.GetDashboardStats(ctx)
 }
 
-func (s *DashboardService) saveDashboardStatsCache(ctx context.Context, stats *usagestats.DashboardStats) {
+func (s *DashboardService) saveDashboardStatsCache(ctx context.Context, stats *usagestats.DashboardStats, revision string) {
 	if s.cache == nil || stats == nil {
 		return
 	}
 
 	entry := dashboardStatsCacheEntry{
-		Stats:     stats,
-		UpdatedAt: time.Now().Unix(),
+		CoverageRevision: revision,
+		Stats:            stats,
+		UpdatedAt:        time.Now().Unix(),
 	}
 	data, err := json.Marshal(entry)
 	if err != nil {
@@ -335,7 +399,7 @@ func (s *DashboardService) applyAggregationStatus(ctx context.Context, stats *us
 	}
 	updatedAt := s.fetchAggregationUpdatedAt(ctx)
 	stats.StatsUpdatedAt = updatedAt.UTC().Format(time.RFC3339)
-	stats.StatsStale = s.isAggregationStale(updatedAt, time.Now().UTC())
+	stats.StatsStale = (stats.Coverage != nil && stats.Coverage.DirtyFrom != nil) || s.isAggregationStale(updatedAt, time.Now().UTC())
 }
 
 func (s *DashboardService) refreshAggregationStaleness(stats *usagestats.DashboardStats) {
@@ -343,7 +407,7 @@ func (s *DashboardService) refreshAggregationStaleness(stats *usagestats.Dashboa
 		return
 	}
 	updatedAt := parseStatsUpdatedAt(stats.StatsUpdatedAt)
-	stats.StatsStale = s.isAggregationStale(updatedAt, time.Now().UTC())
+	stats.StatsStale = (stats.Coverage != nil && stats.Coverage.DirtyFrom != nil) || s.isAggregationStale(updatedAt, time.Now().UTC())
 }
 
 func (s *DashboardService) fetchAggregationUpdatedAt(ctx context.Context) time.Time {
@@ -369,7 +433,9 @@ func (s *DashboardService) isAggregationStale(updatedAt, now time.Time) bool {
 	if !updatedAt.After(epoch) {
 		return true
 	}
-	threshold := s.aggInterval + s.aggLookback
+	// The cursor denotes the last closed physical hour, not the last job run.
+	// The open hour is served from raw data and is not an aggregation delay.
+	threshold := time.Hour + s.aggInterval + s.aggLookback
 	return now.Sub(updatedAt) > threshold
 }
 
@@ -430,4 +496,25 @@ func (s *DashboardService) GetBatchAPIKeyUsageStats(ctx context.Context, apiKeyI
 		return nil, fmt.Errorf("get batch api key usage stats: %w", err)
 	}
 	return stats, nil
+}
+
+// DashboardCoverageRevision identifies the verified history behind cached reads.
+func (s *DashboardService) DashboardCoverageRevision(ctx context.Context) (string, error) {
+	if repo, ok := s.usageRepo.(interface {
+		DashboardCoverageRevision(context.Context) (string, error)
+	}); ok {
+		return repo.DashboardCoverageRevision(ctx)
+	}
+	return "", nil
+}
+
+func (s *DashboardService) fetchDashboardStatsForCache(ctx context.Context) (*usagestats.DashboardStats, string, error) {
+	// Capture before the data snapshot. A concurrent state change causes a cache
+	// miss on the next read instead of stamping stale data with a newer revision.
+	revision, err := s.DashboardCoverageRevision(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	stats, err := s.fetchDashboardStats(ctx)
+	return stats, revision, err
 }

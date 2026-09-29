@@ -28,9 +28,21 @@
           {{ platformDescription }}
         </p>
 
+        <!-- API base URL is required: the console origin is not the gateway address -->
+        <div
+          v-if="!hasBaseUrl"
+          data-testid="client-config-base-url-missing"
+          class="flex items-start gap-3 p-4 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800"
+        >
+          <Icon name="exclamationCircle" size="md" class="text-amber-600 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-800 dark:text-amber-200">
+            {{ t('keys.useKeyModal.baseUrlMissing') }}
+          </p>
+        </div>
+
         <!-- Client Tabs -->
-        <div v-if="clientTabs.length" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" aria-label="Client">
+        <div v-if="clientTabs.length && hasBaseUrl" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
+          <nav class="-mb-px flex min-w-max gap-4 sm:gap-6" :aria-label="t('keys.useKeyModal.clientLabel')">
             <button
               v-for="tab in clientTabs"
               :key="tab.id"
@@ -112,7 +124,7 @@
 
         <!-- OS/Shell Tabs -->
         <div v-if="showShellTabs" class="overflow-x-auto border-b border-gray-200 dark:border-dark-700">
-          <nav class="-mb-px flex min-w-max gap-4" aria-label="Tabs">
+          <nav class="-mb-px flex min-w-max gap-4" :aria-label="t('keys.useKeyModal.shellLabel')">
             <button
               v-for="tab in currentTabs"
               :key="tab.id"
@@ -134,7 +146,7 @@
         </div>
 
         <!-- Code Blocks (Stacked for multi-file platforms) -->
-        <div class="space-y-4">
+        <div v-if="hasBaseUrl" class="space-y-4">
           <div
             v-for="(file, index) in currentFiles"
             :key="index"
@@ -238,6 +250,18 @@
             {{ platformNote }}
           </p>
         </div>
+
+        <!-- Messages and other text/vision protocols are not generation entries. -->
+        <div
+          v-if="hasBaseUrl && activeClientTab !== 'opencode'"
+          data-testid="generation-endpoint-hint"
+          class="flex items-start gap-3 p-3 rounded-lg bg-amber-50 dark:bg-amber-900/20 border border-amber-100 dark:border-amber-800"
+        >
+          <Icon name="exclamationCircle" size="md" class="text-amber-600 dark:text-amber-300 flex-shrink-0 mt-0.5" />
+          <p class="text-sm text-amber-800 dark:text-amber-200">
+            {{ t('keys.useKeyModal.generationEntryHint') }}
+          </p>
+        </div>
       </template>
     </div>
 
@@ -260,10 +284,10 @@ import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { getModelsByPlatform } from '@/composables/useModelWhitelist'
 import { useClipboard } from '@/composables/useClipboard'
 import { fetchCodexModelsManifest } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
+import { getPlatformLabel } from '@/constants/platforms'
 import {
   findCodexCatalogModel,
   formatCodexReasoningEffortTomlLine,
@@ -314,9 +338,13 @@ const codexModelManifestModelCount = ref(0)
 let codexModelManifestController: AbortController | null = null
 let codexModelManifestRequestID = 0
 
+/** A client config needs the address this deployment publishes; the console origin is never assumed. */
+const hasBaseUrl = computed(() => props.baseUrl.trim() !== '')
+
 const showCodexModelCatalog = computed(() =>
   props.show &&
-  (activeClientTab.value === 'codex' ||
+  hasBaseUrl.value &&
+  (activeClientTab.value === 'codex' || activeClientTab.value === 'opencode' ||
     (props.platform === 'openai' && activeClientTab.value === 'codex-ws'))
 )
 
@@ -325,6 +353,10 @@ const codexModelCatalogPath = computed(() => {
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
   return joinConfigPath(configDir, 'codex-models.json', isWindows)
 })
+
+// Codex expands a leading ~/ on every platform but not %userprofile%, which it
+// resolves relative to the config directory, so config.toml always uses ~/.
+const CODEX_MODEL_CATALOG_CONFIG_PATH = '~/.codex/codex-models.json'
 
 const codexManifestContext = computed(() => {
   if (!showCodexModelCatalog.value) return ''
@@ -523,7 +555,7 @@ const currentTabs = computed(() => {
 
 const platformDescription = computed(() => {
   if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
-    return t(`admin.accounts.newPlatforms.${props.platform}Description`)
+    return t(`admin.accounts.platformDetails.${props.platform}Description`)
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
@@ -570,7 +602,7 @@ const platformDescription = computed(() => {
 
 const platformNote = computed(() => {
   if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
-    return t(`admin.accounts.newPlatforms.${props.platform}Note`)
+    return t(`admin.accounts.platformDetails.${props.platform}Note`)
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
@@ -646,6 +678,8 @@ async function loadCodexModelManifest() {
   const controller = new AbortController()
   const requestID = ++codexModelManifestRequestID
   codexModelManifestController = controller
+  codexModelManifestContent.value = ''
+  codexModelManifestModelCount.value = 0
   codexModelManifestState.value = 'loading'
 
   try {
@@ -709,7 +743,9 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  const baseUrl = props.baseUrl || window.location.origin
+  const baseUrl = props.baseUrl.trim()
+  // Without a configured public API base URL there is nothing truthful to copy.
+  if (!baseUrl) return []
   const apiKey = props.apiKey
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
   const ensureV1 = (value: string) => {
@@ -967,7 +1003,7 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${model}"
 review_model = "${model}"
 ${reasoningEffortLine}disable_response_storage = true
-model_catalog_json = "${escapeTomlBasicString(codexModelCatalogPath.value)}"
+model_catalog_json = "${CODEX_MODEL_CATALOG_CONFIG_PATH}"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
@@ -1200,7 +1236,7 @@ function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
 
 model_provider = "sub2api"
 model = "${model}"
-model_catalog_json = "${escapeTomlBasicString(codexModelCatalogPath.value)}"
+model_catalog_json = "${CODEX_MODEL_CATALOG_CONFIG_PATH}"
 # Optional:
 # review_model = "${model}"
 # model_reasoning_effort = "medium"
@@ -1256,28 +1292,17 @@ function generateRoutedCodexFiles(
     opencode_go: 'glm-5.3',
     qianwen: 'qwen-flash',
     commandcode: 'gpt-5.6-luna',
+    volcengine: '',
+    bedrock: '',
+    mistral: '',
+    hunyuan: '',
+    qianfan: '',
     cursor: 'default',
     composite: 'gpt-5.5'
   }
   const preferredModel = preferredModels[platform] || ''
   const model = selectCodexCatalogModel(preferredModel)
-  const labels: Record<GroupPlatform, string> = {
-    anthropic: 'Anthropic',
-    openai: 'OpenAI',
-    gemini: 'Gemini',
-    antigravity: 'Antigravity',
-    grok: 'Grok',
-    kimi: 'Kimi',
-    zhipu: 'Zhipu',
-    deepseek: 'DeepSeek',
-    minimax: 'MiniMax',
-    opencode_go: 'OpenCode',
-    qianwen: '千问AI',
-    commandcode: 'Command Code',
-    cursor: 'Cursor',
-    composite: 'Composite'
-  }
-  const label = labels[platform]
+  const label = getPlatformLabel(platform, t)
   const envContent = isWindows
     ? `$env:SUB2API_API_KEY="${apiKey}"`
     : `export SUB2API_API_KEY="${apiKey}"`
@@ -1287,7 +1312,7 @@ model_provider = "sub2api"
 model = "${model}"
 review_model = "${model}"
 disable_response_storage = true
-model_catalog_json = "${escapeTomlBasicString(codexModelCatalogPath.value)}"
+model_catalog_json = "${CODEX_MODEL_CATALOG_CONFIG_PATH}"
 
 [model_providers.sub2api]
 name = "Sub2API ${label}"
@@ -1322,7 +1347,7 @@ function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
 model = "${model}"
 review_model = "${model}"
 ${reasoningEffortLine}disable_response_storage = true
-model_catalog_json = "${escapeTomlBasicString(codexModelCatalogPath.value)}"
+model_catalog_json = "${CODEX_MODEL_CATALOG_CONFIG_PATH}"
 network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
@@ -1900,7 +1925,7 @@ function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: strin
   } else {
     provider[platform].npm = '@ai-sdk/openai-compatible'
     provider[platform].models = Object.fromEntries(
-      getModelsByPlatform(platform).map((model) => [model, { name: model }])
+      codexCatalogModelSlugs.value.map((model) => [model, { name: model }])
     )
   }
 

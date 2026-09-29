@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -29,15 +30,16 @@ func logRequestBodyParseFailure(reqLog *zap.Logger, body []byte, err error) {
 		err = service.DescribeInvalidJSON(body)
 	}
 
-	head := body
+	redactedBody := []byte(logredact.RedactText(string(body)))
+	head := redactedBody
 	var tail []byte
-	if len(body) > parseFailureSnippetLen {
-		head = body[:parseFailureSnippetLen]
-		tail = body[len(body)-parseFailureSnippetLen:]
+	if len(redactedBody) > parseFailureSnippetLen {
+		head = redactedBody[:parseFailureSnippetLen]
+		tail = redactedBody[len(redactedBody)-parseFailureSnippetLen:]
 	}
 
 	fields := []zap.Field{
-		zap.Error(err),
+		zap.String("error", logredact.RedactText(err.Error())),
 		zap.Int("body_len", len(body)),
 		zap.String("body_head", sanitizeBodySnippet(head)),
 	}

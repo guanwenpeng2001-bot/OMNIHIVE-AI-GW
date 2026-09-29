@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -134,6 +135,7 @@ func (s *OpenAIGatewayService) BuildGroupConfiguredCodexModelsManifest(
 		return nil, false, fmt.Errorf("load group configured Codex models: %w", err)
 	}
 	configuredModels := openAIConfiguredCodexModelIDsForGroup(visible, group)
+	configuredModels = filterCatalogModelIDs(ctx, s.accountRepo, catalog, configuredModels, "responses")
 	if len(configuredModels) == 0 {
 		return nil, false, nil
 	}
@@ -210,6 +212,39 @@ func (s *OpenAIGatewayService) MergeGroupConfiguredCodexModels(
 		}
 		changed = true
 	}
+	if reader, ok := s.accountRepo.(ModelCatalogAccountRepository); ok {
+		accounts, err := reader.ListModelCatalogAccounts(ctx, &group.ID, []string{PlatformOpenAI}, false)
+		if err != nil {
+			return err
+		}
+		envelope, entries, err := modelCatalogEntries(body, "models")
+		if err != nil {
+			return err
+		}
+		ids := make([]string, 0, len(entries))
+		byID := make(map[string]json.RawMessage, len(entries))
+		for _, entry := range entries {
+			var item struct {
+				Slug string `json:"slug"`
+			}
+			if err := json.Unmarshal(entry, &item); err != nil {
+				return err
+			}
+			ids = append(ids, item.Slug)
+			byID[item.Slug] = entry
+		}
+		eligible := filterCatalogModelIDs(ctx, s.accountRepo, accounts, ids, "responses")
+		envelope["models"], err = json.Marshal(selectModelCatalogEntries(byID, eligible))
+		if err != nil {
+			return err
+		}
+		body, err = json.Marshal(envelope)
+		if err != nil {
+			return err
+		}
+		changed = true
+	}
+
 	if changed {
 		manifest.Body = body
 		manifest.ETag = codexModelsManifestBodyETag(body)
@@ -378,57 +413,6 @@ type configuredCodexModelMessages struct {
 // understood by current Codex clients. Several nullable fields are intentionally
 // emitted: unlike ordinary OpenAI /v1/models entries, the Codex manifest parser
 // requires them to be present.
-type configuredCodexModelDescriptor struct {
-	Slug                              string                          `json:"slug"`
-	DisplayName                       string                          `json:"display_name"`
-	Description                       string                          `json:"description"`
-	DefaultReasoningLevel             *string                         `json:"default_reasoning_level,omitempty"`
-	SupportedReasoningLevels          []configuredCodexReasoningLevel `json:"supported_reasoning_levels"`
-	MultiAgentReasoningEffort         *string                         `json:"multi_agent_reasoning_effort,omitempty"`
-	ShellType                         string                          `json:"shell_type"`
-	Visibility                        string                          `json:"visibility"`
-	SupportedInAPI                    bool                            `json:"supported_in_api"`
-	Priority                          int                             `json:"priority"`
-	AdditionalSpeedTiers              []string                        `json:"additional_speed_tiers"`
-	ServiceTiers                      []configuredCodexServiceTier    `json:"service_tiers"`
-	DefaultServiceTier                any                             `json:"default_service_tier"`
-	AvailabilityNUX                   any                             `json:"availability_nux"`
-	Upgrade                           any                             `json:"upgrade"`
-	ModelMessages                     configuredCodexModelMessages    `json:"model_messages"`
-	IncludeSkillsUsageInstructions    bool                            `json:"include_skills_usage_instructions"`
-	IncludePluginUsageInstructions    bool                            `json:"include_plugin_usage_instructions"`
-	IncludeAppsUsageInstructions      bool                            `json:"include_apps_usage_instructions"`
-	SupportsReasoningSummaryParameter bool                            `json:"supports_reasoning_summary_parameter"`
-	DefaultReasoningSummary           string                          `json:"default_reasoning_summary"`
-	SupportVerbosity                  bool                            `json:"support_verbosity"`
-	DefaultVerbosity                  *string                         `json:"default_verbosity"`
-	ApplyPatchToolType                *string                         `json:"apply_patch_tool_type"`
-	WebSearchToolType                 string                          `json:"web_search_tool_type"`
-	TruncationPolicy                  configuredCodexTruncationPolicy `json:"truncation_policy"`
-	SupportsImageDetailOriginal       bool                            `json:"supports_image_detail_original"`
-	SupportsParallelToolCalls         bool                            `json:"supports_parallel_tool_calls"`
-	ContextWindow                     int64                           `json:"context_window"`
-	MaxContextWindow                  int64                           `json:"max_context_window"`
-	AutoCompactTokenLimit             any                             `json:"auto_compact_token_limit"`
-	CompHash                          any                             `json:"comp_hash"`
-	EffectiveContextWindowPercent     int64                           `json:"effective_context_window_percent"`
-	ExperimentalSupportedTools        []string                        `json:"experimental_supported_tools"`
-	InputModalities                   []string                        `json:"input_modalities"`
-	SupportsSearchTool                bool                            `json:"supports_search_tool"`
-	UseResponsesLite                  bool                            `json:"use_responses_lite"`
-	NodeREPLAutoReviewRequired        bool                            `json:"node_repl_auto_review_required"`
-	NodeREPLDisabled                  bool                            `json:"node_repl_disabled"`
-	AutoReviewModelOverride           any                             `json:"auto_review_model_override"`
-	ModelSpecialty                    any                             `json:"model_specialty"`
-	ToolMode                          any                             `json:"tool_mode"`
-	MultiAgentVersion                 any                             `json:"multi_agent_version"`
-}
-
-type codexModelMetadataOverride struct {
-	UpstreamModelMetadata
-	reasoningConflict       bool
-	inputModalitiesConflict bool
-}
 
 func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescriptor {
 	modelID = strings.TrimSpace(modelID)
@@ -447,7 +431,7 @@ func newConfiguredCodexModelDescriptor(modelID string) configuredCodexModelDescr
 		Priority:                          configuredCodexModelPriority,
 		AdditionalSpeedTiers:              []string{},
 		ServiceTiers:                      []configuredCodexServiceTier{},
-		ModelMessages:                     configuredCodexModelMessages{InstructionsTemplate: openai.CodexBaseInstructionsForModel(modelID)},
+		ModelMessages:                     configuredCodexModelMessages{InstructionsTemplate: codexInstructionsTemplateForModel(modelID)},
 		SupportsReasoningSummaryParameter: true,
 		DefaultReasoningSummary:           "auto",
 		WebSearchToolType:                 "text",
@@ -640,6 +624,47 @@ func configuredCodexGPTReasoningLevels(modelID string) []configuredCodexReasonin
 	return levels
 }
 
+// codexGPTIdentityPatterns match the GPT self-identification that the bundled
+// Codex prompts open with:
+//   - "You are Codex, a coding agent based on GPT-5." / "…an agent based on GPT-6." / "You are Codex, based on GPT-5."
+//   - "You are GPT-5.1 running in the Codex CLI, …"
+var codexGPTIdentityPatterns = []struct {
+	re   *regexp.Regexp
+	repl string
+}{
+	{regexp.MustCompile(`,?\s*based on GPT-\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)*`), ""},
+	{regexp.MustCompile(`\bYou are GPT-\d+(?:\.\d+)?(?:-[A-Za-z0-9]+)*`), "You are Codex"},
+}
+
+// codexInstructionsTemplateForModel returns the Codex base prompt advertised for
+// modelID in the models manifest.
+//
+// OpenAI GPT models keep the bundled prompt verbatim. Every other family the
+// manifest can list (Gemini, Claude, DeepSeek, Grok, gpt-oss, custom aliases)
+// gets the same prompt without the GPT self-identification: the claim is false
+// for those models, and Google's Antigravity backend answers requests whose
+// system prompt is the Codex prompt carrying a "GPT-5" identity with
+// 429 RESOURCE_EXHAUSTED — which also puts the account into rate-limit
+// cooldown. Codex sends this template as `instructions` for the selected model.
+func codexInstructionsTemplateForModel(modelID string) string {
+	base := openai.CodexBaseInstructionsForModel(modelID)
+	if codexModelKeepsGPTIdentity(modelID) {
+		return base
+	}
+	for _, pattern := range codexGPTIdentityPatterns {
+		base = pattern.re.ReplaceAllString(base, pattern.repl)
+	}
+	return base
+}
+
+// codexModelKeepsGPTIdentity reports whether modelID is an OpenAI GPT model
+// whose Codex prompt may claim a GPT identity. gpt-oss models are open-weight
+// and typically served by non-OpenAI providers, so they do not.
+func codexModelKeepsGPTIdentity(modelID string) bool {
+	return isOpenAICodexGPTModel(modelID) &&
+		!strings.HasPrefix(canonicalizeOpenAIModelAliasSpelling(modelID), "gpt-oss")
+}
+
 func isOpenAICodexGPTModel(modelID string) bool {
 	normalized := canonicalizeOpenAIModelAliasSpelling(modelID)
 	if normalized == "" || strings.HasPrefix(normalized, "gpt-image") {
@@ -691,7 +716,7 @@ func openaiCodexDisplayName(modelID string) string {
 	if normalized == "" {
 		return modelID
 	}
-	for _, model := range openai.DefaultModels {
+	for _, model := range OpenAIPresetModels() {
 		if strings.EqualFold(model.ID, normalized) && strings.TrimSpace(model.DisplayName) != "" {
 			return model.DisplayName
 		}
@@ -747,7 +772,7 @@ func grokCodexDisplayName(modelID string) string {
 }
 
 func grokDefaultDisplayName(modelID string) string {
-	for _, model := range xai.DefaultModels() {
+	for _, model := range GrokPresetModels() {
 		if model.ID == modelID {
 			return strings.TrimSpace(model.DisplayName)
 		}
@@ -774,13 +799,13 @@ func claudeCodexDisplayName(modelID string) string {
 	if normalized == "" {
 		return modelID
 	}
-	for _, model := range claude.DefaultModels {
+	for _, model := range ClaudePresetModels() {
 		if strings.EqualFold(model.ID, normalized) && strings.TrimSpace(model.DisplayName) != "" {
 			return model.DisplayName
 		}
 	}
 	if canonical, ok := claude.ModelIDOverrides[normalized]; ok {
-		for _, model := range claude.DefaultModels {
+		for _, model := range ClaudePresetModels() {
 			if model.ID == canonical && strings.TrimSpace(model.DisplayName) != "" {
 				return model.DisplayName
 			}
@@ -822,6 +847,21 @@ func (s *GatewayService) BuildCodexModelsManifestForGroup(
 	_, catalog, err := loadCodexGroupCatalogAccounts(ctx, s.accountRepo, group.ID)
 	if err != nil {
 		return BuildCodexModelsManifest(modelIDs)
+	}
+	if allowed, err := s.CatalogModelIDs(ctx, &group.ID, effectivePlatform); err != nil {
+		return nil, err
+	} else if allowed != nil {
+		eligible := make(map[string]bool, len(allowed))
+		for _, id := range allowed {
+			eligible[id] = true
+		}
+		filtered := make([]string, 0, len(modelIDs))
+		for _, id := range modelIDs {
+			if eligible[id] {
+				filtered = append(filtered, id)
+			}
+		}
+		modelIDs = filtered
 	}
 	var compositeRoutes []CompositeModelRoute
 	compositeRoutesAvailable := true
@@ -2477,12 +2517,8 @@ func validateCodexModelsManifestEnvelope(body []byte) error {
 		return errors.New("missing top-level models array")
 	}
 	models = bytes.TrimSpace(models)
-	var entries []json.RawMessage
 	if len(models) == 0 || models[0] != '[' {
 		return errors.New("top-level models field is not an array")
-	}
-	if err := json.Unmarshal(models, &entries); err != nil {
-		return fmt.Errorf("decode top-level models array: %w", err)
 	}
 	return nil
 }

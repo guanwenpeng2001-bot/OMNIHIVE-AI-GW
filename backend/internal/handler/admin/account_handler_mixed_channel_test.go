@@ -85,7 +85,7 @@ func TestAccountHandlerCheckMixedChannelWithRisk(t *testing.T) {
 	require.Equal(t, int64(99), adminSvc.lastMixedCheck.accountID)
 }
 
-func TestAccountHandlerCreateMixedChannelConflictSimplifiedResponse(t *testing.T) {
+func TestAccountHandlerCreateMixedChannelConflictEnvelope(t *testing.T) {
 	adminSvc := newStubAdminService()
 	adminSvc.createAccountErr = &service.MixedChannelError{
 		GroupID:         27,
@@ -93,24 +93,38 @@ func TestAccountHandlerCreateMixedChannelConflictSimplifiedResponse(t *testing.T
 		CurrentPlatform: "Antigravity",
 		OtherPlatform:   "Anthropic",
 	}
-	router := setupAccountMixedChannelRouter(adminSvc)
+	pending := credentialDraftTestStore(t)
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	accountHandler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	accountHandler.SetCredentialDraftService(pending)
+	router.POST("/api/v1/admin/accounts", accountHandler.Create)
+	cookie, draft := issueHTTPCredentialDraft(t, pending, service.PlatformAntigravity, service.AccountTypeOAuth, map[string]any{"refresh_token": "rt"})
 
 	body, _ := json.Marshal(map[string]any{
-		"name":        "ag-oauth-1",
-		"platform":    "antigravity",
-		"type":        "oauth",
-		"credentials": map[string]any{"refresh_token": "rt"},
-		"group_ids":   []int64{27},
+		"name":                      "ag-oauth-1",
+		"platform":                  "antigravity",
+		"type":                      "oauth",
+		"credentials":               map[string]any{},
+		"group_ids":                 []int64{27},
+		"credential_draft":          draft.Reference,
+		"credential_draft_revision": draft.Revision,
 	})
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.AddCookie(cookie)
 	router.ServeHTTP(rec, req)
 
 	require.Equal(t, http.StatusConflict, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "mixed_channel_warning", resp["error"])
+	require.Equal(t, float64(http.StatusConflict), resp["code"])
+	require.Equal(t, "mixed_channel_warning", resp["reason"])
+	require.Equal(t, map[string]any{
+		"group_id": float64(27), "group_name": "claude-max",
+		"current_platform": "Antigravity", "other_platform": "Anthropic",
+	}, resp["metadata"])
 	require.Contains(t, resp["message"], "mixed_channel_warning")
 	_, hasDetails := resp["details"]
 	_, hasRequireConfirmation := resp["require_confirmation"]
@@ -118,7 +132,7 @@ func TestAccountHandlerCreateMixedChannelConflictSimplifiedResponse(t *testing.T
 	require.False(t, hasRequireConfirmation)
 }
 
-func TestAccountHandlerUpdateMixedChannelConflictSimplifiedResponse(t *testing.T) {
+func TestAccountHandlerUpdateMixedChannelConflictEnvelope(t *testing.T) {
 	adminSvc := newStubAdminService()
 	adminSvc.updateAccountErr = &service.MixedChannelError{
 		GroupID:         27,
@@ -139,7 +153,12 @@ func TestAccountHandlerUpdateMixedChannelConflictSimplifiedResponse(t *testing.T
 	require.Equal(t, http.StatusConflict, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "mixed_channel_warning", resp["error"])
+	require.Equal(t, float64(http.StatusConflict), resp["code"])
+	require.Equal(t, "mixed_channel_warning", resp["reason"])
+	require.Equal(t, map[string]any{
+		"group_id": float64(27), "group_name": "claude-max",
+		"current_platform": "Antigravity", "other_platform": "Anthropic",
+	}, resp["metadata"])
 	require.Contains(t, resp["message"], "mixed_channel_warning")
 	_, hasDetails := resp["details"]
 	_, hasRequireConfirmation := resp["require_confirmation"]
@@ -191,7 +210,12 @@ func TestAccountHandlerBulkUpdateMixedChannelConflict(t *testing.T) {
 	require.Equal(t, http.StatusConflict, rec.Code)
 	var resp map[string]any
 	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &resp))
-	require.Equal(t, "mixed_channel_warning", resp["error"])
+	require.Equal(t, float64(http.StatusConflict), resp["code"])
+	require.Equal(t, "mixed_channel_warning", resp["reason"])
+	require.Equal(t, map[string]any{
+		"group_id": float64(27), "group_name": "claude-max",
+		"current_platform": "Antigravity", "other_platform": "Anthropic",
+	}, resp["metadata"])
 	require.Contains(t, resp["message"], "claude-max")
 }
 

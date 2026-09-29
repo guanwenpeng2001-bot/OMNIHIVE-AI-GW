@@ -65,9 +65,19 @@ func UpdatedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldUpdatedAt, v))
 }
 
+// WorkspaceID applies equality check predicate on the "workspace_id" field. It's identical to WorkspaceIDEQ.
+func WorkspaceID(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
 // DeletedAt applies equality check predicate on the "deleted_at" field. It's identical to DeletedAtEQ.
 func DeletedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldDeletedAt, v))
+}
+
+// TpmLimit applies equality check predicate on the "tpm_limit" field. It's identical to TpmLimitEQ.
+func TpmLimit(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldTpmLimit, v))
 }
 
 // UserID applies equality check predicate on the "user_id" field. It's identical to UserIDEQ.
@@ -240,6 +250,46 @@ func UpdatedAtLTE(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldLTE(FieldUpdatedAt, v))
 }
 
+// WorkspaceIDEQ applies the EQ predicate on the "workspace_id" field.
+func WorkspaceIDEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDNEQ applies the NEQ predicate on the "workspace_id" field.
+func WorkspaceIDNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDIn applies the In predicate on the "workspace_id" field.
+func WorkspaceIDIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDNotIn applies the NotIn predicate on the "workspace_id" field.
+func WorkspaceIDNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldWorkspaceID, vs...))
+}
+
+// WorkspaceIDGT applies the GT predicate on the "workspace_id" field.
+func WorkspaceIDGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDGTE applies the GTE predicate on the "workspace_id" field.
+func WorkspaceIDGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLT applies the LT predicate on the "workspace_id" field.
+func WorkspaceIDLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldWorkspaceID, v))
+}
+
+// WorkspaceIDLTE applies the LTE predicate on the "workspace_id" field.
+func WorkspaceIDLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldWorkspaceID, v))
+}
+
 // DeletedAtEQ applies the EQ predicate on the "deleted_at" field.
 func DeletedAtEQ(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldDeletedAt, v))
@@ -288,6 +338,46 @@ func DeletedAtIsNil() predicate.APIKey {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// TpmLimitEQ applies the EQ predicate on the "tpm_limit" field.
+func TpmLimitEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitNEQ applies the NEQ predicate on the "tpm_limit" field.
+func TpmLimitNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitIn applies the In predicate on the "tpm_limit" field.
+func TpmLimitIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitNotIn applies the NotIn predicate on the "tpm_limit" field.
+func TpmLimitNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitGT applies the GT predicate on the "tpm_limit" field.
+func TpmLimitGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldTpmLimit, v))
+}
+
+// TpmLimitGTE applies the GTE predicate on the "tpm_limit" field.
+func TpmLimitGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldTpmLimit, v))
+}
+
+// TpmLimitLT applies the LT predicate on the "tpm_limit" field.
+func TpmLimitLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldTpmLimit, v))
+}
+
+// TpmLimitLTE applies the LTE predicate on the "tpm_limit" field.
+func TpmLimitLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldTpmLimit, v))
 }
 
 // UserIDEQ applies the EQ predicate on the "user_id" field.
@@ -363,6 +453,16 @@ func KeyHasPrefix(v string) predicate.APIKey {
 // KeyHasSuffix applies the HasSuffix predicate on the "key" field.
 func KeyHasSuffix(v string) predicate.APIKey {
 	return predicate.APIKey(sql.FieldHasSuffix(FieldKey, v))
+}
+
+// KeyIsNil applies the IsNil predicate on the "key" field.
+func KeyIsNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldIsNull(FieldKey))
+}
+
+// KeyNotNil applies the NotNil predicate on the "key" field.
+func KeyNotNil() predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotNull(FieldKey))
 }
 
 // KeyEqualFold applies the EqualFold predicate on the "key" field.
@@ -1186,6 +1286,29 @@ func HasUsageLogs() predicate.APIKey {
 func HasUsageLogsWith(preds ...predicate.UsageLog) predicate.APIKey {
 	return predicate.APIKey(func(s *sql.Selector) {
 		step := newUsageLogsStep()
+		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
+			for _, p := range preds {
+				p(s)
+			}
+		})
+	})
+}
+
+// HasCredentials applies the HasEdge predicate on the "credentials" edge.
+func HasCredentials() predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := sqlgraph.NewStep(
+			sqlgraph.From(Table, FieldID),
+			sqlgraph.Edge(sqlgraph.O2M, false, CredentialsTable, CredentialsColumn),
+		)
+		sqlgraph.HasNeighbors(s, step)
+	})
+}
+
+// HasCredentialsWith applies the HasEdge predicate on the "credentials" edge with a given conditions (other predicates).
+func HasCredentialsWith(preds ...predicate.APIKeyCredential) predicate.APIKey {
+	return predicate.APIKey(func(s *sql.Selector) {
+		step := newCredentialsStep()
 		sqlgraph.HasNeighborsWith(s, step, func(s *sql.Selector) {
 			for _, p := range preds {
 				p(s)

@@ -35,6 +35,8 @@ func QianwenAsyncFamilyForPath(path string) string {
 		return "3d"
 	case QianwenNativeASRPath:
 		return "asr"
+	case QianwenNativeText2ImagePath:
+		return "image"
 	}
 	return ""
 }
@@ -122,6 +124,9 @@ func qianwenAsyncSpecification(family, model string, body []byte) (*QianwenAsync
 		}
 		a.UnitCNY, a.TaskType = 0.00008, "single-file-channel-0"
 		return a, nil
+	}
+	if family == "image" {
+		return qianwenImageAsyncSpecification(model, r)
 	}
 	if family != "3d" || (model != "Tripo/Tripo-H3.1" && model != "Tripo/Tripo-P1.0") {
 		return bad()
@@ -250,10 +255,20 @@ func (s *OpenAIGatewayService) SubmitQianwenAsync(ctx context.Context, account *
 	if family == "3d" {
 		path = QianwenNative3DPath
 	}
+	if family == "image" {
+		path = QianwenNativeText2ImagePath
+	}
 	return s.qianwenVideoRequest(ctx, account, http.MethodPost, strings.TrimPrefix(path, "/api/v1"), body)
 }
 
 func (s *OpenAIGatewayService) PollQianwenAsyncJob(ctx context.Context, j *UpstreamJob) (UpstreamJobUpdate, error) {
+	if j.Family == "image" {
+		a, err := s.QianwenResourceAccount(ctx, j, false)
+		if err != nil {
+			return UpstreamJobUpdate{}, err
+		}
+		return s.qianwenVideoRequest(ctx, a, http.MethodGet, "/tasks/"+url.PathEscape(j.UpstreamTaskID), nil)
+	}
 	if j.Family != "3d" && j.Family != "asr" {
 		return s.PollQianwenJob(ctx, j)
 	}
@@ -305,7 +320,7 @@ func fetchQianwenTranscript(ctx context.Context, rawURL string) ([]byte, error) 
 	if err != nil {
 		return nil, fmt.Errorf("ASR result unavailable")
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("ASR result HTTP %d", resp.StatusCode)
 	}
@@ -321,7 +336,7 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 	if upstreamJob.Family == "realtime_turn" {
 		return QianwenRealtimeCharge(upstreamJob)
 	}
-	if upstreamJob.Family != "3d" && upstreamJob.Family != "asr" {
+	if upstreamJob.Family != "3d" && upstreamJob.Family != "asr" && upstreamJob.Family != "image" {
 		return QianwenJobCharge(upstreamJob)
 	}
 	billingSnapshot, asyncSnapshot := upstreamJob.Billing, upstreamJob.Billing.Async
@@ -329,11 +344,15 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 		return nil, nil, ErrUpstreamJobTariff
 	}
 	usage, result := gjson.ParseBytes(upstreamJob.UsageJSON), gjson.Parse(upstreamJob.ResultRef)
-	if !json.Valid(upstreamJob.UsageJSON) || !result.IsArray() || len(result.Array()) != 1 {
+	if !json.Valid(upstreamJob.UsageJSON) || !result.IsArray() || len(result.Array()) == 0 {
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	quantity := 1.0
-	if upstreamJob.Family == "3d" {
+	switch upstreamJob.Family {
+	case "3d":
+		if len(result.Array()) != 1 {
+			return nil, nil, ErrUpstreamJobUnsupportedUsage
+		}
 		texture, geometry := usage.Get("texture_quality").String(), usage.Get("geometry_quality").String()
 		// texture_quality may retain its default even when texture and PBR are
 		// disabled. The documented base-only output proves the untextured tier;
@@ -350,7 +369,21 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 		if !qianwenHTTPURL(result.Get("0.pbr_model_url")) && !qianwenHTTPURL(result.Get("0.base_model_url")) {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
 		}
-	} else {
+	case "image":
+		imageCount := usage.Get("image_count")
+		if imageCount.Type != gjson.Number || imageCount.Float() != float64(imageCount.Int()) || imageCount.Int() < 1 || imageCount.Int() > 4 || len(result.Array()) != int(imageCount.Int()) {
+			return nil, nil, ErrUpstreamJobUnsupportedUsage
+		}
+		for _, item := range result.Array() {
+			if !qianwenHTTPURL(item.Get("url")) {
+				return nil, nil, ErrUpstreamJobUnsupportedUsage
+			}
+		}
+		quantity = float64(imageCount.Int())
+	default:
+		if len(result.Array()) != 1 {
+			return nil, nil, ErrUpstreamJobUnsupportedUsage
+		}
 		duration := usage.Get("duration")
 		if duration.Type != gjson.Number || !finitePositive(duration.Float()) || result.Get("0.text").Type != gjson.String || result.Get("0.channel_id").Type != gjson.Number || result.Get("0.channel_id").Float() != 0 {
 			return nil, nil, ErrUpstreamJobUnsupportedUsage
@@ -363,6 +396,9 @@ func QianwenAsyncJobCharge(upstreamJob *UpstreamJob) (usageLog *UsageLog, comman
 		return nil, nil, ErrUpstreamJobUnsupportedUsage
 	}
 	mode, source, version := upstreamJob.Family, "dashscope-cn-standard", "async-families-2026-09-14"
+	if upstreamJob.Family == "image" {
+		version = "async-families-2026-09-22"
+	}
 	tier := fmt.Sprintf("qianwen_%s_v1:units=%g", upstreamJob.Family, quantity)
 	log := &UsageLog{UserID: upstreamJob.UserID, APIKeyID: upstreamJob.APIKeyID, AccountID: upstreamJob.AccountID, RequestID: upstreamJob.PublicRequestID, Model: billingSnapshot.Model, RequestedModel: billingSnapshot.RequestedModel, UpstreamModel: &billingSnapshot.Model, GroupID: upstreamJob.GroupID, SubscriptionID: billingSnapshot.SubscriptionID, TotalCost: total, ActualCost: actual, RateMultiplier: billingSnapshot.RateMultiplier, AccountRateMultiplier: &billingSnapshot.AccountRateMultiplier, BillingMode: &mode, BillingTier: &tier, PriceSource: &source, PriceCardVersion: &version, RequestType: RequestTypeSync, CreatedAt: time.Now().UTC()}
 	accountCost := total * billingSnapshot.AccountRateMultiplier

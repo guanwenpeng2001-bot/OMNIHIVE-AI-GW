@@ -65,7 +65,7 @@ chmod +x docker-deploy.sh
 ```
 
 **What the script does:**
-- Downloads `docker-compose.local.yml` and `.env.example`
+- Downloads `docker-compose.local.yml` as **`docker-compose.yml`**, plus `.env.example`
 - Automatically generates secure secrets (JWT_SECRET, TOTP_ENCRYPTION_KEY, POSTGRES_PASSWORD)
 - Creates `.env` file with generated secrets
 - Creates necessary data directories (data/, postgres_data/, redis_data/)
@@ -74,13 +74,13 @@ chmod +x docker-deploy.sh
 **After running the script:**
 ```bash
 # Start services
-docker compose -f docker-compose.local.yml up -d
+docker compose up -d
 
 # View logs
-docker compose -f docker-compose.local.yml logs -f sub2api
+docker compose logs -f sub2api
 
 # If admin password was auto-generated, find it in logs:
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 
 # Access Web UI
 # http://localhost:8080
@@ -126,7 +126,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | Local directories (./data, ./postgres_data, ./redis_data) | ✅ Easy (tar entire directory) | Production, need frequent backups/migration |
 | **docker-compose.yml** | Named volumes (/var/lib/docker/volumes/) | ⚠️ Requires docker commands | Simple setup, don't need migration |
 
-**Recommendation:** Use `docker-compose.local.yml` (deployed by `docker-deploy.sh`) for easier data management and migration.
+**Recommendation:** Use the local-directory configuration for easy migration. A manual clone calls it `docker-compose.local.yml`; the preparation script saves the same configuration as `docker-compose.yml`. Use `docker compose` for script installs and `docker compose -f docker-compose.local.yml` for manual local-directory installs, including upgrades, logs, backups and troubleshooting below. The filename alone does not identify the storage type.
 
 ### How Auto-Setup Works
 
@@ -226,7 +226,7 @@ docker compose -f docker-compose.local.yml down
 rm -rf data/ postgres_data/ redis_data/
 ```
 
-For **named volumes version** (docker-compose.yml):
+For **script installs**, or the **named-volumes file from a manual clone** (`docker-compose.yml`):
 
 ```bash
 # Start services
@@ -256,7 +256,7 @@ docker compose down -v
 | `POSTGRES_PASSWORD` | **Yes** | - | PostgreSQL password |
 | `JWT_SECRET` | **Recommended** | *(auto-generated)* | JWT secret (fixed for persistent sessions) |
 | `TOTP_ENCRYPTION_KEY` | **Recommended** | *(auto-generated)* | TOTP encryption key (fixed for persistent 2FA) |
-| `SERVER_PORT` | No | `8080` | Server port |
+| `SERVER_PORT` | No | `8080` | Published host port in Compose; application always listens on container port 8080 |
 | `ADMIN_EMAIL` | No | `admin@sub2api.local` | Admin email |
 | `ADMIN_PASSWORD` | No | *(auto-generated)* | Admin password |
 | `TZ` | No | `Asia/Shanghai` | Timezone |
@@ -266,7 +266,41 @@ docker compose down -v
 | `GEMINI_OAUTH_SCOPES` | No | *(default)* | OAuth scopes (Gemini OAuth) |
 | `GEMINI_QUOTA_POLICY` | No | *(empty)* | JSON overrides for Gemini local quota simulation (Code Assist only). |
 
-See `.env.example` for all available options.
+See `.env.example` for all available options. Docker Compose 2.24 or newer is required.
+
+All four Compose variants load the application's `.env` through `env_file` (optional
+when settings are supplied explicitly). Compose's `.env` interpolation and container
+environment injection are separate: `--env-file /path/custom.env` supplies interpolation
+values but does not replace the service's `.env` file. Keep the application settings in
+`deploy/.env`, or override the service `env_file` when using a different file. Explicit
+`environment` entries take precedence: internal SERVER_HOST/PORT and bundled DB/Redis
+addresses stay fixed; the listed tunables use shell/Compose interpolation. LOG_*, CORS_*,
+LinuxDo/OIDC and other backend options in `.env` now reach the application as well.
+`REDIS_MAXCLIENTS` configures the Redis server command, not the application connection pool.
+
+Default application pools match the backend: PostgreSQL open/idle 256/128 and Redis
+pool/min-idle 1024/128. The bundled PostgreSQL stock `max_connections=100` is a separate
+server ceiling: budget all replicas and maintenance clients before increasing load,
+and explicitly raise that ceiling or reduce application pools to suit your resources.
+H2C defaults to false; enable it explicitly only for a cleartext HTTP/2 client/proxy.
+`GATEWAY_UPSTREAM_RESPONSE_READ_MAX_BYTES=134217728` is the 128 MiB non-stream response
+limit, separate from the 256 MiB global/gateway request limits and 8 MiB model-list limit.
+
+Set `TOTP_ENCRYPTION_KEY` once to 64 hex characters (`openssl rand -hex 32`) and preserve
+it together with the database and `.env` on rebuilds, upgrades and restores. All four
+Compose variants, including standalone, inject the same value. A data volume alone does
+not persist an automatically generated TOTP key; losing or changing it prevents decryption
+of existing 2FA and other data encrypted with that key. Keep `JWT_SECRET` fixed for sessions.
+
+Application container healthchecks use `/health` for liveness. Caddy uses `/ready` to stop
+sending new traffic when dependencies are unavailable or the process is draining; do not
+use dependency readiness as a restart trigger. See [EDGE_SECURITY.md](./EDGE_SECURITY.md)
+for the unchanged security defaults, forwarded-header trust and outbound endpoint risks.
+
+For a source production image use `docker build -f Dockerfile .` from the repository root;
+`deploy/Dockerfile` carries the same runtime section, including `pg_dump` and `psql` from
+PostgreSQL 18, pricing resources and liveness. `Dockerfile.goreleaser` packages the release
+binary with the same PG tools. `backend/Dockerfile` is a development-only backend build.
 
 > **Note:** The `docker-deploy.sh` script automatically generates `JWT_SECRET`, `TOTP_ENCRYPTION_KEY`, and `POSTGRES_PASSWORD` for you.
 

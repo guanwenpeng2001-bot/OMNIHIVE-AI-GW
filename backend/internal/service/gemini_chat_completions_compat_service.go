@@ -51,6 +51,9 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
+	if err := apicompat.PreserveResponsesToolIDs(responsesReq, anthropicReq); err != nil {
+		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+	}
 	anthropicReq.Stream = clientStream
 
 	claudeBody, err := json.Marshal(anthropicReq)
@@ -58,7 +61,7 @@ func (s *GeminiMessagesCompatService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("marshal chat completions compat request: %w", err)
 	}
 
-	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, claudeBody, originalModel, clientStream, includeUsage, startTime, body)
+	return s.forwardClaudeBodyAsChatCompletions(ctx, c, account, claudeBody, originalModel, clientStream, includeUsage, startTime)
 }
 
 func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
@@ -70,7 +73,6 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 	clientStream bool,
 	includeUsage bool,
 	startTime time.Time,
-	originalChatBody []byte,
 ) (*ForwardResult, error) {
 	var req struct {
 		Model  string `json:"model"`
@@ -88,7 +90,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, geminiToolIDProfileForAccount(account))
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -123,26 +125,12 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		}
 		requestIDHeader = idHeader
 
-		resp, err = s.httpUpstream.Do(upstreamReq, proxyURL, account.ID, account.Concurrency)
+		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
-			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-				ProxyID:            opsUpstreamProxyID(account),
-				ProxyName:          opsUpstreamProxyName(account),
-				Platform:           account.Platform,
-				AccountID:          account.ID,
-				AccountName:        account.Name,
-				UpstreamStatusCode: 0,
-				Kind:               "request_error",
-				Message:            safeErr,
-			})
-			if attempt < geminiMaxRetries {
-				logger.LegacyPrintf("service.gemini_chat_completions", "Gemini account %d: upstream request failed, retry %d/%d: %v", account.ID, attempt, geminiMaxRetries, err)
-				sleepGeminiBackoff(attempt)
-				continue
+			if IsAttemptAdmissionError(err) || isClientCanceledTransportError(ctx, err) {
+				return nil, err
 			}
-			setOpsUpstreamError(c, 0, safeErr, "")
-			return nil, s.writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream request failed after retries: "+safeErr)
+			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
 
 		if matched, rebuilt := s.checkErrorPolicyInLoop(ctx, account, resp, mappedModel); matched {
@@ -208,10 +196,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		c.Header("x-request-id", requestID)
 	}
 
-	reasoningEffort := extractCCReasoningEffortFromBody(originalChatBody, mappedModel)
-	// 国产模型默认 effort 补充（本路径上游是 Gemini，不会命中 passback-required）。
-	// 保持与 OpenAI 网关路径调用模式一致，便于未来上游变异时语义一致。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, originalChatBody, mappedModel)
+	reasoningEffort := extractGeminiReasoningEffortFromBody(geminiReq)
 
 	if resp.StatusCode >= 400 {
 		respBody := s.readUpstreamErrorBody(resp)
@@ -491,6 +476,9 @@ func geminiResponseToChatCompletions(
 	rawData []byte,
 	usageOverride *ClaudeUsage,
 ) (*apicompat.ChatCompletionsResponse, *ClaudeUsage, error) {
+	if err := validateGeminiResponseToolIDs(geminiResp); err != nil {
+		return nil, nil, err
+	}
 	claudeRespMap, usage := convertGeminiToClaudeMessage(geminiResp, originalModel, rawData, true)
 	if usageOverride != nil && (usageOverride.InputTokens > 0 || usageOverride.OutputTokens > 0 || usageOverride.CacheReadInputTokens > 0) {
 		usage = usageOverride
@@ -594,6 +582,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	seenText := ""
 	openToolIndex := -1
 	openToolName := ""
+	openToolID := ""
+	seenToolIDs := map[string]bool{}
 	seenToolJSON := ""
 
 	closeOpenBlock := func() bool {
@@ -689,6 +679,15 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 							}
 
 							if fc, ok := part["functionCall"].(map[string]any); ok && fc != nil {
+								activeID, activeName := openToolID, openToolName
+								if openToolIndex < 0 {
+									activeID, activeName = "", ""
+								}
+								if err := validateGeminiStreamToolCall(fc, activeID, activeName, seenToolIDs); err != nil {
+									writeSSE(c.Writer, "error", map[string]any{"error": map[string]any{"type": "upstream_error", "message": err.Error()}})
+									flusher.Flush()
+									return nil, err
+								}
 								name, _ := fc["name"].(string)
 								if strings.TrimSpace(name) == "" {
 									name = "tool"
@@ -696,7 +695,8 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 								if closeOpenBlock() {
 									return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 								}
-								if openToolIndex >= 0 && openToolName != name {
+								wireID, _ := fc["id"].(string)
+								if openToolIndex >= 0 && (wireID == "" || openToolID != wireID || openToolName != name) {
 									if closeOpenTool() {
 										return &geminiStreamResult{usage: &usage, firstTokenMs: firstTokenMs}, nil
 									}
@@ -706,13 +706,14 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 									nextBlockIndex++
 									openToolIndex = idx
 									openToolName = name
+									openToolID = geminiFunctionCallID(fc)
 									sawToolUse = true
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 										Type:  "content_block_start",
 										Index: &idx,
 										ContentBlock: &apicompat.AnthropicContentBlock{
 											Type:  "tool_use",
-											ID:    "toolu_" + randomHex(8),
+											ID:    openToolID,
 											Name:  name,
 											Input: json.RawMessage(`{}`),
 										},

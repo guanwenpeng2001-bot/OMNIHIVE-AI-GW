@@ -117,6 +117,9 @@ type ModelPricing struct {
 	LongContextOutputMultiplier        float64  // 长上下文整次会话输出倍率
 	ImageOutputPricePerToken           float64  // 图片输出 token 价格 (USD)
 	ImageOutputPriceExplicit           bool     // 是否由渠道定价显式设定（为 true 时即使 == 0 也不回退）
+
+	// Non-nil for complete variant cards; absence is distinct from a zero rate.
+	TokenDimensions map[string]bool `json:"token_dimensions,omitempty"`
 }
 
 func normalizeBillingServiceTier(serviceTier string) string {
@@ -280,8 +283,9 @@ var ErrModelPricingUnavailable = errors.New("pricing not found")
 //
 //	https://api-docs.deepseek.com/quick_start/pricing
 //
-// 高峰价 = 2× 低谷价；高峰时段 01:00–04:00 与 06:00–10:00 UTC（仅工作日），
-// 北京时间周六/周日全天低谷。时段判定见 deepseekPeakMultiplierAt。
+// 高峰价 = 2× 低谷价；高峰时段 01:00–04:00 与 06:00–10:00 UTC（周一至周五，
+// 中国法定节假日除外），北京时间周六/周日与法定节假日全天低谷。
+// 时段判定见 deepseekPeakMultiplierAt。
 const (
 	deepseekFlashOffPeakInputPrice  = 1.5e-7  // $0.15 per MTok (cache miss)
 	deepseekFlashOffPeakOutputPrice = 6.0e-7  // $0.60 per MTok
@@ -302,13 +306,17 @@ func isDeepSeekModel(model string) bool {
 }
 
 // deepseekPeakMultiplierAt 返回指定时刻的 DeepSeek 官方峰谷定价因子。
-// 官方口径（2026-08-23 起生效）：高峰价 = 2× 低谷价；高峰时段为
-// 01:00–04:00 与 06:00–10:00 UTC（半开区间），仅工作日；
-// 周末（北京时间周六/周日）全天低谷。北京时间用固定 +8 偏移（无夏令时）。
+// 官方口径（2026-08-23 起生效；2026-09-20 官方价页快照复核）：高峰价 = 2× 低谷价；
+// 高峰时段为 01:00–04:00 与 06:00–10:00 UTC（半开区间），仅周一至周五且
+// 中国法定节假日除外；北京时间周六/周日与法定节假日全天低谷。
+// 北京时间用固定 +8 偏移（无夏令时）。
 func deepseekPeakMultiplierAt(now time.Time) float64 {
 	beijing := now.In(time.FixedZone("Asia/Shanghai", 8*3600))
 	switch beijing.Weekday() {
 	case time.Saturday, time.Sunday:
+		return 1.0
+	}
+	if isDeepSeekChinesePublicHoliday(beijing) {
 		return 1.0
 	}
 	switch h := now.UTC().Hour(); {
@@ -1238,6 +1246,19 @@ func (s *BillingService) GetModelPricing(model string) (*ModelPricing, error) {
 func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*ModelPricing, error) {
 	// 标准化模型名称（转小写）
 	model = strings.ToLower(model)
+	if s.pricingService != nil {
+		variants := s.pricingService.modelPriceVariants(model, "")
+		if len(variants) > 0 {
+			descriptor := &ModelPricingDescriptor{Model: model, Source: PricingSourceLiteLLM, PricingAt: pricingAt, Variants: variants}
+			if err := descriptor.normalizeVariants(); err != nil {
+				return nil, err
+			}
+			if pricing := descriptor.tokenPricing(); pricing != nil {
+				return pricing, nil
+			}
+			return nil, ErrModelPricingUnavailable
+		}
+	}
 
 	// 1. 优先从动态价格服务获取
 	if s.pricingService != nil {
@@ -1247,6 +1268,9 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 			s.pricingService.mu.RLock()
 			litellmPricing = s.pricingService.pricingData[model]
 			s.pricingService.mu.RUnlock()
+		}
+		if litellmPricing != nil && len(litellmPricing.PriceVariants) > 0 {
+			return nil, ErrModelPricingUnavailable
 		}
 		// 仅有图片价、无 token 价的条目（如 LiteLLM 的 imagen 类模型）不能用于
 		// token 计费：直接返回会把 token 流量按 $0 计费。跳过后走 fallback，
@@ -1308,7 +1332,7 @@ func (s *BillingService) getModelPricingAt(model string, pricingAt time.Time) (*
 }
 
 // GetModelPricingWithChannel 获取模型定价，渠道配置的价格覆盖默认值
-// 渠道存在时，未配置的图片输出价格归零（不回退到 LiteLLM）
+// 渠道未配置的图片价格沿用目录价，显式零输出价仍免费。
 func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing *ChannelModelPricing) (*ModelPricing, error) {
 	pricing, err := s.GetModelPricing(model)
 	if err != nil {
@@ -1326,13 +1350,7 @@ func (s *BillingService) GetModelPricingWithChannel(model string, channelPricing
 	if channelPricing.MaxReasoningEffortMultiplier != nil {
 		pricing.MaxReasoningEffortMultiplier = channelPricing.MaxReasoningEffortMultiplier
 	}
-	if channelPricing.ImageOutputPrice != nil {
-		pricing.ImageOutputPricePerToken = *channelPricing.ImageOutputPrice
-	} else {
-		pricing.ImageOutputPricePerToken = 0
-	}
-	pricing.ImageOutputPriceExplicit = true
-	applyChannelImageInputPrice(channelPricing, pricing)
+	applyChannelImagePriceOverrides(channelPricing, pricing)
 	return pricing, nil
 }
 
@@ -1387,6 +1405,9 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 
 // CostInput 统一计费输入
 type CostInput struct {
+	Mode BillingMode // explicit unit for variant price cards
+	// displayProbe omits unused audit serialization, never billing validation.
+	displayProbe              bool
 	Provider                  string // final outbound provider; especially required for Composite
 	ThinkingEnabled           *bool
 	Ctx                       context.Context
@@ -1417,6 +1438,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	if err := validateCostInput(input); err != nil {
 		return nil, err
 	}
+	if input.Resolver == nil && input.Mode != "" {
+		input.Resolver = NewModelPricingResolver(nil, s)
+	}
 
 	if input.Resolver == nil {
 		// 无 Resolver，回退到旧路径
@@ -1442,10 +1466,17 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 	resolved := input.Resolved
 	if resolved == nil {
 		resolved = input.Resolver.Resolve(input.Ctx, PricingInput{
+			Mode:    input.Mode,
 			Model:   input.Model,
 			GroupID: input.GroupID,
 			Group:   input.Group,
 		})
+	}
+	if resolved.pricingErr != nil {
+		return nil, resolved.pricingErr
+	}
+	if input.Mode != "" && resolved.descriptor != nil && input.Mode != resolved.Mode {
+		resolved = resolved.descriptor.resolvePricing(input.Mode)
 	}
 
 	var conditionErr error
@@ -1467,7 +1498,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 		breakdown, err = s.calculateTokenCost(resolved, input)
 	}
 	if err == nil && breakdown != nil {
-		breakdown.PriceSource, breakdown.PriceCardVersion = pricingAuditIdentity(resolved)
+		if !input.displayProbe {
+			breakdown.PriceSource, breakdown.PriceCardVersion = pricingAuditIdentity(resolved)
+		}
 		breakdown.BillingMode = string(resolved.Mode)
 		if breakdown.BillingMode == "" {
 			breakdown.BillingMode = string(BillingModeToken)
@@ -1487,7 +1520,7 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	}
 
 	pricingContext := totalContext
-	if !contextTierPricingEnabled && !(resolved.channelPricing != nil && resolved.channelPricing.NativePricingSource == QianwenPricingSource && len(resolved.channelPricing.Intervals) > 0) {
+	if !contextTierPricingEnabled && (resolved.channelPricing == nil || resolved.channelPricing.NativePricingSource != QianwenPricingSource || len(resolved.channelPricing.Intervals) == 0) {
 		// 渠道可能显式配置了第一档，也可能只配置高上下文档。用 1 token
 		// 选择最低档；未命中时自然回退到渠道基础价。
 		pricingContext = 1
@@ -1495,6 +1528,9 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	pricing := input.Resolver.GetIntervalPricing(resolved, pricingContext)
 	if pricing == nil {
 		return nil, fmt.Errorf("no pricing available for model: %s: %w", input.Model, ErrModelPricingUnavailable)
+	}
+	if err := validateTokenDimensions(pricing, input.Tokens); err != nil {
+		return nil, err
 	}
 
 	// 计费时点：优先请求级 PricingAt（历史补账与 DeepSeek pro→Flash 切换判定
@@ -1506,13 +1542,15 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 
 	// 默认价卡（Source=LiteLLM）应用 DeepSeek 官方价强制覆盖（幂等，GetModelPricing
 	// 内部已强制过）；分组/渠道自定义定价保留运营者配置，不强制覆盖官方价。
-	pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, resolved.Source == PricingSourceLiteLLM, pricingAt)
+	if resolved.descriptor == nil {
+		pricing = s.applyModelSpecificPricingPolicyEx(input.Model, pricing, resolved.Source == PricingSourceLiteLLM, pricingAt)
+	}
 
 	// DeepSeek 模型默认价卡按官方峰谷口径调整：高峰时段（01:00–04:00 与
 	// 06:00–10:00 UTC，仅工作日；北京时间周末全天低谷）按 2× 低谷价计费。
 	// 仅作用于默认价卡（Source=LiteLLM，无分组/渠道自定义定价）——分组/渠道
 	// 自定义定价保持运营者语义，不叠加。先克隆再乘，避免污染共享 fallbackPrices 指针。
-	if resolved.Source == PricingSourceLiteLLM && isDeepSeekModel(input.Model) {
+	if resolved.descriptor == nil && resolved.Source == PricingSourceLiteLLM && isDeepSeekModel(input.Model) {
 		if mult := deepseekPeakMultiplierAt(pricingAt); mult > 1 {
 			cloned := *pricing
 			cloned.InputPricePerToken *= mult
@@ -1528,12 +1566,15 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
-	source, version := pricingAuditIdentity(resolved)
+	var source, version string
+	if !input.displayProbe {
+		source, version = pricingAuditIdentity(resolved)
+	}
 	provider := input.Provider
 	if provider == "" && input.Group != nil {
 		provider = channelLookupPlatform(input.Ctx, input.Group.Platform)
 	}
-	err := freezePricing(breakdown, PricingSnapshot{Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
+	err := freezePricing(breakdown, PricingSnapshot{displayProbe: input.displayProbe, Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
 	return breakdown, err
 }
 
@@ -1603,7 +1644,7 @@ func (s *BillingService) computeTokenBreakdown(
 			imageInputTokens = tokens.InputTokens
 		}
 		imageInputPrice := pricing.ImageInputPricePerToken
-		if imageInputPrice == 0 {
+		if imageInputPrice == 0 && !pricing.TokenDimensions["image_input"] {
 			// 未配置图片输入档时回退到文本 input 价（已含 priority / 长上下文调整）
 			imageInputPrice = inputPrice
 		}
@@ -1633,7 +1674,7 @@ func (s *BillingService) computeTokenBreakdown(
 	bd.CacheCreationCost = s.computeCacheCreationCost(pricing, tokens, cacheCreationPrice, cacheCreationMultiplier)
 
 	bd.CacheReadCost = float64(tokens.CacheReadTokens) * cacheReadPrice
-	if imageCached := min(max(tokens.ImageCacheReadTokens, 0), max(tokens.CacheReadTokens, 0)); imageCached > 0 && pricing.ImageCacheReadPricePerToken > 0 {
+	if imageCached := min(max(tokens.ImageCacheReadTokens, 0), max(tokens.CacheReadTokens, 0)); imageCached > 0 && (pricing.ImageCacheReadPricePerToken > 0 || pricing.TokenDimensions["image_cache_read"]) {
 		bd.CacheReadCost = float64(tokens.CacheReadTokens-imageCached)*cacheReadPrice + float64(imageCached)*pricing.ImageCacheReadPricePerToken
 	}
 
@@ -1657,7 +1698,7 @@ func (s *BillingService) computeTokenBreakdown(
 // computeCacheCreationCost 计算缓存创建费用（支持 5m/1h 分类或标准计费）。
 // multiplier 用于长上下文等场景下的整体价格缩放（普通调用传 1.0 即可）。
 func (s *BillingService) computeCacheCreationCost(pricing *ModelPricing, tokens UsageTokens, price, multiplier float64) float64 {
-	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0) {
+	if pricing.SupportsCacheBreakdown && (pricing.CacheCreation5mPrice > 0 || pricing.CacheCreation1hPrice > 0 || pricing.TokenDimensions["cache_write_1h"]) {
 		cacheCreation5mTokens, cacheCreation1hTokens := normalizeCacheCreationBreakdown(tokens)
 		if cacheCreation5mTokens == 0 && cacheCreation1hTokens == 0 && tokens.CacheCreationTokens > 0 {
 			// API 未返回 ephemeral 明细，回退到全部按 5m 单价计费
@@ -1774,6 +1815,9 @@ func (s *BillingService) calculateCostInternalWithPolicy(
 	}
 
 	if err := validateCostInput(CostInput{Tokens: tokens, RateMultiplier: rateMultiplier}); err != nil {
+		return pricingFailure(err), err
+	}
+	if err := validateTokenDimensions(pricing, tokens); err != nil {
 		return pricingFailure(err), err
 	}
 	breakdown := s.computeTokenBreakdown(pricing, tokens, rateMultiplier, serviceTier, longContextBillingEnabled)
@@ -2095,6 +2139,9 @@ func (s *BillingService) CalculateAudioCost(mode string, durationOrUnits float64
 // groupConfig: 分组配置的价格（可能为 nil，表示使用默认值）
 // rateMultiplier: 费率倍数
 func (s *BillingService) CalculateImageCost(model string, imageSize string, imageCount int, groupConfig *ImagePriceConfig, rateMultiplier float64) *CostBreakdown {
+	if cost, found := s.calculateVariantMediaCost(context.Background(), nil, model, nil, BillingModeImage, float64(imageCount), rateMultiplier); found {
+		return cost
+	}
 	imageSize = NormalizeImageBillingTierOrDefault(imageSize)
 	price := s.getImageUnitPrice(model, imageSize, groupConfig)
 	if math.IsNaN(price) && IsGPTImageGenerationModel(model) {
@@ -2122,6 +2169,9 @@ func (s *BillingService) CalculateVideoCost(model string, resolution string, vid
 	}
 	resolution = NormalizeVideoBillingResolutionOrDefault(resolution)
 	durationSeconds = NormalizeVideoBillingDurationSecondsOrDefault(durationSeconds)
+	if cost, found := s.calculateVariantMediaCost(context.Background(), nil, model, nil, BillingModeVideo, float64(videoCount)*float64(durationSeconds), rateMultiplier); found {
+		return cost
+	}
 	price := s.getVideoUnitPrice(model, resolution, groupConfig)
 	return calculateUnitCost(model, resolution, string(BillingModeVideo), "video_group_or_default", float64(durationSeconds)*float64(videoCount), price, rateMultiplier)
 }

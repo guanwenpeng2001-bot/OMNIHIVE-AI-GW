@@ -58,17 +58,7 @@ func (s *GatewayService) ForwardAsResponses(
 	originalModel := responsesReq.Model
 	clientStream := responsesReq.Stream
 
-	// 3. Convert Responses → Anthropic
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
-	}
-
-	// 3. Force upstream streaming (Anthropic works best with streaming)
-	anthropicReq.Stream = true
-	reqStream := true
-
-	// 4. Model mapping
+	// Resolve the final model before choosing its thinking controls.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
@@ -84,11 +74,19 @@ func (s *GatewayService) ForwardAsResponses(
 			mappedModel = normalized
 		}
 	}
-	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
-	// 国产模型默认 effort 补充：需要 mappedModel 判定，推迟到 mapping 完成之后。
-	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
-	anthropicReq.Model = mappedModel
+	responsesReq.Model = mappedModel
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	if err != nil {
+		writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
 
+	// 3. Force upstream streaming (Anthropic works best with streaming)
+	anthropicReq.Stream = true
+	reqStream := true
+
+	reasoningEffort := ExtractResponsesReasoningEffortFromBody(body, mappedModel, originalModel)
+	reasoningEffort = ApplyThinkingEnabledFallback(reasoningEffort, body, mappedModel)
 	logger.L().Debug("gateway forward_as_responses: model mapping applied",
 		zap.Int64("account_id", account.ID),
 		zap.String("original_model", originalModel),
@@ -138,7 +136,7 @@ func (s *GatewayService) ForwardAsResponses(
 	}
 
 	// 11. Send request
-	resp, err := s.httpUpstream.DoWithTLS(upstreamReq, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.doModelCheckedUpstream(upstreamReq, proxyURL, account, "", s.tlsFPProfileService.ResolveTLSProfile(account))
 	headersReceived()
 	if err != nil {
 		if resp != nil && resp.Body != nil {
@@ -323,17 +321,6 @@ func mergeAnthropicUsage(dst *ClaudeUsage, src apicompat.AnthropicUsage) {
 	if src.OutputTokens > 0 {
 		dst.OutputTokens = src.OutputTokens
 	}
-}
-
-// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
-// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
-// the space after the colon is optional. This function handles both formats.
-func parseAnthropicSSEField(line, field string) (string, bool) {
-	prefix := field + ":"
-	if !strings.HasPrefix(line, prefix) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
 }
 
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from

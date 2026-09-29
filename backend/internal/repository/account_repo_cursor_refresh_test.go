@@ -36,7 +36,8 @@ func TestCursorRefreshCASUsesFullCredentialsAndAtomicOutbox(t *testing.T) {
 				require.Contains(t, query, "FROM updated")
 				require.Equal(t, service.PlatformCursor, exec.execArgs[0][1])
 				require.Equal(t, service.AccountTypeOAuth, exec.execArgs[0][2])
-				require.JSONEq(t, `{"refresh_token":"synthetic-attempt","machine_id":"synthetic-machine","_token_version":9}`, exec.execArgs[0][3].(string))
+				storedJSON, _ := exec.execArgs[0][3].(string)
+				require.JSONEq(t, `{"refresh_token":"synthetic-attempt","machine_id":"synthetic-machine","_token_version":9}`, storedJSON)
 			})
 		}
 	}

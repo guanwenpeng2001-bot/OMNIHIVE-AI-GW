@@ -20,8 +20,14 @@ const (
 	FieldCreatedAt = "created_at"
 	// FieldUpdatedAt holds the string denoting the updated_at field in the database.
 	FieldUpdatedAt = "updated_at"
+	// FieldWorkspaceID holds the string denoting the workspace_id field in the database.
+	FieldWorkspaceID = "workspace_id"
 	// FieldDeletedAt holds the string denoting the deleted_at field in the database.
 	FieldDeletedAt = "deleted_at"
+	// FieldTpmLimit holds the string denoting the tpm_limit field in the database.
+	FieldTpmLimit = "tpm_limit"
+	// FieldAccountType holds the string denoting the account_type field in the database.
+	FieldAccountType = "account_type"
 	// FieldName holds the string denoting the name field in the database.
 	FieldName = "name"
 	// FieldDescription holds the string denoting the description field in the database.
@@ -225,7 +231,10 @@ var Columns = []string{
 	FieldID,
 	FieldCreatedAt,
 	FieldUpdatedAt,
+	FieldWorkspaceID,
 	FieldDeletedAt,
+	FieldTpmLimit,
+	FieldAccountType,
 	FieldName,
 	FieldDescription,
 	FieldRateMultiplier,
@@ -316,14 +325,24 @@ func ValidColumn(column string) bool {
 //
 //	import _ "github.com/Wei-Shaw/sub2api/ent/runtime"
 var (
-	Hooks        [1]ent.Hook
-	Interceptors [1]ent.Interceptor
+	Hooks        [2]ent.Hook
+	Interceptors [2]ent.Interceptor
 	// DefaultCreatedAt holds the default value on creation for the "created_at" field.
 	DefaultCreatedAt func() time.Time
 	// DefaultUpdatedAt holds the default value on creation for the "updated_at" field.
 	DefaultUpdatedAt func() time.Time
 	// UpdateDefaultUpdatedAt holds the default value on update for the "updated_at" field.
 	UpdateDefaultUpdatedAt func() time.Time
+	// DefaultWorkspaceID holds the default value on creation for the "workspace_id" field.
+	DefaultWorkspaceID int64
+	// DefaultTpmLimit holds the default value on creation for the "tpm_limit" field.
+	DefaultTpmLimit int64
+	// TpmLimitValidator is a validator for the "tpm_limit" field. It is called by the builders before save.
+	TpmLimitValidator func(int64) error
+	// DefaultAccountType holds the default value on creation for the "account_type" field.
+	DefaultAccountType string
+	// AccountTypeValidator is a validator for the "account_type" field. It is called by the builders before save.
+	AccountTypeValidator func(string) error
 	// NameValidator is a validator for the "name" field. It is called by the builders before save.
 	NameValidator func(string) error
 	// DefaultRateMultiplier holds the default value on creation for the "rate_multiplier" field.
@@ -454,9 +473,24 @@ func ByUpdatedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldUpdatedAt, opts...).ToFunc()
 }
 
+// ByWorkspaceID orders the results by the workspace_id field.
+func ByWorkspaceID(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldWorkspaceID, opts...).ToFunc()
+}
+
 // ByDeletedAt orders the results by the deleted_at field.
 func ByDeletedAt(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldDeletedAt, opts...).ToFunc()
+}
+
+// ByTpmLimit orders the results by the tpm_limit field.
+func ByTpmLimit(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldTpmLimit, opts...).ToFunc()
+}
+
+// ByAccountType orders the results by the account_type field.
+func ByAccountType(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAccountType, opts...).ToFunc()
 }
 
 // ByName orders the results by the name field.

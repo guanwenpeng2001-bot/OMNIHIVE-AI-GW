@@ -6,7 +6,6 @@ import (
 	"net/http/httptest"
 	"reflect"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 	"unsafe"
@@ -26,7 +25,7 @@ func forceHTTPVersion(t *testing.T, client *req.Client) string {
 }
 
 func TestGetSharedReqClient_ForceHTTP2SeparatesCache(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	base := reqClientOptions{
 		ProxyURL: "http://proxy.local:8080",
 		Timeout:  time.Second,
@@ -44,7 +43,7 @@ func TestGetSharedReqClient_ForceHTTP2SeparatesCache(t *testing.T) {
 }
 
 func TestGetSharedReqClient_ReuseCachedClient(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	opts := reqClientOptions{
 		ProxyURL: "http://proxy.local:8080",
 		Timeout:  2 * time.Second,
@@ -56,26 +55,8 @@ func TestGetSharedReqClient_ReuseCachedClient(t *testing.T) {
 	require.Same(t, first, second)
 }
 
-func TestGetSharedReqClient_IgnoresNonClientCache(t *testing.T) {
-	sharedReqClients = sync.Map{}
-	opts := reqClientOptions{
-		ProxyURL: " http://proxy.local:8080 ",
-		Timeout:  3 * time.Second,
-	}
-	key := buildReqClientKey(opts)
-	sharedReqClients.Store(key, "invalid")
-
-	client, err := getSharedReqClient(opts)
-	require.NoError(t, err)
-
-	require.NotNil(t, client)
-	loaded, ok := sharedReqClients.Load(key)
-	require.True(t, ok)
-	require.IsType(t, "invalid", loaded)
-}
-
 func TestGetSharedReqClient_ImpersonateAndProxy(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	opts := reqClientOptions{
 		ProxyURL:    "  http://proxy.local:8080  ",
 		Timeout:     4 * time.Second,
@@ -85,11 +66,12 @@ func TestGetSharedReqClient_ImpersonateAndProxy(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NotNil(t, client)
-	require.Equal(t, "http://proxy.local:8080|4s|true|false", buildReqClientKey(opts))
+	require.NotContains(t, buildReqClientKey(opts), "proxy.local")
+	require.Len(t, buildReqClientKey(opts), 64)
 }
 
 func TestGetSharedReqClient_InvalidProxyURL(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	opts := reqClientOptions{
 		ProxyURL: "://missing-scheme",
 		Timeout:  time.Second,
@@ -100,7 +82,7 @@ func TestGetSharedReqClient_InvalidProxyURL(t *testing.T) {
 }
 
 func TestGetSharedReqClient_ProxyURLMissingHost(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	opts := reqClientOptions{
 		ProxyURL: "http://",
 		Timeout:  time.Second,
@@ -111,14 +93,14 @@ func TestGetSharedReqClient_ProxyURLMissingHost(t *testing.T) {
 }
 
 func TestCreateOpenAIReqClient_Timeout120Seconds(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	client, err := createOpenAIReqClient("http://proxy.local:8080")
 	require.NoError(t, err)
 	require.Equal(t, 120*time.Second, client.GetClient().Timeout)
 }
 
 func TestCreateGeminiReqClient_ForceHTTP2Disabled(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	client, err := createGeminiReqClient("http://proxy.local:8080")
 	require.NoError(t, err)
 	require.Equal(t, "", forceHTTPVersion(t, client))
@@ -142,10 +124,31 @@ func TestInstrumentReqClientRecordsDependency(t *testing.T) {
 }
 
 func TestGetSharedReqClient_ImpersonateUsesFirefoxFingerprint(t *testing.T) {
-	sharedReqClients = sync.Map{}
+	sharedReqClients = make(map[string]reqClientEntry)
 	client, err := getSharedReqClient(reqClientOptions{Timeout: time.Second, Impersonate: true})
 	require.NoError(t, err)
 	// chatgpt.com 的 Cloudflare 会质询 req 内置的 Chrome/120 伪装，必须保持 Firefox 指纹。
 	require.Contains(t, client.Headers.Get("User-Agent"), "Firefox/")
 	require.NotContains(t, client.Headers.Get("User-Agent"), "Chrome/")
+}
+
+func TestSharedReqPoolCapacityExpiryAndLimits(t *testing.T) {
+	sharedReqClients = make(map[string]reqClientEntry)
+	first, err := getSharedReqClient(reqClientOptions{})
+	require.NoError(t, err)
+	for index := 1; index <= sharedReqClientLimit; index++ {
+		_, err = getSharedReqClient(reqClientOptions{Timeout: time.Duration(index) * time.Second})
+		require.NoError(t, err)
+	}
+	require.Len(t, sharedReqClients, sharedReqClientLimit)
+	require.NotContains(t, sharedReqClients, buildReqClientKey(reqClientOptions{}))
+	key := buildReqClientKey(reqClientOptions{Timeout: time.Second})
+	entry := sharedReqClients[key]
+	entry.lastUsed = time.Now().Add(-sharedReqClientTTL)
+	sharedReqClients[key] = entry
+	_, err = getSharedReqClient(reqClientOptions{Timeout: 2 * time.Second})
+	require.NoError(t, err)
+	require.NotContains(t, sharedReqClients, key)
+	require.Equal(t, 100, first.GetTransport().MaxConnsPerHost)
+	require.Equal(t, 90*time.Second, first.GetTransport().IdleConnTimeout)
 }

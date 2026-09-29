@@ -36,7 +36,6 @@ type GrokOAuthRefreshSuccessRepository interface {
 
 const (
 	defaultRefreshLockTTL                   = 60 * time.Second
-	defaultRefreshLockReleaseTimeout        = 2 * time.Second
 	defaultRefreshPostPersistCleanupTimeout = 2 * time.Second
 )
 
@@ -115,6 +114,11 @@ func snapshotOAuthRefreshAccount(account *Account) *Account {
 	}
 	snapshot := *account
 	snapshot.Credentials = shallowCopyMap(account.Credentials)
+	snapshot.Extra = shallowCopyMap(account.Extra)
+	if account.Proxy != nil {
+		proxy := *account.Proxy
+		snapshot.Proxy = &proxy
+	}
 	if account.ProxyID != nil {
 		proxyID := *account.ProxyID
 		snapshot.ProxyID = &proxyID
@@ -192,7 +196,8 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 
 	// 1. 获取分布式锁
 	if api.tokenCache != nil {
-		acquired, lockErr := api.tokenCache.AcquireRefreshLock(ctx, cacheKey, api.lockTTL)
+		lockOwner := newRefreshLockOwner()
+		acquired, lockErr := api.tokenCache.AcquireRefreshLock(ctx, cacheKey, lockOwner, api.lockTTL)
 		if lockErr != nil {
 			// Redis 错误，降级为无锁刷新（进程内互斥锁仍生效）
 			slog.Warn("oauth_refresh_lock_failed_degraded",
@@ -204,7 +209,7 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			// 锁被其他 worker 持有
 			return &OAuthRefreshResult{LockHeld: true}, nil
 		} else {
-			defer api.releaseRefreshLock(ctx, cacheKey)
+			defer releaseRefreshLock(ctx, api.tokenCache, cacheKey, lockOwner)
 		}
 	}
 
@@ -259,7 +264,11 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 	// 4. 执行平台特定刷新逻辑
 	attemptedAccount := snapshotOAuthRefreshAccount(freshAccount)
 	newCredentials, refreshErr := executor.Refresh(ctx, freshAccount)
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	refreshContextErr := ctx.Err()
+	if deadline, hasDeadline := ctx.Deadline(); refreshContextErr == nil && hasDeadline && !time.Now().Before(deadline) {
+		refreshContextErr = context.DeadlineExceeded
+	}
+	if ctxErr := refreshContextErr; ctxErr != nil {
 		if attemptedAccount.IsCursor() {
 			return api.recordCursorRefreshFailure(ctx, attemptedAccount, ctxErr)
 		}
@@ -361,12 +370,12 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 			// while the provider call was in flight. Return the durable row so
 			// post-refresh cache publication cannot restore that stale snapshot.
 			freshAccount = durableAccount
-		} else if updateErr := persistAccountCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
+		} else if updateErr := persistRuntimeCredentials(ctx, api.accountRepo, freshAccount, newCredentials); updateErr != nil {
 			slog.Error("oauth_refresh_update_failed",
 				"account_id", freshAccount.ID,
 				"error", updateErr,
 			)
-			return nil, fmt.Errorf("%w: %v", errOAuthRefreshCredentialPersist, updateErr)
+			return nil, fmt.Errorf("%w: %w", errOAuthRefreshCredentialPersist, updateErr)
 		}
 	}
 
@@ -381,18 +390,6 @@ func (api *OAuthRefreshAPI) RefreshIfNeeded(
 		NewCredentials: newCredentials,
 		Account:        freshAccount,
 	}, nil
-}
-
-func (api *OAuthRefreshAPI) releaseRefreshLock(parent context.Context, cacheKey string) {
-	cleanupParent := context.Background()
-	if parent != nil {
-		cleanupParent = context.WithoutCancel(parent)
-	}
-	ctx, cancel := context.WithTimeout(cleanupParent, defaultRefreshLockReleaseTimeout)
-	defer cancel()
-	if err := api.tokenCache.ReleaseRefreshLock(ctx, cacheKey); err != nil {
-		slog.Warn("oauth_refresh_lock_release_failed", "cache_key", cacheKey, "error", err)
-	}
 }
 
 func (api *OAuthRefreshAPI) loadGrokDurableAccountAfterPersist(parent context.Context, cacheKey string, accountID int64) (*Account, error) {

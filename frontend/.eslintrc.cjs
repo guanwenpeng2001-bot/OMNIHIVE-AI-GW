@@ -18,6 +18,16 @@ module.exports = {
     "plugin:vue/vue3-essential",
     "plugin:@typescript-eslint/recommended",
   ],
+  reportUnusedDisableDirectives: true,
+  overrides: [{
+    files: ["src/types/**/*.ts", "src/api/**/*.ts", "src/views/KeyUsageView.vue", "src/components/admin/account/AccountTestModal.vue"],
+    excludedFiles: ["**/__tests__/**", "**/*.spec.ts"],
+    rules: {
+      "@typescript-eslint/no-explicit-any": "error",
+      "@typescript-eslint/ban-ts-comment": "error",
+      "@typescript-eslint/ban-types": "error",
+    },
+  }],
   rules: {
     "no-constant-condition": "off",
     "no-mixed-spaces-and-tabs": "off",

@@ -1,3 +1,4 @@
+import { formatLedgerAmount } from './money'
 import type { UsageLog, UsagePricingSnapshot } from '@/types'
 
 type Translate = (key: string) => string
@@ -30,10 +31,10 @@ export function billingExplanationValues(log: UsageLog, t: Translate): string[] 
   return [
     state(e?.pricing_state), state(e?.settlement_state), state(e?.completion_state),
     s?.source || e?.price_source || unknown, s?.price_card_version || e?.price_card_version || unknown, conditions,
-    s ? (s.token_prices ? JSON.stringify(s.tokens) : String(s.units ?? 0)) : unknown,
+    s ? (s.token_prices ? JSON.stringify(s.tokens) : (s.units == null ? unknown : String(s.units))) : unknown,
     s ? t(`usage.evidence.units.${pricingUnit(s)}`) : unknown,
     s ? (s.unit_price != null ? String(s.unit_price) : s.token_prices ? JSON.stringify(s.token_prices) : unknown) : unknown,
-    s?.charged_amount != null ? s.charged_amount.toFixed(8) : unknown,
+    s?.charged_amount != null ? formatLedgerAmount(s.charged_amount) : unknown,
     log.request_id || unknown, e?.job_id || unknown, e?.session_id || log.session_id || unknown,
     e?.turn_id || unknown, s ? JSON.stringify(s) : unknown,
   ]

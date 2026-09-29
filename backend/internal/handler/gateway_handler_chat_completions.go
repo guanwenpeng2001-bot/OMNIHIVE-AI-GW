@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +75,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "chat_completions", h.maxAccountSwitches)()
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
@@ -136,11 +136,14 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	// 2. Re-check billing
 	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
 		reqLog.Info("gateway.cc.billing_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.chatCompletionsErrorResponse(c, status, code, message)
+		return
+	}
+
+	// Period budget hold: insufficient budget is rejected before the upstream.
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
 		return
 	}
 
@@ -155,7 +158,7 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}
-	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsedReq, "")
 	groupPlatform := effectiveAPIKeyPlatform(c, apiKey)
 	selectionSessionHash := sessionHash
 	if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
@@ -168,11 +171,15 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 	}
 
 	for {
-		if c.Request.Context().Err() != nil {
+		if failoverClientGone(c) {
 			return
 		}
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
+			if failoverClientGone(c) {
+				reqLog.Info("gateway.cc.account_select_aborted_client_disconnected", zap.Error(err))
+				return
+			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, groupPlatform)
 				cls = classifySelectionFailureError(err, cls)
@@ -345,6 +352,9 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 			if result != nil && c.Writer.Size() > writerSizeBeforeForward &&
 				(result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
 				submitUsage()
+			}
+			if writeGatewayTPMRequestError(c, err) {
+				return
 			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"net/http"
-	"strconv"
 	"strings"
 	"time"
 
@@ -76,6 +75,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		return
 	}
 	reqModel := modelResult.String()
+	defer beginGatewayRequestPlan(c, h.gatewayService, apiKey, reqModel, "responses", h.maxAccountSwitches)()
 	bindRequestedReasoningEffort(c, body, reqModel)
 	ensureCompositeTargetPlatform(c, apiKey, reqModel)
 	if !compositeTargetPlatformResolved(c, apiKey, reqModel) {
@@ -152,11 +152,14 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 	// 2. Re-check billing
 	if err := h.billingCacheService.CheckBillingEligibility(requestCtx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(requestCtx, apiKey)); err != nil {
 		reqLog.Info("gateway.responses.billing_check_failed", zap.Error(err))
-		status, code, message, retryAfter := billingErrorDetails(err)
-		if retryAfter > 0 {
-			c.Header("Retry-After", strconv.Itoa(retryAfter))
-		}
+		status, code, message, _ := billingErrorDetails(err)
+		writeAdmissionRejectionHeaders(c, err)
 		h.responsesErrorResponse(c, status, code, message)
+		return
+	}
+
+	// Period budget hold: insufficient budget is rejected before the upstream.
+	if !reserveGatewayRequestBudget(c, apiKey, reqModel, body) {
 		return
 	}
 
@@ -171,17 +174,21 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		UserAgent: c.GetHeader("User-Agent"),
 		APIKeyID:  apiKey.ID,
 	}
-	sessionHash := h.gatewayService.GenerateSessionHash(parsedReq)
+	sessionHash := h.gatewayService.GenerateRequestSessionHash(c.Request.Context(), parsedReq, "")
 
 	// 3. Account selection + failover loop
 	fs := NewFailoverState(h.maxAccountSwitches, false)
 
 	for {
-		if requestCtx.Err() != nil {
+		if failoverClientGone(c) {
 			return
 		}
 		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
+			if failoverClientGone(c) {
+				reqLog.Info("gateway.responses.account_select_aborted_client_disconnected", zap.Error(err))
+				return
+			}
 			if len(fs.FailedAccountIDs) == 0 {
 				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, effectiveAPIKeyPlatform(c, apiKey))
 				cls = classifySelectionFailureError(err, cls)
@@ -336,6 +343,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if err != nil {
 			if result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
 				recordUsage()
+			}
+			if writeGatewayTPMRequestError(c, err) {
+				return
 			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {

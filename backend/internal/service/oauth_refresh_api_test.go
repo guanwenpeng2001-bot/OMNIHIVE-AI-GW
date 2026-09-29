@@ -149,6 +149,8 @@ func (e *refreshAPIExecutorStub) CacheKey(account *Account) string {
 
 // refreshAPICacheStub implements GeminiTokenCache for OAuthRefreshAPI tests.
 type refreshAPICacheStub struct {
+	lockOwner     string
+	releasedOwner string
 	lockResult    bool
 	lockErr       error
 	releaseCalls  int
@@ -173,17 +175,39 @@ func (c *refreshAPICacheStub) DeleteAccessToken(ctx context.Context, key string)
 	return nil
 }
 
-func (c *refreshAPICacheStub) AcquireRefreshLock(context.Context, string, time.Duration) (bool, error) {
+func (c *refreshAPICacheStub) AcquireRefreshLock(_ context.Context, _ string, owner string, _ time.Duration) (bool, error) {
+	c.lockOwner = owner
 	return c.lockResult, c.lockErr
 }
 
-func (c *refreshAPICacheStub) ReleaseRefreshLock(ctx context.Context, _ string) error {
+func (c *refreshAPICacheStub) ReleaseRefreshLock(ctx context.Context, _ string, owner string) error {
+	c.releasedOwner = owner
 	c.releaseCalls++
 	c.releaseCtxErr = ctx.Err()
 	return nil
 }
 
 // ========== RefreshIfNeeded tests ==========
+
+func TestRefreshIfNeeded_UsesNewOwnerForEachLockAttempt(t *testing.T) {
+	account := &Account{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive}
+	cache := &refreshAPICacheStub{lockResult: true}
+	api := NewOAuthRefreshAPI(&refreshAPIAccountRepo{account: account}, cache)
+	executor := &refreshAPIExecutorStub{}
+
+	_, err := api.RefreshIfNeeded(context.Background(), account, executor, time.Minute)
+	require.NoError(t, err)
+	firstOwner := cache.lockOwner
+	require.NotEmpty(t, firstOwner)
+	require.Equal(t, firstOwner, cache.releasedOwner)
+
+	_, err = api.RefreshIfNeeded(context.Background(), account, executor, time.Minute)
+	require.NoError(t, err)
+	require.NotEmpty(t, cache.lockOwner)
+	require.NotEqual(t, firstOwner, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
+	require.Equal(t, 2, cache.releaseCalls)
+}
 
 func TestRefreshIfNeeded_Success(t *testing.T) {
 	account := &Account{ID: 1, Platform: PlatformAnthropic, Type: AccountTypeOAuth, Status: StatusActive}
@@ -204,6 +228,8 @@ func TestRefreshIfNeeded_Success(t *testing.T) {
 	require.NotNil(t, result.NewCredentials["_token_version"]) // version stamp set
 	require.Equal(t, 1, repo.updateCalls)                      // DB updated
 	require.Equal(t, 1, repo.updateCredentialsCalls)
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls) // lock released
 	require.Equal(t, 1, executor.refreshCalls)
 }
@@ -319,7 +345,9 @@ func TestRefreshIfNeeded_RefreshError(t *testing.T) {
 	require.NotNil(t, result.Account)
 	require.Equal(t, account.ID, result.Account.ID)
 	require.Contains(t, err.Error(), "invalid_grant")
-	require.Equal(t, 0, repo.updateCalls)   // no DB update on refresh error
+	require.Equal(t, 0, repo.updateCalls) // no DB update on refresh error
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls) // lock still released via defer
 }
 
@@ -482,6 +510,8 @@ func TestRefreshIfNeeded_DBRereadFails(t *testing.T) {
 	require.Nil(t, result)
 	require.Zero(t, executor.refreshCalls, "a failed DB reread must not refresh stale credentials")
 	require.Zero(t, repo.updateCalls)
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls)
 }
 
@@ -498,6 +528,8 @@ func TestRefreshIfNeeded_RequestPathDBRereadNilFailsClosed(t *testing.T) {
 	require.Nil(t, result)
 	require.Zero(t, executor.refreshCalls)
 	require.Zero(t, repo.updateCalls)
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls)
 }
 
@@ -576,6 +608,8 @@ func TestRefreshIfNeeded_ReleasesDistributedLockAfterParentCancellation(t *testi
 	_, err := api.RefreshIfNeeded(ctx, account, executor, time.Hour)
 
 	require.Error(t, err)
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls)
 	require.NoError(t, cache.releaseCtxErr, "lock cleanup must not reuse the canceled attempt context")
 }
@@ -1007,6 +1041,8 @@ func TestRefreshIfNeeded_ReleasesDistributedLockWithCleanupContext(t *testing.T)
 	require.Zero(t, repo.updateCalls)
 	require.Equal(t, "old-access", account.GetGrokAccessToken())
 	require.Zero(t, account.GetCredentialAsInt64("_token_version"))
+	require.NotEmpty(t, cache.lockOwner)
+	require.Equal(t, cache.lockOwner, cache.releasedOwner)
 	require.Equal(t, 1, cache.releaseCalls)
 	require.NoError(t, cache.releaseCtxErr)
 }
@@ -1106,4 +1142,23 @@ func TestAntigravityProviderRefreshPolicy(t *testing.T) {
 	require.Equal(t, ProviderRefreshErrorReturn, p.OnRefreshError)
 	require.Equal(t, ProviderLockHeldUseExistingToken, p.OnLockHeld)
 	require.Equal(t, time.Duration(0), p.FailureTTL)
+}
+
+// Models the interval between the deadline timestamp and delivery of the
+// context timer callback; no scheduler timing or sleeping is involved.
+type refreshExpiredDeadlineContext struct{ context.Context }
+
+func (refreshExpiredDeadlineContext) Deadline() (time.Time, bool) { return time.Unix(1, 0), true }
+
+func TestRefreshIfNeeded_ExpiredDeadlineBeforeCancellationCallbackDoesNotPersist(t *testing.T) {
+	account := &Account{ID: 86, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive, Credentials: map[string]any{"access_token": "before"}}
+	repository := &refreshAPIAccountRepo{account: account}
+	executor := &refreshAPIExecutorStub{needsRefresh: true, credentials: map[string]any{"access_token": "late-token"}}
+	ctx := refreshExpiredDeadlineContext{Context: context.Background()}
+	require.NoError(t, ctx.Err())
+	result, err := NewOAuthRefreshAPI(repository, nil).RefreshIfNeeded(ctx, account, executor, time.Hour)
+	t.Logf("credentials writes: %d", repository.updateCredentialsCalls)
+	require.ErrorIs(t, err, context.DeadlineExceeded)
+	require.Nil(t, result)
+	require.Zero(t, repository.updateCredentialsCalls)
 }

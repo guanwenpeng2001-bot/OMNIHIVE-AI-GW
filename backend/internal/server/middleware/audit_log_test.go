@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -57,7 +59,9 @@ func (r *auditCaptureRepository) GetByID(context.Context, int64) (*service.Audit
 	return nil, service.ErrAuditLogNotFound
 }
 func (r *auditCaptureRepository) Count(context.Context) (int64, error) { return 0, nil }
-func (r *auditCaptureRepository) TruncateAll(context.Context) error    { return nil }
+func (r *auditCaptureRepository) ClearWithTrace(context.Context, *service.AuditLog) (int64, error) {
+	return 0, nil
+}
 func (r *auditCaptureRepository) DeleteBefore(context.Context, time.Time, int) (int64, error) {
 	return 0, nil
 }
@@ -187,4 +191,57 @@ func TestOllamaCloudUsageSessionRouteOmitsAuditBody(t *testing.T) {
 	require.Len(t, logs, 1)
 	require.Equal(t, "<credential-bearing body omitted>", logs[0].RequestBody)
 	require.NotContains(t, logs[0].RequestBody, "audit-canary")
+}
+
+// 配置写动作的加法审计证据：submitted_diff 只含字段名与脱敏标记、workspace_id
+// 落入 extra，actor 通过请求上下文传给下游（仓储层写审计行时读取同一身份）。
+func TestConfigurationWriteAuditRecordsSubmittedDiffWorkspaceAndActor(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	auditService := service.NewAuditLogService(repository, nil)
+	auditService.Start()
+
+	var handlerActor service.ConfigurationAuditActor
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Request = c.Request.WithContext(domain.WithWorkspaceScope(c.Request.Context(), 3))
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(auditService)))
+	router.PUT("/api/v1/admin/accounts/:id", func(c *gin.Context) {
+		handlerActor = service.ConfigurationActor(c.Request.Context())
+		c.JSON(http.StatusOK, gin.H{"ok": true})
+	})
+
+	request := httptest.NewRequest(http.MethodPut, "/api/v1/admin/accounts/7",
+		bytes.NewBufferString(`{"name":"renamed","credentials":{"api_key":"audit-canary-key"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request = request.WithContext(context.WithValue(request.Context(), ctxkey.RequestID, "req-config-write-1"))
+	recorder := httptest.NewRecorder()
+	router.ServeHTTP(recorder, request)
+	require.Equal(t, http.StatusOK, recorder.Code)
+	auditService.Stop()
+
+	require.Equal(t, int64(77), handlerActor.UserID)
+	require.Equal(t, "admin", handlerActor.Role)
+	require.Equal(t, "req-config-write-1", handlerActor.RequestID)
+
+	repository.mu.Lock()
+	logs := append([]*service.AuditLog(nil), repository.logs...)
+	repository.mu.Unlock()
+	require.Len(t, logs, 1)
+	entry := logs[0]
+	require.EqualValues(t, 3, entry.Extra["workspace_id"])
+	submitted, ok := entry.Extra["submitted_diff"].([]service.ConfigurationFieldDiff)
+	require.True(t, ok, "submitted_diff must be recorded for configuration writes")
+	fields := make([]string, 0, len(submitted))
+	for _, change := range submitted {
+		fields = append(fields, change.Field)
+		require.Equal(t, "submitted", change.Operation)
+		require.NotContains(t, change.After, "audit-canary")
+	}
+	require.Contains(t, fields, "name")
+	require.Contains(t, fields, "credentials")
 }

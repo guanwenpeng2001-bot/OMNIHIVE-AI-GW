@@ -2,7 +2,7 @@
   <AppLayout>
     <div class="mx-auto max-w-lg space-y-6 py-8">
       <div v-if="loading" class="flex items-center justify-center py-20">
-        <div class="h-8 w-8 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent"></div>
+        <LoadingSpinner size="md" color="primary" />
       </div>
 
       <div v-else-if="errorMessage" class="card p-8 text-center">
@@ -16,7 +16,7 @@
 
       <div v-else class="card p-6">
         <div class="flex flex-col items-center space-y-4 py-4">
-          <div class="h-10 w-10 animate-spin rounded-full border-4 border-emerald-500 border-t-transparent"></div>
+          <LoadingSpinner size="md" color="primary" />
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.payInNewWindowHint') }}</p>
         </div>
       </div>
@@ -25,14 +25,17 @@
 </template>
 
 <script setup lang="ts">
+import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
+import { paymentPageIdentity } from '@/components/payment/paymentRoute'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import {
   PAYMENT_RECOVERY_STORAGE_KEY,
-  readPaymentRecoverySnapshot,
+  usePaymentPageLifecycle,
+  readOwnedPaymentRecoverySnapshot,
   type PaymentRecoverySnapshot,
 } from '@/components/payment/paymentFlow'
 
@@ -42,6 +45,7 @@ const router = useRouter()
 
 const loading = ref(true)
 const errorMessage = ref('')
+const lifecycle = usePaymentPageLifecycle(() => paymentPageIdentity(route, 'airwallex'))
 
 function queryString(key: string): string {
   const value = route.query[key]
@@ -69,7 +73,7 @@ function restoreAirwallexSnapshot(): PaymentRecoverySnapshot | null {
   const orderId = Number(queryString('order_id')) || 0
   const outTradeNo = queryString('out_trade_no')
   const resumeToken = queryString('resume_token')
-  const snapshot = readPaymentRecoverySnapshot(
+  const snapshot = readOwnedPaymentRecoverySnapshot(
     window.localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY),
     resumeToken ? { resumeToken } : {},
   )
@@ -99,13 +103,22 @@ onMounted(async () => {
     return
   }
 
+  const isCurrentSnapshot = () => {
+    if (!lifecycle.isCurrent()) return false
+    const current = restoreAirwallexSnapshot()
+    return current?.ownerUserId === snapshot.ownerUserId && current?.orderId === snapshot.orderId
+  }
+
   try {
     const airwallex = await import('@airwallex/components-sdk')
+    if (!isCurrentSnapshot()) return
     const result = await airwallex.init({
       env: snapshot.paymentEnv === 'prod' ? 'prod' : 'demo',
       enabledElements: ['payments'],
       locale: checkoutLocale,
     })
+
+    if (!isCurrentSnapshot()) return
 
     loading.value = false
     const checkoutOptions = {
@@ -124,6 +137,7 @@ onMounted(async () => {
       window.location.assign(redirectResult)
     }
   } catch (err: unknown) {
+    if (!isCurrentSnapshot()) return
     loading.value = false
     errorMessage.value = err instanceof Error && err.message
       ? err.message

@@ -207,7 +207,7 @@ func (l *openAIWSConnLease) WriteJSONWithContextTimeout(ctx context.Context, val
 	if err != nil {
 		return err
 	}
-	return conn.writeJSONWithTimeout(ctx, value, timeout)
+	return generationWS(ctx, l.accountID, value, func(ctx context.Context) error { return conn.writeJSONWithTimeout(ctx, value, timeout) })
 }
 
 func (l *openAIWSConnLease) WriteJSONContext(ctx context.Context, value any) error {
@@ -215,7 +215,7 @@ func (l *openAIWSConnLease) WriteJSONContext(ctx context.Context, value any) err
 	if err != nil {
 		return err
 	}
-	return conn.writeJSON(value, ctx)
+	return generationWS(ctx, l.accountID, value, func(ctx context.Context) error { return conn.writeJSON(value, ctx) })
 }
 
 func (l *openAIWSConnLease) ReadMessage(timeout time.Duration) ([]byte, error) {

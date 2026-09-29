@@ -93,7 +93,7 @@ func (s *CNProviderQuotaService) queryCommandCodeUsage(ctx context.Context, acco
 		if err != nil {
 			return nil, err
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 		result.StatusCode = resp.StatusCode
 		body, err := io.ReadAll(io.LimitReader(resp.Body, cnQuotaMaxBodyBytes+1))
 		if err != nil || len(body) > cnQuotaMaxBodyBytes || resp.StatusCode != http.StatusOK || !gjson.ValidBytes(body) {

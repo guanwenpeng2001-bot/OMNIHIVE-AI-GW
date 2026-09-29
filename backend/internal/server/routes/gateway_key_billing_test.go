@@ -44,7 +44,8 @@ func (r *keyBillingRouteRateRepo) GetRPMOverrideByUserAndGroup(context.Context, 
 	return nil, nil
 }
 
-func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRouteRateRepo, string) {
+func newKeyBillingRouteTestRouter(t *testing.T, runMode string) (*gin.Engine, *keyBillingRouteRateRepo, string) {
+	t.Helper()
 	gin.SetMode(gin.TestMode)
 	group := &service.Group{
 		ID:               42,
@@ -90,7 +91,9 @@ func newKeyBillingRouteTestRouter(runMode string) (*gin.Engine, *keyBillingRoute
 
 	router := gin.New()
 	if web.HasEmbeddedFrontend() {
-		router.Use(web.ServeEmbeddedFrontend())
+		serveFrontend, err := web.ServeEmbeddedFrontend()
+		require.NoError(t, err)
+		router.Use(serveFrontend)
 	}
 	RegisterGatewayRoutes(
 		router,
@@ -120,7 +123,7 @@ func TestGatewayRoutesKeyBillingInfoPathIsRegistered(t *testing.T) {
 
 func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 	t.Run("missing credentials", func(t *testing.T) {
-		router, rateRepo, _ := newKeyBillingRouteTestRouter(config.RunModeStandard)
+		router, rateRepo, _ := newKeyBillingRouteTestRouter(t, config.RunModeStandard)
 		w := httptest.NewRecorder()
 
 		router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/v1/sub2api/billing", nil))
@@ -132,7 +135,7 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 	})
 
 	t.Run("standard mode", func(t *testing.T) {
-		router, rateRepo, key := newKeyBillingRouteTestRouter(config.RunModeStandard)
+		router, rateRepo, key := newKeyBillingRouteTestRouter(t, config.RunModeStandard)
 		req := httptest.NewRequest(http.MethodGet, "/v1/sub2api/billing", nil)
 		req.Header.Set("Authorization", "Bearer "+key)
 		w := httptest.NewRecorder()
@@ -151,7 +154,7 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 	})
 
 	t.Run("simple mode", func(t *testing.T) {
-		router, rateRepo, key := newKeyBillingRouteTestRouter(config.RunModeSimple)
+		router, rateRepo, key := newKeyBillingRouteTestRouter(t, config.RunModeSimple)
 		req := httptest.NewRequest(http.MethodGet, "/v1/sub2api/billing", nil)
 		req.Header.Set("x-api-key", key)
 		w := httptest.NewRecorder()
@@ -162,8 +165,8 @@ func TestGatewayRoutesKeyBillingInfoEndToEnd(t *testing.T) {
 		require.Contains(t, w.Header().Get("Content-Type"), "application/json")
 		require.NotContains(t, strings.ToLower(w.Body.String()), "<!doctype html>")
 		require.JSONEq(t, `{
-			"type": "error",
 			"error": {
+				"code": "not_found_error", "param": null,
 				"type": "not_found_error",
 				"message": "Billing information is not supported in simple mode"
 			}

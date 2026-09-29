@@ -857,10 +857,43 @@ func TestRequireGroupAssignmentMarksUngroupedKeyBusinessLimited(t *testing.T) {
 
 	require.Equal(t, http.StatusForbidden, w.Code)
 	require.Contains(t, w.Body.String(), "not assigned to any group")
+	require.Contains(t, w.Body.String(), "console's API Keys page")
+	require.Contains(t, w.Body.String(), "控制台「API 密钥」页")
 	require.True(t, rejected)
 	require.Equal(t, IngressRejectGroupUnassigned, rejectReason)
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnassigned, businessLimitedReason)
+}
+
+func TestRequireGroupAssignmentProtocolHints(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for name, writer := range map[string]GatewayErrorWriter{
+		"anthropic": AnthropicErrorWriter,
+		"google":    GoogleErrorWriter,
+		"openai":    OpenAIErrorWriter,
+	} {
+		t.Run(name, func(t *testing.T) {
+			settings := service.NewSettingService(fakeSettingRepo{values: map[string]string{
+				service.SettingKeyAllowUngroupedKeyScheduling: "false",
+			}}, &config.Config{})
+			router := gin.New()
+			router.Use(func(c *gin.Context) {
+				c.Set(string(ContextKeyAPIKey), &service.APIKey{ID: 100})
+			})
+			router.Use(RequireGroupAssignment(settings, writer))
+			router.GET("/t", func(c *gin.Context) { t.Error("ungrouped request reached handler") })
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/t", nil))
+			require.Equal(t, http.StatusForbidden, w.Code)
+			var body struct {
+				Error struct {
+					Message string `json:"message"`
+				} `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			require.Equal(t, APIKeyGroupUnassignedMessage, body.Error.Message)
+		})
+	}
 }
 
 func TestAPIKeyAuthIPRestrictionUsesTrustedPathWhenSwitchDisabled(t *testing.T) {
@@ -921,7 +954,7 @@ func TestAPIKeyAuthIPRestrictionUsesTrustedPathWhenSwitchDisabled(t *testing.T) 
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusForbidden, w.Code)
-	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 9.9.9.9")
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied")
 	require.True(t, markedBusinessLimited)
 	require.Equal(t, service.OpsClientBusinessLimitedReasonIPRestriction, businessLimitedReason)
 }
@@ -971,7 +1004,7 @@ func TestAPIKeyAuthIPRestrictionIncludesClientIPForBlacklistDenial(t *testing.T)
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusForbidden, w.Code)
-	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 9.9.9.9")
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied")
 }
 
 func TestAPIKeyAuthIPRestrictionUsesConfiguredTrustedProxy(t *testing.T) {
@@ -1074,7 +1107,7 @@ func TestAPIKeyAuthIPRestrictionUsesForwardedClientIPInDenialWhenTrusted(t *test
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusForbidden, w.Code)
-	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied. Your IP is 1.2.3.4")
+	requireAPIKeyAuthError(t, w, "ACCESS_DENIED", "Access denied")
 }
 
 func TestAPIKeyAuthTouchesLastUsedOnSuccess(t *testing.T) {
@@ -1423,8 +1456,8 @@ func TestAPIKeyAuthRejectsExhaustedBalance(t *testing.T) {
 	req.Header.Set("x-api-key", apiKey.Key)
 	router.ServeHTTP(w, req)
 
-	require.Equal(t, http.StatusForbidden, w.Code)
-	requireAPIKeyAuthError(t, w, "INSUFFICIENT_BALANCE", "Insufficient account balance")
+	require.Equal(t, http.StatusTooManyRequests, w.Code)
+	requireAPIKeyAuthError(t, w, "insufficient_quota", "Insufficient account balance")
 }
 
 func TestAPIKeyAuthOpenAIQuotaErrorFormat(t *testing.T) {
@@ -1463,7 +1496,7 @@ func TestAPIKeyAuthOpenAIQuotaErrorFormat(t *testing.T) {
 		} `json:"error"`
 	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &response))
-	require.Equal(t, "API key 额度已用完", response.Error.Message)
+	require.Equal(t, "API key quota exhausted", response.Error.Message)
 	require.Equal(t, "insufficient_quota", response.Error.Type)
 	require.Nil(t, response.Error.Param)
 	require.Equal(t, "insufficient_quota", response.Error.Code)
@@ -1496,7 +1529,7 @@ func TestAPIKeyAuthQuotaErrorKeepsLegacyFormatOutsideResponses(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	require.Equal(t, http.StatusTooManyRequests, w.Code)
-	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "API key 额度已用完")
+	requireAPIKeyAuthError(t, w, "API_KEY_QUOTA_EXHAUSTED", "API key quota exhausted")
 }
 
 func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) *gin.Engine {
@@ -1516,10 +1549,15 @@ func newAuthTestRouter(apiKeyService *service.APIKeyService, subscriptionService
 func requireAPIKeyAuthError(t *testing.T, w *httptest.ResponseRecorder, code, message string) {
 	t.Helper()
 
-	var resp ErrorResponse
+	var resp struct {
+		Error struct {
+			Code    string `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, code, resp.Code)
-	require.Equal(t, message, resp.Message)
+	require.Equal(t, code, resp.Error.Code)
+	require.Equal(t, message, resp.Error.Message)
 }
 
 type stubApiKeyRepo struct {

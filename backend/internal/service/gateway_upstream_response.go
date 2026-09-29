@@ -695,7 +695,7 @@ func partialStreamUsageResult(c *gin.Context, resp *http.Response, streamResult 
 		Stream:                        true,
 		Duration:                      time.Since(startTime),
 		FirstTokenMs:                  streamResult.firstTokenMs,
-		ClientDisconnect:              streamResult.clientDisconnect,
+		ClientDisconnect:              streamResult.clientDisconnect || err != nil,
 	}
 }
 
@@ -843,7 +843,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	}
 
 	needModelReplace := originalModel != mappedModel
-	clientDisconnected := false // 客户端断开标志，断开后继续读取上游以获取完整usage
+	clientDisconnected := false // Preserve only usage observed before cancellation.
 	sawTerminalEvent := false
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
 	noopDeltaKeepaliveBlockIndex := -1
@@ -1012,8 +1012,14 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		return []string{block}, string(newData), usagePatch, nil
 	}
 
+	defer func() { _ = resp.Body.Close() }()
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				// 上游完成，返回结果
@@ -1041,27 +1047,14 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
 				}
 				// 上游中途读错误（unexpected EOF / connection reset 等，常见于 HTTP/2 GOAWAY）：
-				// 若尚未向客户端写过任何字节，包成 UpstreamFailoverError 让 handler 层走 failover/重试。
+				// 即使尚未输出语义内容，读错误也不能证明生成没有副作用。
 				// 已经开始写流时 SSE 协议无 resume，只能透传错误事件给客户端。
 				// 注意:面向客户端的 disconnectMsg 必须用 sanitizeStreamError 剥离地址,
 				// 默认 *net.OpError 的 Error() 会泄露内部 IP/端口和上游地址。完整 ev.err
 				// 仅在下方 LegacyPrintf 内部日志中保留供运维诊断。
 				disconnectMsg := "upstream stream disconnected: " + sanitizeStreamError(ev.err)
-				if !c.Writer.Written() {
-					logger.LegacyPrintf("service.gateway", "Upstream stream read error before any client output (account=%d), failing over: %v", account.ID, ev.err)
-					body, _ := json.Marshal(map[string]any{
-						"type": "error",
-						"error": map[string]string{
-							"type":    "upstream_disconnected",
-							"message": disconnectMsg,
-						},
-					})
-					return nil, &UpstreamFailoverError{
-						StatusCode:             http.StatusBadGateway,
-						ResponseBody:           body,
-						RetryableOnSameAccount: true,
-					}
-				}
+				// A successful send followed by EOF has unknown upstream effects.
+				// Heartbeats alone cannot establish that replay is safe.
 				sendErrorEvent("stream_read_error", disconnectMsg)
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
@@ -1079,7 +1072,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					if clientDisconnected {
 						return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, nil
 					}
-					return nil, err
+					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 
 				for _, block := range outputBlocks {
@@ -1087,10 +1080,8 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						restored := reverseToolNamesIfPresent(c, []byte(block))
 						if _, werr := fmt.Fprint(w, string(restored)); werr != nil {
 							clientDisconnected = true
-							logger.LegacyPrintf("service.gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
-							// 不 break：客户端断开后仍需继续合并本事件及后续事件的 usage，
-							// 否则会漏计当前事件携带的 usage 导致少计费。后续写入由
-							// clientDisconnected 守卫跳过。
+							logger.LegacyPrintf("service.gateway", "Client disconnected during streaming, canceling upstream and preserving observed usage")
+							// Merge usage from this already-observed event before stopping.
 						} else {
 							flusher.Flush()
 							lastDataAt = time.Now()
@@ -1098,7 +1089,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						}
 					}
 					if data != "" {
-						if firstTokenMs == nil && data != "[DONE]" {
+						if firstTokenMs == nil && data != "[DONE]" && !IsStreamHeartbeatData(data) {
 							ms := int(time.Since(startTime).Milliseconds())
 							firstTokenMs = &ms
 						}
@@ -1144,7 +1135,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 			if _, werr := fmt.Fprint(w, keepaliveBlock); werr != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.gateway", "Client disconnected during keepalive ping, continuing to drain upstream for billing")
+				logger.LegacyPrintf("service.gateway", "Client disconnected during keepalive ping, canceling upstream and preserving observed usage")
 				continue
 			}
 			flusher.Flush()
@@ -1470,6 +1461,12 @@ func (s *GatewayService) handleNonStreamingResponse(ctx context.Context, resp *h
 // replaceModelInResponseBody 替换响应体中的model字段
 // 使用 gjson/sjson 精确替换，避免全量 JSON 反序列化
 func (s *GatewayService) replaceModelInResponseBody(body []byte, fromModel, toModel string) []byte {
+	return replaceModelInJSONBody(body, fromModel, toModel)
+}
+
+// replaceModelInJSONBody 用 gjson/sjson 精确替换 model 字段，避免全量 JSON 反序列化。
+// Claude 与 OpenAI 两条主干共用同一实现，防止同一改写语义在两条主干上漂移。
+func replaceModelInJSONBody(body []byte, fromModel, toModel string) []byte {
 	if m := gjson.GetBytes(body, "model"); m.Exists() && m.Str == fromModel {
 		newBody, err := sjson.SetBytes(body, "model", toModel)
 		if err != nil {
@@ -1496,4 +1493,31 @@ func reconcileCachedTokens(usage map[string]any) bool {
 	}
 	usage["cache_read_input_tokens"] = cached
 	return true
+}
+
+// anthropicStreamRejectionFailover requires both an explicit pre-generation
+// rejection and no semantic output. An EOF or generic server error proves neither.
+func anthropicStreamRejectionFailover(client *gin.Context, payload string) *UpstreamFailoverError {
+	if client.Writer.Written() && !client.GetBool("gateway_stream_only_heartbeats") {
+		return nil
+	}
+	if gjson.Get(payload, "type").String() != "error" {
+		return nil
+	}
+	status := 0
+	switch gjson.Get(payload, "error.type").String() {
+	case "overloaded_error":
+		status = 529
+	case "rate_limit_error":
+		status = http.StatusTooManyRequests
+	case "authentication_error":
+		status = http.StatusUnauthorized
+	case "permission_error":
+		status = http.StatusForbidden
+	case "invalid_request_error":
+		status = http.StatusBadRequest
+	default:
+		return nil
+	}
+	return &UpstreamFailoverError{StatusCode: status, ResponseBody: []byte(payload)}
 }

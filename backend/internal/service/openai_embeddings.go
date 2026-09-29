@@ -93,6 +93,9 @@ func (s *OpenAIGatewayService) ForwardEmbeddings(
 		proxyURL = account.Proxy.URL()
 	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
+	if IsTPMAdmissionError(err) {
+		return nil, err
+	}
 	if err != nil {
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")

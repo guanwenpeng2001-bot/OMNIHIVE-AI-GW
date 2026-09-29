@@ -45,6 +45,13 @@ type apiKeyRepoStub struct {
 	updateLastUsed         func(ctx context.Context, id int64, usedAt time.Time) error
 	touchedIDs             []int64
 	touchedUsedAts         []time.Time
+
+	// Period budget persistence port (see api_key_budget_service_test.go).
+	budgetStates        map[int64]APIKeyBudgetState
+	budgetLoadErr       error
+	budgetSaveErr       error
+	savedBudgetPolicies []APIKeyBudgetPolicy
+	adjustments         []KeyBudgetAdjustmentCommand
 }
 
 // 以下方法在本测试中不应被调用，使用 panic 确保测试失败时能快速定位问题
@@ -324,6 +331,9 @@ func TestApiKeyService_Delete_Success(t *testing.T) {
 	}
 	cache := &apiKeyCacheStub{}
 	svc := &APIKeyService{apiKeyRepo: repo, cache: cache}
+	// The deleted key's credentials are evicted through the credential repository,
+	// which maps the key identity back to the auth cache identifiers.
+	svc.SetCredentialRepository(&apiKeyCredentialRepoStub{digests: []string{APIKeyCredentialDigest("k")}})
 	svc.lastUsedTouchL1.Store(int64(42), time.Now())
 
 	err := svc.Delete(context.Background(), 42, 7) // API Key ID=42, 调用者 userID=7

@@ -75,9 +75,12 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 			Credentials: map[string]any{"access_token": "token-2"},
 		},
 	}
+	for i := range accounts {
+		accounts[i] = preparedGatewayFixtureAccount(accounts[i])
+	}
 	accountRepo := openAIImagesFailoverAccountRepo{accounts: accounts}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		accountRepo,
 		nil,
 		nil,
@@ -99,8 +102,7 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 		nil,
 		nil,
 		nil,
-		nil,
-	)
+		nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
 	concurrencyService := service.NewConcurrencyService(nil)
@@ -190,5 +192,5 @@ func TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient(t *te
 
 	require.Equal(t, []int64{1, 2}, upstream.calls(), "在线客户端应正常切换账号")
 	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	require.Equal(t, "server_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
 }

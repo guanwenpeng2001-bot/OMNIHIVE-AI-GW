@@ -1033,14 +1033,12 @@ func TestStreamingFailed(t *testing.T) {
 		},
 	}, state)
 
-	// Should close text block + message_delta + message_stop
-	require.Len(t, events, 3)
-	assert.Equal(t, "content_block_stop", events[0].Type)
-	assert.Equal(t, "message_delta", events[1].Type)
-	assert.Equal(t, "end_turn", events[1].Delta.StopReason)
-	assert.Equal(t, 50, events[1].Usage.InputTokens)
-	assert.Equal(t, 10, events[1].Usage.OutputTokens)
-	assert.Equal(t, "message_stop", events[2].Type)
+	// Failure must never be converted into a successful end_turn.
+	require.Len(t, events, 1)
+	assert.Equal(t, "error", events[0].Type)
+	require.NotNil(t, events[0].Error)
+	assert.Equal(t, "Internal error", events[0].Error.Message)
+	assert.Empty(t, FinalizeResponsesAnthropicStream(state))
 }
 
 func TestStreamingFailedNoOutput(t *testing.T) {
@@ -1062,11 +1060,11 @@ func TestStreamingFailedNoOutput(t *testing.T) {
 		},
 	}, state)
 
-	// Should emit message_delta + message_stop (no block to close)
-	require.Len(t, events, 2)
-	assert.Equal(t, "message_delta", events[0].Type)
-	assert.Equal(t, "end_turn", events[0].Delta.StopReason)
-	assert.Equal(t, "message_stop", events[1].Type)
+	require.Len(t, events, 1)
+	assert.Equal(t, "error", events[0].Type)
+	require.NotNil(t, events[0].Error)
+	assert.Equal(t, "Too many requests", events[0].Error.Message)
+	assert.Empty(t, FinalizeResponsesAnthropicStream(state))
 }
 
 func TestResponsesToAnthropic_Failed(t *testing.T) {
@@ -1100,13 +1098,8 @@ func TestAnthropicToResponses_ThinkingEnabled(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	assert.Contains(t, resp.Include, "reasoning.encrypted_content")
-	assert.NotContains(t, resp.Include, "reasoning.summary")
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
@@ -1118,12 +1111,8 @@ func TestAnthropicToResponses_ThinkingAdaptive(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	// thinking.type is ignored for effort; Codex bridge default medium applies.
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
-	assert.NotContains(t, resp.Include, "reasoning.summary")
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_ThinkingDisabled(t *testing.T) {
@@ -1136,9 +1125,33 @@ func TestAnthropicToResponses_ThinkingDisabled(t *testing.T) {
 
 	resp, err := AnthropicToResponses(req)
 	require.NoError(t, err)
-	// Default effort applies (medium) even when thinking is disabled.
 	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
+	assert.Equal(t, "none", resp.Reasoning.Effort)
+	assert.Empty(t, resp.Reasoning.Summary)
+}
+
+func TestAnthropicToResponses_ThinkingDisabledOverridesOutputEffort(t *testing.T) {
+	for _, effort := range []string{"", "high", "max"} {
+		t.Run(effort, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:        "gpt-5.6-sol",
+				MaxTokens:    1024,
+				Messages:     []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+				Thinking:     &AnthropicThinking{Type: "disabled"},
+				OutputConfig: &AnthropicOutputConfig{Effort: effort},
+			}
+
+			resp, err := AnthropicToResponses(req)
+			if effort != "" {
+				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, resp.Reasoning)
+			assert.Equal(t, "none", resp.Reasoning.Effort)
+			assert.Empty(t, resp.Reasoning.Summary)
+		})
+	}
 }
 
 func TestAnthropicToResponses_NoThinking(t *testing.T) {
@@ -1170,10 +1183,8 @@ func TestAnthropicToResponses_OutputConfigOverridesDefault(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "low", resp.Reasoning.Effort)
-	assert.Equal(t, "auto", resp.Reasoning.Summary)
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutThinking(t *testing.T) {
@@ -1235,9 +1246,8 @@ func TestAnthropicToResponses_NoOutputConfig(t *testing.T) {
 	}
 
 	resp, err := AnthropicToResponses(req)
-	require.NoError(t, err)
-	require.NotNil(t, resp.Reasoning)
-	assert.Equal(t, "medium", resp.Reasoning.Effort)
+	require.ErrorContains(t, err, "unsupported thinking.budget_tokens")
+	require.Nil(t, resp)
 }
 
 func TestAnthropicToResponses_OutputConfigWithoutEffort(t *testing.T) {

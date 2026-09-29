@@ -10,7 +10,7 @@ import (
 func TestPlatformCapabilityConsumers(t *testing.T) {
 	require.ElementsMatch(t, domain.ConcretePlatforms(), ConcretePlatforms())
 	require.ElementsMatch(t, domain.ConcretePlatforms(), schedulerSnapshotPlatforms())
-	require.ElementsMatch(t, domain.ConcretePlatforms(), AllowedQuotaPlatforms)
+	require.ElementsMatch(t, append(domain.ConcretePlatforms(), "vertex"), AllowedQuotaPlatforms)
 	for _, p := range domain.PlatformDescriptors() {
 		t.Run(p.ID, func(t *testing.T) {
 			require.Equal(t, p.CNProvider, IsCNProvider(p.ID))

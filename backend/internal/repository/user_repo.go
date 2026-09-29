@@ -906,7 +906,7 @@ func (r *userRepository) DeductAvailableBalance(ctx context.Context, id int64, a
 			SELECT id, balance
 			FROM users
 			WHERE id = $2 AND deleted_at IS NULL
-			FOR UPDATE
+			FOR NO KEY UPDATE
 		), updated AS (
 			UPDATE users AS u
 			SET balance = target.balance - LEAST($1, GREATEST(target.balance, 0)), updated_at = NOW()

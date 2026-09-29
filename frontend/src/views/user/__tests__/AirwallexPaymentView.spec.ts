@@ -55,6 +55,7 @@ function airwallexSnapshot(overrides: Partial<PaymentRecoverySnapshot> = {}): Pa
     orderType: 'balance',
     paymentMode: '',
     resumeToken: 'resume-awx',
+    ownerUserId: 9,
     createdAt: Date.UTC(2099, 0, 1, 0, 0, 0),
     ...overrides,
   }
@@ -82,6 +83,53 @@ describe('AirwallexPaymentView', () => {
     })
     redirectToCheckout.mockReset()
     window.localStorage.clear()
+    window.localStorage.setItem('auth_token', 'test-token')
+    window.localStorage.setItem('auth_user', JSON.stringify({ id: 9 }))
+  })
+
+  it.each(['other-user', 'anonymous', 'legacy'])('does not launch shared recovery credentials for %s', async (context) => {
+    const snapshot = airwallexSnapshot()
+    if (context === 'other-user') localStorage.setItem('auth_user', JSON.stringify({ id: 10 }))
+    if (context === 'anonymous') localStorage.removeItem('auth_token')
+    if (context === 'legacy') delete snapshot.ownerUserId
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify(snapshot))
+    // Even a matching URL token must not authorize use of another account's local secret.
+    routeState.query = { resume_token: snapshot.resumeToken }
+    const wrapper = mountView()
+    await flushPromises()
+    expect(airwallexInit).not.toHaveBeenCalled()
+    expect(redirectToCheckout).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBeNull()
+    expect(wrapper.text()).toContain('payment.airwallexMissingParams')
+    wrapper.unmount()
+  })
+
+  it('does not clear newer recovery data when SDK initialization completes after unmount', async () => {
+    let resolve!: (value: unknown) => void
+    airwallexInit.mockReturnValue(new Promise(done => { resolve = done }))
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify(airwallexSnapshot()))
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.unmount()
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, 'new-page-data')
+    resolve({ payments: { redirectToCheckout } })
+    await flushPromises()
+    expect(redirectToCheckout).not.toHaveBeenCalled()
+    expect(localStorage.getItem(PAYMENT_RECOVERY_STORAGE_KEY)).toBe('new-page-data')
+  })
+
+  it('ignores SDK initialization after another account replaces the snapshot', async () => {
+    let resolve!: (value: unknown) => void
+    airwallexInit.mockReturnValue(new Promise(done => { resolve = done }))
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify(airwallexSnapshot()))
+    const wrapper = mountView()
+    await flushPromises()
+    localStorage.setItem('auth_user', JSON.stringify({ id: 10 }))
+    localStorage.setItem(PAYMENT_RECOVERY_STORAGE_KEY, JSON.stringify(airwallexSnapshot({ ownerUserId: 10, orderId: 102 })))
+    resolve({ payments: { redirectToCheckout } })
+    await flushPromises()
+    expect(redirectToCheckout).not.toHaveBeenCalled()
+    wrapper.unmount()
   })
 
   it('从本地恢复快照读取支付参数，避免在 URL 中暴露 client_secret', async () => {

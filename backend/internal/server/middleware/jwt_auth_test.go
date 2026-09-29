@@ -4,8 +4,14 @@ package middleware
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
+	"entgo.io/ent/dialect"
+	entsql "entgo.io/ent/dialect/sql"
 	"errors"
+	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/ent/enttest"
+	_ "modernc.org/sqlite"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -175,7 +181,7 @@ func TestJWTAuth_MissingAuthorizationHeader(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "UNAUTHORIZED", body.Code)
+	require.Equal(t, "UNAUTHORIZED", body.Reason)
 }
 
 func TestJWTAuth_InvalidHeaderFormat(t *testing.T) {
@@ -199,7 +205,7 @@ func TestJWTAuth_InvalidHeaderFormat(t *testing.T) {
 			require.Equal(t, http.StatusUnauthorized, w.Code)
 			var body ErrorResponse
 			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-			require.Equal(t, "INVALID_AUTH_HEADER", body.Code)
+			require.Equal(t, "INVALID_AUTH_HEADER", body.Reason)
 		})
 	}
 }
@@ -215,7 +221,7 @@ func TestJWTAuth_EmptyToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "EMPTY_TOKEN", body.Code)
+	require.Equal(t, "EMPTY_TOKEN", body.Reason)
 }
 
 func TestJWTAuth_TamperedToken(t *testing.T) {
@@ -229,13 +235,20 @@ func TestJWTAuth_TamperedToken(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "INVALID_TOKEN", body.Code)
+	require.Equal(t, "INVALID_TOKEN", body.Reason)
 }
 
 func TestJWTAuth_UserLookupErrors(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{JWT: config.JWTConfig{Secret: "test-secret", ExpireHour: 1}}
-	authSvc := service.NewAuthService(nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
+	database, err := sql.Open("sqlite", "file:ws_lookup_errors?mode=memory&cache=shared&_pragma=foreign_keys(1)")
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = database.Close() })
+	client := enttest.NewClient(t, enttest.WithOptions(dbent.Driver(entsql.OpenDB(dialect.SQLite, database))))
+	t.Cleanup(func() { _ = client.Close() })
+	admin := &service.User{ID: 1, Role: service.RoleAdmin, Status: service.StatusActive}
+	issuerRepository := &stubJWTUserRepo{users: map[int64]*service.User{1: admin}}
+	authSvc := service.NewAuthService(client, issuerRepository, nil, nil, cfg, nil, nil, nil, nil, nil, nil, nil, nil)
 	token, err := authSvc.GenerateToken(context.Background(), &service.User{ID: 1, Role: service.RoleAdmin})
 	require.NoError(t, err)
 
@@ -267,15 +280,19 @@ func TestJWTAuth_UserLookupErrors(t *testing.T) {
 					called := false
 					router := gin.New()
 					router.Use(route.handler)
-					router.GET("/protected", func(c *gin.Context) {
+					router.GET(service.AdminWebSocketTicketPath, func(c *gin.Context) {
 						called = true
 						c.Status(http.StatusOK)
 					})
-					req := httptest.NewRequest(http.MethodGet, "/protected", nil)
+					req := httptest.NewRequest(http.MethodGet, service.AdminWebSocketTicketPath, nil)
 					if route.websocket {
 						req.Header.Set("Upgrade", "websocket")
 						req.Header.Set("Connection", "Upgrade")
-						req.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin, jwt."+token)
+						bindingContext := service.WithSessionBinding(context.Background(), &service.SessionBinding{IP: "192.0.2.1", UserAgent: "fixture"})
+						ticket, err := authSvc.IssueAdminWebSocketTicket(bindingContext, token)
+						require.NoError(t, err)
+						req = req.WithContext(bindingContext)
+						req.Header.Set("Sec-WebSocket-Protocol", "sub2api-admin, ticket."+ticket)
 					} else {
 						req.Header.Set("Authorization", "Bearer "+token)
 					}
@@ -285,7 +302,7 @@ func TestJWTAuth_UserLookupErrors(t *testing.T) {
 					require.Equal(t, tc.status, w.Code)
 					var body ErrorResponse
 					require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-					require.Equal(t, tc.code, body.Code)
+					require.Equal(t, tc.code, body.Reason)
 					require.False(t, called)
 				})
 			}
@@ -316,7 +333,7 @@ func TestJWTAuth_UserNotFound(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "USER_NOT_FOUND", body.Code)
+	require.Equal(t, "USER_NOT_FOUND", body.Reason)
 }
 
 func TestJWTAuth_UserInactive(t *testing.T) {
@@ -340,7 +357,7 @@ func TestJWTAuth_UserInactive(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "USER_INACTIVE", body.Code)
+	require.Equal(t, "USER_INACTIVE", body.Reason)
 }
 
 func TestJWTAuth_TokenVersionMismatch(t *testing.T) {
@@ -372,5 +389,5 @@ func TestJWTAuth_TokenVersionMismatch(t *testing.T) {
 	require.Equal(t, http.StatusUnauthorized, w.Code)
 	var body ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
-	require.Equal(t, "TOKEN_REVOKED", body.Code)
+	require.Equal(t, "TOKEN_REVOKED", body.Reason)
 }

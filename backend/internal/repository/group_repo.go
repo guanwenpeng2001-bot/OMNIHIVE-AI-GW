@@ -77,6 +77,7 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -117,8 +118,10 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
+		SetTpmLimit(groupIn.TPMLimit).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountType(groupIn.AccountType).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetSortOrder(groupIn.SortOrder).
 		SetIsExclusive(groupIn.IsExclusive).
@@ -193,6 +196,14 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		return translatePersistenceError(err, nil, service.ErrGroupExists)
 	}
 	groupIn.ID = created.ID
+	if groupIn.Platform == service.PlatformBedrock || groupIn.Platform == "vertex" {
+		identity, readErr := client.Group.Query().Where(group.IDEQ(created.ID)).Select(group.FieldID, group.FieldPlatform, group.FieldAccountType).Only(ctx)
+		if readErr != nil {
+			return readErr
+		}
+		groupIn.Platform = identity.Platform
+		groupIn.AccountType = identity.AccountType
+	}
 	groupIn.CreatedAt = created.CreatedAt
 	groupIn.UpdatedAt = created.UpdatedAt
 	return nil
@@ -219,6 +230,7 @@ func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operat
 // CreateFromSource atomically persists a copied group, clones the source
 // account bindings with their exact priorities, and writes its scheduler event.
 func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service.Group, sourceGroupID int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -299,6 +311,7 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if groupIn == nil {
 		return errors.New("group is nil")
 	}
@@ -317,8 +330,10 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	}
 	builder := txClient.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
+		SetTpmLimit(groupIn.TPMLimit).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
+		SetAccountType(groupIn.AccountType).
 		SetRateMultiplier(groupIn.RateMultiplier).
 		SetIsExclusive(groupIn.IsExclusive).
 		SetStatus(groupIn.Status).
@@ -481,6 +496,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 }
 
 func (r *groupRepository) Delete(ctx context.Context, id int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	_, err := r.client.Group.Delete().Where(group.IDEQ(id)).Exec(ctx)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrGroupNotFound, nil)
@@ -508,7 +524,7 @@ func (r *groupRepository) ListBindableWithFilters(ctx context.Context, params pa
 func (r *groupRepository) listWithFiltersQuery(ctx context.Context, q *dbent.GroupQuery, params pagination.PaginationParams, platform, status, search string, isExclusive *bool) ([]service.Group, *pagination.PaginationResult, error) {
 
 	if platform != "" {
-		q = q.Where(group.PlatformEQ(platform))
+		q = q.Where(groupPlatformPredicate(platform))
 	}
 	if status != "" {
 		q = q.Where(group.StatusEQ(status))
@@ -741,7 +757,7 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 		rows, err := r.sql.QueryContext(ctx, `
 			SELECT id
 			FROM groups
-			WHERE status = $1
+			WHERE `+workspacePredicate(ctx, "workspace_id")+` AND status = $1
 			  AND deleted_at IS NULL
 			ORDER BY sort_order ASC, id ASC
 		`, service.StatusActive)
@@ -781,7 +797,7 @@ func (r *groupRepository) ListActiveIDs(ctx context.Context) ([]int64, error) {
 
 func (r *groupRepository) ListActiveByPlatform(ctx context.Context, platform string) ([]service.Group, error) {
 	groups, err := r.client.Group.Query().
-		Where(group.StatusEQ(service.StatusActive), group.PlatformEQ(platform)).
+		Where(group.StatusEQ(service.StatusActive), groupPlatformPredicate(platform)).
 		Order(dbent.Asc(group.FieldSortOrder), dbent.Asc(group.FieldID)).
 		All(ctx)
 	if err != nil {
@@ -875,6 +891,7 @@ func (r *groupRepository) GetAccountCount(ctx context.Context, groupID int64) (t
 }
 
 func (r *groupRepository) DeleteAccountGroupsByGroupID(ctx context.Context, groupID int64) (int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	res, err := r.sql.ExecContext(ctx, "DELETE FROM account_groups WHERE group_id = $1", groupID)
 	if err != nil {
 		return 0, err
@@ -895,6 +912,7 @@ func (r *groupRepository) DeleteCascadeIfEmpty(ctx context.Context, id int64) ([
 }
 
 func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEmpty bool) ([]int64, error) {
+	defer invalidateCatalogAfterWrite(ctx)
 	// 使用 ent 事务统一包裹：避免手工基于 *sql.Tx 构造 ent client 带来的驱动断言问题，
 	// 同时保证级联删除的原子性。
 	tx, err := r.client.Tx(ctx)
@@ -912,7 +930,7 @@ func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEm
 
 	// Lock the group row to avoid concurrent writes while we cascade.
 	// 这里使用 exec.QueryContext 手动扫描，确保同一事务内加锁并能区分"未找到"与其他错误。
-	rows, err := exec.QueryContext(ctx, "SELECT id, subscription_type FROM groups WHERE id = $1 AND deleted_at IS NULL FOR UPDATE", id)
+	rows, err := exec.QueryContext(ctx, "SELECT id, subscription_type FROM groups WHERE id = $1 AND deleted_at IS NULL AND "+workspacePredicate(ctx, "workspace_id")+" FOR UPDATE", id)
 	if err != nil {
 		return nil, err
 	}
@@ -1112,6 +1130,7 @@ func (r *groupRepository) GetAccountIDsByGroupIDs(ctx context.Context, groupIDs 
 
 // BindAccountsToGroup 将多个账号绑定到指定分组（批量插入，忽略已存在的绑定）
 func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64, accountIDs []int64) error {
+	defer invalidateCatalogAfterWrite(ctx)
 	if len(accountIDs) == 0 {
 		return nil
 	}
@@ -1126,6 +1145,14 @@ func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64
 		exec = tx.Client()
 	}
 	if err := lockLiveGroups(ctx, exec, []int64{groupID}); err != nil {
+		return err
+	}
+
+	bindingClient := r.client
+	if tx != nil {
+		bindingClient = tx.Client()
+	}
+	if err := validateHostedGroupBindings(ctx, bindingClient, accountIDs, []int64{groupID}); err != nil {
 		return err
 	}
 
@@ -1182,7 +1209,7 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 	if err := scanSingleRow(
 		ctx,
 		r.sql,
-		`SELECT COUNT(*) FROM groups WHERE deleted_at IS NULL AND id = ANY($1)`,
+		`SELECT COUNT(*) FROM groups WHERE deleted_at IS NULL AND id = ANY($1) AND `+workspacePredicate(ctx, "workspace_id"),
 		[]any{pq.Array(groupIDs)},
 		&existingCount,
 	); err != nil {
@@ -1208,7 +1235,7 @@ func (r *groupRepository) UpdateSortOrders(ctx context.Context, updates []servic
 			%s
 			ELSE sort_order
 		END
-		WHERE deleted_at IS NULL AND id = ANY($%d)
+		WHERE deleted_at IS NULL AND id = ANY($%d) AND `+workspacePredicate(ctx, "workspace_id")+`
 	`, strings.Join(caseClauses, "\n\t\t\t"), placeholder)
 
 	result, err := r.sql.ExecContext(ctx, query, args...)

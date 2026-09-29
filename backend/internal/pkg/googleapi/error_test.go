@@ -141,3 +141,11 @@ func TestParseError(t *testing.T) {
 		t.Errorf("Expected message 'API not enabled', got %s", errResp.Error.Message)
 	}
 }
+
+func TestProtocolStatusMappings(t *testing.T) {
+	for code, status := range map[int]string{400: "INVALID_ARGUMENT", 401: "UNAUTHENTICATED", 403: "PERMISSION_DENIED", 404: "NOT_FOUND", 413: "RESOURCE_EXHAUSTED", 429: "RESOURCE_EXHAUSTED", 500: "INTERNAL", 502: "INTERNAL", 503: "UNAVAILABLE", 504: "DEADLINE_EXCEEDED"} {
+		if actual := HTTPStatusToGoogleStatus(code); actual != status {
+			t.Errorf("status %d = %s, want %s", code, actual, status)
+		}
+	}
+}

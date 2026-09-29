@@ -12,7 +12,6 @@ type AdminHandlers struct {
 	Group                  *admin.GroupHandler
 	Account                *admin.AccountHandler
 	Announcement           *admin.AnnouncementHandler
-	DataManagement         *admin.DataManagementHandler
 	Backup                 *admin.BackupHandler
 	OAuth                  *admin.OAuthHandler
 	OpenAIOAuth            *admin.OpenAIOAuthHandler
@@ -43,10 +42,13 @@ type AdminHandlers struct {
 	Affiliate              *admin.AffiliateHandler
 	Compliance             *admin.ComplianceHandler
 	AuditLog               *admin.AuditLogHandler
+	CredentialSecret       *admin.CredentialSecretHandler
 }
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	ModelAccess      *ModelAccessHandler
+	Workspace        *WorkspaceHandler
 	Auth             *AuthHandler
 	User             *UserHandler
 	APIKey           *APIKeyHandler
@@ -57,6 +59,7 @@ type Handlers struct {
 	ChannelMonitor   *ChannelMonitorUserHandler
 	ChannelMonitorV2 *ChannelMonitorV2Handler
 	Admin            *AdminHandlers
+	Resource         *GatewayResourceHandler
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
 	Setting          *SettingHandler

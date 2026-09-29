@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/Wei-Shaw/sub2api/internal/service"
-
 	"github.com/redis/go-redis/v9"
 )
 
@@ -19,7 +17,7 @@ type geminiTokenCache struct {
 	rdb *redis.Client
 }
 
-func NewGeminiTokenCache(rdb *redis.Client) service.GeminiTokenCache {
+func NewGeminiTokenCache(rdb *redis.Client) *geminiTokenCache {
 	return &geminiTokenCache{rdb: rdb}
 }
 
@@ -38,12 +36,18 @@ func (c *geminiTokenCache) DeleteAccessToken(ctx context.Context, cacheKey strin
 	return c.rdb.Del(ctx, key).Err()
 }
 
-func (c *geminiTokenCache) AcquireRefreshLock(ctx context.Context, cacheKey string, ttl time.Duration) (bool, error) {
+func (c *geminiTokenCache) AcquireRefreshLock(ctx context.Context, cacheKey string, owner string, ttl time.Duration) (bool, error) {
+	if owner == "" {
+		return false, fmt.Errorf("oauth refresh lock owner is empty")
+	}
 	key := fmt.Sprintf("%s%s", oauthRefreshLockKeyPrefix, cacheKey)
-	return c.rdb.SetNX(ctx, key, 1, ttl).Result()
+	return c.rdb.SetNX(ctx, key, owner, ttl).Result()
 }
 
-func (c *geminiTokenCache) ReleaseRefreshLock(ctx context.Context, cacheKey string) error {
+func (c *geminiTokenCache) ReleaseRefreshLock(ctx context.Context, cacheKey string, owner string) error {
+	if owner == "" {
+		return fmt.Errorf("oauth refresh lock owner is empty")
+	}
 	key := fmt.Sprintf("%s%s", oauthRefreshLockKeyPrefix, cacheKey)
-	return c.rdb.Del(ctx, key).Err()
+	return compareAndDelete(ctx, c.rdb, key, owner)
 }

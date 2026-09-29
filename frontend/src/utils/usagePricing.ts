@@ -43,7 +43,8 @@ export function formatTokenPricePerMillion(
     return options.emptyValue ?? '-'
   }
 
-  const fractionDigits = options.fractionDigits ?? 4
-  const formatted = pricePerMillion.toFixed(fractionDigits)
+  const fractionDigits = options.fractionDigits ?? (Number(pricePerMillion.toFixed(4)) === pricePerMillion ? 4 : 8)
+  const formatted = pricePerMillion !== 0 && Math.abs(pricePerMillion) < 10 ** -fractionDigits
+    ? String(pricePerMillion) : pricePerMillion.toFixed(fractionDigits)
   return options.withCurrencySymbol == false ? formatted : `$${formatted}`
 }

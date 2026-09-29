@@ -152,3 +152,27 @@ describe('UserDashboardStats 按平台拆分', () => {
     expect(w.html()).not.toContain('dashboard.platformBreakdown')
   })
 })
+
+
+describe('UserDashboardStats money display', () => {
+  it('shows micro charges and precise balance details', () => {
+    const wrapper = mount(UserDashboardStats, {
+      props: { isSimple: false, balance: -1e-8, stats: makeStats({ today_actual_cost: 1e-8, today_cost: 0 }) },
+      global: { stubs: { Icon: true } },
+    })
+    expect(wrapper.text()).toContain('$-0.00000001')
+    expect(wrapper.text()).toContain('USD 0.00000001')
+    expect(wrapper.text()).toContain('USD 0.00000000')
+    expect(wrapper.get('[title="USD -0.00000001"]').exists()).toBe(true)
+    wrapper.unmount()
+  })
+
+  it('distinguishes missing costs from zero', () => {
+    const wrapper = mount(UserDashboardStats, {
+      props: { isSimple: false, balance: 0, stats: {} as UserStatsType },
+      global: { stubs: { Icon: true } },
+    })
+    expect(wrapper.findAll('[title="dashboard.actual"]').map(node => node.text())).toEqual(['dashboard.actual USD -', 'dashboard.actual USD -'])
+    wrapper.unmount()
+  })
+})

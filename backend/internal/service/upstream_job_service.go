@@ -41,9 +41,15 @@ type UpstreamJobBilling struct {
 	Async *QianwenAsyncSnapshot `json:"async,omitempty"`
 	// FileBatch contains only validated resource metadata, never file contents.
 	FileBatch *QianwenFileBatchSnapshot `json:"file_batch,omitempty"`
+	// ResourceFile and ResourceBatch carry the standard resource-action
+	// admission snapshots. They contain hashes, counts and frozen rates only.
+	ResourceFile  *GatewayResourceFileSnapshot  `json:"resource_file,omitempty"`
+	ResourceBatch *GatewayResourceBatchSnapshot `json:"resource_batch,omitempty"`
 }
 
 type UpstreamJob struct {
+	WorkspaceID        int64                 `json:"workspace_id"`
+	Version            int64                 `json:"version"`
 	ResourceState      UpstreamResourceState `json:"resource_state"`
 	SubmissionKey      string                `json:"submission_key"`
 	ID                 int64                 `json:"id"`
@@ -183,7 +189,10 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 		return existing, err
 	}
 	logJobEvent(ctx, existing, "admitted")
-	networkCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 45*time.Second)
+	ctx, finishPlan := CaptureGatewayJobPlan(ctx, GatewayRequestSpec{UpstreamAccountID: existing.AccountID, UserID: existing.UserID, APIKeyID: existing.APIKeyID, BillingGroupID: valueOrZero(existing.GroupID), Model: existing.Billing.RequestedModel, UpstreamModel: existing.Billing.Model, Action: existing.Family, ExecutionID: existing.PublicRequestID})
+	defer finishPlan()
+
+	networkCtx, cancel := context.WithTimeout(ctx, 45*time.Second)
 	update, upstreamErr := submit(networkCtx)
 	cancel()
 	// Persist the outcome even if the client disconnected during submission.
@@ -209,7 +218,14 @@ func (s *UpstreamJobService) Submit(ctx context.Context, job *UpstreamJob, body 
 }
 
 func (s *UpstreamJobService) Get(ctx context.Context, id string, userID, keyID int64) (*UpstreamJob, error) {
-	return s.repo.Get(ctx, id, userID, keyID)
+	job, err := s.repo.Get(ctx, id, userID, keyID)
+	if err != nil {
+		return nil, err
+	}
+	if !visibleModelPolicyAllows(ctx, job.Billing.RequestedModel) || !modelAccessAccountAllows(ctx, job.AccountID, job.Billing.RequestedModel) {
+		return nil, ErrUpstreamJobNotFound
+	}
+	return job, nil
 }
 
 // Poll rechecks due time and terminal state under the same lock as settlement.

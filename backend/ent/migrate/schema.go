@@ -14,8 +14,10 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
-		{Name: "key", Type: field.TypeString, Unique: true, Size: 128},
+		{Name: "tpm_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "key", Type: field.TypeString, Nullable: true, Size: 128},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "status", Type: field.TypeString, Size: 20, Default: "active"},
 		{Name: "last_used_at", Type: field.TypeTime, Nullable: true},
@@ -44,13 +46,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "api_keys_groups_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[22]},
+				Columns:    []*schema.Column{APIKeysColumns[24]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "api_keys_users_api_keys",
-				Columns:    []*schema.Column{APIKeysColumns[23]},
+				Columns:    []*schema.Column{APIKeysColumns[25]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -59,37 +61,81 @@ var (
 			{
 				Name:    "apikey_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[23]},
+				Columns: []*schema.Column{APIKeysColumns[25]},
 			},
 			{
 				Name:    "apikey_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[22]},
+				Columns: []*schema.Column{APIKeysColumns[24]},
 			},
 			{
 				Name:    "apikey_status",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[6]},
+				Columns: []*schema.Column{APIKeysColumns[8]},
 			},
 			{
 				Name:    "apikey_deleted_at",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[3]},
+				Columns: []*schema.Column{APIKeysColumns[4]},
 			},
 			{
 				Name:    "apikey_last_used_at",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[7]},
+				Columns: []*schema.Column{APIKeysColumns[9]},
 			},
 			{
 				Name:    "apikey_quota_quota_used",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[10], APIKeysColumns[11]},
+				Columns: []*schema.Column{APIKeysColumns[12], APIKeysColumns[13]},
 			},
 			{
 				Name:    "apikey_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{APIKeysColumns[12]},
+				Columns: []*schema.Column{APIKeysColumns[14]},
+			},
+		},
+	}
+	// APIKeyCredentialsColumns holds the columns for the "api_key_credentials" table.
+	APIKeyCredentialsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "credential_digest", Type: field.TypeString, Unique: true, Size: 64},
+		{Name: "display_suffix", Type: field.TypeString, Size: 16, Default: ""},
+		{Name: "status", Type: field.TypeString, Size: 20, Default: "current"},
+		{Name: "valid_until", Type: field.TypeTime, Nullable: true},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
+		{Name: "api_key_id", Type: field.TypeInt64},
+	}
+	// APIKeyCredentialsTable holds the schema information for the "api_key_credentials" table.
+	APIKeyCredentialsTable = &schema.Table{
+		Name:       "api_key_credentials",
+		Columns:    APIKeyCredentialsColumns,
+		PrimaryKey: []*schema.Column{APIKeyCredentialsColumns[0]},
+		ForeignKeys: []*schema.ForeignKey{
+			{
+				Symbol:     "api_key_credentials_api_keys_credentials",
+				Columns:    []*schema.Column{APIKeyCredentialsColumns[9]},
+				RefColumns: []*schema.Column{APIKeysColumns[0]},
+				OnDelete:   schema.NoAction,
+			},
+		},
+		Indexes: []*schema.Index{
+			{
+				Name:    "apikeycredential_api_key_id",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[9]},
+			},
+			{
+				Name:    "apikeycredential_status",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[6]},
+			},
+			{
+				Name:    "apikeycredential_valid_until",
+				Unique:  false,
+				Columns: []*schema.Column{APIKeyCredentialsColumns[7]},
 			},
 		},
 	}
@@ -98,7 +144,9 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "tpm_limit", Type: field.TypeInt64, Default: 0},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "notes", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "platform", Type: field.TypeString, Size: 50},
@@ -136,13 +184,13 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "accounts_proxies_proxy",
-				Columns:    []*schema.Column{AccountsColumns[30]},
+				Columns:    []*schema.Column{AccountsColumns[32]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "accounts_accounts_children",
-				Columns:    []*schema.Column{AccountsColumns[31]},
+				Columns:    []*schema.Column{AccountsColumns[33]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.Restrict,
 			},
@@ -151,72 +199,72 @@ var (
 			{
 				Name:    "account_platform",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[6]},
+				Columns: []*schema.Column{AccountsColumns[8]},
 			},
 			{
 				Name:    "account_type",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[7]},
+				Columns: []*schema.Column{AccountsColumns[9]},
 			},
 			{
 				Name:    "account_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[15]},
+				Columns: []*schema.Column{AccountsColumns[17]},
 			},
 			{
 				Name:    "account_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[30]},
+				Columns: []*schema.Column{AccountsColumns[32]},
 			},
 			{
 				Name:    "account_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[13]},
+				Columns: []*schema.Column{AccountsColumns[15]},
 			},
 			{
 				Name:    "account_last_used_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[17]},
+				Columns: []*schema.Column{AccountsColumns[19]},
 			},
 			{
 				Name:    "account_schedulable",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[20]},
+				Columns: []*schema.Column{AccountsColumns[22]},
 			},
 			{
 				Name:    "account_rate_limited_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[21]},
+				Columns: []*schema.Column{AccountsColumns[23]},
 			},
 			{
 				Name:    "account_rate_limit_reset_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[22]},
+				Columns: []*schema.Column{AccountsColumns[24]},
 			},
 			{
 				Name:    "account_overload_until",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[23]},
+				Columns: []*schema.Column{AccountsColumns[25]},
 			},
 			{
 				Name:    "account_platform_priority",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[6], AccountsColumns[13]},
+				Columns: []*schema.Column{AccountsColumns[8], AccountsColumns[15]},
 			},
 			{
 				Name:    "account_priority_status",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[13], AccountsColumns[15]},
+				Columns: []*schema.Column{AccountsColumns[15], AccountsColumns[17]},
 			},
 			{
 				Name:    "account_deleted_at",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[3]},
+				Columns: []*schema.Column{AccountsColumns[4]},
 			},
 			{
 				Name:    "account_parent_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{AccountsColumns[31]},
+				Columns: []*schema.Column{AccountsColumns[33]},
 			},
 		},
 	}
@@ -622,8 +670,9 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "name", Type: field.TypeString, Size: 100},
-		{Name: "provider", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"}},
+		{Name: "provider", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode", "minimax", "opencode_go", "cursor", "volcengine", "qianfan", "hunyuan", "mistral", "bedrock"}},
 		{Name: "check_mode", Type: field.TypeString, Size: 32, Default: "probe"},
 		{Name: "account_id", Type: field.TypeInt64, Nullable: true},
 		{Name: "api_mode", Type: field.TypeString, Size: 32, Default: "chat_completions"},
@@ -650,7 +699,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "channel_monitors_channel_monitor_request_templates_request_template",
-				Columns:    []*schema.Column{ChannelMonitorsColumns[21]},
+				Columns:    []*schema.Column{ChannelMonitorsColumns[22]},
 				RefColumns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -659,32 +708,32 @@ var (
 			{
 				Name:    "channelmonitor_enabled_last_checked_at",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[13], ChannelMonitorsColumns[16]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[14], ChannelMonitorsColumns[17]},
 			},
 			{
 				Name:    "channelmonitor_provider",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[4]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[5]},
 			},
 			{
 				Name:    "channelmonitor_provider_api_mode",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[4], ChannelMonitorsColumns[7]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[5], ChannelMonitorsColumns[8]},
 			},
 			{
 				Name:    "channelmonitor_group_name",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[12]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[13]},
 			},
 			{
 				Name:    "channelmonitor_template_id",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[21]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[22]},
 			},
 			{
 				Name:    "channelmonitor_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorsColumns[6]},
+				Columns: []*schema.Column{ChannelMonitorsColumns[7]},
 			},
 		},
 	}
@@ -775,8 +824,9 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "name", Type: field.TypeString, Size: 100},
-		{Name: "provider", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode"}},
+		{Name: "provider", Type: field.TypeEnum, Enums: []string{"openai", "anthropic", "gemini", "grok", "antigravity", "kimi", "zhipu", "deepseek", "qianwen", "commandcode", "minimax", "opencode_go", "cursor", "volcengine", "qianfan", "hunyuan", "mistral", "bedrock"}},
 		{Name: "api_mode", Type: field.TypeString, Size: 32, Default: "chat_completions"},
 		{Name: "description", Type: field.TypeString, Nullable: true, Size: 500, Default: ""},
 		{Name: "extra_headers", Type: field.TypeJSON},
@@ -790,14 +840,14 @@ var (
 		PrimaryKey: []*schema.Column{ChannelMonitorRequestTemplatesColumns[0]},
 		Indexes: []*schema.Index{
 			{
-				Name:    "channelmonitorrequesttemplate_provider_name",
+				Name:    "channelmonitorrequesttemplate_workspace_id_provider_name",
 				Unique:  true,
-				Columns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[4], ChannelMonitorRequestTemplatesColumns[3]},
+				Columns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[3], ChannelMonitorRequestTemplatesColumns[5], ChannelMonitorRequestTemplatesColumns[4]},
 			},
 			{
 				Name:    "channelmonitorrequesttemplate_provider_api_mode",
 				Unique:  false,
-				Columns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[4], ChannelMonitorRequestTemplatesColumns[5]},
+				Columns: []*schema.Column{ChannelMonitorRequestTemplatesColumns[5], ChannelMonitorRequestTemplatesColumns[6]},
 			},
 		},
 	}
@@ -807,6 +857,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_type", Type: field.TypeString, Size: 32, Default: ""},
 		{Name: "public_model", Type: field.TypeString, Size: 200},
 		{Name: "match_type", Type: field.TypeString, Size: 20, Default: "exact"},
 		{Name: "target_platform", Type: field.TypeString, Size: 50, Default: "openai"},
@@ -815,6 +866,7 @@ var (
 		{Name: "priority", Type: field.TypeInt, Default: 100},
 		{Name: "enabled", Type: field.TypeBool, Default: true},
 		{Name: "notes", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
+		{Name: "ordered_targets", Type: field.TypeJSON, Nullable: true, SchemaType: map[string]string{"postgres": "jsonb"}},
 		{Name: "group_id", Type: field.TypeInt64},
 	}
 	// CompositeModelRoutesTable holds the schema information for the "composite_model_routes" table.
@@ -825,7 +877,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "composite_model_routes_groups_group",
-				Columns:    []*schema.Column{CompositeModelRoutesColumns[12]},
+				Columns:    []*schema.Column{CompositeModelRoutesColumns[14]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -834,22 +886,22 @@ var (
 			{
 				Name:    "compositemodelroute_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[12]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_enabled",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[12], CompositeModelRoutesColumns[10]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[11]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_endpoint",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[12], CompositeModelRoutesColumns[8]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[9]},
 			},
 			{
 				Name:    "compositemodelroute_group_id_target_platform",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[12], CompositeModelRoutesColumns[6]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[14], CompositeModelRoutesColumns[7]},
 			},
 			{
 				Name:    "compositemodelroute_deleted_at",
@@ -859,9 +911,27 @@ var (
 			{
 				Name:    "compositemodelroute_priority",
 				Unique:  false,
-				Columns: []*schema.Column{CompositeModelRoutesColumns[9]},
+				Columns: []*schema.Column{CompositeModelRoutesColumns[10]},
 			},
 		},
+	}
+	// CredentialSecretsColumns holds the columns for the "credential_secrets" table.
+	CredentialSecretsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
+		{Name: "reference", Type: field.TypeString, Unique: true},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true},
+		{Name: "version", Type: field.TypeInt64, Default: 1},
+		{Name: "ciphertext", Type: field.TypeString, Size: 2147483647},
+		{Name: "revoked_at", Type: field.TypeTime, Nullable: true},
+	}
+	// CredentialSecretsTable holds the schema information for the "credential_secrets" table.
+	CredentialSecretsTable = &schema.Table{
+		Name:       "credential_secrets",
+		Columns:    CredentialSecretsColumns,
+		PrimaryKey: []*schema.Column{CredentialSecretsColumns[0]},
 	}
 	// ErrorPassthroughRulesColumns holds the columns for the "error_passthrough_rules" table.
 	ErrorPassthroughRulesColumns = []*schema.Column{
@@ -905,7 +975,10 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "tpm_limit", Type: field.TypeInt64, Default: 0},
+		{Name: "account_type", Type: field.TypeString, Size: 32, Default: ""},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "description", Type: field.TypeString, Nullable: true, SchemaType: map[string]string{"postgres": "text"}},
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
@@ -979,37 +1052,37 @@ var (
 			{
 				Name:    "group_status",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[12]},
+				Columns: []*schema.Column{GroupsColumns[15]},
 			},
 			{
 				Name:    "group_platform",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[14]},
+				Columns: []*schema.Column{GroupsColumns[17]},
 			},
 			{
 				Name:    "group_subscription_type",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[15]},
+				Columns: []*schema.Column{GroupsColumns[18]},
 			},
 			{
 				Name:    "group_is_exclusive",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[11]},
+				Columns: []*schema.Column{GroupsColumns[14]},
 			},
 			{
 				Name:    "group_deleted_at",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[3]},
+				Columns: []*schema.Column{GroupsColumns[4]},
 			},
 			{
 				Name:    "group_sort_order",
 				Unique:  false,
-				Columns: []*schema.Column{GroupsColumns[49]},
+				Columns: []*schema.Column{GroupsColumns[52]},
 			},
 			{
 				Name:    "idx_groups_duplicate_operation_id_active",
 				Unique:  true,
-				Columns: []*schema.Column{GroupsColumns[13]},
+				Columns: []*schema.Column{GroupsColumns[16]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "duplicate_operation_id IS NOT NULL AND deleted_at IS NULL",
 				},
@@ -1094,6 +1167,60 @@ var (
 				Name:    "identityadoptiondecision_identity_id",
 				Unique:  false,
 				Columns: []*schema.Column{IdentityAdoptionDecisionsColumns[6]},
+			},
+		},
+	}
+	// ModelAccessGroupsColumns holds the columns for the "model_access_groups" table.
+	ModelAccessGroupsColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "models", Type: field.TypeJSON},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+	}
+	// ModelAccessGroupsTable holds the schema information for the "model_access_groups" table.
+	ModelAccessGroupsTable = &schema.Table{
+		Name:       "model_access_groups",
+		Columns:    ModelAccessGroupsColumns,
+		PrimaryKey: []*schema.Column{ModelAccessGroupsColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "modelaccessgroup_workspace_id_name",
+				Unique:  true,
+				Columns: []*schema.Column{ModelAccessGroupsColumns[3], ModelAccessGroupsColumns[4]},
+			},
+			{
+				Name:    "modelaccessgroup_id_workspace_id",
+				Unique:  true,
+				Columns: []*schema.Column{ModelAccessGroupsColumns[0], ModelAccessGroupsColumns[3]},
+			},
+		},
+	}
+	// ModelAccessRulesColumns holds the columns for the "model_access_rules" table.
+	ModelAccessRulesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64},
+		{Name: "account_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "api_key_id", Type: field.TypeInt64, Unique: true, Nullable: true},
+		{Name: "access_group_id", Type: field.TypeInt64, Nullable: true},
+		{Name: "models", Type: field.TypeJSON, Nullable: true},
+		{Name: "exclude", Type: field.TypeJSON},
+		{Name: "revision", Type: field.TypeInt64, Default: 1},
+	}
+	// ModelAccessRulesTable holds the schema information for the "model_access_rules" table.
+	ModelAccessRulesTable = &schema.Table{
+		Name:       "model_access_rules",
+		Columns:    ModelAccessRulesColumns,
+		PrimaryKey: []*schema.Column{ModelAccessRulesColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "modelaccessrule_access_group_id",
+				Unique:  false,
+				Columns: []*schema.Column{ModelAccessRulesColumns[6]},
 			},
 		},
 	}
@@ -1402,6 +1529,7 @@ var (
 		{Name: "id", Type: field.TypeInt64, Increment: true},
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64, Default: 1},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "name", Type: field.TypeString, Size: 100},
 		{Name: "protocol", Type: field.TypeString, Size: 20},
@@ -1423,7 +1551,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "proxies_proxies_backup_proxy",
-				Columns:    []*schema.Column{ProxiesColumns[14]},
+				Columns:    []*schema.Column{ProxiesColumns[15]},
 				RefColumns: []*schema.Column{ProxiesColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1432,22 +1560,22 @@ var (
 			{
 				Name:    "proxy_status",
 				Unique:  false,
-				Columns: []*schema.Column{ProxiesColumns[10]},
+				Columns: []*schema.Column{ProxiesColumns[11]},
 			},
 			{
 				Name:    "proxy_deleted_at",
 				Unique:  false,
-				Columns: []*schema.Column{ProxiesColumns[3]},
+				Columns: []*schema.Column{ProxiesColumns[4]},
 			},
 			{
 				Name:    "proxy_expires_at",
 				Unique:  false,
-				Columns: []*schema.Column{ProxiesColumns[11]},
+				Columns: []*schema.Column{ProxiesColumns[12]},
 			},
 			{
 				Name:    "proxy_backup_proxy_id",
 				Unique:  false,
-				Columns: []*schema.Column{ProxiesColumns[14]},
+				Columns: []*schema.Column{ProxiesColumns[15]},
 			},
 		},
 	}
@@ -1649,12 +1777,26 @@ var (
 		{Name: "thinking_enabled", Type: field.TypeBool, Nullable: true},
 		{Name: "price_source", Type: field.TypeString, Nullable: true},
 		{Name: "price_card_version", Type: field.TypeString, Nullable: true},
+		{Name: "request_type", Type: field.TypeInt16, Default: 0},
+		{Name: "openai_ws_mode", Type: field.TypeBool, Default: false},
+		{Name: "service_tier", Type: field.TypeString, Nullable: true, Size: 16},
+		{Name: "reasoning_effort", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "requested_reasoning_effort", Type: field.TypeString, Nullable: true, Size: 20},
+		{Name: "inbound_endpoint", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "upstream_endpoint", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "upstream_request_id", Type: field.TypeString, Nullable: true, Size: 128},
+		{Name: "session_id", Type: field.TypeString, Nullable: true, Size: 255},
+		{Name: "native_compaction_v2", Type: field.TypeBool, Default: false},
 		{Name: "input_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "output_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "cache_creation_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "cache_read_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "cache_creation_5m_tokens", Type: field.TypeInt, Default: 0},
 		{Name: "cache_creation_1h_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "image_output_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "image_output_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
+		{Name: "image_input_tokens", Type: field.TypeInt, Default: 0},
+		{Name: "image_input_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "input_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "output_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "cache_creation_cost", Type: field.TypeFloat64, Default: 0, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
@@ -1664,6 +1806,7 @@ var (
 		{Name: "rate_multiplier", Type: field.TypeFloat64, Default: 1, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
 		{Name: "long_context_billing_applied", Type: field.TypeBool, Default: false},
 		{Name: "account_rate_multiplier", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(10,4)"}},
+		{Name: "account_stats_cost", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "billing_type", Type: field.TypeInt8, Default: 0},
 		{Name: "stream", Type: field.TypeBool, Default: false},
 		{Name: "duration_ms", Type: field.TypeInt, Nullable: true},
@@ -1695,31 +1838,31 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "usage_logs_api_keys_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[46]},
+				Columns:    []*schema.Column{UsageLogsColumns[61]},
 				RefColumns: []*schema.Column{APIKeysColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_accounts_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[47]},
+				Columns:    []*schema.Column{UsageLogsColumns[62]},
 				RefColumns: []*schema.Column{AccountsColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_groups_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[48]},
+				Columns:    []*schema.Column{UsageLogsColumns[63]},
 				RefColumns: []*schema.Column{GroupsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
 			{
 				Symbol:     "usage_logs_users_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[49]},
+				Columns:    []*schema.Column{UsageLogsColumns[64]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
 			{
 				Symbol:     "usage_logs_user_subscriptions_usage_logs",
-				Columns:    []*schema.Column{UsageLogsColumns[50]},
+				Columns:    []*schema.Column{UsageLogsColumns[65]},
 				RefColumns: []*schema.Column{UserSubscriptionsColumns[0]},
 				OnDelete:   schema.SetNull,
 			},
@@ -1728,32 +1871,32 @@ var (
 			{
 				Name:    "usagelog_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[49]},
+				Columns: []*schema.Column{UsageLogsColumns[64]},
 			},
 			{
 				Name:    "usagelog_api_key_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[46]},
+				Columns: []*schema.Column{UsageLogsColumns[61]},
 			},
 			{
 				Name:    "usagelog_account_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[47]},
+				Columns: []*schema.Column{UsageLogsColumns[62]},
 			},
 			{
 				Name:    "usagelog_group_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[48]},
+				Columns: []*schema.Column{UsageLogsColumns[63]},
 			},
 			{
 				Name:    "usagelog_subscription_id",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[50]},
+				Columns: []*schema.Column{UsageLogsColumns[65]},
 			},
 			{
 				Name:    "usagelog_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[45]},
+				Columns: []*schema.Column{UsageLogsColumns[60]},
 			},
 			{
 				Name:    "usagelog_model",
@@ -1773,17 +1916,22 @@ var (
 			{
 				Name:    "usagelog_user_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[49], UsageLogsColumns[45]},
+				Columns: []*schema.Column{UsageLogsColumns[64], UsageLogsColumns[60]},
 			},
 			{
 				Name:    "usagelog_api_key_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[46], UsageLogsColumns[45]},
+				Columns: []*schema.Column{UsageLogsColumns[61], UsageLogsColumns[60]},
 			},
 			{
 				Name:    "usagelog_group_id_created_at",
 				Unique:  false,
-				Columns: []*schema.Column{UsageLogsColumns[48], UsageLogsColumns[45]},
+				Columns: []*schema.Column{UsageLogsColumns[63], UsageLogsColumns[60]},
+			},
+			{
+				Name:    "usagelog_session_id",
+				Unique:  false,
+				Columns: []*schema.Column{UsageLogsColumns[22]},
 			},
 		},
 	}
@@ -1959,6 +2107,7 @@ var (
 		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
 		{Name: "deleted_at", Type: field.TypeTime, Nullable: true, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "account_type", Type: field.TypeString, Size: 32, Default: ""},
 		{Name: "platform", Type: field.TypeString, Size: 32},
 		{Name: "daily_limit_usd", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
 		{Name: "weekly_limit_usd", Type: field.TypeFloat64, Nullable: true, SchemaType: map[string]string{"postgres": "decimal(20,10)"}},
@@ -1979,7 +2128,7 @@ var (
 		ForeignKeys: []*schema.ForeignKey{
 			{
 				Symbol:     "user_platform_quotas_users_platform_quotas",
-				Columns:    []*schema.Column{UserPlatformQuotasColumns[14]},
+				Columns:    []*schema.Column{UserPlatformQuotasColumns[15]},
 				RefColumns: []*schema.Column{UsersColumns[0]},
 				OnDelete:   schema.NoAction,
 			},
@@ -1988,7 +2137,7 @@ var (
 			{
 				Name:    "userplatformquota_user_id_platform",
 				Unique:  true,
-				Columns: []*schema.Column{UserPlatformQuotasColumns[14], UserPlatformQuotasColumns[4]},
+				Columns: []*schema.Column{UserPlatformQuotasColumns[15], UserPlatformQuotasColumns[5]},
 				Annotation: &entsql.IndexAnnotation{
 					Where: "deleted_at IS NULL",
 				},
@@ -1996,7 +2145,7 @@ var (
 			{
 				Name:    "userplatformquota_user_id",
 				Unique:  false,
-				Columns: []*schema.Column{UserPlatformQuotasColumns[14]},
+				Columns: []*schema.Column{UserPlatformQuotasColumns[15]},
 			},
 		},
 	}
@@ -2089,9 +2238,46 @@ var (
 			},
 		},
 	}
+	// WorkspacesColumns holds the columns for the "workspaces" table.
+	WorkspacesColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "name", Type: field.TypeString, Size: 100},
+		{Name: "is_default", Type: field.TypeBool, Default: false},
+	}
+	// WorkspacesTable holds the schema information for the "workspaces" table.
+	WorkspacesTable = &schema.Table{
+		Name:       "workspaces",
+		Columns:    WorkspacesColumns,
+		PrimaryKey: []*schema.Column{WorkspacesColumns[0]},
+	}
+	// WorkspaceMembersColumns holds the columns for the "workspace_members" table.
+	WorkspaceMembersColumns = []*schema.Column{
+		{Name: "id", Type: field.TypeInt64, Increment: true},
+		{Name: "created_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "updated_at", Type: field.TypeTime, SchemaType: map[string]string{"postgres": "timestamptz"}},
+		{Name: "workspace_id", Type: field.TypeInt64},
+		{Name: "user_id", Type: field.TypeInt64},
+		{Name: "role", Type: field.TypeEnum, Enums: []string{"member", "admin"}},
+	}
+	// WorkspaceMembersTable holds the schema information for the "workspace_members" table.
+	WorkspaceMembersTable = &schema.Table{
+		Name:       "workspace_members",
+		Columns:    WorkspaceMembersColumns,
+		PrimaryKey: []*schema.Column{WorkspaceMembersColumns[0]},
+		Indexes: []*schema.Index{
+			{
+				Name:    "workspacemember_workspace_id_user_id",
+				Unique:  true,
+				Columns: []*schema.Column{WorkspaceMembersColumns[3], WorkspaceMembersColumns[4]},
+			},
+		},
+	}
 	// Tables holds all the tables in the schema.
 	Tables = []*schema.Table{
 		APIKeysTable,
+		APIKeyCredentialsTable,
 		AccountsTable,
 		AccountGroupsTable,
 		AnnouncementsTable,
@@ -2106,10 +2292,13 @@ var (
 		ChannelMonitorHistoriesTable,
 		ChannelMonitorRequestTemplatesTable,
 		CompositeModelRoutesTable,
+		CredentialSecretsTable,
 		ErrorPassthroughRulesTable,
 		GroupsTable,
 		IdempotencyRecordsTable,
 		IdentityAdoptionDecisionsTable,
+		ModelAccessGroupsTable,
+		ModelAccessRulesTable,
 		PaymentAuditLogsTable,
 		PaymentOrdersTable,
 		PaymentProviderInstancesTable,
@@ -2130,6 +2319,8 @@ var (
 		UserAttributeValuesTable,
 		UserPlatformQuotasTable,
 		UserSubscriptionsTable,
+		WorkspacesTable,
+		WorkspaceMembersTable,
 	}
 )
 
@@ -2138,6 +2329,10 @@ func init() {
 	APIKeysTable.ForeignKeys[1].RefTable = UsersTable
 	APIKeysTable.Annotation = &entsql.Annotation{
 		Table: "api_keys",
+	}
+	APIKeyCredentialsTable.ForeignKeys[0].RefTable = APIKeysTable
+	APIKeyCredentialsTable.Annotation = &entsql.Annotation{
+		Table: "api_key_credentials",
 	}
 	AccountsTable.ForeignKeys[0].RefTable = ProxiesTable
 	AccountsTable.ForeignKeys[1].RefTable = AccountsTable

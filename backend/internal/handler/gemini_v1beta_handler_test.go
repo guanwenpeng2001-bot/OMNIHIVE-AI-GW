@@ -39,7 +39,11 @@ func TestGeminiV1BetaListModels_ForcedAntigravityAppliesAllowlist(t *testing.T) 
 	})
 	c.Set(string(middleware.ContextKeyForcePlatform), service.PlatformAntigravity)
 
-	(&GatewayHandler{}).GeminiV1BetaListModels(c)
+	groupID := int64(42)
+	key, _ := middleware.GetAPIKeyFromContext(c)
+	key.GroupID = &groupID
+	repo := &geminiAllowlistAccountRepoStub{}
+	(&GatewayHandler{geminiCompatService: service.NewGeminiMessagesCompatService(repo, nil, nil, nil, nil, nil, nil, nil, nil)}).GeminiV1BetaListModels(c)
 
 	require.Equal(t, http.StatusOK, rec.Code)
 	var got antigravity.GeminiModelsListResponse
@@ -188,11 +192,11 @@ func TestGeminiV1BetaHandler_GetModelAntigravityFallback(t *testing.T) {
 	}
 }
 
-func TestShouldFallbackGeminiModel_KnownFallbackOn404(t *testing.T) {
+func TestShouldFallbackGeminiModel_DoesNotOverrideUpstream404WithCandidate(t *testing.T) {
 	t.Parallel()
 
 	res := &service.UpstreamHTTPResult{StatusCode: http.StatusNotFound}
-	require.True(t, shouldFallbackGeminiModel("gemini-3.1-pro-preview-customtools", res))
+	require.False(t, shouldFallbackGeminiModel("gemini-3.1-pro-preview-customtools", res))
 }
 
 func TestShouldFallbackGeminiModel_UnknownModelOn404(t *testing.T) {

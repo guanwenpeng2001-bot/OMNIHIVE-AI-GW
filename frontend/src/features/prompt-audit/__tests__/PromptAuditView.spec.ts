@@ -59,6 +59,30 @@ function mountView() {
 }
 
 describe('PromptAuditView', () => {
+  it('links tabs to panels and supports arrow, Home and End navigation', async () => {
+    const wrapper = mountView()
+    document.body.appendChild(wrapper.element)
+    await flushPromises()
+    const configTab = wrapper.get('#prompt-audit-tab-config')
+    const eventsTab = wrapper.get('#prompt-audit-tab-events')
+    await configTab.trigger('click')
+    expect(configTab.attributes('tabindex')).toBe('0')
+    expect(eventsTab.attributes('tabindex')).toBe('-1')
+    for (const tab of [configTab, eventsTab]) {
+      expect(wrapper.get(`#${tab.attributes('aria-controls')}`).attributes('aria-labelledby')).toBe(tab.attributes('id'))
+    }
+    await configTab.trigger('keydown', { key: 'ArrowRight' })
+    expect(eventsTab.attributes('aria-selected')).toBe('true')
+    expect(document.activeElement).toBe(eventsTab.element)
+    await eventsTab.trigger('keydown', { key: 'End' })
+    expect(document.activeElement).toBe(configTab.element)
+    await configTab.trigger('keydown', { key: 'Home' })
+    expect(document.activeElement).toBe(eventsTab.element)
+    await eventsTab.trigger('keydown', { key: 'ArrowRight' })
+    expect(document.activeElement).toBe(configTab.element)
+    wrapper.unmount()
+  })
+
   beforeEach(() => {
     Object.values(mocks).forEach((mock) => mock.mockReset())
     mocks.getConfig.mockResolvedValue(baseConfig())

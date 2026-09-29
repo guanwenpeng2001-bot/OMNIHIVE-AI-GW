@@ -35,15 +35,18 @@ func TestCodexContextWindowSyncRoundTrip(t *testing.T) {
 				Header:     http.Header{"Content-Type": []string{"application/json"}},
 				Body: io.NopCloser(strings.NewReader(fmt.Sprintf(`{"models":[{
 					"slug":"gpt-6-astra","reasoning":true,
+					"task_type":"text_generation","output_modalities":["text"],"max_output_tokens":4096,"supports_function_calling":false,
 					"supported_reasoning_levels":[{"effort":"high"}],
 					"input_modalities":["text","image"],%s
 				}]}`, tc.fields))),
 			}}
 			repo := &upstreamModelMetadataRepoStub{}
 			syncer := &AccountTestService{accountRepo: repo, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig()}
-			catalog, err := syncer.SyncUpstreamModelCatalog(context.Background(), &account)
+			catalog, err := syncer.ApplyAccountModelCatalog(context.Background(), &account, nil)
 			require.NoError(t, err)
 			require.Empty(t, catalog.Warnings)
+			require.Empty(t, catalog.ExcludedModels)
+			require.Equal(t, []string{"gpt-6-astra"}, catalog.Models)
 			require.Len(t, upstream.requests, 1)
 			require.Equal(t, account.ID, repo.accountID)
 
@@ -121,19 +124,23 @@ func TestCodexContextWindowRegistryEnrichment(t *testing.T) {
 			account.Type = AccountTypeAPIKey
 			account.Credentials["api_key"] = "test-key"
 			account.Credentials["base_url"] = "https://provider.example/v1"
+			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{
+				Enabled: true, Models: []string{"gpt-6-astra"},
+				ConfirmedAt: "2026-09-15T00:00:00Z", ConfirmedBy: 1, Reason: "Confirmed provider account access",
+			}
 			upstream := &httpUpstreamRecorder{responses: []*http.Response{
 				{
 					StatusCode: http.StatusOK,
 					Body: io.NopCloser(strings.NewReader(fmt.Sprintf(
-						`{"data":[{"id":"gpt-6-astra",%s}]}`, tc.fields))),
+						`{"data":[{"id":"gpt-6-astra","supportedGenerationMethods":["responses"],%s}]}`, tc.fields))),
 				},
 				{
 					StatusCode: http.StatusOK,
 					Body: io.NopCloser(strings.NewReader(`{"provider":{
 						"id":"provider","api":"https://provider.example/v1","models":{
-							"gpt-6-astra":{"id":"gpt-6-astra","reasoning":true,
+							"gpt-6-astra":{"id":"gpt-6-astra","reasoning":true,"tool_call":false,
 							"reasoning_options":[{"type":"effort","values":["high"]}],
-							"modalities":{"input":["text","image"]},"limit":{"context":1050000}}
+							"modalities":{"input":["text","image"],"output":["text"]},"limit":{"context":1050000,"output":4096}}
 						}
 					}}`)),
 				},
@@ -141,9 +148,11 @@ func TestCodexContextWindowRegistryEnrichment(t *testing.T) {
 			syncer := &AccountTestService{
 				accountRepo: &upstreamModelMetadataRepoStub{}, httpUpstream: upstream, cfg: upstreamModelSyncTestConfig(),
 			}
-			catalog, err := syncer.SyncUpstreamModelCatalog(context.Background(), &account)
+			catalog, err := syncer.ApplyAccountModelCatalog(context.Background(), &account, nil)
 			require.NoError(t, err)
 			require.Empty(t, catalog.Warnings)
+			require.Empty(t, catalog.ExcludedModels)
+			require.Equal(t, []string{"gpt-6-astra"}, catalog.Models)
 			require.Len(t, upstream.requests, 2)
 			model := codexContextWindowManifest(t, []Account{account})
 			require.EqualValues(t, tc.wantWindow, model["context_window"])
@@ -156,6 +165,7 @@ func codexContextWindowAccount(t *testing.T, id int64, fields string) Account {
 	t.Helper()
 	account := Account{
 		ID: id, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+		Status: StatusActive, Schedulable: true,
 		Credentials: map[string]any{
 			"access_token":  "test-token",
 			"model_mapping": map[string]any{"gpt-6-astra": "gpt-6-astra"},

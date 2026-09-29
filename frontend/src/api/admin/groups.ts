@@ -1,20 +1,20 @@
+import { validateTpmLimit } from '@/utils/tpmLimit'
+import type { ApiKey } from '@/types/user'
 /**
  * Admin Groups API endpoints
  * Handles API key group management for administrators
  */
 
 import { apiClient } from '../client'
+import type { AdminGroup, CreateGroupRequest, UpdateGroupRequest } from '@/types/admin'
 import type {
-  AdminGroup,
   GroupPlatform,
   CompositeModelRoute,
   CompositeModelRouteInput,
   CompositeRoutePreviewRequest,
   CompositeRouteDecision,
-  CreateGroupRequest,
-  UpdateGroupRequest,
-  PaginatedResponse
-} from '@/types'
+} from '@/types/model'
+import type { PaginatedResponse } from '@/types/common'
 
 export interface LiveCapability {
   supported: boolean
@@ -125,6 +125,7 @@ export async function getModelAllowlistCandidates(
  * @returns Created group
  */
 export async function create(groupData: CreateGroupRequest): Promise<AdminGroup> {
+  validateTpmLimit(groupData.tpm_limit)
   const { data } = await apiClient.post<AdminGroup>('/admin/groups', groupData)
   return data
 }
@@ -216,6 +217,7 @@ export async function duplicate(id: number): Promise<AdminGroup> {
  * @returns Updated group
  */
 export async function update(id: number, updates: UpdateGroupRequest): Promise<AdminGroup> {
+  validateTpmLimit(updates.tpm_limit)
   const { data } = await apiClient.put<AdminGroup>(`/admin/groups/${id}`, updates)
   return data
 }
@@ -243,19 +245,28 @@ export async function toggleStatus(id: number, status: 'active' | 'inactive'): P
 /**
  * Get group statistics
  * @param id - Group ID
- * @returns Group usage statistics
+ * @returns 按该分组真实聚合的统计；`usage_window_start/end` 是原始账本保留窗口，
+ *          请求数只能回溯到窗口起点，调用方不得当成历史全量。
  */
 export async function getStats(id: number): Promise<{
+  group_id: number
   total_api_keys: number
   active_api_keys: number
   total_requests: number
   total_cost: number
+  actual_cost: number
+  usage_window_start: string
+  usage_window_end: string
 }> {
   const { data } = await apiClient.get<{
+    group_id: number
     total_api_keys: number
     active_api_keys: number
     total_requests: number
     total_cost: number
+    actual_cost: number
+    usage_window_start: string
+    usage_window_end: string
   }>(`/admin/groups/${id}/stats`)
   return data
 }
@@ -271,8 +282,8 @@ export async function getGroupApiKeys(
   id: number,
   page: number = 1,
   pageSize: number = 20
-): Promise<PaginatedResponse<any>> {
-  const { data } = await apiClient.get<PaginatedResponse<any>>(`/admin/groups/${id}/api-keys`, {
+): Promise<PaginatedResponse<ApiKey>> {
+  const { data } = await apiClient.get<PaginatedResponse<ApiKey>>(`/admin/groups/${id}/api-keys`, {
     params: { page, page_size: pageSize }
   })
   return data

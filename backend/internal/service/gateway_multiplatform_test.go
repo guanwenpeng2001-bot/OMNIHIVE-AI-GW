@@ -1347,7 +1347,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		require.Equal(t, int64(2), acc.ID, "应选择优先级最高的账户（包含启用混合调度的antigravity）")
 	})
 
-	t.Run("混合调度-Gemini家族限流后跳过Antigravity账户", func(t *testing.T) {
+	t.Run("混合调度-同模型限流后跳过Antigravity账户", func(t *testing.T) {
 		resetAt := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
@@ -1360,7 +1360,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 					Extra: map[string]any{
 						"mixed_scheduling": true,
 						modelRateLimitsKey: map[string]any{
-							antigravityGeminiModelRateLimitKey: map[string]any{
+							antigravityModelRateLimitDomain("gemini-3-pro-high"): map[string]any{
 								"rate_limit_reset_at": resetAt,
 							},
 						},
@@ -1375,7 +1375,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 					Extra: map[string]any{
 						"mixed_scheduling": true,
 						modelRateLimitsKey: map[string]any{
-							antigravityGeminiModelRateLimitKey: map[string]any{
+							antigravityModelRateLimitDomain("gemini-3-pro-high"): map[string]any{
 								"rate_limit_reset_at": resetAt,
 							},
 						},
@@ -1408,7 +1408,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 		require.Equal(t, int64(3), acc.ID)
 	})
 
-	t.Run("混合调度-Gemini家族限流不影响Claude调度", func(t *testing.T) {
+	t.Run("混合调度-Gemini模型限流不影响Claude调度", func(t *testing.T) {
 		resetAt := time.Now().Add(10 * time.Minute).Format(time.RFC3339)
 		repo := &mockAccountRepoForPlatform{
 			accounts: []Account{
@@ -1421,7 +1421,7 @@ func TestGatewayService_selectAccountWithMixedScheduling(t *testing.T) {
 					Extra: map[string]any{
 						"mixed_scheduling": true,
 						modelRateLimitsKey: map[string]any{
-							antigravityGeminiModelRateLimitKey: map[string]any{
+							antigravityModelRateLimitDomain("gemini-3-pro-high"): map[string]any{
 								"rate_limit_reset_at": resetAt,
 							},
 						},
@@ -2060,40 +2060,6 @@ func TestAccount_IsMixedSchedulingEnabled(t *testing.T) {
 			require.Equal(t, tt.expected, got)
 		})
 	}
-}
-
-// mockConcurrencyService for testing
-type mockConcurrencyService struct {
-	accountLoads      map[int64]*AccountLoadInfo
-	accountWaitCounts map[int64]int
-	acquireResults    map[int64]bool
-}
-
-func (m *mockConcurrencyService) GetAccountsLoadBatch(ctx context.Context, accounts []AccountWithConcurrency) (map[int64]*AccountLoadInfo, error) {
-	if m.accountLoads == nil {
-		return map[int64]*AccountLoadInfo{}, nil
-	}
-	result := make(map[int64]*AccountLoadInfo)
-	for _, acc := range accounts {
-		if load, ok := m.accountLoads[acc.ID]; ok {
-			result[acc.ID] = load
-		} else {
-			result[acc.ID] = &AccountLoadInfo{
-				AccountID:          acc.ID,
-				CurrentConcurrency: 0,
-				WaitingCount:       0,
-				LoadRate:           0,
-			}
-		}
-	}
-	return result, nil
-}
-
-func (m *mockConcurrencyService) GetAccountWaitingCount(ctx context.Context, accountID int64) (int, error) {
-	if m.accountWaitCounts == nil {
-		return 0, nil
-	}
-	return m.accountWaitCounts[accountID], nil
 }
 
 type mockConcurrencyCache struct {
@@ -3361,8 +3327,8 @@ func TestGatewayService_GroupResolution_ReusesContextGroup(t *testing.T) {
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "claude-3-5-sonnet-20241022", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, 1, groupRepo.getByIDCalls) // +1 for require_privacy_set check
-	require.Equal(t, 0, groupRepo.getByIDLiteCalls)
+	require.Equal(t, 0, groupRepo.getByIDCalls)
+	require.Equal(t, 1, groupRepo.getByIDLiteCalls) // require_privacy_set，不走账号计数聚合
 }
 
 func TestGatewayService_GroupResolution_IgnoresInvalidContextGroup(t *testing.T) {
@@ -3404,8 +3370,8 @@ func TestGatewayService_GroupResolution_IgnoresInvalidContextGroup(t *testing.T)
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "claude-3-5-sonnet-20241022", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, 1, groupRepo.getByIDCalls) // +1 for require_privacy_set check
-	require.Equal(t, 1, groupRepo.getByIDLiteCalls)
+	require.Equal(t, 0, groupRepo.getByIDCalls)
+	require.Equal(t, 2, groupRepo.getByIDLiteCalls) // 分组解析 + require_privacy_set
 }
 
 func TestGatewayService_GroupContext_OverwritesInvalidContextGroup(t *testing.T) {
@@ -3474,8 +3440,8 @@ func TestGatewayService_GroupResolution_FallbackUsesLiteOnce(t *testing.T) {
 	account, err := svc.SelectAccountForModelWithExclusions(ctx, &groupID, "", "claude-3-5-sonnet-20241022", nil)
 	require.NoError(t, err)
 	require.NotNil(t, account)
-	require.Equal(t, 1, groupRepo.getByIDCalls) // +1 for require_privacy_set check
-	require.Equal(t, 1, groupRepo.getByIDLiteCalls)
+	require.Equal(t, 0, groupRepo.getByIDCalls)
+	require.Equal(t, 2, groupRepo.getByIDLiteCalls) // fallback 解析 + require_privacy_set
 }
 
 func TestGatewayService_ResolveGatewayGroup_DetectsFallbackCycle(t *testing.T) {

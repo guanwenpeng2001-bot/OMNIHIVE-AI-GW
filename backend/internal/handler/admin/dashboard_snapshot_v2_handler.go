@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"strings"
@@ -16,6 +17,10 @@ import (
 )
 
 var dashboardSnapshotV2Cache = newSnapshotCache(30 * time.Second)
+
+// errInvalidBillingMode rejects an unknown billing mode instead of returning a
+// silently empty chart that disagrees with the table and the totals.
+var errInvalidBillingMode = errors.New("invalid billing_mode")
 
 type dashboardSnapshotV2Stats struct {
 	usagestats.DashboardStats
@@ -46,6 +51,7 @@ type dashboardSnapshotV2Filters struct {
 	Stream                *bool
 	NativeCompactionV2    *bool
 	BillingType           *int8
+	BillingMode           string
 	UpstreamModelMismatch *bool
 }
 
@@ -62,6 +68,7 @@ type dashboardSnapshotV2CacheKey struct {
 	Stream                *bool  `json:"stream"`
 	NativeCompactionV2    *bool  `json:"native_compaction_v2"`
 	BillingType           *int8  `json:"billing_type"`
+	BillingMode           string `json:"billing_mode"`
 	UpstreamModelMismatch *bool  `json:"upstream_model_mismatch"`
 	IncludeStats          bool   `json:"include_stats"`
 	IncludeTrend          bool   `json:"include_trend"`
@@ -109,6 +116,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		Stream:                filters.Stream,
 		NativeCompactionV2:    filters.NativeCompactionV2,
 		BillingType:           filters.BillingType,
+		BillingMode:           filters.BillingMode,
 		UpstreamModelMismatch: filters.UpstreamModelMismatch,
 		IncludeStats:          includeStats,
 		IncludeTrend:          includeTrend,
@@ -117,7 +125,12 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		IncludeUsersTrend:     includeUsersTrend,
 		UsersTrendLimit:       usersTrendLimit,
 	})
-	cacheKey := string(keyRaw)
+	revision, err := h.dashboardService.DashboardCoverageRevision(c.Request.Context())
+	if err != nil {
+		writeDashboardError(c, err, "Failed to get dashboard coverage")
+		return
+	}
+	cacheKey := revision + ":" + string(keyRaw)
 
 	cached, hit, err := dashboardSnapshotV2Cache.GetOrLoad(cacheKey, func() (any, error) {
 		return h.buildSnapshotV2Response(
@@ -135,7 +148,7 @@ func (h *DashboardHandler) GetSnapshotV2(c *gin.Context) {
 		)
 	})
 	if err != nil {
-		response.Error(c, 500, err.Error())
+		writeDashboardError(c, err, "Failed to get dashboard snapshot")
 		return
 	}
 	if cached.ETag != "" {
@@ -168,7 +181,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	if includeStats {
 		stats, err := h.dashboardService.GetDashboardStats(ctx)
 		if err != nil {
-			return nil, errors.New("failed to get dashboard statistics")
+			return nil, fmt.Errorf("failed to get dashboard statistics: %w", err)
 		}
 		resp.Stats = &dashboardSnapshotV2Stats{
 			DashboardStats: *stats,
@@ -191,10 +204,11 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get usage trend")
+			return nil, fmt.Errorf("failed to get usage trend: %w", err)
 		}
 		resp.Trend = trend
 	}
@@ -213,10 +227,11 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get model statistics")
+			return nil, fmt.Errorf("failed to get model statistics: %w", err)
 		}
 		resp.Models = models
 	}
@@ -234,10 +249,11 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 			filters.Stream,
 			filters.NativeCompactionV2,
 			filters.BillingType,
+			filters.BillingMode,
 			filters.UpstreamModelMismatch,
 		)
 		if err != nil {
-			return nil, errors.New("failed to get group statistics")
+			return nil, fmt.Errorf("failed to get group statistics: %w", err)
 		}
 		resp.Groups = groups
 	}
@@ -245,7 +261,7 @@ func (h *DashboardHandler) buildSnapshotV2Response(
 	if includeUsersTrend {
 		usersTrend, _, err := h.getUserUsageTrendCached(ctx, startTime, endTime, granularity, usersTrendLimit)
 		if err != nil {
-			return nil, errors.New("failed to get user usage trend")
+			return nil, fmt.Errorf("failed to get user usage trend: %w", err)
 		}
 		resp.UsersTrend = usersTrend
 	}
@@ -318,6 +334,12 @@ func parseDashboardSnapshotV2Filters(c *gin.Context) (*dashboardSnapshotV2Filter
 		bt := int8(v)
 		filters.BillingType = &bt
 	}
+
+	billingMode := strings.TrimSpace(c.Query("billing_mode"))
+	if billingMode != "" && !service.BillingMode(billingMode).IsValidUsageFilter() {
+		return nil, errInvalidBillingMode
+	}
+	filters.BillingMode = billingMode
 
 	if mismatchStr := strings.TrimSpace(c.Query("upstream_model_mismatch")); mismatchStr != "" {
 		value, err := strconv.ParseBool(mismatchStr)

@@ -58,6 +58,20 @@ func (_c *GroupCreate) SetNillableUpdatedAt(v *time.Time) *GroupCreate {
 	return _c
 }
 
+// SetWorkspaceID sets the "workspace_id" field.
+func (_c *GroupCreate) SetWorkspaceID(v int64) *GroupCreate {
+	_c.mutation.SetWorkspaceID(v)
+	return _c
+}
+
+// SetNillableWorkspaceID sets the "workspace_id" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableWorkspaceID(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetWorkspaceID(*v)
+	}
+	return _c
+}
+
 // SetDeletedAt sets the "deleted_at" field.
 func (_c *GroupCreate) SetDeletedAt(v time.Time) *GroupCreate {
 	_c.mutation.SetDeletedAt(v)
@@ -68,6 +82,34 @@ func (_c *GroupCreate) SetDeletedAt(v time.Time) *GroupCreate {
 func (_c *GroupCreate) SetNillableDeletedAt(v *time.Time) *GroupCreate {
 	if v != nil {
 		_c.SetDeletedAt(*v)
+	}
+	return _c
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (_c *GroupCreate) SetTpmLimit(v int64) *GroupCreate {
+	_c.mutation.SetTpmLimit(v)
+	return _c
+}
+
+// SetNillableTpmLimit sets the "tpm_limit" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableTpmLimit(v *int64) *GroupCreate {
+	if v != nil {
+		_c.SetTpmLimit(*v)
+	}
+	return _c
+}
+
+// SetAccountType sets the "account_type" field.
+func (_c *GroupCreate) SetAccountType(v string) *GroupCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAccountType(v *string) *GroupCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
 	}
 	return _c
 }
@@ -1047,6 +1089,18 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		v := group.DefaultWorkspaceID
+		_c.mutation.SetWorkspaceID(v)
+	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		v := group.DefaultTpmLimit
+		_c.mutation.SetTpmLimit(v)
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := group.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
 	if _, ok := _c.mutation.RateMultiplier(); !ok {
 		v := group.DefaultRateMultiplier
 		_c.mutation.SetRateMultiplier(v)
@@ -1221,6 +1275,25 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "Group.updated_at"`)}
+	}
+	if _, ok := _c.mutation.WorkspaceID(); !ok {
+		return &ValidationError{Name: "workspace_id", err: errors.New(`ent: missing required field "Group.workspace_id"`)}
+	}
+	if _, ok := _c.mutation.TpmLimit(); !ok {
+		return &ValidationError{Name: "tpm_limit", err: errors.New(`ent: missing required field "Group.tpm_limit"`)}
+	}
+	if v, ok := _c.mutation.TpmLimit(); ok {
+		if err := group.TpmLimitValidator(v); err != nil {
+			return &ValidationError{Name: "tpm_limit", err: fmt.Errorf(`ent: validator failed for field "Group.tpm_limit": %w`, err)}
+		}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "Group.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := group.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "Group.account_type": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.Name(); !ok {
 		return &ValidationError{Name: "name", err: errors.New(`ent: missing required field "Group.name"`)}
@@ -1453,9 +1526,21 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldUpdatedAt, field.TypeTime, value)
 		_node.UpdatedAt = value
 	}
+	if value, ok := _c.mutation.WorkspaceID(); ok {
+		_spec.SetField(group.FieldWorkspaceID, field.TypeInt64, value)
+		_node.WorkspaceID = value
+	}
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(group.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.TpmLimit(); ok {
+		_spec.SetField(group.FieldTpmLimit, field.TypeInt64, value)
+		_node.TpmLimit = value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(group.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
 	}
 	if value, ok := _c.mutation.Name(); ok {
 		_spec.SetField(group.FieldName, field.TypeString, value)
@@ -1892,6 +1977,36 @@ func (u *GroupUpsert) UpdateDeletedAt() *GroupUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *GroupUpsert) ClearDeletedAt() *GroupUpsert {
 	u.SetNull(group.FieldDeletedAt)
+	return u
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *GroupUpsert) SetTpmLimit(v int64) *GroupUpsert {
+	u.Set(group.FieldTpmLimit, v)
+	return u
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateTpmLimit() *GroupUpsert {
+	u.SetExcluded(group.FieldTpmLimit)
+	return u
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *GroupUpsert) AddTpmLimit(v int64) *GroupUpsert {
+	u.Add(group.FieldTpmLimit, v)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsert) SetAccountType(v string) *GroupUpsert {
+	u.Set(group.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAccountType() *GroupUpsert {
+	u.SetExcluded(group.FieldAccountType)
 	return u
 }
 
@@ -2935,6 +3050,9 @@ func (u *GroupUpsertOne) UpdateNewValues() *GroupUpsertOne {
 		if _, exists := u.create.mutation.CreatedAt(); exists {
 			s.SetIgnore(group.FieldCreatedAt)
 		}
+		if _, exists := u.create.mutation.WorkspaceID(); exists {
+			s.SetIgnore(group.FieldWorkspaceID)
+		}
 		if _, exists := u.create.mutation.DuplicateOperationID(); exists {
 			s.SetIgnore(group.FieldDuplicateOperationID)
 		}
@@ -3001,6 +3119,41 @@ func (u *GroupUpsertOne) UpdateDeletedAt() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearDeletedAt() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *GroupUpsertOne) SetTpmLimit(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *GroupUpsertOne) AddTpmLimit(v int64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateTpmLimit() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateTpmLimit()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsertOne) SetAccountType(v string) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAccountType() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountType()
 	})
 }
 
@@ -4380,6 +4533,9 @@ func (u *GroupUpsertBulk) UpdateNewValues() *GroupUpsertBulk {
 			if _, exists := b.mutation.CreatedAt(); exists {
 				s.SetIgnore(group.FieldCreatedAt)
 			}
+			if _, exists := b.mutation.WorkspaceID(); exists {
+				s.SetIgnore(group.FieldWorkspaceID)
+			}
 			if _, exists := b.mutation.DuplicateOperationID(); exists {
 				s.SetIgnore(group.FieldDuplicateOperationID)
 			}
@@ -4447,6 +4603,41 @@ func (u *GroupUpsertBulk) UpdateDeletedAt() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearDeletedAt() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (u *GroupUpsertBulk) SetTpmLimit(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetTpmLimit(v)
+	})
+}
+
+// AddTpmLimit adds v to the "tpm_limit" field.
+func (u *GroupUpsertBulk) AddTpmLimit(v int64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddTpmLimit(v)
+	})
+}
+
+// UpdateTpmLimit sets the "tpm_limit" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateTpmLimit() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateTpmLimit()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *GroupUpsertBulk) SetAccountType(v string) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAccountType() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAccountType()
 	})
 }
 

@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
-import { ref } from 'vue'
+import { ref, watch, onScopeDispose } from 'vue'
+import { useAuthStore } from './auth'
 import { adminAPI } from '@/api'
 import type { CustomMenuItem } from '@/types'
 
@@ -51,16 +52,36 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
   const paymentEnabled = ref(readCachedBool('payment_enabled_cached', false))
   const customMenuItems = ref<CustomMenuItem[]>([])
 
-  async function fetch(force = false): Promise<void> {
-    if (loaded.value && !force) return
-    if (loading.value) return
+  const auth = useAuthStore()
+  let pending: Promise<void> | null = null
+  let revision = 0
 
+  function invalidate() {
+    revision++
+    pending = null
+    loading.value = false
+    loaded.value = false
+  }
+
+  watch([() => auth.user?.id, () => auth.user?.role, () => auth.sessionRevision, () => auth.isAuthenticated], () => {
+    invalidate()
+    customMenuItems.value = []
+    opsMonitoringEnabled.value = true
+    opsRealtimeMonitoringEnabled.value = true
+    opsQueryModeDefault.value = 'auto'
+    paymentEnabled.value = false
+  }, { flush: 'sync' })
+
+  function fetch(force = false): Promise<void> {
+    if (pending) return pending
+    if (!auth.isAuthenticated || !auth.isAdmin || (loaded.value && !force)) return Promise.resolve()
+    const requestRevision = revision
     loading.value = true
-    try {
-      const [settings, paymentConfigResp] = await Promise.all([
+    const request = Promise.all([
         adminAPI.settings.getSettings(),
         adminAPI.payment.getConfig()
-      ])
+      ]).then(([settings, paymentConfigResp]) => {
+      if (requestRevision !== revision) return
       opsMonitoringEnabled.value = settings.ops_monitoring_enabled ?? true
       writeCachedBool('ops_monitoring_enabled_cached', opsMonitoringEnabled.value)
 
@@ -76,37 +97,41 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
       writeCachedBool('payment_enabled_cached', paymentEnabled.value)
 
       loaded.value = true
-    } catch (err) {
-      // Keep cached/default value: do not "flip" the UI based on a transient fetch failure.
-      loaded.value = true
-      console.error('[adminSettings] Failed to fetch settings:', err)
-    } finally {
-      loading.value = false
-    }
+    }).catch(() => {
+      // Retain current values but allow the next consumer to retry. Do not log
+      // an old identity's response (which may contain private server details).
+    }).finally(() => {
+      if (pending === request) {
+        pending = null
+        loading.value = false
+      }
+    })
+    pending = request
+    return request
   }
 
   function setOpsMonitoringEnabledLocal(value: boolean) {
+    invalidate()
     opsMonitoringEnabled.value = value
     writeCachedBool('ops_monitoring_enabled_cached', value)
-    loaded.value = true
   }
 
   function setOpsRealtimeMonitoringEnabledLocal(value: boolean) {
+    invalidate()
     opsRealtimeMonitoringEnabled.value = value
     writeCachedBool('ops_realtime_monitoring_enabled_cached', value)
-    loaded.value = true
   }
 
   function setPaymentEnabledLocal(value: boolean) {
+    invalidate()
     paymentEnabled.value = value
     writeCachedBool('payment_enabled_cached', value)
-    loaded.value = true
   }
 
   function setOpsQueryModeDefaultLocal(value: string) {
+    invalidate()
     opsQueryModeDefault.value = value || 'auto'
     writeCachedString('ops_query_mode_default_cached', opsQueryModeDefault.value)
-    loaded.value = true
   }
 
   // Keep UI consistent if we learn that ops is disabled via feature-gated 404s.
@@ -132,6 +157,11 @@ export const useAdminSettingsStore = defineStore('adminSettings', () => {
   if (typeof window !== 'undefined') {
     initializeEventListeners()
   }
+
+  onScopeDispose(() => {
+    invalidate()
+    eventHandlerCleanup?.()
+  })
 
   return {
     loaded,
