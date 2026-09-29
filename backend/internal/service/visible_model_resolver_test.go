@@ -4,9 +4,14 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/stretchr/testify/require"
+	"fmt"
+	"slices"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/stretchr/testify/require"
 )
 
 type visiblePolicyAccountRepo struct {
@@ -15,13 +20,30 @@ type visiblePolicyAccountRepo struct {
 	generation       int64
 	changeDuringRead bool
 	generationErr    error
+	assertScope      func(*int64, []string, bool)
 }
 
-func (r *visiblePolicyAccountRepo) ListModelCatalogAccounts(context.Context, *int64, []string, bool) ([]Account, error) {
+func (r *visiblePolicyAccountRepo) ListModelCatalogAccounts(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	if r.assertScope != nil {
+		r.assertScope(groupID, platforms, includeGrouped)
+	}
 	if r.changeDuringRead {
 		r.generation++
 	}
-	return append([]Account(nil), r.accounts...), nil
+	accounts := []Account{}
+	for _, account := range r.accounts {
+		if !slices.Contains(platforms, account.Platform) || account.Status != StatusActive || !account.Schedulable {
+			continue
+		}
+		if groupID != nil && !slices.Contains(account.GroupIDs, *groupID) {
+			continue
+		}
+		if groupID == nil && !includeGrouped && len(account.GroupIDs) > 0 {
+			continue
+		}
+		accounts = append(accounts, account)
+	}
+	return accounts, nil
 }
 func (r *visiblePolicyAccountRepo) GetModelCatalogAccount(_ context.Context, accountID int64) (*Account, error) {
 	for index := range r.accounts {
@@ -61,6 +83,7 @@ func (r *visiblePolicyChannelRepo) ListAll(context.Context) ([]Channel, error) {
 
 func TestVisibleModelsKeyInheritanceIntersectionAndPublicAuthorization(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "deployment-private", "other")
+	account.GroupIDs = []int64{9}
 	account.Credentials["model_mapping"] = map[string]any{"public": "deployment-private", "other": "other", "missing": "unobserved"}
 	group := Group{ID: 9, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"public", "missing"}}}
 	gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}, generation: 12}, groupRepo: &visiblePolicyGroupRepo{groups: []Group{group}}}
@@ -134,6 +157,7 @@ func TestVisibleModelsDoNotPublishCandidatesOrUnsupportedActions(t *testing.T) {
 
 func TestVisibleModelsPlazaChannelsAndListsSharePolicy(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "public", "disabled")
+	account.GroupIDs = []int64{9}
 	group := Group{ID: 9, Platform: PlatformOpenAI, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"public"}}}
 	accountRepo := &visiblePolicyAccountRepo{accounts: []Account{account}, generation: 19}
 	groups := &visiblePolicyGroupRepo{groups: []Group{group}}
@@ -182,6 +206,7 @@ func (r *visiblePolicyRouteRepo) ListByGroup(context.Context, int64, bool) ([]Co
 
 func TestVisibleModelsCompositeAliasRebindsPlatformAndEndpoint(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "private-deployment")
+	account.GroupIDs = []int64{9}
 	group := Group{ID: 9, Platform: PlatformComposite, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"public", "unavailable", "wrong-platform", "wrong-action"}}}
 	routes := &visiblePolicyRouteRepo{routes: []CompositeModelRoute{
 		{PublicModel: "public", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformOpenAI, UpstreamModel: "private-deployment", Endpoint: "responses", Enabled: true},
@@ -239,6 +264,7 @@ func TestVisibleModelsFinalForwardUsesPublicKeyPolicy(t *testing.T) {
 
 func TestVisibleModelsChannelAliasesNeverPublishPrivateTarget(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "private-deployment")
+	account.GroupIDs = []int64{9}
 	group := Group{ID: 9, Platform: PlatformOpenAI}
 	groups := &visiblePolicyGroupRepo{groups: []Group{group}}
 	channels := &visiblePolicyChannelRepo{channels: []Channel{{ID: 2, Status: StatusActive, GroupIDs: []int64{group.ID}, ModelMapping: map[string]map[string]string{PlatformOpenAI: {"public": "private-deployment", "tenant-*": "private-deployment"}}}}}
@@ -257,4 +283,132 @@ func (r *visiblePolicyChannelRepo) GetGroupPlatforms(_ context.Context, groupIDs
 		platforms[groupID] = PlatformOpenAI
 	}
 	return platforms, nil
+}
+
+func TestVisibleModelsCatalogScope(t *testing.T) {
+	groupID := int64(9)
+	for _, platform := range []string{PlatformComposite, "", PlatformOpenAI, "unknown"} {
+		for _, group := range []*int64{&groupID, nil} {
+			for _, simple := range []bool{false, true} {
+				t.Run(fmt.Sprintf("platform=%s/group=%v/simple=%t", platform, group, simple), func(t *testing.T) {
+					accounts := []Account{
+						catalogEvidenceAccount(1, PlatformOpenAI, "group-model"),
+						catalogEvidenceAccount(2, PlatformOpenAI, "other-group-model"),
+						catalogEvidenceAccount(3, PlatformOpenAI, "ungrouped-model"),
+						catalogEvidenceAccount(4, PlatformMistral, "mistral-model"),
+					}
+					accounts[0].GroupIDs = []int64{groupID}
+					accounts[1].GroupIDs = []int64{10}
+					accounts[3].GroupIDs = []int64{groupID}
+					reads := 0
+					repo := &visiblePolicyAccountRepo{accounts: accounts, assertScope: func(gotGroup *int64, platforms []string, includeGrouped bool) {
+						reads++
+						require.Equal(t, group, gotGroup)
+						wantPlatforms := domain.ConcretePlatforms()
+						if platform == PlatformOpenAI {
+							wantPlatforms = []string{PlatformOpenAI}
+						}
+						require.Equal(t, wantPlatforms, platforms)
+						require.Equal(t, simple, includeGrouped)
+					}}
+					cfg := &config.Config{}
+					if simple {
+						cfg.RunMode = "simple"
+					}
+					routes := &visiblePolicyRouteRepo{routes: []CompositeModelRoute{
+						{PublicModel: "group-model", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformOpenAI, UpstreamModel: "group-model", Endpoint: "responses", Enabled: true},
+						{PublicModel: "mistral-model", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformMistral, UpstreamModel: "mistral-model", Endpoint: "chat_completions", Enabled: true},
+					}}
+					gateway := &GatewayService{accountRepo: repo, cfg: cfg, compositeResolver: NewCompositeRouteResolver(routes)}
+					view, err := gateway.VisibleModels(context.Background(), group, platform)
+					require.NoError(t, err)
+					want := []string{}
+					switch {
+					case platform == "unknown":
+						require.Zero(t, reads, "unknown platforms must not query accounts")
+					case platform == PlatformComposite && group == nil:
+						// Composite routes require a group even in simple mode.
+					case group != nil:
+						want = []string{"group-model"}
+						if platform != PlatformOpenAI {
+							want = append(want, "mistral-model")
+						}
+					case simple:
+						want = []string{"group-model", "other-group-model", "ungrouped-model"}
+						if platform != PlatformOpenAI {
+							want = append(want, "mistral-model")
+						}
+					default:
+						want = []string{"ungrouped-model"}
+					}
+					if platform != "unknown" {
+						require.Equal(t, 1, reads)
+					}
+					require.ElementsMatch(t, want, view.Models)
+				})
+			}
+		}
+	}
+}
+
+func TestVisibleModelsPanelCatalogScope(t *testing.T) {
+	for _, platform := range []string{PlatformComposite, ""} {
+		for _, simple := range []bool{false, true} {
+			t.Run(fmt.Sprintf("platform=%s/simple=%t", platform, simple), func(t *testing.T) {
+				group := Group{ID: 9, Platform: platform}
+				account := catalogEvidenceAccount(1, PlatformOpenAI, "public")
+				account.GroupIDs = []int64{group.ID}
+				outsider := catalogEvidenceAccount(2, PlatformOpenAI, "outside")
+				outsider.GroupIDs = []int64{10}
+				reads := 0
+				repo := &visiblePolicyAccountRepo{accounts: []Account{account, outsider}, assertScope: func(groupID *int64, platforms []string, includeGrouped bool) {
+					reads++
+					require.Equal(t, &group.ID, groupID)
+					require.Equal(t, domain.ConcretePlatforms(), platforms)
+					require.Equal(t, simple, includeGrouped)
+				}}
+				groups := &visiblePolicyGroupRepo{groups: []Group{group}}
+				channels := &visiblePolicyChannelRepo{channels: []Channel{{ID: 2, Status: StatusActive, GroupIDs: []int64{group.ID}, ModelPricing: []ChannelModelPricing{{Platform: PlatformOpenAI, Models: []string{"public", "outside"}}}}}}
+				channelService := NewChannelService(channels, groups, nil, nil, nil)
+				cfg := &config.Config{}
+				if simple {
+					cfg.RunMode = "simple"
+				}
+				routes := &visiblePolicyRouteRepo{routes: []CompositeModelRoute{{PublicModel: "public", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformOpenAI, UpstreamModel: "public", Endpoint: "responses", Enabled: true}}}
+				gateway := &GatewayService{accountRepo: repo, groupRepo: groups, cfg: cfg, compositeResolver: NewCompositeRouteResolver(routes)}
+				channelService.visibleModels = &VisibleModelResolver{gateway: gateway}
+				plaza := NewModelPlazaService(channels, groups, nil, nil, NewModelPricingResolver(channelService, nil))
+				available, err := channelService.ListAvailable(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, 1, reads)
+				require.Len(t, available, 1)
+				plazaGroups, err := plaza.ListGroups(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, 2, reads)
+				channelNames, plazaNames := []string{}, []string{}
+				for _, model := range available[0].SupportedModels {
+					channelNames = append(channelNames, model.Name)
+				}
+				for _, entry := range plazaGroups {
+					for _, model := range entry.Models {
+						plazaNames = append(plazaNames, model.Name)
+					}
+				}
+				if platform == PlatformComposite {
+					require.Equal(t, []string{"public"}, channelNames)
+					require.Equal(t, []string{"public"}, plazaNames)
+				} else {
+					// Panel platform matching still rejects an unconfigured group platform.
+					require.Empty(t, channelNames)
+					require.Empty(t, plazaNames)
+				}
+				groups.groups = nil
+				_, err = channelService.ListAvailable(context.Background())
+				require.NoError(t, err)
+				_, err = plaza.ListGroups(context.Background())
+				require.NoError(t, err)
+				require.Equal(t, 2, reads, "panels without groups must not query ungrouped accounts")
+			})
+		}
+	}
 }
