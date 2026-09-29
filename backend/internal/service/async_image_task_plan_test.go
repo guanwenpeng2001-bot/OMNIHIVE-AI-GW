@@ -16,7 +16,7 @@ func TestAsyncImageTaskPlanOwnsExecutionAndFrozenFacts(t *testing.T) {
 	oldChannel := newEmptyChannelCache()
 	oldChannel.loadedAt = time.Now()
 	channels.cache.Store(oldChannel)
-	svc := &OpenAIGatewayService{billingService: billing, channelService: channels}
+	svc := &OpenAIGatewayService{billingService: billing, channelService: channels, usageSettlement: NewUsageSettlementService(unlimitedTPMRepository{}, nil, nil)}
 	parent, cancelParent := WithAttemptBudget(context.Background(), 1, time.Minute)
 	defer cancelParent()
 	parent, parentPlan := svc.CaptureRequestPlan(parent, GatewayRequestSpec{ExecutionID: "submission"})

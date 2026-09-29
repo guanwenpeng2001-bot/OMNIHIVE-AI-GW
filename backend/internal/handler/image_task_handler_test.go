@@ -11,6 +11,7 @@ import (
 	"time"
 
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alitto/pond/v2"
 	"github.com/gin-gonic/gin"
@@ -61,7 +62,9 @@ func testAsyncImageSubmitAndPoll(t *testing.T, platform, path string) {
 	attemptErrors := make(chan error, 2)
 	contexts := make(chan context.Context, 1)
 	var submissionBudget *service.AttemptBudget
+	cfg := &config.Config{}
 	h := &AsyncImageHandler{tasks: tasks}
+	h.openAI = &OpenAIGatewayHandler{gatewayService: service.ProvideOpenAIGatewayService(nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))}
 	h.execute = func(_ string, c *gin.Context) {
 		<-release
 		defer installAttemptBudget(c)()
@@ -87,6 +90,7 @@ func testAsyncImageSubmitAndPoll(t *testing.T, platform, path string) {
 	router.Use(func(c *gin.Context) {
 		submissionBudget = service.AttemptBudgetFromContext(c.Request.Context())
 		groupID := int64(3)
+		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 7})
 		c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{
 			ID:      9,
 			UserID:  7,
@@ -100,7 +104,7 @@ func testAsyncImageSubmitAndPoll(t *testing.T, platform, path string) {
 	router.GET("/images/tasks/:task_id", h.Get)
 
 	requestCtx, cancelRequest := context.WithCancel(context.Background())
-	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-image-1","prompt":"cat"}`)).WithContext(requestCtx)
+	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(`{"model":"gpt-image-1","prompt":"cat","images":[{"image_url":"https://example.test/cat.png"}]}`)).WithContext(requestCtx)
 	req.Header.Set("Content-Type", "application/json")
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
