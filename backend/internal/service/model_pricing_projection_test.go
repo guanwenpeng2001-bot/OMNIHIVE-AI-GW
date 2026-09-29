@@ -57,7 +57,7 @@ func TestVariantProjectionAmountsAndFrozenReceipts(t *testing.T) {
 	accountCost, err := descriptor.tokenCost(tokens)
 	require.NoError(t, err)
 	require.InDelta(t, .0000115, accountCost, 1e-12)
-	statsCost := resolveAccountStatsCost(oldContext, channels, billing, 19, 12, "projection-model", tokens, 1, cost.TotalCost, "", time.Now())
+	statsCost := resolveAccountStatsCost(oldContext, channels, billing, 19, 12, "projection-model", tokens, 1, cost.TotalCost, "", time.Now(), false)
 	require.NotNil(t, statsCost)
 	require.InDelta(t, accountCost, *statsCost, 1e-12)
 
@@ -79,7 +79,7 @@ func TestVariantProjectionAmountsAndFrozenReceipts(t *testing.T) {
 	newAccountCost, err := newDescriptor.tokenCost(tokens)
 	require.NoError(t, err)
 	require.InDelta(t, .0000345, newAccountCost, 1e-12)
-	statsCost = resolveAccountStatsCost(oldContext, channels, billing, 19, 12, "projection-model", tokens, 1, cost.TotalCost, "", time.Now())
+	statsCost = resolveAccountStatsCost(oldContext, channels, billing, 19, 12, "projection-model", tokens, 1, cost.TotalCost, "", time.Now(), false)
 	require.NotNil(t, statsCost)
 	require.InDelta(t, accountCost, *statsCost, 1e-12)
 
