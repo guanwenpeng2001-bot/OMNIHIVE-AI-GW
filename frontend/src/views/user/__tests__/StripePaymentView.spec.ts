@@ -16,6 +16,7 @@ const stripeElements = vi.hoisted(() => ({
   create: vi.fn(),
 }))
 const stripePaymentElement = vi.hoisted(() => ({
+  destroy: vi.fn(),
   mount: vi.fn(),
   on: vi.fn(),
 }))
