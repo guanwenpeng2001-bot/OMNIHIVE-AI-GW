@@ -100,7 +100,9 @@ func (cache *cursorRouteSlotCache) ReleaseUserSlot(context.Context, int64, strin
 	return nil
 }
 
-func TestCursorRoutes(t *testing.T) {
+func TestCursorRoutes(t *testing.T)                        { testCursorRequestPlanRoutes(t, false) }
+func TestGatewayRequestPlanSharedHTTPIngress(t *testing.T) { testCursorRequestPlanRoutes(t, true) }
+func testCursorRequestPlanRoutes(t *testing.T, affinity bool) {
 	for _, scenario := range []struct {
 		name, path                      string
 		stream, preFailure, interrupted bool
@@ -169,6 +171,8 @@ func TestCursorRoutes(t *testing.T) {
 			handler, cleanup := newTestGatewayHandler(t, group, accounts)
 			defer cleanup()
 			cfg := &config.Config{RunMode: config.RunModeSimple}
+			cfg.Gateway.SessionAffinityEnabled = affinity
+			handler.cfg = cfg
 			repo := &cursorRouteUsageRepo{}
 			slots := &cursorRouteSlotCache{}
 			concurrency := service.NewConcurrencyService(slots)
@@ -186,6 +190,12 @@ func TestCursorRoutes(t *testing.T) {
 				requestContext.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 83, Concurrency: 10})
 				requestContext.Request = requestContext.Request.WithContext(context.WithValue(requestContext.Request.Context(), ctxkey.Group, group))
 				requestContext.Next()
+				plan := service.GatewayRequestPlanFromContext(requestContext.Request.Context())
+				require.NotNil(t, plan)
+				require.Equal(t, scenario.path, plan.Snapshot().Route)
+				require.True(t, plan.State().Finalized)
+				require.True(t, plan.State().UsageClaimed)
+
 			})
 			router.POST(EndpointChatCompletions, handler.ChatCompletions)
 			router.POST(EndpointMessages, handler.Messages)

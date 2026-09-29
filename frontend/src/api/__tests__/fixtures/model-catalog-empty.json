@@ -1,0 +1,48 @@
+{
+  "baseline": {
+    "identity_revision": "2",
+    "rules_revision": "9007199254740993",
+    "snapshot_revision": "9007199254740993"
+  },
+  "complete": true,
+  "discovered_count": 0,
+  "effective_snapshot": {
+    "complete": true,
+    "discovered_models": [],
+    "discovery_scope": "account",
+    "eligible_models": [],
+    "excluded_models": [],
+    "identity_revision": "2",
+    "observed_at": "2026-09-16T01:00:00Z",
+    "provider_profile": "openai",
+    "revision": "9007199254740993",
+    "source_kind": "live"
+  },
+  "eligible_count": 0,
+  "excluded_count": 0,
+  "last_attempt_at": null,
+  "last_error": null,
+  "last_success_at": "2026-09-16T01:00:00Z",
+  "observed_at": "2026-09-16T01:00:00Z",
+  "snapshot": {
+    "complete": true,
+    "discovered_models": [],
+    "discovery_scope": "account",
+    "eligible_models": [],
+    "excluded_models": [],
+    "identity_revision": "2",
+    "observed_at": "2026-09-16T01:00:00Z",
+    "provider_profile": "openai",
+    "revision": "9007199254740993",
+    "source_kind": "live"
+  },
+  "snapshot_revision": "9007199254740993",
+  "staleness": "fresh",
+  "state": {
+    "identity_revision": "2",
+    "result": "success",
+    "rules_revision": "9007199254740993"
+  },
+  "synced": true,
+  "warnings": []
+}

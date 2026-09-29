@@ -3,8 +3,16 @@
     :show="show"
     :title="t('admin.accounts.createAccount')"
     width="wide"
-    @close="handleClose"
+    @close="handleClose(true)"
   >
+    <section v-if="createdCatalogAccounts.length" data-testid="created-catalog-accounts" class="space-y-4">
+      <p role="status">{{ t('admin.accounts.modelSync.savedReviewRequired') }}</p>
+      <div v-for="saved in createdCatalogAccounts" :key="saved.id">
+        <p>#{{ saved.id }}</p>
+        <ModelWhitelistSelector :active="show" :account-id="saved.id" :platform="saved.platform" :model-value="[]" catalog-only @catalog-applied="emit('created')" />
+      </div>
+    </section>
+    <div v-show="!createdCatalogAccounts.length">
     <!-- Step Indicator for OAuth accounts -->
     <div v-if="isOAuthFlow" class="mb-6 flex items-center justify-center">
       <div class="flex items-center space-x-4">
@@ -933,8 +941,8 @@
       </div>
       <div v-if="accountCategory === 'service_account'" class="space-y-3">
         <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector
-                :active="show" v-model="allowedModels" :platform="form.platform" />
+        <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length" v-model="allowedModels" :platform="form.platform" />
         <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
           <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
           <input v-model="mapping.to" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (to)'" />
@@ -1420,12 +1428,11 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector
-                :active="show"
+              <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
                 v-model="allowedModels"
                 :platform="form.platform"
                 :sync-credentials="syncPreviewCredentials"
-                @upstream-synced="upstreamModelsPreviewed = true"
               />
               <p class="text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -1874,12 +1881,11 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
+            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               platform="anthropic"
               :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -2216,12 +2222,11 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector
-                :active="show"
+            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+                :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               :platform="form.platform"
               :sync-credentials="syncPreviewCredentials"
-              @upstream-synced="upstreamModelsPreviewed = true"
             />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -3406,6 +3411,8 @@
         />
       </div>
 
+      <p v-if="form.proxy_id || headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [form.proxy_id ? t('admin.accounts.modelSync.scopeProxy') : '', headerOverrideEnabled ? t('admin.accounts.modelSync.scopeHeaders') : ''].filter(Boolean).join(', ') }) }}</p>
+      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
     </form>
 
     <!-- Step 2: OAuth Authorization -->
@@ -3447,9 +3454,11 @@
 
     </div>
 
+    </div>
     <template #footer>
-      <div v-if="step === 1" class="flex justify-end gap-3">
-        <button @click="handleClose" type="button" class="btn btn-secondary">
+      <button v-if="createdCatalogAccounts.length" type="button" class="btn btn-secondary" @click="handleClose(true)">{{ t('common.close') }}</button>
+      <div v-else-if="step === 1" class="flex justify-end gap-3">
+        <button @click="handleClose(true)" type="button" class="btn btn-secondary">
           {{ t('common.cancel') }}
         </button>
         <button
@@ -3776,6 +3785,7 @@ import {
   commonErrorCodes,
   buildModelMappingObject,
   validateModelRestrictions,
+  translateModelRestrictionErrors,
   fetchAntigravityDefaultMappings,
   isValidWildcardPattern
 } from '@/composables/useModelWhitelist'
@@ -3813,6 +3823,8 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
+import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
@@ -4237,7 +4249,11 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
-const upstreamModelsPreviewed = ref(false)
+const capabilityDefaultsJSON = ref('')
+const createdCatalogAccounts = ref<Array<{ id: number; platform: string }>>([])
+const rememberCatalogAccount = (id: number | undefined, platform: string) => {
+  if (id && !createdCatalogAccounts.value.some(account => account.id === id)) createdCatalogAccounts.value.push({ id, platform })
+}
 const DEFAULT_POOL_MODE_RETRY_COUNT = 3
 const MAX_POOL_MODE_RETRY_COUNT = 10
 const DEFAULT_POOL_MODE_RETRY_STATUS_CODES = [401, 403, 429]
@@ -4743,7 +4759,6 @@ watch(
     }
     // Clear model-related settings
     allowedModels.value = []
-    upstreamModelsPreviewed.value = false
     modelMappings.value = []
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
@@ -5150,9 +5165,11 @@ watch(() => props.show, (show) => {
   createAutoReset.value = false
   createResetThresholds['5h'] = createResetThresholds['7d'] = 100
 })
-const createWithOptions = (payload: CreateAccountRequest) => {
+const createWithOptions = async (payload: CreateAccountRequest) => {
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (['openai', 'anthropic', 'grok'].includes(payload.platform) && createSchedulingThreshold.value != null && String(createSchedulingThreshold.value).trim() !== '') {
     const threshold = Number(createSchedulingThreshold.value)
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) throw new Error(t('admin.accounts.accountSchedulingThresholdOverrideHint'))
@@ -5183,33 +5200,15 @@ const createWithOptions = (payload: CreateAccountRequest) => {
       if (createAutoReset.value) extra.auto_reset_credit_enabled = true
     }
   }
-  return adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+  const account = await adminAPI.accounts.create({ ...payload, credentials, ...(Object.keys(extra).length ? { extra } : {}) })
+  rememberCatalogAccount(account.id, account.platform || payload.platform)
+  return account
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
     const account = await createWithOptions(withAntigravityConfirmFlag(payload))
-    const modelMapping = payload.credentials.model_mapping
-    const hasConcreteMappedTarget = payload.type === 'apikey' &&
-      typeof modelMapping === 'object' &&
-      modelMapping !== null &&
-      Object.values(modelMapping).some((target) =>
-        typeof target === 'string' && target.trim() !== '' && !target.includes('*')
-      )
-    if (upstreamModelsPreviewed.value || hasConcreteMappedTarget) {
-      try {
-        const result = await adminAPI.accounts.syncUpstreamModels(account.id)
-        const warnings = result.warnings ?? []
-        if (warnings.some(warning => warning.code === 'upstream_model_metadata_incomplete')) {
-          appStore.showWarning(t('admin.accounts.syncUpstreamModelsMetadataIncomplete'))
-        } else if (warnings.some(warning => warning.code === 'upstream_model_metadata_partial')) {
-          appStore.showInfo(t('admin.accounts.syncUpstreamModelsMetadataPartial'))
-        }
-      } catch {
-        appStore.showWarning(t('admin.accounts.syncUpstreamModelsFailed'))
-      }
-    }
     if (
       (payload.type === 'apikey' || (payload.platform === 'cursor' && payload.type === 'upstream')) &&
       payload.upstream_billing_probe_enabled === true
@@ -5242,6 +5241,8 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  createdCatalogAccounts.value = []
+  capabilityDefaultsJSON.value = ''
   cursorAutoCredentials.value = {}
   cursorKeyMode.value = 'official'
   cursorClientVersion.value = ''
@@ -5358,11 +5359,11 @@ const resetForm = () => {
   grokOAuth.resetState()
   oauthFlowRef.value?.reset()
   antigravityMixedChannelConfirmed.value = false
-  upstreamModelsPreviewed.value = false
   clearMixedChannelDialog()
 }
 
-const handleClose = () => {
+const handleClose = (explicit = false) => {
+  if (createdCatalogAccounts.value.length && !explicit) return
   antigravityMixedChannelConfirmed.value = false
   clearMixedChannelDialog()
   emit('close')
@@ -5445,10 +5446,9 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 }
 
 const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
-  const extra = buildOpenAIExtra()
-  if (!extra) {
-    return undefined
-  }
+  const extra = { ...buildOpenAIExtra() }
+  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
+  if (declaration) extra.model_capability_defaults = declaration
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
   }
@@ -5572,8 +5572,10 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (createdCatalogAccounts.value.length || submitting.value) return
+  try { parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } catch { appStore.showError(t('admin.accounts.modelSync.invalidDeclaration')); return }
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
-  if (restrictionErrors.length) { appStore.showError(restrictionErrors.join('\n')); return }
+  if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
     if (cursorAuthorizing.value) return
     if (cursorKeyMode.value === 'relay' && !apiKeyBaseUrl.value.trim()) { appStore.showError('Base URL is required.'); return }
@@ -6095,6 +6097,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   try {
     const result = await adminAPI.grok.createFromSSO({
       sso_tokens: ssoTokens,
+      ...(capabilityDefaultsJSON.value.trim() ? { extra: { model_capability_defaults: parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } } : {}),
       name: form.name || undefined,
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,
@@ -6108,6 +6111,10 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       auto_pause_on_expired: autoPauseOnExpired.value
     })
 
+    for (const item of result.created ?? []) {
+      const saved = item.account as { id?: number } | undefined
+      rememberCatalogAccount(saved?.id, 'grok')
+    }
     const successCount = result.created?.length || 0
     const failedCount = result.failed?.length || 0
     if (successCount > 0 && failedCount === 0) {
@@ -6425,6 +6432,9 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       update_existing: true
     })
 
+    for (const item of result.items ?? []) {
+      if (item.action === 'created' || item.action === 'updated') rememberCatalogAccount(item.account_id, 'openai')
+    }
     const successCount = result.created + result.updated
     const params = {
       created: result.created,
@@ -6486,7 +6496,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 
   try {
     const extra = buildOpenAICodexImportExtra()
-    await adminAPI.accounts.createOpenAICodexPAT({
+    const account = await adminAPI.accounts.createOpenAICodexPAT({
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
@@ -6502,6 +6512,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       extra: withUpstreamRequestIdHeader(extra)
     })
 
+    rememberCatalogAccount(account.id, 'openai')
     appStore.showSuccess(t('admin.accounts.accountCreated'))
     emit('created')
     handleClose()

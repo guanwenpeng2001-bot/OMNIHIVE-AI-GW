@@ -154,6 +154,11 @@ func (gateway *CursorGatewayService) forwardRelay(ctx context.Context, requestCo
 		deleteHeaderAllForms(request.Header, "anthropic-version")
 		request.Header.Set("anthropic-version", "2023-06-01")
 	}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, mapped, catalogProtocolEndpoint(upstream)); err != nil {
+			return nil, err
+		}
+	}
 	response, err := generationHTTP(request, account.ID, func(request *http.Request) (*http.Response, error) {
 		return cursor.Do(gateway.relayClient, request, false)
 	})

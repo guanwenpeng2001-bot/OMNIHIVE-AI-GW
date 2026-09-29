@@ -1,6 +1,16 @@
 <template>
   <AppLayout>
     <div class="space-y-6">
+      <div v-if="stats?.coverage?.complete === false" role="status" data-testid="coverage-incomplete" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.coverageIncomplete') }}</p>
+        <p v-if="stats.coverage.reason">{{ t('dashboard.coverageReason', { reason: stats.coverage.reason }) }}</p>
+        <p>{{ t('dashboard.rawRetainedFrom', { time: stats.coverage.raw_retained_from }) }}</p>
+      </div>
+      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
+        <p>{{ t('dashboard.historyUnavailable') }}</p>
+        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
+        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
+      </div>
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
@@ -341,15 +351,16 @@
 </template>
 
 <script setup lang="ts">
+import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
 
 const { t } = useI18n()
+import type { DashboardStats } from '@/types'
 import { adminAPI } from '@/api/admin'
 import type {
-  DashboardStats,
   TrendDataPoint,
   ModelStat,
   UserUsageTrendPoint,
@@ -387,6 +398,7 @@ ChartJS.register(
   Filler
 )
 
+const historyGap = ref<HistoryGap | null>(null)
 const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
@@ -665,11 +677,25 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     if (includeStats && response.stats) {
       stats.value = response.stats
     }
-    trendData.value = response.trend || []
+    historyGap.value = null
+    trendData.value = withTrendGaps(response.trend || [], granularity.value)
     modelStats.value = response.models || []
   } catch (error) {
     if (currentSeq !== chartLoadSeq) return
-    appStore.showError(t('admin.dashboard.failedToLoad'))
+    trendData.value = []
+    modelStats.value = []
+    if (includeStats) stats.value = null
+    historyGap.value = historyGapFromError(error)
+    if (!historyGap.value) appStore.showError(t('admin.dashboard.failedToLoad'))
+    // A failed snapshot has no partial payload. Fetch the independent overview explicitly.
+    if (includeStats && historyGap.value) {
+      try {
+        const overview = await adminAPI.dashboard.getStats()
+        if (currentSeq === chartLoadSeq) stats.value = overview
+      } catch (overviewError) {
+        console.error('Error loading dashboard overview:', overviewError)
+      }
+    }
     console.error('Error loading dashboard snapshot:', error)
   } finally {
     if (currentSeq === chartLoadSeq) {

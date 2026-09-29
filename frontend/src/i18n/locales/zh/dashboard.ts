@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: '历史覆盖不完整，该时间范围未返回统计结果。缺失历史不代表零用量。',
+    coverageIncomplete: '合计仅包含已验证的保留数据，缺失历史不代表零用量。',
+    coverageReason: '覆盖原因：{reason}',
+    rawRetainedFrom: '原始记录保留起点：{time}',
+
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
     balance: '余额',
@@ -367,6 +372,8 @@ export default {
     cacheTtlOverriddenLabel: 'TTL 替换',
     cacheTtlOverridden5m: '按 5m 计费',
     cacheTtlOverridden1h: '按 1h 计费',
+    statsUnknown: '未知',
+    statsUnavailable: '不可用',
     totalRequests: '总请求数',
     totalTokens: '总 Token',
     cacheTotal: '缓存',

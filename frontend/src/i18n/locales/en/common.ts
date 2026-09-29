@@ -164,6 +164,7 @@ export default {
 
   // Navigation
   nav: {
+    helpGuide: 'Guide',
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',

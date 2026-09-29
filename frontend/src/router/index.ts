@@ -213,6 +213,12 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/help',
+    name: 'HelpGuide',
+    component: () => import('@/views/HelpGuide.vue'),
+    meta: { requiresAuth: true, requiresAdmin: false, title: 'Guide', titleKey: 'helpGuide.title' }
+  },
+  {
     path: '/keys',
     name: 'Keys',
     component: () => import('@/views/user/KeysView.vue'),
@@ -753,6 +759,9 @@ const router = createRouter({
     // Scroll to saved position when using browser back/forward
     if (savedPosition) {
       return savedPosition
+    }
+    if (_to.path === '/help' && /^#(?:quick|keys|models|clients|usage|billing|faq)$/.test(_to.hash)) {
+      return { el: _to.hash, top: 96 }
     }
     // Scroll to top for new routes
     return { top: 0 }

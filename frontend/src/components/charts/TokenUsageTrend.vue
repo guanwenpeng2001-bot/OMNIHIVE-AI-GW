@@ -114,6 +114,7 @@ const chartData = computed(() => {
       {
         label: 'Cache Hit Rate',
         data: props.trendData.map((d) => {
+          if (![d.input_tokens, d.cache_read_tokens, d.cache_creation_tokens].every(Number.isFinite)) return NaN
           const totalPromptTokens = d.input_tokens + d.cache_read_tokens + d.cache_creation_tokens
           return totalPromptTokens > 0 ? (d.cache_read_tokens / totalPromptTokens) * 100 : 0
         }),

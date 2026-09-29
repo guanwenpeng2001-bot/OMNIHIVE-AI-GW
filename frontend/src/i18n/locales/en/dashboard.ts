@@ -1,5 +1,10 @@
 export default {
   dashboard: {
+    historyUnavailable: 'No statistics were returned for this range because historical coverage is incomplete. Missing history does not mean zero usage.',
+    coverageIncomplete: 'Totals include only verified retained data. Missing history does not mean zero usage.',
+    coverageReason: 'Coverage reason: {reason}',
+    rawRetainedFrom: 'Raw records retained from: {time}',
+
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
     balance: 'Balance',
@@ -362,6 +367,8 @@ export default {
     cacheTtlOverriddenLabel: 'TTL Override',
     cacheTtlOverridden5m: 'Billed as 5m',
     cacheTtlOverridden1h: 'Billed as 1h',
+    statsUnknown: 'Unknown',
+    statsUnavailable: 'Unavailable',
     totalRequests: 'Total Requests',
     totalTokens: 'Total Tokens',
     cacheTotal: 'Cache',
