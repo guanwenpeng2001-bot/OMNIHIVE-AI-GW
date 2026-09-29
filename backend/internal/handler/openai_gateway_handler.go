@@ -2393,7 +2393,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
 		return
 	}
-	if !gjson.ValidBytes(firstMessage) {
+	if requestmodel.ValidateJSON(firstMessage) != nil {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid JSON payload")
 		return
 	}

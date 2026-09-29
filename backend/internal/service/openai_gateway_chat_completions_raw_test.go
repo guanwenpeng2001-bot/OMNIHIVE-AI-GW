@@ -1234,3 +1234,23 @@ func largeRawChatCompletionsBody() []byte {
 		strings.Repeat("x", openAISilentRefusalMinRequestBodyBytes) +
 		`"}],"stream":true}`)
 }
+
+func TestRawChatDuplicateModelRejectedBeforeMapping(t *testing.T) {
+	for _, mapped := range []string{"allowed", "mapped-allowed"} {
+		t.Run(mapped, func(t *testing.T) {
+			body := []byte(`{"model":"allowed","messages":[],"model":"revoked"}`)
+			rec := httptest.NewRecorder()
+			c, _ := gin.CreateTestContext(rec)
+			c.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", bytes.NewReader(body))
+			upstream := &httpUpstreamRecorder{}
+			svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
+			account := rawChatCompletionsTestAccount()
+			account.Credentials["model_mapping"] = map[string]any{"allowed": mapped}
+			_, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
+			require.Error(t, err)
+			require.Equal(t, http.StatusBadRequest, rec.Code)
+			require.Nil(t, upstream.lastReq)
+			require.NotContains(t, rec.Body.String(), "revoked")
+		})
+	}
+}

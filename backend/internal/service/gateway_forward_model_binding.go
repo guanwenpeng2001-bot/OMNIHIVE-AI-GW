@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/tidwall/gjson"
 )
@@ -97,6 +98,12 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 	data, err := io.ReadAll(body)
 	if err != nil {
 		return err
+	}
+	mediaType, _, _ := mime.ParseMediaType(request.Header.Get("Content-Type"))
+	if mediaType != "multipart/form-data" {
+		if err := requestmodel.ValidateJSON(data); err != nil {
+			return err
+		}
 	}
 	model := gjson.GetBytes(data, "model").String()
 	if strings.HasSuffix(path, ":rawPredict") || strings.HasSuffix(path, ":streamRawPredict") {

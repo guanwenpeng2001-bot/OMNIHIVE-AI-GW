@@ -128,3 +128,20 @@ func TestForwardModelPublicCompositeAliasesUseExistingResolver(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, []string{"company"}, ids, "explicit route wins; ambiguous implicit model remains hidden")
 }
+
+func TestForwardBoundaryRejectsDuplicateModelAfterMapping(t *testing.T) {
+	for _, endpoint := range []string{"chat/completions", "responses", "messages"} {
+		for _, mapped := range []string{"allowed", "mapped-allowed"} {
+			t.Run(endpoint+"/"+mapped, func(t *testing.T) {
+				account := catalogEvidenceAccount(1, PlatformOpenAI, mapped)
+				repo := &forwardCatalogRepo{current: &account}
+				ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{}))
+				body := ReplaceModelInBody([]byte(`{"model":"allowed","model":"revoked"}`), mapped)
+				req, err := http.NewRequestWithContext(ctx, http.MethodPost, "https://fixture.test/v1/"+endpoint, strings.NewReader(string(body)))
+				require.NoError(t, err)
+				require.ErrorContains(t, validateOpenAIForwardRequest(repo, &account, req), "duplicate")
+				require.Zero(t, repo.reads)
+			})
+		}
+	}
+}
