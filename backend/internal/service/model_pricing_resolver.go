@@ -16,6 +16,8 @@ const (
 
 // ResolvedPricing 统一定价解析结果
 type ResolvedPricing struct {
+	descriptor *ModelPricingDescriptor
+	pricingErr error
 	// Mode 计费模式
 	Mode BillingMode
 
@@ -61,6 +63,7 @@ func NewModelPricingResolver(channelService *ChannelService, billingService *Bil
 
 // PricingInput 定价解析输入
 type PricingInput struct {
+	Mode    BillingMode // required billing unit; empty preserves the token entry point
 	Model   string
 	GroupID *int64 // nil 表示不检查渠道
 	Group   *Group
@@ -76,9 +79,9 @@ func (r *ModelPricingResolver) Resolve(ctx context.Context, input PricingInput) 
 		r = &frozen
 	}
 	if descriptor, found, err := r.configuredPriceDescriptor(ctx, input); err != nil {
-		return &ResolvedPricing{Mode: BillingModeToken, Source: PricingSourceChannel}
+		return &ResolvedPricing{Mode: input.Mode, Source: PricingSourceChannel, pricingErr: err}
 	} else if found {
-		return &ResolvedPricing{Mode: BillingModeToken, Source: descriptor.Source, BasePricing: descriptor.tokenPricing()}
+		return descriptor.resolvePricing(input.Mode)
 	}
 	longContextPricingEnabled := input.Group == nil || input.Group.LongContextPricingEnabled
 	platform := ""

@@ -796,6 +796,9 @@ func (s *OpenAIGatewayService) calculateOpenAIImageCost(
 	multiplier float64,
 ) *CostBreakdown {
 	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+	if cost, found := s.billingService.calculateVariantMediaCost(ctx, s.resolver, billingModel, apiKey, BillingModeImage, float64(result.ImageCount), multiplier); found {
+		return cost
+	}
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup &&
 		(resolved.Mode == BillingModePerRequest || resolved.Mode == BillingModeImage) {
@@ -857,6 +860,9 @@ func (s *OpenAIGatewayService) calculateOpenAIVideoCost(
 	}
 	resolution := NormalizeVideoBillingResolutionOrDefault(result.VideoResolution)
 	durationSeconds := NormalizeVideoBillingDurationSecondsOrDefault(result.VideoDurationSeconds)
+	if cost, found := s.billingService.calculateVariantMediaCost(ctx, s.resolver, billingModel, apiKey, BillingModeVideo, float64(videoCount)*float64(durationSeconds), multiplier); found {
+		return cost
+	}
 	resolved := s.resolveOpenAIChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup && resolved.Mode == BillingModeVideo {
 		gid := apiKey.Group.ID
@@ -1248,6 +1254,9 @@ func (s *OpenAIGatewayService) validateOpenAIImagePricing(ctx context.Context, k
 		resolver = NewModelPricingResolver(s.channelService, s.billingService)
 	}
 	resolved := resolver.Resolve(ctx, PricingInput{Model: model, GroupID: key.GroupID, Group: key.Group})
+	if resolved.descriptor != nil && resolved.BasePricing == nil {
+		resolved = resolved.descriptor.resolvePricing(BillingModeImage)
+	}
 	if resolved != nil && (resolved.Mode == BillingModeImage || resolved.Mode == BillingModePerRequest) {
 		_, err := s.billingService.forGatewayRequest(ctx).CalculateCostUnified(CostInput{Ctx: ctx, Model: model, Group: key.Group, GroupID: key.GroupID, Resolver: resolver, Resolved: resolved, SizeTier: NormalizeImageBillingTierOrDefault(size), RequestCount: 1, RateMultiplier: 1})
 		return err

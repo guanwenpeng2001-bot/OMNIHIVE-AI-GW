@@ -34,21 +34,20 @@ func (r *BatchImageModelPricingResolver) BatchImageUnitPrice(ctx context.Context
 	if r == nil || r.Resolver == nil || job == nil || strings.TrimSpace(job.Model) == "" {
 		return 0, ErrBatchImageSettlementPricingMissing
 	}
-	resolved := r.Resolver.Resolve(ctx, PricingInput{Model: job.Model})
+	resolved := r.Resolver.Resolve(ctx, PricingInput{Model: job.Model, Mode: BillingModeImage})
 	if resolved == nil {
+		return 0, ErrBatchImageSettlementPricingMissing
+	}
+	if resolved.pricingErr != nil || resolved.descriptor != nil && !resolved.DefaultPerRequestPriceFound {
 		return 0, ErrBatchImageSettlementPricingMissing
 	}
 	switch resolved.Mode {
 	case BillingModeImage, BillingModePerRequest:
-		if resolved.DefaultPerRequestPrice > 0 {
+		if resolved.DefaultPerRequestPriceFound || resolved.DefaultPerRequestPrice > 0 {
 			return resolved.DefaultPerRequestPrice, nil
 		}
 		if len(resolved.RequestTiers) == 1 && resolved.RequestTiers[0].PerRequestPrice != nil && *resolved.RequestTiers[0].PerRequestPrice >= 0 {
 			return *resolved.RequestTiers[0].PerRequestPrice, nil
-		}
-	case BillingModeToken:
-		if resolved.BasePricing != nil && (resolved.BasePricing.ImageOutputPriceExplicit || resolved.BasePricing.ImageOutputPricePerToken > 0) {
-			return resolved.BasePricing.ImageOutputPricePerToken, nil
 		}
 	}
 	return 0, ErrBatchImageSettlementPricingMissing

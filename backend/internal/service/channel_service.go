@@ -159,7 +159,7 @@ type ChannelCachePubSub interface {
 
 // ChannelService 渠道管理服务
 type ChannelService struct {
-	visibleModels *VisibleModelResolver
+	visibleModels        *VisibleModelResolver
 	repo                 ChannelRepository
 	groupRepo            GroupRepository
 	authCacheInvalidator APIKeyAuthCacheInvalidator
@@ -772,6 +772,18 @@ func validatePricingBillingMode(pricing []ChannelModelPricing) error {
 
 func checkBillingModeRequirements(p ChannelModelPricing) error {
 	if p.BillingMode == BillingModePerRequest || p.BillingMode == BillingModeImage || p.BillingMode == BillingModeVideo {
+		if len(p.PriceVariants) > 0 {
+			for _, variant := range p.PriceVariants {
+				descriptor := &ModelPricingDescriptor{Model: variant.ID, PricingAt: time.Now(), Variants: []ModelPriceVariant{variant}}
+				if !priceVariantActive(variant, descriptor.PricingAt) {
+					continue
+				}
+				if _, err := descriptor.UnitPrice(billingModeUnit(p.BillingMode), "output", ""); err != nil {
+					return infraerrors.BadRequest("BILLING_MODE_MISSING_PRICE", err.Error())
+				}
+			}
+			return nil
+		}
 		if p.PerRequestPrice == nil && len(p.Intervals) == 0 {
 			return infraerrors.BadRequest(
 				"BILLING_MODE_MISSING_PRICE",
