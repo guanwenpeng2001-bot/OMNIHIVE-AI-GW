@@ -1,9 +1,5 @@
 export default {
   dashboard: {
-    historyUnavailable: 'No statistics were returned for this range because historical coverage is incomplete. Missing history does not mean zero usage.',
-    coverageIncomplete: 'Totals include only verified retained data. Missing history does not mean zero usage.',
-    coverageReason: 'Coverage reason: {reason}',
-    rawRetainedFrom: 'Raw records retained from: {time}',
 
     title: 'Dashboard',
     welcomeMessage: "Welcome back! Here's an overview of your account.",
@@ -559,7 +555,6 @@ export default {
     noDataToExport: 'No data to export',
     exportSuccess: 'Usage data exported successfully',
     exportFailed: 'Export incomplete. Please try again.',
-    exportHistoryIncomplete: 'Usage history is incomplete, so this range cannot be exported in full.',
     exportExcelSuccess: 'Usage data exported successfully (Excel format)',
     exportExcelFailed: 'Failed to export usage data',
     imageUnit: ' images',

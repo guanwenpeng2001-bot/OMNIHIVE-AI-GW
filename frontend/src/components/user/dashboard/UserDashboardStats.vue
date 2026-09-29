@@ -40,7 +40,7 @@
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.todayRequests') }}</p>
           <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.today_requests || 0 }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ formatNumber(stats?.total_requests || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('common.total') }}: {{ stats?.coverage?.complete === false ? '—' : formatNumber(stats?.total_requests || 0) }}</p>
         </div>
       </div>
     </div>
@@ -59,8 +59,8 @@
           </p>
           <p class="text-xs">
             <span class="text-gray-500 dark:text-gray-400">{{ t('common.total') }}: </span>
-            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ formatCost(stats?.total_actual_cost) }}</span>
-            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ formatCost(stats?.total_cost) }}</span>
+            <span class="text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">{{ t('dashboard.actual') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats?.total_actual_cost) }}</span>
+            <span class="text-gray-400 dark:text-gray-500" :title="t('dashboard.standard')"> / {{ t('dashboard.standard') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats?.total_cost) }}</span>
           </p>
         </div>
       </div>
@@ -91,8 +91,8 @@
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.totalTokens') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatTokens(stats?.total_tokens || 0) }}</p>
-          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ formatTokens(stats?.total_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ formatTokens(stats?.total_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_tokens || 0) }}</p>
+          <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.input') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_input_tokens || 0) }} / {{ t('dashboard.output') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats?.total_output_tokens || 0) }} / {{ t('dashboard.cache') }}: {{ stats?.coverage?.complete === false ? '—' : formatTokens((stats?.total_cache_creation_tokens || 0) + (stats?.total_cache_read_tokens || 0)) }}</p>
         </div>
       </div>
     </div>
@@ -125,7 +125,7 @@
         </div>
         <div>
           <p class="text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('dashboard.avgResponse') }}</p>
-          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ formatDuration(stats?.average_duration_ms || 0) }}</p>
+          <p class="text-xl font-bold text-gray-900 dark:text-white">{{ stats?.coverage?.complete === false ? '—' : formatDuration(stats?.average_duration_ms || 0) }}</p>
           <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('dashboard.averageTime') }}</p>
         </div>
       </div>
@@ -158,7 +158,7 @@
             {{ item.isOther ? t('dashboard.platformOther') : platformLabel(item.platform) }}
           </span>
           <span class="font-mono text-sm text-purple-600 dark:text-purple-400" :title="t('dashboard.actual')">
-            ${{ formatCost(item.total_actual_cost) }}
+            {{ stats?.coverage?.complete === false ? '—' : `$${formatCost(item.total_actual_cost)}` }}
           </span>
         </div>
         <div class="mt-2 space-y-1 text-xs">
@@ -169,13 +169,13 @@
           <div class="flex items-center justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.requests') }}</span>
             <span class="font-mono text-gray-700 dark:text-gray-300">
-              {{ item.total_requests > 0 ? formatNumber(item.total_requests) : '-' }}
+              {{ stats?.coverage?.complete === false ? '—' : formatNumber(item.total_requests) }}
             </span>
           </div>
           <div class="flex items-center justify-between">
             <span class="text-gray-500 dark:text-gray-400">{{ t('dashboard.tokens') }}</span>
             <span class="font-mono text-gray-700 dark:text-gray-300">
-              {{ item.total_tokens > 0 ? formatTokens(item.total_tokens) : '-' }}
+              {{ stats?.coverage?.complete === false ? '—' : formatTokens(item.total_tokens) }}
             </span>
           </div>
         </div>

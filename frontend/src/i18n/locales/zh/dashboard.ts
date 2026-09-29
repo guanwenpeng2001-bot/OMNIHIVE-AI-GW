@@ -1,9 +1,5 @@
 export default {
   dashboard: {
-    historyUnavailable: '历史覆盖不完整，该时间范围未返回统计结果。缺失历史不代表零用量。',
-    coverageIncomplete: '合计仅包含已验证的保留数据，缺失历史不代表零用量。',
-    coverageReason: '覆盖原因：{reason}',
-    rawRetainedFrom: '原始记录保留起点：{time}',
 
     title: '仪表盘',
     welcomeMessage: '欢迎回来！这是您账户的概览。',
@@ -564,7 +560,6 @@ export default {
     noDataToExport: '没有可导出的数据',
     exportSuccess: '使用数据导出成功',
     exportFailed: '导出未完成，请重试',
-    exportHistoryIncomplete: '使用历史不完整，该时间范围无法完整导出。',
     exportExcelSuccess: '使用数据导出成功（Excel格式）',
     exportExcelFailed: '使用数据导出失败',
     imageUnit: '张',

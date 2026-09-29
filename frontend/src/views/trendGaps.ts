@@ -55,13 +55,7 @@ export function historyGapFromError(error: unknown): HistoryGap | null {
   }
 }
 
-/**
- * 历史缺口导致的失败提示：把服务端 409 守卫给出的精确原因与原始记录保留起点告诉用户，
- * 不再只报一句通用失败。缺口之外、或缺少时间的错误返回 undefined，由调用方决定通用文案。
- */
-export function usageExportFailureMessage(error: unknown, t: TranslateFn): string | undefined {
-  const gap = historyGapFromError(error)
-  if (!gap) return undefined
-  const reason = t('usage.exportHistoryIncomplete')
-  return gap.rawRetainedFrom ? `${reason} ${t('dashboard.rawRetainedFrom', { time: gap.rawRetainedFrom })}` : reason
+/** Export failures never expose coverage diagnostics or produce a successful download. */
+export function usageExportFailureMessage(_error: unknown, t: TranslateFn): string {
+  return t('usage.exportFailed')
 }

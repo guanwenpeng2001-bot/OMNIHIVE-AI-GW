@@ -659,6 +659,7 @@ export interface RedeemCodeRequest {
 // Matches usagestats.Coverage; timestamps are RFC3339 strings.
 
 export interface UsageCoverage {
+  history_known_empty_before?: string
   complete: boolean
   reason?: string
   raw_retained_from: string

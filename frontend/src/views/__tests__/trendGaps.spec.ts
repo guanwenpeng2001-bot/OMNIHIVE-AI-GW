@@ -46,25 +46,10 @@ describe('usage export failure messages', () => {
   const translateEn = translateFrom(enDashboard as unknown as Record<string, unknown>)
   const historyGap = { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE', metadata: { raw_retained_from: '2026-03-05T00:00:00Z' } }
 
-  it('reports the precise reason and retention start in both locales', () => {
-    expect(usageExportFailureMessage(historyGap, translateZh)).toContain('使用历史不完整')
-    expect(usageExportFailureMessage(historyGap, translateZh)).toContain('2026-03-05T00:00:00Z')
-    expect(usageExportFailureMessage(historyGap, translateEn)).toContain('Usage history is incomplete')
-    expect(usageExportFailureMessage(historyGap, translateEn)).toContain('2026-03-05T00:00:00Z')
-  })
-
-  it('still names the reason when the server omits the retention start', () => {
-    const zh = usageExportFailureMessage({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' }, translateZh)
-    const en = usageExportFailureMessage({ status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' }, translateEn)
-    expect(zh).toContain('使用历史不完整')
-    expect(en).toContain('Usage history is incomplete')
-    expect(zh).not.toMatch(/\{/)
-    expect(en).not.toMatch(/\{/)
-  })
-
-  it('leaves every other failure to the generic export message', () => {
-    expect(usageExportFailureMessage({ status: 500, reason: 'INTERNAL_ERROR' }, translateZh)).toBeUndefined()
-    expect(usageExportFailureMessage({ status: 409, reason: 'OTHER_CONFLICT' }, translateZh)).toBeUndefined()
-    expect(usageExportFailureMessage(null, translateZh)).toBeUndefined()
+  it.each([historyGap, { status: 409, reason: 'USAGE_HISTORY_INCOMPLETE' }, { status: 409, reason: 'OTHER_CONFLICT' }, { status: 500 }, null])('uses only the generic message for %j in both locales', error => {
+    for (const translate of [translateZh, translateEn]) {
+      expect(usageExportFailureMessage(error, translate)).toBe(translate('usage.exportFailed'))
+      expect(usageExportFailureMessage(error, translate)).not.toContain('2026-03-05')
+    }
   })
 })

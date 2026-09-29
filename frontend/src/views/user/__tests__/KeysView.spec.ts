@@ -474,19 +474,19 @@ describe('user KeysView column settings', () => {
     wrapper.unmount()
   })
 
-  it('shows incomplete history and retention boundary on the first usage request', async () => {
+  it('shows neutral unknown without coverage details on the first usage request', async () => {
 
     getDashboardApiKeysUsage.mockRejectedValueOnce(historyError)
     const wrapper = await mountView()
     await flushPromises()
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
-    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain(retainedFrom)
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
 
     wrapper.unmount()
   })
 
-  it('clears known usage on reload and shows incomplete history instead of old costs', async () => {
+  it('clears known usage on reload and shows neutral unknown instead of old costs', async () => {
 
     getDashboardApiKeysUsage.mockResolvedValueOnce(usageResponse)
     const wrapper = await mountView()
@@ -501,8 +501,8 @@ describe('user KeysView column settings', () => {
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('12.3456')
     rejectUsage(historyError)
     await flushPromises()
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
-    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain(retainedFrom)
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('45.6789')
     expect((wrapper.vm as unknown as { usageStats: object }).usageStats).toEqual({})
     wrapper.unmount()
@@ -525,12 +525,12 @@ describe('user KeysView column settings', () => {
     await flushPromises()
     const usage = wrapper.get('[data-test="usage"]').text()
     if (outcome === 'success') {
-      expect(usage).toContain('dashboard.historyUnavailable')
-      expect(usage).toContain(retainedFrom)
+      expect(usage).toContain('—')
+      expect(usage).not.toContain(retainedFrom)
       expect(usage).not.toContain('12.3456')
     } else {
       expect(usage).toContain('12.3456')
-      expect(usage).not.toContain('dashboard.historyUnavailable')
+      expect(usage).not.toContain('—')
     }
     wrapper.unmount()
   })

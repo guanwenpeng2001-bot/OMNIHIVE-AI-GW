@@ -2,21 +2,12 @@
   <AppLayout>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
-      <div v-if="stats?.coverage?.complete === false" role="status" data-testid="coverage-incomplete" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-        <p>{{ t('dashboard.coverageIncomplete') }}</p>
-        <p v-if="stats.coverage.reason">{{ t('dashboard.coverageReason', { reason: stats.coverage.reason }) }}</p>
-        <p>{{ t('dashboard.rawRetainedFrom', { time: stats.coverage.raw_retained_from }) }}</p>
-      </div>
-      <div v-if="historyGap" role="status" data-testid="history-gap" class="rounded-lg bg-amber-50 p-4 text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">
-        <p>{{ t('dashboard.historyUnavailable') }}</p>
-        <p>{{ t('dashboard.coverageReason', { reason: historyGap.reason }) }}</p>
-        <p v-if="historyGap.rawRetainedFrom">{{ t('dashboard.rawRetainedFrom', { time: historyGap.rawRetainedFrom }) }}</p>
-      </div>
       <!-- Loading State -->
       <div v-if="loading" class="flex items-center justify-center py-12">
         <LoadingSpinner />
       </div>
 
+      <UsageStatsState v-else-if="!stats" :state="chartError ? 'error' : 'unknown'" />
       <template v-else-if="stats">
         <!-- Row 1: Core Stats -->
         <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -79,7 +70,7 @@
                   {{ stats.today_requests }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('common.total') }}: {{ formatNumber(stats.total_requests) }}
+                  {{ t('common.total') }}: {{ stats?.coverage?.complete === false ? '—' : formatNumber(stats.total_requests) }}
                 </p>
               </div>
             </div>
@@ -155,25 +146,25 @@
                   {{ t('admin.dashboard.totalTokens') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatTokens(stats.total_tokens) }}
+                  {{ stats?.coverage?.complete === false ? '—' : formatTokens(stats.total_tokens) }}
                 </p>
                 <p class="text-xs">
                   <span
                     class="text-green-600 dark:text-green-400"
                     :title="t('admin.dashboard.actual')"
-                    >{{ t('admin.dashboard.actual') }} USD {{ formatCost(stats.total_actual_cost) }}</span
+                    >{{ t('admin.dashboard.actual') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats.total_actual_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-orange-500 dark:text-orange-400"
                     :title="t('admin.dashboard.accountCost')"
-                    >{{ t('admin.dashboard.accountCost') }} USD {{ formatAccountCost(stats.total_account_cost) }}</span
+                    >{{ t('admin.dashboard.accountCost') }} USD {{ stats?.coverage?.complete === false ? '—' : formatAccountCost(stats.total_account_cost) }}</span
                   >
                   <span class="text-gray-400 dark:text-gray-500"> / </span>
                   <span
                     class="text-gray-400 dark:text-gray-500"
                     :title="t('admin.dashboard.standard')"
-                    >{{ t('admin.dashboard.standard') }} USD {{ formatCost(stats.total_cost) }}</span
+                    >{{ t('admin.dashboard.standard') }} USD {{ stats?.coverage?.complete === false ? '—' : formatCost(stats.total_cost) }}</span
                   >
                 </p>
               </div>
@@ -217,7 +208,7 @@
                   {{ t('admin.dashboard.avgResponse') }}
                 </p>
                 <p class="text-xl font-bold text-gray-900 dark:text-white">
-                  {{ formatDuration(stats.average_duration_ms) }}
+                  {{ stats?.coverage?.complete === false ? '—' : formatDuration(stats.average_duration_ms) }}
                 </p>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ stats.active_users }} {{ t('admin.dashboard.activeUsers') }}
@@ -310,7 +301,7 @@
 
           <!-- Charts Grid -->
           <div class="grid grid-cols-1 gap-6 lg:grid-cols-2">
-            <ModelDistributionChart
+            <ModelDistributionChart :model-unknown="!!historyGap" :model-error="chartError"
               :filters="reportQueryContext"
               :model-stats="modelStats"
               :enable-ranking-view="true"
@@ -321,11 +312,14 @@
               :loading="chartsLoading"
               :ranking-loading="rankingLoading"
               :ranking-error="rankingError"
+              :ranking-unknown="rankingUnknown"
               :start-date="startDate"
               :end-date="endDate"
               @ranking-click="goToUserUsage"
             />
-            <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+            <UsageStatsState :state="historyGap ? 'unknown' : chartError ? 'error' : 'known'">
+              <TokenUsageTrend :time-zone="reportTimeZone" :trend-data="trendData" :loading="chartsLoading" />
+            </UsageStatsState>
           </div>
 
           <!-- User Usage Trend (Full Width) -->
@@ -337,6 +331,7 @@
               <div v-if="userTrendLoading" class="flex h-full items-center justify-center">
                 <LoadingSpinner size="md" />
               </div>
+              <UsageStatsState v-else-if="userTrendState !== 'known'" :state="userTrendState" />
               <Line v-else-if="userTrendChartData" :data="userTrendChartData" :options="lineOptions" />
               <div
                 v-else
@@ -367,8 +362,9 @@ const reportProps = defineProps<{ timeZone?: string }>()
 const reportTimeZone = resolveReportTimeZone(reportProps.timeZone)
 const reportQueryContext = { timezone: reportTimeZone }
 
+import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, withTrendGaps, type HistoryGap } from '@/views/trendGaps'
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import { useAppStore } from '@/stores/app'
@@ -415,6 +411,8 @@ ChartJS.register(
 )
 
 const historyGap = ref<HistoryGap | null>(null)
+const chartError = ref(false)
+const userTrendState = ref<'known' | 'unknown' | 'error'>('known')
 const appStore = useAppStore()
 const router = useRouter()
 const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
@@ -424,6 +422,7 @@ const chartsLoading = ref(false)
 const userTrendLoading = ref(false)
 const rankingLoading = ref(false)
 const rankingError = ref(false)
+const rankingUnknown = ref(false)
 
 // Chart data
 const trendData = ref<TrendDataPoint[]>([])
@@ -681,6 +680,8 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     loading.value = true
   }
   chartsLoading.value = true
+  chartError.value = false
+  historyGap.value = null
   try {
     const response = await adminAPI.dashboard.getSnapshotV2({
       ...reportQueryContext, start_date: startDate.value,
@@ -705,6 +706,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
     modelStats.value = []
     if (includeStats) stats.value = null
     historyGap.value = historyGapFromError(error)
+    chartError.value = !historyGap.value
     if (!historyGap.value) appStore.showError(t('admin.dashboard.failedToLoad'))
     // A failed snapshot has no partial payload. Fetch the independent overview explicitly.
     if (includeStats && historyGap.value) {
@@ -712,6 +714,9 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
         const overview = await adminAPI.dashboard.getStats()
         if (currentSeq === chartLoadSeq) stats.value = overview
       } catch (overviewError) {
+        if (currentSeq !== chartLoadSeq) return
+        chartError.value = !historyGapFromError(overviewError)
+        if (chartError.value) appStore.showError(t('admin.dashboard.failedToLoad'))
         console.error('Error loading dashboard overview:', overviewError)
       }
     }
@@ -727,6 +732,7 @@ const loadDashboardSnapshot = async (includeStats: boolean) => {
 const loadUsersTrend = async () => {
   const currentSeq = ++usersTrendLoadSeq
   userTrendLoading.value = true
+  userTrendState.value = 'known'
   try {
     const response = await adminAPI.dashboard.getUserUsageTrend({
       ...reportQueryContext, start_date: startDate.value,
@@ -738,6 +744,7 @@ const loadUsersTrend = async () => {
     userTrend.value = response.trend || []
   } catch (error) {
     if (currentSeq !== usersTrendLoadSeq) return
+    userTrendState.value = historyGapFromError(error) ? 'unknown' : 'error'
     console.error('Error loading users trend:', error)
     userTrend.value = []
   } finally {
@@ -751,6 +758,7 @@ const loadUserSpendingRanking = async () => {
   const currentSeq = ++rankingLoadSeq
   rankingLoading.value = true
   rankingError.value = false
+  rankingUnknown.value = false
   try {
     const response = await adminAPI.dashboard.getUserSpendingRanking({
       ...reportQueryContext, start_date: startDate.value,
@@ -769,7 +777,8 @@ const loadUserSpendingRanking = async () => {
     rankingTotalActualCost.value = 0
     rankingTotalRequests.value = 0
     rankingTotalTokens.value = 0
-    rankingError.value = true
+    rankingUnknown.value = !!historyGapFromError(error)
+    rankingError.value = !rankingUnknown.value
   } finally {
     if (currentSeq === rankingLoadSeq) {
       rankingLoading.value = false
@@ -792,6 +801,8 @@ const loadChartData = async () => {
     loadUserSpendingRanking()
   ])
 }
+
+onUnmounted(() => { chartLoadSeq++; usersTrendLoadSeq++; rankingLoadSeq++ })
 
 onMounted(() => {
   void refreshBatchImageAccess()

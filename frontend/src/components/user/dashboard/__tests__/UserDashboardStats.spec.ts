@@ -176,3 +176,41 @@ describe('UserDashboardStats money display', () => {
     wrapper.unmount()
   })
 })
+
+
+describe('UserDashboardStats historical totals', () => {
+  it('masks incomplete totals while preserving balance, entities, today values and quota', () => {
+    const wrapper = mount(UserDashboardStats, {
+      props: {
+        stats: makeStats({ total_requests: 987654, total_tokens: 765432, total_actual_cost: 456.78,
+          average_duration_ms: 6543, today_requests: 23, today_actual_cost: 1.25,
+          by_platform: [{ ...usage('openai', 456.78), today_actual_cost: 1.25 }],
+          coverage: { complete: false, reason: 'history_after_origin_unavailable', raw_retained_from: '2026-09-01T00:00:00Z', published_before: '', timezone: 'UTC', projection_version: 1 } }),
+        balance: 32.5, isSimple: false,
+        platformQuotas: [quota({ platform: 'openai', daily_limit_usd: 10, daily_usage_usd: 2.5 })],
+      },
+      global: { stubs: { Icon: true } },
+    })
+    expect(wrapper.text()).toContain('$32.50')
+    expect(wrapper.text()).toContain('23')
+    expect(wrapper.text()).toContain('1.25000000')
+    expect(wrapper.text()).toContain('dashboard.platformQuota.title')
+    expect(wrapper.text()).not.toContain('987,654')
+    expect(wrapper.text()).not.toContain('765.4K')
+    expect(wrapper.text()).not.toContain('456.78000000')
+    expect(wrapper.text()).not.toContain('6.54s')
+    expect(wrapper.findAll('.text-xl').filter(node => node.text() === '—')).toHaveLength(2)
+    expect(wrapper.html()).not.toContain('history_after_origin_unavailable')
+    expect(wrapper.html()).not.toContain('2026-09-01')
+    wrapper.unmount()
+  })
+
+  it('keeps successful zero platform totals numeric', () => {
+    const wrapper = mountStats(makeStats(), [quota({ platform: 'openai', daily_limit_usd: 10 })])
+    const card = wrapper.get('[data-testid="platform-card"]')
+    expect(card.text()).toContain('$0.00000000')
+    expect(card.text()).not.toContain('—')
+    expect(card.findAll('.font-mono').filter(node => node.text() === '0')).toHaveLength(2)
+    wrapper.unmount()
+  })
+})

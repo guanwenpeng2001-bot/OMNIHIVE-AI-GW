@@ -1,6 +1,6 @@
 <template>
   <div class="card p-4">
-    <DistributionCaption :values="activeView === 'spending_ranking' ? rankingDisplayItems.map(item => item.actual_cost) : displayModelStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="activeView === 'spending_ranking' ? 'actual_cost' : metric" />
+    <DistributionCaption v-if="activeView === 'spending_ranking' ? !rankingLoading && !rankingUnknown && !rankingError : !loading && !modelUnknown && !modelError" :values="activeView === 'spending_ranking' ? rankingDisplayItems.map(item => item.actual_cost) : displayModelStats.map(item => metric === 'actual_cost' ? item.actual_cost : item.total_tokens)" :metric="activeView === 'spending_ranking' ? 'actual_cost' : metric" />
     <div class="mb-4 flex items-center justify-between gap-3">
       <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
         {{ !enableRankingView || activeView === 'model_distribution'
@@ -100,6 +100,9 @@
     <div v-if="activeView === 'model_distribution' && loading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
+    <div v-else-if="activeView === 'model_distribution' && (modelUnknown || modelError)" role="status" class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+      {{ modelUnknown ? '—' : t('admin.dashboard.failedToLoad') }}
+    </div>
     <div
       v-else-if="activeView === 'model_distribution' && displayModelStats.length > 0 && chartData"
       class="flex flex-col items-center gap-4 sm:flex-row sm:gap-6"
@@ -177,6 +180,7 @@
     <div v-else-if="rankingLoading" class="flex h-48 items-center justify-center">
       <LoadingSpinner />
     </div>
+    <div v-else-if="rankingUnknown" role="status" class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400">—</div>
     <div
       v-else-if="rankingError"
       class="flex h-48 items-center justify-center text-sm text-gray-500 dark:text-gray-400"
@@ -264,6 +268,8 @@ type ModelSource = 'requested' | 'upstream' | 'mapping'
 type RankingDisplayItem = UserSpendingRankingItem & { isOther?: boolean }
 const props = withDefaults(defineProps<{
   modelStats: ModelStat[]
+  modelUnknown?: boolean
+  modelError?: boolean
   upstreamModelStats?: ModelStat[]
   mappingModelStats?: ModelStat[]
   source?: ModelSource
@@ -280,6 +286,7 @@ const props = withDefaults(defineProps<{
   showAccountCost?: boolean
   rankingLoading?: boolean
   rankingError?: boolean
+  rankingUnknown?: boolean
   startDate?: string
   endDate?: string
   filters?: Record<string, any>
@@ -299,7 +306,10 @@ const props = withDefaults(defineProps<{
   enableBreakdown: true,
   showAccountCost: true,
   rankingLoading: false,
-  rankingError: false
+  rankingError: false,
+  rankingUnknown: false,
+  modelUnknown: false,
+  modelError: false
 })
 
 const expandedKey = ref<string | null>(null)

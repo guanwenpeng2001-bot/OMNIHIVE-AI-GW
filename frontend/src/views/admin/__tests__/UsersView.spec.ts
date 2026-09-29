@@ -236,7 +236,7 @@ describe('admin UsersView', () => {
     wrapper.unmount()
   })
 
-  it('shows incomplete history and retention boundary on the first usage request', async () => {
+  it('shows neutral unknown without coverage details on the first usage request', async () => {
     vi.useFakeTimers()
     localStorage.setItem('user-column-settings-version', '4')
     localStorage.setItem('user-hidden-columns', JSON.stringify([]))
@@ -245,14 +245,14 @@ describe('admin UsersView', () => {
     await flushPromises()
     await vi.advanceTimersByTimeAsync(60)
     await flushPromises()
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
-    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain(retainedFrom)
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
-    expect(wrapper.get('[data-test="platform-usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="platform-usage"]').text()).not.toContain(retainedFrom)
     wrapper.unmount()
   })
 
-  it('clears known usage on reload and shows incomplete history instead of old costs', async () => {
+  it('clears known usage on reload and shows neutral unknown instead of old costs', async () => {
     vi.useFakeTimers()
     localStorage.setItem('user-column-settings-version', '4')
     localStorage.setItem('user-hidden-columns', JSON.stringify([]))
@@ -273,8 +273,8 @@ describe('admin UsersView', () => {
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('12.3456')
     rejectUsage(historyError)
     await flushPromises()
-    expect(wrapper.get('[data-test="usage"]').text()).toContain('dashboard.historyUnavailable')
-    expect(wrapper.get('[data-test="usage"]').text()).toContain(retainedFrom)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain(retainedFrom)
     expect(wrapper.get('[data-test="usage"]').text()).not.toContain('45.6789')
     expect((wrapper.vm as unknown as { usageStats: object }).usageStats).toEqual({})
     wrapper.unmount()
@@ -310,12 +310,12 @@ describe('admin UsersView', () => {
     await flushPromises()
     const usage = wrapper.get('[data-test="usage"]').text()
     if (outcome === 'success') {
-      expect(usage).toContain('dashboard.historyUnavailable')
-      expect(usage).toContain(retainedFrom)
+      expect(usage).toContain('—')
+      expect(usage).not.toContain(retainedFrom)
       expect(usage).not.toContain('12.3456')
     } else {
       expect(usage).toContain('12.3456')
-      expect(usage).not.toContain('dashboard.historyUnavailable')
+      expect(usage).not.toContain('—')
     }
     wrapper.unmount()
   })
