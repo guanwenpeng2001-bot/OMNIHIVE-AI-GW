@@ -231,3 +231,14 @@ func TestCatalogGatewayFirstContentPerformance(tester *testing.T) {
 		})
 	}
 }
+
+// TestCatalogDumpQueryTally must run after the performance cells: it prints the
+// process-wide normalized-SQL counts accumulated in catalogQueryTally.
+func TestCatalogDumpQueryTally(tester *testing.T) {
+	catalogQueryTally.Range(func(key, value any) bool {
+		if tally, ok := value.(*atomic.Int64); ok {
+			tester.Logf("TALLY %8d %s", tally.Load(), key)
+		}
+		return true
+	})
+}

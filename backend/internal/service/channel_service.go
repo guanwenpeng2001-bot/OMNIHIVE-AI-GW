@@ -193,7 +193,7 @@ func (s *ChannelService) loadCache(ctx context.Context) (*channelCache, error) {
 	if revision, frozen := ctx.Value(visibleModelRevisionKey{}).(visibleModelRevision); frozen && revision.channels == s && revision.channelSnapshot != nil {
 		return revision.channelSnapshot, nil
 	}
-	generation, authoritative, versionErr := modelCatalogGeneration(ctx, s.groupRepo, "catalog")
+	generation, authoritative, versionErr := catalogEvidenceGeneration(ctx, s.groupRepo)
 	if versionErr != nil {
 		return s.buildCache(ctx)
 	}

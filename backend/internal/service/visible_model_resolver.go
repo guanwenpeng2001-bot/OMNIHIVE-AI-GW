@@ -65,6 +65,19 @@ func visibleModelPolicyAllows(ctx context.Context, model string) bool {
 
 var ErrVisibleModelRevisionChanged = errors.New("visible model catalog changed during resolution")
 
+// admissionGroupKey carries the authentication-loaded group into admission
+// resolution so the request does not re-read the same row. Only attached for
+// the first resolution attempt; retries after a revision race read live.
+type admissionGroupKey struct{}
+
+func admissionGroupFromContext(ctx context.Context, groupID int64) *Group {
+	group, _ := ctx.Value(admissionGroupKey{}).(*Group)
+	if group == nil || group.ID != groupID {
+		return nil
+	}
+	return group
+}
+
 type visibleModelRevisionKey struct{}
 type visibleModelRevision struct {
 	generation      int64
@@ -91,10 +104,8 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 			return ctx, nil
 		}
 	}
-	generation, authoritative, err := modelCatalogGeneration(ctx, r.gateway.accountRepo, "catalog")
-	if err != nil {
-		return ctx, err
-	}
+	generation := int64(0)
+	authoritative := false
 	if replace {
 		// Authenticated policies cannot be refreshed as keyID=0: that would
 		// discard KeyGroup/KeyExclude restrictions during a revision race.
@@ -116,6 +127,22 @@ func (r *VisibleModelResolver) freezeMode(ctx context.Context, replace bool) (co
 				return ctx, readErr
 			}
 			ctx = context.WithValue(ctx, modelAccessSnapshotKey{}, snapshot)
+		}
+	}
+	// An access snapshot is generation-fenced at read time; when it is known,
+	// anchor this freeze to it instead of probing the generation again. Any
+	// drift since the snapshot read is still caught by validate() before the
+	// response completes, which retries with a freshly read snapshot.
+	if snapshot, ok := ctx.Value(modelAccessSnapshotKey{}).(ModelAccessSnapshot); ok && snapshot.RevisionKnown {
+		if _, readerOK := r.gateway.accountRepo.(ModelCatalogGenerationReader); readerOK {
+			generation, authoritative = snapshot.Generation, true
+		}
+	}
+	if !authoritative {
+		var err error
+		generation, authoritative, err = modelCatalogGeneration(ctx, r.gateway.accountRepo, "catalog")
+		if err != nil {
+			return ctx, err
 		}
 	}
 	ctx = WithModelRegistrySnapshot(ctx, ModelRegistrySnapshotFromContext(ctx))
@@ -322,9 +349,12 @@ func (s *GatewayService) resolveVisibleModelIDs(ctx context.Context, groupID *in
 	if batched && groupID != nil {
 		group = batch.groups[*groupID]
 	} else if groupID != nil && s.groupRepo != nil {
-		group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
-		if err != nil {
-			return []string{}, err
+		group = admissionGroupFromContext(ctx, *groupID)
+		if group == nil {
+			group, err = s.groupRepo.GetByIDLite(ctx, *groupID)
+			if err != nil {
+				return []string{}, err
+			}
 		}
 	}
 	if group != nil {

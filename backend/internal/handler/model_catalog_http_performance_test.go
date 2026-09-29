@@ -56,8 +56,45 @@ type catalogSQLConnection struct {
 	queries *atomic.Int64
 }
 
+var catalogQueryTally sync.Map
+
+func catalogTallyQuery(query string) {
+	key := strings.Join(strings.Fields(query), " ")
+	// CATALOG_TALLY_ATTRIBUTION=1 annotates high-frequency read queries with
+	// their service/repository call stacks; default runs keep plain SQL keys.
+	if os.Getenv("CATALOG_TALLY_ATTRIBUTION") != "" {
+		attribute := strings.Contains(key, "model_catalog_generations") && strings.HasPrefix(key, "SELECT")
+		attribute = attribute || strings.HasPrefix(key, `SELECT "groups"."id"`) || strings.HasPrefix(key, `SELECT "accounts"."id"`) || strings.HasPrefix(key, `SELECT "account_groups".`) || strings.HasPrefix(key, `SELECT "settings".`)
+		if attribute {
+			var callers []string
+			for depth := 4; depth < 16; depth++ {
+				programCounter, file, line, ok := runtime.Caller(depth)
+				if !ok {
+					break
+				}
+				name := ""
+				if fn := runtime.FuncForPC(programCounter); fn != nil {
+					name = fn.Name()
+				}
+				if strings.Contains(name, "/service.") || strings.Contains(name, "/repository.") {
+					callers = append(callers, fmt.Sprintf("%s(%s:%d)", name, filepath.Base(file), line))
+				}
+				if len(callers) >= 5 {
+					break
+				}
+			}
+			key = key + " <<<" + strings.Join(callers, " <- ") + ">>>"
+		}
+	}
+	counter, _ := catalogQueryTally.LoadOrStore(key, &atomic.Int64{})
+	if tally, ok := counter.(*atomic.Int64); ok {
+		tally.Add(1)
+	}
+}
+
 func (connection catalogSQLConnection) QueryContext(ctx context.Context, query string, arguments []driver.NamedValue) (driver.Rows, error) {
 	connection.queries.Add(1)
+	catalogTallyQuery(query)
 	queryConnection, supported := connection.Conn.(driver.QueryerContext)
 	if !supported {
 		return nil, fmt.Errorf("PostgreSQL driver must support QueryContext")
@@ -66,6 +103,7 @@ func (connection catalogSQLConnection) QueryContext(ctx context.Context, query s
 }
 func (connection catalogSQLConnection) ExecContext(ctx context.Context, query string, arguments []driver.NamedValue) (driver.Result, error) {
 	connection.queries.Add(1)
+	catalogTallyQuery(query)
 	executionConnection, supported := connection.Conn.(driver.ExecerContext)
 	if !supported {
 		return nil, fmt.Errorf("PostgreSQL driver must support ExecContext")

@@ -630,7 +630,34 @@ func gatewayInputAdmission(requestContext *gin.Context, gateway *GatewayService)
 	if forced := requestContext.GetString("force_platform"); forced != "" {
 		catalogPlatform = forced
 	}
-	candidates, lookupErr := gateway.visibleModelInputMetadata(ctx, key.GroupID, catalogPlatform, model)
+	// Freeze the catalog revision once for the whole request: admission resolves
+	// against it, and the frozen context is written back so downstream dispatch
+	// (channel cache, evidence store, versioned cache keys) reuses the same
+	// anchored generation instead of probing per consumer. validate() still
+	// re-checks the live generation inside resolution, and a mid-resolution
+	// drift retries with a freshly frozen revision.
+	var candidates []UpstreamModelMetadata
+	var lookupErr error
+	resolver := &VisibleModelResolver{gateway: gateway}
+	for attempt := 1; ; attempt++ {
+		frozen, freezeErr := resolver.freezeMode(ctx, attempt > 1)
+		if freezeErr != nil {
+			lookupErr = freezeErr
+			break
+		}
+		resolveCtx := frozen
+		if attempt == 1 {
+			// The authentication chain already loaded this group; reuse it for
+			// the first resolution attempt. Revision-race retries read live so a
+			// concurrent group edit cannot be masked by the older attachment.
+			resolveCtx = context.WithValue(frozen, admissionGroupKey{}, key.Group)
+		}
+		candidates, lookupErr = gateway.visibleModelInputMetadata(resolveCtx, key.GroupID, catalogPlatform, model)
+		if !errors.Is(lookupErr, ErrVisibleModelRevisionChanged) || attempt >= visibleModelResolveMaxAttempts {
+			ctx = frozen
+			break
+		}
+	}
 	if lookupErr != nil {
 		requestContext.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "server_error", "message": "Model requirements temporarily unavailable"}})
 		return false
