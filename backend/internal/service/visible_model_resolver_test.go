@@ -139,6 +139,78 @@ func TestVisibleModelsWildcardBindingAndRevisionFence(t *testing.T) {
 	require.ErrorContains(t, err, "authority unavailable")
 }
 
+func TestVisibleModelInputMetadataMatchesFullProjection(t *testing.T) {
+	for _, scenario := range []struct {
+		platform string
+		endpoint string
+		protocol string
+		action   string
+	}{
+		{PlatformOpenAI, "responses", "responses", "responses"},
+		{PlatformMistral, "chat_completions", "chat_completions", "chat"},
+		{PlatformOpenAI, "images", "images", "image.generate"},
+		{PlatformOpenAI, "embeddings", "embeddings", "embeddings"},
+		{PlatformOpenAI, "alpha_search", "search", ""},
+		{PlatformGrok, string(OpenAIEndpointCapabilityGrokMediaGeneration), "media", "image.generate"},
+	} {
+		t.Run(scenario.platform+"/"+scenario.endpoint, func(t *testing.T) {
+			account := catalogEvidenceAccount(1, scenario.platform, "deployment-private", "other")
+			catalog, ok := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
+			require.True(t, ok)
+			for index := range catalog.EligibleModels {
+				catalog.EligibleModels[index].Endpoints = []string{scenario.endpoint}
+			}
+			account.Credentials["model_mapping"] = map[string]any{"public": "deployment-private", "tenant-*": "deployment-private", "other": "other"}
+			account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{
+				"deployment-private": {ProviderProfile: resolveCapabilityProfile(&account), MaxOutputTokens: 123},
+			}})
+			gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}, generation: 42}}
+			for _, policy := range [][]string{nil, {}, {"public"}, {"deployment-private"}} {
+				ctx := WithVisibleModelKeyPolicy(context.Background(), policy)
+				ctx = WithGatewayRequestPlan(ctx, NewGatewayRequestPlan(GatewayRequestSpec{Model: "public", Protocol: scenario.protocol, Action: scenario.action}))
+				_, full, err := gateway.VisibleModelsWithMetadata(ctx, nil, scenario.platform)
+				require.NoError(t, err)
+				if policy == nil {
+					require.NotEmpty(t, full["public"], "fixture must exercise supported endpoint evidence")
+				}
+				for _, model := range []string{"public", "other", "deployment-private", "tenant-arbitrary", "absent", ""} {
+					actual, err := gateway.visibleModelInputMetadata(ctx, nil, scenario.platform, model)
+					require.NoError(t, err)
+					require.Equal(t, full[model], actual, "policy=%v model=%s", policy, model)
+				}
+			}
+		})
+	}
+}
+
+func TestVisibleModelInputMetadataPreservesRevisionFence(t *testing.T) {
+	for _, mode := range []string{"retry", "pre-frozen", "authenticated"} {
+		t.Run(mode, func(t *testing.T) {
+			reads := 0
+			repository := &visiblePolicyAccountRepo{accounts: []Account{catalogEvidenceAccount(1, PlatformOpenAI, "public")}, generation: 31, changeDuringRead: true}
+			repository.assertScope = func(*int64, []string, bool) { reads++ }
+			gateway := &GatewayService{accountRepo: repository}
+			ctx := context.Background()
+			if mode == "pre-frozen" {
+				var err error
+				ctx, err = (&VisibleModelResolver{gateway: gateway}).freeze(ctx)
+				require.NoError(t, err)
+			}
+			if mode == "authenticated" {
+				ctx = WithVisibleModelKeyPolicy(ctx, nil)
+			}
+			metadata, err := gateway.visibleModelInputMetadata(ctx, nil, PlatformOpenAI, "public")
+			require.ErrorIs(t, err, ErrVisibleModelRevisionChanged)
+			require.Nil(t, metadata, "never return partially resolved evidence")
+			if mode == "retry" {
+				require.Equal(t, visibleModelResolveMaxAttempts, reads)
+			} else {
+				require.Equal(t, 1, reads)
+			}
+		})
+	}
+}
+
 func TestVisibleModelsDoNotPublishCandidatesOrUnsupportedActions(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformMistral, "native")
 	snapshot, _ := account.Extra[UpstreamModelCatalogExtraKey].(*AccountModelCatalogSnapshot)
