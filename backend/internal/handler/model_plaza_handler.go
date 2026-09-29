@@ -16,7 +16,7 @@ import (
 // 识别用户。可见性规则（橱窗语义，与「可用渠道」的可绑定语义不同）：
 //   - 匿名：仅非专属分组（订阅型照常展示）；
 //   - 登录：非专属分组 + user_allowed_groups 授权或持有有效订阅的专属分组；
-//     若该用户开启了公开分组限制，则公开分组同样需要落在授权集合内。
+//     非管理员用户开启公开分组限制且有授权集合时，公开分组也需在集合内。
 type ModelPlazaHandler struct {
 	plazaService   *service.ModelPlazaService
 	apiKeyService  *service.APIKeyService
@@ -115,12 +115,7 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		return
 	}
 
-	groups, err := h.plazaService.ListGroups(c.Request.Context())
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-
+	var err error
 	// allowedGroups == nil 表示匿名；登录用户恒为非 nil（可能为空集合）。
 	var allowedGroups map[int64]struct{}
 	var restrictPublicGroups bool
@@ -140,7 +135,11 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 		}
 	}
 
-	visible := filterPlazaVisibleGroups(groups, allowedGroups, restrictPublicGroups)
+	visible, err := h.plazaService.ListVisibleGroups(c.Request.Context(), allowedGroups, restrictPublicGroups)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 
 	out := make([]modelPlazaGroup, 0, len(visible))
 	for i := range visible {
@@ -154,8 +153,8 @@ func (h *ModelPlazaHandler) Get(c *gin.Context) {
 
 // filterPlazaVisibleGroups 按登录态裁剪分组可见性。
 // allowedGroups == nil 表示匿名（仅非专属）；非 nil 包含普通授权及有效订阅分组。
-// restrictPublicGroups 为 true 时，公开分组也必须落在 allowedGroups 内，否则用户会
-// 在广场看到自己实际绑定不了的分组。
+// restrictPublicGroups 为 true 且授权集合非空时，公开分组也必须落在集合内。
+// 无授权用户仍可浏览公开分组；专属分组始终需要授权。
 func filterPlazaVisibleGroups(
 	groups []service.PlazaGroup,
 	allowedGroups map[int64]struct{},
@@ -163,7 +162,7 @@ func filterPlazaVisibleGroups(
 ) []service.PlazaGroup {
 	visible := make([]service.PlazaGroup, 0, len(groups))
 	for _, g := range groups {
-		if g.IsExclusive || (restrictPublicGroups && allowedGroups != nil) {
+		if g.IsExclusive || (restrictPublicGroups && len(allowedGroups) > 0) {
 			if allowedGroups == nil {
 				continue
 			}

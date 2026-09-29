@@ -313,7 +313,7 @@ func TestForwardAsAnthropic_PreservesMaxForFinalGPT56ResponsesModel(t *testing.T
 	}
 }
 
-func TestForwardAsAnthropic_DisabledThinkingOverridesMaxForResponses(t *testing.T) {
+func TestForwardAsAnthropic_DisabledThinkingWithEffortRejectedForResponses(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	body := []byte(`{"model":"sol","max_tokens":16,"messages":[{"role":"user","content":"hello"}],"thinking":{"type":"disabled"},"output_config":{"effort":"max"},"stream":false}`)
@@ -330,13 +330,11 @@ func TestForwardAsAnthropic_DisabledThinkingOverridesMaxForResponses(t *testing.
 	account := rawGPT56ResponsesOAuthAccount("sol", "gpt-5.6-sol")
 
 	result, err := svc.ForwardAsAnthropic(context.Background(), ginContext, account, body, "", "")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.Equal(t, http.StatusOK, rec.Code)
-	require.Equal(t, "none", gjson.GetBytes(upstream.lastBody, "reasoning.effort").String())
-	require.False(t, gjson.GetBytes(upstream.lastBody, "reasoning.summary").Exists())
-	require.NotNil(t, result.ReasoningEffort)
-	require.Equal(t, "none", *result.ReasoningEffort)
+	require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+	require.Nil(t, result)
+	require.Equal(t, http.StatusBadRequest, rec.Code)
+	require.Contains(t, rec.Body.String(), "unsupported thinking.type=disabled")
+	require.Nil(t, upstream.lastReq)
 }
 
 func rawGPT56ResponsesAPIKeyAccount(requestedModel, mappedModel string) *Account {

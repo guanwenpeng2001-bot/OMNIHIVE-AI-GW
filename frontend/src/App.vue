@@ -2,6 +2,7 @@
 import { RouterView, useRouter, useRoute } from 'vue-router'
 import { computed, onMounted, onBeforeUnmount, watch } from 'vue'
 import { i18n } from '@/i18n'
+import SiteICPFooter from '@/components/layout/SiteICPFooter.vue'
 import Toast from '@/components/common/Toast.vue'
 import NavigationProgress from '@/components/common/NavigationProgress.vue'
 import AdminComplianceDialog from '@/components/admin/AdminComplianceDialog.vue'
@@ -187,6 +188,7 @@ onMounted(async () => {
 <template>
   <NavigationProgress />
   <RouterView />
+  <SiteICPFooter />
   <Toast />
   <AnnouncementPopup />
   <AdminComplianceDialog />

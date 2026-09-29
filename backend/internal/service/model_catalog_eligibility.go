@@ -46,12 +46,15 @@ type AccountModelCatalogBaseline struct {
 }
 
 type AccountModelCatalogState struct {
-	IdentityRevision int64  `json:"identity_revision"`
-	RulesRevision    int64  `json:"rules_revision"`
-	AttemptedAt      string `json:"attempted_at,omitempty"`
-	LastSuccessAt    string `json:"last_success_at,omitempty"`
-	Result           string `json:"result,omitempty"`
-	Error            string `json:"error,omitempty"`
+	// Unlike identity/rules, this excludes pure access-token renewal. Mapping
+	// changes and explicit revocations advance it even if content later returns.
+	LegacyPolicyRevision int64  `json:"legacy_policy_revision"`
+	IdentityRevision     int64  `json:"identity_revision"`
+	RulesRevision        int64  `json:"rules_revision"`
+	AttemptedAt          string `json:"attempted_at,omitempty"`
+	LastSuccessAt        string `json:"last_success_at,omitempty"`
+	Result               string `json:"result,omitempty"`
+	Error                string `json:"error,omitempty"`
 }
 
 type AccountCatalogModel struct {
@@ -68,6 +71,10 @@ type ExcludedCatalogModel struct {
 }
 
 type AccountModelCatalogSnapshot struct {
+	LegacyMappingFingerprint string `json:"legacy_mapping_fingerprint,omitempty"`
+	// A missing policy binding must not be mistaken for a trusted zero revision.
+	LegacyPolicyRevision       *int64                           `json:"legacy_policy_revision,omitempty"`
+	LegacyAccountID            int64                            `json:"legacy_account_id,omitempty"`
 	SchemaVersion              int                              `json:"schema_version,omitempty"`
 	EnrichmentVersion          string                           `json:"enrichment_version,omitempty"`
 	SourceGeneration           int64                            `json:"source_generation,omitempty"`
@@ -146,11 +153,43 @@ func (account *Account) GetUpstreamModelCatalog() *AccountModelCatalogSnapshot {
 	if account == nil {
 		return nil
 	}
-	var snapshot AccountModelCatalogSnapshot
-	if !decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &snapshot) || !snapshot.Complete {
+	raw, exists := account.Extra[UpstreamModelCatalogExtraKey]
+	if !exists || raw == nil {
 		return nil
 	}
-	return &snapshot
+	ptr, sig, identifiable := extraValueIdentity(raw)
+	var snapshot *AccountModelCatalogSnapshot
+	if identifiable && account.catalogMemoReady && account.catalogMemoPtr == ptr && account.catalogMemoKeysSig == sig {
+		snapshot = account.catalogMemoValue
+	} else {
+		var decoded AccountModelCatalogSnapshot
+		valid := decodeCatalogExtra(account.Extra, UpstreamModelCatalogExtraKey, &decoded) && decoded.Complete
+		if identifiable {
+			account.catalogMemoReady = true
+			account.catalogMemoPtr = ptr
+			account.catalogMemoKeysSig = sig
+			if valid {
+				account.catalogMemoValue = &decoded
+			} else {
+				account.catalogMemoValue = nil
+			}
+		}
+		if !valid {
+			return nil
+		}
+		snapshot = &decoded
+	}
+	if snapshot == nil {
+		return nil
+	}
+	// 返回浅副本：populate、可用性追加、白名单过滤都会改写 EligibleModels，
+	// 不能污染 memo 中的解码快照。JSON 解码的切片 cap==len，后续 append 会
+	// 重新分配，不会写穿 memo 的底层数组。
+	cp := *snapshot
+	if cp.SourceKind == modelEvidenceLegacyMappingUpgrade {
+		populateLegacyModelCatalogEndpoints(account, &cp)
+	}
+	return &cp
 }
 
 func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnapshot {
@@ -158,17 +197,26 @@ func (account *Account) EffectiveUpstreamModelCatalog() *AccountModelCatalogSnap
 }
 
 func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(credentialAccount *Account) *AccountModelCatalogSnapshot {
+	if account != nil && account.modelCatalogReadEvidence != nil && account.modelCatalogCredentialAccount == credentialAccount {
+		return account.modelCatalogReadEvidence.catalog
+	}
 	if account == nil || account.ModelCatalogState().Result == "credentials_invalid" {
 		return nil
 	}
 	snapshot := account.GetUpstreamModelCatalog()
 	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
-		snapshot = nil
+		legacyRotationEvidence := snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)
+		if !legacyRotationEvidence {
+			snapshot = nil
+		}
 	}
 	if snapshot != nil && (account.IsShadow() || snapshot.CredentialAccountID != 0) {
 		if credentialAccount == nil || credentialAccount.ID != snapshot.CredentialAccountID || !credentialAccount.IsOpenAIOAuth() || credentialAccount.IsShadow() || credentialAccount.ModelCatalogState().IdentityRevision != snapshot.CredentialIdentityRevision {
 			snapshot = nil
 		}
+	}
+	if snapshot != nil && snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && !legacyModelCatalogValidFor(account, snapshot) {
+		snapshot = nil
 	}
 	snapshot = appendAvailabilityModels(account, credentialAccount, snapshot)
 	if snapshot == nil {
@@ -194,6 +242,9 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 }
 
 func (account *Account) ModelCatalogState() AccountModelCatalogState {
+	if account != nil && account.modelCatalogReadEvidence != nil {
+		return account.modelCatalogReadEvidence.state
+	}
 	var state AccountModelCatalogState
 	if account != nil {
 		decodeCatalogExtra(account.Extra, UpstreamModelCatalogStateExtraKey, &state)
@@ -215,6 +266,9 @@ func AccountCatalogIdentityCredentialFields() []string {
 }
 
 func configuredModelMapping(account *Account) map[string]string {
+	if account.modelCatalogReadEvidence != nil {
+		return account.modelCatalogReadEvidence.mapping
+	}
 	encoded, _ := json.Marshal(account.Credentials["model_mapping"])
 	var mapping map[string]string
 	_ = json.Unmarshal(encoded, &mapping)
@@ -360,8 +414,23 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if options.CredentialAccount != nil {
 		binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
 	}
-	for _, member := range snapshot.EligibleModels {
-		if member.ID != binding.UpstreamModel || member.EvidenceKind == "" || (!slices.Contains(snapshot.DiscoveredModels, member.ID) && !hasAvailabilityEvidence(account, options.CredentialAccount, member)) {
+	members := snapshot.EligibleModels
+	if account.modelCatalogReadEvidence != nil {
+		members = account.modelCatalogReadEvidence.members[binding.UpstreamModel]
+	}
+	for memberIndex, member := range members {
+		legacyEvidence := hasLegacyModelCatalogEvidence(snapshot, member)
+		memberModel := member.ID
+		if legacyEvidence {
+			memberModel = legacyModelCatalogWireModel(account, memberModel)
+		}
+		discovered := false
+		if account.modelCatalogReadEvidence != nil {
+			discovered = account.modelCatalogReadEvidence.discovered[member.ID]
+		} else {
+			discovered = slices.Contains(snapshot.DiscoveredModels, member.ID)
+		}
+		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
 			continue
 		}
 		endpoint := options.Endpoint
@@ -392,7 +461,12 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		if endpoint == CompositeRouteEndpointCountTokens {
 			endpoint = CompositeRouteEndpointMessages
 		}
-		implemented := accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+		var implemented []string
+		if account.modelCatalogReadEvidence != nil {
+			implemented = account.modelCatalogReadEvidence.implemented[binding.UpstreamModel][memberIndex]
+		} else {
+			implemented = accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})
+		}
 		executable := false
 		for _, action := range implemented {
 			if catalogEndpointsContain(member.Endpoints, action) && (endpoint == "" || endpoint == CompositeRouteEndpointAny || catalogEndpointsContain([]string{action}, endpoint)) {

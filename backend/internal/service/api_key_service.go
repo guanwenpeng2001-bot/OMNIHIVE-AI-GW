@@ -25,6 +25,7 @@ import (
 
 var (
 	ErrAPIKeyNotFound       = infraerrors.NotFound("API_KEY_NOT_FOUND", "api key not found")
+	ErrAPIKeyGroupRequired  = infraerrors.BadRequest("API_KEY_GROUP_REQUIRED", "You must select a group before creating an API key / 创建密钥必须选择分组")
 	ErrGroupNotAllowed      = infraerrors.Forbidden("GROUP_NOT_ALLOWED", "user is not allowed to bind this group")
 	ErrAPIKeyExists         = infraerrors.Conflict("API_KEY_EXISTS", "api key already exists")
 	ErrAPIKeyTooShort       = infraerrors.BadRequest("API_KEY_TOO_SHORT", "api key must be at least 16 characters")
@@ -278,6 +279,9 @@ func validateAPIKeyLimit(v float64) error {
 }
 
 func validateCreateAPIKeyRequest(req CreateAPIKeyRequest) error {
+	if req.GroupID == nil || *req.GroupID <= 0 {
+		return ErrAPIKeyGroupRequired
+	}
 	for _, v := range []float64{req.Quota, req.RateLimit5h, req.RateLimit1d, req.RateLimit7d, req.BudgetLimit} {
 		if err := validateAPIKeyLimit(v); err != nil {
 			return err
@@ -1217,7 +1221,7 @@ func (s *APIKeyService) SearchAPIKeys(ctx context.Context, userID int64, keyword
 }
 
 // GetUserGroupVisibility 返回 user_allowed_groups 授权及有效订阅的分组 ID 集合，
-// 以及该用户是否开启了公开分组限制。开启时公开分组的可见性也要落在该集合内。
+// 以及是否应用公开分组限制：仅限制有授权集合的非管理员用户。
 //
 // 与 GetAvailableGroups 的区别：这里保留普通授权分组的「橱窗」语义，不检查
 // 分组是否活跃；有效订阅也授予对应分组的可见性。返回值恒非 nil。
@@ -1237,7 +1241,7 @@ func (s *APIKeyService) GetUserGroupVisibility(ctx context.Context, userID int64
 	for _, sub := range subscriptions {
 		allowed[sub.GroupID] = struct{}{}
 	}
-	return allowed, user.RestrictPublicGroups, nil
+	return allowed, user.RestrictPublicGroups && !user.IsAdmin() && len(allowed) > 0, nil
 }
 
 // GetUserGroupRates 获取用户的专属分组倍率配置

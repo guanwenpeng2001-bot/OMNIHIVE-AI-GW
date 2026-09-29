@@ -175,13 +175,29 @@ func (a *Account) GetUpstreamModelMetadataSnapshot() *UpstreamModelMetadataSnaps
 	if !ok || raw == nil {
 		return nil
 	}
+	ptr, sig, identifiable := extraValueIdentity(raw)
+	if identifiable && a.metadataMemoReady && a.metadataMemoPtr == ptr && a.metadataMemoKeysSig == sig {
+		return a.metadataMemoValue
+	}
 	body, err := json.Marshal(raw)
 	if err != nil {
 		return nil
 	}
 	var snapshot UpstreamModelMetadataSnapshot
 	if err := json.Unmarshal(body, &snapshot); err != nil || len(snapshot.Models) == 0 {
+		if identifiable {
+			a.metadataMemoReady = true
+			a.metadataMemoPtr = ptr
+			a.metadataMemoKeysSig = sig
+			a.metadataMemoValue = nil
+		}
 		return nil
+	}
+	if identifiable {
+		a.metadataMemoReady = true
+		a.metadataMemoPtr = ptr
+		a.metadataMemoKeysSig = sig
+		a.metadataMemoValue = &snapshot
 	}
 	return &snapshot
 }

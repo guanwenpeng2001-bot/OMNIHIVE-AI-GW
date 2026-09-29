@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"net/url"
 	"os"
+	"strings"
 	"testing"
 	"testing/fstest"
 	"time"
@@ -262,6 +263,8 @@ func TestAPIKeyCredentialMigrationBackfillsLegacyPlaintextAndClearsIt(t *testing
 	userID := setup.createUser(t, "legacy@example.invalid")
 	liveSecret := "sk-legacy-live-0001"
 	liveID := setup.seedKeys(t, userID, "legacy-live", liveSecret, false)
+	prefixedSecret := "__deleted__audit_live_key"
+	prefixedID := setup.seedKeys(t, userID, "legacy-live-deleted-prefix", prefixedSecret, false)
 	tombstoneID := setup.seedKeys(t, userID, "legacy-deleted", "sk-legacy-deleted-0002", true)
 	require.Zero(t, setup.auditCount(t, "api_key.credential.rotate"))
 
@@ -284,6 +287,10 @@ func TestAPIKeyCredentialMigrationBackfillsLegacyPlaintextAndClearsIt(t *testing
 	resolved, err := setup.keys.GetByKeyForAuth(ctx, liveSecret)
 	require.NoError(t, err)
 	require.Equal(t, liveID, resolved.ID, "the digest must map back to the original key id")
+	prefixed, err := setup.keys.GetByKeyForAuth(ctx, prefixedSecret)
+	require.NoError(t, err, "a custom secret prefix cannot identify a deleted key")
+	require.Equal(t, prefixedID, prefixed.ID)
+	require.Empty(t, setup.credentialRows(t, tombstoneID), "deleted_at identifies the real tombstone")
 
 	var plaintextLeft, uncovered int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM api_keys WHERE deleted_at IS NULL AND COALESCE(key, '') <> ''`).Scan(&plaintextLeft))
@@ -303,6 +310,33 @@ func TestAPIKeyCredentialMigrationBackfillsLegacyPlaintextAndClearsIt(t *testing
 	require.NoError(t, applyMigrationsFS(ctx, db, migrations.FS))
 	require.Equal(t, ledgerBefore, migrationLedgerSnapshot(t, db))
 	require.Len(t, setup.credentialRows(t, liveID), 1)
+}
+
+func TestAPIKeyCredentialMigrationRefusesDigestOwnedByAnotherKey(t *testing.T) {
+	database := apiKeyCredentialMigrationDatabase(t)
+	ctx := context.Background()
+	require.NoError(t, applyMigrationsFS(ctx, database, migrationsThrough(t, "271_add_api_key_credentials.sql")))
+	fixture := newAPIKeyCredentialFixture(t, database)
+	userID := fixture.createUser(t, "digest-owner@example.invalid")
+	secret := "__deleted__still_live_custom_key"
+	keyID := fixture.seedKeys(t, userID, "expected-owner", secret, false)
+	otherID := fixture.seedKeys(t, userID, "wrong-owner", "sk-other-legacy-owner", false)
+	body, err := migrations.FS.ReadFile("271_add_api_key_credentials.sql")
+	require.NoError(t, err)
+	// Simulate an interrupted/manual expansion whose digest belongs to the wrong
+	// identity. Verification must stop before any plaintext is withdrawn.
+	expansion, _, found := strings.Cut(string(body), "-- Backfill:")
+	require.True(t, found)
+	_, err = database.Exec(expansion)
+	require.NoError(t, err)
+	_, err = database.Exec(`INSERT INTO api_key_credentials(api_key_id, credential_digest) VALUES ($1, $2)`,
+		otherID, service.APIKeyCredentialDigest(secret))
+	require.NoError(t, err)
+	err = applyMigrationsFS(ctx, database, migrations.FS)
+	require.ErrorContains(t, err, "refusing to clear plaintext")
+	var retained string
+	require.NoError(t, database.QueryRow(`SELECT key FROM api_keys WHERE id = $1`, keyID).Scan(&retained))
+	require.Equal(t, secret, retained)
 }
 
 // A credential that reaches its grace deadline is retired once, audited, and rejected

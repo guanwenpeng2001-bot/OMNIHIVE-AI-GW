@@ -38,7 +38,7 @@ func (r *apiKeyCredentialRepository) ListDigestsByAPIKeyID(ctx context.Context, 
 	}
 	return queryStringColumn(ctx, r.db, `
 		SELECT credential_digest FROM api_key_credentials
-		WHERE api_key_id = $1 AND revoked_at IS NULL`, apiKeyID)
+		WHERE api_key_id = $1`, apiKeyID)
 }
 
 type stringColumnQueryer interface {

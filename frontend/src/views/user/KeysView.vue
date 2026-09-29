@@ -577,6 +577,12 @@
 
         <div>
           <label class="input-label">{{ t('keys.groupLabel') }}</label>
+          <p v-if="showCreateModal && groupsLoading" role="status" class="mb-2 text-sm text-gray-500">{{ t('keys.groupsLoading') }}</p>
+          <p v-else-if="showCreateModal && groupsLoadFailed" role="alert" class="mb-2 text-sm text-red-600">
+            {{ t('keys.groupsLoadFailed') }}
+            <button type="button" class="underline" @click="loadGroups">{{ t('keys.retryGroups') }}</button>
+          </p>
+          <p v-else-if="showCreateModal && groups.length === 0" role="alert" class="mb-2 text-sm text-amber-600">{{ t('keys.noAvailableGroups') }}</p>
           <Select
             v-model="formData.group_id"
             :options="groupOptions"
@@ -1139,7 +1145,7 @@
           <button
             form="key-form"
             type="submit"
-            :disabled="submitting"
+            :disabled="submitting || (!showEditModal && (groupsLoading || groupsLoadFailed || !formData.group_id || !groups.some(group => group.id === formData.group_id)))"
             class="btn btn-primary"
             data-tour="key-form-submit"
           >
@@ -1336,7 +1342,7 @@ import UsageStatsState from '@/components/common/UsageStatsState.vue'
 import { historyGapFromError, type HistoryGap } from '@/views/trendGaps'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { extractApiErrorMessage } from '@/utils/apiError'
-	import { ref, reactive, computed, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
+	import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 	import { useI18n } from 'vue-i18n'
 	import { useAppStore } from '@/stores/app'
 	import { useOnboardingStore } from '@/stores/onboarding'
@@ -1519,6 +1525,8 @@ const columns = computed<Column[]>(() =>
 
 const apiKeys = ref<ApiKey[]>([])
 const groups = ref<Group[]>([])
+const groupsLoading = ref(true)
+const groupsLoadFailed = ref(false)
 const loading = ref(false)
 const submitting = ref(false)
 const now = ref(new Date())
@@ -1808,7 +1816,28 @@ async function loadAuxiliary<Result>(
   }
 }
 
-const loadGroups = () => loadAuxiliary('groups', userGroupsAPI.getAvailable, result => { groups.value = result })
+const loadGroups = async () => {
+  groupsLoading.value = true
+  groupsLoadFailed.value = false
+  await loadAuxiliary('groups', async options => {
+    try {
+      // This endpoint returns all active groups the current user may bind, without pagination.
+      return await userGroupsAPI.getAvailable(options)
+    } catch (error) {
+      if (!options.signal.aborted && !disposed) groupsLoadFailed.value = true
+      throw error
+    } finally {
+      if (!options.signal.aborted && !disposed) groupsLoading.value = false
+    }
+  }, result => {
+    groups.value = result
+    if (showCreateModal.value) {
+      if (!result.some(group => group.id === formData.value.group_id)) formData.value.group_id = null
+      if (result.length === 1) formData.value.group_id = result[0]!.id
+    }
+  })
+}
+watch(showCreateModal, open => { if (open) void loadGroups() })
 const loadUserGroupRates = () => loadAuxiliary('group rates', userGroupsAPI.getUserGroupRates, result => { userGroupRates.value = result })
 const loadPublicSettings = () => loadAuxiliary('public settings', authAPI.getPublicSettings, result => { publicSettings.value = result })
 
@@ -2053,6 +2082,10 @@ const buildBudgetPayload = (): ApiKeyPeriodBudgetRequest | null => {
 }
 
 const handleSubmit = async () => {
+  if (!showEditModal.value && (groupsLoading.value || groupsLoadFailed.value || !groups.value.some(group => group.id === formData.value.group_id))) {
+    appStore.showError(t(groupsLoadFailed.value ? 'keys.groupsLoadFailed' : 'keys.groupRequired'))
+    return
+  }
   // Validate group_id is required
   if (formData.value.group_id === null) {
     appStore.showError(t('keys.groupRequired'))

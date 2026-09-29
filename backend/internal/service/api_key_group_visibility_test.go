@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -96,5 +97,34 @@ func TestGetUserGroupVisibilityEmptyAndErrors(t *testing.T) {
 				require.Zero(t, subs.calls)
 			}
 		})
+	}
+}
+
+func TestGetUserGroupVisibilityPublicRestriction(t *testing.T) {
+	for _, role := range []string{RoleUser, RoleAdmin} {
+		for _, restricted := range []bool{false, true} {
+			for _, grant := range []string{"none", "allowed", "subscription"} {
+				t.Run(fmt.Sprintf("%s/restricted=%t/%s", role, restricted, grant), func(t *testing.T) {
+					user := &User{ID: 1, Role: role, RestrictPublicGroups: restricted}
+					subs := &visibilitySubRepo{}
+					if grant == "allowed" {
+						user.AllowedGroups = []int64{7}
+					}
+					if grant == "subscription" {
+						subs.subscriptions = []UserSubscription{{UserID: 1, GroupID: 7, Status: SubscriptionStatusActive, ExpiresAt: time.Now().Add(time.Hour)}}
+					}
+					svc := &APIKeyService{userRepo: &visibilityUserRepo{user: user}, userSubRepo: subs}
+					allowed, restrict, err := svc.GetUserGroupVisibility(context.Background(), 1)
+					require.NoError(t, err)
+					require.NotNil(t, allowed)
+					require.Equal(t, restricted && role != RoleAdmin && grant != "none", restrict)
+					if grant == "none" {
+						require.Empty(t, allowed)
+					} else {
+						require.Equal(t, map[int64]struct{}{7: {}}, allowed)
+					}
+				})
+			}
+		}
 	}
 }

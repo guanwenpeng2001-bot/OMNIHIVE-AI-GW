@@ -7,6 +7,8 @@ import (
 
 // TokenCostRequest 通用网关 token 计费请求。
 type TokenCostRequest struct {
+	// displayProbe is only set by the internal context-price display probes.
+	displayProbe    bool
 	Ctx             context.Context
 	Model           string
 	Group           *Group
@@ -42,6 +44,7 @@ func (s *BillingService) CalculateTokenCostForRequest(req TokenCostRequest) (*Co
 
 func (s *BillingService) tokenCostInput(req TokenCostRequest, resolved *ResolvedPricing) CostInput {
 	input := CostInput{
+		displayProbe:    req.displayProbe,
 		Ctx:             req.Ctx,
 		Model:           req.Model,
 		Group:           req.Group,

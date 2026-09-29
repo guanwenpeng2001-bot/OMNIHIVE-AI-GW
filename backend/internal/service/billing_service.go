@@ -1406,7 +1406,9 @@ func applyChannelTokenPriceOverrides(pricing *ModelPricing, channelPricing *Chan
 // CostInput 统一计费输入
 type CostInput struct {
 	Mode                      BillingMode // explicit unit for variant price cards
-	Provider                  string      // final outbound provider; especially required for Composite
+	// displayProbe omits unused audit serialization, never billing validation.
+	displayProbe              bool
+	Provider                  string // final outbound provider; especially required for Composite
 	ThinkingEnabled           *bool
 	Ctx                       context.Context
 	Model                     string
@@ -1496,7 +1498,9 @@ func (s *BillingService) CalculateCostUnified(input CostInput) (cost *CostBreakd
 		breakdown, err = s.calculateTokenCost(resolved, input)
 	}
 	if err == nil && breakdown != nil {
-		breakdown.PriceSource, breakdown.PriceCardVersion = pricingAuditIdentity(resolved)
+		if !input.displayProbe {
+			breakdown.PriceSource, breakdown.PriceCardVersion = pricingAuditIdentity(resolved)
+		}
 		breakdown.BillingMode = string(resolved.Mode)
 		if breakdown.BillingMode == "" {
 			breakdown.BillingMode = string(BillingModeToken)
@@ -1562,12 +1566,15 @@ func (s *BillingService) calculateTokenCost(resolved *ResolvedPricing, input Cos
 	breakdown := s.computeTokenBreakdown(pricing, input.Tokens, input.RateMultiplier, input.ServiceTier, applyLongCtx)
 	applyCostBreakdownMultiplier(breakdown, resolvedChannelTimeMultiplier(resolved, input.PricingAt))
 	applyCostBreakdownMultiplier(breakdown, maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing))
-	source, version := pricingAuditIdentity(resolved)
+	var source, version string
+	if !input.displayProbe {
+		source, version = pricingAuditIdentity(resolved)
+	}
 	provider := input.Provider
 	if provider == "" && input.Group != nil {
 		provider = channelLookupPlatform(input.Ctx, input.Group.Platform)
 	}
-	err := freezePricing(breakdown, PricingSnapshot{Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
+	err := freezePricing(breakdown, PricingSnapshot{displayProbe: input.displayProbe, Model: input.Model, Provider: provider, PricingAt: pricingAt, Mode: string(BillingModeToken), Source: source, PriceCardVersion: version, Tokens: input.Tokens, TokenPrices: pricing, ThinkingEnabled: input.ThinkingEnabled, ServiceTier: input.ServiceTier, SizeTier: input.SizeTier, RateMultiplier: input.RateMultiplier, TimeMultiplier: resolvedChannelTimeMultiplier(resolved, input.PricingAt), ReasoningMultiplier: maxReasoningEffortBillingMultiplier(input.Model, input.ReasoningEffort, pricing)})
 	return breakdown, err
 }
 

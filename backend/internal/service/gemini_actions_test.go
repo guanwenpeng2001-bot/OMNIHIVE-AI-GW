@@ -303,6 +303,18 @@ func TestGeminiAIStudioGETPaginationAndAlt(t *testing.T) {
 	require.JSONEq(t, `{"models":[],"nextPageToken":"tok-2"}`, string(result.Body))
 }
 
+func TestGeminiAIStudioGETPreservesOpaquePagination(testingT *testing.T) {
+	body := `{"models":[{"name":"models/gemini-fixture","description":"full model metadata","future_capability":{"supported":true}}],"nextPageToken":"next+/= token","future_envelope":true}`
+	upstream := &geminiCompatHTTPUpstreamStub{response: &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(body))}}
+	gateway := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	account := &Account{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}
+	result, err := gateway.ForwardAIStudioGET(context.Background(), account, "/v1beta/models?pageSize=17&pageToken=opaque%2B%2F%3D%20token")
+	require.NoError(testingT, err)
+	require.Equal(testingT, "17", upstream.lastReq.URL.Query().Get("pageSize"))
+	require.Equal(testingT, "opaque+/= token", upstream.lastReq.URL.Query().Get("pageToken"))
+	require.Equal(testingT, body, string(result.Body))
+}
+
 func TestGeminiAIStudioGETRejectsUnsafeTargets(t *testing.T) {
 	gateway := &GeminiMessagesCompatService{httpUpstream: &geminiCompatHTTPUpstreamStub{}, cfg: &config.Config{}}
 	account := &Account{ID: 7, Platform: PlatformGemini, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture-key"}}

@@ -48,6 +48,14 @@ func (f *AntigravityQuotaFetcher) CanFetch(account *Account) bool {
 
 // FetchQuota 获取 Antigravity 账户额度信息
 func (f *AntigravityQuotaFetcher) FetchQuota(ctx context.Context, account *Account, proxyURL string) (*QuotaResult, error) {
+	// Callers may omit an explicit route; still honor the saved account binding.
+	if proxyURL == "" {
+		var err error
+		proxyURL, err = f.GetProxyURL(ctx, account)
+		if err != nil {
+			return nil, err
+		}
+	}
 	accessToken := account.GetCredential("access_token")
 	projectID := account.GetCredential("project_id")
 
@@ -207,15 +215,8 @@ func (f *AntigravityQuotaFetcher) buildUsageInfo(modelsResp *antigravity.FetchAv
 }
 
 // GetProxyURL 获取账户的代理 URL
-func (f *AntigravityQuotaFetcher) GetProxyURL(ctx context.Context, account *Account) string {
-	if account.ProxyID == nil || f.proxyRepo == nil {
-		return ""
-	}
-	proxy, err := f.proxyRepo.GetByID(ctx, *account.ProxyID)
-	if err != nil || proxy == nil {
-		return ""
-	}
-	return proxy.URL()
+func (f *AntigravityQuotaFetcher) GetProxyURL(ctx context.Context, account *Account) (string, error) {
+	return resolveGoogleAccountProxyURL(ctx, account, f.proxyRepo)
 }
 
 // classifyForbiddenType 根据 403 响应体判断禁止类型

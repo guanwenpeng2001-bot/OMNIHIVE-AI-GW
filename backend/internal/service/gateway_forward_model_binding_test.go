@@ -23,6 +23,68 @@ type forwardCatalogRepo struct {
 	assertScope func(*int64, []string, bool)
 }
 
+func TestCatalogSelectionHydratesSchedulerProjection(t *testing.T) {
+	for _, platform := range []string{PlatformOpenAI, PlatformKimi, PlatformDeepseek, PlatformQianwen, PlatformGrok, PlatformCommandCode} {
+		t.Run(platform, func(t *testing.T) {
+			full := legacyCatalogSeedAccount(platform)
+			if platform == PlatformGrok {
+				full = catalogEvidenceAccount(51, platform, "actual-model")
+				full.Credentials["model_mapping"] = map[string]any{"public-model": "actual-model"}
+			}
+			full.Extra["openai_responses_mode"] = "chat"
+			projected := full
+			projected.Extra = map[string]any{"openai_responses_mode": "chat"}
+			repo := &forwardCatalogRepo{current: &full}
+			plan := NewGatewayRequestPlan(GatewayRequestSpec{Model: "public-model", Protocol: "chat_completions"})
+			plan.catalogRepo = repo
+			ctx := WithGatewayRequestPlan(context.Background(), plan)
+			gateway := &OpenAIGatewayService{accountRepo: repo}
+			require.True(t, gateway.supportsOpenAIAccountModel(ctx, &full, "public-model", OpenAIEndpointCapabilityChatCompletions))
+			require.Zero(t, repo.reads, "complete evidence needs no fallback read")
+			require.True(t, gateway.supportsOpenAIAccountModel(ctx, &projected, "public-model", OpenAIEndpointCapabilityChatCompletions))
+			require.Empty(t, openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx, &projected, platform, "public-model", false, OpenAIEndpointCapabilityChatCompletions))
+			require.Equal(t, 2, repo.reads, "advanced and legacy selectors both read complete evidence")
+			require.NotContains(t, projected.Extra, UpstreamModelCatalogExtraKey, "do not mutate shared scheduler metadata")
+			require.False(t, gateway.supportsOpenAIAccountModel(ctx, &projected, "unseeded", OpenAIEndpointCapabilityChatCompletions))
+		})
+	}
+}
+
+func TestCatalogSelectionHydrationPreservesDenials(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		change func(*Account, *forwardCatalogRepo)
+	}{
+		{"read error", func(_ *Account, r *forwardCatalogRepo) { r.err = errors.New("unavailable") }},
+		{"deleted", func(_ *Account, r *forwardCatalogRepo) { r.current = nil }},
+		{"disabled", func(a *Account, _ *forwardCatalogRepo) { a.Schedulable = false }},
+		{"identity revoked", func(a *Account, _ *forwardCatalogRepo) {
+			a.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
+		}},
+		{"rules revoked", func(a *Account, _ *forwardCatalogRepo) {
+			a.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
+		}},
+		{"allowlist", func(a *Account, _ *forwardCatalogRepo) {
+			a.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"other"}}
+		}},
+		{"no evidence", func(a *Account, _ *forwardCatalogRepo) { a.Extra = nil }},
+		{"platform changed", func(a *Account, _ *forwardCatalogRepo) { a.Platform = PlatformGrok }},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			full := legacyCatalogSeedAccount(PlatformDeepseek)
+			projected := full
+			projected.Extra = nil
+			repo := &forwardCatalogRepo{current: &full}
+			scenario.change(&full, repo)
+			plan := NewGatewayRequestPlan(GatewayRequestSpec{Model: "public-model", Protocol: "chat_completions"})
+			plan.catalogRepo = repo
+			ctx := WithGatewayRequestPlan(context.Background(), plan)
+			require.False(t, (&OpenAIGatewayService{accountRepo: repo}).supportsOpenAIAccountModel(ctx, &projected, "public-model", OpenAIEndpointCapabilityChatCompletions))
+			require.False(t, requestAccountCatalogSupports(ctx, &projected, "public-model", "chat_completions"))
+		})
+	}
+}
+
 func TestRequestPlanMediaUsesActualCapabilityAndPreservesTextBridge(t *testing.T) {
 	for _, scenario := range []struct{ protocol, platform, endpoint string }{
 		{"images", PlatformOpenAI, "images"},

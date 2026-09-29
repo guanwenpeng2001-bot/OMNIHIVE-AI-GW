@@ -162,6 +162,10 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort
 			}
 
 			out, err := AnthropicToChatCompletionsRequest(req)
+			if effort != "" {
+				require.ErrorContains(t, err, "unsupported thinking.type=disabled")
+				return
+			}
 			require.NoError(t, err)
 			require.Equal(t, "none", out.ReasoningEffort)
 		})
@@ -1109,4 +1113,10 @@ func TestChatCompletionsResponseToAnthropic_ContentFilterWithToolUse(t *testing.
 
 	out := ChatCompletionsResponseToAnthropic(resp, "claude-sonnet-4-20250514")
 	require.Equal(t, "tool_use", AnthropicStopReasonString(out.StopReason))
+}
+
+func TestAnthropicToChatCompletionsRequestNil(testingT *testing.T) {
+	result, err := AnthropicToChatCompletionsRequest(nil)
+	require.EqualError(testingT, err, "anthropic request is nil")
+	require.Nil(testingT, result)
 }

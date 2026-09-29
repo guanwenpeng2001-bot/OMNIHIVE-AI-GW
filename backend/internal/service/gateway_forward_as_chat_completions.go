@@ -49,16 +49,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		return nil, fmt.Errorf("convert chat completions to responses: %w", err)
 	}
 
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
-	if err != nil {
-		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
-	}
-
-	// 3. Force upstream streaming
-	anthropicReq.Stream = true
-	reqStream := true
-
-	// 4. Model mapping
+	// Resolve the final model before choosing its thinking controls.
 	mappedModel := originalModel
 	if account.Type == AccountTypeAPIKey || account.Type == AccountTypeServiceAccount {
 		mappedModel = account.GetMappedModel(originalModel)
@@ -74,7 +65,19 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			mappedModel = normalized
 		}
 	}
-	anthropicReq.Model = mappedModel
+
+	responsesReq.Model = mappedModel
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(responsesReq)
+	if err != nil {
+		writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
+		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
+	}
+
+	preserveChatCompletionTokenLimit(&ccReq, anthropicReq)
+
+	// 3. Force upstream streaming
+	anthropicReq.Stream = true
+	reqStream := true
 
 	logger.L().Debug("gateway forward_as_chat_completions: model mapping applied",
 		zap.Int64("account_id", account.ID),
@@ -196,6 +199,22 @@ func (s *GatewayService) ForwardAsChatCompletions(
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID, AccountName: account.Name, UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"), Kind: "http_error", Message: "Upstream Anthropic stream did not complete"})
 	}
 	return result, handleErr
+}
+
+// preserveChatCompletionTokenLimit restores explicit integers after the Responses
+// bridge's default/floor handling. Target-specific limits remain the upstream's
+// responsibility, including rejection of non-positive values.
+func preserveChatCompletionTokenLimit(request *apicompat.ChatCompletionsRequest, anthropicRequest *apicompat.AnthropicRequest) {
+	if request == nil || anthropicRequest == nil {
+		return
+	}
+	limit := request.MaxTokens
+	if request.MaxCompletionTokens != nil {
+		limit = request.MaxCompletionTokens
+	}
+	if limit != nil {
+		anthropicRequest.MaxTokens = *limit
+	}
 }
 
 // extractCCReasoningEffortFromBody reads reasoning effort from a Chat Completions
