@@ -39,6 +39,11 @@ func (u *QianwenRealtimeUpstream) Close() {
 }
 
 func (s *OpenAIGatewayService) OpenQianwenRealtime(ctx context.Context, account *Account, model string) (*QianwenRealtimeUpstream, error) {
+	if account != nil {
+		if err := checkUnboundedTPMSession(ctx, account.ID); err != nil {
+			return nil, err
+		}
+	}
 	target, _, err := qianwenRealtimeEndpoint(account, model)
 	if err != nil {
 		return nil, err

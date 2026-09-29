@@ -170,6 +170,9 @@ func (h *GatewayHandler) OpenCodeGenerateContent(c *gin.Context) {
 			}
 			return
 		}
+		if writeGatewayTPMRequestError(c, forwardErr) {
+			return
+		}
 		var failoverErr *service.UpstreamFailoverError
 		if errors.As(forwardErr, &failoverErr) && c.Writer.Size() == writerSizeBeforeForward {
 			// Nothing was written downstream yet, so the request can move to

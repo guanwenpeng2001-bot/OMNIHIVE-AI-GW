@@ -739,6 +739,9 @@ func (h *OpenAIGatewayHandler) ZhipuRealtime(c *gin.Context) {
 		candidateUpstream, openErr := h.gatewayService.OpenZhipuRealtime(probeCtx, account, token)
 		cancelProbe()
 		if openErr != nil {
+			if writeGatewayTPMError(c, openErr) {
+				return
+			}
 			reqLog.Warn("zhipu_realtime.pre_accept_failed", zap.Int64("account_id", account.ID), zap.Error(openErr))
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, model, false, nil)
 			release()

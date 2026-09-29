@@ -66,6 +66,111 @@ func TestUsageSettlementReceiptPostgres(t *testing.T) {
 		}
 	}
 
+	t.Run("Audit TPM identity conflict survives service recovery", func(t *testing.T) {
+		original := fixture(t, 0.1)
+		_, err := db.Exec(`UPDATE api_keys SET tpm_limit=1000 WHERE id=$1`, original.Key.APIKeyID)
+		require.NoError(t, err)
+		var workspaceID int64
+		require.NoError(t, db.QueryRow(`SELECT workspace_id FROM api_keys WHERE id=$1`, original.Key.APIKeyID).Scan(&workspaceID))
+		tokens := repo.(service.TPMReservationRepository)
+		identities := []service.TPMReservationIdentity{{WorkspaceID: workspaceID, APIKeyID: original.Key.APIKeyID, ExecutionID: "audit-first", AttemptIndex: 1}, {WorkspaceID: workspaceID, APIKeyID: original.Key.APIKeyID, ExecutionID: "audit-second", AttemptIndex: 1}}
+		for _, identity := range identities {
+			_, err := tokens.ReserveTPMAttempt(ctx, service.TPMReservationCommand{TPMReservationIdentity: identity, AccountID: original.Command.AccountID, Fingerprint: identity.ExecutionID, Estimate: service.TPMEstimate{InputBound: 25, Candidates: 1, Verified: true}})
+			require.NoError(t, err)
+		}
+		original.TPMReservation = &identities[0]
+		original.Usage.InputTokens = 10
+		original.Command.InputTokens = 10
+		_, err = repo.Persist(ctx, original)
+		require.NoError(t, err)
+		incoming := *original
+		incoming.TPMReservation = &identities[1]
+		_, conflict := repo.Persist(ctx, &incoming)
+		require.ErrorIs(t, conflict, service.ErrTPMReservationConflict)
+		err = service.NewUsageSettlementService(repo, nil, nil).Submit(ctx, &incoming, nil)
+		var used, reserved int64
+		require.NoError(t, db.QueryRow(`SELECT sum(used_tokens),sum(reserved_tokens) FROM gateway_tpm_windows WHERE scope_kind='api_key' AND scope_id=$1`, original.Key.APIKeyID).Scan(&used, &reserved))
+		var balance float64
+		require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, original.Key.UserID).Scan(&balance))
+		t.Logf("repository=%v service=%v used=%d reserved=%d balance=%.2f", conflict, err, used, reserved, balance)
+		require.ErrorIs(t, err, service.ErrTPMReservationConflict)
+	})
+
+	t.Run("TPM receipt replay and dollar holds share one lock order", func(t *testing.T) {
+		base := fixture(t, 0.1)
+		_, err := db.Exec(`UPDATE api_keys SET tpm_limit=10000,budget_period_mode='duration',budget_period_seconds=3600,budget_limit=3 WHERE id=$1`, base.Key.APIKeyID)
+		require.NoError(t, err)
+		var workspaceID int64
+		require.NoError(t, db.QueryRow(`SELECT workspace_id FROM api_keys WHERE id=$1`, base.Key.APIKeyID).Scan(&workspaceID))
+		tokens := repo.(service.TPMReservationRepository)
+		budgets := repo.(service.KeyBudgetReservationRepository)
+		const workers = 12
+		failures := make([]error, workers)
+		var pending sync.WaitGroup
+		for worker := range workers {
+			pending.Add(1)
+			go func() {
+				defer pending.Done()
+				input := *base
+				requestID := fmt.Sprintf("%s-tpm-%d", base.Key.RequestID, worker)
+				input.Key.RequestID = requestID
+				input.Command.RequestID = requestID
+				input.Usage.RequestID = requestID
+				input.Command.InputTokens = 12
+				input.Command.OutputTokens = 8
+				input.Usage.InputTokens = 12
+				input.Usage.OutputTokens = 8
+				hold, err := budgets.ReserveKeyBudget(ctx, &service.KeyBudgetReservationCommand{RequestID: requestID, APIKeyID: base.Key.APIKeyID, UserID: base.Key.UserID, HoldAmount: 0.2})
+				if err != nil {
+					failures[worker] = err
+					return
+				}
+				input.Command.BudgetReservationID = hold.Reservation.ID
+				identity := service.TPMReservationIdentity{WorkspaceID: workspaceID, APIKeyID: base.Key.APIKeyID, ExecutionID: requestID, AttemptIndex: 1}
+				_, err = tokens.ReserveTPMAttempt(ctx, service.TPMReservationCommand{TPMReservationIdentity: identity, AccountID: base.Command.AccountID, Fingerprint: requestID, Estimate: service.TPMEstimate{InputBound: 20, OutputBound: 5, Candidates: 1, Verified: true}})
+				if err != nil {
+					failures[worker] = err
+					return
+				}
+				input.TPMReservation = &identity
+				stored, err := repo.Persist(ctx, &input)
+				if err != nil {
+					failures[worker] = err
+					return
+				}
+				// A durable pending receipt does not release its token capacity.
+				err = tokens.MarkTPMAttemptUnknown(ctx, identity)
+				if err != nil {
+					failures[worker] = err
+					return
+				}
+				// Verified failed/partial usage is corrected by only the final delta.
+				err = tokens.SettleTPMAttempt(ctx, identity, 13)
+				if err != nil {
+					failures[worker] = err
+					return
+				}
+				for range 2 {
+					if _, err = repo.Settle(ctx, stored.Key, stored.Command.RequestFingerprint); err != nil {
+						failures[worker] = err
+						return
+					}
+				}
+			}()
+		}
+		pending.Wait()
+		for _, err := range failures {
+			require.NoError(t, err)
+		}
+		var used, reserved int64
+		require.NoError(t, db.QueryRow(`SELECT sum(used_tokens),sum(reserved_tokens) FROM gateway_tpm_windows WHERE scope_kind='api_key' AND scope_id=$1`, base.Key.APIKeyID).Scan(&used, &reserved))
+		require.Equal(t, int64(workers*20), used)
+		require.Zero(t, reserved)
+		var balance float64
+		require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, base.Key.UserID).Scan(&balance))
+		require.InDelta(t, 100-float64(workers)*0.1, balance, 0.000001)
+	})
+
 	t.Run("billing evidence does not double count pending and settled", func(t *testing.T) {
 		input := fixture(t, 0.12345678)
 		input.CompletionState = "interrupted"

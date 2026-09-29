@@ -75,6 +75,11 @@ func DeletedAt(v time.Time) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldDeletedAt, v))
 }
 
+// TpmLimit applies equality check predicate on the "tpm_limit" field. It's identical to TpmLimitEQ.
+func TpmLimit(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldTpmLimit, v))
+}
+
 // UserID applies equality check predicate on the "user_id" field. It's identical to UserIDEQ.
 func UserID(v int64) predicate.APIKey {
 	return predicate.APIKey(sql.FieldEQ(FieldUserID, v))
@@ -333,6 +338,46 @@ func DeletedAtIsNil() predicate.APIKey {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.APIKey {
 	return predicate.APIKey(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// TpmLimitEQ applies the EQ predicate on the "tpm_limit" field.
+func TpmLimitEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitNEQ applies the NEQ predicate on the "tpm_limit" field.
+func TpmLimitNEQ(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitIn applies the In predicate on the "tpm_limit" field.
+func TpmLimitIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitNotIn applies the NotIn predicate on the "tpm_limit" field.
+func TpmLimitNotIn(vs ...int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldNotIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitGT applies the GT predicate on the "tpm_limit" field.
+func TpmLimitGT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGT(FieldTpmLimit, v))
+}
+
+// TpmLimitGTE applies the GTE predicate on the "tpm_limit" field.
+func TpmLimitGTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldGTE(FieldTpmLimit, v))
+}
+
+// TpmLimitLT applies the LT predicate on the "tpm_limit" field.
+func TpmLimitLT(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLT(FieldTpmLimit, v))
+}
+
+// TpmLimitLTE applies the LTE predicate on the "tpm_limit" field.
+func TpmLimitLTE(v int64) predicate.APIKey {
+	return predicate.APIKey(sql.FieldLTE(FieldTpmLimit, v))
 }
 
 // UserIDEQ applies the EQ predicate on the "user_id" field.

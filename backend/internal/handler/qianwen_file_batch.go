@@ -317,6 +317,9 @@ func (h *OpenAIGatewayHandler) handleQianwenFileBatch(c *gin.Context) bool {
 		fileBatchError(c, 422, "unsupported_model", "Batch requires an exact supported native model")
 		return true
 	}
+	if family == "batch" {
+		defer beginGatewayRequestPlan(c, h.gatewayService, key, snapshot.BatchModel(), "resources", h.maxAccountSwitches)()
+	}
 	submit := func() (*service.UpstreamJob, error) {
 		return h.upstreamJobs.Submit(c.Request.Context(), &service.UpstreamJob{Platform: service.PlatformQianwen, Family: family, AccountID: account.ID, UserID: key.UserID, APIKeyID: key.ID, GroupID: key.GroupID, Billing: billing}, fingerprint, func(ctx context.Context) (service.UpstreamJobUpdate, error) {
 			if family == "files" {

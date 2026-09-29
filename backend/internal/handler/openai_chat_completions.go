@@ -358,6 +358,9 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 					zap.Error(err),
 				)
 			} else {
+				if writeGatewayTPMRequestError(c, err) {
+					return
+				}
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
 					if failoverClientGone(c) {

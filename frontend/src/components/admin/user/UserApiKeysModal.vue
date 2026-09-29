@@ -18,6 +18,7 @@
             </div>
           </div>
           <button type="button" class="btn btn-secondary mt-2" @click="modelAccessKeyID = modelAccessKeyID === key.id ? null : key.id">{{ t('modelAccess.title') }}</button>
+          <div class="mt-3 space-y-2"><TpmLimitField v-model="tpmDrafts[key.id]" /><button type="button" class="btn btn-secondary btn-sm" :disabled="updatingKeyIds.has(key.id)" @click="saveTpm(key)">{{ t('common.save') }}</button></div>
           <ModelAccessRuleEditor v-if="modelAccessKeyID === key.id" :path="`/admin/api-keys/${key.id}`" />
           <div class="mt-2 flex flex-wrap gap-2">
             <button type="button" class="btn btn-secondary btn-sm" @click="openRotate(key)">{{ t('keys.rotateKey') }}</button>
@@ -137,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { ref, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -159,6 +161,15 @@ const appStore = useAppStore()
 const apiKeys = ref<ApiKey[]>([])
 const allGroups = ref<AdminGroup[]>([])
 const loading = ref(false)
+const tpmDrafts = ref<Record<number, number>>({})
+const saveTpm = async (key: ApiKey) => {
+  updatingKeyIds.value.add(key.id)
+  try {
+    await adminAPI.apiKeys.setTpmLimit(key.id, tpmDrafts.value[key.id])
+    await load()
+  } catch (error) { appStore.showError(error instanceof Error ? error.message : t('admin.accounts.tpmLimitInvalid')) }
+  finally { updatingKeyIds.value.delete(key.id) }
+}
 const updatingKeyIds = ref(new Set<number>())
 const groupSelectorKeyId = ref<number | null>(null)
 const dropdownPosition = ref<{ top: number; left: number } | null>(null)
@@ -252,6 +263,7 @@ const load = async () => {
   try {
     const res = await adminAPI.users.getUserApiKeys(props.user.id)
     apiKeys.value = res.items || []
+    tpmDrafts.value = Object.fromEntries(apiKeys.value.map(key => [key.id, key.tpm_limit ?? 0]))
   } catch (error) {
     console.error('Failed to load API keys:', error)
   } finally {

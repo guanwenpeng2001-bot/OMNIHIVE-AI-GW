@@ -12,6 +12,7 @@ import (
 
 // AdminService interface defines admin management operations
 type AdminService interface {
+	AdminSetAPIKeyTPMLimit(context.Context, int64, *int64) (*APIKey, error)
 	// User management
 	ListUsers(ctx context.Context, page, pageSize int, filters UserListFilters, sortBy, sortOrder string) ([]User, int64, error)
 	GetUser(ctx context.Context, id int64) (*User, error)
@@ -249,6 +250,7 @@ type AdminBoundAuthIdentityChannel struct {
 }
 
 type CreateGroupInput struct {
+	TPMLimit                  int64
 	AccountType               string
 	Name                      string
 	Description               string
@@ -330,6 +332,7 @@ type CreateGroupInput struct {
 }
 
 type UpdateGroupInput struct {
+	TPMLimit                  *int64
 	AccountType               *string
 	Name                      string
 	Description               *string
@@ -412,6 +415,7 @@ type UpdateGroupInput struct {
 }
 
 type CreateAccountInput struct {
+	TPMLimit           int64
 	Name               string
 	Notes              *string
 	Platform           string
@@ -444,6 +448,7 @@ type ShadowOptions struct {
 }
 
 type UpdateAccountInput struct {
+	TPMLimit              *int64
 	Name                  string
 	Notes                 *string
 	Type                  string // Account type: oauth, setup-token, apikey
@@ -465,6 +470,7 @@ type UpdateAccountInput struct {
 
 // BulkUpdateAccountsInput describes the payload for bulk updating accounts.
 type BulkUpdateAccountsInput struct {
+	TPMLimit       *int64
 	AccountIDs     []int64
 	Filters        *BulkUpdateAccountFilters
 	Name           string

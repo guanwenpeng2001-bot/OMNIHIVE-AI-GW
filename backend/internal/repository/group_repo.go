@@ -118,6 +118,7 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 	}
 	builder := client.Group.Create().
 		SetName(groupIn.Name).
+		SetTpmLimit(groupIn.TPMLimit).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetAccountType(groupIn.AccountType).
@@ -329,6 +330,7 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 	}
 	builder := txClient.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
+		SetTpmLimit(groupIn.TPMLimit).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
 		SetAccountType(groupIn.AccountType).

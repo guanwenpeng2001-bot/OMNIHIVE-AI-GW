@@ -153,12 +153,11 @@ func TestCodexModelsAppliesLocalFiltersBeforeClientETag(t *testing.T) {
 	upstream := &codexModelsFailoverHTTPUpstream{
 		firstBody: `{"object":"list","data":[{"id":"codex-auto-review"},{"id":"gpt-5.6"}]}`,
 	}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	group := &service.Group{
 		ID:       groupID,
@@ -222,12 +221,11 @@ func TestCodexModelsAPIKeyCacheDoesNotLeakGroupFilters(t *testing.T) {
 	upstream := &codexModelsFailoverHTTPUpstream{
 		firstBody: `{"object":"list","data":[{"id":"model-a"},{"id":"model-b"}]}`,
 	}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	groupA := &service.Group{
 		ID:       91,
@@ -328,12 +326,11 @@ func TestCodexModelsSupplementsConfiguredModelsWithUnmappedAccountDefaults(t *te
 		},
 	}}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 
 	recorder := performCodexModelsRequestForGroup(t, handler, &service.Group{
@@ -377,12 +374,11 @@ func TestCodexModelsUnmappedParentAndSparkShadowHonorCustomListAndETag(t *testin
 		},
 	}}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: http.StatusNotFound}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		repo,
 		nil, nil, nil, nil, nil, nil, &config.Config{RunMode: config.RunModeSimple}, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	handler := &OpenAIGatewayHandler{gatewayService: gatewayService}
 	group := &service.Group{ID: 45, Platform: service.PlatformOpenAI}
 	first := performCodexModelsRequestForGroup(t, handler, group, "")
@@ -594,12 +590,11 @@ func newCodexModelsFailoverTestHandlerWithAccountCount(firstStatus, accountCount
 	}
 	upstream := &codexModelsFailoverHTTPUpstream{firstStatus: firstStatus}
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		codexModelsFailoverAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	return &OpenAIGatewayHandler{gatewayService: gatewayService, maxAccountSwitches: maxSwitches}, upstream, groupID
 }
 
@@ -757,12 +752,11 @@ func newPinnedCodexAccount(id int64, status string, schedulable bool, rateLimite
 func newPinnedCodexTestHandler(accounts []service.Account, upstream *codexModelsPinnedHTTPUpstream, maxSwitches int) *OpenAIGatewayHandler {
 	gin.SetMode(gin.TestMode)
 	cfg := &config.Config{RunMode: config.RunModeSimple}
-	gatewayService := service.NewOpenAIGatewayService(
+	gatewayService := service.ProvideOpenAIGatewayService(
 		codexModelsFailoverAccountRepo{accounts: accounts},
 		nil, nil, nil, nil, nil, nil, cfg, nil, nil, nil, nil, nil,
 		upstream,
-		nil, nil, nil, nil, nil, nil, nil, nil,
-	)
+		nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	return &OpenAIGatewayHandler{gatewayService: gatewayService, maxAccountSwitches: maxSwitches}
 }
 

@@ -1,3 +1,4 @@
+import { validateTpmLimit } from '@/utils/tpmLimit'
 /**
  * Inspect and manage a user's API keys as an administrator.
  */
@@ -72,7 +73,14 @@ export async function rotateApiKey(id: number, options?: AdminRotateApiKeyOption
   return data
 }
 
+export async function setTpmLimit(id: number, limit: number): Promise<ApiKey> {
+  validateTpmLimit(limit)
+  const { data } = await apiClient.put<ApiKey>(`/admin/api-keys/${id}/tpm`, { tpm_limit: limit })
+  return data
+}
+
 export const apiKeysAPI = {
+  setTpmLimit,
   updateApiKeyGroup,
   setApiKeyStatus,
   deleteApiKey,

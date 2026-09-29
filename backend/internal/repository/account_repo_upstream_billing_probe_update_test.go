@@ -477,7 +477,7 @@ func TestBulkUpdateRollsBackWhenOutboxFails(t *testing.T) {
 func updatedAccountRows(id int64, extra string) *sqlmock.Rows {
 	now := time.Now()
 	return sqlmock.NewRows(dbaccount.Columns).AddRow(
-		id, now, now, int64(1), nil, "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
+		id, now, now, int64(1), nil, int64(0), "test", nil, service.PlatformOpenAI, service.AccountTypeAPIKey,
 		[]byte(`{"api_key":"sk-test"}`), []byte(extra), nil, nil, 1, nil, 1, 1.0,
 		service.StatusActive, nil, nil, nil, false, true, nil, nil, nil, nil, nil, nil,
 		nil, nil, nil, service.QuotaDimensionGlobal,

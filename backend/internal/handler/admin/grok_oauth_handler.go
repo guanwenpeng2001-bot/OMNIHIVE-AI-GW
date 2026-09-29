@@ -312,20 +312,21 @@ func (h *GrokOAuthHandler) CreateAccountFromOAuth(c *gin.Context) {
 }
 
 type GrokSSOToOAuthRequest struct {
-	SSOTokens          []string       `json:"sso_tokens"`
-	SSOToken           string         `json:"sso_token"`
-	Name               string         `json:"name"`
-	Notes              *string        `json:"notes"`
-	ProxyID            *int64         `json:"proxy_id"`
-	GroupIDs           []int64        `json:"group_ids"`
-	Credentials        map[string]any `json:"credentials"`
-	Extra              map[string]any `json:"extra"`
-	Concurrency        int            `json:"concurrency"`
-	LoadFactor         *int           `json:"load_factor"`
-	Priority           int            `json:"priority"`
-	RateMultiplier     *float64       `json:"rate_multiplier"`
-	ExpiresAt          *int64         `json:"expires_at"`
-	AutoPauseOnExpired *bool          `json:"auto_pause_on_expired"`
+	TPMLimit           service.OptionalTPMLimit `json:"tpm_limit,omitzero"`
+	SSOTokens          []string                 `json:"sso_tokens"`
+	SSOToken           string                   `json:"sso_token"`
+	Name               string                   `json:"name"`
+	Notes              *string                  `json:"notes"`
+	ProxyID            *int64                   `json:"proxy_id"`
+	GroupIDs           []int64                  `json:"group_ids"`
+	Credentials        map[string]any           `json:"credentials"`
+	Extra              map[string]any           `json:"extra"`
+	Concurrency        int                      `json:"concurrency"`
+	LoadFactor         *int                     `json:"load_factor"`
+	Priority           int                      `json:"priority"`
+	RateMultiplier     *float64                 `json:"rate_multiplier"`
+	ExpiresAt          *int64                   `json:"expires_at"`
+	AutoPauseOnExpired *bool                    `json:"auto_pause_on_expired"`
 }
 
 type GrokSSOToOAuthItemResult struct {

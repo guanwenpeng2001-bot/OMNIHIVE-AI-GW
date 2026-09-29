@@ -162,6 +162,9 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	upstream, err := h.gatewayService.OpenQianwenRealtime(dialCtx, account, snapshot.Model)
 	cancel()
 	if err != nil {
+		if writeGatewayTPMError(c, err) {
+			return
+		}
 		finishCode = "handshake_failed"
 		h.errorResponse(c, 502, "upstream_error", "DashScope realtime upstream handshake failed")
 		return

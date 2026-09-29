@@ -4,6 +4,7 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
+	TPMLimit    int64                    `json:"tpm_limit"`
 	WorkspaceID int64                    `json:"workspace_id"`
 	Version     int                      `json:"version"`
 	APIKeyID    int64                    `json:"api_key_id"`
@@ -67,6 +68,7 @@ type APIKeyAuthUserSnapshot struct {
 
 // APIKeyAuthGroupSnapshot 分组快照
 type APIKeyAuthGroupSnapshot struct {
+	TPMLimit                        int64                         `json:"tpm_limit"`
 	AccountType                     string                        `json:"account_type,omitempty"`
 	ID                              int64                         `json:"id"`
 	Name                            string                        `json:"name"`

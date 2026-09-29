@@ -93,6 +93,9 @@ func NewCursorGatewayService(sessions *CursorSessionProvider, settings SettingRe
 }
 
 func cursorFailover(err error) error {
+	if IsTPMAdmissionError(err) {
+		return err
+	}
 	status := http.StatusBadGateway
 	var upstream *cursor.HTTPError
 	if errors.As(err, &upstream) {

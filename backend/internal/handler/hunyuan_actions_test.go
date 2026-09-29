@@ -233,7 +233,7 @@ func newHunyuanActionHandler(t *testing.T) (*OpenAIGatewayHandler, *hunyuanActio
 	cfg.Gateway.Scheduling.StickySessionWaitTimeout = 20 * time.Millisecond
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
 	repo := hunyuanActionAccountRepo{accounts: accounts}
-	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, bindings, cfg, nil, concurrency, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
+	gateway := service.ProvideOpenAIGatewayService(repo, nil, nil, nil, nil, nil, bindings, cfg, nil, concurrency, nil, nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
 	handler := NewOpenAIGatewayHandler(gateway, concurrency, billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)

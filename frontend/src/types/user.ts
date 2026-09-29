@@ -312,6 +312,7 @@ export interface UserStats {
 export type SubscriptionType = 'standard' | 'subscription'
 
 export interface Group {
+  tpm_limit?: number
   account_type?: '' | 'bedrock' | 'service_account'
   id: number
   name: string
@@ -375,6 +376,7 @@ export interface Group {
 }
 
 export interface ApiKey {
+  tpm_limit?: number
   id: number
   user_id: number
   key: string

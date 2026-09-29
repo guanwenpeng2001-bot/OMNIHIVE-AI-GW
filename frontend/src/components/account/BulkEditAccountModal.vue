@@ -509,6 +509,7 @@
       <!-- Concurrency & Priority -->
       <div class="grid grid-cols-2 gap-4 border-t border-gray-200 pt-4 dark:border-dark-600 lg:grid-cols-4">
         <div>
+          <div class="space-y-2"><label><input id="bulk-edit-tpm-enabled" v-model="enableTPM" type="checkbox" /> {{ t('admin.accounts.tpmLimit') }}</label><TpmLimitField v-model="tpmLimit" :disabled="!enableTPM" /></div>
           <div class="mb-3 flex items-center justify-between">
             <label
               id="bulk-edit-concurrency-label"
@@ -1296,6 +1297,7 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
 import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMessage, extractApiErrorMetadata } from '@/utils/apiError'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
@@ -1486,6 +1488,8 @@ const enableCustomErrorCodes = ref(false)
 const enableInterceptWarmup = ref(false)
 const enableHeaderOverride = ref(false)
 const enableProxy = ref(false)
+const enableTPM = ref(false)
+const tpmLimit = ref(0)
 const enableConcurrency = ref(false)
 const enableLoadFactor = ref(false)
 const enablePriority = ref(false)
@@ -1737,6 +1741,7 @@ const buildOpenAICompactModelMapping = (): Record<string, string> | null => {
 
 const buildUpdatePayload = (): Record<string, unknown> | null => {
   const updates: Record<string, unknown> = {}
+  if (enableTPM.value) updates.tpm_limit = tpmLimit.value
   const credentials: Record<string, unknown> = {}
   let credentialsChanged = false
   const applyOpenAILongContextBilling =
@@ -2015,6 +2020,7 @@ const handleSubmit = async () => {
     enableInterceptWarmup.value ||
     enableHeaderOverride.value ||
     enableProxy.value ||
+    enableTPM.value ||
     enableConcurrency.value ||
     enableLoadFactor.value ||
     enablePriority.value ||
@@ -2168,6 +2174,8 @@ watch(
       enableInterceptWarmup.value = false
       enableHeaderOverride.value = false
       enableProxy.value = false
+      enableTPM.value = false
+      tpmLimit.value = 0
       enableConcurrency.value = false
       enableLoadFactor.value = false
       enablePriority.value = false

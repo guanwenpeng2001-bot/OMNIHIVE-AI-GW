@@ -340,6 +340,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			if result != nil && (result.Usage.InputTokens > 0 || result.Usage.OutputTokens > 0 || result.Usage.CacheReadInputTokens > 0 || result.Usage.CacheCreationInputTokens > 0) {
 				recordUsage()
 			}
+			if writeGatewayTPMRequestError(c, err) {
+				return
+			}
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
 				// Can't failover if streaming content already sent

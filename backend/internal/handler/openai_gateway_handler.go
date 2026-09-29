@@ -1492,6 +1492,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			})
 		}
 		if err != nil {
+			if writeGatewayTPMRequestError(c, err) {
+				return
+			}
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai_messages.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -1638,6 +1641,10 @@ func (h *OpenAIGatewayHandler) anthropicStreamingAwareError(c *gin.Context, stat
 
 // handleAnthropicFailoverExhausted maps upstream failover errors to Anthropic format.
 func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.TPM != nil {
+		writeGatewayTPMError(c, failoverErr.TPM)
+		return
+	}
 	if failoverErr != nil {
 		copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
 	}
@@ -1660,6 +1667,9 @@ func (h *OpenAIGatewayHandler) handleAnthropicFailoverExhausted(c *gin.Context, 
 
 // ensureAnthropicErrorResponse writes a fallback Anthropic error if no response was written.
 func (h *OpenAIGatewayHandler) ensureAnthropicErrorResponse(c *gin.Context, streamStarted bool) bool {
+	if c != nil && c.Request != nil && writeGatewayTPMError(c, service.GatewayRequestPlanFromContext(c.Request.Context()).TPMAdmissionRejection()) {
+		return true
+	}
 	if c == nil || c.Writer == nil || c.Writer.Written() {
 		return false
 	}
@@ -2524,7 +2534,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	// 解析渠道级模型映射
-	wsSpec := service.GatewayRequestSpec{UserID: apiKey.UserID, APIKeyID: apiKey.ID, Route: c.Request.URL.Path, Protocol: "responses", Model: reqModel, MaxAccountSwitches: h.maxAccountSwitches}
+	wsSpec := service.GatewayRequestSpec{WorkspaceID: apiKey.WorkspaceID, UserID: apiKey.UserID, APIKeyID: apiKey.ID, Route: c.Request.URL.Path, Protocol: "responses", Model: reqModel, MaxAccountSwitches: h.maxAccountSwitches}
 	if apiKey.GroupID != nil {
 		wsSpec.BillingGroupID = *apiKey.GroupID
 	}
@@ -3130,6 +3140,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return
 			}
+			if service.IsTPMAdmissionError(err) {
+				writeGatewayTPMWSError(ctx, wsConn, err)
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "token admission rejected")
+				return
+			}
 			if service.IsOpenAIWSSessionPreemptedError(err) {
 				// 关闭帧已由抢占登记在取消前发给本连接，这里只记录并释放。
 				reqLog.Info("openai.websocket_ingress_preempted", zap.Int64("account_id", account.ID))
@@ -3392,6 +3407,10 @@ func (h *OpenAIGatewayHandler) handleConcurrencyError(c *gin.Context, err error,
 }
 
 func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError, streamStarted bool) {
+	if failoverErr != nil && failoverErr.TPM != nil {
+		writeGatewayTPMError(c, failoverErr.TPM)
+		return
+	}
 	if failoverErr == nil {
 		h.handleFailoverExhaustedSimple(c, http.StatusBadGateway, streamStarted)
 		return
@@ -3715,6 +3734,9 @@ func openAIFirstOutputFailoverExhausted(failoverErr *service.UpstreamFailoverErr
 
 // errorResponse returns OpenAI API format error response
 func (h *OpenAIGatewayHandler) errorResponse(c *gin.Context, status int, errType, message string) {
+	if c != nil && c.Request != nil && writeGatewayTPMError(c, service.GatewayRequestPlanFromContext(c.Request.Context()).TPMAdmissionRejection()) {
+		return
+	}
 	// body-signal compact 心跳可能已把响应头提交为 200：JSON 错误体会与已
 	// 提交的 SSE 流交错，必须降级为 response.failed 终止事件（#3887）。
 	if service.StopOpenAICompactSSEKeepaliveCommitted(c) {

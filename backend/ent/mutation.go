@@ -128,6 +128,8 @@ type APIKeyMutation struct {
 	workspace_id       *int64
 	addworkspace_id    *int64
 	deleted_at         *time.Time
+	tpm_limit          *int64
+	addtpm_limit       *int64
 	key                *string
 	name               *string
 	status             *string
@@ -445,6 +447,62 @@ func (m *APIKeyMutation) DeletedAtCleared() bool {
 func (m *APIKeyMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, apikey.FieldDeletedAt)
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (m *APIKeyMutation) SetTpmLimit(i int64) {
+	m.tpm_limit = &i
+	m.addtpm_limit = nil
+}
+
+// TpmLimit returns the value of the "tpm_limit" field in the mutation.
+func (m *APIKeyMutation) TpmLimit() (r int64, exists bool) {
+	v := m.tpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTpmLimit returns the old "tpm_limit" field's value of the APIKey entity.
+// If the APIKey object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *APIKeyMutation) OldTpmLimit(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTpmLimit: %w", err)
+	}
+	return oldValue.TpmLimit, nil
+}
+
+// AddTpmLimit adds i to the "tpm_limit" field.
+func (m *APIKeyMutation) AddTpmLimit(i int64) {
+	if m.addtpm_limit != nil {
+		*m.addtpm_limit += i
+	} else {
+		m.addtpm_limit = &i
+	}
+}
+
+// AddedTpmLimit returns the value that was added to the "tpm_limit" field in this mutation.
+func (m *APIKeyMutation) AddedTpmLimit() (r int64, exists bool) {
+	v := m.addtpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTpmLimit resets all changes to the "tpm_limit" field.
+func (m *APIKeyMutation) ResetTpmLimit() {
+	m.tpm_limit = nil
+	m.addtpm_limit = nil
 }
 
 // SetUserID sets the "user_id" field.
@@ -1672,7 +1730,7 @@ func (m *APIKeyMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *APIKeyMutation) Fields() []string {
-	fields := make([]string, 0, 24)
+	fields := make([]string, 0, 25)
 	if m.created_at != nil {
 		fields = append(fields, apikey.FieldCreatedAt)
 	}
@@ -1684,6 +1742,9 @@ func (m *APIKeyMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, apikey.FieldDeletedAt)
+	}
+	if m.tpm_limit != nil {
+		fields = append(fields, apikey.FieldTpmLimit)
 	}
 	if m.user != nil {
 		fields = append(fields, apikey.FieldUserID)
@@ -1761,6 +1822,8 @@ func (m *APIKeyMutation) Field(name string) (ent.Value, bool) {
 		return m.WorkspaceID()
 	case apikey.FieldDeletedAt:
 		return m.DeletedAt()
+	case apikey.FieldTpmLimit:
+		return m.TpmLimit()
 	case apikey.FieldUserID:
 		return m.UserID()
 	case apikey.FieldKey:
@@ -1818,6 +1881,8 @@ func (m *APIKeyMutation) OldField(ctx context.Context, name string) (ent.Value, 
 		return m.OldWorkspaceID(ctx)
 	case apikey.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case apikey.FieldTpmLimit:
+		return m.OldTpmLimit(ctx)
 	case apikey.FieldUserID:
 		return m.OldUserID(ctx)
 	case apikey.FieldKey:
@@ -1894,6 +1959,13 @@ func (m *APIKeyMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case apikey.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTpmLimit(v)
 		return nil
 	case apikey.FieldUserID:
 		v, ok := value.(int64)
@@ -2046,6 +2118,9 @@ func (m *APIKeyMutation) AddedFields() []string {
 	if m.addworkspace_id != nil {
 		fields = append(fields, apikey.FieldWorkspaceID)
 	}
+	if m.addtpm_limit != nil {
+		fields = append(fields, apikey.FieldTpmLimit)
+	}
 	if m.addquota != nil {
 		fields = append(fields, apikey.FieldQuota)
 	}
@@ -2080,6 +2155,8 @@ func (m *APIKeyMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case apikey.FieldWorkspaceID:
 		return m.AddedWorkspaceID()
+	case apikey.FieldTpmLimit:
+		return m.AddedTpmLimit()
 	case apikey.FieldQuota:
 		return m.AddedQuota()
 	case apikey.FieldQuotaUsed:
@@ -2111,6 +2188,13 @@ func (m *APIKeyMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddWorkspaceID(v)
+		return nil
+	case apikey.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTpmLimit(v)
 		return nil
 	case apikey.FieldQuota:
 		v, ok := value.(float64)
@@ -2269,6 +2353,9 @@ func (m *APIKeyMutation) ResetField(name string) error {
 		return nil
 	case apikey.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case apikey.FieldTpmLimit:
+		m.ResetTpmLimit()
 		return nil
 	case apikey.FieldUserID:
 		m.ResetUserID()
@@ -3380,6 +3467,8 @@ type AccountMutation struct {
 	workspace_id                *int64
 	addworkspace_id             *int64
 	deleted_at                  *time.Time
+	tpm_limit                   *int64
+	addtpm_limit                *int64
 	name                        *string
 	notes                       *string
 	platform                    *string
@@ -3703,6 +3792,62 @@ func (m *AccountMutation) DeletedAtCleared() bool {
 func (m *AccountMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, account.FieldDeletedAt)
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (m *AccountMutation) SetTpmLimit(i int64) {
+	m.tpm_limit = &i
+	m.addtpm_limit = nil
+}
+
+// TpmLimit returns the value of the "tpm_limit" field in the mutation.
+func (m *AccountMutation) TpmLimit() (r int64, exists bool) {
+	v := m.tpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTpmLimit returns the old "tpm_limit" field's value of the Account entity.
+// If the Account object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *AccountMutation) OldTpmLimit(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTpmLimit: %w", err)
+	}
+	return oldValue.TpmLimit, nil
+}
+
+// AddTpmLimit adds i to the "tpm_limit" field.
+func (m *AccountMutation) AddTpmLimit(i int64) {
+	if m.addtpm_limit != nil {
+		*m.addtpm_limit += i
+	} else {
+		m.addtpm_limit = &i
+	}
+}
+
+// AddedTpmLimit returns the value that was added to the "tpm_limit" field in this mutation.
+func (m *AccountMutation) AddedTpmLimit() (r int64, exists bool) {
+	v := m.addtpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTpmLimit resets all changes to the "tpm_limit" field.
+func (m *AccountMutation) ResetTpmLimit() {
+	m.tpm_limit = nil
+	m.addtpm_limit = nil
 }
 
 // SetName sets the "name" field.
@@ -5286,7 +5431,7 @@ func (m *AccountMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *AccountMutation) Fields() []string {
-	fields := make([]string, 0, 32)
+	fields := make([]string, 0, 33)
 	if m.created_at != nil {
 		fields = append(fields, account.FieldCreatedAt)
 	}
@@ -5298,6 +5443,9 @@ func (m *AccountMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, account.FieldDeletedAt)
+	}
+	if m.tpm_limit != nil {
+		fields = append(fields, account.FieldTpmLimit)
 	}
 	if m.name != nil {
 		fields = append(fields, account.FieldName)
@@ -5399,6 +5547,8 @@ func (m *AccountMutation) Field(name string) (ent.Value, bool) {
 		return m.WorkspaceID()
 	case account.FieldDeletedAt:
 		return m.DeletedAt()
+	case account.FieldTpmLimit:
+		return m.TpmLimit()
 	case account.FieldName:
 		return m.Name()
 	case account.FieldNotes:
@@ -5472,6 +5622,8 @@ func (m *AccountMutation) OldField(ctx context.Context, name string) (ent.Value,
 		return m.OldWorkspaceID(ctx)
 	case account.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case account.FieldTpmLimit:
+		return m.OldTpmLimit(ctx)
 	case account.FieldName:
 		return m.OldName(ctx)
 	case account.FieldNotes:
@@ -5564,6 +5716,13 @@ func (m *AccountMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case account.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTpmLimit(v)
 		return nil
 	case account.FieldName:
 		v, ok := value.(string)
@@ -5772,6 +5931,9 @@ func (m *AccountMutation) AddedFields() []string {
 	if m.addworkspace_id != nil {
 		fields = append(fields, account.FieldWorkspaceID)
 	}
+	if m.addtpm_limit != nil {
+		fields = append(fields, account.FieldTpmLimit)
+	}
 	if m.addproxy_fallback_origin_id != nil {
 		fields = append(fields, account.FieldProxyFallbackOriginID)
 	}
@@ -5797,6 +5959,8 @@ func (m *AccountMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case account.FieldWorkspaceID:
 		return m.AddedWorkspaceID()
+	case account.FieldTpmLimit:
+		return m.AddedTpmLimit()
 	case account.FieldProxyFallbackOriginID:
 		return m.AddedProxyFallbackOriginID()
 	case account.FieldConcurrency:
@@ -5822,6 +5986,13 @@ func (m *AccountMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddWorkspaceID(v)
+		return nil
+	case account.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTpmLimit(v)
 		return nil
 	case account.FieldProxyFallbackOriginID:
 		v, ok := value.(int64)
@@ -6001,6 +6172,9 @@ func (m *AccountMutation) ResetField(name string) error {
 		return nil
 	case account.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case account.FieldTpmLimit:
+		m.ResetTpmLimit()
 		return nil
 	case account.FieldName:
 		m.ResetName()
@@ -24412,6 +24586,8 @@ type GroupMutation struct {
 	workspace_id                            *int64
 	addworkspace_id                         *int64
 	deleted_at                              *time.Time
+	tpm_limit                               *int64
+	addtpm_limit                            *int64
 	account_type                            *string
 	name                                    *string
 	description                             *string
@@ -24803,6 +24979,62 @@ func (m *GroupMutation) DeletedAtCleared() bool {
 func (m *GroupMutation) ResetDeletedAt() {
 	m.deleted_at = nil
 	delete(m.clearedFields, group.FieldDeletedAt)
+}
+
+// SetTpmLimit sets the "tpm_limit" field.
+func (m *GroupMutation) SetTpmLimit(i int64) {
+	m.tpm_limit = &i
+	m.addtpm_limit = nil
+}
+
+// TpmLimit returns the value of the "tpm_limit" field in the mutation.
+func (m *GroupMutation) TpmLimit() (r int64, exists bool) {
+	v := m.tpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldTpmLimit returns the old "tpm_limit" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldTpmLimit(ctx context.Context) (v int64, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldTpmLimit is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldTpmLimit requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldTpmLimit: %w", err)
+	}
+	return oldValue.TpmLimit, nil
+}
+
+// AddTpmLimit adds i to the "tpm_limit" field.
+func (m *GroupMutation) AddTpmLimit(i int64) {
+	if m.addtpm_limit != nil {
+		*m.addtpm_limit += i
+	} else {
+		m.addtpm_limit = &i
+	}
+}
+
+// AddedTpmLimit returns the value that was added to the "tpm_limit" field in this mutation.
+func (m *GroupMutation) AddedTpmLimit() (r int64, exists bool) {
+	v := m.addtpm_limit
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ResetTpmLimit resets all changes to the "tpm_limit" field.
+func (m *GroupMutation) ResetTpmLimit() {
+	m.tpm_limit = nil
+	m.addtpm_limit = nil
 }
 
 // SetAccountType sets the "account_type" field.
@@ -28342,7 +28574,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 68)
+	fields := make([]string, 0, 69)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -28354,6 +28586,9 @@ func (m *GroupMutation) Fields() []string {
 	}
 	if m.deleted_at != nil {
 		fields = append(fields, group.FieldDeletedAt)
+	}
+	if m.tpm_limit != nil {
+		fields = append(fields, group.FieldTpmLimit)
 	}
 	if m.account_type != nil {
 		fields = append(fields, group.FieldAccountType)
@@ -28563,6 +28798,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.WorkspaceID()
 	case group.FieldDeletedAt:
 		return m.DeletedAt()
+	case group.FieldTpmLimit:
+		return m.TpmLimit()
 	case group.FieldAccountType:
 		return m.AccountType()
 	case group.FieldName:
@@ -28708,6 +28945,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldWorkspaceID(ctx)
 	case group.FieldDeletedAt:
 		return m.OldDeletedAt(ctx)
+	case group.FieldTpmLimit:
+		return m.OldTpmLimit(ctx)
 	case group.FieldAccountType:
 		return m.OldAccountType(ctx)
 	case group.FieldName:
@@ -28872,6 +29111,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetDeletedAt(v)
+		return nil
+	case group.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetTpmLimit(v)
 		return nil
 	case group.FieldAccountType:
 		v, ok := value.(string)
@@ -29332,6 +29578,9 @@ func (m *GroupMutation) AddedFields() []string {
 	if m.addworkspace_id != nil {
 		fields = append(fields, group.FieldWorkspaceID)
 	}
+	if m.addtpm_limit != nil {
+		fields = append(fields, group.FieldTpmLimit)
+	}
 	if m.addrate_multiplier != nil {
 		fields = append(fields, group.FieldRateMultiplier)
 	}
@@ -29423,6 +29672,8 @@ func (m *GroupMutation) AddedField(name string) (ent.Value, bool) {
 	switch name {
 	case group.FieldWorkspaceID:
 		return m.AddedWorkspaceID()
+	case group.FieldTpmLimit:
+		return m.AddedTpmLimit()
 	case group.FieldRateMultiplier:
 		return m.AddedRateMultiplier()
 	case group.FieldPeakRateMultiplier:
@@ -29492,6 +29743,13 @@ func (m *GroupMutation) AddField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.AddWorkspaceID(v)
+		return nil
+	case group.FieldTpmLimit:
+		v, ok := value.(int64)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.AddTpmLimit(v)
 		return nil
 	case group.FieldRateMultiplier:
 		v, ok := value.(float64)
@@ -29855,6 +30113,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldDeletedAt:
 		m.ResetDeletedAt()
+		return nil
+	case group.FieldTpmLimit:
+		m.ResetTpmLimit()
 		return nil
 	case group.FieldAccountType:
 		m.ResetAccountType()

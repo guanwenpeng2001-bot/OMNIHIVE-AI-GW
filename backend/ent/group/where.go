@@ -75,6 +75,11 @@ func DeletedAt(v time.Time) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldDeletedAt, v))
 }
 
+// TpmLimit applies equality check predicate on the "tpm_limit" field. It's identical to TpmLimitEQ.
+func TpmLimit(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldTpmLimit, v))
+}
+
 // AccountType applies equality check predicate on the "account_type" field. It's identical to AccountTypeEQ.
 func AccountType(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAccountType, v))
@@ -523,6 +528,46 @@ func DeletedAtIsNil() predicate.Group {
 // DeletedAtNotNil applies the NotNil predicate on the "deleted_at" field.
 func DeletedAtNotNil() predicate.Group {
 	return predicate.Group(sql.FieldNotNull(FieldDeletedAt))
+}
+
+// TpmLimitEQ applies the EQ predicate on the "tpm_limit" field.
+func TpmLimitEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitNEQ applies the NEQ predicate on the "tpm_limit" field.
+func TpmLimitNEQ(v int64) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldTpmLimit, v))
+}
+
+// TpmLimitIn applies the In predicate on the "tpm_limit" field.
+func TpmLimitIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitNotIn applies the NotIn predicate on the "tpm_limit" field.
+func TpmLimitNotIn(vs ...int64) predicate.Group {
+	return predicate.Group(sql.FieldNotIn(FieldTpmLimit, vs...))
+}
+
+// TpmLimitGT applies the GT predicate on the "tpm_limit" field.
+func TpmLimitGT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGT(FieldTpmLimit, v))
+}
+
+// TpmLimitGTE applies the GTE predicate on the "tpm_limit" field.
+func TpmLimitGTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldGTE(FieldTpmLimit, v))
+}
+
+// TpmLimitLT applies the LT predicate on the "tpm_limit" field.
+func TpmLimitLT(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLT(FieldTpmLimit, v))
+}
+
+// TpmLimitLTE applies the LTE predicate on the "tpm_limit" field.
+func TpmLimitLTE(v int64) predicate.Group {
+	return predicate.Group(sql.FieldLTE(FieldTpmLimit, v))
 }
 
 // AccountTypeEQ applies the EQ predicate on the "account_type" field.

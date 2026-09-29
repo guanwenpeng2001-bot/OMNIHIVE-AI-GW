@@ -17,7 +17,7 @@ type gatewayPlanCapturer interface {
 // or forwarding. It intentionally does not move the platform failover loops.
 func beginGatewayRequestPlan(c *gin.Context, capturer gatewayPlanCapturer, key *service.APIKey, model, protocol string, switches int, geminiSwitches ...int) func() {
 	finishBudget := installAttemptBudget(c)
-	spec := service.GatewayRequestSpec{UserID: key.UserID, APIKeyID: key.ID, Route: c.Request.URL.Path, Protocol: protocol, Model: model, MaxAccountSwitches: switches}
+	spec := service.GatewayRequestSpec{WorkspaceID: key.WorkspaceID, UserID: key.UserID, APIKeyID: key.ID, Route: c.Request.URL.Path, Protocol: protocol, Model: model, MaxAccountSwitches: switches}
 	if protocol == "media" && c.Request.Method == http.MethodPost && strings.Contains(c.Request.URL.Path, "/videos/") {
 		spec.ExecutionKind = "job"
 	}

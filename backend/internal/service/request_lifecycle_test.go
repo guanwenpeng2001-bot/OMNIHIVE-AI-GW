@@ -16,6 +16,7 @@ func TestRequestPlanBudgetIncludesInitialRepairAndSwitchesWithoutThreeAttemptCap
 	ctx, cancel := WithAttemptBudget(context.Background(), DefaultGenerationAttempts, time.Minute)
 	defer cancel()
 	ctx, plan := (&GatewayService{}).CaptureRequestPlan(ctx, GatewayRequestSpec{MaxAccountSwitches: 5})
+	installUnlimitedTPMFixture(plan)
 	require.Equal(t, 6, plan.Snapshot().GenerationAttempts)
 	for attempt := 0; attempt < 6; attempt++ {
 		finish, err := BeginGenerationAttempt(ctx, int64(attempt/2+1))

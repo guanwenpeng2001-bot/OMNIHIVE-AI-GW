@@ -30,13 +30,8 @@ type qianwenStandardAdmission struct {
 	pricingAt    time.Time
 }
 
-// admitQianwenStandardRequest runs the shared admission pipeline. No request
-// plan is installed before selection: the plan-gated scheduler eligibility
-// currently requires text ("responses") endpoint evidence for every model,
-// which media-family models cannot have yet — so these handlers follow the
-// video family's discipline where the adapter's explicit model allowlist and
-// tariff/price resolution are the evidence. Catalog endpoint coverage for
-// these actions is the model-registry-data follow-up.
+// admitQianwenStandardRequest runs admission before account selection.
+// forwardQianwenStandard installs the action plan after selection and before send.
 func (h *OpenAIGatewayHandler) admitQianwenStandardRequest(c *gin.Context, auditProtocol string) (*qianwenStandardAdmission, bool) {
 	key, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok || key == nil || key.Group == nil {
@@ -98,7 +93,7 @@ func (h *OpenAIGatewayHandler) admitQianwenStandardRequest(c *gin.Context, audit
 // account concurrency slots of the existing handlers) and runs the forward.
 // Billable generation is never retried behind the client's back; upstream
 // failures return before any usage is recorded.
-func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianwenStandardAdmission, capability service.OpenAIEndpointCapability, forward func(account *service.Account) (*service.OpenAIForwardResult, error)) (*service.OpenAIForwardResult, *service.Account, bool) {
+func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianwenStandardAdmission, protocol string, capability service.OpenAIEndpointCapability, forward func(account *service.Account) (*service.OpenAIForwardResult, error)) (*service.OpenAIForwardResult, *service.Account, bool) {
 	reqLog := requestLogger(c, "handler.qianwen_standard")
 	streamStarted := false
 	release, ok := h.acquireResponsesUserSlot(c, adm.subject.UserID, adm.subject.Concurrency, false, &streamStarted, reqLog)
@@ -126,8 +121,12 @@ func (h *OpenAIGatewayHandler) forwardQianwenStandard(c *gin.Context, adm *qianw
 	if accountRelease != nil {
 		defer accountRelease()
 	}
+	defer beginGatewayRequestPlan(c, h.gatewayService, adm.key, adm.model, protocol, h.maxAccountSwitches)()
 	setOpsSelectedAccount(c, account.ID, account.Platform)
 	result, err := forward(account)
+	if writeGatewayTPMError(c, err) {
+		return nil, nil, false
+	}
 	if err != nil || result == nil {
 		return nil, nil, false
 	}
@@ -172,7 +171,7 @@ func (h *OpenAIGatewayHandler) QianwenEmbeddings(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by the DashScope compatible embeddings endpoint")
 		return
 	}
-	result, account, ok := h.forwardQianwenStandard(c, adm, service.OpenAIEndpointCapabilityEmbeddings, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardQianwenStandard(c, adm, "embeddings", service.OpenAIEndpointCapabilityEmbeddings, func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.gatewayService.ForwardEmbeddings(c.Request.Context(), c, account, adm.body, "")
 	})
 	if !ok {
@@ -188,7 +187,7 @@ func (h *OpenAIGatewayHandler) QianwenRerank(c *gin.Context) {
 	if !ok {
 		return
 	}
-	result, account, ok := h.forwardQianwenStandard(c, adm, service.OpenAIEndpointCapabilityChatCompletions, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardQianwenStandard(c, adm, "rerank", service.OpenAIEndpointCapabilityChatCompletions, func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.gatewayService.ForwardQianwenRerank(c.Request.Context(), c, account, adm.body)
 	})
 	if !ok {
@@ -209,7 +208,7 @@ func (h *OpenAIGatewayHandler) QianwenImages(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
-	result, account, ok := h.forwardQianwenStandard(c, adm, service.OpenAIEndpointCapabilityChatCompletions, func(account *service.Account) (*service.OpenAIForwardResult, error) {
+	result, account, ok := h.forwardQianwenStandard(c, adm, "images", service.OpenAIEndpointCapabilityChatCompletions, func(account *service.Account) (*service.OpenAIForwardResult, error) {
 		return h.gatewayService.ForwardQianwenImages(c.Request.Context(), c, account, adm.body)
 	})
 	if !ok {

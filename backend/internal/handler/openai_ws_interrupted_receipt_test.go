@@ -23,6 +23,7 @@ import (
 )
 
 type interruptedWSReceiptRepository struct {
+	unlimitedTPMRepository
 	service.UsageSettlementReceiptRepository
 	receipts chan *service.UsageSettlementReceipt
 	mutex    sync.Mutex

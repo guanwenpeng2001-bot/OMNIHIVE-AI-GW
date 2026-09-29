@@ -294,6 +294,7 @@ func (handler *AccountHandler) createAccountFromRequest(ctx context.Context, gin
 		}
 	}
 	return handler.adminService.CreateAccount(ctx, &service.CreateAccountInput{
+		TPMLimit:              request.TPMLimit.Value,
 		Name:                  request.Name,
 		Notes:                 request.Notes,
 		Platform:              request.Platform,
@@ -364,7 +365,8 @@ func confirmCredentialDraftWithBinding(
 		}
 		if existing != nil {
 			updated, err := pending.UpdateAccountCredentialsIfUnchanged(txCtx, existing, adminService, &service.UpdateAccountInput{
-				Name: request.Name, Notes: request.Notes, Status: request.Status,
+				TPMLimit: request.TPMLimit.Pointer(),
+				Name:     request.Name, Notes: request.Notes, Status: request.Status,
 				Credentials: draft.Credentials, Extra: extra,
 				Concurrency: &request.Concurrency, Priority: &request.Priority,
 				RateMultiplier: request.RateMultiplier, LoadFactor: request.LoadFactor,
@@ -379,6 +381,7 @@ func confirmCredentialDraftWithBinding(
 			return existing.ID, nil
 		}
 		account, err := adminService.CreateAccount(txCtx, &service.CreateAccountInput{
+			TPMLimit:              request.TPMLimit.Value,
 			Name:                  request.Name,
 			Notes:                 request.Notes,
 			Platform:              draft.Platform,
@@ -480,7 +483,8 @@ func (handler *AccountHandler) persistRefreshedCredentials(ctx context.Context, 
 	if err := requireCredentialDraftStore(handler.credentialDrafts); err != nil {
 		return nil, err
 	}
-	return handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(ctx, expected, handler.adminService, &service.UpdateAccountInput{Credentials: credentials})
+	return handler.credentialDrafts.UpdateAccountCredentialsIfUnchanged(ctx, expected, handler.adminService, &service.UpdateAccountInput{
+		Credentials: credentials})
 }
 
 func (handler *AccountHandler) setCredentialPrivacy(ctx *gin.Context, account *service.Account) (string, error) {

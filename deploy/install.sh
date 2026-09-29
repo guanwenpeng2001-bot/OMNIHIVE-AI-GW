@@ -660,6 +660,13 @@ download_and_extract() {
     cp "$TEMP_DIR/sub2api" "$INSTALL_DIR/sub2api"
     chmod +x "$INSTALL_DIR/sub2api"
 
+    # Ship readable pricing resources alongside the embedded defaults.
+    # Older releases may not include them; their existing install path still works.
+    if [ -d "$TEMP_DIR/resources/model-pricing" ]; then
+        mkdir -p "$INSTALL_DIR/resources/model-pricing"
+        cp "$TEMP_DIR/resources/model-pricing/"*.json "$INSTALL_DIR/resources/model-pricing/"
+    fi
+
     # Copy deploy files if they exist in the archive
     if [ -d "$TEMP_DIR/deploy" ]; then
         cp -r "$TEMP_DIR/deploy/"* "$INSTALL_DIR/" 2>/dev/null || true

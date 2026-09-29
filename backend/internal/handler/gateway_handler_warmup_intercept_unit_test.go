@@ -168,7 +168,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 	schedulerCache := &fakeSchedulerCache{accounts: accounts}
 	schedulerSnapshot := service.NewSchedulerSnapshotService(schedulerCache, nil, nil, nil, nil)
 
-	gwSvc := service.NewGatewayService(
+	gwSvc := service.ProvideGatewayService(
 		nil, // accountRepo (not used: scheduler snapshot hit)
 		&fakeGroupRepo{group: group},
 		nil, // usageLogRepo
@@ -197,7 +197,7 @@ func newTestGatewayHandler(t *testing.T, group *service.Group, accounts []*servi
 		nil, // compositeResolver
 		nil, // balanceNotifyService
 		nil, // userPlatformQuotaRepo
-	)
+		service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 
 	// RunModeSimple：跳过计费检查，避免引入 repo/cache 依赖。
 	cfg := &config.Config{RunMode: config.RunModeSimple}

@@ -1,3 +1,4 @@
+import { validateTpmLimit } from '@/utils/tpmLimit'
 import { postIdempotentCreate } from '../idempotency'
 import type { ModelCategoryMetadata } from '@/utils/modelCategories'
 /**
@@ -173,6 +174,7 @@ export async function getById(id: number): Promise<Account> {
  * @returns Created account
  */
 export async function create(accountData: CreateAccountRequest): Promise<Account> {
+  validateTpmLimit(accountData.tpm_limit)
   return postIdempotentCreate<Account>('/admin/accounts', accountData)
 }
 
@@ -227,6 +229,7 @@ export async function duplicate(id: number): Promise<Account> {
  * @returns Updated account
  */
 export async function update(id: number, updates: UpdateAccountRequest): Promise<Account> {
+  validateTpmLimit(updates.tpm_limit)
   const { data } = await apiClient.put<Account>(`/admin/accounts/${id}`, updates)
   return data
 }
@@ -472,6 +475,7 @@ export interface BatchCreateAccountsResponse {
 }
 
 export async function batchCreate(accounts: CreateAccountRequest[]): Promise<BatchCreateAccountsResponse> {
+  accounts.forEach(account => validateTpmLimit(account.tpm_limit))
   return postIdempotentCreate<BatchCreateAccountsResponse>('/admin/accounts/batch', { accounts })
 }
 
@@ -520,6 +524,7 @@ export async function bulkUpdate(
         ...(updates ?? {})
       }
     : accountIdsOrPayload
+  validateTpmLimit(payload.tpm_limit)
   const { data } = await apiClient.post<{
     success: number
     failed: number

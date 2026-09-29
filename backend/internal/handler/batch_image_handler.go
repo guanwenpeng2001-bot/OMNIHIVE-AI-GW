@@ -45,6 +45,10 @@ func (h *BatchImageHandler) Submit(c *gin.Context) {
 	if sessionID := service.ExtractClientSessionID(c); sessionID != "" {
 		req.SessionID = &sessionID
 	}
+	if h.openAI != nil {
+		apiKey, _ := middleware.GetAPIKeyFromContext(c)
+		defer beginGatewayRequestPlan(c, h.openAI.gatewayService, apiKey, req.Model, "media", h.openAI.maxAccountSwitches)()
+	}
 	got, err := h.service.Submit(c.Request.Context(), owner, req, c.GetHeader("Idempotency-Key"))
 	if err != nil {
 		batchImageError(c, err)
@@ -307,6 +311,10 @@ func batchImageOwnerFromContext(c *gin.Context) (service.BatchImageOwner, bool) 
 }
 
 func batchImageError(c *gin.Context, err error) {
+	if writeGatewayTPMError(c, err) {
+		return
+	}
+
 	status := infraerrors.Code(err)
 	code := infraerrors.Reason(err)
 	message := infraerrors.Message(err)

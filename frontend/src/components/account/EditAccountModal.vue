@@ -1063,6 +1063,7 @@
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
+          <TpmLimitField v-model="form.tpm_limit" />
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
           <input v-model.number="form.concurrency" type="number" min="1" class="input"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
@@ -2441,6 +2442,7 @@
 </template>
 
 <script setup lang="ts">
+import TpmLimitField from '@/components/common/TpmLimitField.vue'
 import ModelAccessRuleEditor from '@/components/model-access/ModelAccessRuleEditor.vue'
 import { navigateAccountChoices } from './accountChoiceNavigation'
 import { apiClient } from '@/api/client'
@@ -3433,6 +3435,7 @@ const mixedChannelWarningMessageText = computed(() => {
 })
 
 const form = reactive({
+  tpm_limit: 0,
   name: '',
   notes: '',
   proxy_id: null as number | null,
@@ -3580,6 +3583,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   }
   cursorAutoCredentials.value = { machine_id: String(newAccount.credentials?.machine_id || ''), mac_machine_id: String(newAccount.credentials?.mac_machine_id || '') }
   cursorClientVersion.value = String(newAccount.credentials?.client_version || '')
+  form.tpm_limit = newAccount.tpm_limit ?? 0
   form.concurrency = newAccount.concurrency
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority

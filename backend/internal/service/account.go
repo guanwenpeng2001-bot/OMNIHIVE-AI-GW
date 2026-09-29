@@ -20,6 +20,7 @@ import (
 )
 
 type Account struct {
+	TPMLimit                int64
 	WorkspaceID             int64
 	ID                      int64
 	Name                    string

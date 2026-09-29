@@ -149,11 +149,10 @@ func newZhipuFlowHarness(t *testing.T, responder func(req *http.Request) *http.R
 	cfg.Gateway.MaxAccountSwitches = 1
 	billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	cache := newZhipuHandlerCacheStub()
-	gateway := service.NewOpenAIGatewayService(
+	gateway := service.ProvideOpenAIGatewayService(
 		repo, nil, nil, nil, nil, nil, cache, cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billingCache, upstream,
-		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
-	)
+		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 	concurrencyCache := &concurrencyCacheMock{
 		acquireUserSlotFn:    func(context.Context, int64, int, string) (bool, error) { return true, nil },
 		acquireAccountSlotFn: func(context.Context, int64, int, string) (bool, error) { return true, nil },

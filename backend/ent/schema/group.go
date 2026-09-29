@@ -36,6 +36,7 @@ func (Group) Mixin() []ent.Mixin {
 
 func (Group) Fields() []ent.Field {
 	return []ent.Field{
+		field.Int64("tpm_limit").Default(0).NonNegative().Comment("Token budget per admission minute; zero is unlimited"),
 		field.String("account_type").MaxLen(32).Default(""),
 		// 唯一约束通过部分索引实现（WHERE deleted_at IS NULL），支持软删除后重用
 		// 见迁移文件 016_soft_delete_partial_unique_indexes.sql

@@ -355,6 +355,22 @@ function mountModal(account = buildAccount(), renderGroupSelector = false, realC
 }
 
 describe('EditAccountModal', () => {
+  it('edits the token limit without changing the concurrency setting', async () => {
+    const account = { ...buildAccount(), tpm_limit: 31 }
+    updateAccountMock.mockReset().mockResolvedValue({ ...account, tpm_limit: 47 })
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await flushPromises()
+    const input = wrapper.get('[data-testid="tpm-limit-field"] input')
+    expect((input.element as HTMLInputElement).value).toBe('31')
+    await input.setValue('47')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalled()
+    expect(updateAccountMock.mock.calls[0][1]).toMatchObject({ tpm_limit: 47, concurrency: account.concurrency })
+    wrapper.unmount()
+  })
+
   it.each(['partial', 'incomplete'] as const)('keeps Toasts quiet for %s capability metadata', async (status) => {
     showInfoMock.mockReset()
     showWarningMock.mockReset()

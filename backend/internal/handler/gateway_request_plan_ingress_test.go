@@ -70,7 +70,7 @@ func TestGatewayRequestPlanNativeHTTPIngress(t *testing.T) {
 				repo := &openAIWSUsageHandlerAccountRepoStub{account: account}
 				usage := &cursorRouteUsageRepo{}
 				upstream := &requestPlanHTTPFixture{t: t}
-				svc := service.NewOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil)
+				svc := service.ProvideOpenAIGatewayService(repo, usage, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 				billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 				defer billing.Stop()
 				h := NewOpenAIGatewayHandler(svc, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
@@ -115,7 +115,7 @@ func TestGatewayRequestPlanGeminiHTTPIngress(t *testing.T) {
 				usage := &cursorRouteUsageRepo{}
 				upstream := &requestPlanHTTPFixture{t: t, gemini: true, stream: stream}
 				snapshot := service.NewSchedulerSnapshotService(&fakeSchedulerCache{accounts: accounts}, nil, nil, nil, nil)
-				h.gatewayService = service.NewGatewayService(nil, &fakeGroupRepo{group: group}, usage, nil, nil, nil, nil, nil, cfg, snapshot, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+				h.gatewayService = service.ProvideGatewayService(nil, &fakeGroupRepo{group: group}, usage, nil, nil, nil, nil, nil, cfg, snapshot, nil, service.NewBillingService(cfg, nil), nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(&unlimitedTPMReceiptStub{}, nil, nil))
 				h.geminiCompatService = service.NewGeminiMessagesCompatService(nil, nil, nil, nil, nil, nil, upstream, nil, cfg)
 				action := "generateContent"
 				if stream {
@@ -181,5 +181,34 @@ func TestDuplicateModelHTTPIngressMappingMatrix(t *testing.T) {
 				require.NotContains(t, rec.Body.String(), "revoked")
 			})
 		}
+	}
+}
+
+func TestGatewayTPM_AllTokenEntrypointsReserveBeforeUpstream(t *testing.T) {
+	for _, path := range []string{"/v1/messages", "/v1/chat/completions", "/v1/responses", "/responses", "/backend-api/codex/responses"} {
+		t.Run(path, func(t *testing.T) {
+			cfg := &config.Config{RunMode: config.RunModeSimple}
+			account := preparedGatewayFixtureAccount(service.Account{ID: 7, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"access_token": "fixture"}, AccountGroups: []service.AccountGroup{{AccountID: 7, GroupID: 3}}})
+			repository := &openAIWSUsageHandlerAccountRepoStub{account: account}
+			upstream := &requestPlanHTTPFixture{t: t}
+			receiptStore := &unlimitedTPMReceiptStub{unlimitedTPMRepository: unlimitedTPMRepository{rejection: &service.TPMLimitExceeded{Scope: service.TPMScopeGroup}}}
+			gateway := service.ProvideOpenAIGatewayService(repository, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, upstream, nil, nil, nil, nil, nil, nil, nil, nil, service.NewUsageSettlementService(receiptStore, nil, nil))
+			billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
+			defer billing.Stop()
+			handler := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(&fakeConcurrencyCache{}), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
+			group := &service.Group{ID: 3, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, AllowMessagesDispatch: true}
+			request, response := requestPlanHTTPContext(path, `{"model":"gpt-5.1","messages":[{"role":"user","content":"hello"}],"input":"hello","max_tokens":32,"stream":false}`, group)
+			switch path {
+			case "/v1/messages":
+				handler.Messages(request)
+			case "/v1/chat/completions":
+				handler.ChatCompletions(request)
+			default:
+				handler.Responses(request)
+			}
+			require.Equal(t, 429, response.Code, response.Body.String())
+			require.Contains(t, response.Body.String(), "GROUP_TPM_EXCEEDED")
+			require.Zero(t, upstream.calls)
+		})
 	}
 }

@@ -97,6 +97,9 @@ func (h *OpenAIGatewayHandler) GrokRealtime(c *gin.Context) {
 		candidateUpstream, openErr := h.gatewayService.OpenGrokRealtime(probeCtx, account, token, model)
 		cancelProbe()
 		if openErr != nil {
+			if writeGatewayTPMError(c, openErr) {
+				return
+			}
 			reqLog.Warn("grok_realtime.pre_accept_failed", zap.Int64("account_id", account.ID), zap.Error(openErr))
 			statusCode := http.StatusBadGateway
 			var dialErr *service.GrokRealtimeDialError

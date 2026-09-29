@@ -185,6 +185,7 @@ func sanitizeUpdateGroupRequestForSimpleMode(req *UpdateGroupRequest) {
 
 // CreateGroupRequest represents create group request
 type CreateGroupRequest struct {
+	TPMLimit                  service.OptionalTPMLimit      `json:"tpm_limit,omitzero"`
 	AccountType               string                        `json:"account_type"`
 	Name                      string                        `json:"name" binding:"required"`
 	Description               string                        `json:"description"`
@@ -260,6 +261,7 @@ type CreateGroupRequest struct {
 
 // UpdateGroupRequest represents update group request
 type UpdateGroupRequest struct {
+	TPMLimit                  service.OptionalTPMLimit       `json:"tpm_limit,omitzero"`
 	AccountType               *string                        `json:"account_type"`
 	Name                      string                         `json:"name"`
 	Description               *string                        `json:"description"`
@@ -732,6 +734,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 	}
 
 	group, err := h.adminService.CreateGroup(c.Request.Context(), &service.CreateGroupInput{
+		TPMLimit:                        req.TPMLimit.Value,
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,
@@ -878,6 +881,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 	}
 
 	group, err := h.adminService.UpdateGroup(c.Request.Context(), groupID, &service.UpdateGroupInput{
+		TPMLimit:                        req.TPMLimit.Pointer(),
 		Name:                            req.Name,
 		Description:                     req.Description,
 		Platform:                        req.Platform,

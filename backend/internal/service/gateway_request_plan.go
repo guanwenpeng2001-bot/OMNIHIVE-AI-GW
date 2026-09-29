@@ -64,6 +64,9 @@ type GatewayRequestPlan struct {
 	rateLimitScopes  map[int64]struct{}
 	budgetHold       *KeyBudgetReservation
 	budgetAdmitted   bool
+	tpmAttempts      map[int]*tpmPlanAttempt
+	tpmSequence      int
+	tpmRejection     error
 	catalogRepo      AccountRepository
 	affinityState    *AffinityBindingState
 	bindingAccountID int64
@@ -158,6 +161,7 @@ func (p *GatewayRequestPlan) finish(canceled, committed bool) {
 	if hold != nil && !settled {
 		p.releaseBudgetHold(hold)
 	}
+	p.finalizeTPMAttempts()
 }
 
 // releaseBudgetHold refunds an unconsumed request hold with a detached context:
@@ -564,11 +568,16 @@ func CaptureGatewayJobPlan(ctx context.Context, spec GatewayRequestSpec) (contex
 	ctx = WithGatewayRequestPlan(ctx, nil)
 	if parent != nil {
 		spec.MaxAccountSwitches = parent.spec.MaxAccountSwitches
+		spec.WorkspaceID = parent.spec.WorkspaceID
+		if spec.BillingGroupID == 0 {
+			spec.BillingGroupID = parent.spec.BillingGroupID
+		}
 	}
 	ctx, plan := captureGatewayRequestPlan(ctx, spec, nil, nil, nil)
 	if parent != nil {
 		plan.billing, plan.channels = parent.billing, parent.channels
 		plan.settlement = parent.settlement
+		plan.catalogRepo = parent.catalogRepo
 		plan.channelSnapshot, plan.channelError = parent.channelSnapshot, parent.channelError
 		plan.registrySnapshot = parent.registrySnapshot
 		plan.spec.PriceVersion, plan.spec.ModelVersion = parent.spec.PriceVersion, parent.spec.ModelVersion

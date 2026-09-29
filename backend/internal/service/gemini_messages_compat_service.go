@@ -813,6 +813,9 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
+			if IsTPMAdmissionError(err) {
+				return nil, err
+			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),
@@ -1384,6 +1387,9 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
+			if IsTPMAdmissionError(err) {
+				return nil, err
+			}
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
 			}

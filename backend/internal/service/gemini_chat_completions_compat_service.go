@@ -128,6 +128,9 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 
 		resp, err = doCatalogCheckedGeneration(s.httpUpstream, s.accountRepo, upstreamReq, proxyURL, account)
 		if err != nil {
+			if IsTPMAdmissionError(err) {
+				return nil, err
+			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),

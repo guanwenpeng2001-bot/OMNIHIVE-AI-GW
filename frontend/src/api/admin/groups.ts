@@ -1,3 +1,4 @@
+import { validateTpmLimit } from '@/utils/tpmLimit'
 import type { ApiKey } from '@/types/user'
 /**
  * Admin Groups API endpoints
@@ -124,6 +125,7 @@ export async function getModelAllowlistCandidates(
  * @returns Created group
  */
 export async function create(groupData: CreateGroupRequest): Promise<AdminGroup> {
+  validateTpmLimit(groupData.tpm_limit)
   const { data } = await apiClient.post<AdminGroup>('/admin/groups', groupData)
   return data
 }
@@ -215,6 +217,7 @@ export async function duplicate(id: number): Promise<AdminGroup> {
  * @returns Updated group
  */
 export async function update(id: number, updates: UpdateGroupRequest): Promise<AdminGroup> {
+  validateTpmLimit(updates.tpm_limit)
   const { data } = await apiClient.put<AdminGroup>(`/admin/groups/${id}`, updates)
   return data
 }
