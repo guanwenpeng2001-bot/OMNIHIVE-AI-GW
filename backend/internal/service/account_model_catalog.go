@@ -444,8 +444,7 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 // conservative without turning the classification into a permanent capability
 // denial: the declared endpoint families are admitted exactly when the platform
 // action matrix binds an adapter for the action they execute on. A text model
-// still requires chat-completions evidence, and an explicit declaration without
-// it remains a denial.
+// requires known text-method evidence when methods are explicitly declared.
 func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadata UpstreamModelMetadata) []string {
 	endpoints := []string{}
 	// Task-only preset facts are endpoint evidence too. Video executes on the
@@ -468,7 +467,8 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 	if taskAction != "" && platformActionAdapterBound(account, taskAction) {
 		endpoints = append(endpoints, taskEndpoint)
 	}
-	if task == "" || task == "text_generation" {
+	textTask := task == "" || task == "text_generation"
+	if textTask && (metadata.SupportedMethods == nil || chatOnlyCatalogHasTextMethod(metadata.SupportedMethods)) {
 		if metadata.SupportedMethods == nil || slices.Contains(metadata.SupportedMethods, CompositeRouteEndpointChatCompletions) {
 			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
 		}
@@ -485,12 +485,26 @@ func chatOnlyAccountCatalogModelEndpoints(account *Account, task string, metadat
 	}
 	for _, method := range metadata.SupportedMethods {
 		action := chatOnlyCatalogEndpointAction(method)
+		if !textTask && chatOnlyCatalogHasTextMethod([]string{method}) {
+			// An explicit non-text task must not gain a conflicting text family.
+			continue
+		}
 		if action == "" || !platformActionAdapterBound(account, action) {
 			continue
 		}
 		endpoints = append(endpoints, method)
 	}
 	return dedupeAndSortModelIDs(endpoints)
+}
+
+func chatOnlyCatalogHasTextMethod(methods []string) bool {
+	for _, method := range methods {
+		switch chatOnlyCatalogEndpointAction(method) {
+		case "chat", "messages", "responses", "generate_content":
+			return true
+		}
+	}
+	return false
 }
 
 // chatOnlyPublishedTextFamilies lists the protocol families a chat-only platform
@@ -579,6 +593,14 @@ func accountCatalogEndpointTask(account *Account, modelID string, metadata Upstr
 	}
 	if task != "" {
 		return task
+	}
+	if IsChatOnlyPlatform(account.Platform) && metadata.SupportedMethods != nil {
+		// Explicit methods outrank presentation modalities. Keep non-text methods
+		// independent so mixed declarations retain every bound endpoint family.
+		if chatOnlyCatalogHasTextMethod(metadata.SupportedMethods) {
+			return "text_generation"
+		}
+		return ""
 	}
 	for _, modality := range metadata.OutputModalities {
 		switch modality {

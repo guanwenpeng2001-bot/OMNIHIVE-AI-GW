@@ -2270,31 +2270,6 @@ func extractOpenAIReasoningEffort(reqBody map[string]any, modelCandidates ...str
 	return &value
 }
 
-func CanonicalRequestedReasoningEffortFromReqBody(reqBody map[string]any, modelCandidates ...string) *string {
-	if reqBody == nil {
-		return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
-	}
-	raw := ""
-	if reasoning, ok := reqBody["reasoning"].(map[string]any); ok {
-		if effort, ok := reasoning["effort"].(string); ok {
-			raw = strings.TrimSpace(effort)
-		}
-	}
-	if raw == "" {
-		if effort, ok := reqBody["reasoning_effort"].(string); ok {
-			raw = strings.TrimSpace(effort)
-		}
-	}
-	if raw != "" {
-		canonical := NormalizeMaxReasoningEffort(raw)
-		if canonical == "" {
-			return nil
-		}
-		return &canonical
-	}
-	return CanonicalRequestedReasoningEffort(nil, modelCandidates...)
-}
-
 func normalizeOpenAIReasoningEffort(raw string) string {
 	value := strings.ToLower(strings.TrimSpace(raw))
 	if value == "" {

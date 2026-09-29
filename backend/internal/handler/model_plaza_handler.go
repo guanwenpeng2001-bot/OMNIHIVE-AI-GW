@@ -53,13 +53,9 @@ type modelPlazaTimePricing struct {
 
 // modelPlazaModel 广场模型条目：实收口径展示定价（白名单形态）。
 type modelPlazaModel struct {
-	// Compatibility shell only: reference pricing is no longer queried, so this is
-	// always null. The panel shows a discount only when a reference price with a
-	// source exists in this field.
-	OfficialPricing any                        `json:"official_pricing"`
-	Name            string                     `json:"name"`
-	Platform        string                     `json:"platform"`
-	Pricing         *userSupportedModelPricing `json:"pricing"`
+	Name     string                     `json:"name"`
+	Platform string                     `json:"platform"`
+	Pricing  *userSupportedModelPricing `json:"pricing"`
 	// Capabilities 该模型在当前分组下的有效观测（账号证据聚合）。
 	// 只在至少有一项可核实事实时返回；缺失/冲突的字段保持 unknown，不当作零值。
 	Capabilities *publicModelMetadata `json:"capabilities,omitempty"`

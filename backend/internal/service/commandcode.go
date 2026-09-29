@@ -15,9 +15,6 @@ func normalizeCommandCodeModelID(model string) string {
 }
 func IsCommandCode(platform string) bool { return platform == PlatformCommandCode }
 func (a *Account) IsCommandCode() bool   { return a != nil && IsCommandCode(a.Platform) }
-func DefaultCommandCodeModelIDs() []string {
-	return NewModelRegistry().Snapshot().CandidateIDs(PlatformCommandCode, "")
-}
 func DefaultCommandCodeProtocolRules() []ModelProtocolRule {
 	return []ModelProtocolRule{{Pattern: "claude-*", Protocol: APIProtocolAnthropic}, {Pattern: "anthropic/claude-*", Protocol: APIProtocolAnthropic}}
 }

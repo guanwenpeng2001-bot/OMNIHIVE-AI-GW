@@ -3,8 +3,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CNProviderQuotaCell from '../CNProviderQuotaCell.vue'
 import UsageProgressBar from '../UsageProgressBar.vue'
 import type { Account } from '@/types'
+import englishAccounts from '@/i18n/locales/en/admin/accounts'
+import chineseAccounts from '@/i18n/locales/zh/admin/accounts'
 
-const { queryQuota } = vi.hoisted(() => ({
+const { queryQuota, translate } = vi.hoisted(() => ({
+  translate: vi.fn((key: string) => key),
   queryQuota: vi.fn()
 }))
 
@@ -21,7 +24,7 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => key
+      t: translate
     })
   }
 })
@@ -129,4 +132,49 @@ it('never renders numeric bars for persisted unsupported Command Code snapshots'
  await flushPromises()
  expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(0)
  expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(true)
+})
+
+
+describe('CommandCode local usage wording and recovery', () => {
+  beforeEach(() => {
+    queryQuota.mockReset()
+    translate.mockReset().mockImplementation((key: string) => key)
+  })
+
+  it.each([
+    ['en', englishAccounts, /today/i, /temporarily unavailable/i, /cumulative/i],
+    ['zh', chineseAccounts, /今日/, /暂不可用/, /累计/],
+  ] as const)('describes CommandCode fallback as today using the real %s locale', async (locale, messages, today, unavailable, cumulative) => {
+    translate.mockImplementation((key: string) => key === 'admin.accounts.cnProviders.commandCodeLocal'
+      ? messages.accounts.cnProviders.commandCodeLocal
+      : key)
+    queryQuota.mockResolvedValue({ success: false, unsupported: true })
+    const wrapper = mount(CNProviderQuotaCell, {
+      props: { account: { ...account, id: locale === 'en' ? 2101 : 2102, platform: 'commandcode', credentials: {}, extra: {} } as Account }
+    })
+    await flushPromises()
+    const fallback = wrapper.get('[data-test="commandcode-local-fallback"]').text()
+    expect(fallback).toMatch(today)
+    expect(fallback).toMatch(unavailable)
+    expect(fallback).not.toMatch(cumulative)
+    wrapper.unmount()
+  })
+
+  it('removes the fallback and restores real windows and credits after a successful manual probe', async () => {
+    queryQuota.mockResolvedValueOnce({ success: false, unsupported: true })
+    const wrapper = mount(CNProviderQuotaCell, {
+      props: { account: { ...account, id: 2103, platform: 'commandcode', credentials: {}, extra: {} } as Account }
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(true)
+    queryQuota.mockResolvedValueOnce({ success: true, tiers: [{ window: '5h', used_percent: 18 }], credits: { monthlyCredits: 57.01 } })
+    await wrapper.get('[data-test="cn-provider-quota-probe"]').trigger('click')
+    await flushPromises()
+    expect(queryQuota).toHaveBeenLastCalledWith(2103)
+    expect(wrapper.find('[data-test="commandcode-local-fallback"]').exists()).toBe(false)
+    expect(wrapper.findAllComponents(UsageProgressBar)).toHaveLength(1)
+    expect(wrapper.text()).toContain('18%')
+    expect(wrapper.text()).toContain('57.01')
+    wrapper.unmount()
+  })
 })

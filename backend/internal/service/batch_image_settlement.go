@@ -270,10 +270,6 @@ func (s *BatchImageSettlementService) outputRetentionAfterTerminal() time.Durati
 	return 72 * time.Hour
 }
 
-func BatchImageSettlementRequestID(batchID string) string {
-	return batchImageSettlementRequestPrefix + strings.TrimSpace(batchID)
-}
-
 func BuildBatchImageSettlementManifestHash(job *BatchImageJob) string {
 	if job == nil {
 		return ""

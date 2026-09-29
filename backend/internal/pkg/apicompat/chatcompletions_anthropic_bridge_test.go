@@ -150,6 +150,24 @@ func TestAnthropicToChatCompletionsRequest_ThinkingDropped(t *testing.T) {
 	require.Empty(t, out.Messages[0].ReasoningContent)
 }
 
+func TestAnthropicToChatCompletionsRequest_ThinkingDisabledOverridesOutputEffort(t *testing.T) {
+	for _, effort := range []string{"", "high", "max"} {
+		t.Run(effort, func(t *testing.T) {
+			req := &AnthropicRequest{
+				Model:        "gpt-5.6-luna",
+				MaxTokens:    1024,
+				Messages:     []AnthropicMessage{{Role: "user", Content: json.RawMessage(`"Hello"`)}},
+				Thinking:     &AnthropicThinking{Type: "disabled"},
+				OutputConfig: &AnthropicOutputConfig{Effort: effort},
+			}
+
+			out, err := AnthropicToChatCompletionsRequest(req)
+			require.NoError(t, err)
+			require.Equal(t, "none", out.ReasoningEffort)
+		})
+	}
+}
+
 func TestAnthropicToChatCompletionsRequest_ToolChoiceAuto(t *testing.T) {
 	req := &AnthropicRequest{
 		Model:     "claude-sonnet-4-20250514",

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -765,26 +766,19 @@ func estimateHunyuanAudioUsage(endpoint HunyuanActionEndpoint, reqBody, respBody
 		}
 		return &AudioUsage{Mode: "tts", DurationOrUnits: float64(demoChars) / 1_000_000.0}
 	case HunyuanEndpointTranscribeSync, HunyuanEndpointTranscribeTask:
-		secs := 0.0
-		if gjson.ValidBytes(respBody) {
-			if ms := gjson.GetBytes(respBody, "output.duration_ms").Float(); ms > 0 {
-				secs = ms / 1000.0
-			}
-		}
-		sizeFloor := 0.0
-		if len(reqBody) > 0 {
-			sizeFloor = float64(len(reqBody)) / 16000.0
-		}
-		if secs <= 0 {
-			secs = elapsed.Seconds()
-		}
-		if sizeFloor > secs {
-			secs = sizeFloor
-		}
-		if secs <= 0 {
+		if !gjson.ValidBytes(respBody) || (endpoint == HunyuanEndpointTranscribeTask && !IsHunyuanTranscribeTaskSuccess(respBody)) {
 			return nil
 		}
-		return &AudioUsage{Mode: "stt", DurationOrUnits: secs / 3600.0}
+		duration := gjson.GetBytes(respBody, "output.duration_ms")
+		milliseconds := duration.Float()
+		if duration.Type != gjson.Number || milliseconds <= 0 || math.IsNaN(milliseconds) || math.IsInf(milliseconds, 0) {
+			return nil
+		}
+		hours := milliseconds / 1000 / 3600
+		if hours <= 0 {
+			return nil
+		}
+		return &AudioUsage{Mode: "stt", DurationOrUnits: hours}
 	default:
 		return nil
 	}
@@ -982,9 +976,11 @@ func (s *OpenAIGatewayService) ForwardHunyuanAction(
 		result.ResponseID = hunyuanTaskIDFromResponse(respBody)
 	case HunyuanEndpointTranscribeSync:
 		result.AudioUsage = estimateHunyuanAudioUsage(endpoint, body, respBody, time.Since(startTime))
+		result.AudioUsageUnresolved = result.AudioUsage == nil
 	case HunyuanEndpointTranscribeTask:
 		result.ResponseID = strings.TrimSpace(taskID)
 		result.AudioUsage = estimateHunyuanAudioUsage(endpoint, body, respBody, time.Since(startTime))
+		result.AudioUsageUnresolved = IsHunyuanTranscribeTaskSuccess(respBody) && result.AudioUsage == nil
 	case HunyuanEndpointSpeechSync:
 		result.AudioUsage = estimateHunyuanAudioUsage(endpoint, body, respBody, time.Since(startTime))
 		if result.Model == "" {

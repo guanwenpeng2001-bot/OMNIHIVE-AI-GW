@@ -5,24 +5,7 @@
  */
 
 import { apiClient } from './client'
-import type { UserPricingInterval, UserSupportedModelPricing } from './channels'
-
-/**
- * 官方参考价（USD per token，由服务端从计费目录取得；字段缺失/为 null = 无有来源的参考价）。
- * 产品已退役该展示：当前后端不再查询参考价，因此实际响应里恒为 null；
- * 前端只在它确实带有数值时才把它当作折扣基准，绝不自行推算。
- */
-export interface PlazaOfficialPricing {
-  input_price: number | null
-  output_price: number | null
-  /** 5m 缓存写入（= LiteLLM cache_creation）。 */
-  cache_write_price: number | null
-  /** 1h 缓存写入（LiteLLM cache_creation_above_1hr），多数模型缺失。 */
-  cache_write_1h_price?: number | null
-  cache_read_price: number | null
-  /** 官方长上下文阶梯（多档模型才有），不受分组开关影响。 */
-  intervals?: UserPricingInterval[]
-}
+import type { UserSupportedModelPricing } from './channels'
 
 /** 单个观测事实：guaranteed = 所有观测一致时的保证值；available = 出现的取值集合；unknown = 无依据。 */
 export interface PlazaFact<Value> {
@@ -91,11 +74,6 @@ export interface PlazaModel {
   platform: string
   /** 实收口径的展示定价：档位可提供绝对单价或相对基础价倍率；均为标准时段价。 */
   pricing: UserSupportedModelPricing | null
-  /**
-   * 有来源的参考价；null = 服务端没有可引用的参考价，此时界面不展示任何折扣/划线价。
-   * @see PlazaOfficialPricing
-   */
-  official_pricing: PlazaOfficialPricing | null
   /** 有效规格（上下文/模态/能力）；服务端无任何可核实事实时省略。 */
   capabilities?: PlazaModelCapabilities
   /** 仅多档模型返回。 */
