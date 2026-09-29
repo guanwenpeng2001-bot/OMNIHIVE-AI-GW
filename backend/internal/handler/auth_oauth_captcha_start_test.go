@@ -95,7 +95,7 @@ func TestOAuthStartGetRejectsAnonymousLoginWhenTencentEnabledWithoutSideEffects(
 			handler, verifier := newOAuthCaptchaTestHandler(true)
 			recorder := httptest.NewRecorder()
 			c, _ := gin.CreateTestContext(recorder)
-			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/"+provider+"/start?intent=bind_current_user", nil)
+			c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/"+provider+"/start?intent=login", nil)
 
 			start(handler, c)
 
@@ -151,15 +151,15 @@ func TestOAuthStartPostRequiresTencentProofWhenEnabled(t *testing.T) {
 	}
 }
 
-func TestOAuthBindingPathRemainsOutsideTencentGate(t *testing.T) {
+func TestOAuthBindingPathRequiresAuthorization(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	handler := &AuthHandler{}
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	c.Request = httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/oidc/bind/start", nil)
 
-	require.True(t, handler.requireActionCaptchaForOAuthLoginStart(c))
-	require.Equal(t, http.StatusOK, recorder.Code)
+	require.False(t, handler.requireActionCaptchaForOAuthLoginStart(c))
+	require.Equal(t, http.StatusUnauthorized, recorder.Code)
 }
 
 func TestOAuthStartGetRemainsCompatibleWhenTencentDisabled(t *testing.T) {

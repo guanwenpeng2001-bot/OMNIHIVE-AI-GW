@@ -67,6 +67,7 @@ func (s *RateLimitService) ObserveOpenAIAPIKeyHealthFailure(ctx context.Context,
 		return false
 	}
 
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	count, tripped, err := s.openAIAPIKeyHealth.RecordOpenAIAPIKeyHealthFailure(ctx, account.ID, settings.WindowMinutes, settings.FailureThreshold)
 	if err != nil {
 		logger.L().Warn("openai.apikey_health_breaker_record_failed", zap.Int64("account_id", account.ID), zap.Error(err))

@@ -79,6 +79,7 @@ describe('custom page open button', () => {
 
   afterEach(() => {
     wrappers.splice(0).forEach(wrapper => wrapper.unmount())
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -92,8 +93,11 @@ describe('custom page open button', () => {
   it('preserves the embedded URL, secure link attributes, and normal clicks with small pointer movements', async () => {
     const { wrapper, button } = mountEmbed()
     expect(button.href).toBe(wrapper.get('iframe').attributes('src'))
-    expect(button.href).toContain('user_id=7')
-    expect(button.href).toContain('token=test-token')
+    expect(button.href).not.toContain('user_id=')
+    expect(button.href).not.toContain('token=')
+    expect(wrapper.get('iframe').attributes('sandbox')).toBe('allow-scripts')
+    expect(wrapper.get('iframe').attributes('title')).toBeTruthy()
+    expect(wrapper.get('iframe').attributes('referrerpolicy')).toBe('no-referrer')
     expect(button.target).toBe('_blank')
     expect(button.rel).toBe('noopener noreferrer')
     await pointer(button, 'pointerdown', 700, 24)
@@ -167,6 +171,62 @@ describe('custom page open button', () => {
     expect(wrapper.find('.custom-open-fab').exists()).toBe(false)
     expect(wrapper.find('iframe').exists()).toBe(false)
     expect(wrapper.get('.markdown-page-content h1').text()).toBe('Guide')
+  })
+
+  it('uses the translated document load error', async () => {
+    appStore.cachedPublicSettings.custom_menu_items = [{ id: 'docs', url: 'md:guide' }]
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new Error('offline')))
+    const wrapper = mountPage()
+    await flushPromises()
+    expect(wrapper.get('.markdown-page-content').text()).toBe('legal.loadFailed')
+  })
+
+  it('cleans copy handlers, timers and animation frames on navigation and unmount', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    const cancelFrame = vi.fn()
+    vi.stubGlobal('requestAnimationFrame', vi.fn(() => 123))
+    vi.stubGlobal('cancelAnimationFrame', cancelFrame)
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, 'clipboard', { configurable: true, value: { writeText } })
+    appStore.cachedPublicSettings.custom_menu_items = [
+      { id: 'docs', url: 'md:guide' }, { id: 'next', url: 'md:next' },
+    ]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '```js\nconst example = true\n```' }))
+    const wrapper = mountPage()
+    await flushPromises()
+    const oldButton = wrapper.get<HTMLButtonElement>('.copy-btn').element
+    oldButton.click()
+    await flushPromises()
+    expect(vi.getTimerCount()).toBe(1)
+    await wrapper.get('.markdown-page-content').trigger('scroll')
+    routeState.params.id = 'next'
+    await flushPromises()
+    expect(cancelFrame).toHaveBeenCalledWith(123)
+    expect(vi.getTimerCount()).toBe(0)
+    oldButton.click()
+    expect(writeText).toHaveBeenCalledTimes(1)
+    await wrapper.get('.copy-btn').trigger('click')
+    await flushPromises()
+    expect(vi.getTimerCount()).toBe(1)
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not schedule feedback when a pending clipboard operation settles after unmount', async () => {
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    let finishCopy!: () => void
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true, value: { writeText: () => new Promise<void>(resolve => { finishCopy = resolve }) },
+    })
+    appStore.cachedPublicSettings.custom_menu_items = [{ id: 'docs', url: 'md:guide' }]
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, text: async () => '```\nexample\n```' }))
+    const wrapper = mountPage()
+    await flushPromises()
+    await wrapper.get('.copy-btn').trigger('click')
+    wrapper.unmount()
+    finishCopy()
+    await flushPromises()
+    expect(vi.getTimerCount()).toBe(0)
   })
 
   it('keeps the latest Markdown page when an older response arrives last', async () => {

@@ -3,7 +3,9 @@ package handler
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -12,6 +14,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/google/uuid"
 )
 
 // dingTalkClientConfig 是 DingTalkClient 需要的最小配置子集
@@ -22,13 +28,22 @@ type dingTalkClientConfig struct {
 	UserInfoURL  string
 }
 
+// DingTalkTokenCache provides shared token storage and ownership-checked refreshes.
+// Get returns an empty token and no error for a cache miss.
+type DingTalkTokenCache interface {
+	Get(ctx context.Context, key string) (string, error)
+	AcquireRefresh(ctx context.Context, key, owner string, ttl time.Duration) (bool, error)
+	ReleaseRefresh(ctx context.Context, key, owner string) error
+	Publish(ctx context.Context, lockKey, key, owner, token string, ttl time.Duration) (bool, error)
+}
+
 type DingTalkClient struct {
 	cfg         dingTalkClientConfig
 	appToken    string
 	appTokenExp time.Time // 钉钉 7200s，留 200s 余量 → 7000s
 	mu          sync.Mutex
 	httpClient  *http.Client
-	// TODO(multi-instance): Redis 集中缓存 appToken
+	tokenCache  DingTalkTokenCache
 }
 
 type DingTalkUserTokenResp struct {
@@ -155,9 +170,23 @@ func (c *DingTalkClient) dingTalkOAPIBase() string {
 func (c *DingTalkClient) GetAppToken(ctx context.Context) (string, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.tokenCache != nil {
+		return c.getSharedAppToken(ctx)
+	}
 	if c.appToken != "" && time.Now().Before(c.appTokenExp) {
 		return c.appToken, nil
 	}
+	token, ttl, err := c.fetchAppToken(ctx)
+	if err != nil {
+		return "", err
+	}
+	c.appToken, c.appTokenExp = token, time.Now().Add(ttl)
+	return token, nil
+}
+
+func (c *DingTalkClient) fetchAppToken(ctx context.Context) (string, time.Duration, error) {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
 	body := map[string]string{"appKey": c.cfg.ClientID, "appSecret": c.cfg.ClientSecret}
 	payload, _ := json.Marshal(body)
 	// 钉钉新版 v1.0 企业内部应用 access_token: POST /v1.0/oauth2/accessToken
@@ -168,35 +197,36 @@ func (c *DingTalkClient) GetAppToken(ctx context.Context) (string, error) {
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, appTokenURL, bytes.NewReader(payload))
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("Content-Type", "application/json")
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer func() { _ = resp.Body.Close() }()
 	raw, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != http.StatusOK {
-		return "", parseDingTalkErr(raw, resp.StatusCode)
+		return "", 0, parseDingTalkErr(raw, resp.StatusCode)
 	}
 	var v struct {
 		AccessToken string `json:"accessToken"`
 		ExpireIn    int64  `json:"expireIn"`
 	}
 	if err := json.Unmarshal(raw, &v); err != nil {
-		return "", err
+		return "", 0, err
 	}
 	if v.AccessToken == "" {
-		return "", parseDingTalkErr(raw, resp.StatusCode)
+		return "", 0, parseDingTalkErr(raw, resp.StatusCode)
 	}
-	c.appToken = v.AccessToken
 	ttl := v.ExpireIn
 	if ttl > 200 {
 		ttl -= 200
 	}
-	c.appTokenExp = time.Now().Add(time.Duration(ttl) * time.Second)
-	return c.appToken, nil
+	if ttl <= 0 {
+		return "", 0, fmt.Errorf("dingtalk token has invalid expiry")
+	}
+	return v.AccessToken, time.Duration(ttl) * time.Second, nil
 }
 
 func (c *DingTalkClient) GetUserIdByUnionId(ctx context.Context, unionID string) (string, error) {
@@ -395,4 +425,83 @@ func (c *DingTalkClient) GetStaffInfoByUserId(ctx context.Context, userID string
 		Email:    email,
 		DeptIDs:  v.Result.DeptID,
 	}, nil
+}
+
+func (c *DingTalkClient) appTokenCacheKey() string {
+	identity, _ := json.Marshal(c.cfg)
+	return fmt.Sprintf("dingtalk:app-token:%x", sha256.Sum256(identity))
+}
+
+// Redis is authoritative when available; a failed cache operation falls back to
+// an uncached upstream fetch rather than preserving a process-local stale token.
+func (c *DingTalkClient) getSharedAppToken(ctx context.Context) (string, error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	key := c.appTokenCacheKey()
+	lockKey := key + ":refresh"
+	owner := uuid.NewString()
+	fallback := func() (string, error) { token, _, err := c.fetchAppToken(ctx); return token, err }
+	for {
+		token, err := c.tokenCache.Get(ctx, key)
+		if err == nil && token != "" {
+			return token, nil
+		}
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return "", err
+			}
+			return fallback()
+		}
+		acquired, err := c.tokenCache.AcquireRefresh(ctx, lockKey, owner, 30*time.Second)
+		if err != nil {
+			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+				return "", err
+			}
+			return fallback()
+		}
+		if acquired {
+			defer func() {
+				cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), time.Second)
+				defer cleanupCancel()
+				_ = c.tokenCache.ReleaseRefresh(cleanupCtx, lockKey, owner)
+			}()
+			// Another instance may have populated the cache between GET and SET NX.
+			token, err = c.tokenCache.Get(ctx, key)
+			if err == nil && token != "" {
+				return token, nil
+			}
+			token, ttl, err := c.fetchAppToken(ctx)
+			if err != nil {
+				return "", err
+			}
+			// A timed-out owner must never overwrite a newer owner's token.
+			// Cache publication is best effort after a successful upstream fetch.
+			published, publishErr := c.tokenCache.Publish(ctx, lockKey, key, owner, token, ttl)
+			if publishErr == nil && !published {
+				current, readErr := c.tokenCache.Get(ctx, key)
+				if readErr == nil && current != "" {
+					return current, nil
+				}
+				return "", fmt.Errorf("dingtalk token refresh ownership expired")
+			}
+			return token, nil
+		}
+		timer := time.NewTimer(50 * time.Millisecond)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return "", ctx.Err()
+		case <-timer.C:
+		}
+	}
+}
+
+// ProvideAuthHandler supplies the shared token cache in production.
+func ProvideAuthHandler(cfg *config.Config, authService *service.AuthService, userService *service.UserService, settingService *service.SettingService, promoService *service.PromoService, redeemService *service.RedeemService, totpService *service.TotpService, userAttributeService *service.UserAttributeService, tokenCache DingTalkTokenCache) *AuthHandler {
+	handler := NewAuthHandler(cfg, authService, userService, settingService, promoService, redeemService, totpService, userAttributeService)
+	handler.tokenCache = tokenCache
+	return handler
 }

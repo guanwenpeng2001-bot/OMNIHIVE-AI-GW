@@ -8,7 +8,8 @@
 
 ARG NODE_IMAGE=node:24-alpine
 ARG GOLANG_IMAGE=golang:1.27.0-alpine
-ARG ALPINE_IMAGE=alpine:3.20
+ARG ALPINE_IMAGE=alpine:3.21
+ARG POSTGRES_IMAGE=postgres:18-alpine
 ARG GOPROXY=https://goproxy.cn,direct
 ARG GOSUMDB=sum.golang.google.cn
 
@@ -82,7 +83,12 @@ RUN VERSION_VALUE="${VERSION}" && \
     ./cmd/server
 
 # -----------------------------------------------------------------------------
-# Stage 3: Final Runtime Image
+# Stage 3: PostgreSQL Client (version-matched with docker-compose)
+# -----------------------------------------------------------------------------
+FROM ${POSTGRES_IMAGE} AS pg-client
+
+# -----------------------------------------------------------------------------
+# Stage 4: Final Runtime Image
 # -----------------------------------------------------------------------------
 FROM ${ALPINE_IMAGE}
 
@@ -95,9 +101,22 @@ LABEL org.opencontainers.image.source="https://github.com/Wei-Shaw/sub2api"
 RUN apk add --no-cache \
     ca-certificates \
     tzdata \
-    curl \
     su-exec \
+    libpq \
+    zstd-libs \
+    lz4-libs \
+    krb5-libs \
+    libldap \
+    libedit \
     && rm -rf /var/cache/apk/*
+
+# Copy pg_dump and psql from the same postgres image used in docker-compose
+# This ensures version consistency between backup tools and the database server
+COPY --from=pg-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump
+COPY --from=pg-client /usr/local/bin/psql /usr/local/bin/psql
+COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
+# Fail the build if the chosen image overrides leave missing runtime libraries.
+RUN pg_dump --version && psql --version
 
 # Create non-root user
 RUN addgroup -g 1000 sub2api && \
@@ -106,12 +125,12 @@ RUN addgroup -g 1000 sub2api && \
 # Set working directory
 WORKDIR /app
 
-# Copy binary and runtime fallback resources from builder
-COPY --from=backend-builder /app/sub2api /app/sub2api
+# Copy binary/resources with ownership to avoid extra full-layer chown copy
+COPY --from=backend-builder --chown=sub2api:sub2api /app/sub2api /app/sub2api
 COPY --from=backend-builder --chown=sub2api:sub2api /app/backend/resources /app/resources
 
 # Create data directory
-RUN mkdir -p /app/data && chown -R sub2api:sub2api /app
+RUN mkdir -p /app/data && chown sub2api:sub2api /app/data
 
 # Copy entrypoint script (fixes volume permissions then drops to sub2api)
 COPY deploy/docker-entrypoint.sh /app/docker-entrypoint.sh
@@ -120,7 +139,7 @@ RUN chmod +x /app/docker-entrypoint.sh
 # Expose port (can be overridden by SERVER_PORT env var)
 EXPOSE 8080
 
-# Health check
+# Liveness only; reverse proxies use /ready for dependency readiness.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
 

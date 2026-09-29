@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -40,8 +41,12 @@ func TestGeminiTokenProvider_SharedProjectKeepsCredentialOwnersIsolated(t *testi
 		require.Equal(t, acc.GetCredential("access_token"), token)
 	}
 	require.NotEqual(t, GeminiTokenCacheKey(a), GeminiTokenCacheKey(b))
+	oldKey := GeminiTokenCacheKey(a)
 	a.Credentials["project_id"] = "auto-detected-project"
-	require.Equal(t, "token-a", cache.tokens[GeminiTokenCacheKey(a)], "project discovery must not change credential ownership")
+	require.NotEqual(t, oldKey, GeminiTokenCacheKey(a), "routing identity changes must retire cached tokens")
+	token, err := provider.GetAccessToken(context.Background(), a)
+	require.NoError(t, err)
+	require.Equal(t, "token-a", token)
 }
 
 func TestGeminiTokenCacheKey(t *testing.T) {
@@ -111,7 +116,12 @@ func TestGeminiTokenCacheKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := GeminiTokenCacheKey(tt.account)
-			require.Equal(t, tt.expected, result)
+			if strings.HasPrefix(tt.expected, "ag:") || tt.account == nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.True(t, strings.HasPrefix(result, tt.expected+":"))
+				require.Len(t, strings.TrimPrefix(result, tt.expected+":"), 64)
+			}
 		})
 	}
 }
@@ -183,7 +193,12 @@ func TestAntigravityTokenCacheKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := AntigravityTokenCacheKey(tt.account)
-			require.Equal(t, tt.expected, result)
+			if strings.HasPrefix(tt.expected, "ag:") || tt.account == nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.True(t, strings.HasPrefix(result, tt.expected+":"))
+				require.Len(t, strings.TrimPrefix(result, tt.expected+":"), 64)
+			}
 		})
 	}
 }
@@ -230,7 +245,12 @@ func TestOpenAITokenCacheKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := OpenAITokenCacheKey(tt.account)
-			require.Equal(t, tt.expected, result)
+			if strings.HasPrefix(tt.expected, "ag:") || tt.account == nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.True(t, strings.HasPrefix(result, tt.expected+":"))
+				require.Len(t, strings.TrimPrefix(result, tt.expected+":"), 64)
+			}
 		})
 	}
 }
@@ -275,7 +295,12 @@ func TestGrokTokenCacheKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := GrokTokenCacheKey(tt.account)
-			require.Equal(t, tt.expected, result)
+			if strings.HasPrefix(tt.expected, "ag:") || tt.account == nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.True(t, strings.HasPrefix(result, tt.expected+":"))
+				require.Len(t, strings.TrimPrefix(result, tt.expected+":"), 64)
+			}
 		})
 	}
 }
@@ -339,7 +364,12 @@ func TestClaudeTokenCacheKey(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result := ClaudeTokenCacheKey(tt.account)
-			require.Equal(t, tt.expected, result)
+			if strings.HasPrefix(tt.expected, "ag:") || tt.account == nil {
+				require.Equal(t, tt.expected, result)
+			} else {
+				require.True(t, strings.HasPrefix(result, tt.expected+":"))
+				require.Len(t, strings.TrimPrefix(result, tt.expected+":"), 64)
+			}
 		})
 	}
 }

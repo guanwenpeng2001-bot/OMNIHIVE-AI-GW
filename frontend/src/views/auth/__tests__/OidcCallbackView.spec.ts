@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { normalizeApiError } from '@/utils/apiError'
 
 import OidcCallbackView from '../OidcCallbackView.vue'
 
@@ -100,7 +101,7 @@ describe('OidcCallbackView', () => {
     sessionStorage.clear()
   })
 
-  it('accepts the legacy fragment token success callback without pending-session exchange', async () => {
+  it('rejects legacy token fragments after removing them from browser history', async () => {
     window.location.hash =
       '#access_token=legacy-access-token&refresh_token=legacy-refresh-token&expires_in=3600&token_type=Bearer&redirect=%2Flegacy-dashboard'
     setToken.mockResolvedValue({})
@@ -119,11 +120,11 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).not.toHaveBeenCalled()
-    expect(setToken).toHaveBeenCalledWith('legacy-access-token')
-    expect(localStorage.getItem('refresh_token')).toBe('legacy-refresh-token')
-    expect(localStorage.getItem('token_expires_at')).not.toBeNull()
-    expect(showSuccess).toHaveBeenCalledWith('auth.loginSuccess')
-    expect(replace).toHaveBeenCalledWith('/legacy-dashboard')
+    expect(setToken).not.toHaveBeenCalled()
+    expect(localStorage.getItem('refresh_token')).toBeNull()
+    expect(localStorage.getItem('token_expires_at')).toBeNull()
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(replace).not.toHaveBeenCalled()
   })
 
   it('accepts the legacy pending oauth invitation fragment without pending-session exchange', async () => {
@@ -190,7 +191,7 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).toHaveBeenCalledTimes(1)
-    expect(exchangePendingOAuthCompletion).toHaveBeenCalledWith()
+    expect(exchangePendingOAuthCompletion).toHaveBeenCalledWith(undefined, undefined)
   })
 
   it('waits for explicit adoption confirmation before finishing a non-invitation login', async () => {
@@ -233,7 +234,7 @@ describe('OidcCallbackView', () => {
     await flushPromises()
 
     expect(exchangePendingOAuthCompletion).toHaveBeenCalledTimes(2)
-    expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(1)
+    expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(1, undefined, undefined)
     expect(exchangePendingOAuthCompletion).toHaveBeenNthCalledWith(2, {
       adoptDisplayName: false,
       adoptAvatar: true
@@ -489,19 +490,24 @@ describe('OidcCallbackView', () => {
     expect(replace).toHaveBeenCalledWith('/welcome')
   })
 
-  it('switches to bind-login when create-account returns EMAIL_EXISTS', async () => {
+  it.each(
+    ['EMAIL_EXISTS', 'BIND_LOGIN_REQUIRED', 'bind_login', 'adopt_existing_user_by_email',
+      'existing_account_required', 'existing_account_binding_required', 'REGISTRATION_DISABLED']
+      .flatMap(reason => [
+        { code: 409, reason, metadata: {} },
+        { code: reason },
+        { error: reason },
+      ].map(envelope => ({ reason, envelope })))
+  )('handles normalized recovery reason $reason from $envelope', async ({ reason, envelope }) => {
     exchangePendingOAuthCompletion.mockResolvedValue({
       error: 'email_required',
       redirect: '/welcome'
     })
-    apiClientPost.mockRejectedValue({
-      response: {
-        data: {
-          reason: 'EMAIL_EXISTS',
-          message: 'email already exists'
-        }
-      }
+    const normalizedError = normalizeApiError({
+      response: { status: 409, data: { ...envelope, message: 'email already exists' } }
     })
+    expect(normalizedError).not.toHaveProperty('response')
+    apiClientPost.mockRejectedValue(normalizedError)
 
     const wrapper = mount(OidcCallbackView, {
       global: {
@@ -520,9 +526,14 @@ describe('OidcCallbackView', () => {
     await wrapper.get('[data-testid="oidc-create-account-submit"]').trigger('click')
     await flushPromises()
 
-    expect((wrapper.get('[data-testid="oidc-bind-login-email"]').element as HTMLInputElement).value).toBe(
-      'existing@example.com'
-    )
+    if (reason === 'REGISTRATION_DISABLED') {
+      expect(wrapper.find('[data-testid="oidc-bind-login-email"]').exists()).toBe(false)
+      expect(wrapper.find('[data-testid="oidc-create-account-submit"]').exists()).toBe(true)
+    } else {
+      expect((wrapper.get('[data-testid="oidc-bind-login-email"]').element as HTMLInputElement).value)
+        .toBe('existing@example.com')
+    }
+    wrapper.unmount()
   })
 
   it('shows create-account failures through toast without inline error text', async () => {

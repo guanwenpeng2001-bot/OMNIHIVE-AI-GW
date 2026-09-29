@@ -68,12 +68,16 @@ func enforceSessionBinding(
 	if settingService == nil || !settingService.IsSessionBindingEnabled(c.Request.Context()) {
 		return true
 	}
-	if claims == nil || claims.BindingHash == "" {
+	if claims == nil {
+		AbortWithError(c, 401, "INVALID_TOKEN", "Invalid token")
+		return false
+	}
+	if claims.BindingHash == "" {
 		return true
 	}
 	binding := requestSessionBinding(c)
 	current := binding.Hash()
-	if current == "" || current == claims.BindingHash {
+	if current != "" && current == claims.BindingHash {
 		return true
 	}
 

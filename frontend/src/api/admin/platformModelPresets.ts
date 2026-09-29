@@ -1,5 +1,5 @@
 import { apiClient } from '../client'
-import type { PlatformModelPreset } from '@/types'
+import type { PlatformModelPreset } from '@/types/model'
 export type { PlatformModelPreset } from '@/types'
 
 // Editorial candidates never establish account entitlement.

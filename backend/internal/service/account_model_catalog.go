@@ -5,8 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"net/http"
 	"net/url"
 	"reflect"
 	"sort"
@@ -256,7 +254,9 @@ func projectAccountModelCatalog(account *Account, catalog *UpstreamModelCatalog)
 	catalog.ObservedAt = time.Now().UTC().Format(time.RFC3339Nano)
 	catalog.DiscoveryScope, catalog.ProviderProfile = accountCatalogScope(account)
 	catalog.Complete = true
+	catalog.DiscoveryComplete = true
 	catalog.DiscoveredModels = dedupeAndSortModelIDs(catalog.Models)
+	catalog.CandidateModels = append([]string{}, catalog.DiscoveredModels...)
 	catalog.Models = []string{}
 	catalog.ExcludedModels = []ExcludedCatalogModel{}
 	catalog.InvalidAliases = []string{}
@@ -330,6 +330,7 @@ func projectAccountModelCatalog(account *Account, catalog *UpstreamModelCatalog)
 	catalog.InvalidAliases = InvalidAccountCatalogAliases(account, snapshot)
 	catalog.EligibleModels = snapshot.EligibleModels
 	populateAccountCatalogCapabilities(account, catalog, snapshot)
+	catalog.CapabilityStatus = snapshot.CapabilityStatus
 	return snapshot
 }
 
@@ -636,7 +637,7 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
-	if account.Platform == PlatformBedrock {
+	if account.UsesBedrockCatalog() {
 		return []string{CompositeRouteEndpointMessages}
 	}
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey {
@@ -691,80 +692,6 @@ func ModelDisplayCategory(metadata UpstreamModelMetadata) string {
 }
 
 type catalogDiscoveryKey struct{}
-
-func (service *AccountTestService) fetchCompleteModelPages(request *http.Request, account *Account) ([]string, []byte, error) {
-	entries := []json.RawMessage{}
-	seen := map[string]bool{}
-	limit := resolveModelsListReadLimit(service.cfg)
-	var consumed int64
-	for page := 0; page < 100; page++ {
-		response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
-		if err != nil || response == nil || response.Body == nil {
-			return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request model catalog", err)
-		}
-		body, readErr := io.ReadAll(io.LimitReader(response.Body, limit-consumed+1))
-		_ = response.Body.Close()
-		if response.StatusCode < 200 || response.StatusCode >= 300 {
-			return nil, nil, newUpstreamModelDiscoveryHTTPError(response.StatusCode, body)
-		}
-		consumed += int64(len(body))
-		if readErr != nil || consumed > limit {
-			return nil, nil, newUpstreamModelSyncUpstreamError(fmt.Sprintf("model catalog response exceeds %d bytes or is unreadable", limit), readErr)
-		}
-		pageEntries, err := extractUpstreamModelRawEntries(body)
-		if err != nil {
-			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model catalog structure", err)
-		}
-		entries = append(entries, pageEntries...)
-		var paging struct {
-			HasMore       bool   `json:"has_more"`
-			LastID        string `json:"last_id"`
-			NextPageToken string `json:"nextPageToken"`
-		}
-		if len(body) > 0 && body[0] != '[' {
-			if err := json.Unmarshal(body, &paging); err != nil {
-				return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model pagination", err)
-			}
-		}
-		cursor, parameter := paging.NextPageToken, "pageToken"
-		if paging.HasMore {
-			cursor, parameter = paging.LastID, "after"
-			if account.IsAnthropic() {
-				parameter = "after_id"
-			}
-			if cursor == "" {
-				return nil, nil, newUpstreamModelSyncUpstreamError("Missing next model page cursor", nil)
-			}
-		}
-		if cursor == "" {
-			merged, err := json.Marshal(struct {
-				Data []json.RawMessage `json:"data"`
-			}{entries})
-			if err != nil {
-				return nil, nil, err
-			}
-			selector := upstreamModelEntryID
-			if account.IsGrok() {
-				selector = grokUpstreamModelEntryID
-			}
-			ids, err := extractCatalogModelIDsWithSelector(merged, selector)
-			if err != nil {
-				return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entry", err)
-			}
-			return ids, merged, nil
-		}
-		if seen[cursor] || len(pageEntries) == 0 {
-			return nil, nil, newUpstreamModelSyncUpstreamError("Model pagination did not advance", nil)
-		}
-		seen[cursor] = true
-		next := request.Clone(request.Context())
-		query := next.URL.Query()
-		query.Set(parameter, cursor)
-		next.URL.RawQuery = query.Encode()
-		request = next
-	}
-	return nil, nil, newUpstreamModelSyncUpstreamError("Model pagination exceeded page limit", nil)
-}
 
 func applyCapabilityEndpointFacts(account *Account, m *UpstreamModelMetadata) {
 	if account == nil || m.TaskType == "" || m.SupportedMethods != nil {

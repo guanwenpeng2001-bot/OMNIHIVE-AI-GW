@@ -16,7 +16,7 @@ import (
 )
 
 var (
-	baseURL = getEnv("BASE_URL", "http://localhost:8080")
+	baseURL = strings.TrimRight(strings.TrimSpace(os.Getenv("BASE_URL")), "/")
 	// ENDPOINT_PREFIX: 端点前缀，支持混合模式和非混合模式测试
 	// - "" (默认): 使用 /v1/messages, /v1beta/models（混合模式，可调度 antigravity 账户）
 	// - "/antigravity": 使用 /antigravity/v1/messages, /antigravity/v1beta/models（非混合模式，仅 antigravity 账户）
@@ -88,6 +88,7 @@ func TestMain(m *testing.M) {
 
 func requireClaudeAPIKey(t *testing.T) string {
 	t.Helper()
+	requireE2EServer(t)
 	key := strings.TrimSpace(os.Getenv(claudeAPIKeyEnv))
 	if key == "" {
 		t.Skipf("未设置 %s，跳过 Claude 相关 E2E 测试", claudeAPIKeyEnv)
@@ -97,6 +98,7 @@ func requireClaudeAPIKey(t *testing.T) string {
 
 func requireGeminiAPIKey(t *testing.T) string {
 	t.Helper()
+	requireE2EServer(t)
 	key := strings.TrimSpace(os.Getenv(geminiAPIKeyEnv))
 	if key == "" {
 		t.Skipf("未设置 %s，跳过 Gemini 相关 E2E 测试", geminiAPIKeyEnv)
@@ -530,16 +532,6 @@ func testClaudeMessageWithTools(t *testing.T, claudeKey string, model string) {
 		t.Fatalf("Schema 清理失败，收到 400 错误: %s", string(respBody))
 	}
 
-	// 503 可能是账号限流，不算测试失败
-	if resp.StatusCode == 503 {
-		t.Skipf("账号暂时不可用 (503): %s", string(respBody))
-	}
-
-	// 429 是限流
-	if resp.StatusCode == 429 {
-		t.Skipf("请求被限流 (429): %s", string(respBody))
-	}
-
 	if resp.StatusCode != 200 {
 		t.Fatalf("HTTP %d: %s", resp.StatusCode, string(respBody))
 	}
@@ -656,16 +648,6 @@ func testClaudeThinkingWithToolHistory(t *testing.T, claudeKey string, model str
 	// 400 错误说明 thought_signature 处理失败
 	if resp.StatusCode == 400 {
 		t.Fatalf("thought_signature 处理失败，收到 400 错误: %s", string(respBody))
-	}
-
-	// 503 可能是账号限流，不算测试失败
-	if resp.StatusCode == 503 {
-		t.Skipf("账号暂时不可用 (503): %s", string(respBody))
-	}
-
-	// 429 是限流
-	if resp.StatusCode == 429 {
-		t.Skipf("请求被限流 (429): %s", string(respBody))
 	}
 
 	if resp.StatusCode != 200 {
@@ -789,14 +771,6 @@ func testClaudeWithNoSignature(t *testing.T, claudeKey string, model string) {
 
 	if resp.StatusCode == 400 {
 		t.Fatalf("无 signature thinking 处理失败，收到 400 错误: %s", string(respBody))
-	}
-
-	if resp.StatusCode == 503 {
-		t.Skipf("账号暂时不可用 (503): %s", string(respBody))
-	}
-
-	if resp.StatusCode == 429 {
-		t.Skipf("请求被限流 (429): %s", string(respBody))
 	}
 
 	if resp.StatusCode != 200 {

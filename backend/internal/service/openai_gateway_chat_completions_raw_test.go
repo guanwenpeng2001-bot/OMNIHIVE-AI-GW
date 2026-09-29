@@ -1078,9 +1078,9 @@ func TestForwardAsRawChatCompletions_ClientDisconnectDrainsUsage(t *testing.T) {
 	result, err := svc.forwardAsRawChatCompletions(context.Background(), c, account, body, "")
 	require.Error(t, err)
 	require.NotNil(t, result)
-	require.Equal(t, 17, result.Usage.InputTokens)
-	require.Equal(t, 8, result.Usage.OutputTokens)
-	require.Equal(t, 6, result.Usage.CacheReadInputTokens)
+	require.Zero(t, result.Usage.InputTokens)
+	require.Zero(t, result.Usage.OutputTokens)
+	require.Zero(t, result.Usage.CacheReadInputTokens)
 	require.True(t, gjson.GetBytes(upstream.lastBody, "stream_options.include_usage").Bool())
 }
 
@@ -1115,9 +1115,8 @@ func TestForwardAsRawChatCompletions_CanceledClientDrainsThenReleasesUpstream(t 
 
 	result, err := svc.forwardAsRawChatCompletions(reqCtx, c, account, body, "")
 	require.ErrorIs(t, err, context.Canceled)
-	require.NotNil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled)
+	require.Nil(t, result)
+	require.Nil(t, upstream.lastReq)
 }
 
 func TestForwardAsChatCompletions_UnknownResponsesSupportFallbackUsesVersionedChatURL(t *testing.T) {

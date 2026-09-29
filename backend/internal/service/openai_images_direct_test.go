@@ -27,7 +27,7 @@ func TestCodexDirectImagesRouting(t *testing.T) {
 			parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 			require.NoError(t, err)
 			ctx, cancel := context.WithCancel(context.Background())
-			cancel()
+			defer cancel()
 			result, err := svc.ForwardImages(ctx, c, directImagesTestAccount(), body, parsed, "")
 			require.NoError(t, err)
 			require.Equal(t, 1, result.ImageCount)
@@ -35,7 +35,8 @@ func TestCodexDirectImagesRouting(t *testing.T) {
 			require.Equal(t, model, result.UpstreamModel)
 			require.Equal(t, "/backend-api/codex/images/generations", result.UpstreamEndpoint)
 			require.Equal(t, "https://chatgpt.com/backend-api/codex/images/generations", upstream.lastReq.URL.String())
-			require.NoError(t, upstream.lastReq.Context().Err())
+			require.NoError(t, ctx.Err(), "closing the response must not cancel its caller")
+			require.ErrorIs(t, upstream.lastReq.Context().Err(), context.Canceled, "the completed generation releases its upstream context")
 			require.Equal(t, "Bearer test-token", upstream.lastReq.Header.Get("Authorization"))
 			require.Equal(t, "application/json", upstream.lastReq.Header.Get("Accept"))
 			require.Empty(t, upstream.lastReq.Header.Get("OpenAI-Beta"))
@@ -151,7 +152,7 @@ func TestCodexDirectImagesStreaming(t *testing.T) {
 	}{
 		{"completed", "complete", 1, false, false},
 		{"duplicate", "complete,complete", 1, false, false},
-		{"disconnect", "partial,complete", 1, false, true},
+		{"disconnect", "partial,complete", 0, true, true},
 		{"truncated", "partial", 0, true, false},
 		{"partial_requested_multiple", "complete", 1, false, false},
 		{"error", "error", 0, true, false},

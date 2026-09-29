@@ -5,7 +5,6 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -145,10 +144,11 @@ func TestLinuxDoOAuthBindStartRedirectsAndSetsBindCookies(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/oauth/linuxdo/bind/start?intent=bind_current_user&redirect=/settings/connections", nil)
 	c.Request = req
 	c.Set(string(servermiddleware.ContextKeyUser), servermiddleware.AuthSubject{UserID: 42})
+	expectedUserID := prepareOAuthBindStart(t, handler, c, 42)
 
 	handler.LinuxDoOAuthStart(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "connect.linux.do/oauth/authorize")
 	require.Contains(t, location, "client_id=linuxdo-client")
@@ -168,7 +168,7 @@ func TestLinuxDoOAuthBindStartRedirectsAndSetsBindCookies(t *testing.T) {
 	require.NotNil(t, bindCookie)
 	userID, err := parseOAuthBindUserCookieValue(decodeCookieValueForTest(t, bindCookie.Value), "test-secret")
 	require.NoError(t, err)
-	require.Equal(t, int64(42), userID)
+	require.Equal(t, expectedUserID, userID)
 }
 
 func TestLinuxDoOAuthStartOmitsPKCEWhenDisabled(t *testing.T) {
@@ -192,7 +192,7 @@ func TestLinuxDoOAuthStartOmitsPKCEWhenDisabled(t *testing.T) {
 
 	handler.LinuxDoOAuthStart(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.NotContains(t, recorder.Header().Get("Location"), "code_challenge=")
 	require.Nil(t, findCookie(recorder.Result().Cookies(), linuxDoOAuthVerifierCookie))
 }
@@ -238,12 +238,16 @@ func TestLinuxDoOAuthCallbackAllowsMissingVerifierWhenPKCEDisabled(t *testing.T)
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-123"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "/auth/linuxdo/callback#")
-	require.Contains(t, location, "access_token=")
+	require.Contains(t, location, "code=")
+	require.NotContains(t, location, "access_token=")
+	require.NotContains(t, location, "refresh_token=")
 	requireCookieCleared(t, recorder, oauthPendingSessionCookieName)
 
 	identity, err := client.AuthIdentity.Query().
@@ -257,7 +261,7 @@ func TestLinuxDoOAuthCallbackAllowsMissingVerifierWhenPKCEDisabled(t *testing.T)
 	require.Positive(t, identity.UserID)
 }
 
-func TestLinuxDoOAuthBindStartAcceptsAccessTokenCookie(t *testing.T) {
+func TestLinuxDoOAuthBindStartAcceptsOneTimePreparation(t *testing.T) {
 	handler, client := newLinuxDoOAuthHandlerAndClient(t, false, config.LinuxDoConnectConfig{
 		Enabled:             true,
 		ClientID:            "linuxdo-client",
@@ -298,9 +302,10 @@ func TestLinuxDoOAuthBindStartAcceptsAccessTokenCookie(t *testing.T) {
 	req.AddCookie(&http.Cookie{Name: oauthBindAccessTokenCookieName, Value: token, Path: oauthBindAccessTokenCookiePath})
 	c.Request = req
 
+	prepareOAuthBindStart(t, handler, c, user.ID)
 	handler.LinuxDoOAuthStart(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 
 	bindCookie := findCookie(recorder.Result().Cookies(), linuxDoOAuthBindUserCookieName)
 	require.NotNil(t, bindCookie)
@@ -320,18 +325,22 @@ func TestPrepareOAuthBindAccessTokenCookieSetsHttpOnlyCookie(t *testing.T) {
 	recorder := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(recorder)
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/oauth/bind-token", nil)
-	req.Header.Set("Authorization", "Bearer access-token-value")
+	token, err := handler.authService.GenerateToken(context.Background(), &service.User{ID: 42, Email: "bind@example.com", Role: service.RoleUser, Status: service.StatusActive})
+	require.NoError(t, err)
+	req.Header.Set("Authorization", "Bearer "+token)
 	c.Request = req
 
 	handler.PrepareOAuthBindAccessTokenCookie(c)
 
-	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Equal(t, http.StatusOK, recorder.Code)
 	accessTokenCookie := findCookie(recorder.Result().Cookies(), oauthBindAccessTokenCookieName)
 	require.NotNil(t, accessTokenCookie)
 	require.Equal(t, oauthBindAccessTokenCookiePath, accessTokenCookie.Path)
 	require.Equal(t, linuxDoOAuthCookieMaxAgeSec, accessTokenCookie.MaxAge)
 	require.True(t, accessTokenCookie.HttpOnly)
-	require.Equal(t, url.QueryEscape("access-token-value"), accessTokenCookie.Value)
+	require.NotEmpty(t, accessTokenCookie.Value)
+	require.NotEqual(t, token, accessTokenCookie.Value)
+	require.Contains(t, recorder.Body.String(), "csrf_token")
 }
 
 func TestLinuxDoOAuthCallbackCreatesLoginPendingSessionForExistingIdentityUser(t *testing.T) {
@@ -392,15 +401,17 @@ func TestLinuxDoOAuthCallbackCreatesLoginPendingSessionForExistingIdentityUser(t
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-123"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/linuxdo/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -477,13 +488,15 @@ func TestLinuxDoOAuthCallbackRejectsDisabledExistingIdentityUser(t *testing.T) {
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-disabled"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Nil(t, findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName))
 	assertOAuthRedirectError(t, recorder.Header().Get("Location"), "session_error", "USER_NOT_ACTIVE")
 
-	count, err := client.PendingAuthSession.Query().Count(ctx)
+	count, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, count)
 }
@@ -538,15 +551,17 @@ func TestLinuxDoOAuthCallbackCreatesBindPendingSessionForCompatEmailUser(t *test
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-compat"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/linuxdo/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -608,16 +623,18 @@ func TestLinuxDoOAuthCallbackCreatesChoicePendingSessionWhenSignupRequiresInvite
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-456"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/linuxdo/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
 	ctx := context.Background()
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -671,15 +688,17 @@ func TestLinuxDoOAuthCallbackEmailVerificationCompletesWithBoundEmail(t *testing
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-email"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/linuxdo/callback", recorder.Header().Get("Location"))
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
 	ctx := context.Background()
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -773,13 +792,17 @@ func TestLinuxDoOAuthCallbackDirectlyLogsInNewUserWhenEmailVerificationDisabled(
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-direct"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	location := recorder.Header().Get("Location")
 	require.Contains(t, location, "/auth/linuxdo/callback#")
-	require.Contains(t, location, "access_token=")
-	require.Contains(t, location, "refresh_token=")
+	require.Contains(t, location, "code=")
+	require.NotContains(t, location, "access_token=")
+	require.NotContains(t, location, "refresh_token=")
+	require.NotContains(t, location, "refresh_token=")
 	fragmentValues := parseOAuthRedirectFragment(t, location)
 	require.Equal(t, "/dashboard", fragmentValues.Get("redirect"))
 	requireCookieCleared(t, recorder, oauthPendingSessionCookieName)
@@ -804,7 +827,7 @@ func TestLinuxDoOAuthCallbackDirectlyLogsInNewUserWhenEmailVerificationDisabled(
 	require.Equal(t, userEntity.ID, identity.UserID)
 	require.Equal(t, "https://cdn.example/direct.png", identity.Metadata["suggested_avatar_url"])
 
-	sessionCount, err := client.PendingAuthSession.Query().Count(ctx)
+	sessionCount, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).Count(ctx)
 	require.NoError(t, err)
 	require.Zero(t, sessionCount)
 }
@@ -860,15 +883,17 @@ func TestLinuxDoOAuthCallbackCreatesBindPendingSessionForCurrentUser(t *testing.
 	req.AddCookie(encodedCookie(oauthPendingBrowserCookieName, "browser-bind"))
 	c.Request = req
 
+	prepareOAuthCallbackState(t, handler, c, "linuxdo", linuxDoOAuthStateCookieName)
+
 	handler.LinuxDoOAuthCallback(c)
 
-	require.Equal(t, http.StatusFound, recorder.Code)
+	require.Equal(t, http.StatusFound, recorder.Code, recorder.Body.String())
 	require.Equal(t, "/auth/linuxdo/callback", recorder.Header().Get("Location"))
 
 	sessionCookie := findCookie(recorder.Result().Cookies(), oauthPendingSessionCookieName)
 	require.NotNil(t, sessionCookie)
 
-	session, err := client.PendingAuthSession.Query().
+	session, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.SessionTokenEQ(decodeCookieValueForTest(t, sessionCookie.Value))).
 		Only(ctx)
 	require.NoError(t, err)
@@ -957,7 +982,7 @@ func TestCompleteLinuxDoOAuthRegistrationAppliesPendingAdoptionDecision(t *testi
 	require.True(t, decision.AdoptDisplayName)
 	require.True(t, decision.AdoptAvatar)
 
-	consumed, err := client.PendingAuthSession.Query().
+	consumed, err := client.PendingAuthSession.Query().Where(pendingauthsession.ProviderKeyNEQ("urn:sub2api:identity-ticket")).
 		Where(pendingauthsession.IDEQ(session.ID)).
 		Only(ctx)
 	require.NoError(t, err)

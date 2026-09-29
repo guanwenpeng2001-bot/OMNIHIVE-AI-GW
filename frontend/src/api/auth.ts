@@ -16,8 +16,8 @@ import type {
   PublicSettings,
   ActionCaptchaRequestProof,
   TotpLoginResponse,
-  TotpLogin2FARequest
-} from '@/types'
+  TotpLogin2FARequest,
+} from '@/types/user'
 
 /**
  * Login response type - can be either full auth or 2FA required
@@ -315,11 +315,13 @@ export function persistOAuthTokenContext(tokens: Partial<OAuthTokenResponse>): v
   }
 }
 
-export async function prepareOAuthBindAccessTokenCookie(): Promise<void> {
+export async function prepareOAuthBindAccessTokenCookie(): Promise<string> {
   if (!getAuthToken()) {
-    return
+    throw new Error('Authentication required')
   }
-  await apiClient.post('/auth/oauth/bind-token')
+  const { data } = await apiClient.post<{ csrf_token: string }>('/auth/oauth/bind-token')
+  if (!data.csrf_token) throw new Error('OAuth binding preparation failed')
+  return data.csrf_token
 }
 
 /**
@@ -351,8 +353,8 @@ export function isAuthenticated(): boolean {
  * Get public settings (no auth required)
  * @returns Public settings including registration and Turnstile config
  */
-export async function getPublicSettings(): Promise<PublicSettings> {
-  const { data } = await apiClient.get<PublicSettings>('/settings/public')
+export async function getPublicSettings(options?: { signal?: AbortSignal }): Promise<PublicSettings> {
+  const { data } = await apiClient.get<PublicSettings>('/settings/public', options)
   return data
 }
 
@@ -674,8 +676,15 @@ export async function completePendingOAuthBindLogin(
 }
 
 export async function exchangePendingOAuthCompletion(
-  decision?: OAuthAdoptionDecision
+  decision?: OAuthAdoptionDecision,
+  code?: string
 ): Promise<PendingOAuthExchangeResponse> {
+  if (code) {
+    const { data } = await apiClient.post<PendingOAuthExchangeResponse>('/auth/oauth/pending/exchange', {
+      ...serializeOAuthAdoptionDecision(decision), code
+    })
+    return data
+  }
   return completePendingOAuthBindLogin(decision)
 }
 

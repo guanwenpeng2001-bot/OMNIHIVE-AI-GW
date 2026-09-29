@@ -5,6 +5,7 @@ import (
 	"log"
 	"math"
 	"net/http"
+	"strconv"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/util/logredact"
@@ -13,11 +14,11 @@ import (
 
 // Response 标准API响应格式
 type Response struct {
-	Code     int               `json:"code"`
-	Message  string            `json:"message"`
-	Reason   string            `json:"reason,omitempty"`
-	Metadata map[string]string `json:"metadata,omitempty"`
-	Data     any               `json:"data,omitempty"`
+	Code     int    `json:"code"`
+	Message  string `json:"message"`
+	Reason   string `json:"reason,omitempty"`
+	Metadata any    `json:"metadata,omitempty"`
+	Data     any    `json:"data,omitempty"`
 }
 
 // PaginatedData 分页数据格式（匹配前端期望）
@@ -58,23 +59,53 @@ func Accepted(c *gin.Context, data any) {
 
 // Error 返回错误响应
 func Error(c *gin.Context, statusCode int, message string) {
-	c.JSON(statusCode, Response{
-		Code:     statusCode,
-		Message:  message,
-		Reason:   "",
-		Metadata: nil,
-	})
+	ErrorWithDetails(c, statusCode, message, "", nil)
 }
 
-// ErrorWithDetails returns an error response compatible with the existing envelope while
-// optionally providing structured error fields (reason/metadata).
-func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata map[string]string) {
-	c.JSON(statusCode, Response{
-		Code:     statusCode,
-		Message:  message,
-		Reason:   reason,
-		Metadata: metadata,
-	})
+// NewErrorResponse constructs the management envelope, including empty metadata.
+// A domain reason takes precedence over the stable HTTP fallback.
+func NewErrorResponse(statusCode int, message, reason string, metadata any) Response {
+	if reason == "" {
+		switch statusCode {
+		case http.StatusBadRequest:
+			reason = "BAD_REQUEST"
+		case http.StatusUnauthorized:
+			reason = "UNAUTHORIZED"
+		case http.StatusForbidden:
+			reason = "FORBIDDEN"
+		case http.StatusNotFound:
+			reason = "NOT_FOUND"
+		case http.StatusConflict:
+			reason = "CONFLICT"
+		case http.StatusTooManyRequests:
+			reason = "RATE_LIMITED"
+		case http.StatusInternalServerError:
+			reason = "INTERNAL_ERROR"
+		case http.StatusServiceUnavailable:
+			reason = "SERVICE_UNAVAILABLE"
+		default:
+			reason = "HTTP_" + strconv.Itoa(statusCode)
+		}
+	}
+	// Application errors use string metadata; confirmation handlers also carry typed fields.
+	switch values := metadata.(type) {
+	case nil:
+		metadata = map[string]any{}
+	case map[string]string:
+		if values == nil {
+			metadata = map[string]any{}
+		}
+	case map[string]any:
+		if values == nil {
+			metadata = map[string]any{}
+		}
+	}
+	return Response{Code: statusCode, Message: message, Reason: reason, Metadata: metadata}
+}
+
+// ErrorWithDetails writes the shared management error envelope.
+func ErrorWithDetails(c *gin.Context, statusCode int, message, reason string, metadata any) {
+	c.JSON(statusCode, NewErrorResponse(statusCode, message, reason, metadata))
 }
 
 // ErrorFrom converts an ApplicationError (or any error) into the envelope-compatible error response.

@@ -31,7 +31,7 @@ type attemptResponseBody struct {
 }
 
 func (b *attemptResponseBody) Close() error {
-	b.once.Do(func() { b.closeErr = b.ReadCloser.Close(); b.cleanup() })
+	b.once.Do(func() { b.cleanup(); b.closeErr = b.ReadCloser.Close() })
 	return b.closeErr
 }
 
@@ -281,29 +281,22 @@ func generationHTTP(request *http.Request, accountID int64, send func(*http.Requ
 		return nil, err
 	}
 	// Detached streaming contexts still obey the original cumulative deadline.
-	if b := AttemptBudgetFromContext(request.Context()); b != nil {
-		ctx, cancel := AttemptExecutionContext(request.Context())
-		request = request.WithContext(ctx)
-		response, sendErr := send(request)
-		status := 0
-		if response != nil {
-			status = response.StatusCode
-		}
-		finish(status, sendErr)
-		if sendErr != nil || response == nil || response.Body == nil {
-			cancel()
-		} else {
-			response.Body = &attemptResponseBody{ReadCloser: response.Body, cleanup: cancel}
-		}
-		return response, sendErr
-	}
-	response, err := send(request)
+	ctx, cancelGeneration := context.WithCancel(request.Context())
+	ctx, cancelDeadline := AttemptExecutionContext(ctx)
+	cancel := func() { cancelGeneration(); cancelDeadline() }
+	request = request.WithContext(ctx)
+	response, sendErr := send(request)
 	status := 0
 	if response != nil {
 		status = response.StatusCode
 	}
-	finish(status, err)
-	return response, err
+	finish(status, sendErr)
+	if sendErr != nil || response == nil || response.Body == nil {
+		cancel()
+	} else {
+		response.Body = &attemptResponseBody{ReadCloser: response.Body, cleanup: cancel}
+	}
+	return response, sendErr
 }
 
 // AttemptExecutionContext binds detached HTTP/WS work to the root cancellation

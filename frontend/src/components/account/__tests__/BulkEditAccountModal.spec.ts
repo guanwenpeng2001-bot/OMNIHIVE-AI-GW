@@ -86,7 +86,7 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 
 describe('BulkEditAccountModal', () => {
   it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
-    catalogPreview.mockReset().mockResolvedValue({ models: ['shared'], complete: true })
+    catalogPreview.mockReset().mockResolvedValue({ candidate_models: ['shared'], models: ['shared'], discovery_complete: true, complete: true })
     const wrapper = mountModal({ selectedPlatforms: ['openai'] })
     await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
@@ -143,7 +143,7 @@ describe('BulkEditAccountModal', () => {
   })
 
   it('saves only a complete explicit-set preview intersection through the real bulk form', async () => {
-    catalogPreview.mockReset().mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockRejectedValueOnce({ status: 502 })
+    catalogPreview.mockReset().mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockRejectedValueOnce({ status: 502 })
     vi.mocked(adminAPI.accounts.bulkUpdate).mockResolvedValue({ success: 2, failed: 0 } as any)
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockResolvedValue({ has_risk: false } as any)
     const wrapper = mountModal({ selectedPlatforms: ['openai'] })
@@ -153,7 +153,7 @@ describe('BulkEditAccountModal', () => {
     expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
     expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
     expect(adminAPI.accounts.bulkUpdate).not.toHaveBeenCalled()
-    catalogPreview.mockResolvedValueOnce({ models: ['common', 'only-first'], complete: true }).mockResolvedValueOnce({ models: ['common', 'only-second'], complete: true })
+    catalogPreview.mockResolvedValueOnce({ candidate_models: ['common', 'only-first'], models: ['common', 'only-first'], discovery_complete: true, complete: true }).mockResolvedValueOnce({ candidate_models: ['common', 'only-second'], models: ['common', 'only-second'], discovery_complete: true, complete: true })
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="add-common-models"]').trigger('click')
@@ -1052,5 +1052,31 @@ describe('BulkEditAccountModal', () => {
         codex_cli_only: true
       }
     })
+  })
+})
+
+describe('Management error contract bulk confirmation', () => {
+  it.each(['confirm', 'cancel'])('handles normalized 409 and %s without unintended writes', async action => {
+    vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset().mockResolvedValue({ has_risk: false } as any)
+    vi.mocked(adminAPI.accounts.bulkUpdate).mockReset().mockRejectedValueOnce({ status: 409, code: 409, reason: 'mixed_channel_warning', message: 'Confirm group', metadata: { group_id: 27, group_name: 'Review group' } }).mockResolvedValue({ success: 2, failed: 0, results: [] } as any)
+    const wrapper = mountModal()
+    await wrapper.get('#bulk-edit-rate-multiplier-enabled').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const dialog = wrapper.findAllComponents({ name: 'ConfirmDialog' }).find(component => component.props('title') === 'admin.accounts.mixedChannelWarningTitle')!
+    expect(dialog.props('show')).toBe(true)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
+    const payload = JSON.parse(JSON.stringify(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0][1]))
+    dialog.vm.$emit(action)
+    await flushPromises()
+    expect(dialog.props('show')).toBe(false)
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(action === 'confirm' ? 2 : 1)
+    if (action === 'confirm') {
+      expect(vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[1]).toEqual([[1, 2], { ...payload, confirm_mixed_channel_risk: true }])
+      expect(wrapper.emitted('updated')).toHaveLength(1)
+    } else {
+      expect(wrapper.emitted('updated')).toBeUndefined()
+    }
+    wrapper.unmount()
   })
 })

@@ -10,7 +10,7 @@ import (
 
 func TestMonitorAndQuotaPlatformAuthorities(t *testing.T) {
 	concrete := model.AllPlatforms()
-	require.ElementsMatch(t, concrete, AllowedQuotaPlatforms)
+	require.ElementsMatch(t, append(concrete, "vertex"), AllowedQuotaPlatforms)
 	expectedMonitors := make([]string, 0, len(concrete)-1)
 	for _, platform := range concrete {
 		if platform != PlatformCursor && platform != PlatformBedrock && !IsChatOnlyPlatform(platform) {

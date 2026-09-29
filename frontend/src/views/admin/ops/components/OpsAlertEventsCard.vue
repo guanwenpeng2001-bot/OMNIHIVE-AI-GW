@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { computed, onMounted, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
@@ -99,7 +101,7 @@ async function loadFirstPage() {
     hasMore.value = data.length === PAGE_SIZE
   } catch (err: any) {
     console.error('[OpsAlertEventsCard] Failed to load alert events', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.alertEvents.loadFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.alertEvents.loadFailed'))
     events.value = []
     hasMore.value = false
   } finally {
@@ -209,7 +211,7 @@ async function openDetail(row: AlertEvent) {
     selected.value = detail
   } catch (err: any) {
     console.error('[OpsAlertEventsCard] Failed to load alert detail', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.alertEvents.detail.loadFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.alertEvents.detail.loadFailed'))
   } finally {
     detailLoading.value = false
   }
@@ -288,7 +290,7 @@ async function silenceAlert() {
     appStore.showSuccess(t('admin.ops.alertEvents.detail.silenceSuccess'))
   } catch (err: any) {
     console.error('[OpsAlertEventsCard] Failed to silence alert', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.alertEvents.detail.silenceFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.alertEvents.detail.silenceFailed'))
   } finally {
     detailActionLoading.value = false
   }
@@ -309,7 +311,7 @@ async function manualResolve() {
     await loadHistory()
   } catch (err: any) {
     console.error('[OpsAlertEventsCard] Failed to resolve alert', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.alertEvents.detail.manualResolvedFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.alertEvents.detail.manualResolvedFailed'))
   } finally {
     detailActionLoading.value = false
   }

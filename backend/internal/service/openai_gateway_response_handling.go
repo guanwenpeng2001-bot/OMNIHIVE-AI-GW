@@ -27,6 +27,7 @@ import (
 
 // openaiStreamingResult streaming response result
 type openaiStreamingResult struct {
+	clientDisconnect bool
 	usage            *OpenAIUsage
 	firstTokenMs     *int
 	responseID       string
@@ -243,7 +244,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	// 注意：OpenAI `/v1/responses` streaming 事件必须符合 OpenAI Responses schema；
 	// 否则下游 SDK（例如 OpenCode）会因为类型校验失败而报错。
 	errorEventSent := false
-	clientDisconnected := false // 客户端断开后继续 drain 上游以收集 usage
+	clientDisconnected := false // Stop upstream generation on the next loop boundary.
 	sawTerminalEvent := false
 	sawFailedEvent := false
 	sawBareError := false
@@ -280,7 +281,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			return
 		}
 		clientDisconnected = true
-		logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
+		logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, canceling upstream with observed usage")
 	}
 	completeGuardedEvent := func(queueDrained bool) {
 		completedProgressEvent := eventStartsClientOutput
@@ -294,7 +295,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			if shouldFlush {
 				if err := flushBuffered(); err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
+					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, canceling upstream with observed usage")
 				} else {
 					clientOutputStarted = true
 					lastDownstreamWriteAt = time.Now()
@@ -347,6 +348,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	streamSearchSeen := make(map[string]struct{})
 	resultWithUsage := func() *openaiStreamingResult {
 		return &openaiStreamingResult{
+			clientDisconnect: clientDisconnected,
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
 			responseID:       responseID,
@@ -693,7 +695,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				return
 			}
 
-			// 写入客户端（客户端断开后继续 drain 上游）
+			// Write the current observed event; a failed write stops generation.
 			if !clientDisconnected && !failureDelivered && !suppressCurrentEvent {
 				shouldFlush := queueDrained && (clientOutputStarted || startsClientOutput)
 				if firstTokenMs == nil && startsVisibleOutput {
@@ -782,7 +784,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				if shouldFlush {
 					if err := flushBuffered(); err != nil {
 						clientDisconnected = true
-						logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, continuing to drain upstream for billing")
+						logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming flush, canceling upstream with observed usage")
 					} else {
 						clientOutputStarted = true
 						lastDownstreamWriteAt = time.Now()
@@ -796,14 +798,28 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 		}
 	}
 
+	defer resp.Body.Close()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
+	defer stopCancellation()
 	// 无超时/无 keepalive 的常见路径走同步扫描，减少 goroutine 与 channel 开销。
 	if streamInterval <= 0 && keepaliveInterval <= 0 && firstOutputTimeout <= 0 {
 		defer putSSEScannerBuf64K(scanBuf)
 		for documentScanner.Scan() {
+			if ctx.Err() != nil {
+				clientDisconnected = true
+				return resultWithUsage(), ctx.Err()
+			}
 			processSSELine(documentScanner.Text(), true)
+			if clientDisconnected {
+				return resultWithUsage(), context.Canceled
+			}
 			if streamEarlyErr != nil {
 				return resultWithUsage(), streamEarlyErr
 			}
+		}
+		if ctx.Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), ctx.Err()
 		}
 		if result, err, done := handleScanErr(documentScanner.Err()); done {
 			return result, err
@@ -864,7 +880,14 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	defer close(done)
 
 	for {
+		if clientDisconnected || ctx.Err() != nil {
+			clientDisconnected = true
+			return resultWithUsage(), context.Canceled
+		}
 		select {
+		case <-ctx.Done():
+			clientDisconnected = true
+			return resultWithUsage(), ctx.Err()
 		case ev, ok := <-events:
 			if !ok {
 				if stageFirstOutput && eventInProgress {
@@ -953,7 +976,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				recordOpenAIStreamKeepaliveBytes(c, n)
 				if err != nil {
 					clientDisconnected = true
-					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
+					logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, canceling upstream with observed usage")
 					continue
 				}
 				flusher.Flush()
@@ -962,12 +985,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 			}
 			if _, err := writePendingString(":\n\n"); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, continuing to drain upstream for billing")
+				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during streaming, canceling upstream with observed usage")
 				continue
 			}
 			if err := flushBuffered(); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, continuing to drain upstream for billing")
+				logger.LegacyPrintf("service.openai_gateway", "Client disconnected during keepalive flush, canceling upstream with observed usage")
 			} else {
 				lastDownstreamWriteAt = time.Now()
 			}

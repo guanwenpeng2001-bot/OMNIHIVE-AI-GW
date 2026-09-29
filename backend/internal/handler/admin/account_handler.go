@@ -1070,10 +1070,12 @@ func (h *AccountHandler) Create(c *gin.Context) {
 		// 检查是否为混合渠道错误
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
-			// 创建接口仅返回最小必要字段，详细信息由专门检查接口提供
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
+			// Return confirmation context with the conflict envelope.
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}
@@ -1210,9 +1212,11 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
 			// 更新接口仅返回最小必要字段，详细信息由专门检查接口提供
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}
@@ -1245,14 +1249,9 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 		return
 	}
 	accountID := account.ID
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("openai_responses_probe_panic", "account_id", accountID, "recover", r)
-			}
-		}()
-		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), accountID)
-	}()
+	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
+	})
 }
 
 // Delete handles deleting an account
@@ -2402,15 +2401,11 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 	if err != nil {
 		var mixedErr *service.MixedChannelError
 		if errors.As(err, &mixedErr) {
-			c.JSON(409, gin.H{
-				"error":   "mixed_channel_warning",
-				"message": mixedErr.Error(),
-				"details": gin.H{
-					"group_id":         mixedErr.GroupID,
-					"group_name":       mixedErr.GroupName,
-					"current_platform": mixedErr.CurrentPlatform,
-					"other_platform":   mixedErr.OtherPlatform,
-				},
+			response.ErrorWithDetails(c, http.StatusConflict, mixedErr.Error(), "mixed_channel_warning", map[string]any{
+				"group_id":         mixedErr.GroupID,
+				"group_name":       mixedErr.GroupName,
+				"current_platform": mixedErr.CurrentPlatform,
+				"other_platform":   mixedErr.OtherPlatform,
 			})
 			return
 		}
@@ -3225,7 +3220,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 	// Only connection fields are accepted: previews must not resolve saved
 	// credential shadows or acquire another account's persistence identity.
 	credentials := make(map[string]any)
-	for _, key := range []string{"api_key", "base_url", "access_token", "expires_at", "machine_id", "mac_machine_id", "client_version", "account_mode", "api_protocol", "api_base_urls", "model_mapping"} {
+	for _, key := range []string{"api_key", "base_url", "access_token", "expires_at", "machine_id", "mac_machine_id", "client_version", "account_mode", "api_protocol", "api_base_urls", "model_mapping", "header_override_enabled", "header_overrides"} {
 		if value, ok := req.Credentials[key]; ok {
 			credentials[key] = value
 		}
@@ -3265,7 +3260,7 @@ func (h *AccountHandler) SyncUpstreamModelsPreview(c *gin.Context) {
 		return
 	}
 
-	catalog, err := h.accountTestService.SyncUpstreamModelCatalog(c.Request.Context(), tempAccount)
+	catalog, err := h.accountTestService.PreviewAccountModelCatalog(c.Request.Context(), tempAccount)
 	if err != nil {
 		writeUpstreamModelSyncError(c, err)
 		return

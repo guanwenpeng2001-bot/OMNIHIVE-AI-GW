@@ -5,7 +5,6 @@ package service
 import (
 	"bytes"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -187,8 +186,8 @@ func TestMistralAdapterContract(t *testing.T) {
 			_, err := service.forwardAsRawChatCompletions(ctx, ginContext, account, body, "")
 			require.Error(t, err)
 			if cancelled {
-				require.NotNil(t, upstream.lastReq)
-				require.True(t, errors.Is(upstream.lastReq.Context().Err(), context.Canceled))
+				require.Nil(t, upstream.lastReq, "an already canceled request must not be sent")
+				require.ErrorIs(t, err, context.Canceled)
 			}
 			cancel()
 		}

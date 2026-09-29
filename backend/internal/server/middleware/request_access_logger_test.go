@@ -309,3 +309,74 @@ func TestLogger_AccessLogDroppedWhenLevelWarn(t *testing.T) {
 		}
 	}
 }
+
+func TestLoggers_RedactPluginUIToken(testContext *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, middlewareCase := range []struct {
+		name       string
+		handlers   []gin.HandlerFunc
+		requestLog bool
+		accessLog  bool
+	}{
+		{name: "request", handlers: []gin.HandlerFunc{RequestLogger()}, requestLog: true},
+		{name: "access", handlers: []gin.HandlerFunc{Logger()}, accessLog: true},
+		{name: "combined", handlers: []gin.HandlerFunc{RequestLogger(), Logger()}, requestLog: true, accessLog: true},
+	} {
+		testContext.Run(middlewareCase.name, func(testContext *testing.T) {
+			for _, pathCase := range []struct {
+				name     string
+				target   string
+				wantPath string
+			}{
+				{name: "asset", target: "/api/v1/plugin-ui/secret-ticket/assets/app.js", wantPath: "/api/v1/plugin-ui/***/assets/app.js"},
+				{name: "query", target: "/api/v1/plugin-ui/secret-ticket/index.html?theme=dark&token=query-secret", wantPath: "/api/v1/plugin-ui/***/index.html"},
+				{name: "root", target: "/api/v1/plugin-ui/secret-ticket/", wantPath: "/api/v1/plugin-ui/***/"},
+				{name: "missing_resource", target: "/api/v1/plugin-ui/secret-ticket", wantPath: "/api/v1/plugin-ui/***"},
+				{name: "encoded_token", target: "/api/v1/plugin-ui/secret%3Fticket/index.html", wantPath: "/api/v1/plugin-ui/***/index.html"},
+				{name: "resource_unchanged", target: "/api/v1/plugin-ui/secret-ticket/access_token=asset.js", wantPath: "/api/v1/plugin-ui/***/access_token=asset.js"},
+				{name: "empty_token", target: "/api/v1/plugin-ui//index.html", wantPath: "/api/v1/plugin-ui//index.html"},
+				{name: "prefix_only", target: "/api/v1/plugin-ui/", wantPath: "/api/v1/plugin-ui/"},
+				{name: "other_path", target: "/api/v1/accounts/access_token=visible?theme=dark", wantPath: "/api/v1/accounts/access_token=visible"},
+				{name: "similar_prefix", target: "/api/v1/plugin-ui-other/visible/index.html", wantPath: "/api/v1/plugin-ui-other/visible/index.html"},
+				{name: "nested_prefix", target: "/other/api/v1/plugin-ui/visible/index.html", wantPath: "/other/api/v1/plugin-ui/visible/index.html"},
+			} {
+				testContext.Run(pathCase.name, func(testContext *testing.T) {
+					sink := initMiddlewareTestLogger(testContext)
+					router := gin.New()
+					router.Use(middlewareCase.handlers...)
+					request := httptest.NewRequest(http.MethodGet, pathCase.target, nil)
+					originalURL := *request.URL
+					originalRequestURI := request.RequestURI
+					router.NoRoute(func(ginContext *gin.Context) {
+						if *ginContext.Request.URL != originalURL || ginContext.Request.RequestURI != originalRequestURI {
+							testContext.Fatal("logging changed the request URL")
+						}
+						if middlewareCase.requestLog {
+							logger.FromContext(ginContext.Request.Context()).Info("plugin handler log")
+						}
+						// Handler-side cleanup must not be needed to redact either log.
+						ginContext.Request.URL.Path = "/handler-rewritten"
+						ginContext.Status(http.StatusNotFound)
+					})
+					router.ServeHTTP(httptest.NewRecorder(), request)
+					wantEvents := 0
+					if middlewareCase.requestLog {
+						wantEvents++
+					}
+					if middlewareCase.accessLog {
+						wantEvents++
+					}
+					events := sink.list()
+					if len(events) != wantEvents {
+						testContext.Fatalf("events=%d, want %d", len(events), wantEvents)
+					}
+					for _, event := range events {
+						if gotPath := event.Fields["path"]; gotPath != pathCase.wantPath {
+							testContext.Errorf("%s path=%q, want %q", event.Message, gotPath, pathCase.wantPath)
+						}
+					}
+				})
+			}
+		})
+	}
+}

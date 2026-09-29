@@ -33,6 +33,9 @@ type Usage struct {
 }
 
 type RelayResult struct {
+	// InterruptedTurn contains only evidence from the unfinished turn. Usage
+	// remains the session total for completed turns and must not be billed again.
+	InterruptedTurn       *RelayTurnResult
 	RequestModel          string
 	ResponseModel         string
 	ResponseModelConflict bool
@@ -171,10 +174,7 @@ func Relay(
 	if writeTimeout <= 0 {
 		writeTimeout = 2 * time.Minute
 	}
-	drainTimeout := options.UpstreamDrainTimeout
-	if drainTimeout <= 0 {
-		drainTimeout = 1200 * time.Millisecond
-	}
+
 	firstMessageType := options.FirstMessageType
 	if firstMessageType != coderws.MessageBinary {
 		firstMessageType = coderws.MessageText
@@ -348,17 +348,13 @@ func Relay(
 	secondExit := relayExitSignal{graceful: true}
 	hasSecondExit := false
 
-	// 客户端断开后尽力继续读取上游短窗口，捕获延迟 usage/terminal 事件用于计费。
-	if firstExit.stage == "read_client" && firstExit.graceful {
-		dropDownstreamWrites.Store(true)
-		secondExit, hasSecondExit = waitRelayExit(exitCh, drainTimeout)
-	} else {
-		relayCancel()
-		_ = upstreamConn.Close()
-		if clientReaderStarted.Load() {
-			secondExit, hasSecondExit = waitRelayExit(exitCh, 200*time.Millisecond)
-		}
+	// Cancel generation before joining readers; settlement uses observed evidence.
+	relayCancel()
+	_ = upstreamConn.Close()
+	if clientReaderStarted.Load() {
+		secondExit, hasSecondExit = waitRelayExit(exitCh, 200*time.Millisecond)
 	}
+
 	if hasSecondExit {
 		combinedWroteDownstream = combinedWroteDownstream || secondExit.wroteDownstream
 		emitRelayTrace(onTrace, RelayTraceEvent{
@@ -378,7 +374,11 @@ func Relay(
 	<-upstreamDone
 
 	emitTurnComplete(options.OnTurnComplete, state, finalizePendingBareError(state, nowFn()))
-	enrichResult(&result, state, nowFn().Sub(startAt))
+	finishedAt := nowFn()
+	enrichResult(&result, state, finishedAt.Sub(startAt))
+	if interrupted := result.InterruptedTurn; interrupted != nil && !interrupted.StartedAt.IsZero() {
+		interrupted.Duration = finishedAt.Sub(interrupted.StartedAt)
+	}
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()
 	result.UpstreamToClientFrames = upstreamToClientFrames.Load()
 	result.DroppedDownstreamFrames = droppedDownstreamFrames.Load()
@@ -393,10 +393,7 @@ func Relay(
 	if firstExit.stage == "read_client" && firstExit.graceful {
 		stage := "client_disconnected"
 		exitErr := firstExit.err
-		if hasSecondExit && !secondExit.graceful {
-			stage = secondExit.stage
-			exitErr = secondExit.err
-		}
+
 		if exitErr == nil {
 			exitErr = io.EOF
 		}
@@ -436,7 +433,7 @@ func Relay(
 			WroteDownstream: combinedWroteDownstream,
 		}
 	}
-	if hasSecondExit && !secondExit.graceful {
+	if hasSecondExit && !secondExit.graceful && !errors.Is(secondExit.err, context.Canceled) {
 		emitRelayTrace(onTrace, RelayTraceEvent{
 			Stage:           "relay_exit",
 			Direction:       relayDirectionFromStage(secondExit.stage),
@@ -1250,6 +1247,20 @@ func enrichResult(result *RelayResult, state *relayState, duration time.Duration
 	result.RequestID = state.lastResponseID
 	result.TerminalEventType = state.terminalEventType
 	result.FirstTokenMs = state.firstTokenMs
+	if state.hasUnfinishedTurn() {
+		result.InterruptedTurn = &RelayTurnResult{
+			RequestModel: state.currentRequestModel(),
+			RequestID:    openAIWSRelayActiveTurnID(state),
+			Usage:        state.turnUsage,
+			Duration:     duration,
+		}
+		if timing := state.activeTurn; timing != nil {
+			result.InterruptedTurn.StartedAt = timing.startAt
+			result.InterruptedTurn.ResponseModel = relayTurnResponseModel(timing)
+			result.InterruptedTurn.ResponseModelConflict = timing.responseModelConflict
+			result.InterruptedTurn.FirstTokenMs = openAIWSRelayCloneIntPtr(timing.firstTokenMs)
+		}
+	}
 }
 
 func (s *relayState) setRequestModel(model string) {

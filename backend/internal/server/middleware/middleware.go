@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -60,23 +61,12 @@ func GetForcePlatformFromContext(c *gin.Context) (string, bool) {
 	return platform, ok
 }
 
-// ErrorResponse 标准错误响应结构
-type ErrorResponse struct {
-	Code    string `json:"code"`
-	Message string `json:"message"`
-}
+// ErrorResponse shares the management response contract.
+type ErrorResponse = response.Response
 
-// NewErrorResponse 创建错误响应
-func NewErrorResponse(code, message string) ErrorResponse {
-	return ErrorResponse{
-		Code:    code,
-		Message: message,
-	}
-}
-
-// AbortWithError 中断请求并返回JSON错误
+// AbortWithError stops a request with the shared management envelope.
 func AbortWithError(c *gin.Context, statusCode int, code, message string) {
-	c.JSON(statusCode, NewErrorResponse(code, message))
+	response.ErrorWithDetails(c, statusCode, message, code, nil)
 	c.Abort()
 }
 

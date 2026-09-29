@@ -432,7 +432,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | 本地目录 | ✅ 简单（打包整个目录） | 生产环境、频繁备份 |
 | **docker-compose.yml** | 命名卷 | ⚠️ 需要 docker 命令 | 简单设置 |
 
-**推荐：** 使用 `docker-compose.local.yml`（脚本部署）以便更轻松地管理数据。
+**推荐：** 使用本地目录存储，方便管理和迁移。上表列的是仓库文件名；脚本把 `docker-compose.local.yml` 保存为 **`docker-compose.yml`**，脚本部署应使用 `docker compose`。下方访问/升级命令按脚本部署编写；手工克隆部署需加 `-f docker-compose.local.yml`。后续迁移/管理示例若带此参数，脚本部署时应去掉。
 
 #### 启用“数据管理”功能（datamanagementd）
 
@@ -452,15 +452,15 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 如果管理员密码是自动生成的，在日志中查找：
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 ```
 
 #### 升级
 
 ```bash
 # 拉取最新镜像并重建容器
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 #### 轻松迁移（本地目录版）

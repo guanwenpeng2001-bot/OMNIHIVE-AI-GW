@@ -318,11 +318,11 @@ func TestAntigravityTokenProvider_ProjectDiscoveryPreservesOwner(t *testing.T) {
 	discovered.Credentials["project_id"] = "discovered"
 	repo.put(discovered)
 	require.Equal(t, lockKey, AntigravityTokenCacheKey(discovered))
-	require.Equal(t, tokenKey, antigravityCredentialTokenCacheKey(discovered))
+	require.NotEqual(t, tokenKey, antigravityCredentialTokenCacheKey(discovered))
 	token, err = p.GetAccessToken(ctx, a)
 	require.NoError(t, err)
 	require.Equal(t, "token", token)
-	require.Len(t, cache.tokens, 1)
+	require.Len(t, cache.tokens, 2)
 }
 
 func TestAntigravityTokenProvider_RefreshAndRevocationInvalidateCache(t *testing.T) {

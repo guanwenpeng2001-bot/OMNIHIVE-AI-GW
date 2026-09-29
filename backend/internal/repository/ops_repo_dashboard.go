@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
@@ -181,6 +182,13 @@ type opsDashboardPartial struct {
 func (r *opsRepository) getDashboardOverviewPreaggregated(ctx context.Context, filter *service.OpsDashboardFilter) (*service.OpsDashboardOverview, error) {
 	if filter == nil {
 		return nil, fmt.Errorf("nil filter")
+	}
+
+	// Legacy hourly dimensions survive identity backfills and can coexist with
+	// recomputed canonical dimensions. They cannot be safely summed or split for
+	// Composite accounts; read original rows for dimension-filtered overviews.
+	if strings.TrimSpace(filter.Platform) != "" || (filter.GroupID != nil && *filter.GroupID > 0) {
+		return r.getDashboardOverviewRaw(ctx, filter)
 	}
 
 	start := filter.StartTime.UTC()
@@ -389,7 +397,7 @@ func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *servi
 	platform := ""
 	groupID := (*int64)(nil)
 	if filter != nil {
-		platform = strings.TrimSpace(strings.ToLower(filter.Platform))
+		platform = domain.CanonicalPlatform(strings.TrimSpace(strings.ToLower(filter.Platform)))
 		groupID = filter.GroupID
 	}
 
@@ -399,12 +407,12 @@ func (r *opsRepository) listHourlyMetricsRows(ctx context.Context, filter *servi
 		args = append(args, *groupID)
 		idx++
 		if platform != "" {
-			where += fmt.Sprintf(" AND platform = $%d", idx)
+			where += fmt.Sprintf(" AND "+canonicalPlatformSQL("platform")+" = $%d", idx)
 			args = append(args, platform)
 			// idx++ removed - not used after this
 		}
 	case platform != "":
-		where += fmt.Sprintf(" AND platform = $%d AND group_id IS NULL", idx)
+		where += fmt.Sprintf(" AND "+canonicalPlatformSQL("platform")+" = $%d AND group_id IS NULL", idx)
 		args = append(args, platform)
 		// idx++ removed - not used after this
 	default:
@@ -976,7 +984,7 @@ func buildUsageWhere(filter *service.OpsDashboardFilter, start, end time.Time, s
 	platform := ""
 	groupID := (*int64)(nil)
 	if filter != nil {
-		platform = strings.TrimSpace(strings.ToLower(filter.Platform))
+		platform = domain.CanonicalPlatform(strings.TrimSpace(strings.ToLower(filter.Platform)))
 		groupID = filter.GroupID
 	}
 
@@ -1001,7 +1009,7 @@ func buildUsageWhere(filter *service.OpsDashboardFilter, start, end time.Time, s
 		// drop rows where group_id is NULL.
 		join = "LEFT JOIN groups g ON g.id = ul.group_id LEFT JOIN accounts a ON a.id = ul.account_id"
 		args = append(args, platform)
-		clauses = append(clauses, fmt.Sprintf("COALESCE(NULLIF(g.platform,''), a.platform) = $%d", idx))
+		clauses = append(clauses, fmt.Sprintf(usageLogEffectivePlatformExpr+" = $%d", idx))
 		idx++
 	}
 
@@ -1013,7 +1021,7 @@ func buildErrorWhere(filter *service.OpsDashboardFilter, start, end time.Time, s
 	platform := ""
 	groupID := (*int64)(nil)
 	if filter != nil {
-		platform = strings.TrimSpace(strings.ToLower(filter.Platform))
+		platform = domain.CanonicalPlatform(strings.TrimSpace(strings.ToLower(filter.Platform)))
 		groupID = filter.GroupID
 	}
 
@@ -1037,7 +1045,7 @@ func buildErrorWhere(filter *service.OpsDashboardFilter, start, end time.Time, s
 	}
 	if platform != "" {
 		args = append(args, platform)
-		clauses = append(clauses, fmt.Sprintf("platform = $%d", idx))
+		clauses = append(clauses, fmt.Sprintf(canonicalPlatformSQL("platform")+" = $%d", idx))
 		idx++
 	}
 

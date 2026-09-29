@@ -1518,7 +1518,7 @@ func requireAPIKeyAuthError(t *testing.T, w *httptest.ResponseRecorder, code, me
 
 	var resp ErrorResponse
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &resp))
-	require.Equal(t, code, resp.Code)
+	require.Equal(t, code, resp.Reason)
 	require.Equal(t, message, resp.Message)
 }
 

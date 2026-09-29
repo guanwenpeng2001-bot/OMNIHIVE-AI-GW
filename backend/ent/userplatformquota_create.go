@@ -65,6 +65,20 @@ func (_c *UserPlatformQuotaCreate) SetNillableDeletedAt(v *time.Time) *UserPlatf
 	return _c
 }
 
+// SetAccountType sets the "account_type" field.
+func (_c *UserPlatformQuotaCreate) SetAccountType(v string) *UserPlatformQuotaCreate {
+	_c.mutation.SetAccountType(v)
+	return _c
+}
+
+// SetNillableAccountType sets the "account_type" field if the given value is not nil.
+func (_c *UserPlatformQuotaCreate) SetNillableAccountType(v *string) *UserPlatformQuotaCreate {
+	if v != nil {
+		_c.SetAccountType(*v)
+	}
+	return _c
+}
+
 // SetUserID sets the "user_id" field.
 func (_c *UserPlatformQuotaCreate) SetUserID(v int64) *UserPlatformQuotaCreate {
 	_c.mutation.SetUserID(v)
@@ -259,6 +273,10 @@ func (_c *UserPlatformQuotaCreate) defaults() error {
 		v := userplatformquota.DefaultUpdatedAt()
 		_c.mutation.SetUpdatedAt(v)
 	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		v := userplatformquota.DefaultAccountType
+		_c.mutation.SetAccountType(v)
+	}
 	if _, ok := _c.mutation.DailyUsageUsd(); !ok {
 		v := userplatformquota.DefaultDailyUsageUsd
 		_c.mutation.SetDailyUsageUsd(v)
@@ -281,6 +299,14 @@ func (_c *UserPlatformQuotaCreate) check() error {
 	}
 	if _, ok := _c.mutation.UpdatedAt(); !ok {
 		return &ValidationError{Name: "updated_at", err: errors.New(`ent: missing required field "UserPlatformQuota.updated_at"`)}
+	}
+	if _, ok := _c.mutation.AccountType(); !ok {
+		return &ValidationError{Name: "account_type", err: errors.New(`ent: missing required field "UserPlatformQuota.account_type"`)}
+	}
+	if v, ok := _c.mutation.AccountType(); ok {
+		if err := userplatformquota.AccountTypeValidator(v); err != nil {
+			return &ValidationError{Name: "account_type", err: fmt.Errorf(`ent: validator failed for field "UserPlatformQuota.account_type": %w`, err)}
+		}
 	}
 	if _, ok := _c.mutation.UserID(); !ok {
 		return &ValidationError{Name: "user_id", err: errors.New(`ent: missing required field "UserPlatformQuota.user_id"`)}
@@ -343,6 +369,10 @@ func (_c *UserPlatformQuotaCreate) createSpec() (*UserPlatformQuota, *sqlgraph.C
 	if value, ok := _c.mutation.DeletedAt(); ok {
 		_spec.SetField(userplatformquota.FieldDeletedAt, field.TypeTime, value)
 		_node.DeletedAt = &value
+	}
+	if value, ok := _c.mutation.AccountType(); ok {
+		_spec.SetField(userplatformquota.FieldAccountType, field.TypeString, value)
+		_node.AccountType = value
 	}
 	if value, ok := _c.mutation.Platform(); ok {
 		_spec.SetField(userplatformquota.FieldPlatform, field.TypeString, value)
@@ -480,6 +510,18 @@ func (u *UserPlatformQuotaUpsert) UpdateDeletedAt() *UserPlatformQuotaUpsert {
 // ClearDeletedAt clears the value of the "deleted_at" field.
 func (u *UserPlatformQuotaUpsert) ClearDeletedAt() *UserPlatformQuotaUpsert {
 	u.SetNull(userplatformquota.FieldDeletedAt)
+	return u
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserPlatformQuotaUpsert) SetAccountType(v string) *UserPlatformQuotaUpsert {
+	u.Set(userplatformquota.FieldAccountType, v)
+	return u
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsert) UpdateAccountType() *UserPlatformQuotaUpsert {
+	u.SetExcluded(userplatformquota.FieldAccountType)
 	return u
 }
 
@@ -764,6 +806,20 @@ func (u *UserPlatformQuotaUpsertOne) UpdateDeletedAt() *UserPlatformQuotaUpsertO
 func (u *UserPlatformQuotaUpsertOne) ClearDeletedAt() *UserPlatformQuotaUpsertOne {
 	return u.Update(func(s *UserPlatformQuotaUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserPlatformQuotaUpsertOne) SetAccountType(v string) *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertOne) UpdateAccountType() *UserPlatformQuotaUpsertOne {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateAccountType()
 	})
 }
 
@@ -1248,6 +1304,20 @@ func (u *UserPlatformQuotaUpsertBulk) UpdateDeletedAt() *UserPlatformQuotaUpsert
 func (u *UserPlatformQuotaUpsertBulk) ClearDeletedAt() *UserPlatformQuotaUpsertBulk {
 	return u.Update(func(s *UserPlatformQuotaUpsert) {
 		s.ClearDeletedAt()
+	})
+}
+
+// SetAccountType sets the "account_type" field.
+func (u *UserPlatformQuotaUpsertBulk) SetAccountType(v string) *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.SetAccountType(v)
+	})
+}
+
+// UpdateAccountType sets the "account_type" field to the value that was provided on create.
+func (u *UserPlatformQuotaUpsertBulk) UpdateAccountType() *UserPlatformQuotaUpsertBulk {
+	return u.Update(func(s *UserPlatformQuotaUpsert) {
+		s.UpdateAccountType()
 	})
 }
 

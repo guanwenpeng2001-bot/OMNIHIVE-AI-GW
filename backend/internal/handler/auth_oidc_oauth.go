@@ -124,7 +124,7 @@ func (h *AuthHandler) OIDCOAuthStart(c *gin.Context) {
 		return
 	}
 
-	state, err := oauth.GenerateState()
+	state, err := h.issueOAuthState(c, "oidc")
 	if err != nil {
 		response.ErrorFrom(c, infraerrors.InternalServer("OAUTH_STATE_GEN_FAILED", "failed to generate oauth state").WithCause(err))
 		return
@@ -236,6 +236,10 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 	expectedState, err := readCookieDecoded(c, oidcOAuthStateCookieName)
 	if err != nil || expectedState == "" || state != expectedState {
 		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid oauth state", "")
+		return
+	}
+	if err := h.consumeOAuthState(c, "oidc", state); err != nil {
+		redirectOAuthError(c, frontendCallback, "invalid_state", "invalid or consumed oauth state", "")
 		return
 	}
 
@@ -516,28 +520,7 @@ func (h *AuthHandler) OIDCOAuthCallback(c *gin.Context) {
 }
 
 func (h *AuthHandler) findOIDCCompatEmailUser(ctx context.Context, email string) (*dbent.User, error) {
-	client := h.entClient()
-	if client == nil {
-		return nil, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready")
-	}
-
-	email = strings.TrimSpace(strings.ToLower(email))
-	if email == "" ||
-		strings.HasSuffix(email, service.LinuxDoConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.OIDCConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.WeChatConnectSyntheticEmailDomain) ||
-		strings.HasSuffix(email, service.DingTalkConnectSyntheticEmailDomain) {
-		return nil, nil
-	}
-
-	userEntity, err := findUserByNormalizedEmail(ctx, client, email)
-	if err != nil {
-		if errors.Is(err, service.ErrUserNotFound) {
-			return nil, nil
-		}
-		return nil, infraerrors.InternalServer("COMPAT_EMAIL_LOOKUP_FAILED", "failed to look up compat email user").WithCause(err)
-	}
-	return userEntity, nil
+	return h.authService.FindOIDCCompatEmailUser(ctx, email)
 }
 
 func (h *AuthHandler) createOIDCOAuthChoicePendingSession(
@@ -673,12 +656,11 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		return
 	}
 
-	client := h.entClient()
-	if client == nil {
+	if _, err := h.pendingIdentityService(); err != nil {
 		response.ErrorFrom(c, infraerrors.ServiceUnavailable("PENDING_AUTH_NOT_READY", "pending auth service is not ready"))
 		return
 	}
-	if err := ensurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), client, session); err != nil {
+	if err := h.authService.EnsurePendingOAuthRegistrationIdentityAvailable(c.Request.Context(), session); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}
@@ -703,7 +685,7 @@ func (h *AuthHandler) CompleteOIDCOAuthRegistration(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	if err := applyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), client, h.authService, h.userService, session, decision, user.ID); err != nil {
+	if err := h.authService.ApplyPendingOAuthAdoptionAndConsumeSession(c.Request.Context(), h.userService, session, decision, user.ID); err != nil {
 		respondPendingOAuthBindingApplyError(c, err)
 		return
 	}
@@ -1283,14 +1265,6 @@ func (h *AuthHandler) tryOIDCVerifiedEmailFastPath(
 		return false
 	}
 
-	fragment := url.Values{}
-	fragment.Set("access_token", tokenPair.AccessToken)
-	fragment.Set("refresh_token", tokenPair.RefreshToken)
-	fragment.Set("expires_in", fmt.Sprintf("%d", tokenPair.ExpiresIn))
-	fragment.Set("token_type", "Bearer")
-	fragment.Set("redirect", redirectTo)
-	clearOAuthPendingSessionCookie(c, isRequestHTTPS(c))
-	clearOAuthPendingBrowserCookie(c, isRequestHTTPS(c))
-	redirectWithFragment(c, frontendCallback, fragment)
+	h.redirectOAuthTokenPair(c, frontendCallback, tokenPair, redirectTo)
 	return true
 }

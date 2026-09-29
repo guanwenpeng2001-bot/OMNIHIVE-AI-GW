@@ -34,7 +34,7 @@ func TestAccountModelCatalogReviewedRejectsStaleApproval(t *testing.T) {
 			if change == "capability" {
 				next = `{"data":[{"id":"gpt-test","context_window":2000}]}`
 			}
-			s := &AccountTestService{accountRepo: r, cfg: upstreamModelSyncTestConfig(), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {}}, modelMetadataRegistryAt: time.Now(), httpUpstream: &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(body), catalogFixtureResponse(next)}}}
+			s := &AccountTestService{accountRepo: r, cfg: upstreamModelSyncTestConfig(), modelMetadataRegistryKey: ModelRegistryDownloadKey(modelsDevRegistryURL, "", "verified-tls"), modelMetadataRegistry: map[string]modelsDevProvider{"openai": {}}, modelMetadataRegistryAt: time.Now(), httpUpstream: &httpUpstreamRecorder{responses: []*http.Response{catalogFixtureResponse(body), catalogFixtureResponse(next)}}}
 			preview, err := s.PreviewAccountModelCatalog(context.Background(), a)
 			require.NoError(t, err)
 			require.Zero(t, r.commits)

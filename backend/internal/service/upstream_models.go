@@ -1,6 +1,7 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -17,6 +18,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/antigravity"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/geminicli"
@@ -77,6 +79,9 @@ type UpstreamModelMetadataSnapshot struct {
 }
 
 type UpstreamModelCatalog struct {
+	CandidateModels   []string              `json:"candidate_models"`
+	DiscoveryComplete bool                  `json:"discovery_complete"`
+	CapabilityStatus  string                `json:"capability_status"`
 	Review            *AccountCatalogReview `json:"review,omitempty"`
 	SchemaVersion     int                   `json:"schema_version"`
 	EnrichmentVersion string                `json:"enrichment_version"`
@@ -263,6 +268,16 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 	defer cancel()
 	catalog, err := s.DiscoverModelCapabilities(context.WithValue(ctx, catalogDiscoveryKey{}, true), account, s.modelCapabilityProvider)
 	if err != nil {
+		var partial *UpstreamModelSyncError
+		if errors.As(err, &partial) && partial.PartialCatalog != nil {
+			catalog = partial.PartialCatalog
+			catalog.AccountModelCatalogBaseline = account.ModelCatalogBaseline()
+			catalog.CandidateModels = dedupeAndSortModelIDs(append(catalog.CandidateModels, catalog.DiscoveredModels...))
+			catalog.DiscoveryComplete = false
+			catalog.Complete = false
+			catalog.CapabilityStatus = "incomplete"
+			catalog.EligibleModels = []AccountCatalogModel{}
+		}
 		return nil, err
 	}
 	catalog.snapshot = projectAccountModelCatalog(account, catalog)
@@ -273,6 +288,16 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, account *Account, provider ModelCapabilityProvider) (*UpstreamModelCatalog, error) {
 	if account == nil {
 		return nil, newUpstreamModelSyncConfigError("Account is required for capability discovery", nil)
+	}
+	// Preview validation must not mutate the saved account's credentials.
+	previewAccount := *account
+	previewAccount.Credentials = make(map[string]any, len(account.Credentials))
+	for name, value := range account.Credentials {
+		previewAccount.Credentials[name] = value
+	}
+	account = &previewAccount
+	if err := NormalizeHeaderOverrideCredentials(account.Credentials); err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid header overrides", err)
 	}
 	declarations, err := accountDeclaredCapabilities(account)
 	if err != nil {
@@ -794,8 +819,8 @@ func (s *AccountTestService) fetchModelsDevMetadata(
 // In-flight work is isolated by service and network egress. Waiters may cancel
 // independently; the shared request has its own finite budget.
 type modelsDevFlightKey struct {
-	service *AccountTestService
-	proxy   string
+	service     *AccountTestService
+	downloadKey string
 }
 type modelsDevFlight struct {
 	done     chan struct{}
@@ -811,6 +836,21 @@ var modelsDevFlights = struct {
 const modelsDevOnlineBudget = 3 * time.Second
 const modelsDevStaleGrace = 72 * time.Hour
 
+// The registry is a single slot per service, shared only for the exact download
+// identity. Keep stale data through the existing grace window, then release the
+// reference on access, even when the next request has a different identity.
+// Existing readers and flights keep their own references and are never canceled.
+func (s *AccountTestService) boundedModelsDevRegistry(downloadKey string) (map[string]modelsDevProvider, time.Time) {
+	s.modelMetadataRegistryMu.Lock()
+	if time.Since(s.modelMetadataRegistryAt) > modelsDevRegistryTTL+modelsDevStaleGrace {
+		s.modelMetadataRegistry = nil
+		s.modelMetadataRegistryKey = ""
+		s.modelMetadataRegistryAt = time.Time{}
+	}
+	s.modelMetadataRegistryMu.Unlock()
+	return s.cachedModelsDevRegistry(downloadKey)
+}
+
 func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
 	if s == nil || account == nil {
 		return nil, fmt.Errorf("registry_not_configured")
@@ -818,21 +858,19 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	if strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1" {
 		return nil, fmt.Errorf("registry_offline")
 	}
-	s.modelMetadataRegistryMu.Lock()
-	cached, at := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-	s.modelMetadataRegistryMu.Unlock()
+	download := s.modelsDevDownloadSnapshot(account)
+	downloadKey := download.downloadKey
+	cached, at := s.boundedModelsDevRegistry(downloadKey)
 	if len(cached) > 0 && time.Since(at) < modelsDevRegistryTTL {
 		return cached, nil
 	}
-	key := modelsDevFlightKey{s, upstreamModelsProxyURL(account)}
+	key := modelsDevFlightKey{s, downloadKey}
 	modelsDevFlights.Lock()
 	flight, ok := modelsDevFlights.entries[key]
 	if !ok {
 		// A previous flight may have published between our first cache read and
 		// acquiring the flight mutex.
-		s.modelMetadataRegistryMu.Lock()
-		latest, loaded := s.modelMetadataRegistry, s.modelMetadataRegistryAt
-		s.modelMetadataRegistryMu.Unlock()
+		latest, loaded := s.boundedModelsDevRegistry(downloadKey)
 		if len(latest) > 0 && time.Since(loaded) < modelsDevRegistryTTL {
 			modelsDevFlights.Unlock()
 			return latest, nil
@@ -842,9 +880,10 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 		go func() {
 			requestCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), modelsDevOnlineBudget)
 			defer cancel()
-			registry, err := s.downloadModelsDevRegistry(requestCtx, account)
+			registry, err := s.downloadModelsDevRegistry(requestCtx, download)
 			if err == nil {
 				s.modelMetadataRegistryMu.Lock()
+				s.modelMetadataRegistryKey = downloadKey
 				s.modelMetadataRegistry = registry
 				s.modelMetadataRegistryAt = time.Now()
 				s.modelMetadataRegistryMu.Unlock()
@@ -872,16 +911,17 @@ func (s *AccountTestService) fetchModelsDevRegistry(ctx context.Context, account
 	}
 }
 
-func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, account *Account) (map[string]modelsDevProvider, error) {
+func (s *AccountTestService) downloadModelsDevRegistry(ctx context.Context, download modelsDevDownloadSnapshot) (map[string]modelsDevProvider, error) {
 	if s.httpUpstream == nil {
 		return nil, fmt.Errorf("registry_not_configured")
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsDevRegistryURL, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, download.sourceURL, nil)
 	if err != nil {
 		return nil, err
 	}
 	req.Header.Set("Accept", "application/json")
-	resp, err := s.doUpstreamModelsRequest(req, upstreamModelsProxyURL(account), account)
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
+	resp, err := s.httpUpstream.DoWithTLS(req, download.proxyURL, download.accountID, download.concurrency, download.profile)
 	if err != nil {
 		return nil, err
 	}
@@ -976,6 +1016,18 @@ func upstreamModelRegistryBaseURL(account *Account) string {
 	if account == nil {
 		return ""
 	}
+	if baseURL := strings.TrimSpace(account.GetCredential("base_url")); baseURL == "" {
+		switch account.Platform {
+		case PlatformMistral:
+			return mistralDefaultBaseURL
+		case PlatformHunyuan:
+			return hunyuanCompatibilityBaseURL
+		case PlatformVolcengine:
+			return volcengineRuntimeBaseURL
+		case PlatformQianfan:
+			return qianfanDefaultBaseURL
+		}
+	}
 	switch {
 	case account.IsOpenAI() || account.IsCNProvider() || account.IsOpenCodeGo() || account.IsCommandCode():
 		return account.GetOpenAIFormatBaseURL()
@@ -1067,7 +1119,10 @@ func matchModelsDevProviderByKnownHost(registry map[string]modelsDevProvider, ac
 	case "generativelanguage.googleapis.com":
 		providerID = "google"
 	default:
-		return modelsDevProvider{}, false
+		providerID = resolveCapabilityProfile(&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": accountBaseURL}})
+		if providerID == "" || strings.HasPrefix(providerID, "custom:") {
+			return modelsDevProvider{}, false
+		}
 	}
 	provider, ok := registry[providerID]
 	if !ok || len(provider.Models) == 0 {
@@ -1088,7 +1143,7 @@ func modelRegistryHostname(raw string) string {
 	if err != nil {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(parsed.Hostname()))
+	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(parsed.Hostname())), ".")
 }
 
 func normalizeModelRegistryBaseURL(raw string) string {
@@ -1111,7 +1166,7 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
-	if account.Platform == PlatformBedrock {
+	if account.UsesBedrockCatalog() {
 		return s.fetchBedrockModels(ctx, account)
 	}
 	if account.IsCursor() {
@@ -1128,6 +1183,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery && account.Type == AccountTypeOAuth {
 			return s.fetchCursorOAuthCatalog(ctx, account)
 		}
+		if s.cursorGatewayService == nil {
+			return nil, nil, newUpstreamModelSyncConfigError("Cursor service is not configured", nil)
+		}
 		models, err := s.cursorGatewayService.AvailableModels(ctx, account)
 		if err != nil {
 			if cursorAuthFailure(err) {
@@ -1138,11 +1196,49 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return models, nil, nil
 	}
 	if account.Platform == PlatformAntigravity && account.Type != AccountTypeAPIKey {
+		if account.Type != AccountTypeOAuth {
+			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Antigravity account type", nil)
+		}
 		if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery {
 			return s.fetchAntigravityCatalog(ctx, account)
 		}
 		models, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, nil, err
+	}
+
+	if account.Platform == PlatformHunyuan || account.Platform == PlatformVolcengine {
+		if account.Type != AccountTypeAPIKey {
+			return nil, nil, newUpstreamModelSyncUnsupportedError("Model discovery requires an API key account", nil)
+		}
+		if strings.TrimSpace(account.GetCredential("api_key")) == "" {
+			return nil, nil, newUpstreamModelSyncConfigError("API key is required", nil)
+		}
+		baseURL := strings.TrimSpace(account.GetCredential("base_url"))
+		if baseURL != "" {
+			if _, err := s.validateUpstreamBaseURL(baseURL); err != nil {
+				return nil, nil, newUpstreamModelSyncConfigError("Invalid discovery base URL", err)
+			}
+		}
+		if upstreamBillingProbeTargetIsOfficialAPI(baseURL) {
+			presets, presetErr := PlatformModelPresets()
+			if presetErr != nil {
+				return nil, nil, newUpstreamModelSyncInternalError("Failed to load platform candidates", presetErr)
+			}
+			candidates := []string{}
+			for _, preset := range presets {
+				if preset.Platform == account.Platform {
+					for _, model := range preset.Models {
+						candidates = append(candidates, model.ID)
+					}
+				}
+			}
+			candidates = dedupeAndSortModelIDs(append(candidates, configuredUpstreamModelsForCapabilitySync(account)...))
+			return nil, nil, &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUnsupported, Message: "Account-scoped native listing is unavailable; same-platform candidates require availability confirmation", PartialCatalog: &UpstreamModelCatalog{
+				Models: []string{}, DiscoveredModels: []string{}, CandidateModels: candidates,
+				CatalogSource: "platform-candidates", Metadata: map[string]UpstreamModelMetadata{},
+				Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_candidates", Message: "Platform candidates are not evidence of account availability"}},
+			}}
+		}
 	}
 
 	if s.httpUpstream == nil {
@@ -1167,60 +1263,22 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return s.fetchQianwenModelPages(req, account)
 	}
 
-	if catalogDiscovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); catalogDiscovery {
-		return s.fetchCompleteModelPages(req, account)
-	}
-	proxyURL := upstreamModelsProxyURL(account)
-	resp, err := s.doUpstreamModelsRequest(req, proxyURL, account)
-	if err != nil {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to request upstream model list", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-
-	bodyLimit := resolveModelsListReadLimit(s.cfg)
-	body, err := io.ReadAll(io.LimitReader(resp.Body, bodyLimit+1))
-	if err != nil {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Failed to read upstream model list", err)
-	}
-	if int64(len(body)) > bodyLimit {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream model list response is too large", fmt.Errorf("response exceeds %d bytes", bodyLimit))
-	}
-
-	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, nil, &UpstreamModelSyncError{
-			Kind:       UpstreamModelSyncErrorUpstream,
-			Message:    fmt.Sprintf("Upstream model list request failed with HTTP %d", resp.StatusCode),
-			StatusCode: resp.StatusCode,
-			Err:        fmt.Errorf("upstream model list returned HTTP %d", resp.StatusCode),
-		}
-	}
-
-	extractModels := extractUpstreamModelIDs
-	if account.IsGrok() {
-		extractModels = extractGrokUpstreamModelIDs
-	}
-	models, err := extractModels(body)
-	if err != nil {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream model list response was not valid JSON", err)
-	}
-	if len(models) == 0 {
-		return nil, nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
-	}
-
-	return models, body, nil
+	return s.fetchCompleteModelPages(req, account)
 }
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if descriptor, exists := domain.LookupPlatform(account.Platform); !exists || !descriptor.ModelCatalog {
+		return nil, newUpstreamModelSyncUnsupportedError("Platform has no model catalog", nil)
+	}
 	switch {
 	case account.Platform == PlatformQianfan:
 		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
 	case account.Platform == PlatformHunyuan:
-		_, err := hunyuanDiscoveredModels()
-		return nil, newUpstreamModelSyncUnsupportedError("Hunyuan automatic discovery is unverified; use account declarations", err)
+		return buildOpenAIAPIKeyModelsRequest(ctx, account, s.validateUpstreamBaseURL)
 	case account.Platform == PlatformMistral:
 		return s.buildMistralModelsRequest(ctx, account)
 	case account.Platform == PlatformVolcengine:
-		return nil, volcengineModelDiscoveryUnsupported()
+		return buildOpenAIAPIKeyModelsRequest(ctx, account, s.validateUpstreamBaseURL)
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
@@ -1681,6 +1739,7 @@ func normalizeAntigravityUpstreamModels(infos map[string]antigravity.ModelInfo, 
 }
 
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(req.Context()))
 	if s.tlsFPProfileService == nil {
 		return s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	}
@@ -1826,17 +1885,28 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 	models := make([]string, 0, len(entries))
 	metadata := make(map[string]UpstreamModelMetadata)
 	for _, raw := range entries {
+		// Discovery identity is independent of optional capability decoding.
+		var identity upstreamModelEntry
+		if err := json.Unmarshal(raw, &identity); err != nil {
+			return nil, nil, fmt.Errorf("invalid model identity: %w", err)
+		}
+		modelID := strings.TrimSpace(selectID(identity))
+		if modelID == "" {
+			continue
+		}
+		models = append(models, modelID)
 		if len(platform) > 0 && platform[0] == PlatformMistral {
 			var card MistralModelCard
-			if err := json.Unmarshal(raw, &card); err != nil || card.ID == "" {
-				return nil, nil, fmt.Errorf("invalid Mistral card")
+			if err := json.Unmarshal(raw, &card); err != nil {
+				metadata[modelID] = UpstreamModelMetadata{ID: modelID, Conflicts: []string{"invalid_optional_metadata"}}
+				continue
 			}
-			models = append(models, card.ID)
-			metadata[card.ID] = card.metadata(UpstreamModelMetadata{})
+			metadata[modelID] = card.metadata(UpstreamModelMetadata{})
 			continue
 		}
 		var capability upstreamModelCapabilityEntry
 		if err := json.Unmarshal(raw, &capability); err != nil {
+			metadata[modelID] = UpstreamModelMetadata{ID: modelID, Conflicts: []string{"invalid_optional_metadata"}}
 			continue
 		}
 		// max_tokens has incompatible meanings across APIs. Only the Anthropic
@@ -1844,11 +1914,6 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		if len(platform) == 0 || platform[0] != PlatformAnthropic {
 			capability.MaxTokens = 0
 		}
-		modelID := strings.TrimSpace(selectID(capability.upstreamModelEntry))
-		if modelID == "" {
-			continue
-		}
-		models = append(models, modelID)
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
 		if len(platform) > 0 && platform[0] == PlatformQianfan {
 			var model qianfanModel
@@ -2282,7 +2347,9 @@ func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest
 		ids, body, err := service.fetchCompleteModelPages(request, account)
 		if err != nil {
 			failed = err
-			continue
+			if len(body) == 0 {
+				continue
+			}
 		}
 		rawEntries, err := extractUpstreamModelRawEntries(body)
 		if err != nil {
@@ -2384,4 +2451,160 @@ func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) b
 		}
 	}
 	return false
+}
+
+// Invalid optional fields can hide endpoint facts used for eligibility. Keep
+// discovered IDs, but never authorize a destructive diff from malformed facts.
+func validateUpstreamModelMetadata(metadata map[string]UpstreamModelMetadata) error {
+	for _, entry := range metadata {
+		if slices.Contains(entry.Conflicts, "invalid_optional_metadata") {
+			return newUpstreamModelSyncUpstreamError("Invalid optional model metadata", nil)
+		}
+	}
+	return nil
+}
+
+// fetchCompleteModelPages preserves validated pages when a later page fails.
+// All continuation URLs stay on the original origin and redirects are disabled.
+func (service *AccountTestService) fetchCompleteModelPages(request *http.Request, account *Account) ([]string, []byte, error) {
+	entries := []json.RawMessage{}
+	seen := map[string]bool{}
+	seenModels := map[string]bool{}
+	validatedPages := 0
+	origin := *request.URL
+	limit := resolveModelsListReadLimit(service.cfg)
+	var consumed int64
+	assemble := func(cause error) ([]string, []byte, error) {
+		object := ""
+		if account.Platform == PlatformQianfan {
+			object = "list"
+		}
+		merged, _ := json.Marshal(struct {
+			Data   []json.RawMessage `json:"data"`
+			Object string            `json:"object,omitempty"`
+		}{entries, object})
+		models, metadata, parseErr := extractUpstreamModelCatalog(merged, account.IsGrok(), account.Platform)
+		if parseErr != nil {
+			return nil, nil, newUpstreamModelSyncUpstreamError("Invalid model entries", parseErr)
+		}
+		if cause == nil {
+			cause = validateUpstreamModelMetadata(metadata)
+		}
+		if cause == nil {
+			return models, merged, nil
+		}
+		if validatedPages == 0 {
+			return nil, nil, cause
+		}
+		return models, merged, &UpstreamModelSyncError{
+			Kind: UpstreamModelSyncErrorUpstream, Message: "Model discovery is partial; previous availability must be retained", Err: cause,
+			PartialCatalog: &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, CandidateModels: models,
+				Metadata: metadata, CatalogSource: "partial", Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "Model discovery contains incomplete pages or invalid entries; previous availability must be retained"}}},
+		}
+	}
+	for page := 0; page < 100; page++ {
+		if seen[request.URL.String()] {
+			return assemble(newUpstreamModelSyncUpstreamError("Model pagination did not advance", nil))
+		}
+		seen[request.URL.String()] = true
+		response, err := service.doUpstreamModelsRequest(request, upstreamModelsProxyURL(account), account)
+		if err != nil || response == nil || response.Body == nil {
+			return assemble(newUpstreamModelSyncUpstreamError("Failed to request model page", err))
+		}
+		body, readErr := io.ReadAll(io.LimitReader(response.Body, limit-consumed+1))
+		_ = response.Body.Close()
+		if response.StatusCode < 200 || response.StatusCode >= 300 {
+			return assemble(newUpstreamModelDiscoveryHTTPError(response.StatusCode, body))
+		}
+		consumed += int64(len(body))
+		if readErr != nil || consumed > limit {
+			return assemble(newUpstreamModelSyncUpstreamError(fmt.Sprintf("Model catalog response exceeds %d bytes or is unreadable", limit), readErr))
+		}
+		if account.Platform == PlatformMistral {
+			if _, err := parseMistralModelsResponse(response.StatusCode, body); err != nil {
+				return assemble(err)
+			}
+		}
+		if account.Platform == PlatformQianfan {
+			pageResponse := *response
+			pageResponse.Body = io.NopCloser(bytes.NewReader(body))
+			if _, err := parseQianfanModelsResponse(&pageResponse); err != nil {
+				return assemble(err)
+			}
+		}
+		selector := upstreamModelEntryID
+		if account.IsGrok() {
+			selector = grokUpstreamModelEntryID
+		}
+		if _, err := extractCatalogModelIDsWithSelector(body, selector); err != nil {
+			return assemble(newUpstreamModelSyncUpstreamError("Invalid model page", err))
+		}
+		pageEntries, err := extractUpstreamModelRawEntries(body)
+		if err != nil {
+			return assemble(newUpstreamModelSyncUpstreamError("Invalid model page", err))
+		}
+		validatedPages++
+		for _, entry := range pageEntries {
+			var identity upstreamModelEntry
+			_ = json.Unmarshal(entry, &identity)
+			modelID := selector(identity)
+			if !seenModels[modelID] {
+				entries = append(entries, entry)
+				seenModels[modelID] = true
+			}
+		}
+		var paging struct {
+			HasMore       bool   `json:"has_more"`
+			LastID        string `json:"last_id"`
+			NextPageToken string `json:"nextPageToken"`
+			NextCursor    string `json:"next_cursor"`
+			Next          string `json:"next"`
+		}
+		if bytes.HasPrefix(bytes.TrimSpace(body), []byte("{")) {
+			if err := json.Unmarshal(body, &paging); err != nil {
+				return assemble(newUpstreamModelSyncUpstreamError("Invalid model pagination", err))
+			}
+		}
+		next := request.Clone(request.Context())
+		cursor, parameter := paging.NextPageToken, "pageToken"
+		if paging.NextCursor != "" {
+			cursor, parameter = paging.NextCursor, "cursor"
+		}
+		if paging.Next != "" {
+			link, err := url.Parse(paging.Next)
+			if err != nil {
+				return assemble(newUpstreamModelSyncUpstreamError("Invalid next model page", err))
+			}
+			// A bare next value is a cursor; relative paths and queries are links.
+			if !link.IsAbs() && link.Host == "" && !strings.ContainsAny(paging.Next, "/?") {
+				cursor, parameter = paging.Next, "cursor"
+			} else {
+				next.URL = request.URL.ResolveReference(link)
+				if !strings.EqualFold(next.URL.Scheme, origin.Scheme) || !strings.EqualFold(next.URL.Host, origin.Host) || next.URL.User != nil || next.URL.Fragment != "" {
+					return assemble(newUpstreamModelSyncUpstreamError("Next model page must have the same origin", nil))
+				}
+			}
+		} else if paging.HasMore && cursor == "" {
+			cursor, parameter = paging.LastID, "after"
+			if account.IsAnthropic() {
+				parameter = "after_id"
+			}
+			if cursor == "" {
+				return assemble(newUpstreamModelSyncUpstreamError("Missing next model page cursor", nil))
+			}
+		}
+		if paging.Next == "" && cursor == "" {
+			return assemble(nil)
+		}
+		if len(pageEntries) == 0 {
+			return assemble(newUpstreamModelSyncUpstreamError("Model pagination did not advance", nil))
+		}
+		if cursor != "" {
+			query := next.URL.Query()
+			query.Set(parameter, cursor)
+			next.URL.RawQuery = query.Encode()
+		}
+		request = next
+	}
+	return assemble(newUpstreamModelSyncUpstreamError("Model pagination exceeded page limit", nil))
 }

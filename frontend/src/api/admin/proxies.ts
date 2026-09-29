@@ -10,10 +10,10 @@ import type {
   ProxyQualityCheckResult,
   CreateProxyRequest,
   UpdateProxyRequest,
-  PaginatedResponse,
   AdminDataPayload,
-  AdminDataImportResult
-} from '@/types'
+  AdminDataImportResult,
+} from '@/types/admin'
+import type { PaginatedResponse } from '@/types/common'
 
 function assertProxyArray(value: unknown): asserts value is Proxy[] {
   if (!Array.isArray(value)) {

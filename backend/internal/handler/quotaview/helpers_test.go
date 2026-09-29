@@ -131,3 +131,19 @@ func TestNextWeeklyResetTime_FollowsServerTimezone(t *testing.T) {
 		t.Errorf("nextWeeklyResetTime = %v, want %v", got, want)
 	}
 }
+
+func TestHostedQuotaResponseRetainsAmountsAndWindows(t *testing.T) {
+	now := time.Now()
+	limit := 30.0
+	record := service.UserPlatformQuotaRecord{Platform: "bedrock", DailyLimitUSD: &limit, DailyUsageUSD: 12.5, DailyWindowStart: &now}
+	response := LazyZeroQuotaForResponse(record, now, true)
+	if response["platform"] != "anthropic" || response["account_type"] != "bedrock" {
+		t.Fatal(response)
+	}
+	if response["daily_usage_usd"] != 12.5 {
+		t.Fatal("quota usage changed")
+	}
+	if record.Platform != "bedrock" || record.DailyUsageUSD != 12.5 {
+		t.Fatal("response mutated storage record")
+	}
+}

@@ -13,9 +13,10 @@ import type {
   CreateOrderResult,
   PaymentOrder
 } from '@/types/payment'
-import type { BasePaginationResponse } from '@/types'
+import type { BasePaginationResponse } from '@/types/common'
 
 export interface PublicOrderVerifyResult {
+  resume_token?: string
   out_trade_no: string
   status: string
   paid: boolean
@@ -69,9 +70,9 @@ export const paymentAPI = {
     return apiClient.post<PaymentOrder>('/payment/orders/verify', { out_trade_no: outTradeNo }, ...(signal ? [{ signal }] : []))
   },
 
-  /** Legacy-compatible public order lookup by out_trade_no */
-  verifyOrderPublic(outTradeNo: string, signal?: AbortSignal) {
-    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/verify', { out_trade_no: outTradeNo }, ...(signal ? [{ signal }] : []))
+  /** Compatibility route requiring a single-use resume token */
+  verifyOrderPublic(resumeToken: string, signal?: AbortSignal) {
+    return apiClient.post<PublicOrderVerifyResult>('/payment/public/orders/verify', { resume_token: resumeToken }, ...(signal ? [{ signal }] : []))
   },
 
   /** Resolve an order from a signed resume token without auth */

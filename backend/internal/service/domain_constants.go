@@ -129,7 +129,7 @@ func IsMultiProtocolAPIKeyProvider(platform string) bool {
 // AllowedQuotaPlatforms 是 domain 平台目录派生的兼容视图。
 // ent/schema/user_platform_quota.go 的 Validate 函数独立维护（构建期约束），
 // 若新增平台需同步修改该 schema。
-var AllowedQuotaPlatforms = domain.ConcretePlatforms()
+var AllowedQuotaPlatforms = append(domain.ConcretePlatforms(), "vertex")
 
 // AllowedSchedulingThresholdPlatforms 是允许设置账号自动停调阈值的平台列表。
 // openai/anthropic/grok 有原生用量窗口；kimi/zhipu/minimax 的 Coding Plan 同样暴露
@@ -137,7 +137,7 @@ var AllowedQuotaPlatforms = domain.ConcretePlatforms()
 var AllowedSchedulingThresholdPlatforms = domain.PlatformsWith(func(p domain.PlatformDescriptor) bool { return p.SchedulingThreshold })
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。
-func IsAllowedQuotaPlatform(s string) bool { return domain.IsConcretePlatform(s) }
+func IsAllowedQuotaPlatform(s string) bool { return s == "vertex" || domain.IsConcretePlatform(s) }
 
 // Account type constants
 const (

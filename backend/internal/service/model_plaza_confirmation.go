@@ -121,7 +121,7 @@ func BuildPlazaCandidates(channel *Channel, groupID int64, groupPlatform string,
 		identities[PlazaModelIdentity{Platform: platform, Name: name}] = true
 	}
 	for _, account := range accounts {
-		if groupPlatform != PlatformComposite && account.Platform != groupPlatform {
+		if groupPlatform != PlatformComposite && !account.MatchesPlatform(groupPlatform, "") {
 			continue
 		}
 		if snapshot := account.GetUpstreamModelCatalog(); snapshot != nil && snapshot.IdentityRevision == account.ModelCatalogBaseline().IdentityRevision {

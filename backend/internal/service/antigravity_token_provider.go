@@ -2,9 +2,6 @@ package service
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"errors"
 	"log/slog"
 	"strconv"
@@ -117,6 +114,9 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 		defer cancel()
 		result, err := p.refreshAPI.RefreshIfNeeded(withOAuthRefreshRequestPath(refreshCtx), account, p.executor, antigravityTokenRefreshSkew)
 		if err != nil {
+			if errors.Is(err, ErrAccountRuntimeIdentityChanged) || errors.Is(err, ErrAccountRuntimeWriterUnavailable) {
+				return "", err
+			}
 			// 标记账号临时不可调度，避免后续请求继续命中
 			p.markTempUnschedulable(account, err)
 			if p.refreshPolicy.OnRefreshError == ProviderRefreshErrorReturn {
@@ -144,11 +144,12 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 
 	// Backfill project_id online when missing, with cooldown to avoid hammering.
 	if strings.TrimSpace(account.GetCredential("project_id")) == "" && p.antigravityOAuthService != nil {
-		if p.shouldAttemptBackfill(account.ID) {
-			p.markBackfillAttempted(account.ID)
+		if p.shouldAttemptBackfill(account.ID, account) {
+			p.markBackfillAttempted(account.ID, account)
 			if projectID, err := p.antigravityOAuthService.FillProjectID(ctx, account, accessToken); err == nil && projectID != "" {
-				account.Credentials["project_id"] = projectID
-				if updateErr := persistAccountCredentials(ctx, p.accountRepo, account, account.Credentials); updateErr != nil {
+				credentials := shallowCopyMap(account.Credentials)
+				credentials["project_id"] = projectID
+				if updateErr := persistRuntimeCredentials(ctx, p.accountRepo, account, credentials); updateErr != nil {
 					slog.Warn("antigravity_project_id_backfill_persist_failed",
 						"account_id", account.ID,
 						"error", updateErr,
@@ -187,8 +188,12 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 }
 
 // shouldAttemptBackfill checks backfill cooldown.
-func (p *AntigravityTokenProvider) shouldAttemptBackfill(accountID int64) bool {
-	if v, ok := p.backfillCooldown.Load(accountID); ok {
+func (p *AntigravityTokenProvider) shouldAttemptBackfill(accountID int64, accounts ...*Account) bool {
+	var key any = accountID
+	if len(accounts) > 0 {
+		key = AccountRuntimeIdentityKey(accounts[0])
+	}
+	if v, ok := p.backfillCooldown.Load(key); ok {
 		if lastAttempt, ok := v.(time.Time); ok {
 			return time.Since(lastAttempt) > antigravityBackfillCooldown
 		}
@@ -206,7 +211,7 @@ func (p *AntigravityTokenProvider) markTempUnschedulable(account *Account, refre
 	now := time.Now()
 	until := now.Add(tokenRefreshTempUnschedDuration)
 	reason := "token refresh failed on request path: " + refreshErr.Error()
-	bgCtx := context.Background()
+	bgCtx := WithAccountRuntimeIdentity(context.Background(), account)
 	if err := p.accountRepo.SetTempUnschedulable(bgCtx, account.ID, until, reason); err != nil {
 		slog.Warn("antigravity_token_provider.set_temp_unschedulable_failed",
 			"account_id", account.ID,
@@ -235,8 +240,12 @@ func (p *AntigravityTokenProvider) markTempUnschedulable(account *Account, refre
 	}
 }
 
-func (p *AntigravityTokenProvider) markBackfillAttempted(accountID int64) {
-	p.backfillCooldown.Store(accountID, time.Now())
+func (p *AntigravityTokenProvider) markBackfillAttempted(accountID int64, accounts ...*Account) {
+	var key any = accountID
+	if len(accounts) > 0 {
+		key = AccountRuntimeIdentityKey(accounts[0])
+	}
+	p.backfillCooldown.Store(key, time.Now())
 }
 
 // AntigravityTokenCacheKey is the stable credential-owner refresh lock key.
@@ -246,15 +255,7 @@ func AntigravityTokenCacheKey(account *Account) string {
 }
 
 func antigravityCredentialTokenCacheKey(account *Account) string {
-	// Credential fingerprints also cover manual reauthorization and rollback
-	// that do not increase the explicit version. Secrets never appear in keys.
-	encoded, _ := json.Marshal([]string{
-		account.GetCredential("access_token"), account.GetCredential("refresh_token"),
-		strconv.FormatInt(account.GetCredentialAsInt64("_token_version"), 10),
-		account.GetCredential("expires_at"),
-	})
-	digest := sha256.Sum256(encoded)
-	return "ag:credentials:account:" + strconv.FormatInt(account.ID, 10) + ":" + hex.EncodeToString(digest[:])
+	return "ag:credentials:account:" + AccountRuntimeIdentityKey(account)
 }
 
 func antigravityLegacyTokenCacheKeys(account *Account) []string {

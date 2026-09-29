@@ -115,7 +115,7 @@
 
 <script setup lang="ts">
 import { platformLabel } from '@/utils/platformColors'
-import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
+import { QUOTA_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -129,7 +129,7 @@ const emit = defineEmits(['close', 'success'])
 const { t } = useI18n()
 const appStore = useAppStore()
 
-const PLATFORMS: PlatformQuotaPlatform[] = CONCRETE_PLATFORM_OPTIONS.map(option => option.value)
+const PLATFORMS: PlatformQuotaPlatform[] = QUOTA_PLATFORM_OPTIONS.map(option => option.value)
 
 interface QuotaRow {
   platform: PlatformQuotaPlatform

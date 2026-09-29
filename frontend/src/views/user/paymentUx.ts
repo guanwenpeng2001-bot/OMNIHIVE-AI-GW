@@ -1,5 +1,5 @@
 import { normalizeVisibleMethod } from '@/components/payment/paymentFlow'
-import { extractApiErrorCode } from '@/utils/apiError'
+import { extractApiErrorMessage, extractApiErrorCode } from '@/utils/apiError'
 
 const DISPLAY_METHOD_ALIASES: Record<string, string> = {
   wechat: 'wxpay',
@@ -49,11 +49,7 @@ export function describePaymentScenarioError(
 ): PaymentScenarioErrorDescriptor | null {
   const method = normalizePaymentMethodForDisplay(context.paymentMethod)
   const code = extractApiErrorCode(error)
-  const message = error instanceof Error
-    ? error.message
-    : (typeof error === 'object' && error && 'message' in error && typeof error.message === 'string'
-      ? error.message
-      : String(error || ''))
+  const message = extractApiErrorMessage(error, '')
   const normalizedMessage = message.toLowerCase()
 
   if (method === 'wxpay') {

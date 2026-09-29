@@ -13,12 +13,12 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
-
 	"github.com/gin-gonic/gin"
 )
 
 // AuthHandler handles authentication-related requests
 type AuthHandler struct {
+	tokenCache           DingTalkTokenCache
 	cfg                  *config.Config
 	authService          *service.AuthService
 	userService          *service.UserService
@@ -374,25 +374,7 @@ func (h *AuthHandler) Login2FA(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		if err := applyPendingOAuthBinding(
-			c.Request.Context(),
-			h.entClient(),
-			h.authService,
-			h.userService,
-			pendingSession,
-			decision,
-			&user.ID,
-			true,
-			true,
-		); err != nil {
-			response.ErrorFrom(c, infraerrors.InternalServer("PENDING_AUTH_BIND_APPLY_FAILED", "failed to bind pending oauth identity").WithCause(err))
-			return
-		}
-		if _, err := pendingSvc.ConsumeBrowserSession(
-			c.Request.Context(),
-			pendingSession.SessionToken,
-			pendingSession.BrowserSessionKey,
-		); err != nil {
+		if err := h.authService.CompletePendingOAuthBindLogin(c.Request.Context(), h.userService, pendingSession, decision, user.ID); err != nil {
 			response.ErrorFrom(c, err)
 			return
 		}

@@ -1,11 +1,9 @@
 /**
  * Shared URL builder for iframe-embedded pages.
- * Used by PurchaseSubscriptionView and CustomPageView to build consistent URLs
- * with user_id, token, theme, lang, ui_mode, src_host, and src parameters.
+ * Used by CustomPageView for credential-free embeds with presentation settings.
  */
+import DOMPurify from 'dompurify'
 
-const EMBEDDED_USER_ID_QUERY_KEY = 'user_id'
-const EMBEDDED_AUTH_TOKEN_QUERY_KEY = 'token'
 const EMBEDDED_THEME_QUERY_KEY = 'theme'
 const EMBEDDED_LANG_QUERY_KEY = 'lang'
 const EMBEDDED_UI_MODE_QUERY_KEY = 'ui_mode'
@@ -15,20 +13,14 @@ const EMBEDDED_SRC_QUERY_KEY = 'src_url'
 
 export function buildEmbeddedUrl(
   baseUrl: string,
-  userId?: number,
-  authToken?: string | null,
   theme: 'light' | 'dark' = 'light',
   lang?: string,
 ): string {
   if (!baseUrl) return baseUrl
   try {
     const url = new URL(baseUrl)
-    if (userId) {
-      url.searchParams.set(EMBEDDED_USER_ID_QUERY_KEY, String(userId))
-    }
-    if (authToken) {
-      url.searchParams.set(EMBEDDED_AUTH_TOKEN_QUERY_KEY, authToken)
-    }
+    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password) return ''
+    for (const key of ['user_id', 'token', 'access_token', 'refresh_token']) url.searchParams.delete(key)
     url.searchParams.set(EMBEDDED_THEME_QUERY_KEY, theme)
     if (lang) {
       url.searchParams.set(EMBEDDED_LANG_QUERY_KEY, lang)
@@ -37,12 +29,33 @@ export function buildEmbeddedUrl(
     // Source tracking: let the embedded page know where it's being loaded from
     if (typeof window !== 'undefined') {
       url.searchParams.set(EMBEDDED_SRC_HOST_QUERY_KEY, window.location.origin)
-      url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, window.location.href)
+      // Source URLs can contain OAuth codes or other credentials in query/fragment.
+      url.searchParams.set(EMBEDDED_SRC_QUERY_KEY, window.location.origin)
     }
     return url.toString()
   } catch {
-    return baseUrl
+    return ''
   }
+}
+
+// Scripts run in an opaque origin; never combine with allow-same-origin.
+export const embeddedSandbox = 'allow-scripts'
+
+export function sanitizeEmbeddedHtml(html: string): string {
+  const fragment = DOMPurify.sanitize(html, {
+    ADD_TAGS: ['iframe'],
+    ADD_ATTR: ['allowfullscreen'],
+    FORBID_ATTR: ['srcdoc'],
+    RETURN_DOM_FRAGMENT: true,
+  })
+  fragment.querySelectorAll('iframe').forEach((frame) => {
+    frame.setAttribute('sandbox', embeddedSandbox)
+    frame.setAttribute('referrerpolicy', 'no-referrer')
+    frame.setAttribute('title', frame.getAttribute('title') || 'Embedded content')
+  })
+  const container = document.createElement('div')
+  container.append(fragment)
+  return container.innerHTML
 }
 
 export function detectTheme(): 'light' | 'dark' {

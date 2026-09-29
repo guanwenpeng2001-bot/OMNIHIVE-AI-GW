@@ -5,8 +5,9 @@ describe('model display categories', () => {
   it.each([
     ['text_generation', 'chat'], ['image_generation', 'image'],
     ['video_generation', 'video'], ['embedding', 'embedding'],
-    ['text_to_speech', 'audio'], ['transcription', 'audio'],
-    ['memory', 'memory'], ['rerank', 'other'], ['unknown', 'other']
+    ['text_to_speech', 'audio'], ['speech', 'audio'], ['transcription', 'audio'],
+    ['memory', 'memory'], ['rerank', 'other'], ['realtime', 'other'],
+    ['code_generation', 'other'], ['unknown', 'other']
   ])('classifies %s as %s', (task_type, expected) => {
     expect(modelCategory({ task_type })).toBe(expected)
   })

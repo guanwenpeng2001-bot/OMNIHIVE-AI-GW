@@ -71,6 +71,7 @@ type ChannelMonitorQuotaFetcher struct {
 }
 
 type monitorQuotaCacheEntry struct {
+	identity string
 	snapshot *domain.MonitorQuotaSnapshot
 	expiry   time.Time
 }
@@ -120,7 +121,11 @@ func (f *ChannelMonitorQuotaFetcher) LoadAccount(ctx context.Context, id int64) 
 	if f == nil || f.accounts == nil {
 		return nil, fmt.Errorf("quota fetcher is not configured")
 	}
-	return f.accounts.GetByID(ctx, id)
+	account, err := f.accounts.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return loadRuntimeCredentialOwner(ctx, f.accounts, account)
 }
 
 // Fetch 抓取账号的最新配额快照。永不返回 error：失败降级为
@@ -133,15 +138,20 @@ func (f *ChannelMonitorQuotaFetcher) Fetch(ctx context.Context, accountID int64)
 
 	now := time.Now()
 
-	if cached, ok := f.cachedSnapshot(accountID, now); ok {
+	account, err := f.LoadAccount(ctx, accountID)
+	if err != nil || account == nil {
+		return quotaErrorSnapshot("usage", "linked account not found", now)
+	}
+	identity := AccountRuntimeIdentityKey(account)
+	if cached, ok := f.cachedSnapshot(accountID, now, identity); ok {
 		return cached
 	}
 
 	// singleflight 合并同账号并发抓取；脱离调用方 ctx（仿 CN 配额服务），
 	// 避免某个监控的取消波及共享同一账号的其他监控。
-	key := "monitor-quota:" + strconv.FormatInt(accountID, 10)
+	key := "monitor-quota:" + identity
 	ch := f.flight.DoChan(key, func() (any, error) {
-		return f.fetchShared(accountID), nil
+		return f.fetchShared(accountID, account), nil
 	})
 	select {
 	case <-ctx.Done():
@@ -166,44 +176,68 @@ func (f *ChannelMonitorQuotaFetcher) Fetch(ctx context.Context, accountID int64)
 // 这次重查一定命中，所以合并是确定的而不是尽力而为：storeSnapshot 发生在本函数
 // 返回之前，而 singleflight 删 key 发生在返回之后，因此「能新起一次飞行」必然蕴含
 // 「上一次的快照已经可见」。
-func (f *ChannelMonitorQuotaFetcher) fetchShared(accountID int64) *domain.MonitorQuotaSnapshot {
-	if cached, ok := f.cachedSnapshot(accountID, time.Now()); ok {
+func (f *ChannelMonitorQuotaFetcher) fetchShared(accountID int64, loaded ...*Account) *domain.MonitorQuotaSnapshot {
+	var account *Account
+	if len(loaded) > 0 {
+		account = loaded[0]
+	} else {
+		account, _ = f.LoadAccount(context.Background(), accountID)
+	}
+	if account == nil {
+		return quotaErrorSnapshot("usage", "linked account not found", time.Now())
+	}
+	identity := AccountRuntimeIdentityKey(account)
+	if cached, ok := f.cachedSnapshot(accountID, time.Now(), identity); ok {
 		return cached
 	}
 	fetchCtx, cancel := context.WithTimeout(context.Background(), monitorQuotaFetchTimeout)
 	defer cancel()
-	snapshot := f.fetchUncached(fetchCtx, accountID, time.Now())
+	snapshot := f.fetchUncached(fetchCtx, accountID, time.Now(), account)
 	// 失败也进短 TTL 负缓存：凭据失效/故障期间不必每次调度都打上游。
 	ttl := monitorQuotaFetchCacheTTL
 	if !snapshot.Success {
 		ttl = monitorQuotaErrorCacheTTL
 	}
-	f.storeSnapshot(accountID, snapshot, time.Now().Add(ttl))
+	latest, err := f.LoadAccount(fetchCtx, accountID)
+	if err != nil || latest == nil || identity != AccountRuntimeIdentityKey(latest) {
+		return quotaErrorSnapshot("usage", "account identity changed during quota fetch", time.Now())
+	}
+	f.storeSnapshot(accountID, snapshot, time.Now().Add(ttl), identity)
 	return snapshot
 }
 
-func (f *ChannelMonitorQuotaFetcher) cachedSnapshot(accountID int64, now time.Time) (*domain.MonitorQuotaSnapshot, bool) {
+func (f *ChannelMonitorQuotaFetcher) cachedSnapshot(accountID int64, now time.Time, identity ...string) (*domain.MonitorQuotaSnapshot, bool) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	entry, ok := f.cache[accountID]
-	if !ok || now.After(entry.expiry) {
+	if !ok || now.After(entry.expiry) || (len(identity) > 0 && entry.identity != identity[0]) {
 		return nil, false
 	}
 	return entry.snapshot, true
 }
 
-func (f *ChannelMonitorQuotaFetcher) storeSnapshot(accountID int64, snapshot *domain.MonitorQuotaSnapshot, expiry time.Time) {
+func (f *ChannelMonitorQuotaFetcher) storeSnapshot(accountID int64, snapshot *domain.MonitorQuotaSnapshot, expiry time.Time, identity ...string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.cache[accountID] = monitorQuotaCacheEntry{snapshot: snapshot, expiry: expiry}
+	entry := monitorQuotaCacheEntry{snapshot: snapshot, expiry: expiry}
+	if len(identity) > 0 {
+		entry.identity = identity[0]
+	}
+	f.cache[accountID] = entry
 }
 
-func (f *ChannelMonitorQuotaFetcher) fetchUncached(ctx context.Context, accountID int64, now time.Time) *domain.MonitorQuotaSnapshot {
+func (f *ChannelMonitorQuotaFetcher) fetchUncached(ctx context.Context, accountID int64, now time.Time, loaded ...*Account) *domain.MonitorQuotaSnapshot {
 	if f == nil {
 		return quotaErrorSnapshot("usage", "quota fetcher is not configured", now)
 	}
 
-	account, err := f.LoadAccount(ctx, accountID)
+	var account *Account
+	var err error
+	if len(loaded) > 0 {
+		account = loaded[0]
+	} else {
+		account, err = f.LoadAccount(ctx, accountID)
+	}
 	if err != nil || account == nil {
 		// FK ON DELETE SET NULL 后 account_id 可能为空/失效；显式报「账号未关联」，
 		// 推导为 degraded（配置问题，不是渠道故障）。

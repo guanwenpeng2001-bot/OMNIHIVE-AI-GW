@@ -407,7 +407,7 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.local.yml** | ローカルディレクトリ | ✅ 容易（ディレクトリ全体を tar） | 本番環境、頻繁なバックアップ |
 | **docker-compose.yml** | 名前付きボリューム | ⚠️ docker コマンドが必要 | シンプルなセットアップ |
 
-**推奨:** データ管理が容易な `docker-compose.local.yml`（スクリプトによるデプロイ）を使用してください。
+**推奨:** 管理・移行が容易なローカルディレクトリ方式を使用してください。表はリポジトリ内のファイル名です。スクリプトは `docker-compose.local.yml` を **`docker-compose.yml`** として保存するため、`docker compose` を使用します。以下のアクセス・アップグレード例はスクリプト導入向けです。手動クローンでは `-f docker-compose.local.yml` を追加してください。後続の移行・管理例にこの指定がある場合、スクリプト導入では省略してください。
 
 #### アクセス
 
@@ -415,15 +415,15 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 
 管理者パスワードが自動生成された場合は、ログで確認できます:
 ```bash
-docker compose -f docker-compose.local.yml logs sub2api | grep "admin password"
+docker compose logs sub2api | grep "admin password"
 ```
 
 #### アップグレード
 
 ```bash
 # 最新イメージをプルしてコンテナを再作成
-docker compose -f docker-compose.local.yml pull
-docker compose -f docker-compose.local.yml up -d
+docker compose pull
+docker compose up -d
 ```
 
 #### 簡単な移行（ローカルディレクトリバージョン）

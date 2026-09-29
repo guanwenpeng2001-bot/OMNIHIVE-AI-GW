@@ -1,29 +1,16 @@
-import { ref } from 'vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import { useOAuthRequestState } from './useOAuthRequestState'
 import { useI18n } from 'vue-i18n'
-import { useAppStore } from '@/stores/app'
 import { adminAPI } from '@/api/admin'
 import type { AntigravityTokenInfo } from '@/api/admin/antigravity'
 
 export function useAntigravityOAuth() {
-  const appStore = useAppStore()
   const { t } = useI18n()
 
-  const authUrl = ref('')
-  const sessionId = ref('')
-  const state = ref('')
-  const loading = ref(false)
-  const error = ref('')
-
-  const resetState = () => {
-    authUrl.value = ''
-    sessionId.value = ''
-    state.value = ''
-    loading.value = false
-    error.value = ''
-  }
+  const { authUrl, sessionId, state, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   const generateAuthUrl = async (proxyId: number | null | undefined): Promise<boolean> => {
-    loading.value = true
+    const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
     state.value = ''
@@ -33,18 +20,19 @@ export function useAntigravityOAuth() {
       const payload: Record<string, unknown> = {}
       if (proxyId) payload.proxy_id = proxyId
 
-      const response = await adminAPI.antigravity.generateAuthUrl(payload as any)
+      const response = await request.wait(adminAPI.antigravity.generateAuthUrl(payload as any))
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       state.value = response.state
       return true
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return false
       error.value =
-        err.response?.data?.detail || t('admin.accounts.oauth.antigravity.failedToGenerateUrl')
-      appStore.showError(error.value)
+        extractApiErrorMessage(err, '') || t('admin.accounts.oauth.antigravity.failedToGenerateUrl')
+      request.fail(error.value, true)
       return false
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -60,7 +48,7 @@ export function useAntigravityOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -71,15 +59,16 @@ export function useAntigravityOAuth() {
       }
       if (params.proxyId) payload.proxy_id = params.proxyId
 
-      const tokenInfo = await adminAPI.antigravity.exchangeCode(payload as any)
+      const tokenInfo = await request.wait(adminAPI.antigravity.exchangeCode(payload as any))
       return tokenInfo as AntigravityTokenInfo
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value =
-        err.response?.data?.detail || t('admin.accounts.oauth.antigravity.failedToExchangeCode')
-      appStore.showError(error.value)
+        extractApiErrorMessage(err, '') || t('admin.accounts.oauth.antigravity.failedToExchangeCode')
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -92,23 +81,25 @@ export function useAntigravityOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
-      const tokenInfo = await adminAPI.antigravity.refreshAntigravityToken(
+      const tokenInfo = await request.wait(adminAPI.antigravity.refreshAntigravityToken(
         refreshToken.trim(),
         proxyId
-      )
+      ))
       return tokenInfo as AntigravityTokenInfo
-    } catch (err: any) {
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
       error.value =
-        err.response?.data?.detail || t('admin.accounts.oauth.antigravity.failedToValidateRT')
+        extractApiErrorMessage(err, '') || t('admin.accounts.oauth.antigravity.failedToValidateRT')
       // Don't show global error toast for batch validation to avoid spamming
-      // appStore.showError(error.value)
+
+      request.fail(error.value, false)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 

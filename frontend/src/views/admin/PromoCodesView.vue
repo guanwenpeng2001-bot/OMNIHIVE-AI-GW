@@ -386,6 +386,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -607,7 +609,7 @@ const handleCreate = async () => {
     resetCreateForm()
     loadCodes()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.promo.failedToCreate'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.promo.failedToCreate'))
   } finally {
     creating.value = false
   }
@@ -657,7 +659,7 @@ const handleUpdate = async () => {
     closeEditDialog()
     loadCodes()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.promo.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.promo.failedToUpdate'))
   } finally {
     updating.value = false
   }
@@ -699,7 +701,7 @@ const confirmDelete = async () => {
     deletingCode.value = null
     loadCodes()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.promo.failedToDelete'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.promo.failedToDelete'))
   }
 }
 
@@ -725,7 +727,7 @@ const loadUsages = async () => {
     usages.value = response.items
     usagesTotal.value = response.total
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.promo.failedToLoadUsages'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.promo.failedToLoadUsages'))
   } finally {
     usagesLoading.value = false
   }

@@ -24,22 +24,30 @@ import (
 
 type grokQuotaHandlerAccountRepo struct {
 	service.AccountRepository
+	mu      sync.Mutex
 	account *service.Account
 	updates map[int64]map[string]any
 }
 
-func (r *grokQuotaHandlerAccountRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
-	if r.account != nil && r.account.ID == id {
-		return r.account, nil
+func (repo *grokQuotaHandlerAccountRepo) GetByID(_ context.Context, id int64) (*service.Account, error) {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if repo.account != nil && repo.account.ID == id {
+		return repo.account, nil
 	}
 	return nil, service.ErrAccountNotFound
 }
 
-func (r *grokQuotaHandlerAccountRepo) UpdateExtra(_ context.Context, id int64, updates map[string]any) error {
-	if r.updates == nil {
-		r.updates = make(map[int64]map[string]any)
+func (repo *grokQuotaHandlerAccountRepo) UpdateAccountRuntimeSnapshot(_ context.Context, expected *service.Account, updates map[string]any, _ *time.Time) error {
+	repo.mu.Lock()
+	defer repo.mu.Unlock()
+	if service.AccountRuntimeIdentityKey(expected) != service.AccountRuntimeIdentityKey(repo.account) {
+		return service.ErrAccountRuntimeIdentityChanged
 	}
-	r.updates[id] = updates
+	if repo.updates == nil {
+		repo.updates = make(map[int64]map[string]any)
+	}
+	repo.updates[expected.ID] = updates
 	return nil
 }
 
@@ -159,7 +167,9 @@ func TestGrokOAuthHandlerQueryQuotaProbesUpstream(t *testing.T) {
 	}
 	require.True(t, responsesProbeSeen)
 	require.True(t, modelsSyncSeen)
+	repo.mu.Lock()
 	require.NotNil(t, repo.updates[42])
+	repo.mu.Unlock()
 }
 
 func TestGrokOAuthHandlerResetQuotaReturnsUnsupported(t *testing.T) {
@@ -431,4 +441,11 @@ func TestGrokOAuthHandlerReconcileExplicitApply(t *testing.T) {
 	require.Equal(t, int64(10), reconciler.input.AfterID)
 	require.Equal(t, 25, reconciler.input.Limit)
 	require.Equal(t, time.Hour, reconciler.input.RefreshWindow)
+}
+
+func TestGrokQuotaHandlerSnapshotRejectsReplacedIdentity(test *testing.T) {
+	selected := &service.Account{ID: 42, Credentials: map[string]any{"access_token": "selected"}}
+	repo := &grokQuotaHandlerAccountRepo{account: &service.Account{ID: 42, Credentials: map[string]any{"access_token": "replacement"}}}
+	require.ErrorIs(test, repo.UpdateAccountRuntimeSnapshot(context.Background(), selected, map[string]any{"grok_usage_snapshot": "stale"}, nil), service.ErrAccountRuntimeIdentityChanged)
+	require.Empty(test, repo.updates)
 }

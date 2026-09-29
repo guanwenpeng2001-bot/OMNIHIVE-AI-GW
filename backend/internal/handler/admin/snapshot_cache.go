@@ -11,17 +11,21 @@ import (
 	"golang.org/x/sync/singleflight"
 )
 
+const snapshotCacheLimit = 256
+
 type snapshotCacheEntry struct {
-	ETag      string
-	Payload   any
-	ExpiresAt time.Time
+	accessOrder uint64
+	ETag        string
+	Payload     any
+	ExpiresAt   time.Time
 }
 
 type snapshotCache struct {
-	mu    sync.RWMutex
-	ttl   time.Duration
-	items map[string]snapshotCacheEntry
-	sf    singleflight.Group
+	mu         sync.RWMutex
+	ttl        time.Duration
+	items      map[string]snapshotCacheEntry
+	sf         singleflight.Group
+	nextAccess uint64
 }
 
 type snapshotCacheLoadResult struct {
@@ -45,18 +49,19 @@ func (c *snapshotCache) Get(key string) (snapshotCacheEntry, bool) {
 	}
 	now := time.Now()
 
-	c.mu.RLock()
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	entry, ok := c.items[key]
-	c.mu.RUnlock()
 	if !ok {
 		return snapshotCacheEntry{}, false
 	}
-	if now.After(entry.ExpiresAt) {
-		c.mu.Lock()
+	if !now.Before(entry.ExpiresAt) {
 		delete(c.items, key)
-		c.mu.Unlock()
 		return snapshotCacheEntry{}, false
 	}
+	c.nextAccess++
+	entry.accessOrder = c.nextAccess
+	c.items[key] = entry
 	return entry, true
 }
 
@@ -73,6 +78,24 @@ func (c *snapshotCache) Set(key string, payload any) snapshotCacheEntry {
 		return entry
 	}
 	c.mu.Lock()
+	now := time.Now()
+	for cachedKey, cached := range c.items {
+		if !now.Before(cached.ExpiresAt) {
+			delete(c.items, cachedKey)
+		}
+	}
+	if _, exists := c.items[key]; !exists && len(c.items) >= snapshotCacheLimit {
+		var oldestKey string
+		var oldest uint64
+		for cachedKey, cached := range c.items {
+			if oldest == 0 || cached.accessOrder < oldest {
+				oldestKey, oldest = cachedKey, cached.accessOrder
+			}
+		}
+		delete(c.items, oldestKey)
+	}
+	c.nextAccess++
+	entry.accessOrder = c.nextAccess
 	c.items[key] = entry
 	c.mu.Unlock()
 	return entry

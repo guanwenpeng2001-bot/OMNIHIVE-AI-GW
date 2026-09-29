@@ -1,2 +1,7 @@
 .cache/
 .DS_Store
+
+# Local process and dependency audit artifacts
+.pi/
+**/.pi/
+**/audit.json

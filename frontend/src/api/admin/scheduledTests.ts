@@ -8,8 +8,8 @@ import type {
   ScheduledTestPlan,
   ScheduledTestResult,
   CreateScheduledTestPlanRequest,
-  UpdateScheduledTestPlanRequest
-} from '@/types'
+  UpdateScheduledTestPlanRequest,
+} from '@/types/admin'
 
 /**
  * List all scheduled test plans for an account

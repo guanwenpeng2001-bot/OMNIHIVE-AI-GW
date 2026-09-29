@@ -109,7 +109,7 @@ func (s *CNProviderQuotaService) QueryUsageForAccount(ctx context.Context, accou
 	if err := validateCodingPlanAccount(account); err != nil {
 		return nil, err
 	}
-	key := "cn_quota:" + strconv.FormatInt(account.ID, 10)
+	key := "cn_quota:" + AccountRuntimeIdentityKey(account)
 	resultCh := s.flight.DoChan(key, func() (any, error) {
 		probeCtx, cancel := context.WithTimeout(context.Background(), cnQuotaUpstreamTimeout+5*time.Second)
 		defer cancel()
@@ -267,7 +267,7 @@ func (s *CNProviderQuotaService) queryUsageForAccount(ctx context.Context, accou
 	result.CredentialValid = true
 
 	updates := cnQuotaExtraUpdates(provider, tiers, now)
-	if err := s.accountRepo.UpdateExtra(ctx, account.ID, updates); err != nil {
+	if err := persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, updates, nil); err != nil {
 		slog.Warn("cn_quota_persist_failed", "account_id", account.ID, "provider", provider, "error", err)
 	} else {
 		result.Persisted = true

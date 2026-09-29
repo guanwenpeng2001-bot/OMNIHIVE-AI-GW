@@ -310,8 +310,14 @@ func (s *AntigravityGatewayService) handleAntigravityCompatStream(
 		defer keepaliveTicker.Stop()
 	}
 
+	defer resp.Body.Close()
 	for {
+		if writer.Disconnected() || c.Request.Context().Err() != nil {
+			return session.collectResult(true), nil
+		}
 		select {
+		case <-c.Request.Context().Done():
+			return session.collectResult(true), nil
 		case event, open := <-events:
 			if !open {
 				if !session.hasMeaningfulData() && !writer.Disconnected() {

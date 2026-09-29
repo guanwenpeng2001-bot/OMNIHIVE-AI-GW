@@ -1,5 +1,5 @@
-import { ref } from 'vue'
-import { useAppStore } from '@/stores/app'
+import { extractApiErrorMessage } from '@/utils/apiError'
+import { useOAuthRequestState } from './useOAuthRequestState'
 import { adminAPI } from '@/api/admin'
 
 export type AddMethod = 'oauth' | 'setup-token'
@@ -33,32 +33,16 @@ export interface TokenInfo {
 }
 
 export function useAccountOAuth() {
-  const appStore = useAppStore()
 
   // State
-  const authUrl = ref('')
-  const authCode = ref('')
-  const sessionId = ref('')
-  const sessionKey = ref('')
-  const loading = ref(false)
-  const error = ref('')
-
-  // Reset state
-  const resetState = () => {
-    authUrl.value = ''
-    authCode.value = ''
-    sessionId.value = ''
-    sessionKey.value = ''
-    loading.value = false
-    error.value = ''
-  }
+  const { authUrl, sessionId, authCode, sessionKey, loading, error, resetState, beginRequest } = useOAuthRequestState()
 
   // Generate auth URL
   const generateAuthUrl = async (
     addMethod: AddMethod,
     proxyId?: number | null
   ): Promise<boolean> => {
-    loading.value = true
+    const request = beginRequest()
     authUrl.value = ''
     sessionId.value = ''
     error.value = ''
@@ -70,16 +54,17 @@ export function useAccountOAuth() {
           ? '/admin/accounts/generate-auth-url'
           : '/admin/accounts/generate-setup-token-url'
 
-      const response = await adminAPI.accounts.generateAuthUrl(endpoint, proxyConfig)
+      const response = await request.wait(adminAPI.accounts.generateAuthUrl(endpoint, proxyConfig))
       authUrl.value = response.auth_url
       sessionId.value = response.session_id
       return true
-    } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to generate auth URL'
-      appStore.showError(error.value)
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return false
+      error.value = extractApiErrorMessage(err, '') || 'Failed to generate auth URL'
+      request.fail(error.value, true)
       return false
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -93,7 +78,7 @@ export function useAccountOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -103,19 +88,20 @@ export function useAccountOAuth() {
           ? '/admin/accounts/exchange-code'
           : '/admin/accounts/exchange-setup-token-code'
 
-      const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
+      const tokenInfo = await request.wait(adminAPI.accounts.exchangeCode(endpoint, {
         session_id: sessionId.value,
         code: authCode.value.trim(),
         ...proxyConfig
-      })
+      }))
 
       return tokenInfo as TokenInfo
-    } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Failed to exchange auth code'
-      appStore.showError(error.value)
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
+      error.value = extractApiErrorMessage(err, '') || 'Failed to exchange auth code'
+      request.fail(error.value, true)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 
@@ -130,7 +116,7 @@ export function useAccountOAuth() {
       return null
     }
 
-    loading.value = true
+    const request = beginRequest()
     error.value = ''
 
     try {
@@ -140,18 +126,20 @@ export function useAccountOAuth() {
           ? '/admin/accounts/cookie-auth'
           : '/admin/accounts/setup-token-cookie-auth'
 
-      const tokenInfo = await adminAPI.accounts.exchangeCode(endpoint, {
+      const tokenInfo = await request.wait(adminAPI.accounts.exchangeCode(endpoint, {
         session_id: '',
         code: sessionKeyValue.trim(),
         ...proxyConfig
-      })
+      }))
 
       return tokenInfo as TokenInfo
-    } catch (err: any) {
-      error.value = err.response?.data?.detail || 'Cookie authorization failed'
+    } catch (err: unknown) {
+      if (!request.isCurrent()) return null
+      error.value = extractApiErrorMessage(err, '') || 'Cookie authorization failed'
+      request.fail(error.value, false)
       return null
     } finally {
-      loading.value = false
+      request.finish()
     }
   }
 

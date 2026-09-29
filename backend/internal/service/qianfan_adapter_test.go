@@ -106,10 +106,15 @@ func TestQianfanAdapterContract(t *testing.T) {
 			require.Contains(t, err.Error(), fmt.Sprintf("HTTP status %d", status))
 			require.NotContains(t, err.Error(), "secret")
 		}
-		for _, body := range []string{`{}`, `{"object":"list","data":null}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"duplicate"},{"id":"duplicate"}]}`, `{"object":"list","data":[],"has_more":true}`, `{"object":"list","data":[],"next_cursor":"later"}`, `{"object":"list","data":[],"error":{"code":"denied"}}`, `{"object":"list","data":[{"id":"bad","context_length":"untrusted"}]}`, `{"object":"list","data":[]`} {
+		for _, body := range []string{`{}`, `{"object":"list","data":null}`, `{"object":"list","data":[{"id":"valid"},{}]}`, `{"object":"list","data":[{"id":"duplicate"},{"id":"duplicate"}]}`, `{"object":"list","data":[],"error":{"code":"denied"}}`, `{"object":"list","data":[{"id":"bad","context_length":"untrusted"}]}`, `{"object":"list","data":[]`} {
 			result, err := parseList(200, body)
 			require.Error(t, err, body)
 			require.Nil(t, result)
+		}
+		for _, body := range []string{`{"object":"list","data":[],"has_more":true}`, `{"object":"list","data":[],"next_cursor":"later"}`} {
+			partial, err := parseList(200, body)
+			require.NoError(t, err)
+			require.False(t, partial.Complete)
 		}
 		_, err = parseList(200, strings.Repeat(" ", int(upstreamModelsBodyLimit)+1))
 		require.ErrorIs(t, err, ErrUpstreamResponseBodyTooLarge)
@@ -201,4 +206,30 @@ func TestQianfanAdapterContract(t *testing.T) {
 		_, err = server.Client().Do(request)
 		require.ErrorIs(t, err, context.Canceled)
 	})
+}
+
+func TestQianfanDiscoveryPaginationAndPartialPreview(test *testing.T) {
+	for _, failLater := range []bool{false, true} {
+		secondPage := catalogFixtureResponse(`{"object":"list","data":[{"id":"second"}]}`)
+		if failLater {
+			secondPage.StatusCode = http.StatusServiceUnavailable
+		}
+		upstream := &httpUpstreamRecorder{responses: []*http.Response{
+			catalogFixtureResponse(`{"object":"list","data":[{"id":"first"}],"next":"?cursor=second"}`), secondPage,
+		}}
+		service := &AccountTestService{cfg: upstreamModelSyncTestConfig(), httpUpstream: upstream}
+		account := &Account{Platform: PlatformQianfan, Type: AccountTypeAPIKey, Credentials: map[string]any{"api_key": "fixture"}}
+		if failLater {
+			preview, err := service.PreviewAccountModelCatalog(context.Background(), account)
+			require.NoError(test, err)
+			require.Equal(test, []string{"first"}, preview.DiscoveredModels)
+			require.False(test, preview.DiscoveryComplete)
+			require.Nil(test, preview.Review)
+		} else {
+			models, err := service.FetchUpstreamSupportedModels(context.Background(), account)
+			require.NoError(test, err)
+			require.Equal(test, []string{"first", "second"}, models)
+		}
+		require.Equal(test, "second", upstream.lastReq.URL.Query().Get("cursor"))
+	}
 }

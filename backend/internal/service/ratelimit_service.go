@@ -325,6 +325,7 @@ func (s *RateLimitService) CheckErrorPolicy(ctx context.Context, account *Accoun
 // HandleUpstreamError 处理上游错误响应，标记账号状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Account, statusCode int, headers http.Header, responseBody []byte, requestedModel ...string) (shouldDisable bool) {
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	ctx = withTempUnschedulableModel(ctx, requestedModel)
 	// Team 联动熔断必须先于池模式/自定义错误码/临时不可调度的各类早退；
 	// 同请求内与 fastpath 调用点的重复触发由方法内去重吸收。
@@ -1011,6 +1012,7 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 }
 
 func (s *RateLimitService) handleOpenAI403(ctx context.Context, account *Account, upstreamMsg string, responseBody []byte) (shouldDisable bool) {
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	// 上游代理 / CDN 在请求到达 OpenAI API 之前就拦下时，回的是 HTML 403 页面而不是
 	// {"error":{...}} 结构化错误。这类响应描述的是「这条链路 / 这个端点被挡了」，
 	// 不构成账号凭据或权限失效的证据——例如无效的 /v1/responses 子路径（#5334）。
@@ -1949,6 +1951,7 @@ func (s *RateLimitService) handle529(ctx context.Context, account *Account) {
 
 // UpdateSessionWindow 从成功响应更新5h窗口状态
 func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Account, headers http.Header) {
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	status := headers.Get("anthropic-ratelimit-unified-5h-status")
 	if status == "" {
 		return
@@ -2025,6 +2028,7 @@ func (s *RateLimitService) UpdateSessionWindow(ctx context.Context, account *Acc
 // samplePassiveUsageFromHeaders 从 Anthropic 响应头收集 5h/7d/7d_oi 的
 // utilization 与 reset 被动采样数据，合并为一次 Extra 写入。无数据时不写。
 func (s *RateLimitService) samplePassiveUsageFromHeaders(ctx context.Context, account *Account, headers http.Header) {
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	extraUpdates := make(map[string]any, 6)
 	// 5h utilization（0-1 小数），供 estimateSetupTokenUsage 使用
 	if utilStr := headers.Get("anthropic-ratelimit-unified-5h-utilization"); utilStr != "" {
@@ -2111,6 +2115,7 @@ func (s *RateLimitService) RecoverAccountState(ctx context.Context, accountID in
 		return nil, err
 	}
 
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	result := &SuccessfulTestRecoveryResult{}
 	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, accountID); err != nil {
@@ -2724,6 +2729,7 @@ func truncateTempUnschedMessage(body []byte, maxBytes int) string {
 // 根据系统设置决定是否标记账户为临时不可调度或错误状态
 // 返回是否应该停止该账号的调度
 func (s *RateLimitService) HandleStreamTimeout(ctx context.Context, account *Account, model string) bool {
+	ctx = WithAccountRuntimeIdentity(ctx, account)
 	if account == nil {
 		return false
 	}

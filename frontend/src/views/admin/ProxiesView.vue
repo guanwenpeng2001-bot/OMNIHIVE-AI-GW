@@ -964,6 +964,8 @@
 </template>
 
 <script setup lang="ts">
+import { extractApiErrorMessage } from '@/utils/apiError'
+
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -1369,7 +1371,7 @@ const handleBatchCreate = async () => {
     closeCreateModal()
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.failedToImport'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.failedToImport'))
     console.error('Error batch creating proxies:', error)
   } finally {
     submitting.value = false
@@ -1407,7 +1409,7 @@ const handleCreateProxy = async () => {
     closeCreateModal()
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.failedToCreate'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.failedToCreate'))
     console.error('Error creating proxy:', error)
   } finally {
     submitting.value = false
@@ -1479,7 +1481,7 @@ const handleUpdateProxy = async () => {
     closeEditModal()
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.failedToUpdate'))
     console.error('Error updating proxy:', error)
   } finally {
     submitting.value = false
@@ -1583,7 +1585,7 @@ const runProxyTest = async (proxyId: number, notify: boolean) => {
     }
     return result
   } catch (error: any) {
-    const message = error.response?.data?.detail || t('admin.proxies.failedToTest')
+    const message = extractApiErrorMessage(error, '') || t('admin.proxies.failedToTest')
     applyLatencyResult(proxyId, { success: false, message })
     if (notify) {
       appStore.showError(message)
@@ -1624,7 +1626,7 @@ const handleQualityCheck = async (proxy: Proxy) => {
       t('admin.proxies.qualityCheckDone', { score: result.score, grade: result.grade })
     )
   } catch (error: any) {
-    const message = error.response?.data?.detail || t('admin.proxies.qualityCheckFailed')
+    const message = extractApiErrorMessage(error, '') || t('admin.proxies.qualityCheckFailed')
     appStore.showError(message)
     console.error('Error checking proxy quality:', error)
   } finally {
@@ -1869,7 +1871,7 @@ const handleBatchTest = async () => {
     appStore.showSuccess(t('admin.proxies.batchTestDone', { count: ids.length }))
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.batchTestFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.batchTestFailed'))
     console.error('Error batch testing proxies:', error)
   } finally {
     batchTesting.value = false
@@ -1906,7 +1908,7 @@ const handleBatchQualityCheck = async () => {
     )
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.batchQualityFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.batchQualityFailed'))
     console.error('Error batch checking quality:', error)
   } finally {
     batchQualityChecking.value = false
@@ -1975,7 +1977,7 @@ const confirmDelete = async () => {
     deletingProxy.value = null
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.failedToDelete'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.failedToDelete'))
     console.error('Error deleting proxy:', error)
   }
 }
@@ -2002,7 +2004,7 @@ const confirmBatchDelete = async () => {
     showBatchDeleteDialog.value = false
     loadProxies()
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.batchDeleteFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.batchDeleteFailed'))
     console.error('Error batch deleting proxies:', error)
   }
 }
@@ -2016,7 +2018,7 @@ const openAccountsModal = async (proxy: Proxy) => {
   try {
     proxyAccounts.value = await adminAPI.proxies.getProxyAccounts(proxy.id)
   } catch (error: any) {
-    appStore.showError(error.response?.data?.detail || t('admin.proxies.accountsFailed'))
+    appStore.showError(extractApiErrorMessage(error, '') || t('admin.proxies.accountsFailed'))
     console.error('Error loading proxy accounts:', error)
   } finally {
     accountsLoading.value = false

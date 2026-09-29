@@ -116,6 +116,9 @@
           </a>
           <iframe
             :src="embeddedUrl"
+            :sandbox="embeddedSandbox"
+            :title="menuItem?.label || t('customPage.openInNewTab')"
+            referrerpolicy="no-referrer"
             class="custom-embed-frame"
             allowfullscreen
           ></iframe>
@@ -137,9 +140,8 @@ import { useAdminSettingsStore } from '@/stores/adminSettings'
 import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { buildApiUrl } from '@/api/client'
-import { buildEmbeddedUrl, detectTheme } from '@/utils/embedded-url'
+import { buildEmbeddedUrl, detectTheme, embeddedSandbox, sanitizeEmbeddedHtml } from '@/utils/embedded-url'
 import { marked } from 'marked'
-import DOMPurify from 'dompurify'
 
 interface TocItem {
   id: string
@@ -247,8 +249,6 @@ const embeddedUrl = computed(() => {
   if (!menuItem.value || isMarkdownMode.value) return ''
   return buildEmbeddedUrl(
     menuItem.value.url,
-    authStore.user?.id,
-    authStore.token,
     pageTheme.value,
     locale.value,
   )
@@ -292,6 +292,7 @@ function buildPageImageUrl(slug: string, src: string): string {
 }
 
 async function fetchAndRenderMarkdown(slug: string) {
+  cleanupMarkdownEffects()
   markdownRequest?.abort()
   const session = captureAuthSession()
   const request = new AbortController()
@@ -320,10 +321,7 @@ async function fetchAndRenderMarkdown(slug: string) {
     )
 
     const html = marked.parse(raw) as string
-    const sanitized = DOMPurify.sanitize(html, {
-      ADD_TAGS: ['iframe'],
-      ADD_ATTR: ['allowfullscreen', 'frameborder', 'src'],
-    })
+    const sanitized = sanitizeEmbeddedHtml(html)
 
     // Inject IDs into headings and build TOC
     const toc: TocItem[] = []
@@ -342,7 +340,7 @@ async function fetchAndRenderMarkdown(slug: string) {
     renderedHtml.value = withIds
     tocItems.value = toc
   } catch {
-    if (isCurrent()) renderedHtml.value = '<p class="text-red-500">Failed to load page</p>'
+    if (isCurrent()) renderedHtml.value = sanitizeEmbeddedHtml(`<p class="text-red-500">${t('legal.loadFailed')}</p>`)
   } finally {
     if (isCurrent()) {
       loading.value = false
@@ -367,6 +365,18 @@ function scrollToHeading(id: string) {
 }
 
 let scrollRafId = 0
+let markdownEffectGeneration = 0
+const copyCleanups: (() => void)[] = []
+const copyTimers = new Set<ReturnType<typeof setTimeout>>()
+
+function cleanupMarkdownEffects() {
+  markdownEffectGeneration++
+  if (scrollRafId) cancelAnimationFrame(scrollRafId)
+  scrollRafId = 0
+  copyTimers.forEach(timer => clearTimeout(timer))
+  copyTimers.clear()
+  copyCleanups.splice(0).forEach(cleanup => cleanup())
+}
 function onContentScroll() {
   if (scrollRafId) return
   scrollRafId = requestAnimationFrame(() => {
@@ -391,6 +401,8 @@ function onContentScroll() {
 }
 
 function injectCopyButtons() {
+  cleanupMarkdownEffects()
+  const generation = markdownEffectGeneration
   const container = markdownContainer.value
   if (!container) return
 
@@ -399,16 +411,31 @@ function injectCopyButtons() {
     const btn = document.createElement('button')
     btn.className = 'copy-btn'
     btn.textContent = t('customPage.copyCode')
-    btn.addEventListener('click', async () => {
+    let resetTimer: ReturnType<typeof setTimeout> | undefined
+    const copyCode = async () => {
       const code = pre.querySelector('code')?.textContent ?? pre.textContent ?? ''
       try {
         await navigator.clipboard.writeText(code)
+        if (generation !== markdownEffectGeneration) return
         btn.textContent = t('customPage.copiedCode')
-        setTimeout(() => { btn.textContent = t('customPage.copyCode') }, 2000)
       } catch {
+        if (generation !== markdownEffectGeneration) return
         btn.textContent = t('customPage.copyCodeFailed')
-        setTimeout(() => { btn.textContent = t('customPage.copyCode') }, 2000)
       }
+      if (resetTimer !== undefined) {
+        clearTimeout(resetTimer)
+        copyTimers.delete(resetTimer)
+      }
+      resetTimer = setTimeout(() => {
+        if (resetTimer !== undefined) copyTimers.delete(resetTimer)
+        btn.textContent = t('customPage.copyCode')
+      }, 2000)
+      copyTimers.add(resetTimer)
+    }
+    btn.addEventListener('click', copyCode)
+    copyCleanups.push(() => {
+      btn.removeEventListener('click', copyCode)
+      btn.remove()
     })
     pre.style.position = 'relative'
     pre.appendChild(btn)
@@ -419,6 +446,7 @@ watch([markdownSlug, () => authStore.user?.id, () => authStore.user?.role, () =>
   if (slug) {
     fetchAndRenderMarkdown(slug)
   } else {
+    cleanupMarkdownEffects()
     markdownRequest?.abort()
     markdownRequest = null
     loading.value = false
@@ -450,6 +478,7 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  cleanupMarkdownEffects()
   markdownRequest?.abort()
   if (themeObserver) {
     themeObserver.disconnect()

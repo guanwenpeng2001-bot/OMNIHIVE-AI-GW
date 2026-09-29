@@ -97,7 +97,7 @@ func TestSyncActiveToPassive_WritesFiveHourSessionWindowEnd(t *testing.T) {
 	repo := &sessionWindowSyncRepo{}
 	svc := &AccountUsageService{accountRepo: repo}
 	resetsAt := time.Now().Add(3 * time.Hour).UTC().Truncate(time.Second)
-	svc.syncActiveToPassive(context.Background(), 42, &UsageInfo{
+	svc.syncActiveToPassive(context.Background(), &Account{ID: 42}, &UsageInfo{
 		FiveHour: &UsageProgress{
 			Utilization: 53,
 			ResetsAt:    &resetsAt,
@@ -123,7 +123,7 @@ func TestSyncActiveToPassive_SkipsSessionWindowEndWhenResetMissing(t *testing.T)
 
 	repo := &sessionWindowSyncRepo{}
 	svc := &AccountUsageService{accountRepo: repo}
-	svc.syncActiveToPassive(context.Background(), 99, &UsageInfo{
+	svc.syncActiveToPassive(context.Background(), &Account{ID: 99}, &UsageInfo{
 		FiveHour: &UsageProgress{Utilization: 10},
 	})
 
@@ -132,4 +132,14 @@ func TestSyncActiveToPassive_SkipsSessionWindowEndWhenResetMissing(t *testing.T)
 	if len(repo.sessionWindowEnds) != 0 {
 		t.Fatalf("expected no UpdateSessionWindowEnd calls when ResetsAt is nil, got %d", len(repo.sessionWindowEnds))
 	}
+}
+
+func (r *sessionWindowSyncRepo) UpdateAccountRuntimeSnapshot(ctx context.Context, expected *Account, updates map[string]any, end *time.Time) error {
+	if err := r.UpdateExtra(ctx, expected.ID, updates); err != nil {
+		return err
+	}
+	if end != nil {
+		return r.UpdateSessionWindowEnd(ctx, expected.ID, *end)
+	}
+	return nil
 }

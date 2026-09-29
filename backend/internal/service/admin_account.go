@@ -98,6 +98,13 @@ func cloneAccountJSONMap(value map[string]any) (map[string]any, error) {
 }
 
 var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
+	// Discovery evidence, review revisions and probe state belong to the source account.
+	UpstreamModelCatalogExtraKey:      {},
+	UpstreamModelCatalogStateExtraKey: {},
+	UpstreamModelMetadataExtraKey:     {},
+	UpstreamModelAllowlistExtraKey:    {},
+	ModelAvailabilityExtraKey:         {},
+	ModelProbeBudgetExtraKey:          {},
 	// A retry identity belongs to the operation that created one copy, not to later copies.
 	duplicateAccountOperationIDExtraKey: {},
 	// External sync identity belongs to one local account only.
@@ -589,6 +596,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 	if err != nil {
 		return nil, err
 	}
+	defer s.captureRuntimeInvalidation(ctx, account)()
 	previousCredentials := account.Credentials
 	var normalizedExtra map[string]any
 	if input.Extra != nil {
@@ -979,6 +987,14 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if s.runtimeInvalidator != nil {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		defer s.captureRuntimeInvalidation(ctx, account)()
+	}
+
 	updates = sanitizedCodexFingerprintExtraUpdates(updates)
 	updates = stripOpenAIAutoResetCreditManagedExtra(updates, true)
 	delete(updates, UpstreamBillingProbeEnabledExtraKey)
@@ -1049,12 +1065,18 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 
 	// 预取所有目标账号，供凭据守卫/代理守卫/混合渠道检查共用，避免多次 DB 查询。
 	var cachedTargets []*Account
-	if input.Concurrency != nil || len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
+	if s.runtimeInvalidator != nil || input.Concurrency != nil || len(input.Credentials) > 0 || input.ProxyID != nil || needMixedChannelCheck || openAISettings.any() || input.ProbeEnabled != nil || input.RateMultiplier != nil {
 		loaded, err := s.accountRepo.GetByIDs(ctx, input.AccountIDs)
 		if err != nil {
 			return nil, err
 		}
 		cachedTargets = loaded
+	}
+
+	if s.runtimeInvalidator != nil {
+		for _, target := range cachedTargets {
+			defer s.captureRuntimeInvalidation(ctx, target)()
+		}
 	}
 	for _, target := range cachedTargets {
 		if !target.IsCursor() {
@@ -1360,6 +1382,14 @@ func (s *adminServiceImpl) resolveBulkUpdateTargetIDs(ctx context.Context, filte
 }
 
 func (s *adminServiceImpl) DeleteAccount(ctx context.Context, id int64) error {
+	if s.runtimeInvalidator != nil {
+		account, err := s.accountRepo.GetByID(ctx, id)
+		if err != nil {
+			return err
+		}
+		defer s.captureRuntimeInvalidation(ctx, account)()
+	}
+
 	// 级联删除 spark 影子账号（先删影子，再删母账号）
 	shadows, err := s.accountRepo.ListShadowsByParent(ctx, id)
 	if err != nil {

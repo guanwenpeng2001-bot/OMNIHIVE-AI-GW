@@ -1,3 +1,4 @@
+import { extractApiErrorCode, extractApiErrorStatus } from '@/utils/apiError'
 // Picker IDs from backend/internal/pkg/cursor/models.go; native variants resolve on the server.
 export const cursorModels = ['default', 'grok-4.6', 'composer-2.5', 'claude-opus-5', 'claude-opus-4-8', 'gpt-5.6-sol', 'gpt-5.5', 'claude-fable-5-1', 'claude-fable-5', 'grok-4.5', 'gemini-3.8-flash', 'gemini-3.7-flash', 'muse-spark-1.3', 'gpt-5.6-terra', 'claude-sonnet-5', 'claude-sonnet-4-6', 'gpt-5.3-codex', 'claude-opus-4-7', 'gpt-5.4', 'claude-opus-4-6', 'claude-opus-4-5', 'gpt-5.2', 'gpt-5.6-luna', 'gemini-3.6-flash', 'gemini-3.1-pro', 'gpt-5.4-mini', 'gpt-5.4-nano', 'claude-haiku-4-5', 'claude-sonnet-4-5', 'gpt-5.1', 'gemini-3-flash', 'gemini-3.5-flash', 'claude-sonnet-4', 'gpt-5-mini', 'gemini-2.5-flash', 'kimi-k3', 'kimi-k2.7-code', 'glm-5.2']
 
@@ -439,8 +440,21 @@ export const commonErrorCodes = [
 // 辅助函数
 // =====================
 
+export interface ModelCandidateIdentity {
+  host?: string
+  type?: string
+  profile?: string
+  region?: string
+  mode?: string
+}
+
+export function modelCandidateKey(platform: string, identity: ModelCandidateIdentity = {}): string {
+  return JSON.stringify([platform, identity.host ?? '', identity.type ?? '', identity.profile ?? '', identity.region ?? '', identity.mode ?? ''])
+}
+
 // 按平台获取模型
-export function getModelsByPlatform(platform: string): string[] {
+export function getModelsByPlatform(platform: string, identity: ModelCandidateIdentity = {}): string[] {
+  if (identity.type === 'bedrock' || identity.type === 'service_account') return []
   switch (platform) {
     case 'openai': return openaiModels
     case 'anthropic':
@@ -479,12 +493,13 @@ export function getModelsByPlatform(platform: string): string[] {
     case 'spark': return sparkModels
     case 'hunyuan': return hunyuanModels
     case 'perplexity': return perplexityModels
-    default: return claudeModels
+    default: return []
   }
 }
 
 // 按平台获取预设映射
-export function getPresetMappingsByPlatform(platform: string) {
+export function getPresetMappingsByPlatform(platform: string, identity: ModelCandidateIdentity = {}) {
+  if (identity.type === 'bedrock' || identity.type === 'service_account') return []
   if (platform === 'cursor') {
     const color = 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400'
     const families = ['claude', 'gpt', 'gemini', 'grok', 'kimi', 'glm', 'composer', 'muse']
@@ -502,7 +517,7 @@ export function getPresetMappingsByPlatform(platform: string) {
   if (platform === 'grok' || platform === 'xai') return grokPresetMappings
   if (platform === 'antigravity') return antigravityPresetMappings
   if (platform === 'bedrock') return bedrockPresetMappings
-  return anthropicPresetMappings
+  return platform === 'anthropic' || platform === 'claude' ? anthropicPresetMappings : []
 }
 
 // =====================
@@ -641,9 +656,8 @@ export function modelSyncWarningCode(warning: string | { code: string }): string
 }
 
 export function modelSyncErrorKey(error: unknown): string {
-  const failure = error as { status?: number; reason?: string; response?: { status?: number; data?: { reason?: string } } } | null
-  if (failure?.status === 409 || failure?.response?.status === 409) return 'modelSync.conflict'
-  const reason = failure?.reason ?? failure?.response?.data?.reason ?? ''
+  if (extractApiErrorStatus(error) === 409) return 'modelSync.conflict'
+  const reason = extractApiErrorCode(error) ?? ''
   const reasons = ['not_synced', 'identity_changed', 'entitlement_unconfirmed', 'not_discovered', 'account_restricted', 'route_ambiguous', 'route_target_unavailable', 'endpoint_unsupported', 'retired', 'group_restricted', 'stale_evidence', 'metadata_incomplete']
   if (reasons.includes(reason)) return `modelSync.reasons.${reason}`
   const keys: Record<string, string> = {

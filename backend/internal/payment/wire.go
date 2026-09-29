@@ -1,6 +1,8 @@
 package payment
 
 import (
+	"crypto/hmac"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"log/slog"
@@ -15,25 +17,27 @@ import (
 // Using a named type avoids Wire ambiguity with other []byte parameters.
 type EncryptionKey []byte
 
-// ProvideEncryptionKey derives the payment encryption key from the TOTP encryption key in config.
-// When the key is empty, nil is returned (payment features that need encryption will be disabled).
-// When the key is non-empty but invalid (bad hex or wrong length), an error is returned
-// to prevent startup with a misconfigured encryption key.
+// ProvideEncryptionKey preserves an explicit TOTP key for existing ciphertext,
+// or derives a payment-specific key from the repository's persisted JWT secret.
+// A missing persistent source disables signing; a malformed configured key fails startup.
 func ProvideEncryptionKey(cfg *config.Config) (EncryptionKey, error) {
 	if cfg == nil {
 		slog.Warn("payment encryption key not configured — encrypted payment config and resume signing will be unavailable")
 		return nil, nil
 	}
 	keyHex := strings.TrimSpace(cfg.Totp.EncryptionKey)
-	if keyHex == "" {
-		slog.Warn("payment encryption key not configured — encrypted payment config will be unavailable")
-		return nil, nil
-	}
 	// Reject auto-generated TOTP keys for payment signing.
 	// They change across restarts/instances and can silently break resume-token flows.
-	if !cfg.Totp.EncryptionKeyConfigured {
-		slog.Warn("payment encryption/signing key is not explicitly configured; set TOTP_ENCRYPTION_KEY to enable payment resume tokens")
-		return nil, nil
+	if keyHex == "" || !cfg.Totp.EncryptionKeyConfigured {
+		// Repository bootstrap persists this secret before payment wiring runs.
+		secret := strings.TrimSpace(cfg.JWT.Secret)
+		if len(secret) < 32 {
+			slog.Warn("payment encryption/signing key unavailable: persistent secret is not ready")
+			return nil, nil
+		}
+		derivation := hmac.New(sha256.New, []byte(secret))
+		_, _ = derivation.Write([]byte("sub2api/payment/encryption"))
+		return EncryptionKey(derivation.Sum(nil)), nil
 	}
 	key, err := hex.DecodeString(keyHex)
 	if err != nil {

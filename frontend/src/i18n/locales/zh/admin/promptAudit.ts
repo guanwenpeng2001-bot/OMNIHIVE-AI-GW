@@ -42,7 +42,7 @@ export default {
     },
     metrics: { total: '总计', allowed: '放行', flagged: '标记', blocked: '阻止', unavailable: '不可用', timeouts: '超时', failovers: '故障切换' },
     pool: {
-      title: '审计池', description: '按顺序使用启用的 OpenAI 兼容节点；探测由服务端真实网络环境发起。',
+      title: '审计池', description: '按顺序使用启用的 OpenAI 兼容节点；探测由服务端真实网络环境发起。默认可访问私网，请仅配置可信节点；显式启用 security.url_allowlist 后，扫描、探测及重定向均遵守 upstream_hosts、allow_private_hosts 和 allow_insecure_http 配置。',
       add: '新增节点', edit: '编辑节点', empty: '尚未配置审计节点。', node: '节点', model: '模型', limits: '超时 / 单片上限', credential: '凭据与探测',
       configured: 'API Key 已配置', missing: '未配置 API Key', invalid: 'API Key 无法解密，请重新输入', probe: '连接测试', probing: '探测中…',
       probeProgress: '配置校验 ✓ · 请求已发送 · 等待服务响应…', probeResult: '配置校验 ✓ · 请求 ✓ · HTTP {http} · {status} · {latency} ms',

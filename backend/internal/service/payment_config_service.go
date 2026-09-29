@@ -3,10 +3,12 @@ package service
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"math"
 	"os"
 	"strconv"
 	"strings"
+	"time"
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/paymentproviderinstance"
@@ -202,6 +204,15 @@ type PaymentConfigService struct {
 
 // NewPaymentConfigService creates a new PaymentConfigService.
 func NewPaymentConfigService(entClient *dbent.Client, settingRepo SettingRepository, encryptionKey []byte) *PaymentConfigService {
+	if entClient != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		if err := payment.MigrateProviderConfigs(ctx, entClient, encryptionKey); err != nil {
+			// Preserve failures for repair. Runtime readers reject these records
+			// explicitly instead of replacing them with an empty configuration.
+			slog.Error("payment provider config migration incomplete", "error", err)
+		}
+	}
 	return &PaymentConfigService{entClient: entClient, settingRepo: settingRepo, encryptionKey: encryptionKey}
 }
 

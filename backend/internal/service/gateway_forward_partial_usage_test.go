@@ -184,7 +184,7 @@ func TestGatewayService_Forward_StreamErrorWithoutUsageReturnsNilResult(t *testi
 	require.Nil(t, result, "无已观测 usage 时不应返回部分结果")
 }
 
-func TestGatewayService_Forward_FailoverErrorKeepsNilResult(t *testing.T) {
+func TestGatewayService_Forward_UnknownReadErrorForbidsReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -195,8 +195,8 @@ func TestGatewayService_Forward_FailoverErrorKeepsNilResult(t *testing.T) {
 	parsed, err := ParseGatewayRequest(NewRequestBodyRef(body), PlatformAnthropic)
 	require.NoError(t, err)
 
-	// 未向客户端写出任何字节前的读错误会包成 UpstreamFailoverError 走换号重试。
-	// 该路径必须保持 result=nil：failover 成功后按成功请求计费，双份结果会重复计费。
+	// No semantic output does not prove that the sent generation had no effect.
+	// With no observed usage there is no partial billing result, and replay is forbidden.
 	upstream := &anthropicHTTPUpstreamRecorder{resp: &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"text/event-stream"}},
@@ -210,8 +210,8 @@ func TestGatewayService_Forward_FailoverErrorKeepsNilResult(t *testing.T) {
 	result, err := svc.Forward(context.Background(), c, account, parsed)
 	require.Error(t, err)
 	var failoverErr *UpstreamFailoverError
-	require.True(t, errors.As(err, &failoverErr))
-	require.Nil(t, result, "failover 错误必须保持 result=nil，防止重试成功后双重计费")
+	require.False(t, errors.As(err, &failoverErr))
+	require.Nil(t, result, "no usage was observed before the ambiguous read failure")
 }
 
 func TestGatewayService_Forward_PreOutputSSEOverloadedErrorUsesSemantic529(t *testing.T) {
@@ -261,7 +261,7 @@ func TestGatewayService_Forward_PreOutputSSEOverloadedErrorUsesSemantic529(t *te
 	require.Empty(t, rec.Body.String(), "pre-output overload must remain eligible for account failover")
 }
 
-func TestGatewayService_Forward_PostOutputSSEOverloadedErrorKeepsExistingStatus(t *testing.T) {
+func TestGatewayService_Forward_PostOutputSSEOverloadedErrorPreservesUsageWithoutReplay(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -292,12 +292,15 @@ func TestGatewayService_Forward_PostOutputSSEOverloadedErrorKeepsExistingStatus(
 
 	result, err := svc.Forward(context.Background(), c, newAnthropicOAuthAccountForPartialUsageTest(), parsed)
 	require.Error(t, err)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.Equal(t, 1, result.Usage.InputTokens)
+	require.True(t, result.ClientDisconnect)
 
 	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.Equal(t, http.StatusForbidden, failoverErr.StatusCode)
-	require.JSONEq(t, errorJSON, string(failoverErr.ResponseBody))
+	require.False(t, errors.As(err, &failoverErr))
+	var streamErr *sseStreamErrorEventError
+	require.ErrorAs(t, err, &streamErr)
+	require.JSONEq(t, errorJSON, streamErr.RawData)
 	require.Zero(t, repo.tempCalls)
 	require.Contains(t, rec.Body.String(), "message_start")
 }

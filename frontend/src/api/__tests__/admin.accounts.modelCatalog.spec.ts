@@ -49,3 +49,13 @@ describe('account model catalog API', () => {
     expect(post).toHaveBeenCalledWith('/admin/accounts/models/sync-upstream-preview', connection)
   })
 })
+
+
+it('preserves all five preview fields and propagates catalog 404 without capability probing', async () => {
+  const preview = { discovered_models: ['native'], candidate_models: ['native'], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' }
+  post.mockResolvedValueOnce({ data: preview })
+  expect(await syncUpstreamModelsPreview({ platform: 'openai', type: 'apikey' })).toEqual(preview)
+  get.mockReset().mockRejectedValueOnce({ status: 404 })
+  await expect(getModelCatalog(42)).rejects.toEqual({ status: 404 })
+  expect(get.mock.calls).toEqual([['/admin/accounts/42/models/catalog']])
+})

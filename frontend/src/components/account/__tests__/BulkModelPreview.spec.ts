@@ -12,8 +12,22 @@ const mountPreview = (props = {}) => mount(BulkModelPreview, {
 beforeEach(() => { syncUpstreamModels.mockReset() })
 
 describe('per-account batch model previews', () => {
+  it('previews all five repaired providers and preserves each five-field result', async () => {
+    const platforms = ['volcengine', 'qianfan', 'hunyuan', 'mistral', 'bedrock']
+    const results = platforms.map(platform => ({ discovered_models: [`${platform}-native`], candidate_models: ['shared', `${platform}-candidate`], eligible_models: [], discovery_complete: false, capability_status: 'incomplete' }))
+    results.forEach(result => syncUpstreamModels.mockResolvedValueOnce(result))
+    const wrapper = mountPreview({ accountIds: [101, 102, 103, 104, 105] })
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(syncUpstreamModels.mock.calls).toEqual([101, 102, 103, 104, 105].map(accountId => [accountId, false]))
+    expect(wrapper.findAllComponents({ name: 'ModelCatalogDetails' }).map(details => details.props('result'))).toEqual(results)
+    await wrapper.get('[data-testid="add-common-models"]').trigger('click')
+    expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['existing', 'shared']])
+    wrapper.unmount()
+  })
+
   it('preserves previous evidence on failed retry without allowing an intersection', async () => {
-    syncUpstreamModels.mockResolvedValue({ complete: true, models: ['historical-model'] })
+    syncUpstreamModels.mockResolvedValue({ discovery_complete: true, complete: true, candidate_models: ['historical-model'], models: ['historical-model'] })
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
@@ -42,9 +56,9 @@ describe('per-account batch model previews', () => {
     expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
     wrapper.unmount()
   })
-  it('uses every real ID and only adds the intersection after every result is complete', async () => {
-    syncUpstreamModels.mockResolvedValueOnce({ complete: true, rules_revision: 'first', models: ['shared', 'only-first'] })
-      .mockResolvedValueOnce({ complete: true, rules_revision: 'second', models: ['shared', 'only-second'] })
+  it('uses every real ID and adds the intersection after every result is valid', async () => {
+    syncUpstreamModels.mockResolvedValueOnce({ discovery_complete: true, complete: true, rules_revision: 'first', candidate_models: ['shared', 'only-first'], models: ['shared', 'only-first'] })
+      .mockResolvedValueOnce({ discovery_complete: true, complete: true, rules_revision: 'second', candidate_models: ['shared', 'only-second'], models: ['shared', 'only-second'] })
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
@@ -57,12 +71,12 @@ describe('per-account batch model previews', () => {
   })
 
   it('keeps failed accounts in the denominator and retries only that account', async () => {
-    syncUpstreamModels.mockResolvedValueOnce({ complete: true, models: ['shared'] }).mockRejectedValueOnce({ status: 502 })
+    syncUpstreamModels.mockResolvedValueOnce({ discovery_complete: true, complete: true, candidate_models: ['shared'], models: ['shared'] }).mockRejectedValueOnce({ status: 502 })
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
-    syncUpstreamModels.mockResolvedValueOnce({ complete: true, models: ['shared'] })
+    syncUpstreamModels.mockResolvedValueOnce({ discovery_complete: true, complete: true, candidate_models: ['shared'], models: ['shared'] })
     await wrapper.get('[data-account-id="22"] button').trigger('click')
     await flushPromises()
     expect(syncUpstreamModels.mock.calls).toEqual([[11, false], [22, false], [22, false]])
@@ -70,12 +84,12 @@ describe('per-account batch model previews', () => {
     wrapper.unmount()
   })
 
-  it.each([undefined, false])('does not treat completeness %s as success for the intersection', async complete => {
-    syncUpstreamModels.mockResolvedValueOnce({ complete: true, models: ['shared'] }).mockResolvedValueOnce({ complete, models: ['shared'] })
+  it.each([undefined, false])('allows completeness %s for additive intersection', async complete => {
+    syncUpstreamModels.mockResolvedValueOnce({ discovery_complete: true, complete: true, candidate_models: ['shared'], models: ['shared'] }).mockResolvedValueOnce({ complete, candidate_models: ['shared'], models: ['shared'] })
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
   })
 
@@ -85,11 +99,11 @@ describe('per-account batch model previews', () => {
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await wrapper.get('[data-testid="stop-account-previews"]').trigger('click')
-    resolvePreview({ complete: true, models: ['shared'] })
+    resolvePreview({ discovery_complete: true, complete: true, candidate_models: ['shared'], models: ['shared'] })
     await flushPromises()
     expect(syncUpstreamModels).toHaveBeenCalledOnce()
     expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
-    syncUpstreamModels.mockResolvedValueOnce({ complete: true, models: [] })
+    syncUpstreamModels.mockResolvedValueOnce({ discovery_complete: true, complete: true, candidate_models: [], models: [] })
     await wrapper.get('[data-account-id="22"] button').trigger('click')
     await flushPromises()
     expect(wrapper.text()).toContain('noCommonModels')
@@ -102,7 +116,7 @@ describe('per-account batch model previews', () => {
     const wrapper = mountPreview()
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await wrapper.setProps({ accountIds: [33] })
-    resolvePreview({ complete: true, models: ['old'] })
+    resolvePreview({ discovery_complete: true, complete: true, candidate_models: ['old'], models: ['old'] })
     await flushPromises()
     expect(wrapper.text()).not.toContain('old')
     expect(syncUpstreamModels).toHaveBeenCalledOnce()
@@ -120,7 +134,7 @@ describe('per-account batch model previews', () => {
   })
 
   it('does not overwrite a conflicting alias when adding common models', async () => {
-    syncUpstreamModels.mockResolvedValue({ complete: true, models: ['shared'] })
+    syncUpstreamModels.mockResolvedValue({ discovery_complete: true, complete: true, candidate_models: ['shared'], models: ['shared'] })
     const wrapper = mountPreview({ modelMappings: [{ from: 'shared', to: 'alias-target' }] })
     await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
     await flushPromises()

@@ -8,8 +8,8 @@ import type {
   PromoCodeUsage,
   CreatePromoCodeRequest,
   UpdatePromoCodeRequest,
-  BasePaginationResponse
-} from '@/types'
+} from '@/types/admin'
+import type { BasePaginationResponse } from '@/types/common'
 
 export async function list(
   page: number = 1,

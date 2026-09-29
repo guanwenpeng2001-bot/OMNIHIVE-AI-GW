@@ -338,21 +338,10 @@ func (s *PaymentService) ReconcilePendingPaymentOrders(ctx context.Context) (int
 	return recovered, nil
 }
 
-// VerifyOrderPublic returns the currently persisted public order state without
-// triggering any upstream reconciliation. Signed resume-token recovery is the
-// only public recovery path allowed to query upstream state.
+// VerifyOrderPublic rejects the retired anonymous order-number lookup. Public
+// callers must use GetPublicOrderByResumeToken instead.
 func (s *PaymentService) VerifyOrderPublic(ctx context.Context, outTradeNo string) (*dbent.PaymentOrder, error) {
-	outTradeNo, err := normalizeOrderLookupOutTradeNo(outTradeNo)
-	if err != nil {
-		return nil, err
-	}
-	o, err := s.entClient.PaymentOrder.Query().
-		Where(paymentorder.OutTradeNo(outTradeNo)).
-		Only(ctx)
-	if err != nil {
-		return nil, infraerrors.NotFound("NOT_FOUND", "order not found")
-	}
-	return o, nil
+	return nil, infraerrors.BadRequest("RESUME_TOKEN_REQUIRED", "anonymous order lookup requires a resume token")
 }
 
 func normalizeOrderLookupOutTradeNo(raw string) (string, error) {

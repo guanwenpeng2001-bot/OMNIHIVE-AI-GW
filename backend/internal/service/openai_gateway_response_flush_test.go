@@ -579,7 +579,7 @@ func TestOpenAIResponseFlush_ClientDisconnectStillDrainsUsage(t *testing.T) {
 
 	result, err := runOpenAIResponseFlushTest(recorder, io.NopCloser(strings.NewReader(first+terminal)), config.GatewayConfig{})
 
-	require.NoError(t, err)
+	require.ErrorIs(t, err, context.Canceled)
 	require.NotNil(t, result)
 	require.Equal(t, 7, result.usage.InputTokens)
 	require.Equal(t, 5, result.usage.OutputTokens)

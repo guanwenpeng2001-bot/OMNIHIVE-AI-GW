@@ -523,7 +523,7 @@ const currentTabs = computed(() => {
 
 const platformDescription = computed(() => {
   if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
-    return t(`admin.accounts.newPlatforms.${props.platform}Description`)
+    return t(`admin.accounts.platformDetails.${props.platform}Description`)
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&
@@ -570,7 +570,7 @@ const platformDescription = computed(() => {
 
 const platformNote = computed(() => {
   if (['qianwen', 'commandcode', 'cursor'].includes(props.platform || '')) {
-    return t(`admin.accounts.newPlatforms.${props.platform}Note`)
+    return t(`admin.accounts.platformDetails.${props.platform}Note`)
   }
   if (activeClientTab.value === 'codex' &&
     props.platform !== 'openai' &&

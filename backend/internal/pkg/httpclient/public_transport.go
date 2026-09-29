@@ -32,14 +32,17 @@ func OriginalHostname(ctx context.Context) string {
 // pools are separate from unrestricted requests, so those cannot seed an unsafe
 // connection that a restricted request would later reuse.
 type PublicTransport struct {
-	base       *http.Transport
-	lookupIP   func(context.Context, string, string) ([]net.IP, error)
-	mu         sync.Mutex
-	transports map[string]*http.Transport
+	base        *http.Transport
+	lookupIP    func(context.Context, string, string) ([]net.IP, error)
+	mu          sync.Mutex
+	transports  map[string]*http.Transport
+	lastUsed    map[string]time.Time
+	accessOrder map[string]uint64
+	nextAccess  uint64
 }
 
 func NewPublicTransport(base *http.Transport) *PublicTransport {
-	return &PublicTransport{base: base, lookupIP: net.DefaultResolver.LookupIP, transports: make(map[string]*http.Transport)}
+	return &PublicTransport{base: base, lookupIP: net.DefaultResolver.LookupIP, transports: make(map[string]*http.Transport), lastUsed: make(map[string]time.Time), accessOrder: make(map[string]uint64)}
 }
 
 func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
@@ -108,18 +111,36 @@ func (t *PublicTransport) RoundTrip(req *http.Request) (*http.Response, error) {
 func (t *PublicTransport) transportForHost(host string) *http.Transport {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if transport := t.transports[host]; transport != nil {
-		return transport
-	}
-	// Bound the extra per-TLS-identity pools just as the parent client cache is
-	// bounded. Eviction closes idle sockets without interrupting active streams.
-	if len(t.transports) >= 64 {
-		for key, transport := range t.transports {
-			transport.CloseIdleConnections()
+	now := time.Now()
+	t.nextAccess++
+	for key, used := range t.lastUsed {
+		if now.Sub(used) >= sharedClientTTL {
+			t.transports[key].CloseIdleConnections()
 			delete(t.transports, key)
-			break
+			delete(t.lastUsed, key)
+			delete(t.accessOrder, key)
 		}
 	}
+	if transport := t.transports[host]; transport != nil {
+		t.lastUsed[host] = now
+		t.accessOrder[host] = t.nextAccess
+		return transport
+	}
+	if len(t.transports) >= 64 {
+		var oldestKey string
+		var oldest uint64
+		for key, used := range t.accessOrder {
+			if oldest == 0 || used < oldest {
+				oldestKey, oldest = key, used
+			}
+		}
+		t.transports[oldestKey].CloseIdleConnections()
+		delete(t.transports, oldestKey)
+		delete(t.lastUsed, oldestKey)
+		delete(t.accessOrder, oldestKey)
+	}
+	t.lastUsed[host] = now
+	t.accessOrder[host] = t.nextAccess
 	transport := t.base.Clone()
 	if transport.TLSClientConfig == nil {
 		transport.TLSClientConfig = &tls.Config{}

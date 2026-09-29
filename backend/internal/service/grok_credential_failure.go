@@ -270,7 +270,7 @@ func classifyGrokCredentialFailure(account *Account, err error) grokCredentialFa
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth shared credential state is temporarily unavailable"}
 	case errors.As(err, &containmentErr):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderDown, action: NextAccountStop, message: "Grok OAuth provider state is temporarily unavailable"}
-	case errors.Is(err, errOAuthRefreshAccountStateChanged):
+	case errors.Is(err, errOAuthRefreshAccountStateChanged), errors.Is(err, ErrAccountRuntimeIdentityChanged):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeAccount, reason: GrokCredentialReasonAccountChanged, action: NextAccountRetry, message: "Grok OAuth account eligibility changed"}
 	case errors.As(err, &providerConfigErr):
 		return grokCredentialFailureClass{scope: GatewayFailureScopeProvider, reason: GrokCredentialReasonProviderConfig, action: NextAccountStop, message: "Grok OAuth provider configuration is unavailable"}

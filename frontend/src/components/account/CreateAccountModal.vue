@@ -88,7 +88,6 @@
           </button>
         </div>
       </div>
-      <NewPlatformNotice :platform="form.platform" :api-key="apiKeyValue" />
       <CursorKeyFields v-if="form.platform === 'cursor'" v-model:auto-credentials="cursorAutoCredentials" v-model:mode="cursorKeyMode" v-model:api-key="apiKeyValue" v-model:base-url="apiKeyBaseUrl" v-model:client-version="cursorClientVersion" />
       <div v-if="form.platform === 'cursor' && cursorKeyMode === 'relay'" class="flex items-center justify-between gap-4">
         <div>
@@ -943,7 +942,7 @@
       </div>
       <div v-if="accountCategory === 'service_account'" class="space-y-3">
         <label class="input-label">{{ t('admin.accounts.modelMapping') }}</label>
-        <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+        <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
                 :active="show && !createdCatalogAccounts.length" v-model="allowedModels" :platform="form.platform" />
         <div v-for="(mapping, index) in modelMappings" :key="index" class="flex gap-2">
           <input v-model="mapping.from" class="input" :aria-label="t('admin.accounts.modelMapping') + ' (from)'" />
@@ -1331,6 +1330,7 @@
             :placeholder="apiKeyValuePlaceholder"
           />
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
+          <p v-if="form.platform === 'qianwen' && apiKeyValue.trim().startsWith('sk-sp-')" class="input-hint text-amber-700 dark:text-amber-300" role="alert" data-testid="qianwen-token-plan-warning">{{ t('admin.accounts.platformDetails.tokenPlanWarning') }}</p>
         </div>
 
         <!-- Only verified billing-probe platforms expose this control. -->
@@ -1430,7 +1430,7 @@
 
             <!-- Whitelist Mode -->
             <div v-if="modelRestrictionMode === 'whitelist'">
-              <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+              <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
                 :active="show && !createdCatalogAccounts.length"
                 v-model="allowedModels"
                 :platform="form.platform"
@@ -1883,7 +1883,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+            <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
                 :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               platform="anthropic"
@@ -2224,7 +2224,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
-            <ModelWhitelistSelector :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
+            <ModelWhitelistSelector :candidate-identity="modelCandidateIdentity" :preview-unavailable-reason="t('admin.accounts.modelSync.previewAfterCreate')" :capability-defaults-json="capabilityDefaultsJSON" :model-mappings="modelMappings" :connection-context="[form.proxy_id, headerOverrideEnabled, headerOverrideRows, accountCategory, apiProtocol, openCodeGoProtocolRules]"
                 :active="show && !createdCatalogAccounts.length"
               v-model="allowedModels"
               :platform="form.platform"
@@ -3774,7 +3774,7 @@
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
-import { extractApiErrorMessage } from '@/utils/apiError'
+import { extractApiErrorCode, extractApiErrorStatus, extractApiErrorMetadata, extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3782,9 +3782,7 @@ import { platformSelectionClass, platformSelectionIconClass } from '@/utils/plat
 import { useAppStore } from '@/stores/app'
 
 import {
-  claudeModels,
   getPresetMappingsByPlatform,
-  getModelsByPlatform,
   commonErrorCodes,
   buildModelMappingObject,
   validateModelRestrictions,
@@ -3833,7 +3831,6 @@ import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import { CONCRETE_PLATFORM_OPTIONS, getPlatformLabel, CHAT_PLATFORM_BASE_URLS, isChatOnlyPlatform } from '@/constants/platforms'
-import NewPlatformNotice from '@/components/account/NewPlatformNotice.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
 import HeaderOverrideEditor from '@/components/account/HeaderOverrideEditor.vue'
 import { allSelectedGroupsEnableLongContextPricing } from '@/components/account/longContextBilling'
@@ -3928,7 +3925,7 @@ const apiKeyHint = computed(() => {
   if (form.platform === 'openai') return t('admin.accounts.openai.apiKeyHint')
   if (form.platform === 'gemini') return t('admin.accounts.gemini.apiKeyHint')
   if (form.platform === 'grok') return ''
-  return t('admin.accounts.apiKeyHint')
+  return form.platform === 'anthropic' ? t('admin.accounts.apiKeyHint') : ''
 })
 
 // Base URL / API Key 占位符：国产供应商随账号类型变化。
@@ -4259,18 +4256,21 @@ const syncPreviewCredentials = computed(() => {
     allowedModels.value,
     modelMappings.value
   )
+  const previewCredentials: Record<string, unknown> = form.platform === 'cursor'
+    ? buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
+    : isMultiProtocolPlatform.value ? {
+      account_mode: currentOpenCodeOrCNMode(),
+      api_protocol: apiProtocol.value,
+      ...(apiProtocol.value === 'adaptive' ? { api_base_urls: { ...adaptiveBaseUrls.value, chat_completions: baseUrl } } : {})
+    } : {}
+  applyHeaderOverride(previewCredentials, headerOverrideEnabled.value, headerOverrideRows.value, 'create')
   return {
     platform: form.platform,
     type: form.platform === 'cursor' ? (cursorKeyMode.value === 'relay' ? 'upstream' : cursorKeyMode.value === 'auto' ? 'oauth' : 'apikey') : form.type,
     base_url: baseUrl || undefined,
     api_key: form.platform === 'cursor' && cursorKeyMode.value === 'auto' ? undefined : apiKeyValue.value,
-    credentials: form.platform === 'cursor'
-      ? buildCursorCredentials({ mode: cursorKeyMode.value, apiKey: apiKeyValue.value, baseUrl, clientVersion: cursorClientVersion.value, autoCredentials: cursorAutoCredentials.value })
-      : isMultiProtocolPlatform.value ? {
-        account_mode: currentOpenCodeOrCNMode(),
-        api_protocol: apiProtocol.value,
-        ...(apiProtocol.value === 'adaptive' ? { api_base_urls: { ...adaptiveBaseUrls.value, chat_completions: baseUrl } } : {})
-      } : undefined,
+    proxy_id: form.proxy_id ?? undefined,
+    credentials: previewCredentials,
     ...(modelMapping ? { model_mapping: modelMapping } : {})
   }
 })
@@ -4619,7 +4619,7 @@ const geminiHelpLinks = {
 }
 
 // Computed: current preset mappings based on platform
-const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform))
+const presetMappings = computed(() => getPresetMappingsByPlatform(form.platform, { type: form.type }))
 const tempUnschedPresets = computed(() => [
   {
     label: t('admin.accounts.tempUnschedulable.presets.overloadLabel'),
@@ -4721,6 +4721,17 @@ const canExchangeCode = computed(() => {
   return authCode.trim() && oauth.sessionId.value && !oauth.loading.value
 })
 
+const modelCandidateIdentity = computed(() => ({ host: apiKeyBaseUrl.value, type: form.type, profile: String(form.credentials.provider_profile ?? ''), region: form.type === 'bedrock' ? bedrockRegion.value : vertexLocation.value, mode: currentOpenCodeOrCNMode() }))
+
+// Defaults belong to one open draft; old responses cannot populate another identity.
+let mappingGeneration = 0
+watch(() => JSON.stringify([props.show, form.platform, form.type, apiKeyBaseUrl.value, accountMode.value, antigravityAccountType.value]), () => { mappingGeneration++ }, { flush: 'sync' })
+const loadAntigravityMappings = async () => {
+  const request = ++mappingGeneration
+  const mappings = await fetchAntigravityDefaultMappings()
+  if (request === mappingGeneration && props.show && form.platform === 'antigravity') antigravityModelMappings.value = [...mappings]
+}
+
 // Watchers
 watch(
   () => props.show,
@@ -4730,14 +4741,12 @@ watch(
       adminAPI.tlsFingerprintProfiles.list()
         .then(profiles => { tlsFingerprintProfiles.value = profiles.map(p => ({ id: p.id, name: p.name })) })
         .catch(() => { tlsFingerprintProfiles.value = [] })
-      // Modal opened - fill related models
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
+      // Start with an explicit empty selection; candidates remain available in the picker.
+      allowedModels.value = []
       // Antigravity: 默认使用映射模式并填充默认映射
       if (form.platform === 'antigravity') {
         antigravityModelRestrictionMode.value = 'mapping'
-        fetchAntigravityDefaultMappings().then(mappings => {
-          antigravityModelMappings.value = [...mappings]
-        })
+        void loadAntigravityMappings()
         antigravityWhitelistModels.value = []
       } else {
         antigravityWhitelistModels.value = []
@@ -4802,9 +4811,7 @@ watch(
     // Antigravity: 默认使用映射模式并填充默认映射
     if (newPlatform === 'antigravity') {
       antigravityModelRestrictionMode.value = 'mapping'
-      fetchAntigravityDefaultMappings().then(mappings => {
-        antigravityModelMappings.value = [...mappings]
-      })
+      void loadAntigravityMappings()
       antigravityWhitelistModels.value = []
       accountCategory.value = 'oauth-based'
       antigravityAccountType.value = 'oauth'
@@ -4915,15 +4922,6 @@ const handleSelectGeminiOAuthType = (oauthType: 'code_assist' | 'google_one' | '
   geminiOAuthType.value = oauthType
 }
 
-// Auto-fill related models when switching to whitelist mode or changing platform
-watch(
-  [modelRestrictionMode, () => form.platform],
-  ([newMode]) => {
-    if (newMode === 'whitelist') {
-      allowedModels.value = [...getModelsByPlatform(form.platform)]
-    }
-  }
-)
 
 watch(
   [antigravityModelRestrictionMode, () => form.platform],
@@ -5262,9 +5260,16 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
     emit('created')
     handleClose()
   } catch (error: any) {
-    if (error.response?.status === 409 && error.response?.data?.error === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+    if (extractApiErrorStatus(error) === 409 && extractApiErrorCode(error) === 'mixed_channel_warning' && needsMixedChannelCheck(form.platform)) {
+      const metadata = extractApiErrorMetadata(error)
       openMixedChannelDialog({
-        message: error.response?.data?.message,
+        message: extractApiErrorMessage(error),
+        response: typeof metadata.group_name === 'string' ? { has_risk: true, details: {
+          group_id: typeof metadata.group_id === 'number' ? metadata.group_id : 0,
+          group_name: typeof metadata.group_name === 'string' ? metadata.group_name : '',
+          current_platform: typeof metadata.current_platform === 'string' ? metadata.current_platform : '',
+          other_platform: typeof metadata.other_platform === 'string' ? metadata.other_platform : '',
+        } } : undefined,
         onConfirm: async () => {
           antigravityMixedChannelConfirmed.value = true
           await submitCreateAccount(payload)
@@ -5322,13 +5327,11 @@ const resetForm = () => {
   modelMappings.value = []
   openAICompactModelMappings.value = []
   modelRestrictionMode.value = 'whitelist'
-  allowedModels.value = [...claudeModels] // Default fill related models
+  allowedModels.value = []
 
   antigravityModelRestrictionMode.value = 'mapping'
   antigravityWhitelistModels.value = []
-  fetchAntigravityDefaultMappings().then(mappings => {
-    antigravityModelMappings.value = [...mappings]
-  })
+  antigravityModelMappings.value = []
   poolModeEnabled.value = false
   poolModeRetryCount.value = DEFAULT_POOL_MODE_RETRY_COUNT
   poolModeRetryStatusCodesInput.value = ''

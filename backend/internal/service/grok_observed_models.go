@@ -36,16 +36,17 @@ func (s *GrokQuotaService) scheduleGrokObservedModelsSync(account *Account) {
 		return
 	}
 	id := account.ID
-	if _, loaded := grokObservedModelsFlight.LoadOrStore(id, struct{}{}); loaded {
+	if _, loaded := grokObservedModelsFlight.LoadOrStore(AccountRuntimeIdentityKey(account), struct{}{}); loaded {
 		return
 	}
 	// Copy credentials for background use.
-	acc := *account
+	acc := snapshotOAuthRefreshAccount(account)
+	identity := AccountRuntimeIdentityKey(account)
 	go func() {
-		defer grokObservedModelsFlight.Delete(id)
+		defer grokObservedModelsFlight.Delete(identity)
 		ctx, cancel := context.WithTimeout(context.Background(), grokObservedModelsTimeout)
 		defer cancel()
-		if err := s.syncGrokObservedModels(ctx, &acc); err != nil {
+		if err := s.syncGrokObservedModels(ctx, acc); err != nil {
 			slog.Debug("grok_observed_models_sync_failed", "account_id", id, "error", err)
 		}
 	}()
@@ -144,9 +145,9 @@ func (s *GrokQuotaService) syncGrokObservedModels(ctx context.Context, account *
 	if err := json.Unmarshal(raw, &asMap); err != nil {
 		return err
 	}
-	return s.accountRepo.UpdateExtra(ctx, account.ID, map[string]any{
+	return persistAccountRuntimeSnapshot(ctx, s.accountRepo, account, map[string]any{
 		grokObservedModelsExtraKey: asMap,
-	})
+	}, nil)
 }
 
 func extractGrokModelIDsFromModelsBody(body []byte) []string {

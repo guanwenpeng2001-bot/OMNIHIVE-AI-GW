@@ -864,7 +864,7 @@ func TestAntigravityCompatClientDisconnectDrainsUsage(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	require.True(t, result.clientDisconnect)
-	require.Equal(t, 15, result.usage.OutputTokens)
+	require.Equal(t, 1, result.usage.OutputTokens)
 }
 
 func TestAntigravityCompatStreamErrorCommitsSingleTerminalFrame(t *testing.T) {

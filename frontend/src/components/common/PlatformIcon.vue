@@ -113,12 +113,15 @@ import type { GroupPlatform } from '@/types'
 
 interface Props {
   platform?: GroupPlatform
+  accountType?: string
   size?: 'xs' | 'sm' | 'md' | 'lg'
 }
 
 const props = withDefaults(defineProps<Props>(), {
   size: 'sm'
 })
+
+const platform = computed(() => props.accountType === 'bedrock' ? 'bedrock' : props.platform)
 
 const sizeClass = computed(() => {
   const sizes = {

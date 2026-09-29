@@ -4,8 +4,8 @@
  */
 
 import { apiClient } from '../client'
+import type { DashboardStats } from '@/types/admin'
 import type {
-  DashboardStats,
   TrendDataPoint,
   ModelStat,
   GroupStat,
@@ -13,8 +13,8 @@ import type {
   UserUsageTrendPoint,
   UserSpendingRankingResponse,
   UserBreakdownItem,
-  UsageRequestType
-} from '@/types'
+  UsageRequestType,
+} from '@/types/user'
 
 /**
  * Get dashboard statistics

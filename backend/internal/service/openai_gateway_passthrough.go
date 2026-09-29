@@ -464,6 +464,21 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 				}
 				_ = resp.Body.Close()
+				var failoverErr *UpstreamFailoverError
+				if result != nil && result.usage != nil && !errors.As(handleErr, &failoverErr) {
+					return &OpenAIForwardResult{
+						RequestID: resp.Header.Get("x-request-id"), UpstreamHeaders: resp.Header,
+						ResponseID: result.responseID, Usage: *result.usage,
+						Model: reqModel, UpstreamModel: upstreamPassthroughModel,
+						UpstreamResponseModel:         observedUpstreamResponseModel(c),
+						UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
+						UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
+						ServiceTier:                   resolvedOpenAIUpstreamServiceTier(c, extractOpenAIServiceTierFromBody(body)),
+						ReasoningEffort:               reasoningEffort,
+						Stream:                        true, Duration: time.Since(startTime), FirstTokenMs: result.firstTokenMs,
+						ImageCount: result.imageCount, ImageOutputSizes: result.imageOutputSizes, ClientDisconnect: true,
+					}, handleErr
+				}
 				return nil, handleErr
 			}
 			usage = result.usage
@@ -1932,7 +1947,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		for _, pending := range pendingLines {
 			if _, err := fmt.Fprintln(w, pending); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 				return false
 			}
 		}
@@ -1981,7 +1996,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 		}
 	}
 
-	for documentScanner.Scan() {
+	defer resp.Body.Close()
+	stopCancellation := context.AfterFunc(ctx, func() { _ = resp.Body.Close() })
+	defer stopCancellation()
+	for !clientDisconnected && ctx.Err() == nil && documentScanner.Scan() {
 		line := documentScanner.Text()
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
@@ -2186,7 +2204,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			}
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI passthrough] Client disconnected during streaming, canceling upstream with observed usage: account=%d", account.ID)
 			} else {
 				clientOutputStarted = true
 				flushPending = true
@@ -2200,6 +2218,10 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			failureDelivered = true
 		}
 	}
+	if clientDisconnected || ctx.Err() != nil {
+		return resultWithUsage(), context.Canceled
+	}
+
 	ensureResponseFailedTerminal()
 	if err := documentScanner.Err(); err != nil {
 		if (sawDone || sawTerminalEvent) && !sawFailedEvent {

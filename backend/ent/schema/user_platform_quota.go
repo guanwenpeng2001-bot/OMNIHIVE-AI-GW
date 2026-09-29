@@ -33,6 +33,7 @@ func (UserPlatformQuota) Mixin() []ent.Mixin {
 
 func (UserPlatformQuota) Fields() []ent.Field {
 	return []ent.Field{
+		field.String("account_type").MaxLen(32).Default(""),
 		field.Int64("user_id"),
 		field.String("platform").
 			MaxLen(32).
@@ -42,7 +43,7 @@ func (UserPlatformQuota) Fields() []ent.Field {
 				// 此处为 ent 构建期约束，需与 service.AllowedQuotaPlatforms 保持同步。
 				switch s {
 				case "anthropic", "openai", "gemini", "antigravity", "grok",
-					"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode", "qianfan", "hunyuan", "mistral", "bedrock", "volcengine":
+					"kimi", "zhipu", "deepseek", "minimax", "opencode_go", "cursor", "qianwen", "commandcode", "qianfan", "hunyuan", "mistral", "bedrock", "volcengine", "vertex":
 					return nil
 				default:
 					return fmt.Errorf("platform %q is not allowed", s)

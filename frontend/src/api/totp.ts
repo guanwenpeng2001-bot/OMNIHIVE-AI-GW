@@ -11,8 +11,8 @@ import type {
   TotpEnableRequest,
   TotpEnableResponse,
   TotpDisableRequest,
-  TotpVerificationMethod
-} from '@/types'
+  TotpVerificationMethod,
+} from '@/types/user'
 
 /**
  * Get TOTP status for current user

@@ -249,7 +249,7 @@ import type {
   LoginAgreementDocument,
   TotpLoginResponse
 } from '@/types'
-import { extractI18nErrorMessage } from '@/utils/apiError'
+import { extractApiErrorMessage, extractI18nErrorMessage } from '@/utils/apiError'
 import { clearAllAffiliateReferralCodes } from '@/utils/oauthAffiliate'
 
 const { t } = useI18n()
@@ -717,7 +717,7 @@ async function handle2FAVerify(code: string): Promise<void> {
     await router.push(redirectTo)
   } catch (error: unknown) {
     const err = error as { message?: string; response?: { data?: { message?: string } } }
-    const message = err.response?.data?.message || err.message || t('profile.totp.loginFailed')
+    const message = extractApiErrorMessage(err, '') || t('profile.totp.loginFailed')
 
     if (totpModalRef.value) {
       totpModalRef.value.setError(message)

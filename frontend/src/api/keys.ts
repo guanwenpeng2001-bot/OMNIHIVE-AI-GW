@@ -1,10 +1,12 @@
+import { postIdempotentCreate } from './idempotency'
 /**
  * API Keys management endpoints
  * Handles CRUD operations for user API keys
  */
 
 import { apiClient } from './client'
-import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest, PaginatedResponse } from '@/types'
+import type { ApiKey, CreateApiKeyRequest, UpdateApiKeyRequest } from '@/types/user'
+import type { PaginatedResponse } from '@/types/common'
 
 /**
  * List all API keys for current user
@@ -96,8 +98,7 @@ export async function create(
     payload.rate_limit_7d = rateLimitData.rate_limit_7d
   }
 
-  const { data } = await apiClient.post<ApiKey>('/keys', payload)
-  return data
+  return postIdempotentCreate<ApiKey>('/keys', payload)
 }
 
 /**

@@ -31,6 +31,10 @@ func gatewayStreamHasOnlyHeartbeats(c *gin.Context) bool {
 	if c == nil || c.Writer == nil {
 		return false
 	}
+	if value, tracked := c.Get("gateway_stream_only_heartbeats"); tracked {
+		onlyHeartbeats, _ := value.(bool)
+		return onlyHeartbeats && c.Writer.Size() > 0
+	}
 	value, ok := c.Get(gatewayStreamHeartbeatBytesKey)
 	if !ok {
 		return false

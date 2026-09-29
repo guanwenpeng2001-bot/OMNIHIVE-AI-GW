@@ -13,7 +13,7 @@ import (
 func TestConcretePlatformContracts(t *testing.T) {
 	platforms := ConcretePlatforms()
 	require.ElementsMatch(t, domain.ConcretePlatforms(), platforms)
-	require.ElementsMatch(t, platforms, AllowedQuotaPlatforms)
+	require.ElementsMatch(t, append(platforms, "vertex"), AllowedQuotaPlatforms)
 	require.Equal(t, platforms, schedulerSnapshotPlatforms())
 	require.ElementsMatch(t, platforms, matchingPlatforms(PlatformComposite))
 	seen := map[string]bool{}

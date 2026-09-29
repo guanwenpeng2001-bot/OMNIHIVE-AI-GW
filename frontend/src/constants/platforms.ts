@@ -5,6 +5,32 @@ export interface PlatformOption<T extends string = string> {
   supportsOAuth?: boolean
 }
 
+/** Hosting is an account type; legacy wire values remain readable during rollout. */
+export const HOSTED_ACCOUNT_OPTIONS = [
+  { platform: 'anthropic', type: 'bedrock', label: 'Amazon Bedrock' },
+  { platform: 'gemini', type: 'service_account', label: 'Vertex AI' },
+  { platform: 'anthropic', type: 'service_account', label: 'Vertex AI' }
+] as const
+
+export function canonicalPlatform(platform: string): string {
+  if (platform === 'bedrock') return 'anthropic'
+  if (platform === 'vertex') return 'gemini'
+  return platform
+}
+
+export function hostedAccountType(platform: string): string {
+  if (platform === 'bedrock') return 'bedrock'
+  if (platform === 'vertex') return 'service_account'
+  return ''
+}
+
+/** Stable budget key used by quota forms; hosting subtypes must not collapse. */
+export function hostedQuotaKey(platform: string, accountType?: string): string {
+  if (platform === 'anthropic' && accountType === 'bedrock') return 'bedrock'
+  if (platform === 'gemini' && accountType === 'service_account') return 'vertex'
+  return platform
+}
+
 /**
  * Concrete upstream platforms supported by accounts and request routing.
  * Keep platform selectors derived from this catalog so newly added providers
@@ -31,6 +57,21 @@ export const CONCRETE_PLATFORM_OPTIONS = [
   { value: 'cursor', label: 'Cursor', supportsOAuth: true }
 ] as const satisfies readonly PlatformOption[]
 
+/** Budget identities remain stable even after the product identity migrates. */
+export const QUOTA_PLATFORM_OPTIONS = [
+  ...CONCRETE_PLATFORM_OPTIONS,
+  { value: 'vertex', label: 'Vertex AI' }
+] as const satisfies readonly PlatformOption[]
+
+/** Product filters exclude legacy hosting aliases while account editors and
+ * quota budgets retain the full compatibility catalog during staged rollout. */
+export const PRODUCT_PLATFORM_OPTIONS = CONCRETE_PLATFORM_OPTIONS.filter(option => !hostedAccountType(option.value))
+
+export const PRODUCT_GROUP_PLATFORM_OPTIONS = [
+  ...PRODUCT_PLATFORM_OPTIONS,
+  { value: 'composite', label: 'Composite', supportsOAuth: true }
+] as const satisfies readonly PlatformOption[]
+
 /** Platforms that can own a group. */
 export const GROUP_PLATFORM_OPTIONS = [
   ...CONCRETE_PLATFORM_OPTIONS,
@@ -50,6 +91,11 @@ export function platformSupportsPricingSync(platform: string): boolean {
 
 export type AccountPlatform = typeof CONCRETE_PLATFORM_OPTIONS[number]['value']
 export type GroupPlatform = typeof GROUP_PLATFORM_OPTIONS[number]['value']
+
+/** Every concrete descriptor supports catalog previews; the Go contract test checks this projection. */
+export function platformSupportsModelCatalog(platform: string): boolean {
+  return CONCRETE_PLATFORM_OPTIONS.some(option => option.value === platform.toLowerCase())
+}
 
 /** Shared display labels; callers with an active locale pass their translator. */
 export function getPlatformLabel(platform: string, translate?: (key: string) => string): string {

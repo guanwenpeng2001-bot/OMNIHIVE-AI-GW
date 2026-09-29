@@ -213,7 +213,7 @@ const fetchLogs = async () => {
     total.value = res.total || 0
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to fetch logs', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.systemLogs.loadFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.systemLogs.loadFailed'))
   } finally {
     loading.value = false
   }
@@ -261,7 +261,7 @@ const saveRuntimeConfig = async () => {
     appStore.showSuccess(t('admin.ops.systemLogs.runtimeConfigActive'))
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to save runtime log config', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.systemLogs.runtimeConfigSaveFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.systemLogs.runtimeConfigSaveFailed'))
   } finally {
     runtimeSaving.value = false
   }
@@ -286,7 +286,7 @@ const resetRuntimeConfig = async () => {
     await fetchHealth()
   } catch (err: any) {
     console.error('[OpsSystemLogTable] Failed to reset runtime log config', err)
-    appStore.showError(err?.response?.data?.detail || t('admin.ops.systemLogs.runtimeConfigResetFailed'))
+    appStore.showError(extractApiErrorMessage(err, '') || t('admin.ops.systemLogs.runtimeConfigResetFailed'))
   } finally {
     runtimeSaving.value = false
   }

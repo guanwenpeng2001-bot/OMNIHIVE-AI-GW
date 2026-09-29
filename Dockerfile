@@ -134,6 +134,8 @@ RUN apk add --no-cache \
 COPY --from=pg-client /usr/local/bin/pg_dump /usr/local/bin/pg_dump
 COPY --from=pg-client /usr/local/bin/psql /usr/local/bin/psql
 COPY --from=pg-client /usr/local/lib/libpq.so.5* /usr/local/lib/
+# Fail the build if the chosen image overrides leave missing runtime libraries.
+RUN pg_dump --version && psql --version
 
 # Create non-root user
 RUN addgroup -g 1000 sub2api && \
@@ -156,7 +158,7 @@ RUN chmod +x /app/docker-entrypoint.sh
 # Expose port (can be overridden by SERVER_PORT env var)
 EXPOSE 8080
 
-# Health check
+# Liveness only; reverse proxies use /ready for dependency readiness.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
     CMD wget -q -T 5 -O /dev/null http://localhost:${SERVER_PORT:-8080}/health || exit 1
 

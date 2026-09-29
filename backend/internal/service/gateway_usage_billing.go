@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/timezone"
@@ -92,7 +93,7 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 	if apiKey == nil || apiKey.Group == nil {
 		return ""
 	}
-	return apiKey.Group.Platform
+	return domain.HostedQuotaKey(apiKey.Group.Platform, apiKey.Group.RequiredAccountType())
 }
 
 // QuotaPlatform 返回 user×platform 配额计量使用的平台标识。
@@ -109,7 +110,7 @@ func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
 		}
 	}
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-		return platform
+		return domain.HostedQuotaKey(platform, RequiredRouteAccountType(ctx))
 	}
 	platform := PlatformFromAPIKey(apiKey)
 	if platform == PlatformComposite {
@@ -555,21 +556,17 @@ func detachedBillingContext(ctx context.Context) (context.Context, context.Cance
 	return context.WithTimeout(base, postUsageBillingTimeout)
 }
 
+// Generation retains client cancellation and the original deadline.
+// Only detachedBillingContext outlives the request to persist observed usage.
 func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Context, context.CancelFunc) {
-	if ctx == nil {
-		return context.Background(), func() {}
-	}
-	if !stream {
-		return ctx, func() {}
-	}
-	return context.WithoutCancel(ctx), func() {}
+	return detachUpstreamContext(ctx)
 }
 
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
-		return context.Background(), func() {}
+		ctx = context.Background()
 	}
-	return context.WithoutCancel(ctx), func() {}
+	return ctx, func() {}
 }
 
 // billingDeps 扣费逻辑依赖的服务（由各 gateway service 提供）
