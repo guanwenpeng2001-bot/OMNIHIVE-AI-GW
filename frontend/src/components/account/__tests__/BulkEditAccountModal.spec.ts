@@ -85,6 +85,19 @@ function mountModal(extraProps: Record<string, unknown> = {}) {
 }
 
 describe('BulkEditAccountModal', () => {
+  it('invalidates previews when enabling pending header replacement and still uses saved accounts', async () => {
+    catalogPreview.mockReset().mockResolvedValue({ models: ['shared'], complete: true })
+    const wrapper = mountModal({ selectedPlatforms: ['openai'] })
+    await wrapper.get('#bulk-edit-model-restriction-enabled').setValue(true)
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeUndefined()
+    await wrapper.get('#bulk-edit-header-override-enabled').setValue(true)
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.get('[data-testid="bulk-model-preview"]').text()).toContain('bulkSavedScope')
+    expect(catalogPreview.mock.calls).toEqual([[1, false], [2, false]])
+    wrapper.unmount()
+  })
   beforeEach(() => {
     vi.mocked(adminAPI.accounts.bulkUpdate).mockReset()
     vi.mocked(adminAPI.accounts.checkMixedChannelRisk).mockReset()

@@ -134,8 +134,8 @@ func TestBuildClientPrivateHostPolicy(t *testing.T) {
 		resp, err := client.Get(server.URL)
 		if allow {
 			require.NoError(t, err)
-			_, err = io.Copy(io.Discard, resp.Body)
-			require.NoError(t, err)
+			_, copyErr := io.Copy(io.Discard, resp.Body)
+			require.NoError(t, copyErr)
 			require.NoError(t, resp.Body.Close())
 		} else {
 			require.ErrorContains(t, err, "not allowed")
@@ -167,15 +167,16 @@ func TestPublicTransportPinsCONNECTAndPreservesProxyTLSIdentity(t *testing.T) {
 				_, err = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 				require.NoError(t, err)
 				require.NoError(t, rw.Flush())
+				// Either relay can finish first and close both ends. Copy/close errors
+				// during that teardown are expected; the client assertions below
+				// verify the tunneled response and TLS identity.
 				go func() {
-					defer func() { _ = conn.Close() }()
-					defer func() { _ = upstream.Close() }()
+					defer func() { _ = conn.Close(); _ = upstream.Close() }()
 					_, _ = io.Copy(upstream, rw)
 				}()
 				go func() {
+					defer func() { _ = conn.Close(); _ = upstream.Close() }()
 					_, _ = io.Copy(conn, upstream)
-					_ = conn.Close()
-					_ = upstream.Close()
 				}()
 			}))
 			if secureProxy {

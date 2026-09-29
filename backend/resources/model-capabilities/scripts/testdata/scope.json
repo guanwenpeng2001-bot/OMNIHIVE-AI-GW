@@ -1,0 +1,27 @@
+{
+  "current_u0": {
+    "account_count": 1,
+    "identity_count": 1,
+    "status": "frozen"
+  },
+  "models": [
+    {
+      "missing_fields": [
+        "input_modalities"
+      ],
+      "model_id": "sample",
+      "profile": "fixture-native",
+      "set": "H485"
+    },
+    {
+      "account_id": 1,
+      "missing_fields": [
+        "input_modalities"
+      ],
+      "model_id": "sample",
+      "profile": "fixture-native",
+      "set": "U0"
+    }
+  ],
+  "schema_version": 1
+}

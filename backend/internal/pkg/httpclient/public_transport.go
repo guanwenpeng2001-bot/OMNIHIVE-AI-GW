@@ -158,6 +158,7 @@ func (t *PublicTransport) transportForHost(host string) *http.Transport {
 			handshakeCtx, cancel := context.WithTimeout(ctx, timeout)
 			defer cancel()
 			if err := tlsConn.HandshakeContext(handshakeCtx); err != nil {
+				// Preserve the TLS handshake error; closing the failed connection is cleanup.
 				_ = conn.Close()
 				return nil, err
 			}

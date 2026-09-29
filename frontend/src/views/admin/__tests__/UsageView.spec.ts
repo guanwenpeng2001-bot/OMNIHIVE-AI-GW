@@ -1,3 +1,4 @@
+import { formatDateTimeWithZone } from '@/utils/format'
 import UsageStatsCards from '@/components/admin/usage/UsageStatsCards.vue'
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
@@ -97,7 +98,8 @@ vi.mock('@/stores/app', () => ({
   }),
 }))
 
-vi.mock('@/utils/format', () => ({
+vi.mock('@/utils/format', async () => ({
+  ...await vi.importActual<typeof import('@/utils/format')>('@/utils/format'),
   formatReasoningEffort: (value: string | null | undefined) => value ?? '-',
 }))
 
@@ -165,7 +167,8 @@ const GroupDistributionChartStub = {
   `,
 }
 
-const mountRouteFilteredUsageView = () => mount(UsageView, {
+const mountRouteFilteredUsageView = (timeZone?: string) => mount(UsageView, {
+  props: { timeZone },
   global: { stubs: {
     AppLayout: AppLayoutStub, UsageStatsCards: false, UsageFilters: UsageFiltersStub,
     UsageTable: true, UsageExportProgress: true, UsageCleanupDialog: true,
@@ -380,7 +383,7 @@ describe('admin UsageView native compaction filter', () => {
     vi.useRealTimers()
   })
 
-  it('propagates the filter to list/stats/model/snapshot requests and clears it on reset', async () => {
+  it.each([true, false])('propagates compaction filter %s to list/stats/model/snapshot requests and clears it on reset', async nativeCompaction => {
     const wrapper = mountRouteFilteredUsageView()
     vi.advanceTimersByTime(120)
     await flushPromises()
@@ -390,18 +393,18 @@ describe('admin UsageView native compaction filter', () => {
     getModelStats.mockClear()
     getSnapshotV2.mockClear()
 
-    ;(wrapper.vm as any).filters.native_compaction_v2 = true
+    ;(wrapper.vm as any).filters.native_compaction_v2 = nativeCompaction
     ;(wrapper.vm as any).applyFilters()
     await flushPromises()
 
-    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(true)
+    expect((wrapper.vm as any).breakdownFilters.native_compaction_v2).toBe(nativeCompaction)
     expect(list).toHaveBeenCalledWith(
-      expect.objectContaining({ native_compaction_v2: true }),
+      expect.objectContaining({ native_compaction_v2: nativeCompaction }),
       expect.anything()
     )
-    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
-    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: true }))
+    expect(getStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getModelStats).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
+    expect(getSnapshotV2).toHaveBeenCalledWith(expect.objectContaining({ native_compaction_v2: nativeCompaction }))
 
     list.mockClear()
     getStats.mockClear()
@@ -902,7 +905,7 @@ describe('ledger export formatting', () => {
     await flushPromises()
     await (wrapper.vm as any).exportToExcel()
     const row = sheetAddAoa.mock.calls[0][1][0]
-    expect(row[0]).toBe('2026-11-01T05:30:00Z')
+    expect(row[0]).toBe(formatDateTimeWithZone('2026-11-01T05:30:00Z'))
     expect(row[4]).toBe('model-original-ID')
     expect(row[14]).toBe(23)
     expect(row.slice(24, 27)).toEqual(Array(3).fill(amount == null ? '-' : amount.toFixed(8)))
@@ -910,3 +913,22 @@ describe('ledger export formatting', () => {
     vi.useRealTimers()
   })
 })
+
+ it.each(['Asia/Shanghai', 'UTC', 'America/Los_Angeles'])('admin report passes explicit %s to all reads and export', async timeZone => {
+    list.mockResolvedValue({ items: [], total: 0 })
+    exportList.mockResolvedValue({ items: [{ created_at: '2026-11-01T09:30:00Z', model: 'model' }], total: 1 })
+    const wrapper = mountRouteFilteredUsageView(timeZone)
+    await flushPromises()
+    await (wrapper.vm as any).loadChartData()
+    await (wrapper.vm as any).loadModelStats()
+    await (wrapper.vm as any).loadStats()
+    expect(list).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(getStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getSnapshotV2).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    expect(getModelStats).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }))
+    await (wrapper.vm as any).exportToExcel()
+    expect(exportList).toHaveBeenLastCalledWith(expect.objectContaining({ timezone: timeZone }), expect.anything())
+    expect(sheetAddAoa.mock.calls.at(-1)![1][0][0]).toBe(formatDateTimeWithZone('2026-11-01T09:30:00Z', timeZone))
+    expect(wrapper.findComponent({ name: 'UsageTable' }).props('timeZone')).toBe(timeZone)
+    wrapper.unmount()
+  })

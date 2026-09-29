@@ -26,6 +26,7 @@
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
+      <NewPlatformNotice v-if="account.platform === 'bedrock'" :platform="account.platform" :api-key="editBedrockApiKeyValue" />
       <QianwenPricingPanel v-if="account.platform === 'qianwen'" :key="account.id" :account-id="account.id" />
       <div v-if="account.platform === 'gemini' && account.type !== 'service_account'">
         <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
@@ -1201,8 +1202,8 @@
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
         </div>
 
-        <!-- Shared: Force Global -->
-        <div>
+        <!-- Legacy Anthropic Bedrock region-prefix rewrite -->
+        <div v-if="account.platform === 'anthropic'">
           <label class="flex items-center gap-2 cursor-pointer">
             <input
               v-model="editBedrockForceGlobal"
@@ -2990,9 +2991,11 @@
         data-tour="account-form-groups"
       />
 
+      <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
+        :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
       <ModelWhitelistSelector :active="show" :account-id="account.id" :platform="account.platform" :model-value="allowedModels" :model-mappings="modelMappings"
-        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration"
+        :connection-context="modelConnectionContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
         :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty" catalog-only />
     </form>
 
@@ -3048,10 +3051,12 @@
 </template>
 
 <script setup lang="ts">
+import { CHAT_PLATFORM_BASE_URLS } from '@/constants/platforms'
 import QianwenPricingPanel from './QianwenPricingPanel.vue'
 import BedrockRegionSelect from './BedrockRegionSelect.vue'
 import CursorKeyFields from './CursorKeyFields.vue'
 import CursorBrowserAuthorization from './CursorBrowserAuthorization.vue'
+import { extractApiErrorMessage } from '@/utils/apiError'
 import { buildCursorCredentials } from './credentialsBuilder'
 import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
@@ -3084,6 +3089,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import ModelAvailabilityEditor from './ModelAvailabilityEditor.vue'
 import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
 import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
@@ -3882,6 +3888,7 @@ const tempUnschedPresets = computed(() => [
 
 // Computed: default base URL based on platform
 const defaultBaseUrl = computed(() => {
+  if (props.account && CHAT_PLATFORM_BASE_URLS[props.account.platform]) return CHAT_PLATFORM_BASE_URLS[props.account.platform]
   if (props.account?.platform === 'openai') return 'https://api.openai.com'
   if (props.account?.platform === 'gemini') return 'https://generativelanguage.googleapis.com'
   if (props.account?.platform === 'grok') return 'https://api.x.ai/v1'
@@ -3999,6 +4006,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 
 const capabilityDefaultsJSON = ref('')
 const savedModelGeneration = ref(0)
+const availabilityGeneration = ref(0)
 const modelConnectionContext = computed(() => JSON.stringify([
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
@@ -4918,7 +4926,7 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
     })
     return false
   } catch (error: any) {
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
     return false
   }
 }
@@ -4997,7 +5005,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
       })
       return
     }
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
   } finally {
     submitting.value = false
   }
@@ -5242,7 +5250,7 @@ const handleSubmit = async () => {
       const newCredentials: Record<string, unknown> = { ...currentCredentials }
 
       newCredentials.aws_region = editBedrockRegion.value.trim()
-      if (editBedrockForceGlobal.value) {
+      if (props.account.platform === 'anthropic' && editBedrockForceGlobal.value) {
         newCredentials.aws_force_global = 'true'
       } else {
         delete newCredentials.aws_force_global
@@ -5770,7 +5778,7 @@ const handleSubmit = async () => {
 
     await submitUpdateAccount(accountID, updatePayload)
   } catch (error: any) {
-    appStore.showError(error.message || t('admin.accounts.failedToUpdate'))
+    appStore.showError(extractApiErrorMessage(error, t('admin.accounts.failedToUpdate')))
   }
 }
 

@@ -119,7 +119,7 @@ func NewAccountHandler(
 type CreateAccountRequest struct {
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
-	Platform                string         `json:"platform" binding:"required"`
+	Platform                string         `json:"platform" binding:"required,oneof=anthropic openai gemini antigravity grok kimi zhipu deepseek minimax opencode_go cursor qianwen commandcode volcengine qianfan hunyuan mistral bedrock"`
 	Type                    string         `json:"type" binding:"required,oneof=oauth setup-token apikey upstream bedrock service_account"`
 	Credentials             map[string]any `json:"credentials" binding:"required"`
 	Extra                   map[string]any `json:"extra"`
@@ -2738,35 +2738,39 @@ func (h *AccountHandler) GetBatchTodayStats(c *gin.Context) {
 		return
 	}
 
-	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs)
-	if cached, ok := accountTodayStatsBatchCache.Get(cacheKey); ok {
-		if cached.ETag != "" {
-			c.Header("ETag", cached.ETag)
-			c.Header("Vary", "If-None-Match")
-			if ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
-				c.Status(http.StatusNotModified)
-				return
-			}
-		}
-		c.Header("X-Snapshot-Cache", "hit")
-		response.Success(c, cached.Payload)
-		return
-	}
-
-	stats, err := h.accountUsageService.GetTodayStatsBatch(c.Request.Context(), accountIDs)
+	dayStart := timezone.Today()
+	revision, err := h.accountUsageService.DashboardCoverageRevision(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	payload := gin.H{"stats": stats}
-	cached := accountTodayStatsBatchCache.Set(cacheKey, payload)
+	cacheKey := buildAccountTodayStatsBatchCacheKey(accountIDs, dayStart, revision)
+	cached, hit, err := accountTodayStatsBatchCache.GetOrLoad(cacheKey, func() (any, error) {
+		stats, err := h.accountUsageService.GetTodayStatsBatchFrom(c.Request.Context(), accountIDs, dayStart)
+		if err != nil {
+			return nil, err
+		}
+		return gin.H{"stats": stats}, nil
+	})
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
 	if cached.ETag != "" {
 		c.Header("ETag", cached.ETag)
 		c.Header("Vary", "If-None-Match")
+		if hit && ifNoneMatchMatched(c.GetHeader("If-None-Match"), cached.ETag) {
+			c.Status(http.StatusNotModified)
+			return
+		}
 	}
-	c.Header("X-Snapshot-Cache", "miss")
-	response.Success(c, payload)
+	if hit {
+		c.Header("X-Snapshot-Cache", "hit")
+	} else {
+		c.Header("X-Snapshot-Cache", "miss")
+	}
+	response.Success(c, cached.Payload)
 }
 
 // GetBatchUsage 批量获取多个账号的 current usage。
@@ -3523,7 +3527,7 @@ func sanitizeExtraBaseRPM(extra map[string]any) {
 	extra["base_rpm"] = v
 }
 
-// GetModelCatalog reads applied evidence without initiating upstream traffic.
+// GetModelCatalog reads applied evidence and a separate, non-blocking public capability display projection.
 func (h *AccountHandler) GetModelCatalog(c *gin.Context) {
 	h.getModelCatalog(c, time.Now())
 }
@@ -3562,6 +3566,9 @@ func (h *AccountHandler) getModelCatalog(c *gin.Context, now time.Time) {
 		"invalid_aliases": service.InvalidAccountCatalogAliases(account, effective),
 		"alias_endpoint":  service.CompositeRouteEndpointAny,
 		"eligible_models": []service.AccountCatalogModel{},
+	}
+	if display := h.accountTestService.ReadOnlyModelCapabilities(account); len(display) > 0 {
+		summary["display_metadata"] = display
 	}
 	if lastSuccess != "" {
 		summary["last_success_at"] = lastSuccess

@@ -679,6 +679,18 @@ export default {
 
   // Model Plaza (public group/model pricing showcase)
   modelPlaza: {
+    confirmation: {
+      title: "Plaza model confirmation",
+      description: "Controls display for the saved channel and group. Candidates come from linked account discovery and mappings; confirmation does not authorize calls or change prices.",
+      empty: "No candidates. Sync linked accounts or configure concrete mappings first.",
+      legacy: "Historical configuration, confirmation not recorded",
+      confirmed: "Administrator {actor} · {time}",
+      save: "Confirm and save display selection",
+      loadError: "Could not load candidates. Saved configuration is unchanged.",
+      saveError: "Could not save confirmation. Your draft is retained; retry.",
+      conflict: "Configuration or candidates changed. Refresh and select again.",
+    },
+
     title: 'Model Plaza',
     description: 'Browse available models and pricing by group',
     loading: 'Loading...',
@@ -726,7 +738,6 @@ export default {
       timePricingWeekdays: 'Weekdays',
       timePricingRateHint: 'Effective rate {rate} × period multiplier {multiplier}',
       paidPrice: 'Your Price (Discounted)',
-      officialPrice: 'Official Price',
       rate: 'Rate',
       unitPerMillion: 'USD / 1M tokens',
       perUnitRequest: '/ request',

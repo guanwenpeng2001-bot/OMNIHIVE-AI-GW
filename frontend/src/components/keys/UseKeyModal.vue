@@ -1256,6 +1256,11 @@ function generateRoutedCodexFiles(
     opencode_go: 'glm-5.3',
     qianwen: 'qwen-flash',
     commandcode: 'gpt-5.6-luna',
+    volcengine: '',
+    bedrock: '',
+    mistral: '',
+    hunyuan: '',
+    qianfan: '',
     cursor: 'default',
     composite: 'gpt-5.5'
   }
@@ -1274,6 +1279,11 @@ function generateRoutedCodexFiles(
     opencode_go: 'OpenCode',
     qianwen: '千问AI',
     commandcode: 'Command Code',
+    volcengine: 'Volcengine Ark',
+    bedrock: 'Amazon Bedrock',
+    mistral: 'Mistral',
+    hunyuan: 'Hunyuan',
+    qianfan: 'Qianfan',
     cursor: 'Cursor',
     composite: 'Composite'
   }

@@ -205,3 +205,15 @@ func TestAffinityMissingStateAndInvalidTTLDoNotWrite(t *testing.T) {
 	require.NoError(t, cache.SetSessionAccountID(admitted, 1, session, 0, time.Minute))
 	require.False(t, server.Exists(buildSessionKey(1, session)))
 }
+
+func TestAffinityInvalidBindingVersionDoesNotWrite(t *testing.T) {
+	server := miniredis.RunT(t)
+	client := redis.NewClient(&redis.Options{Addr: server.Addr()})
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	cache := NewGatewayCache(client)
+	const session = "v2:binding:invalid-version"
+	ctx := service.WithAffinityAdmission(service.WithAffinityBindingState(context.Background()))
+	service.AffinityBindingStateFromContext(ctx).Versions.Store(buildSessionKey(1, session), 42)
+	require.ErrorContains(t, cache.SetSessionAccountID(ctx, 1, session, 1, time.Minute), "invalid affinity binding version")
+	require.Empty(t, server.Keys(), "an invalid observed version must never replace the binding")
+}

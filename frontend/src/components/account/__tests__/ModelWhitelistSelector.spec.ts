@@ -73,6 +73,40 @@ vi.mock('@/composables/useClipboard', () => ({
 
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+
+describe('saved catalog evidence states', () => {
+  it.each([
+    ['unsynced', { synced: false }],
+    ['empty', { synced: true, eligible_count: 0 }],
+    ['ready', { synced: true, eligible_count: 1, effective_snapshot: { eligible_models: [{ id: 'native' }] } }],
+    ['invalidIdentity', { synced: true, warnings: ['identity_changed'], snapshot: { eligible_models: [{ id: 'historical' }] } }],
+    ['stale', { synced: true, last_error: 'upstream_unavailable', snapshot: { eligible_models: [{ id: 'historical' }] } }]
+  ])('renders %s independently of array length', async (state, summary) => {
+    getModelCatalog.mockResolvedValueOnce({ warnings: [], ...summary })
+    const wrapper = mountSelector({ accountId: 24, catalogOnly: true })
+    await flushPromises()
+    expect(wrapper.get('[role="status"]').text()).toContain(`modelCatalog.${state}`)
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('requires second confirmation and cancels it when configuration changes', async () => {
+    syncUpstreamModels.mockReset().mockResolvedValueOnce({ models: ['target'], complete: true, review: { account_id: 24, digest: 'review' } })
+    const wrapper = mountSelector({ accountId: 24, catalogOnly: true })
+    await flushPromises()
+    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
+    await flushPromises()
+    await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    expect(syncUpstreamModels).toHaveBeenCalledTimes(1)
+    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(true)
+    await wrapper.setProps({ configurationDirty: true })
+    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(false)
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
+    expect(syncUpstreamModels).toHaveBeenCalledTimes(1)
+    wrapper.unmount()
+  })
+})
 
 function mountSelector(props: Record<string, unknown> = {}) {
   return mount(ModelWhitelistSelector, {
@@ -427,6 +461,7 @@ describe('model catalog context fencing', () => {
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toContain('failed')
     getAvailableModels.mockResolvedValueOnce([])
+    getModelCatalog.mockResolvedValueOnce({ synced: true, warnings: [], eligible_count: 0 })
     await wrapper.findAll('button').find(b => b.text() === 'common.tryAgain')!.trigger('click')
     await flushPromises()
     expect(wrapper.get('[role="status"]').text()).toContain('empty')
@@ -460,6 +495,7 @@ describe('snapshot application contract', () => {
     expect(wrapper.text()).toContain('entitlement_unconfirmed')
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
     await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModels.mock.calls).toEqual([[46, false], [46, true, 'rules-opaque', undefined, preview.review]])
     expect(wrapper.emitted('update:modelValue')).toBeUndefined()
@@ -473,6 +509,7 @@ describe('snapshot application contract', () => {
     await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModels).toHaveBeenCalledTimes(2)
     expect(wrapper.get('[role="alert"]').text()).toContain('modelSync.conflict')
@@ -487,6 +524,7 @@ describe('snapshot application contract', () => {
     await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
     await flushPromises()
     await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
     await wrapper.setProps({ active: false })
     await wrapper.setProps({ active: true, accountId: 47 })
     finishApply({ ...preview, applied: true })

@@ -124,7 +124,6 @@ func (p *AntigravityTokenProvider) GetAccessToken(ctx context.Context, account *
 			}
 		} else if !result.LockHeld {
 			account = result.Account
-			expiresAt = account.GetCredentialAsTime("expires_at")
 		}
 		// When another worker holds the lock, re-read durable credentials below.
 		// Cached tokens must not bypass the final expiry and revocation checks.

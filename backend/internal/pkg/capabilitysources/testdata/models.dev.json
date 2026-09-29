@@ -1,0 +1,23 @@
+{
+  "native": {
+    "models": {
+      "fixture-model": {
+        "reasoning": false,
+        "tool_call": false,
+        "modalities": {
+          "input": [],
+          "output": [
+            "text"
+          ]
+        },
+        "limit": {
+          "context": 8192,
+          "output": 1024
+        },
+        "cost": {
+          "input": 99
+        }
+      }
+    }
+  }
+}

@@ -114,7 +114,10 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	}
 	cachedUsage := func() *UsageInfo {
 		if cached, ok := s.cache.cursorCache.Load(key); ok {
-			entry := cached.(*antigravityUsageCache)
+			entry, valid := cached.(*antigravityUsageCache)
+			if !valid || entry == nil || entry.usageInfo == nil {
+				return nil
+			}
 			ttl := apiCacheTTL
 			if entry.usageInfo.ErrorCode != "" {
 				ttl = apiErrorCacheTTL
@@ -154,7 +157,11 @@ func (s *AccountUsageService) getCursorUsage(ctx context.Context, account *Accou
 	case <-ctx.Done():
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query cancelled"}
 	case result := <-pending:
-		return result.Val.(*UsageInfo)
+		info, ok := result.Val.(*UsageInfo)
+		if result.Err != nil || !ok || info == nil {
+			return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
+		}
+		return info
 	}
 }
 
@@ -176,7 +183,11 @@ func (s *AccountUsageService) fetchCursorLegacyUsage(ctx context.Context, token 
 	if err != nil {
 		return &UsageInfo{ErrorCode: "network_error", Error: "Cursor usage query failed"}
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor usage response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
 		code := "upstream_error"
 		if response.StatusCode == http.StatusUnauthorized {
@@ -267,9 +278,13 @@ func (s *AccountUsageService) fetchCursorDashboard(ctx context.Context, token, m
 	if err != nil {
 		return err
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			slog.Warn("Cursor usage response cleanup failed")
+		}
+	}()
 	if response.StatusCode != http.StatusOK {
-		return fmt.Errorf("Cursor dashboard HTTP %d", response.StatusCode)
+		return fmt.Errorf("cursor dashboard HTTP %d", response.StatusCode)
 	}
 	return json.NewDecoder(io.LimitReader(response.Body, 1<<20)).Decode(target)
 }
@@ -1670,8 +1685,24 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 	}, nil
 }
 
+// DashboardCoverageRevision identifies the verified history behind cached reads.
+func (usageService *AccountUsageService) DashboardCoverageRevision(ctx context.Context) (string, error) {
+	if repo, ok := usageService.usageLogRepo.(interface {
+		DashboardCoverageRevision(context.Context) (string, error)
+	}); ok {
+		return repo.DashboardCoverageRevision(ctx)
+	}
+	return "", nil
+}
+
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
 func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs []int64) (map[int64]*WindowStats, error) {
+	return s.GetTodayStatsBatchFrom(ctx, accountIDs, timezone.Today())
+}
+
+// GetTodayStatsBatchFrom uses the day boundary captured by the caller so cached
+// reads and their SQL window agree even when a request crosses midnight.
+func (s *AccountUsageService) GetTodayStatsBatchFrom(ctx context.Context, accountIDs []int64, startTime time.Time) (map[int64]*WindowStats, error) {
 	uniqueIDs := make([]int64, 0, len(accountIDs))
 	seen := make(map[int64]struct{}, len(accountIDs))
 	for _, accountID := range accountIDs {
@@ -1690,7 +1721,6 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 		return result, nil
 	}
 
-	startTime := timezone.Today()
 	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {

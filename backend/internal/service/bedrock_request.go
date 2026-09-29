@@ -147,6 +147,11 @@ func ResolveBedrockModelID(account *Account, requestedModel string) (string, boo
 	}
 
 	mappedModel := account.GetMappedModel(requestedModel)
+	if account.Platform == PlatformBedrock {
+		// The independent platform preserves saved foundation/profile/ARN targets.
+		// Authorization is enforced by the catalog/declaration gate at scheduling and send.
+		return mappedModel, strings.TrimSpace(mappedModel) != "" && mappedModel == strings.TrimSpace(mappedModel)
+	}
 	modelID, shouldAdjustRegion, ok := normalizeBedrockModelID(mappedModel)
 	if !ok {
 		return "", false

@@ -13,6 +13,7 @@ interface ApiErrorLike {
   reason?: string
   metadata?: Record<string, unknown>
   response?: {
+    status?: number
     data?: {
       detail?: string
       message?: string
@@ -33,6 +34,13 @@ export function extractApiErrorCode(err: unknown): string | undefined {
   const e = err as ApiErrorLike
   const code = e.reason ?? e.code ?? e.response?.data?.code
   return code != null ? String(code) : undefined
+}
+
+/** Extract HTTP status from the normalized client error or an Axios response. */
+export function extractApiErrorStatus(err: unknown): number | undefined {
+  if (!err || typeof err !== 'object') return undefined
+  const e = err as ApiErrorLike
+  return e.status ?? e.response?.status
 }
 
 /**

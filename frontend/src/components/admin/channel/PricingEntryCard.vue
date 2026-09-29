@@ -263,6 +263,7 @@
         </div>
       </div>
     </div>
+    <slot name="insights" />
   </div>
 </template>
 

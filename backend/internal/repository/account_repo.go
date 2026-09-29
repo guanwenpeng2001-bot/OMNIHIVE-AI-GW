@@ -559,7 +559,7 @@ func (r *accountRepository) updateLockedAccount(
 			account.SessionWindowStatus = *current.SessionWindowStatus
 		}
 	}
-	for _, key := range []string{service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey, service.UpstreamModelMetadataExtraKey} {
+	for _, key := range []string{service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey, service.UpstreamModelMetadataExtraKey, service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey} {
 		delete(extra, key)
 		if value, exists := current.Extra[key]; exists {
 			extra[key] = value
@@ -848,6 +848,7 @@ func mergeAccountRuntimeExtra(incoming, current map[string]any) {
 		"codex_7d_used_percent", "codex_7d_reset_after_seconds", "codex_7d_window_minutes", "codex_7d_reset_at",
 		service.UpstreamModelMetadataExtraKey,
 		service.UpstreamModelCatalogExtraKey, service.UpstreamModelCatalogStateExtraKey, service.UpstreamModelAllowlistExtraKey,
+		service.ModelAvailabilityExtraKey, service.ModelProbeBudgetExtraKey,
 	} {
 		delete(incoming, key)
 		if value, ok := current[key]; ok {
@@ -2281,7 +2282,7 @@ func (r *accountRepository) queryModelCatalogAccounts(ctx context.Context, id in
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.credentials) = 'object' THEN a.credentials ELSE '{}'::jsonb END)
  WHERE key IN ('model_mapping','compact_model_mapping','api_protocol','account_mode','base_url','aws_region','aws_force_global','protocol_rules','api_base_urls','openai_capabilities')), '{}'::jsonb),
  COALESCE((SELECT jsonb_object_agg(key,value) FROM jsonb_each(CASE WHEN jsonb_typeof(a.extra) = 'object' THEN a.extra ELSE '{}'::jsonb END)
- WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata',
+ WHERE key IN ('upstream_model_catalog','upstream_model_catalog_state','upstream_model_allowlist','upstream_model_metadata','model_availability',
  'mixed_scheduling','anthropic_passthrough','openai_passthrough','openai_oauth_passthrough','openai_responses_supported','openai_responses_mode')), '{}'::jsonb)
  FROM accounts a WHERE a.deleted_at IS NULL AND
  (($1::bigint <> 0 AND a.id = $1) OR ($1::bigint = 0 AND a.status = 'active' AND a.schedulable

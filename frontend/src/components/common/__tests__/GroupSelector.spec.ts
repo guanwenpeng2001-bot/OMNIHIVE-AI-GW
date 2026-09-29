@@ -50,3 +50,20 @@ describe('GroupSelector simple-mode binding policy', () => {
     expect(wrapper.emitted('update:modelValue')).toEqual([[[1]]])
   })
 })
+
+
+it('labels the group, search, and native checkboxes with their business identity', async () => {
+  authState.isSimpleMode = false
+  const wrapper = mountSelector([1])
+  await wrapper.setProps({ searchable: true })
+  expect(wrapper.get('fieldset legend').text()).toContain('admin.users.groups')
+  expect(wrapper.get('input[type="text"]').attributes('aria-label')).toBe('common.search: admin.users.groups')
+  const checkbox = wrapper.get<HTMLInputElement>('input[aria-label="Basic (anthropic)"]')
+  expect(checkbox.attributes('type')).toBe('checkbox')
+  expect(checkbox.attributes('role')).toBeUndefined()
+  expect(checkbox.element.checked).toBe(true)
+  expect(checkbox.element.labels?.[0].textContent).toContain('Basic')
+  await checkbox.setValue(false)
+  expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([[]])
+  wrapper.unmount()
+})

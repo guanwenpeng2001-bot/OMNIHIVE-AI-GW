@@ -105,9 +105,8 @@
               <div class="truncate font-mono text-sm text-gray-800 dark:text-gray-200" :title="row.action">
                 {{ row.action }}
               </div>
-              <div class="mt-0.5 truncate font-mono text-xs text-gray-400" :title="`${row.method} ${row.path}`">
-                {{ row.method }} {{ row.path }}
-              </div>
+              <div class="mt-0.5 select-text break-all font-mono text-xs text-gray-500 dark:text-gray-400" data-testid="audit-request-path">{{ auditRequestText(row) }}</div>
+              <button type="button" class="btn btn-secondary mt-1 text-xs" :aria-label="`${t('common.copy')} ${auditRequestText(row)}`" @click="copyToClipboard(auditRequestText(row))">{{ t('common.copy') }}</button>
             </div>
           </template>
 
@@ -191,7 +190,8 @@
             <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-[11px] font-bold text-gray-700 dark:bg-dark-700 dark:text-gray-200">
               {{ detail.method }}
             </span>
-            <span class="break-all font-mono text-xs text-gray-600 dark:text-gray-300">{{ detail.path }}</span>
+            <span class="select-text break-all font-mono text-xs text-gray-600 dark:text-gray-300">{{ sanitizeAuditPath(detail.path) }}</span>
+            <button type="button" class="btn btn-secondary shrink-0 text-xs" :aria-label="`${t('common.copy')} ${auditRequestText(detail)}`" @click="copyToClipboard(auditRequestText(detail))">{{ t('common.copy') }}</button>
           </div>
 
           <div class="mt-3 flex flex-wrap items-center gap-x-5 gap-y-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -352,6 +352,9 @@
 </template>
 
 <script setup lang="ts">
+import { auditRequestText, sanitizeAuditPath } from '@/utils/auditPath'
+import { useClipboard } from '@/composables/useClipboard'
+const { copyToClipboard } = useClipboard()
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type AuditLog } from '@/api/admin'

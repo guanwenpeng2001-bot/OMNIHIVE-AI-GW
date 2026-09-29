@@ -67,9 +67,13 @@ const cancelScheduledCallback = (handle: IdleCallbackHandle): void => {
  *
  * @param router - Vue Router 实例，用于获取路由组件
  */
-export function useRoutePrefetch(router?: Router) {
+export function useRoutePrefetch(router?: Router, canPrefetch: (route: RouteLocationNormalized) => boolean = () => true) {
   // 当前挂起的预加载任务句柄
   const pendingPrefetchHandle = ref<IdleCallbackHandle | null>(null)
+
+  let revision = 0
+  const imports = new Map<ComponentImportFn, Promise<void>>()
+  const allowed = (route: RouteLocationNormalized) => canPrefetch(route) && !(navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData
 
   // 已预加载的路由集合
   const prefetchedRoutes = ref<Set<string>>(new Set())
@@ -103,15 +107,15 @@ export function useRoutePrefetch(router?: Router) {
   /**
    * 执行单个组件的预加载
    */
-  const prefetchComponent = async (importFn: ComponentImportFn): Promise<void> => {
-    try {
-      await importFn()
-    } catch (error) {
-      // 静默处理预加载错误
-      if (import.meta.env.DEV) {
-        console.debug('[Prefetch] Failed to prefetch component:', error)
-      }
-    }
+  const prefetchComponent = (importFn: ComponentImportFn): Promise<void> => {
+    const existing = imports.get(importFn)
+    if (existing) return existing
+    const request = Promise.resolve().then(importFn).then(() => {}).catch(error => {
+      if (imports.get(importFn) === request) imports.delete(importFn)
+      throw error
+    })
+    imports.set(importFn, request)
+    return request
   }
 
   /**
@@ -130,6 +134,8 @@ export function useRoutePrefetch(router?: Router) {
   const triggerPrefetch = (route: RouteLocationNormalized): void => {
     cancelPendingPrefetch()
 
+    if (!allowed(route)) return
+    const requestRevision = revision
     const prefetchPaths = getPrefetchPaths(route)
     if (prefetchPaths.length === 0) return
 
@@ -137,6 +143,7 @@ export function useRoutePrefetch(router?: Router) {
       () => {
         pendingPrefetchHandle.value = null
 
+        if (!allowed(route) || requestRevision !== revision) return
         const routePath = route.path
         if (prefetchedRoutes.value.has(routePath)) return
 
@@ -151,8 +158,8 @@ export function useRoutePrefetch(router?: Router) {
 
         if (importFns.length > 0) {
           Promise.all(importFns.map(prefetchComponent)).then(() => {
-            prefetchedRoutes.value.add(routePath)
-          })
+            if (requestRevision === revision) prefetchedRoutes.value.add(routePath)
+          }).catch(() => { /* A later intent can retry failed chunks. */ })
         }
       },
       { timeout: 2000 }
@@ -164,6 +171,8 @@ export function useRoutePrefetch(router?: Router) {
    */
   const resetPrefetchState = (): void => {
     cancelPendingPrefetch()
+    revision++
+    imports.clear()
     prefetchedRoutes.value.clear()
   }
 

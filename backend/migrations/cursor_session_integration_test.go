@@ -11,17 +11,26 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/cursor"
 	"github.com/Wei-Shaw/sub2api/internal/repository"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
 
 func TestCursorRealRedisSessionCache(t *testing.T) {
 	address := os.Getenv("CURSOR_TEST_REDIS_ADDR")
+	if testresources.External() {
+		require.NoError(t, testresources.ValidateRedis(address))
+	}
 	if address == "" {
 		t.Skip("set CURSOR_TEST_REDIS_ADDR to run Redis integration")
 	}
-	client := redis.NewClient(&redis.Options{Addr: address, DB: 15})
-	defer client.Close()
+	var client *redis.Client
+	if testresources.External() {
+		client = testresources.RedisClient(t, &redis.Options{Addr: address})
+	} else {
+		client = redis.NewClient(&redis.Options{Addr: address, DB: 15})
+		defer func() { require.NoError(t, client.Close()) }()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	key := fmt.Sprintf("cursor:integration:%d", time.Now().UnixNano())

@@ -60,6 +60,9 @@ func (s *GatewayService) forwardBedrock(
 	parsed *ParsedRequest,
 	startTime time.Time,
 ) (*ForwardResult, error) {
+	if account.Platform == PlatformBedrock {
+		return s.forwardBedrockPlatform(ctx, c, account, parsed, startTime)
+	}
 	reqModel := parsed.Model
 	reqStream := parsed.Stream
 	body := parsed.Body.Bytes()

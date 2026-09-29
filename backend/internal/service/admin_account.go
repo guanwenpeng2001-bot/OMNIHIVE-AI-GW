@@ -439,6 +439,9 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Status:      StatusActive,
 		Schedulable: true,
 	}
+	if err := validateExpandedPlatformAccount(account); err != nil {
+		return nil, err
+	}
 	if err := NormalizeCursorAccount(account); err != nil {
 		return nil, err
 	}
@@ -863,6 +866,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 	}
 
+	if err := validateExpandedPlatformAccount(account); err != nil {
+		return nil, err
+	}
 	if err := NormalizeCursorAccount(account); err != nil {
 		return nil, err
 	}
@@ -1886,4 +1892,11 @@ func (s *adminServiceImpl) ForceAntigravityPrivacy(ctx context.Context, account 
 	}
 	applyAntigravityPrivacyMode(account, mode)
 	return mode
+}
+
+func validateExpandedPlatformAccount(account *Account) error {
+	if account.Platform == PlatformComposite || (IsChatOnlyPlatform(account.Platform) && account.Type != AccountTypeAPIKey) || (account.Platform == PlatformBedrock && account.Type != AccountTypeBedrock) {
+		return infraerrors.BadRequest("INVALID_PLATFORM_ACCOUNT_TYPE", "Account type does not match the platform runtime")
+	}
+	return nil
 }

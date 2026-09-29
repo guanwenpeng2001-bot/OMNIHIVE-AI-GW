@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
@@ -41,6 +42,7 @@ BEGIN
 END $$;`
 
 func TestCursorPassiveInventoryPostgres(test *testing.T) {
+	testresources.RequireDisposableDatabase(test, "CURSOR_MONITOR_TEST_POSTGRES_DSN")
 	connectionString := os.Getenv("CURSOR_MONITOR_TEST_POSTGRES_DSN")
 	if connectionString == "" {
 		test.Skip("set CURSOR_MONITOR_TEST_POSTGRES_DSN for disposable PostgreSQL tests")

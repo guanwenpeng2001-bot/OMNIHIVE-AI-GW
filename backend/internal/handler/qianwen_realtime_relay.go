@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/url"
 	"strings"
 	"time"
@@ -164,14 +165,18 @@ func (h *OpenAIGatewayHandler) qianwenRealtime(c *gin.Context) {
 	if err != nil {
 		return
 	}
-	defer conn.CloseNow()
+	defer func() {
+		if err := conn.CloseNow(); err != nil {
+			slog.Debug("Qianwen realtime connection cleanup failed")
+		}
+	}()
 	reqLog := requestLogger(c, "handler.qianwen_realtime")
 	receipts := map[string]bool{}
 	turn := 0
 	err = service.RelayQianwenRealtime(ctx, conn, upstream, service.QianwenRealtimeCallbacks{
 		BeforeCommit: func(turnCtx context.Context, text string) error {
 			if err := eligible(turnCtx); err != nil {
-				return errors.New("Realtime billing eligibility rejected")
+				return errors.New("realtime billing eligibility rejected")
 			}
 			turn++
 			if err := h.auditQianwenRealtimeTurn(turnCtx, c, reqLog, key, subject, model, text, turn); err != nil {
@@ -225,7 +230,7 @@ func (h *OpenAIGatewayHandler) auditQianwenRealtimeTurn(ctx context.Context, c *
 	}
 	audit, _ := json.Marshal(gin.H{"model": model, "messages": []any{gin.H{"role": "user", "content": text}}})
 	if decision := h.checkSecurityAuditStage(auditContext, reqLog, key, subject, service.ContentModerationProtocolOpenAIChat, model, audit, stage); decision != nil && !decision.AllowNextStage {
-		return errors.New("Realtime content rejected by security audit")
+		return errors.New("realtime content rejected by security audit")
 	}
 	return nil
 }

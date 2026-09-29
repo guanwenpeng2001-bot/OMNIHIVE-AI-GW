@@ -19,6 +19,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httpclient"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/net/dns/dnsmessage"
 )
@@ -72,7 +73,7 @@ func installTestPublicDNS(t *testing.T, answer func(int32) [4]byte) *atomic.Int3
 	t.Helper()
 	dns, err := net.ListenPacket("udp", "127.0.0.1:0")
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = dns.Close() })
+	t.Cleanup(func() { require.NoError(t, dns.Close()) })
 	var lookups atomic.Int32
 	go func() {
 		buf := make([]byte, 2048)
@@ -163,7 +164,7 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 			installTestPublicDNS(t, func(int32) [4]byte { return [4]byte{93, 184, 216, 34} })
 			listener, err := net.Listen("tcp", "127.0.0.1:0")
 			require.NoError(t, err)
-			defer func() { _ = listener.Close() }()
+			defer func() { require.NoError(t, listener.Close()) }()
 			target := make(chan []byte, 1)
 			sni := make(chan string, 1)
 			go func() {
@@ -171,8 +172,8 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 				if err != nil {
 					return
 				}
-				defer func() { _ = conn.Close() }()
-				if err := conn.SetDeadline(time.Now().Add(3 * time.Second)); err != nil {
+				defer func() { assert.NoError(t, conn.Close()) }()
+				if !assert.NoError(t, conn.SetDeadline(time.Now().Add(3*time.Second))) {
 					return
 				}
 				greeting := make([]byte, 2)
@@ -183,7 +184,7 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 				if _, err := io.ReadFull(conn, methods); err != nil {
 					return
 				}
-				if _, err := conn.Write([]byte{5, 0}); err != nil {
+				if _, err := conn.Write([]byte{5, 0}); !assert.NoError(t, err) {
 					return
 				}
 				command := make([]byte, 10)
@@ -191,7 +192,7 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 					return
 				}
 				target <- command
-				if _, err := conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 0}); err != nil {
+				if _, err := conn.Write([]byte{5, 0, 0, 1, 127, 0, 0, 1, 0, 0}); !assert.NoError(t, err) {
 					return
 				}
 				if fingerprint {
@@ -199,14 +200,16 @@ func TestHTTPUpstreamPinnedSOCKSTarget(t *testing.T) {
 						sni <- hello.ServerName
 						return nil, fmt.Errorf("captured ClientHello")
 					}})
-					_ = tlsConn.Handshake() // The ClientHello capture intentionally aborts TLS.
+					assert.ErrorContains(t, tlsConn.Handshake(), "captured ClientHello")
 				} else {
 					req, err := http.ReadRequest(bufio.NewReader(conn))
 					if err != nil {
 						return
 					}
-					_ = req.Body.Close()
-					_, _ = io.WriteString(conn, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n")
+					assert.NoError(t, req.Body.Close())
+					if _, err := io.WriteString(conn, "HTTP/1.1 204 No Content\r\nConnection: close\r\n\r\n"); !assert.NoError(t, err) {
+						return
+					}
 				}
 			}()
 			proxyURL, _ := url.Parse("socks5h://" + listener.Addr().String())
@@ -290,7 +293,7 @@ func TestHTTPUpstreamPinnedFingerprintCONNECTTarget(t *testing.T) {
 		require.True(t, ok)
 		conn, rw, err := hijacker.Hijack()
 		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
+		defer func() { assert.NoError(t, conn.Close()) }()
 		_, err = rw.WriteString("HTTP/1.1 200 Connection Established\r\n\r\n")
 		require.NoError(t, err)
 		require.NoError(t, rw.Flush())
@@ -298,7 +301,7 @@ func TestHTTPUpstreamPinnedFingerprintCONNECTTarget(t *testing.T) {
 			sni <- hello.ServerName
 			return nil, fmt.Errorf("captured ClientHello")
 		}})
-		_ = tlsConn.Handshake() // The ClientHello capture intentionally aborts TLS.
+		assert.ErrorContains(t, tlsConn.Handshake(), "captured ClientHello")
 	}))
 	defer proxy.Close()
 	proxyURL, _ := url.Parse(proxy.URL)

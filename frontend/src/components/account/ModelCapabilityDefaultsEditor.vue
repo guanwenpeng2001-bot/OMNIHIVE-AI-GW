@@ -4,8 +4,8 @@
     <div class="mt-3 space-y-2">
       <p :id="`${id}-hint`" class="input-hint">{{ labels.hint }}</p>
       <label :for="id" class="input-label">{{ labels.input }}</label>
-      <textarea :id="id" :value="modelValue" rows="8" spellcheck="false"
-        class="input font-mono text-xs" :aria-invalid="!!error" :aria-describedby="`${id}-hint ${id}-error`"
+      <textarea :id="id" :value="modelValue" rows="8" spellcheck="false" autocapitalize="off" autocomplete="off"
+        class="input font-mono text-xs" :aria-invalid="!!error" :aria-describedby="`${id}-hint ${id}-error`" :aria-errormessage="error ? `${id}-error` : undefined"
         :placeholder="labels.placeholder" @input="$emit('update:modelValue', ($event.target as HTMLTextAreaElement).value)" />
       <p :id="`${id}-error`" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error ? labels.invalid : '' }}</p>
       <details class="text-xs text-secondary">

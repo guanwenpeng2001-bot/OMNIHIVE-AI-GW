@@ -201,6 +201,7 @@ func RegisterGatewayRoutes(
 	gateway.GET("/sub2api/billing", h.Gateway.KeyBillingInfo)
 	gateway.Use(groupModelAllowlist)
 	gateway.Use(compositeTarget)
+	gateway.Use(chatOnlyPlatformGuard)
 	gateway.Use(requireGroupAnthropic)
 	{
 		// /v1/messages: auto-route based on group platform
@@ -238,7 +239,7 @@ func RegisterGatewayRoutes(
 		})
 		// OpenAI Chat Completions API: auto-route based on group platform
 		gateway.POST("/chat/completions", func(c *gin.Context) {
-			if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+			if isOpenAIResponsesCompatibleGatewayPlatform(c) || service.IsChatOnlyPlatform(getGroupPlatform(c)) {
 				h.OpenAIGateway.ChatCompletions(c)
 				return
 			}
@@ -350,6 +351,7 @@ func RegisterGatewayRoutes(
 	gemini.Use(middleware.APIKeyAuthWithSubscriptionGoogle(apiKeyService, subscriptionService, cfg))
 	gemini.Use(groupModelAllowlist)
 	gemini.Use(compositeGeminiTarget)
+	gemini.Use(chatOnlyPlatformGuard)
 	gemini.Use(requireGroupGoogle)
 	{
 		gemini.GET("/models", h.Gateway.GeminiV1BetaListModels)
@@ -369,7 +371,7 @@ func RegisterGatewayRoutes(
 	// 根路径别名共用中间件链：白名单准入在 apiKeyAuth 之后、compositeTarget
 	// 之前，避免逐条路由手工维护链导致漏挂。
 	rootRoute := func(method, path string, limit gin.HandlerFunc, handler gin.HandlerFunc) {
-		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic, handler)
+		r.Handle(method, path, limit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic, handler)
 	}
 	rootRoute(http.MethodPost, "/messages", bodyLimit, messagesHandler)
 	rootRoute(http.MethodPost, "/responses", bodyLimit, responsesHandler)
@@ -392,7 +394,7 @@ func RegisterGatewayRoutes(
 	rootRoute(http.MethodGet, "/models/:model", bodyLimit, h.Gateway.Models)
 	rootRoute(http.MethodPost, "/messages/count_tokens", bodyLimit, countTokensHandler)
 	codexDirect := r.Group("/backend-api/codex")
-	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, requireGroupAnthropic)
+	codexDirect.Use(bodyLimit, clientRequestID, opsErrorLogger, endpointNorm, gin.HandlerFunc(apiKeyAuth), groupModelAllowlist, compositeTarget, chatOnlyPlatformGuard, requireGroupAnthropic)
 	{
 		codexDirect.POST("/realtime/calls", h.OpenAIGateway.Live)
 		codexDirect.GET("/:call_id", h.OpenAIGateway.LiveSideband)
@@ -406,7 +408,7 @@ func RegisterGatewayRoutes(
 	}
 	// OpenAI Chat Completions API（不带v1前缀的别名）— auto-route based on group platform
 	rootRoute(http.MethodPost, "/chat/completions", bodyLimit, func(c *gin.Context) {
-		if isOpenAIResponsesCompatibleGatewayPlatform(c) {
+		if isOpenAIResponsesCompatibleGatewayPlatform(c) || service.IsChatOnlyPlatform(getGroupPlatform(c)) {
 			h.OpenAIGateway.ChatCompletions(c)
 			return
 		}
@@ -708,4 +710,32 @@ func compositeRouteEndpointForPath(path string) string {
 	default:
 		return service.CompositeRouteEndpointAny
 	}
+}
+
+// chatOnlyPlatformGuard rejects unimplemented protocols before scheduling or billing.
+func chatOnlyPlatformGuard(c *gin.Context) {
+	if !service.IsChatOnlyPlatform(getGroupPlatform(c)) && getGroupPlatform(c) != service.PlatformBedrock {
+		c.Next()
+		return
+	}
+	path := strings.TrimSuffix(c.Request.URL.Path, "/")
+	if getGroupPlatform(c) == service.PlatformBedrock && c.Request.Method == http.MethodPost && (strings.HasSuffix(path, "/messages") || strings.HasSuffix(path, "/responses")) {
+		c.Next()
+		return
+	}
+	if c.Request.Method == http.MethodPost && strings.HasSuffix(path, "/chat/completions") {
+		c.Next()
+		return
+	}
+	if c.Request.Method == http.MethodGet {
+		// Match registered catalog routes, never arbitrary nested /models paths.
+		switch c.FullPath() {
+		case "/models", "/models/:model", "/v1/models", "/v1/models/:model",
+			"/v1beta/models", "/v1beta/models/:model", "/backend-api/codex/models", "/v1/usage":
+			c.Next()
+			return
+		}
+	}
+	service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+	c.AbortWithStatusJSON(http.StatusNotFound, gin.H{"error": gin.H{"type": "not_found_error", "message": "This platform currently supports Chat Completions only"}})
 }

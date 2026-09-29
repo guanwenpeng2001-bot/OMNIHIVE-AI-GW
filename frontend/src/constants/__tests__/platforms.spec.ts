@@ -4,6 +4,10 @@ import { fileURLToPath } from 'node:url'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { CONCRETE_PLATFORM_OPTIONS, GROUP_PLATFORM_OPTIONS, getPlatformLabel, platformSupportsOAuth } from '@/constants/platforms'
 
+import * as platformColors from '@/utils/platformColors'
+import englishAccounts from '@/i18n/locales/en/admin/accounts'
+import chineseAccounts from '@/i18n/locales/zh/admin/accounts'
+
 interface BackendPlatform {
   id: string
   oauth: boolean
@@ -62,5 +66,43 @@ describe('platform option catalogs', () => {
     expect(backend.find(p => p.id === 'cursor')).toMatchObject({ passiveMonitor: true, activeProbe: false, quotaMonitor: false })
     expect(backend.find(p => p.id === 'antigravity')).toMatchObject({ activeProbe: false, quotaMonitor: true })
     expect(backend.find(p => p.id === 'qianwen')).toMatchObject({ activeProbe: true, quotaMonitor: false })
+  })
+})
+
+
+describe('platform presentation tokens', () => {
+  it.each([
+    ['qianfan', 'blue', '#3b82f6'], ['hunyuan', 'blue', '#3b82f6'],
+    ['mistral', 'amber', '#f59e0b'], ['bedrock', 'orange', '#f97316'],
+    ['volcengine', 'sky', '#0ea5e9'],
+  ])('uses the project %s color family without changing selection fallback', (platform, color, accent) => {
+    for (const token of [
+      platformColors.platformBadgeClass, platformColors.platformBadgeLightClass,
+      platformColors.platformBorderClass, platformColors.platformBorderStrongClass,
+      platformColors.platformAccentBarClass, platformColors.platformTextClass,
+      platformColors.platformIconClass, platformColors.platformButtonClass,
+      platformColors.platformDiscountClass, platformColors.platformGradientClass,
+      platformColors.platformGradientTextClass, platformColors.platformGradientSubtextClass,
+    ]) {
+      expect(token(platform)).toContain(`${color}-`)
+    }
+    expect(platformColors.platformBadgeClass(platform)).toContain(`dark:text-${color}-300`)
+    expect(platformColors.platformAccentColor(platform)).toBe(accent)
+    expect(platformColors.platformSelectionClass(platform)).toBe(platformColors.platformSelectionClass('unknown'))
+    expect(platformColors.platformSelectionIconClass(platform)).toBe(platformColors.platformSelectionIconClass('unknown'))
+  })
+
+  it('keeps matching locale keys and scoped supplier display names', () => {
+    const english = englishAccounts.accounts.platforms
+    const chinese = chineseAccounts.accounts.platforms
+    expect(Object.keys(english).sort()).toEqual(Object.keys(chinese).sort())
+    expect(chinese).toMatchObject({ qianfan: '百度千帆', hunyuan: '腾讯混元', volcengine: '火山引擎' })
+    expect(english).toMatchObject({ qianfan: 'Baidu Qianfan', hunyuan: 'Tencent Hunyuan', volcengine: 'Volcengine Ark' })
+    for (const option of CONCRETE_PLATFORM_OPTIONS) {
+      for (const labels of [english, chinese]) {
+        const translate = (key: string) => labels[key.replace('admin.accounts.platforms.', '') as keyof typeof labels] ?? key
+        expect(getPlatformLabel(option.value, translate)).toBe(labels[option.value])
+      }
+    }
   })
 })

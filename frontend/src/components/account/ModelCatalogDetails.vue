@@ -48,7 +48,7 @@
             <dl class="space-y-2">
               <div v-for="(source, field) in entry.field_evidence" :key="field" class="border-t border-gray-100 pt-1 dark:border-dark-600">
                 <dt class="font-medium">{{ field }}: {{ fieldValue(entry, field) }}</dt>
-                <dd>{{ labels.source }}: {{ sourceTier(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
+                <dd>{{ labels.source }}: {{ sourceLabel(source.source) }}<template v-if="source.confidence"> · {{ source.confidence }}</template></dd>
                 <dd v-if="source.source_version || source.content_hash">{{ labels.version }}: {{ source.source_version || source.content_hash }}</dd>
                 <dd v-if="source.provider_profile || source.matched_model_id || source.match_rule">{{ labels.match }}: {{ [source.provider_profile, source.matched_model_id, source.match_rule].filter(Boolean).join(' · ') }}</dd>
                 <dd v-if="source.observed_at">{{ formatDateTime(source.observed_at) }}</dd>
@@ -74,7 +74,7 @@
         <section v-for="group in (metadataRows.length > 50 ? [] : evidenceGroups)" :key="group.category" :data-model-category="group.category">
           <h3 class="font-semibold">{{ t(`admin.accounts.modelCategories.${group.category}`) }}</h3>
           <ul class="list-inside list-disc">
-            <li v-for="entry in group.models" :key="entry.id" class="break-all">{{ entry.id }} — {{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind || '—' }}<template v-if="entry.evidence_observed_at">; {{ t('admin.accounts.modelSync.evidenceObservedAt') }}: {{ formatDateTime(entry.evidence_observed_at) }}</template></li>
+            <li v-for="entry in group.models" :key="entry.id" class="break-all">{{ entry.id }} — {{ t('admin.accounts.modelSync.evidenceKind') }}: {{ entry.evidence_kind || '—' }}<span v-if="entry.endpoints"> · {{ t('admin.accounts.modelAvailability.endpoint') }}: {{ entry.endpoints.join(', ') || '—' }}</span><template v-if="entry.evidence_observed_at">; {{ t('admin.accounts.modelSync.evidenceObservedAt') }}: {{ formatDateTime(entry.evidence_observed_at) }}</template></li>
           </ul>
         </section>
         <template v-if="!stale && result?.diff">
@@ -138,8 +138,9 @@ const metadataRows = computed(() => [...new Set([
   ...(props.result?.discovered_models ?? props.summary?.snapshot?.discovered_models ?? []),
   ...mappingTargets.value,
   ...(props.result?.models ?? props.summary?.snapshot?.eligible_models?.map(model => model.id) ?? []),
+  ...Object.keys(props.summary?.display_metadata ?? {}),
   ...Object.keys(props.result?.metadata ?? {})
-])].sort().map(id => ({ ...props.result?.metadata?.[id], id })))
+])].sort().map(id => ({ ...props.summary?.display_metadata?.[id], ...props.result?.metadata?.[id], id })))
 const query = ref('')
 const statusFilter = ref('all')
 const visibleLimit = ref(50)
@@ -173,19 +174,21 @@ const fieldValue = (entry: object, field: string) => {
   const value = (entry as Record<string, unknown>)[field]
   return value === undefined ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value)
 }
-const sourceTier = (source: string) => {
-  if (source === 'upstream') return `T1 · ${source}`
-  if (/^(litellm|supplement|account|cursor-builtin)/.test(source)) return `T2 · ${source}`
-  if (source === 'models.dev') return `T3 · ${source}`
-  if (source.startsWith('heuristic')) return `T4 · ${source}`
+const sourceLabel = (source: string) => {
+  if (source === 'upstream') return `${t('admin.accounts.modelSync.evidenceSources.upstream')} · ${source}`
+  if (/^(litellm|supplement|account|cursor-builtin)/.test(source)) return `${t('admin.accounts.modelSync.evidenceSources.supplemental')} · ${source}`
+  if (source === 'models.dev') return `${t('admin.accounts.modelSync.evidenceSources.publicCatalog')} · ${source}`
+  if (source.startsWith('heuristic')) return `${t('admin.accounts.modelSync.evidenceSources.heuristic')} · ${source}`
   return source
 }
 const reasonText = (reason: string) => {
   const key = `admin.accounts.modelSync.reasons.${reason}`
   return te?.(key) ? t(key) : reason
 }
-const evidence = computed<Array<Partial<UpstreamModelMetadata> & { id: string }>>(() => props.result
-  ? [...new Set([...(props.result.models ?? []), ...Object.keys(props.result.metadata ?? {})])].map(id => ({ id, ...props.result?.metadata?.[id] }))
+const evidence = computed<Array<Partial<UpstreamModelMetadata> & { id: string; endpoints?: string[] | null }>>(() => props.result
+  ? [...new Set([...(props.result.models ?? []), ...(props.result.eligible_models ?? []).map(model => model.id), ...Object.keys(props.result.metadata ?? {})])].map(id => ({
+    id, ...props.result?.metadata?.[id], ...props.result?.eligible_models?.find(model => model.id === id)
+  }))
   : props.summary?.snapshot?.eligible_models ?? [])
 const evidenceGroups = computed(() => groupModelsByCategory(evidence.value, model => model))
 const publicCount = '—'

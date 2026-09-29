@@ -1,7 +1,9 @@
 import zh from '@/i18n/locales/zh'
-import { describe, expect, it, vi } from 'vitest'
+import en from '@/i18n/locales/en'
+import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { mount } from '@vue/test-utils'
-vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key.startsWith('capabilityCatalog.') ? key.split('.').reduce((value: any, part) => value[part], zh) : key, te: () => true }) }))
+const testLocale = vi.hoisted(() => ({ value: 'zh' }))
+vi.mock('vue-i18n', async () => ({ ...(await vi.importActual<typeof import('vue-i18n')>('vue-i18n')), useI18n: () => ({ t: (key: string) => key.startsWith('capabilityCatalog.') || key.startsWith('admin.accounts.modelSync.evidenceSources.') ? key.split('.').reduce((value: any, part) => value[part], testLocale.value === 'zh' ? zh : en) : key, te: () => true }) }))
 import { formatDateTime } from '@/utils/format'
 import ModelCatalogDetails from '../ModelCatalogDetails.vue'
 import notSynced from '@/api/__tests__/fixtures/model-catalog-not_synced.json'
@@ -11,7 +13,56 @@ import identityInvalid from '@/api/__tests__/fixtures/model-catalog-identity_inv
 import failedHistory from '@/api/__tests__/fixtures/model-catalog-failed_history.json'
 import type { AccountModelCatalogDetails } from '@/types'
 
+beforeEach(() => { testLocale.value = 'zh' })
+
 describe('model catalog evidence display', () => {
+  it.each([
+    ['zh', ['上游响应', '补充元数据', '公共模型目录', '启发式估算']],
+    ['en', ['Upstream response', 'Supplemental metadata', 'Public model catalog', 'Heuristic estimate']],
+  ] as const)('labels evidence sources in %s while preserving source details', async (locale, labels) => {
+    testLocale.value = locale
+    const sources = ['upstream', 'litellm:catalog', 'supplement:reviewed', 'account:override', 'cursor-builtin:models', 'models.dev', 'heuristic:context', 'custom-source']
+    const expectedLabels = [labels[0], labels[1], labels[1], labels[1], labels[1], labels[2], labels[3], null]
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: null, result: {
+      models: ['model'], metadata: { model: { field_evidence: Object.fromEntries(sources.map((source, index) => [`field_${index}`, {
+        source, confidence: 'high', source_version: 'catalog-revision', content_hash: 'catalog-hash',
+        provider_profile: 'provider-profile', matched_model_id: 'matched-model', match_rule: 'exact',
+        observed_at: '2026-09-16T01:00:00Z',
+      }])) } },
+    } } })
+    const row = wrapper.get<HTMLDetailsElement>('[data-testid="capability-row"]')
+    row.element.open = true
+    await row.trigger('toggle')
+    const fields = wrapper.get('[data-testid="capability-fields"]')
+    const displayedSources = fields.findAll('dl > div').map(field => field.get('dd').text())
+    const sourceHeading = locale === 'zh' ? zh.capabilityCatalog.source : en.capabilityCatalog.source
+    sources.forEach((source, index) => {
+      expect(displayedSources[index]).toBe(`${sourceHeading}: ${expectedLabels[index] ? `${expectedLabels[index]} · ` : ''}${source} · high`)
+    })
+    expect(fields.text()).not.toMatch(/T[1-4] ·/)
+    expect(fields.text()).toContain('catalog-revision')
+    expect(fields.text()).toContain('provider-profile · matched-model · exact')
+    expect(fields.text()).toContain(formatDateTime('2026-09-16T01:00:00Z'))
+    wrapper.unmount()
+  })
+  it('preserves endpoint-specific authorization evidence separately from specification metadata', () => {
+    const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: null, result: {
+      models: ['native', 'declared', 'probed'],
+      eligible_models: [
+        { id: 'native', endpoints: ['chat_completions'], evidence_kind: 'account_discovery' },
+        { id: 'declared', endpoints: ['responses'], evidence_kind: 'administrator_declaration' },
+        { id: 'probed', endpoints: ['images'], evidence_kind: 'probe_success' }
+      ],
+      metadata: { declared: { evidence_kind: 'specification_only' } }
+    } } })
+    const evidence = wrapper.findAll('[data-model-category] li').map(row => row.text())
+    expect(evidence.find(row => row.includes('native'))).toContain('chat_completions')
+    expect(evidence.find(row => row.includes('declared'))).toContain('administrator_declaration')
+    expect(evidence.find(row => row.includes('declared'))).toContain('responses')
+    expect(evidence.find(row => row.includes('probed'))).toContain('probe_success')
+    expect(evidence.find(row => row.includes('probed'))).toContain('images')
+    wrapper.unmount()
+  })
   it('renders category blocks even when some models have no metadata', () => {
     const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 3, result: {
       models: ['chat-model', 'image-model', 'unknown-model'],
@@ -141,7 +192,7 @@ it.each([534, 1000])('bounds a %s model capability catalog and opens field evide
   row.element.open = true
   await row.trigger('toggle')
   expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('supports_function_calling: false')
-  expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('T1 · upstream')
+  expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('上游响应 · upstream')
   expect(wrapper.get('[data-testid="capability-fields"]').text()).toContain('context_window conflict')
   await wrapper.get('[data-testid="capability-search"]').setValue('')
   await wrapper.get('[data-testid="capability-filter"]').setValue('conflict')
@@ -158,4 +209,15 @@ it.each([
 ])('distinguishes discovery, eligibility and capability coverage %#', (discovered, eligible, state) => {
   const wrapper = mount(ModelCatalogDetails, { props: { candidateCount: 0, mappingTargets: [], result: { models: eligible, discovered_models: discovered, complete: true } } })
   expect(wrapper.get('[data-testid="capability-state"]').text()).toContain(state)
+})
+
+it('shows mapped-only read projection without changing discovery or eligibility', () => {
+  const summary = { ...notSynced, display_metadata: { 'private-target': { id: 'private-target', metadata_status: 'incomplete', context_window: 8192 } } } as AccountModelCatalogDetails
+  const before = JSON.stringify(summary)
+  const wrapper = mount(ModelCatalogDetails, { props: { summary, candidateCount: 0, mappingTargets: ['private-target'] } })
+  expect(wrapper.findAll('[data-testid="capability-row"]')).toHaveLength(1)
+  expect(wrapper.text()).toContain('private-target')
+  expect(JSON.stringify(summary)).toBe(before)
+  expect(summary.synced).toBe(false)
+  expect(summary.eligible_count).toBe(0)
 })

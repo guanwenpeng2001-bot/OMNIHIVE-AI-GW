@@ -1,3 +1,4 @@
+import { CHAT_PLATFORM_BASE_URLS, CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -73,7 +74,10 @@ vi.mock('vue-i18n', async () => {
 })
 
 import CreateAccountModal from '../CreateAccountModal.vue'
+import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
+import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
+import CursorBrowserAuthorization from '../CursorBrowserAuthorization.vue'
 vi.mock('@/api/admin/platformModelPresets', () => ({ getPlatformModelPresets: vi.fn().mockResolvedValue([]) }))
 
 const BaseDialogStub = defineComponent({
@@ -139,9 +143,10 @@ const ModelWhitelistSelectorStub = defineComponent({
   >models</button>`,
 })
 
-function mountModal(groups: any[] = [], realCatalog = false) {
+function mountModal(groups: any[] = [], realCatalog = false, attachTo?: HTMLElement) {
   return mount(CreateAccountModal, {
     props: { show: true, proxies: [], groups },
+    attachTo,
     global: {
       stubs: {
         BaseDialog: BaseDialogStub,
@@ -149,7 +154,7 @@ function mountModal(groups: any[] = [], realCatalog = false) {
         ConfirmDialog: true,
         Select: true,
         Icon: true,
-        PlatformIcon: true,
+        PlatformIcon: false,
         ProxySelector: true,
         ProxyAdBanner: true,
         GroupSelector: GroupSelectorStub,
@@ -201,6 +206,22 @@ async function openCodexImportStep(toggleClicks = 0) {
 }
 
 describe('CreateAccountModal OpenAI long-context billing', () => {
+  it('retains the Cursor browser authorization receipt for saved model configuration without applying', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'Cursor')
+    ;(wrapper.vm as unknown as { cursorKeyMode: string }).cursorKeyMode = 'auto'
+    await flushPromises()
+    wrapper.getComponent(CursorBrowserAuthorization).vm.$emit('success', 93)
+    await flushPromises()
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('#93')
+    expect(wrapper.get('[data-testid="created-catalog-accounts"]').text()).toContain('configureModels')
+    expect(wrapper.emitted('close')).toBeUndefined()
+    expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true })
+    expect(wrapper.find('[data-testid="created-catalog-accounts"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
   beforeEach(() => {
     authIsSimpleMode.value = true
     createAccountMock.mockReset().mockResolvedValue({ id: 42, platform: 'openai', type: 'apikey' })
@@ -220,6 +241,92 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
   })
 
   afterEach(() => vi.useRealTimers())
+
+  it('mounts all catalog platforms as a named radio group with real decorative icons', () => {
+    const wrapper = mountModal()
+    const group = wrapper.get('[role="radiogroup"]')
+    expect(group.attributes('aria-label')).toBe('admin.accounts.platform')
+    expect(group.attributes('data-tour')).toBe('account-form-platform')
+    expect(group.classes()).toEqual(expect.arrayContaining(['flex', 'flex-wrap', 'rounded-lg', 'p-1', 'bg-gray-100']))
+    const radios = group.findAll('[role="radio"]')
+    expect(radios).toHaveLength(CONCRETE_PLATFORM_OPTIONS.length)
+    CONCRETE_PLATFORM_OPTIONS.forEach((option, index) => {
+      const radio = radios[index]!
+      expect(radio.attributes('data-testid')).toBe(`${option.value}-platform`)
+      expect(radio.attributes('type')).toBe('button')
+      expect(radio.attributes('aria-checked')).toBe(String(index === 0))
+      expect(radio.attributes('tabindex')).toBe(index === 0 ? '0' : '-1')
+      expect(radio.getComponent(PlatformIcon).props('platform')).toBe(option.value)
+      expect(radio.get('svg').attributes('aria-hidden')).toBe('true')
+      expect(radio.classes()).toContain('focus-visible:ring-2')
+      expect(radio.text()).toBe(option.value === 'commandcode' ? `CC${option.label}` : option.label)
+    })
+    expect(radios[0]!.classes()).toEqual(expect.arrayContaining(['bg-white', 'text-primary-600', 'shadow-sm']))
+    wrapper.unmount()
+  })
+
+  it('moves selection and focus with arrows, Home and End, wrapping at both ends', async () => {
+    const host = document.createElement('div')
+    document.body.append(host)
+    const wrapper = mountModal([], false, host)
+    try {
+      const radio = (index: number) => wrapper.get(`[data-testid="${CONCRETE_PLATFORM_OPTIONS[index]!.value}-platform"]`)
+      const last = CONCRETE_PLATFORM_OPTIONS.length - 1
+      for (const [from, key, to] of [
+        [0, 'ArrowRight', 1], [1, 'ArrowDown', 2], [2, 'ArrowLeft', 1],
+        [1, 'ArrowUp', 0], [0, 'ArrowLeft', last], [last, 'ArrowRight', 0],
+        [0, 'End', last], [last, 'Home', 0],
+      ] as const) {
+        await radio(from).trigger('keydown', { key })
+        expect(radio(to).attributes('aria-checked')).toBe('true')
+        expect(radio(to).attributes('tabindex')).toBe('0')
+        expect(document.activeElement).toBe(radio(to).element)
+        expect(wrapper.findAll('[role="radio"][tabindex="0"]')).toHaveLength(1)
+      }
+      const ignored = new KeyboardEvent('keydown', { key: 'Tab', bubbles: true, cancelable: true })
+      radio(0).element.dispatchEvent(ignored)
+      expect(ignored.defaultPrevented).toBe(false)
+      expect(createAccountMock).not.toHaveBeenCalled()
+      expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+      expect(syncUpstreamModelsMock).not.toHaveBeenCalled()
+    } finally {
+      wrapper.unmount()
+      host.remove()
+    }
+  })
+
+  it.each([' ', 'Enter'])('uses native %s activation once through click and retains the platform reset flow', async key => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="qianwen-platform"]').trigger('click')
+    const endpoint = '[data-testid="cn-adaptive-base-url-chat_completions"]'
+    await wrapper.get(endpoint).setValue('https://edited.example/v1')
+    const selected = wrapper.get('[data-testid="qianwen-platform"]')
+    const event = new KeyboardEvent('keydown', { key, bubbles: true, cancelable: true })
+    selected.element.dispatchEvent(event)
+    expect(event.defaultPrevented).toBe(false)
+    await flushPromises()
+    // JSDOM does not synthesize the native button click for keyboard activation.
+    // No reset on keydown; the browser-generated click runs selectPlatform exactly once.
+    expect((wrapper.get(endpoint).element as HTMLInputElement).value).toBe('https://edited.example/v1')
+    await selected.trigger('click')
+    expect((wrapper.get(endpoint).element as HTMLInputElement).value).toBe('https://dashscope.aliyuncs.com/compatible-mode/v1')
+    expect(createAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('applies the same protocol and endpoint reset for arrow selection and mouse selection', async () => {
+    const keyboard = mountModal()
+    const mouse = mountModal()
+    await keyboard.get('[data-testid="opencode_go-platform"]').trigger('click')
+    await keyboard.get('[data-testid="opencode_go-platform"]').trigger('keydown', { key: 'ArrowRight' })
+    await mouse.get('[data-testid="qianwen-platform"]').trigger('click')
+    expect(keyboard.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')).toEqual(
+      mouse.getComponent(ModelWhitelistSelectorStub).props('syncCredentials')
+    )
+    expect(keyboard.get('[data-testid="qianwen-platform"]').attributes('aria-checked')).toBe('true')
+    keyboard.unmount()
+    mouse.unmount()
+  })
 
   it('persists a create-time scheduling override and image-tool policy on API keys', async () => {
     const wrapper = mountModal()
@@ -274,6 +381,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, review)
     expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
@@ -282,6 +390,7 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
+    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
     await flushPromises()
     expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(42, true, review.rules_revision, undefined, revisedReview)
     await wrapper.get('form#create-account-form').trigger('submit.prevent')
@@ -586,6 +695,31 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock.mock.calls[0]?.[0]?.upstream_billing_probe_enabled).toBe(false)
     expect(probeUpstreamBillingMock).not.toHaveBeenCalled()
+  })
+
+  it('creates independent Bedrock with the existing regional credential form', async () => {
+    const wrapper = mountModal()
+    await wrapper.get('[data-testid="bedrock-platform"]').trigger('click')
+    expect(wrapper.text()).not.toContain('admin.accounts.bedrockForceGlobal')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('Bedrock fixture')
+    await wrapper.get('input[type="radio"][value="apikey"]').setValue()
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform: 'bedrock', type: 'bedrock', credentials: { auth_mode: 'apikey', api_key: 'fixture-key', aws_region: 'us-east-1' } })
+  })
+
+  it.each(Object.entries(CHAT_PLATFORM_BASE_URLS))('creates %s with exact chat credentials', async (platform, baseURL) => {
+    const wrapper = mountModal()
+    await wrapper.get(`[data-testid="${platform}-platform"]`).trigger('click')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('runtime fixture')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('fixture-key')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]).toMatchObject({ platform, type: 'apikey', credentials: { api_key: 'fixture-key', base_url: baseURL } })
+    expect(createAccountMock.mock.calls[0]?.[0]?.credentials.api_base_urls).toBeUndefined()
   })
 
   it.each(['qianwen', 'commandcode'] as const)('creates %s as API-key-only with protocol defaults', async (platform) => {

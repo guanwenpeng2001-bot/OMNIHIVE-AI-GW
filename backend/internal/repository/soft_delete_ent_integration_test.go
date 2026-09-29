@@ -26,11 +26,19 @@ func uniqueSoftDeleteValue(t *testing.T, prefix string) string {
 func createEntUser(t *testing.T, ctx context.Context, client *dbent.Client, email string) *dbent.User {
 	t.Helper()
 
+	// The deterministic email belongs to this soft-delete fixture. Clear an
+	// interrupted prior run, then remove this run's persisted row by identity.
+	_, err := integrationDB.ExecContext(ctx, "DELETE FROM users WHERE email = $1", email)
+	require.NoError(t, err, "clear prior soft-delete user fixture")
 	u, err := client.User.Create().
 		SetEmail(email).
 		SetPasswordHash("test-password-hash").
 		Save(ctx)
 	require.NoError(t, err, "create ent user")
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), "DELETE FROM users WHERE id = $1", u.ID)
+		require.NoError(t, err, "remove soft-delete user and dependent keys/subscriptions")
+	})
 	return u
 }
 
@@ -119,11 +127,18 @@ func TestEntSoftDelete_ApiKey_HardDeleteViaSkipSoftDelete(t *testing.T) {
 func createEntGroup(t *testing.T, ctx context.Context, client *dbent.Client, name string) *dbent.Group {
 	t.Helper()
 
+	// Only this test's named fixture is disposable; never remove default groups.
+	_, err := integrationDB.ExecContext(ctx, "DELETE FROM groups WHERE name = $1", name)
+	require.NoError(t, err, "clear prior soft-delete group fixture")
 	g, err := client.Group.Create().
 		SetName(name).
 		SetStatus(service.StatusActive).
 		Save(ctx)
 	require.NoError(t, err, "create ent group")
+	t.Cleanup(func() {
+		_, err := integrationDB.ExecContext(context.Background(), "DELETE FROM groups WHERE id = $1", g.ID)
+		require.NoError(t, err, "remove soft-delete group and dependent subscriptions")
+	})
 	return g
 }
 

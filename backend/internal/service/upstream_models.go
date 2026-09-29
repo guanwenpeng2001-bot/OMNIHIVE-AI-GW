@@ -202,10 +202,11 @@ const (
 
 // UpstreamModelSyncError keeps internal failure details wrapped while exposing a safe client message.
 type UpstreamModelSyncError struct {
-	Kind       UpstreamModelSyncErrorKind
-	Message    string
-	StatusCode int
-	Err        error
+	PartialCatalog *UpstreamModelCatalog
+	Kind           UpstreamModelSyncErrorKind
+	Message        string
+	StatusCode     int
+	Err            error
 }
 
 func (e *UpstreamModelSyncError) Error() string {
@@ -296,10 +297,7 @@ func (s *AccountTestService) DiscoverModelCapabilities(ctx context.Context, acco
 	// whitelist models that the live /models list omitted; those still need registry
 	// metadata so Codex catalogs can advertise reasoning and modalities.
 	enrichIDs := dedupeAndSortModelIDs(append(append([]string{}, models...), configuredUpstreamModelsForCapabilitySync(account)...))
-	// V2 retains all discovered and mapping models, including media tasks.
-	if len(models) == 0 {
-		enrichIDs = []string{}
-	}
+	// Concrete mapping targets remain in the capability denominator even for an empty native list.
 	capabilityIDs := enrichIDs
 	profile := resolveCapabilityProfile(account)
 	nativeVersion := capabilityHash(body)
@@ -536,24 +534,6 @@ func upstreamModelMetadataIsUseful(metadata UpstreamModelMetadata) bool {
 		metadata.MaxOutputTokens > 0
 }
 
-// upstreamModelMetadataIsComplete reports whether a snapshot entry is safe to
-// persist and later prefer over local Codex name-based fallbacks.
-func upstreamModelMetadataIsComplete(metadata UpstreamModelMetadata) bool {
-	if metadata.Reasoning == nil {
-		return false
-	}
-	if len(normalizeCodexInputModalities(metadata.InputModalities)) == 0 {
-		return false
-	}
-	if metadata.ContextWindow <= 0 {
-		return false
-	}
-	if *metadata.Reasoning && len(normalizeReasoningLevels(metadata.SupportedReasoningLevels)) == 0 {
-		return false
-	}
-	return true
-}
-
 // The boolean reports accepted capability changes; rejection diagnostics alone
 // do not mean the fallback supplied usable metadata.
 func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (UpstreamModelMetadata, bool) {
@@ -650,13 +630,11 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		}
 		changed = true
 	}
-	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 && !(merged.ContextLimitKind == "total" && merged.ContextWindow > 0 && fallback.MaxOutputTokens > merged.ContextWindow) {
+	if merged.MaxOutputTokens <= 0 && fallback.MaxOutputTokens > 0 && (merged.ContextLimitKind != "total" || merged.ContextWindow <= 0 || fallback.MaxOutputTokens <= merged.ContextWindow) {
 		merged.MaxOutputTokens = fallback.MaxOutputTokens
 		changed = true
 	}
-	a, b := reflect.ValueOf(&merged).Elem(), reflect.ValueOf(fallback)
 	for _, name := range []string{"ProviderProfile", "SupportsVision", "SupportsPDF", "SupportsFunctionCalling", "SupportsPromptCaching", "ReasoningControl", "ContextLimitKind", "InputModalitiesStatus", "EndpointStatus", "EmbeddingDimensions", "ContextHint", "FamilyHint"} {
-		x, y := a.FieldByName(name), b.FieldByName(name)
 		if (name == "SupportsVision" || name == "SupportsPDF") && merged.InputModalities != nil && merged.InputModalitiesStatus != "partial" {
 			modality, flag := "image", fallback.SupportsVision
 			if name == "SupportsPDF" {
@@ -683,12 +661,7 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		if name == "InputModalitiesStatus" && !reflect.DeepEqual(merged.InputModalities, fallback.InputModalities) {
 			continue
 		}
-		if name == "ReasoningControl" && merged.ReasoningControl != nil && merged.ReasoningControl.Kind == "unknown" && fallback.ReasoningControl != nil && fallback.ReasoningControl.Kind != "unknown" {
-			x.Set(y)
-			changed = true
-		}
-		if x.IsZero() && !y.IsZero() {
-			x.Set(y)
+		if mergeMetadataField(&merged, &fallback, name) {
 			changed = true
 		}
 	}
@@ -697,20 +670,24 @@ func mergeUpstreamModelMetadata(primary, fallback UpstreamModelMetadata) (Upstre
 		merged.InputModalitiesStatus = fallback.InputModalitiesStatus
 		changed = true
 	}
-	before, after := metadataFieldValues(primary), metadataFieldValues(merged)
+	// Snapshot the evidence map header before provenance updates, just as the
+	// old reflected value copy did (including a nil header).
+	after := merged
 	for f, e := range fallback.FieldEvidence {
 		if f == "task_limits" || strings.HasPrefix(f, "task_limits.") {
 			continue // per-key evidence must not relabel retained native limits
 		}
-		if value, ok := after[f]; ok && !reflect.DeepEqual(before[f].Interface(), value.Interface()) {
+		if _, ok := metadataJSONFieldIndexes[f]; ok && !metadataFieldEqual(&primary, &after, f) {
 			if merged.FieldEvidence == nil {
 				merged.FieldEvidence = make(map[string]ModelCapabilityEvidence)
 			}
 			merged.FieldEvidence[f] = e
 		}
 	}
-	recordRejectedCapabilityCandidates(&merged, fallback)
-	return cloneUpstreamModelMetadata(merged), changed
+	recordRejectedCapabilityCandidates(&merged, &fallback)
+	// Primary was cloned on entry, accepted fallback references were cloned at
+	// assignment, and rejection values are newly marshaled owned buffers.
+	return merged, changed
 }
 
 // Clone even unchanged entries: callers must not mutate cached registry or
@@ -1134,6 +1111,9 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, newUpstreamModelSyncConfigError("Account is required", nil)
 	}
 
+	if account.Platform == PlatformBedrock {
+		return s.fetchBedrockModels(ctx, account)
+	}
 	if account.IsCursor() {
 		if account.Type != AccountTypeAPIKey && account.Type != AccountTypeOAuth && account.Type != AccountTypeUpstream {
 			return nil, nil, newUpstreamModelSyncUnsupportedError("Unsupported Cursor account type", nil)
@@ -1174,6 +1154,15 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 		return nil, nil, err
 	}
 
+	if discovery, _ := ctx.Value(catalogDiscoveryKey{}).(bool); discovery && account.Platform == PlatformAntigravity && account.Type == AccountTypeAPIKey {
+		return s.fetchAntigravityAPIKeyCatalog(req, account)
+	}
+	if account.Platform == PlatformMistral {
+		return s.fetchMistralModels(req, account)
+	}
+	if account.Platform == PlatformQianfan {
+		return s.fetchQianfanModels(req, account)
+	}
 	if account.Platform == PlatformQianwen {
 		return s.fetchQianwenModelPages(req, account)
 	}
@@ -1223,6 +1212,15 @@ func (s *AccountTestService) fetchUpstreamModelList(ctx context.Context, account
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.Platform == PlatformQianfan:
+		return buildQianfanRequest(ctx, account, "models", nil, s.validateUpstreamBaseURL)
+	case account.Platform == PlatformHunyuan:
+		_, err := hunyuanDiscoveredModels()
+		return nil, newUpstreamModelSyncUnsupportedError("Hunyuan automatic discovery is unverified; use account declarations", err)
+	case account.Platform == PlatformMistral:
+		return s.buildMistralModelsRequest(ctx, account)
+	case account.Platform == PlatformVolcengine:
+		return nil, volcengineModelDiscoveryUnsupported()
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
@@ -1828,6 +1826,15 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 	models := make([]string, 0, len(entries))
 	metadata := make(map[string]UpstreamModelMetadata)
 	for _, raw := range entries {
+		if len(platform) > 0 && platform[0] == PlatformMistral {
+			var card MistralModelCard
+			if err := json.Unmarshal(raw, &card); err != nil || card.ID == "" {
+				return nil, nil, fmt.Errorf("invalid Mistral card")
+			}
+			models = append(models, card.ID)
+			metadata[card.ID] = card.metadata(UpstreamModelMetadata{})
+			continue
+		}
 		var capability upstreamModelCapabilityEntry
 		if err := json.Unmarshal(raw, &capability); err != nil {
 			continue
@@ -1843,6 +1850,23 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 		}
 		models = append(models, modelID)
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if len(platform) > 0 && platform[0] == PlatformQianfan {
+			var model qianfanModel
+			if err := json.Unmarshal(raw, &model); err == nil {
+				if model.MaxCompletionsTokens != nil {
+					entry.MaxOutputTokens = *model.MaxCompletionsTokens
+				}
+				var architecture struct {
+					InputModalities  []string `json:"input_modalities"`
+					OutputModalities []string `json:"output_modalities"`
+				}
+				if json.Unmarshal(model.Architecture, &architecture) == nil {
+					entry.InputModalities = architecture.InputModalities
+					entry.OutputModalities = architecture.OutputModalities
+				}
+			}
+		}
+
 		var fields map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &fields); err == nil {
 			entry.CodexToolCapabilities = make(map[string]json.RawMessage)
@@ -2230,35 +2254,134 @@ func MarshalModelCapabilityLists(value any, lists map[string][]string) ([]byte, 
 	return json.Marshal(fields)
 }
 
-func upstreamModelListEndpointUnsupported(err error) bool {
-	statusCode := upstreamModelSyncStatusCode(err)
-	return statusCode == http.StatusNotFound || statusCode == http.StatusMethodNotAllowed
+// ReadOnlyModelCapabilities is a display projection, separate from discovery,
+// review digests, CAS and pricing. Offline disables only public network refresh.
+func (service *AccountTestService) ReadOnlyModelCapabilities(account *Account) map[string]UpstreamModelMetadata {
+	if service == nil || service.capabilityReadOnlyEnricher == nil {
+		return map[string]UpstreamModelMetadata{}
+	}
+	offline := strings.EqualFold(os.Getenv("MODEL_CAPABILITY_OFFLINE"), "true") || os.Getenv("MODEL_CAPABILITY_OFFLINE") == "1"
+	return service.capabilityReadOnlyEnricher.Project(account, !offline)
 }
 
-func completeUpstreamModelMetadataSubset(
-	modelIDs []string,
-	metadata map[string]UpstreamModelMetadata,
-) map[string]UpstreamModelMetadata {
-	if len(metadata) == 0 {
-		return nil
-	}
-	complete := make(map[string]UpstreamModelMetadata)
-	for _, modelID := range modelIDs {
-		modelID = strings.TrimSpace(modelID)
-		if modelID == "" {
+// Both paths belong to the saved compatible /antigravity gateway. Its v1beta
+// route uses APIKeyAuthWithSubscriptionGoogle, which accepts x-goog-api-key.
+// This does not extend OAuth/CloudCode credentials to another host or endpoint.
+func (service *AccountTestService) fetchAntigravityAPIKeyCatalog(messagesRequest *http.Request, account *Account) ([]string, []byte, error) {
+	geminiRequest := messagesRequest.Clone(messagesRequest.Context())
+	geminiRequest.URL.Path = strings.TrimSuffix(messagesRequest.URL.Path, "/v1/models") + "/v1beta/models"
+	geminiRequest.Header.Del("x-api-key")
+	geminiRequest.Header.Del("anthropic-version")
+	geminiRequest.Header.Del("anthropic-beta")
+	geminiRequest.Header.Set("x-goog-api-key", strings.TrimSpace(account.GetCredential("api_key")))
+	models := []string{}
+	entries := []json.RawMessage{}
+	var failed error
+	successfulPaths := 0
+	for _, request := range []*http.Request{messagesRequest, geminiRequest} {
+		ids, body, err := service.fetchCompleteModelPages(request, account)
+		if err != nil {
+			failed = err
 			continue
 		}
-		entry, ok := metadata[modelID]
-		if !ok || !upstreamModelMetadataIsComplete(entry) {
+		rawEntries, err := extractUpstreamModelRawEntries(body)
+		if err != nil {
+			failed = err
 			continue
 		}
-		if strings.TrimSpace(entry.ID) == "" {
-			entry.ID = modelID
+		successfulPaths++
+		models = append(models, ids...)
+		entries = append(entries, rawEntries...)
+	}
+	merged, err := json.Marshal(map[string]any{"data": entries})
+	if err != nil {
+		return nil, nil, err
+	}
+	models = dedupeAndSortModelIDs(models)
+	if failed != nil {
+		if successfulPaths == 0 {
+			return nil, nil, failed
 		}
-		complete[modelID] = entry
+		failure := &UpstreamModelSyncError{Kind: UpstreamModelSyncErrorUpstream, Message: "Antigravity dual-path catalog is incomplete; previous snapshot retained", Err: failed}
+		if successfulPaths > 0 {
+			_, metadata, parseErr := extractUpstreamModelCatalog(merged, false, PlatformAntigravity)
+			if parseErr == nil {
+				failure.PartialCatalog = &UpstreamModelCatalog{Models: []string{}, DiscoveredModels: models, Metadata: metadata, CatalogSource: "partial", Complete: false, Warnings: []UpstreamModelSyncWarning{{Code: "upstream_model_discovery_partial", Message: "A catalog path failed; partial results are preview-only and cannot be applied"}}}
+			}
+		}
+		return nil, nil, failure
 	}
-	if len(complete) == 0 {
-		return nil
+	return models, merged, nil
+}
+
+// The caller checks related-field compatibility before assigning. Pointer
+// fields always acquire independent ownership; scalar fields need only a copy.
+func mergeMetadataField(merged, fallback *UpstreamModelMetadata, field string) bool {
+	switch field {
+	case "ProviderProfile":
+		if merged.ProviderProfile == "" && fallback.ProviderProfile != "" {
+			merged.ProviderProfile = fallback.ProviderProfile
+			return true
+		}
+	case "SupportsVision":
+		if merged.SupportsVision == nil && fallback.SupportsVision != nil {
+			flag := *fallback.SupportsVision
+			merged.SupportsVision = &flag
+			return true
+		}
+	case "SupportsPDF":
+		if merged.SupportsPDF == nil && fallback.SupportsPDF != nil {
+			flag := *fallback.SupportsPDF
+			merged.SupportsPDF = &flag
+			return true
+		}
+	case "SupportsFunctionCalling":
+		if merged.SupportsFunctionCalling == nil && fallback.SupportsFunctionCalling != nil {
+			flag := *fallback.SupportsFunctionCalling
+			merged.SupportsFunctionCalling = &flag
+			return true
+		}
+	case "SupportsPromptCaching":
+		if merged.SupportsPromptCaching == nil && fallback.SupportsPromptCaching != nil {
+			flag := *fallback.SupportsPromptCaching
+			merged.SupportsPromptCaching = &flag
+			return true
+		}
+	case "ReasoningControl":
+		if fallback.ReasoningControl != nil && (merged.ReasoningControl == nil || merged.ReasoningControl.Kind == "unknown" && fallback.ReasoningControl.Kind != "unknown") {
+			merged.ReasoningControl = cloneReasoningControl(fallback.ReasoningControl)
+			return true
+		}
+	case "ContextLimitKind":
+		if merged.ContextLimitKind == "" && fallback.ContextLimitKind != "" {
+			merged.ContextLimitKind = fallback.ContextLimitKind
+			return true
+		}
+	case "InputModalitiesStatus":
+		if merged.InputModalitiesStatus == "" && fallback.InputModalitiesStatus != "" {
+			merged.InputModalitiesStatus = fallback.InputModalitiesStatus
+			return true
+		}
+	case "EndpointStatus":
+		if merged.EndpointStatus == "" && fallback.EndpointStatus != "" {
+			merged.EndpointStatus = fallback.EndpointStatus
+			return true
+		}
+	case "EmbeddingDimensions":
+		if merged.EmbeddingDimensions == 0 && fallback.EmbeddingDimensions != 0 {
+			merged.EmbeddingDimensions = fallback.EmbeddingDimensions
+			return true
+		}
+	case "ContextHint":
+		if merged.ContextHint == "" && fallback.ContextHint != "" {
+			merged.ContextHint = fallback.ContextHint
+			return true
+		}
+	case "FamilyHint":
+		if merged.FamilyHint == "" && fallback.FamilyHint != "" {
+			merged.FamilyHint = fallback.FamilyHint
+			return true
+		}
 	}
-	return complete
+	return false
 }

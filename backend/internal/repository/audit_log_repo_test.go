@@ -15,7 +15,10 @@ func TestAuditClearWithTraceTransaction(t *testing.T) {
 		t.Run("failure_"+failure, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
-			defer func() { _ = db.Close() }()
+			t.Cleanup(func() {
+				mock.ExpectClose()
+				require.NoError(t, db.Close())
+			})
 			repo := &auditLogRepository{db: db}
 			cause := errors.New("injected failure")
 			begin := mock.ExpectBegin()
@@ -72,7 +75,10 @@ func TestAuditClearWithTraceTransaction(t *testing.T) {
 func TestAuditClearWithTraceRequiresTrace(t *testing.T) {
 	db, mock, err := sqlmock.New()
 	require.NoError(t, err)
-	defer func() { _ = db.Close() }()
+	t.Cleanup(func() {
+		mock.ExpectClose()
+		require.NoError(t, db.Close())
+	})
 	_, err = (&auditLogRepository{db: db}).ClearWithTrace(context.Background(), nil)
 	require.Error(t, err)
 	require.NoError(t, mock.ExpectationsWereMet())

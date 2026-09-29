@@ -13,7 +13,7 @@ import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
-import { identityScoped } from './identityScope'
+import { lazyIdentityScoped } from './identityScope'
 import { paymentRouteComponent } from '@/components/payment/paymentRoute'
 
 /**
@@ -746,7 +746,7 @@ for (const route of routes) {
   if (route.meta?.requiresAuth !== true || typeof route.component !== 'function') continue
   const load = route.component as () => Promise<{ default: import('vue').Component }>
   const admin = route.meta.requiresAdmin === true
-  route.component = async () => identityScoped((await load()).default, admin)
+  route.component = lazyIdentityScoped(load, admin)
 }
 
 /**
@@ -1042,13 +1042,19 @@ router.beforeEach(async (to, _from, next) => {
 /**
  * Navigation guard: End loading and trigger prefetch
  */
-router.afterEach((to) => {
+router.afterEach((to, _from, failure) => {
   // 结束导航加载状态
   navigationLoading.endNavigation()
 
+  if (failure) return
+
   // 懒初始化预加载（首次导航时创建，传入 router 实例）
   if (!routePrefetch) {
-    routePrefetch = useRoutePrefetch(router)
+    routePrefetch = useRoutePrefetch(router, (route) => {
+      const auth = useAuthStore()
+      return auth.isAuthenticated && (!route.meta.requiresAdmin ||
+        (auth.isAdmin && useAdminComplianceStore().status?.required === false))
+    })
   }
   // 触发路由预加载（在浏览器空闲时执行）
   routePrefetch.triggerPrefetch(to)

@@ -1,6 +1,9 @@
 package service
 
-import "strings"
+import (
+	"net/url"
+	"strings"
+)
 
 // CapabilityMatch retains the caller ID and makes ambiguity an explicit miss.
 type CapabilityMatch struct {
@@ -31,7 +34,8 @@ func resolveCapabilityProfile(account *Account) string {
 	if account.IsOpenAI() && account.Type == AccountTypeOAuth {
 		return "openai-codex"
 	}
-	switch modelRegistryHostname(upstreamModelRegistryBaseURL(account)) {
+	baseURL := upstreamModelRegistryBaseURL(account)
+	switch modelRegistryHostname(baseURL) {
 	case "api.openai.com":
 		return "openai"
 	case "api.anthropic.com":
@@ -41,7 +45,21 @@ func resolveCapabilityProfile(account *Account) string {
 	case "api.deepseek.com":
 		return "deepseek"
 	case "api.moonshot.cn", "api.moonshot.ai":
-		return "moonshot"
+		parsed, err := url.Parse(baseURL)
+		if err == nil && account.GetAccountMode() != AccountModeCoding {
+			switch strings.TrimRight(parsed.Path, "/") {
+			case "", "/v1", "/anthropic":
+				return "moonshot"
+			}
+		}
+	case "api.kimi.com":
+		parsed, err := url.Parse(baseURL)
+		if err == nil && account.GetAccountMode() != AccountModePayG {
+			switch strings.TrimRight(parsed.Path, "/") {
+			case "/coding", "/coding/v1":
+				return "kimi-for-coding"
+			}
+		}
 	case "api.x.ai":
 		return "xai"
 	case "dashscope.aliyuncs.com":
@@ -51,7 +69,7 @@ func resolveCapabilityProfile(account *Account) string {
 	case "opencode.ai":
 		return "opencode-go"
 	}
-	return "custom:" + normalizeModelRegistryBaseURL(upstreamModelRegistryBaseURL(account))
+	return "custom:" + normalizeModelRegistryBaseURL(baseURL)
 }
 
 func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelID string) CapabilityMatch {
@@ -113,29 +131,6 @@ func lookupCapabilityMetadata(snapshot *ModelCapabilitySnapshot, profile, modelI
 		}
 	}
 	return CapabilityMatch{Metadata: cloneUpstreamModelMetadata(m), CanonicalID: r.ModelID, Rule: rule, Status: "matched"}
-}
-
-// models.dev IDs are exact. No case folding is enabled without a provider
-// contract; aliases expressed as record IDs must still be unique.
-func lookupModelsDevModel(provider modelsDevProvider, modelID string) (modelsDevModel, string) {
-	if m, ok := provider.Models[modelID]; ok {
-		return m, "exact"
-	}
-	var found modelsDevModel
-	count := 0
-	for _, m := range provider.Models {
-		if strings.TrimSpace(m.ID) == modelID {
-			found = m
-			count++
-		}
-	}
-	if count == 1 {
-		return found, "record_id"
-	}
-	if count > 1 {
-		return modelsDevModel{}, "ambiguous"
-	}
-	return modelsDevModel{}, "not_found"
 }
 
 func buildCapabilityAliasIndex(records map[string]CapabilityRecord) map[string][]string {

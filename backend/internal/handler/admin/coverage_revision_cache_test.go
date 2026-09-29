@@ -9,7 +9,6 @@ import (
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/repository"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
@@ -52,7 +51,7 @@ func TestDashboardRankingCacheCoverageRevision(t *testing.T) {
 	first := request()
 	require.Equal(t, 200, first.Code)
 	repo.revision = "after"
-	repo.failure = repository.ErrUsageHistoryUnavailable.WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
+	repo.failure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable").WithMetadata(map[string]string{"raw_retained_from": "2026-03-05T00:00:00Z"})
 	uncached := request()
 	require.Equal(t, 409, uncached.Code)
 	require.Contains(t, uncached.Body.String(), "USAGE_HISTORY_INCOMPLETE")
@@ -70,7 +69,7 @@ func TestUsageStatsCacheCoverageRevision(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, hit)
 	repo.revision = "after"
-	repo.failure = repository.ErrUsageHistoryUnavailable
+	repo.failure = infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable")
 	_, hit, err = handler.getStatsCached(context.Background(), filters)
 	require.False(t, hit)
 	status, _ := infraerrors.ToHTTP(err)
@@ -109,7 +108,7 @@ func TestDashboardBatchCacheCoverageRevision(t *testing.T) {
 			}
 			require.Equal(t, 200, request().Code)
 			require.Equal(t, "hit", request().Header().Get("X-Snapshot-Cache"))
-			repo.revision, repo.failure = "after", repository.ErrUsageHistoryUnavailable
+			repo.revision, repo.failure = "after", infraerrors.Conflict("USAGE_HISTORY_INCOMPLETE", "Usage history is incomplete: raw history or a verified archive is unavailable")
 			require.Equal(t, 409, request().Code)
 		})
 	}

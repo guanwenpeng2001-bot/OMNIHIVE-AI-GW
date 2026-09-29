@@ -4,12 +4,15 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -329,15 +332,8 @@ func buildModelCapabilitySnapshot(runtime []byte) (*ModelCapabilitySnapshot, err
 		if _, err := time.Parse("2006-01-02", r.VerifiedAt); err != nil {
 			return nil, err
 		}
-		applies := false
-		for _, h := range r.ApplicableContentHashes {
-			if h == contentHash {
-				applies = true
-			}
-		}
-		if !applies {
-			continue
-		}
+		// The independently pinned release approves exact profile/model identities.
+		// Historical input hashes are provenance, never a live pricing predicate.
 		r.FieldSources = make(map[string]CapabilityFieldSource)
 		v := reflect.ValueOf(r.LiteLLMCapabilityFields)
 		for i := 0; i < v.NumField(); i++ {
@@ -393,6 +389,8 @@ func (s *PricingService) buildCapabilityCandidate(body []byte, declaredHash stri
 	return candidate
 }
 
+var renamePricingFile = os.Rename
+
 // Replace a complete file in its own directory so readers cannot see half JSON.
 func writePricingFileAtomically(path string, body []byte) error {
 	file, err := os.CreateTemp(filepath.Dir(path), ".pricing-*")
@@ -400,23 +398,38 @@ func writePricingFileAtomically(path string, body []byte) error {
 		return err
 	}
 	name := file.Name()
-	defer os.Remove(name)
+	defer func() { _ = os.Remove(name) }()
 	if err = file.Chmod(0644); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if _, err = file.Write(body); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err = file.Sync(); err != nil {
-		file.Close()
+		_ = file.Close()
 		return err
 	}
 	if err = file.Close(); err != nil {
 		return err
 	}
-	return os.Rename(name, path)
+	const maxAttempts = 5
+	for attempt := 1; ; attempt++ {
+		err = renamePricingFile(name, path)
+		// Windows readers may temporarily deny replacement. Keep POSIX and
+		// all other errors unchanged; never remove the destination to retry.
+		// Win32 ERROR_ACCESS_DENIED = 5, ERROR_SHARING_VIOLATION = 32.
+		if err == nil || runtime.GOOS != "windows" ||
+			(!errors.Is(err, syscall.Errno(5)) && !errors.Is(err, syscall.Errno(32))) {
+			return err
+		}
+		if attempt == maxAttempts {
+			return fmt.Errorf("replace pricing file after %d attempts: %w", attempt, err)
+		}
+		// Four bounded backoffs: 25 + 50 + 75 + 100 = 250 ms total.
+		time.Sleep(time.Duration(attempt) * 25 * time.Millisecond)
+	}
 }
 
 // Invalid capability fields cannot change the pre-existing price admission rules.

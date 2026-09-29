@@ -14,11 +14,13 @@ import (
 	"testing/fstest"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/testutil/testresources"
 	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
 func legacyMigrationDatabase(t *testing.T) *sql.DB {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	t.Helper()
 	dsn := os.Getenv("NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	if dsn == "" {
@@ -142,6 +144,7 @@ func assertMonitorStorageContract(t *testing.T, db *sql.DB) {
 }
 
 func TestLegacyMonitorUpgradeChain(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	for _, checkpoint := range []string{"fresh", "237", "239", "240", "243", "244", "248", "253"} {
 		t.Run(checkpoint, func(t *testing.T) {
 			db := legacyMigrationDatabase(t)
@@ -184,6 +187,7 @@ func TestLegacyMonitorUpgradeChain(t *testing.T) {
 }
 
 func TestLegacyMonitorAppliedChecksums(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	for _, checkpoint := range []string{"240", "243", "244", "248", "253"} {
 		for _, crlf := range []bool{false, true} {
 			t.Run(fmt.Sprintf("applied_%s_crlf_%t", checkpoint, crlf), func(t *testing.T) {
@@ -216,6 +220,7 @@ func TestLegacyMonitorAppliedChecksums(t *testing.T) {
 }
 
 func TestLegacyMonitorChecksumDrift(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	db := legacyMigrationDatabase(t)
 	ctx := context.Background()
 	require.NoError(t, ApplyMigrations(ctx, db))
@@ -239,6 +244,7 @@ func TestLegacyMonitorChecksumDrift(t *testing.T) {
 }
 
 func TestLegacyMonitorUnknownAppliedChecksum(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	for _, name := range []string{"240_channel_monitor_provider_capabilities.sql", "243_channel_monitor_qianwen_commandcode.sql", "244_channel_monitor_minimax_opencode.sql"} {
 		t.Run(name, func(t *testing.T) {
 			db := legacyMigrationDatabase(t)
@@ -258,6 +264,7 @@ func TestLegacyMonitorUnknownAppliedChecksum(t *testing.T) {
 // This is a synthetic isolated schema copy, not a production sizing claim.
 // Tune row count to the deployment's measured size before approving its window.
 func TestLegacyUpgradeDDLMeasurement(t *testing.T) {
+	testresources.RequireDisposableDatabase(t, "NEW_PLATFORMS_TEST_POSTGRES_DSN")
 	db := legacyMigrationDatabase(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()

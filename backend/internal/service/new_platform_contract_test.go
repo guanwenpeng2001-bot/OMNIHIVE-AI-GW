@@ -6,12 +6,13 @@ import (
 
 	_ "github.com/Wei-Shaw/sub2api/ent/runtime"
 	"github.com/Wei-Shaw/sub2api/ent/userplatformquota"
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/stretchr/testify/require"
 )
 
 func TestConcretePlatformContracts(t *testing.T) {
 	platforms := ConcretePlatforms()
-	require.Len(t, platforms, 13)
+	require.ElementsMatch(t, domain.ConcretePlatforms(), platforms)
 	require.ElementsMatch(t, platforms, AllowedQuotaPlatforms)
 	require.Equal(t, platforms, schedulerSnapshotPlatforms())
 	require.ElementsMatch(t, platforms, matchingPlatforms(PlatformComposite))
@@ -32,7 +33,7 @@ func TestConcretePlatformContracts(t *testing.T) {
 	require.True(t, IsMultiProtocolAPIKeyProvider(PlatformQianwen))
 	require.True(t, IsMultiProtocolAPIKeyProvider(PlatformCommandCode))
 	require.False(t, IsMultiProtocolAPIKeyProvider(PlatformCursor))
-	require.Equal(t, 28, schedulerCanonicalBucketCount())
+	require.Equal(t, 38, schedulerCanonicalBucketCount())
 	for _, platform := range []string{PlatformQianwen, PlatformCommandCode} {
 		require.Contains(t, schedulerCanonicalBuckets(7), SchedulerBucket{GroupID: 7, Platform: platform, Mode: SchedulerModeSingle})
 		require.Contains(t, schedulerCanonicalBuckets(7), SchedulerBucket{GroupID: 7, Platform: platform, Mode: SchedulerModeForced})

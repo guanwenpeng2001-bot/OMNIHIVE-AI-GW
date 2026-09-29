@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 
 import AccountsView from '../AccountsView.vue'
+
+// Dispose table loaders and refresh timers before the next case resets API mocks.
+enableAutoUnmount(afterEach)
 
 const {
   listAccounts,

@@ -291,6 +291,9 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 // （upstream 曾将本函数改为未导出 normalizeOpenAICompatiblePlatform，本分支的
 // handler 调度入口仍需导出，保持导出名。）
 func NormalizeOpenAICompatiblePlatform(platform string) string {
+	if IsChatOnlyPlatform(platform) {
+		return platform
+	}
 	switch platform {
 	case PlatformGrok, PlatformKimi, PlatformZhipu, PlatformDeepseek, PlatformMiniMax, PlatformOpenCodeGo, PlatformQianwen, PlatformCommandCode:
 		return platform

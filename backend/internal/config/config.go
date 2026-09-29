@@ -66,6 +66,7 @@ const DefaultUpstreamResponseReadMaxBytes int64 = 128 * 1024 * 1024
 const DefaultModelsListReadMaxBytes int64 = 8 * 1024 * 1024
 
 type Config struct {
+	BoundedModelProbesEnabled bool `mapstructure:"bounded_model_probes_enabled"`
 	// ModelCatalogRefreshEnabled opts into periodic outbound catalog refreshes.
 	ModelCatalogRefreshEnabled bool `mapstructure:"model_catalog_refresh_enabled"`
 
@@ -2301,8 +2302,8 @@ func setDefaults() {
 	viper.SetDefault("rate_limit.oauth_401_cooldown_minutes", 10)
 
 	// Pricing - 从 model-price-repo main 分支同步模型定价和上下文窗口数据
-	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.json")
-	viper.SetDefault("pricing.hash_url", "https://raw.githubusercontent.com/Wei-Shaw/model-price-repo/main/model_prices_and_context_window.sha256")
+	viper.SetDefault("pricing.remote_url", "https://raw.githubusercontent.com/BerriAI/litellm/main/model_prices_and_context_window.json")
+	viper.SetDefault("pricing.hash_url", "")
 	viper.SetDefault("pricing.data_dir", "./data")
 	viper.SetDefault("pricing.fallback_file", "./resources/model-pricing/model_prices_and_context_window.json")
 	viper.SetDefault("pricing.override_file", "")
@@ -2376,6 +2377,7 @@ func setDefaults() {
 	viper.SetDefault("idempotency.cleanup_batch_size", 500)
 
 	viper.SetDefault("model_catalog_refresh_enabled", false)
+	viper.SetDefault("bounded_model_probes_enabled", false)
 
 	// Gateway
 	viper.SetDefault("gateway.response_header_timeout", 600) // 600秒(10分钟)等待上游响应头，LLM高负载时可能排队较久

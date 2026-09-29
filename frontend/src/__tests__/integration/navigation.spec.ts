@@ -8,6 +8,7 @@ import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 import { defineComponent, h, nextTick } from 'vue'
 import { useNavigationLoadingState, _resetNavigationLoadingInstance } from '@/composables/useNavigationLoading'
+import { uniqueNavigationItems } from '@/router/navigationItems'
 import { useRoutePrefetch } from '@/composables/useRoutePrefetch'
 
 // Mock 视图组件
@@ -475,4 +476,19 @@ describe('Navigation Integration Tests', () => {
       wrapper.unmount()
     })
   })
+})
+
+it('deduplicates sidebar destinations by route and parameters rather than label', () => {
+  const router = createRouter({ history: createWebHistory(), routes: [
+    { path: '/custom/:id', alias: '/page/:id', component: MockDashboard },
+    { path: '/keys', component: MockKeys }
+  ] })
+  const items = uniqueNavigationItems([
+    { path: '/custom/one', label: 'First' },
+    { path: '/page/one', label: 'Translated duplicate' },
+    { path: '/custom/two', label: 'First' },
+    { path: '/keys', expandOnly: true, children: [{ path: '/keys' }, { path: '/keys' }] }
+  ], router)
+  expect(items.map(item => item.path)).toEqual(['/custom/one', '/custom/two', '/keys'])
+  expect(items[2].children).toHaveLength(1)
 })

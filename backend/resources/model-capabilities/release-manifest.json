@@ -2,19 +2,22 @@
   "adapter_version": "capability-v2",
   "alias_version": "exact-profile-id-v1",
   "aliases_sha256": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
-  "approved_generation": 1789627211,
-  "base_data_sha256_lf": "7a13436de2e24ae2f929d51310eea34fa428834ad5462509b58f98ecc16d5ae7",
-  "catalog_sha256": "08d6e3f2249cea33e761101fbdf54dc442aeac67acce428e6ee79fd3304d9228",
+  "applicability": "reviewed-profile-model",
+  "approved_generation": 1789846696,
+  "catalog_sha256": "c0e3c9a26b18379a9401972e9f6c3c8f94d530636eb3261f42da670a2601c23b",
   "code_versions": {
-    "internal/service/model_capability_catalog.go": "986b1898547a93d6bcb1dbecc9b2982de60a1f347f029f9124bb5fb0de826ba2",
+    "internal/pkg/capabilitysources/collect.go": "70a076d422ee92238e24f6bc95e7dfa8e796d7c52bf745c8c2d561ced5d72ef1",
+    "internal/pkg/capabilitysources/sources.go": "53bfce114f855e398cd9bfe2752e564bca7f6414cad154963143650e21d5f25e",
+    "internal/service/model_capability_catalog.go": "360524e640480de105462549b49c476db45eeee0046678e700b904847bcc55e3",
     "internal/service/model_capability_heuristics.go": "13a3435db09aacb6e14f33d62fad83654f31388bef32e435dba31bd115b22441",
-    "internal/service/model_capability_matcher.go": "99fb40a42410eb54ce0487aa341b6bc40f14516766a9b7ae7b9ef59fd7191f43",
-    "internal/service/model_capability_profile.go": "3ccd44d10cde42364723274210bf8723ee19ccc28b225475c98adb63af5d619d",
-    "internal/service/openrouter_capability_provider.go": "66d7a3121f8edf01f401ea041bcce9a34e8f9cd6e4c0b6ce38c6d73d3878b868"
+    "internal/service/model_capability_matcher.go": "c88a896f2feeb576855b09e7678faec609860e387097ad5e60ecec051c16dc4f",
+    "internal/service/model_capability_profile.go": "cc11658e045981eeaf2688cdd400fdbe07ebeeae9134a2420452b4851a0cb7e6",
+    "internal/service/model_capability_readonly.go": "a5bee3f6afa3c3985a6e605c9ed4c1c5819477c91b617118cb7873aa175a5678",
+    "resources/model-capabilities/release.go": "ddfd32cb712c0025832d0c1c7256abe1ae98bda8c35428070810ae61aa80ade9"
   },
   "inputs_sha256": "6bd19c05d6bf7c60ec108129939f42424d908bee35ffeddff435c375181912fd",
   "record_count": 252,
-  "review_sha256": "91249c7ad4635d08047c36d451f131076bbe085970973fb08efecc4d49e096cf",
+  "review_sha256": "5f83413c14dfea4a28837a67f96813f4e0da50e6e62d3a2d7a41c8d4f07776de",
   "rules_version": "endpoint-contract-v1+name-rules-v1",
   "schema_version": 1
 }

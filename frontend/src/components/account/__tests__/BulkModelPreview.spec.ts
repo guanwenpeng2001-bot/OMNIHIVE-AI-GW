@@ -12,6 +12,36 @@ const mountPreview = (props = {}) => mount(BulkModelPreview, {
 beforeEach(() => { syncUpstreamModels.mockReset() })
 
 describe('per-account batch model previews', () => {
+  it('preserves previous evidence on failed retry without allowing an intersection', async () => {
+    syncUpstreamModels.mockResolvedValue({ complete: true, models: ['historical-model'] })
+    const wrapper = mountPreview()
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await flushPromises()
+    syncUpstreamModels.mockRejectedValueOnce({ status: 502 })
+    await wrapper.get('[data-account-id="22"] button').trigger('click')
+    await flushPromises()
+    const row = wrapper.get('[data-account-id="22"]')
+    expect(row.text()).toContain('historical-model')
+    expect(row.text()).toContain('previousPreview')
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    expect(syncUpstreamModels.mock.calls).toEqual([[11, false], [22, false], [22, false]])
+    wrapper.unmount()
+  })
+
+  it('clears history on close/reopen and ignores late failures from the old connection', async () => {
+    let rejectPreview!: (error: unknown) => void
+    syncUpstreamModels.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectPreview = reject }))
+    const wrapper = mountPreview()
+    await wrapper.get('[data-testid="preview-each-account"]').trigger('click')
+    await wrapper.setProps({ active: false })
+    await wrapper.setProps({ active: true, connectionContext: 'new-connection' })
+    rejectPreview({ status: 502 })
+    await flushPromises()
+    expect(wrapper.find('[role="alert"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-account-id]')).toHaveLength(2)
+    expect(wrapper.get('[data-testid="add-common-models"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
   it('uses every real ID and only adds the intersection after every result is complete', async () => {
     syncUpstreamModels.mockResolvedValueOnce({ complete: true, rules_revision: 'first', models: ['shared', 'only-first'] })
       .mockResolvedValueOnce({ complete: true, rules_revision: 'second', models: ['shared', 'only-second'] })

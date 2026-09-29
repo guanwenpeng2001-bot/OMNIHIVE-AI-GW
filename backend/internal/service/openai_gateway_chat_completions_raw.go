@@ -167,6 +167,12 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 			return nil, fmt.Errorf("sanitize Grok unsupported fields: %w", err)
 		}
 	}
+	if account.Platform == PlatformMistral {
+		upstreamBody, err = prepareMistralChatRequest(upstreamBody)
+		if err != nil {
+			return nil, err
+		}
+	}
 	upstreamBody = applyOllamaCloudRawChatCompletionsRequest(account, upstreamBody)
 	upstreamBody = clampOllamaCloudUpstreamMaxTokens(account, upstreamBody)
 
@@ -182,6 +188,29 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 	targetURL, err := s.rawChatCompletionsURL(account)
 	if err != nil {
 		return nil, err
+	}
+	if account.Platform == PlatformHunyuan {
+		prepared, prepareErr := buildHunyuanChatRequest(ctx, account, upstreamBody, upstreamModel)
+		if prepareErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error())
+			return nil, prepareErr
+		}
+		targetURL = prepared.URL.String()
+	}
+	if account.Platform == PlatformQianfan {
+		prepared, prepareErr := buildQianfanRequest(ctx, account, "chat/completions", upstreamBody, s.validateUpstreamBaseURL)
+		if prepareErr != nil {
+			return nil, prepareErr
+		}
+		targetURL = prepared.URL.String()
+	}
+	if account.Platform == PlatformVolcengine {
+		prepared, prepareErr := s.prepareVolcengineChatRequest(account, upstreamBody, upstreamModel)
+		if prepareErr != nil {
+			writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", prepareErr.Error())
+			return nil, prepareErr
+		}
+		targetURL, upstreamBody, token = prepared.TargetURL, prepared.Body, prepared.APIKey
 	}
 	upstreamBody, err = normalizeStrictChatDeveloperRoles(account, targetURL, upstreamBody)
 	if err != nil {
@@ -232,6 +261,11 @@ func (s *OpenAIGatewayService) forwardAsRawChatCompletions(
 
 	// 7. Handle error response with failover
 	if resp.StatusCode >= 400 {
+		if account.Platform == PlatformHunyuan {
+			scope := hunyuanHTTPErrorScope(resp.StatusCode)
+			writeChatCompletionsError(c, resp.StatusCode, "upstream_error", "Hunyuan upstream rejected the request")
+			return nil, fmt.Errorf("hunyuan HTTP %d (%s)", resp.StatusCode, scope)
+		}
 		respBody, upstreamMsg := s.readOpenAIUpstreamError(resp)
 		if account.Platform == PlatformGrok {
 			kind := "http_error"
@@ -347,6 +381,7 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	var usage OpenAIUsage
 	var firstTokenMs *int
+	mistralUsageKnown := false
 	clientDisconnected := false
 	clientOutputStarted := false
 	pendingLines := make([]string, 0, 8)
@@ -430,8 +465,11 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 			if trimmedPayload != "[DONE]" {
 				observer.ObserveOpenAI([]byte(payload), strings.TrimSpace(gjson.Get(payload, "type").String()))
 				usageOnlyChunk := isOpenAIChatUsageOnlyStreamChunk(payload)
-				if u := extractCCStreamUsage(payload); u != nil {
-					usage = *u
+				if reported := extractCCStreamUsage(payload); reported != nil {
+					if account.Platform != PlatformMistral || mistralChatUsageKnown([]byte(payload)) {
+						usage = *reported
+						mistralUsageKnown = true
+					}
 				}
 				if firstTokenMs == nil && !usageOnlyChunk && (gjson.Get(payload, "choices.0.delta.content").String() != "" || gjson.Get(payload, "choices.0.delta.reasoning_content").String() != "" || gjson.Get(payload, "choices.0.delta.tool_calls").Exists() || gjson.Get(payload, "choices.0.finish_reason").String() != "") {
 					scanner.Semantic()
@@ -466,6 +504,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 	}
 
 	resultWithUsage := func() *OpenAIForwardResult {
+		if account.Platform == PlatformMistral && !mistralUsageKnown {
+			return nil
+		}
 		return &OpenAIForwardResult{
 			RequestID:                     requestID,
 			UpstreamHeaders:               resp.Header,
@@ -498,6 +539,9 @@ func (s *OpenAIGatewayService) streamRawChatCompletions(
 
 	// 客户端取消/断开后上游读失败与上游截断不可区分（取消会连带取消上游请求），
 	// 沿用既有语义：按已收到的用量正常收尾计费，不判为上游故障。
+	if account.Platform == PlatformMistral && !mistralUsageKnown {
+		return nil, newOpenAIUpstreamStreamReadError(fmt.Errorf("mistral usage is unknown"))
+	}
 	clientAborted := clientDisconnected || c.Request.Context().Err() != nil
 
 	// 上游在任何终止信号之前结束：连接被 reset（scanErr != nil）或干净 EOF。
@@ -615,6 +659,18 @@ func (s *OpenAIGatewayService) bufferRawChatCompletions(
 	var usage OpenAIUsage
 	if parsedUsage, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsedUsage
+	}
+	if account.Platform == PlatformMistral && !mistralChatUsageKnown(respBody) {
+		writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Mistral usage is unknown")
+		return nil, fmt.Errorf("mistral usage is unknown")
+	}
+	if account.Platform == PlatformHunyuan {
+		reported, usageErr := parseHunyuanChatUsage(respBody)
+		if usageErr != nil || reported == nil {
+			writeChatCompletionsError(c, http.StatusBadGateway, "upstream_error", "Upstream usage is unknown")
+			return nil, fmt.Errorf("hunyuan usage unknown or invalid: %v", usageErr)
+		}
+		usage = *reported
 	}
 	responseModel := gjson.GetBytes(respBody, "model").String()
 	if requiresBillableGrokChatUsage(account, billingModel, upstreamModel, responseModel) && !hasBillableGrokChatUsage(usage) {
