@@ -69,6 +69,7 @@ func TestModelAccessAccountAndKeySharePublicNameBoundary(t *testing.T) {
 
 func TestModelAccessCompositeAccountPolicyUsesAlias(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "deployment")
+	account.GroupIDs = []int64{9}
 	group := Group{ID: 9, Platform: PlatformComposite, ModelAllowlist: GroupModelAllowlist{Enabled: true, Models: []string{"public"}}}
 	routes := &visiblePolicyRouteRepo{routes: []CompositeModelRoute{{PublicModel: "public", MatchType: CompositeRouteMatchExact, TargetPlatform: PlatformOpenAI, UpstreamModel: "deployment", Endpoint: "responses", Enabled: true}}}
 	gateway := &GatewayService{accountRepo: &visiblePolicyAccountRepo{accounts: []Account{account}}, groupRepo: &visiblePolicyGroupRepo{groups: []Group{group}}, compositeResolver: NewCompositeRouteResolver(routes)}
