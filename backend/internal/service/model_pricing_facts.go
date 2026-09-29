@@ -31,12 +31,13 @@ type ModelPriceVariant struct {
 }
 
 type ModelPricingDescriptor struct {
-	configured bool
-	Model      string              `json:"model"`
-	Platform   string              `json:"platform"`
-	Source     string              `json:"source"`
-	PricingAt  time.Time           `json:"pricing_at"`
-	Variants   []ModelPriceVariant `json:"variants"`
+	configured  bool
+	billingMode BillingMode
+	Model       string              `json:"model"`
+	Platform    string              `json:"platform"`
+	Source      string              `json:"source"`
+	PricingAt   time.Time           `json:"pricing_at"`
+	Variants    []ModelPriceVariant `json:"variants"`
 }
 
 func clonePriceNumber(value *float64) *float64 {
@@ -221,6 +222,16 @@ func (r *ModelPricingResolver) configuredPriceDescriptor(ctx context.Context, in
 			}
 			for _, variant := range card.PriceVariants {
 				if priceVariantMatches(variant, input.Model) {
+					mode := card.BillingMode
+					if mode == "" {
+						mode = BillingModeToken
+					}
+					if len(descriptor.Variants) == 0 {
+						descriptor.billingMode = mode
+					} else if descriptor.billingMode != mode {
+						// Multi-unit cards require the consumer's explicit unit.
+						descriptor.billingMode = BillingModeToken
+					}
 					descriptor.Variants = append(descriptor.Variants, cloneModelPriceVariants([]ModelPriceVariant{variant})...)
 				}
 			}
@@ -318,9 +329,102 @@ func (d *ModelPricingDescriptor) tokenPricing() *ModelPricing {
 		if selected != nil {
 			return nil
 		}
-		selected = &ModelPricing{InputPricePerToken: *input, OutputPricePerToken: *output}
+		selected = &ModelPricing{Source: d.Source, InputPricePerToken: *input, OutputPricePerToken: *output,
+			TokenDimensions: map[string]bool{"input": true, "output": true}}
+		for _, price := range variant.Prices {
+			if price.Unit == "token" && price.Dimension == "cache_write_1h" && price.Conditions == "" {
+				selected.SupportsCacheBreakdown = true
+			}
+		}
+		for _, dimension := range []string{"cache_read", "cache_write", "cache_write_1h", "image_input", "image_output", "image_cache_read"} {
+			price, err := d.Lookup(variant.ID, "token", dimension, "")
+			if err != nil {
+				continue
+			}
+			selected.TokenDimensions[dimension] = true
+			switch dimension {
+			case "cache_read":
+				selected.CacheReadPricePerToken = *price.Sales
+			case "cache_write":
+				selected.CacheCreationPricePerToken = *price.Sales
+				selected.CacheCreationPriceExplicit = true
+				selected.CacheCreation5mPrice = *price.Sales
+			case "cache_write_1h":
+				selected.CacheCreation1hPrice = *price.Sales
+			case "image_input":
+				selected.ImageInputPricePerToken = *price.Sales
+			case "image_output":
+				selected.ImageOutputPricePerToken = *price.Sales
+				selected.ImageOutputPriceExplicit = true
+			case "image_cache_read":
+				selected.ImageCacheReadPricePerToken = *price.Sales
+			}
+		}
 	}
 	return selected
+}
+
+// billingModeUnit is shared by configuration validation and consumers. A price
+// per second must never be interpreted as a price per generated video.
+func billingModeUnit(mode BillingMode) string {
+	switch mode {
+	case BillingModeImage:
+		return "image"
+	case BillingModeVideo:
+		return "second"
+	case BillingModePerRequest:
+		return "request"
+	default:
+		return "token"
+	}
+}
+
+func (d *ModelPricingDescriptor) resolvePricing(mode BillingMode) *ResolvedPricing {
+	if mode == "" {
+		mode = d.billingMode
+	}
+	if mode == "" {
+		mode = BillingModeToken
+	}
+	resolved := &ResolvedPricing{Mode: mode, Source: d.Source, descriptor: d}
+	if mode == BillingModeToken {
+		resolved.BasePricing = d.tokenPricing()
+	} else if price, err := d.UnitPrice(billingModeUnit(mode), "output", ""); err == nil {
+		resolved.DefaultPerRequestPrice = *price.Sales
+		resolved.DefaultPerRequestPriceFound = true
+	}
+	return resolved
+}
+
+// Variant cards are complete facts, so absent dimensions cannot inherit a zero
+// value or a model-specific fallback. Legacy cards keep their existing policy.
+func validateTokenDimensions(pricing *ModelPricing, tokens UsageTokens) error {
+	if pricing.TokenDimensions == nil {
+		return nil
+	}
+	for dimension, quantity := range variantTokenQuantities(tokens, pricing.SupportsCacheBreakdown) {
+		if quantity != 0 && !pricing.TokenDimensions[dimension] {
+			return fmt.Errorf("%w: token/%s", ErrModelPricingUnavailable, dimension)
+		}
+	}
+	if (tokens.CacheCreation5mTokens != 0 || tokens.CacheCreation1hTokens != 0) && tokens.CacheCreationTokens == 0 {
+		return fmt.Errorf("%w: cache details require an aggregate", ErrModelPricingUnavailable)
+	}
+	return nil
+}
+
+func variantTokenQuantities(tokens UsageTokens, splitCache bool) map[string]int {
+	imageInput := min(tokens.ImageInputTokens, tokens.InputTokens)
+	imageRead := min(tokens.ImageCacheReadTokens, tokens.CacheReadTokens)
+	quantities := map[string]int{
+		"input": tokens.InputTokens - imageInput, "output": max(0, tokens.OutputTokens-tokens.ImageOutputTokens),
+		"cache_read": tokens.CacheReadTokens - imageRead, "cache_write": tokens.CacheCreationTokens,
+		"image_input": imageInput, "image_output": tokens.ImageOutputTokens, "image_cache_read": imageRead,
+	}
+	if splitCache && (tokens.CacheCreation5mTokens != 0 || tokens.CacheCreation1hTokens != 0) {
+		quantities["cache_write"], quantities["cache_write_1h"] = normalizeCacheCreationBreakdown(tokens)
+	}
+	return quantities
 }
 
 func clonePricingIntervalPrices(interval PricingInterval) PricingInterval {
@@ -343,7 +447,21 @@ func clonePricingIntervalPrices(interval PricingInterval) PricingInterval {
 }
 
 func (d *ModelPricingDescriptor) tokenCost(tokens UsageTokens) (float64, error) {
-	quantities := map[string]int{"input": tokens.InputTokens, "output": tokens.OutputTokens, "cache_read": tokens.CacheReadTokens, "cache_write": tokens.CacheCreationTokens}
+	splitCache := false
+	for _, variant := range d.Variants {
+		if !priceVariantActive(variant, d.PricingAt) {
+			continue
+		}
+		for _, price := range variant.Prices {
+			if price.Unit == "token" && price.Dimension == "cache_write_1h" && price.Conditions == "" {
+				splitCache = true
+			}
+		}
+	}
+	if (tokens.CacheCreation5mTokens != 0 || tokens.CacheCreation1hTokens != 0) && tokens.CacheCreationTokens == 0 {
+		return 0, ErrModelPricingUnavailable
+	}
+	quantities := variantTokenQuantities(tokens, splitCache)
 	total := 0.0
 	for dimension, quantity := range quantities {
 		if quantity == 0 {
@@ -404,4 +522,40 @@ func (d *ModelPricingDescriptor) normalizeVariants() error {
 		}
 	}
 	return nil
+}
+
+// A configured variant is authoritative even when its required unit is missing.
+// Never fall through to a legacy group or catalog tariff after selecting it.
+func (s *BillingService) calculateVariantMediaCost(ctx context.Context, resolver *ModelPricingResolver, model string, key *APIKey, mode BillingMode, units, multiplier float64) (*CostBreakdown, bool) {
+	if resolver == nil {
+		resolver = NewModelPricingResolver(nil, s)
+	}
+	input := PricingInput{Model: model, Mode: mode}
+	if key != nil {
+		input.Group, input.GroupID = key.Group, key.GroupID
+	}
+	resolved := resolver.Resolve(ctx, input)
+	if resolved.pricingErr != nil {
+		return pricingFailure(resolved.pricingErr), true
+	}
+	if resolved.descriptor == nil {
+		return nil, false
+	}
+	if !validBillingNumber(units) {
+		return pricingFailure(ErrInvalidBillingAmount), true
+	}
+	if !resolved.DefaultPerRequestPriceFound {
+		return pricingFailure(ErrModelPricingUnavailable), true
+	}
+	if units == 0 {
+		return calculateUnitCost(model, "", string(mode), resolved.Source, units, resolved.DefaultPerRequestPrice, multiplier), true
+	}
+	cost, err := s.forGatewayRequest(ctx).CalculateCostUnified(CostInput{
+		Ctx: ctx, Model: model, Mode: mode, Group: input.Group, GroupID: input.GroupID,
+		UsageUnits: units, RateMultiplier: multiplier, Resolver: resolver, Resolved: resolved,
+	})
+	if err != nil {
+		return pricingFailure(err), true
+	}
+	return cost, true
 }

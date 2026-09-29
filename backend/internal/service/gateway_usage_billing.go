@@ -936,6 +936,9 @@ func (s *GatewayService) calculateImageCost(
 	multiplier float64,
 ) *CostBreakdown {
 	sizeTier := NormalizeImageBillingTierOrDefault(result.ImageSize)
+	if cost, found := s.billingService.calculateVariantMediaCost(ctx, s.resolver, billingModel, apiKey, BillingModeImage, float64(result.ImageCount), multiplier); found {
+		return cost
+	}
 	resolved := s.resolveChannelPricing(ctx, billingModel, apiKey)
 	if resolved != nil && resolved.Source == PricingSourceGroup {
 		gid := apiKey.Group.ID
