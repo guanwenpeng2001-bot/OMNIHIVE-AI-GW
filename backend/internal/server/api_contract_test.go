@@ -228,9 +228,12 @@ func TestAPIContracts(t *testing.T) {
 			name:   "POST /api/v1/keys",
 			method: http.MethodPost,
 			path:   "/api/v1/keys",
-			body:   `{"name":"Key One","custom_key":"sk_custom_1234567890"}`,
+			body:   `{"name":"Key One","custom_key":"sk_custom_1234567890","group_id":1}`,
 			headers: map[string]string{
 				"Content-Type": "application/json",
+			},
+			setup: func(t *testing.T, deps *contractDeps) {
+				deps.groupRepo.SetActive([]service.Group{{ID: 1, Name: "default", Platform: service.PlatformOpenAI, Status: service.StatusActive}})
 			},
 			wantStatus: http.StatusOK,
 			wantJSON: `{
@@ -242,7 +245,7 @@ func TestAPIContracts(t *testing.T) {
 						"user_id": 1,
 						"key": "****7890",
 						"name": "Key One",
-						"group_id": null,
+						"group_id": 1,
 						"status": "active",
 						"ip_whitelist": null,
 						"ip_blacklist": null,
@@ -1879,7 +1882,13 @@ func (stubGroupRepo) Create(ctx context.Context, group *service.Group) error {
 	return errors.New("not implemented")
 }
 
-func (stubGroupRepo) GetByID(ctx context.Context, id int64) (*service.Group, error) {
+func (r stubGroupRepo) GetByID(ctx context.Context, id int64) (*service.Group, error) {
+	for i := range r.active {
+		if r.active[i].ID == id {
+			g := r.active[i]
+			return &g, nil
+		}
+	}
 	return nil, service.ErrGroupNotFound
 }
 

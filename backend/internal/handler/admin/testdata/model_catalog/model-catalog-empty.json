@@ -40,6 +40,7 @@
   "staleness": "fresh",
   "state": {
     "identity_revision": "2",
+    "legacy_policy_revision": 0,
     "result": "success",
     "rules_revision": "9007199254740993"
   },

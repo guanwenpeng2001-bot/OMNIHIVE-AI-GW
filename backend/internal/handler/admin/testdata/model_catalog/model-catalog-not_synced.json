@@ -18,6 +18,7 @@
   "staleness": "unknown",
   "state": {
     "identity_revision": "2",
+    "legacy_policy_revision": 0,
     "rules_revision": "9007199254740993"
   },
   "synced": false,

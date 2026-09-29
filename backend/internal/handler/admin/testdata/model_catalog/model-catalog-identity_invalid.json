@@ -47,6 +47,7 @@
   "state": {
     "error": "credentials_invalid",
     "identity_revision": "3",
+    "legacy_policy_revision": 0,
     "result": "credentials_invalid",
     "rules_revision": "9007199254740993"
   },
