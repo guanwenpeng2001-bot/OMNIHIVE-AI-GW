@@ -108,6 +108,14 @@ var migrationChecksumCompatibilityRules = map[string]migrationChecksumCompatibil
 	"239_cursor_platform.sql":       newMigrationChecksumCompatibilityRule("f09d165d7e7dc48ad527044cf7a75dcb8e9825abf3874e6c1bd3ddf306700efb", "2ede2e367f74f76c5fab995c8581d013e20a20a2f3905088c2583d7d3a64358e"),
 	"241_qianwen_platform.sql":      newMigrationChecksumCompatibilityRule("ddadd7caa501da4d1a7676640abc937694b60ab44febcd9a1e0e345be6f9a238", "946961344a6c4fbe57171c959e84c1668bacd38aaf6977ab34ce99a183ff4898"),
 	"242_command_code_platform.sql": newMigrationChecksumCompatibilityRule("0a61c13f776bdb6cdf8e87618f4030265b08e434f5f7a3e055e2c83e150ff42a", "ba9f6c0cf820b82a47fb7212e184b0243bf15848afc47fcb636d28dfa5377d7b"),
+	// 258/265/271/274 在分支开发期被原地编辑：分支草稿库（含 dev 库）应用的是初版
+	// 内容，校验和与当前文件不同。文件保持编辑版（新库直接获得最终语义），初版
+	// checksum 在此放行，语义差异由 278_usage_lineage_convergence.sql 幂等收敛。
+	// 258 另兼容老 main 变体（其函数体与初版一致，仅缺头部注释）。
+	"258_usage_dashboard_coverage.sql":            newMigrationChecksumCompatibilityRule("387adcbe0bf232bfe852f09e83ca424605656a6972a45d10d53120714ca2a34e", "5dd46ebe3d743aba098d2f342dfa4f7efbb943cdba117e28f7aee2ec9d9f881b", "e167f00ecd13586af69a7ffb18f2a3a1357776667563de67c95dde5f25f6b777"),
+	"265_group_generation.sql":                    newMigrationChecksumCompatibilityRule("4e00ee3e3b25eb03771b5edd7d6e10a71d1083abd169d2a8fe49279c7a3eaf05", "6329d88c84bc254ffdfd3123209dac632fdf6d5ff4f32e483477b2f76d92fe77"),
+	"271_add_api_key_credentials.sql":             newMigrationChecksumCompatibilityRule("cab11f892d9d714f2e8be0f384163bcfef8c4d4ff1a8ae1f1c47563cb0be035c", "3cc26b9bbce066d81945e8785a5e60a3bf804d986d1c0a10abe91d38f2286cbd"),
+	"274_add_usage_log_session_id_index_notx.sql": newMigrationChecksumCompatibilityRule("fcddc963b587bdc15642a1ea5a9c8519c45ad47ca98f65eb084724033dd939aa", "76d85db6c1da73d603b67ae8e0c49ac33da363877c4d61dc0c6c88118ff672bd"),
 }
 
 // ApplyMigrations 将嵌入的 SQL 迁移文件应用到指定的数据库。
