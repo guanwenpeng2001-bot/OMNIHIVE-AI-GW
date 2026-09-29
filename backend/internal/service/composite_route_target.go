@@ -215,10 +215,7 @@ func compositeTargetAllowsAccount(target CompositeRouteTarget, account *Account)
 	if account == nil {
 		return false
 	}
-	requiredType := strings.TrimSpace(target.AccountType)
-	if requiredType == "" {
-		requiredType = domain.HostedAccountType(target.TargetPlatform)
-	}
+	requiredType := domain.ResolveAccountTypeIdentity(target.TargetPlatform, strings.TrimSpace(target.AccountType)).RequiredAccountType()
 	if requiredType != "" && account.Type != requiredType {
 		return false
 	}

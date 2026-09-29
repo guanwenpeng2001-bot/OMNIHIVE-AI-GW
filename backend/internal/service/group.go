@@ -21,10 +21,7 @@ func (g *Group) RequiredAccountType() string {
 	if g == nil {
 		return ""
 	}
-	if g.AccountType != "" {
-		return g.AccountType
-	}
-	return domain.HostedAccountType(g.Platform)
+	return domain.ResolveAccountTypeIdentity(g.Platform, g.AccountType).RequiredAccountType()
 }
 
 func (g *Group) AllowsAccount(account *Account) bool {

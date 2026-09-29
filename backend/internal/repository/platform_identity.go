@@ -13,12 +13,18 @@ import (
 )
 
 // canonicalPlatformSQL only accepts source-code SQL expressions from this package.
+// Semantic source: domain.ResolveAccountTypeIdentity (internal/domain/platform_identity.go).
+// SQL mirrors its Platform projection; it cannot call the Go read resolver.
+// migrations/266_hosted_account_identity.sql has the same legacy mapping, but is
+// checksum-protected: keep its bytes and activation/write-trigger semantics intact.
 func canonicalPlatformSQL(expression string) string {
 	return "CASE (" + expression + ") WHEN 'bedrock' THEN 'anthropic' WHEN 'vertex' THEN 'gemini' ELSE (" + expression + ") END"
 }
 
 // accountPlatformPredicate uses OR on the same row, never UNION or a join that
 // could duplicate an account in a pool or count it twice in list statistics.
+// Semantic source: domain.ResolveAccountTypeIdentity / AccountTypeIdentity.Matches; legacy accounts
+// must carry the matching credential type, rather than inherit a missing type.
 func accountPlatformPredicate(platform string) predicate.Account {
 	switch platform {
 	case domain.PlatformAnthropic:
@@ -42,6 +48,8 @@ func accountPlatformsPredicate(platforms ...string) predicate.Account {
 	return account.Or(predicates...)
 }
 
+// groupPlatformPredicate mirrors domain.ResolveAccountTypeIdentity's product and
+// hosted projections for list filtering (not account admission).
 func groupPlatformPredicate(platform string) predicate.Group {
 	switch platform {
 	case domain.PlatformAnthropic:

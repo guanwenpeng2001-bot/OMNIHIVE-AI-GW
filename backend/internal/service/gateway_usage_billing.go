@@ -94,7 +94,7 @@ func PlatformFromAPIKey(apiKey *APIKey) string {
 	if apiKey == nil || apiKey.Group == nil {
 		return ""
 	}
-	return domain.HostedQuotaKey(apiKey.Group.Platform, apiKey.Group.RequiredAccountType())
+	return domain.ResolveAccountTypeIdentity(apiKey.Group.Platform, apiKey.Group.AccountType).QuotaKey()
 }
 
 // QuotaPlatform 返回 user×platform 配额计量使用的平台标识。
@@ -111,7 +111,7 @@ func QuotaPlatform(ctx context.Context, apiKey *APIKey) string {
 		}
 	}
 	if platform, ok := ResolvedTargetPlatformFromContext(ctx); ok {
-		return domain.HostedQuotaKey(platform, RequiredRouteAccountType(ctx))
+		return domain.ResolveAccountTypeIdentity(platform, RequiredRouteAccountType(ctx)).QuotaKey()
 	}
 	platform := PlatformFromAPIKey(apiKey)
 	if platform == PlatformComposite {
