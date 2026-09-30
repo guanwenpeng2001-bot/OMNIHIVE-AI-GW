@@ -387,6 +387,7 @@ export default {
 
   // Usage
   usage: {
+    pending: { title: '待定价', description: '已记录的请求及部分完成的实时轮次尚待计价，金额未知，未计入已结算用量统计。支持日期、请求模型和 API Key 筛选。', refresh: '刷新', loadError: '待定价请求加载失败', pricingError: '计价异常', amount: '金额', unknown: '未知，等待定价', tokens: '输入 / 输出 Token', requestId: '请求 ID', state: '结算状态', more: '加载更多', loading: '正在加载待定价请求…', empty: '暂无待定价请求' },
     evidence: {
   "title": "账单解释",
   "unknown": "未知",

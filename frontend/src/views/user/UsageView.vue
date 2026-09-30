@@ -2,6 +2,7 @@
   <AppLayout>
     <ReportTimeContext :time-zone="reportTimeZone" class="mb-3" />
     <div class="space-y-6">
+      <UserPendingSettlement :filters="normalizedFilters" />
       <UsageStatsCards :stats="usageStats" :loading="endpointStatsLoading" :error="statsError" :history-gap="statsHistoryGap" :show-account-cost="false" :strike-standard-cost="true" />
 
       <div class="space-y-4">
@@ -213,6 +214,7 @@
 </template>
 
 <script setup lang="ts">
+import UserPendingSettlement from '@/components/usage/UserPendingSettlement.vue'
 import { resolveReportTimeZone, formatReportDateInput } from '@/utils/format'
 import ReportTimeContext from '@/components/charts/ReportTimeContext.vue'
 const reportProps = defineProps<{ timeZone?: string }>()
