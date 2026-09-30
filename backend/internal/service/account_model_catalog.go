@@ -852,6 +852,12 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 
 // accountCatalogNativeTextEndpoints uses the same saved protocol decisions as forwarding.
 func accountCatalogNativeTextEndpoints(account *Account, model string) []string {
+	if account.IsGrokOAuth() {
+		// The CLI adapter implements both text wire protocols. A saved model
+		// selection authorizes either adapter without requiring optional discovery
+		// metadata to have enumerated its Responses support.
+		return []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses}
+	}
 	if account.UsesBedrockCatalog() {
 		return []string{CompositeRouteEndpointMessages}
 	}

@@ -47,6 +47,7 @@ func TestTransportModelBindingRejection(t *testing.T) {
 				require.Equal(t, ModelBindingRejectedReason, failure.Reason)
 				require.Equal(t, ModelBindingRejectedClientMessage, failure.ClientMessage)
 				require.True(t, failure.ShouldRetryNextAccount())
+				require.False(t, failure.ShouldReportAccountScheduleFailure(), "local authorization does not measure provider health")
 				require.False(t, failure.RetryableOnSameAccount)
 				require.True(t, json.Valid(failure.ResponseBody))
 				require.Equal(t, "model_binding_rejected", gjson.GetBytes(failure.ResponseBody, "error.type").String())

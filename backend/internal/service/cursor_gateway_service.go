@@ -101,6 +101,12 @@ func cursorFailover(err error) error {
 	if errors.As(err, &upstream) {
 		status = upstream.Status
 	}
+	var connect *cursor.ConnectError
+	if errors.As(err, &connect) && connect.Code == "resource_exhausted" {
+		return &UpstreamFailoverError{StatusCode: http.StatusTooManyRequests, ClientStatusCode: http.StatusTooManyRequests,
+			Reason: "resource_exhausted", ClientMessage: "Cursor upstream resource_exhausted",
+			ResponseBody: []byte(`{"error":{"type":"rate_limit_error","code":"resource_exhausted","message":"Cursor upstream resource_exhausted"}}`)}
+	}
 	return &UpstreamFailoverError{StatusCode: status, ResponseBody: []byte("Cursor upstream request failed")}
 }
 
@@ -243,7 +249,8 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	if effort == "" {
 		effort = request.Reasoning.Effort
 	}
-	model, err := cursor.ResolveModelVariant(account.GetMappedModel(request.Model), cursor.RunOptions{Effort: effort, Fast: request.Fast, Thinking: request.Thinking}, gateway.picker(ctx, account, credentials))
+	selectedModel := account.GetMappedModel(request.Model)
+	model, err := cursor.ResolveModelVariant(selectedModel, cursor.RunOptions{Effort: effort, Fast: request.Fast, Thinking: request.Thinking}, gateway.picker(ctx, account, credentials))
 	if err != nil {
 		requestContext.JSON(http.StatusBadRequest, cursorErrorPayload(output.protocol, gin.H{"type": "invalid_request_error", "message": err.Error()}))
 		return nil, err
@@ -310,9 +317,13 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		}
 		return output.chunk(gin.H{"id": completionID, "object": "chat.completion.chunk", "created": started.Unix(), "model": request.Model, "choices": []any{gin.H{"index": 0, "delta": delta, "finish_reason": nil}}})
 	}
+	var sendBindingError error
 	ctx = cursor.WithGenerationSendHook(ctx, func(request *http.Request, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
 		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-			if err := validateAccountForwardModel(request.Context(), plan.catalogRepo, account, model, "chat_completions"); err != nil {
+			// The picker transforms the selected model into a private Run variant.
+			// Reauthorize its saved selection, not the parameterized protocol slug.
+			if err := validateAccountForwardModel(request.Context(), plan.catalogRepo, account, selectedModel, "chat_completions"); err != nil {
+				sendBindingError = err
 				return nil, err
 			}
 		}
@@ -320,7 +331,7 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 	})
 	run := func() (cursor.TokenUsage, error) {
 		if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
-			if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, model, "chat_completions"); err != nil {
+			if err := validateAccountForwardModel(ctx, plan.catalogRepo, account, selectedModel, "chat_completions"); err != nil {
 				return cursor.TokenUsage{}, err
 			}
 		}
@@ -344,7 +355,20 @@ func (gateway *CursorGatewayService) forwardChat(ctx context.Context, requestCon
 		credentials.AccessToken = token
 		usage, err = run()
 	}
+	// The wire driver deliberately sanitizes transport errors. Preserve a local
+	// send-hook rejection so sanitization cannot turn revocation into a 502.
+	if sendBindingError != nil {
+		err = sendBindingError
+	}
 	if err != nil && !emitted {
+		if errors.Is(err, ErrAccountModelUnsupported) {
+			return nil, modelBindingRejectedFailover(requestContext, account, err, OpsUpstreamErrorEvent{}, gatewayModelBindingRejectedBody)
+		}
+		var connect *cursor.ConnectError
+		if errors.As(err, &connect) && connect.Code == "resource_exhausted" {
+			appendOpsUpstreamError(requestContext, OpsUpstreamErrorEvent{Platform: account.Platform, AccountID: account.ID,
+				Kind: "connect_error", Message: "Cursor upstream resource_exhausted"})
+		}
 		return nil, cursorFailover(err)
 	}
 	if text.Len() == 0 && thinking.Len() == 0 && len(toolCalls) == 0 && usage.Estimated && err == nil {

@@ -738,7 +738,7 @@ func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
 	if e == nil {
 		return false
 	}
-	return e.TPM == nil && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
+	return e.TPM == nil && e.Reason != ModelBindingRejectedReason && (!e.IsCredentialFailure() || e.Scope == GatewayFailureScopeAccount)
 }
 
 // sseStreamErrorEventError 表示上游 SSE 流体内出现 event:error 帧。

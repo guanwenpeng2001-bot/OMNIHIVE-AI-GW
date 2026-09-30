@@ -260,6 +260,9 @@ func (s *OpenAIGatewayService) sendCCUpstreamRequest(
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		reported := s.handleOpenAIUpstreamTransportError(ctx, c, account, err, false)
+		if errors.Is(err, ErrAccountModelUnsupported) {
+			return nil, reported
+		}
 		if owned, _ := ctx.Value(boundedStreamContextKey{}).(bool); owned {
 			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				interruption := context.Canceled

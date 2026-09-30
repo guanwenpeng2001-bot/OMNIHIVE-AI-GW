@@ -29,7 +29,11 @@ func TestGrokChatCatalogSelectionUsesNativeEndpoint(test *testing.T) {
 				catalog := account.EffectiveUpstreamModelCatalog()
 				require.NotNil(test, catalog)
 				require.Contains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointChatCompletions)
-				require.NotContains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointResponses)
+				if accountType == AccountTypeOAuth {
+					require.Contains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointResponses)
+				} else {
+					require.NotContains(test, catalog.EligibleModels[0].Endpoints, CompositeRouteEndpointResponses)
+				}
 				plan := NewGatewayRequestPlan(GatewayRequestSpec{Action: "chat", Protocol: "chat_completions", Route: "/v1/chat/completions", Model: model})
 				ctx := WithGatewayRequestPlan(context.Background(), plan)
 				repository := &forwardCatalogRepo{current: &account}
@@ -38,7 +42,11 @@ func TestGrokChatCatalogSelectionUsesNativeEndpoint(test *testing.T) {
 				require.True(test, gateway.supportsOpenAIAccountModel(ctx, &account, model, OpenAIEndpointCapabilityChatCompletions))
 				require.Empty(test, requestPlanGateReason(ctx, &account, PlatformGrok, model, OpenAIEndpointCapabilityChatCompletions))
 				require.NoError(test, validateAccountForwardModel(ctx, repository, &account, model, CompositeRouteEndpointChatCompletions))
-				require.ErrorIs(test, validateAccountForwardModel(ctx, repository, &account, model, CompositeRouteEndpointResponses), ErrAccountModelUnsupported)
+				if accountType == AccountTypeOAuth {
+					require.NoError(test, validateAccountForwardModel(ctx, repository, &account, model, CompositeRouteEndpointResponses))
+				} else {
+					require.ErrorIs(test, validateAccountForwardModel(ctx, repository, &account, model, CompositeRouteEndpointResponses), ErrAccountModelUnsupported)
+				}
 			})
 		}
 	}
