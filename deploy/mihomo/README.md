@@ -1,7 +1,7 @@
-# Portable per-node AnyTLS proxy
+# Portable per-node proxy
 
 This optional deployment adds the official Mihomo core as `node-proxy` on the
-existing backend's `sub2api-network`. Each real AnyTLS node gets its own HTTP
+existing backend's `sub2api-network`. Each canonical real node gets its own HTTP
 listener (including HTTP CONNECT), wired directly to that outbound. The runtime
 does not require Python, Windows, Clash Verge, TUN, a desktop session, or a system
 proxy. The normal `deploy/docker-compose.yml` remains unchanged.
@@ -32,10 +32,12 @@ line:
 
 The helper fetches directly, ignores inherited HTTP proxies, refuses redirects,
 and never uses a converter. Give it the provider's final Clash YAML URL; HTML,
-base64 URI lists, proxy providers and non-AnyTLS protocols are not supported.
+base64 URI lists and proxy providers are not supported. Supported outbound
+families are AnyTLS, Shadowsocks (`ss`), Trojan, VMess, VLESS and Hysteria2.
 Only proxy entries and their exact host dependencies are copied; subscription
 rules, scripts, DNS, controllers and unrelated configuration are discarded. Administrative labels such as
-到期时间、距离下次重置、获取最新订阅、剩余流量 and `remaining` are excluded by anchored
+到期时间、距离下次重置、获取最新订阅、剩余流量, a leading `有效期YYYY-MM-DD`,
+`最新官网:` and `remaining` are excluded by anchored
 patterns. Unfamiliar real node names are retained. Unsupported outbound fields
 fail with a redacted error so they can be reviewed privately without silently
 changing routing or TLS semantics. TLS certificate verification options are
@@ -51,6 +53,7 @@ print URLs, YAML excerpts, credentials, or node names.
 | --- | --- |
 | `config.yaml` | Secret runtime config with one HTTP listener per node |
 | `manifest.json` | Names, hashed identities, ports and active/retired state; no endpoint credentials |
+| `sources.json` | Per-source counts and original-name-to-canonical-node aliases; no transport credentials |
 | `server.create.json` | Array of create request bodies using `node-proxy` |
 | `development.create.json` | Same ports using `127.0.0.1` |
 | `selected.create.json` | Same entries using `--export-host` (default `node-proxy`) |
@@ -61,6 +64,93 @@ Each create entry has `name`, `protocol: http`, `host`, and `port`. No inbound
 authentication is configured, so exports do not invent username/password values.
 The server listeners are reachable only through the Compose network; only trusted
 containers should join it. No controller, dashboard or host ports are enabled.
+
+## Combine additional private profiles
+
+Keep the original YToo input as the primary `--input` (or subscription ENV
+source). Add up to eight additional files with repeatable `--additional-input
+LABEL=FILE`. Quote the whole value when the path contains spaces. Paths remain
+outside the checkout; Unicode letters/digits, underscores and hyphens are
+supported in stable labels of 1–32 characters, starting with a letter/digit.
+Labels are unique ignoring case, and `primary` is reserved.
+
+```sh
+python3 deploy/mihomo/render.py \
+  --input /srv/private/ytoo.yaml \
+  --additional-input '长期订阅=/srv/private/longterm.yaml' \
+  --additional-input '蓝胖云=/srv/private/lanpang.yaml' \
+  --additional-input '微信混合订阅=/srv/private/wechat-mixed.yaml' \
+  --additional-input '微信AnyTLS订阅=/srv/private/wechat-anytls.yaml' \
+  --additional-input '微信长期订阅=/srv/private/wechat-longterm.yaml' \
+  --output-dir /srv/private/node-proxy \
+  --port-start 24000 --port-end 24399
+```
+
+Retain the same existing output directory and manifest, and append the explicit
+DNS/bootstrap options appropriate to the deployment. The example expands an
+existing 24000–24199 range to 24000–24399. For host-native development, update
+`NODE_PROXY_PORT_END=24399` in the local overlay environment too. Production
+publishes no range. No additional sidecar or network is created.
+
+Metadata is filtered before prefixing. Primary source names and identities are
+unchanged; new displays use `[LABEL] original-name`. Keep labels stable on every
+refresh. A changed label means a changed identity, even for the same source file.
+All retained host dependencies are merged; conflicting overrides, or an override
+that changes another source's resolution, fail rather than silently choosing one.
+The built-in loopback DNS solution for terminal CNAMEs continues to apply.
+
+Additional entries with exactly the same validated transport fields and
+credentials (excluding display name) reuse one canonical node. Sharing a host
+alone is insufficient: different credentials, protocols, TLS or transport options
+remain distinct. Original primary identities are never collapsed, preserving
+previously imported records. Additional candidates prefer an existing manifest
+identity over a newly introduced alias, then use stable label/name order; input
+ordering does not choose the winner. `sources.json` records canonical counts,
+duplicate counts, and every source name's canonical name/identity. Exact comparison
+is deliberately conservative: an omitted default and an explicitly supplied
+default need not compare equal. No credential fingerprint is exported.
+
+Import only newly needed canonical records after review; existing records keep
+their IDs and addresses. The renderer itself never imports records or changes
+account bindings. All source inputs must be supplied on refresh; omitted sources'
+allocations become inactive, with their ports still reserved.
+
+## Supported transport settings
+
+The helper validates common endpoints/ports and the following observed schema,
+preserving values without weakening certificate verification:
+
+| Protocol | Required credentials/settings | Supported transport details |
+| --- | --- | --- |
+| AnyTLS | password | Existing SNI, ALPN, fingerprint, verification and session options |
+| Shadowsocks | password, cipher | Native core cipher handling; plugins are rejected |
+| Trojan | password | SNI, ALPN, verification; TCP, WS or gRPC options |
+| VMess | UUID, alterId, cipher | TLS/servername, verification; TCP, WS or gRPC |
+| VLESS | UUID | TLS/servername, flow, client fingerprint, Reality, WS or gRPC |
+| Hysteria2 | password and base port | SNI, verification, ALPN, obfs/password, hopping ports |
+
+Nested `ws-opts` preserves path, string-valued headers and supported early-data /
+HTTP-upgrade fields. `grpc-opts` preserves service name and user agent.
+`reality-opts` requires TLS and preserves a valid public key and short ID.
+Unknown nested fields and mismatched network options fail safely. UUIDs must be
+valid UUID strings, boolean fields must be booleans, and VMess `alterId` must be
+a nonnegative integer. Advanced fields outside this reviewed schema are rejected,
+not silently discarded. Executable plugin behavior, dialer chaining, subscriber
+scripts, rules and DNS are never imported.
+
+Mihomo uses Hysteria2 `ports` for port hopping and does not recognize `mport`.
+This helper explicitly translates a nonempty string `mport` alias to `ports`.
+When both are nonempty they must match exactly; conflicts fail. An empty alias
+has no effect. Supported syntax is comma-separated ports or ascending hyphen
+ranges within 1–65535. The original base `port` is required and preserved for
+stable identity, although the core uses `ports` when hopping is enabled.
+
+Primary schema references: [Shadowsocks](https://wiki.metacubex.one/en/config/proxies/ss/),
+[Trojan](https://wiki.metacubex.one/en/config/proxies/trojan/),
+[VMess](https://wiki.metacubex.one/en/config/proxies/vmess/),
+[VLESS](https://wiki.metacubex.one/en/config/proxies/vless/),
+[Hysteria2](https://wiki.metacubex.one/en/config/proxies/hysteria2/), and
+[transport settings](https://wiki.metacubex.one/en/config/proxies/transport/).
 
 ## Stable allocation
 
@@ -115,8 +205,10 @@ password. Password rotation and input order changes preserve ports. Renaming or
 changing an endpoint creates a new identity. Removed nodes remain recorded and
 their ports are never allocated to another identity; the same identity can return
 to its own port. New ports increase monotonically. Default range is 24000–24999;
-set `--port-start` and `--port-end` on the first render and retain the range on
-later renders. Exhaustion and invalid manifests fail rather than recycling ports.
+set `--port-start` and `--port-end` on the first render. Later renders may retain
+the range or expand only its upper bound; moving the base or shrinking the range
+is rejected. All existing and retired allocations survive expansion. Exhaustion
+and invalid manifests fail rather than recycling ports.
 
 Run one renderer at a time. Rendering is deterministic; it reserves the manifest
 before atomically replacing individual output files. An interrupted render must
@@ -254,7 +346,7 @@ Primary references:
 Run synthetic tests (Compose tests skip if the Docker CLI is absent):
 
 ```sh
-python3 -m unittest discover -s deploy/mihomo -p test_render.py -v
+python3 -m unittest discover -s deploy/mihomo -p 'test_*.py' -v
 ```
 
 Tests render fake credentials, exercise allocation and errors, and validate both
@@ -266,3 +358,9 @@ capabilities and a read-only fixture mount. Four core syntax checks and a short
 synthetic CNAME resolution test run inside an ephemeral container; its two core
 processes serve only synthetic data over container loopback and are terminated
 on completion. No existing sidecar or external DNS is contacted.
+
+For protocol **syntax-only** verification, set
+`MIHOMO_SCHEMA_TEST_IMAGE=metacubex/mihomo:v1.19.32`. This separate opt-in runs
+only `-t` on synthetic six-protocol input under `--network none`, using the cached
+image with no published ports or added capabilities. Leave `MIHOMO_TEST_IMAGE`
+unset when runtime processes are outside the authorized verification scope.

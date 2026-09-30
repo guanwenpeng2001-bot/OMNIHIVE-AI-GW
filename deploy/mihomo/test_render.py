@@ -195,7 +195,7 @@ grep -q '192.0.2.50' /tmp/lookup.txt
 
     def test_invalid_and_unsupported_fail_without_secrets(self):
         cases = ["password: [SYNTHETIC-SECRET", "proxies: &x [*x]",
-                 yaml.safe_dump({"proxies": [{**node(), "type": "trojan"}]}),
+                 yaml.safe_dump({"proxies": [{**node(), "type": "socks5"}]}),
                  yaml.safe_dump({"proxies": [{**node(), "dialer-proxy": "SYNTHETIC-SECRET"}]}),
                  yaml.safe_dump({"proxies": [node(), node()]})]
         for raw in cases:
