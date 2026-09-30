@@ -1953,6 +1953,13 @@ func extractUpstreamModelCatalog(body []byte, grok bool, platform ...string) ([]
 			capability.MaxTokens = 0
 		}
 		entry := upstreamMetadataFromCapabilityEntry(modelID, capability)
+		if len(platform) > 0 && platform[0] == PlatformCommandCode {
+			var endpoints []string
+			invalidOptional = decodeUpstreamOptionalFields(raw, map[string]any{"supported_endpoints": &endpoints}) || invalidOptional
+			if entry.SupportedMethods == nil && endpoints != nil {
+				entry.SupportedMethods = commandCodeSupportedMethods(endpoints)
+			}
+		}
 		if invalidOptional {
 			entry.Conflicts = append(entry.Conflicts, "invalid_optional_metadata")
 		}

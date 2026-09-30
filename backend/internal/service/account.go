@@ -1444,6 +1444,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 		}
 		return DefaultKimiPayGBaseURL
 	case PlatformZhipu:
+		if a.GetAPIProtocol() == APIProtocolResponses {
+			return DefaultZhipuResponsesBaseURL
+		}
 		if a.GetAccountMode() == AccountModeCoding {
 			return DefaultZhipuCodingBaseURL
 		}
@@ -1451,6 +1454,9 @@ func (a *Account) GetOpenAIBaseURL() string {
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
 	case PlatformQianwen:
+		if a.IsCodingPlan() {
+			return DefaultQianwenCodingBaseURL
+		}
 		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL
@@ -1500,8 +1506,7 @@ func (a *Account) IsCodingPlan() bool {
 
 // GetAPIProtocol 返回国产供应商账号的上游 API 协议。存储于
 // credentials["api_protocol"]；缺失或与平台不匹配时回退 chat_completions
-// （与既有行为完全一致）。responses 协议仅 deepseek / kimi / minimax 支持（官方原生
-// Responses 端点，适配 Codex）；zhipu 无此端点。
+// （与既有行为完全一致）。Responses 支持由平台描述符声明。
 func (a *Account) GetAPIProtocol() string {
 	if a == nil || !a.IsMultiProtocolAPIKey() {
 		return APIProtocolChatCompletions
@@ -1541,6 +1546,15 @@ func (a *Account) UsesNativeCNResponses() bool {
 	if a == nil || !a.SupportsNativeCNResponses() {
 		return false
 	}
+	// Coding Plan documents Chat/Messages only; adaptive Responses uses the existing Chat bridge.
+	if a.Platform == PlatformQianwen && a.IsCodingPlan() && a.IsAdaptiveAPIProtocol() {
+		if bases, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
+			if base, ok := bases[APIProtocolResponses].(string); ok && strings.TrimSpace(base) != "" {
+				return true // Preserve an explicit per-protocol custom endpoint.
+			}
+		}
+		return false
+	}
 	switch a.GetAPIProtocol() {
 	case APIProtocolResponses, APIProtocolAdaptive:
 		return true
@@ -1569,14 +1583,28 @@ func (a *Account) GetCNProtocolBaseURL(protocol string) string {
 		}
 		return a.GetCNProtocolBaseURL(APIProtocolChatCompletions)
 	}
+	if !a.IsAdaptiveAPIProtocol() && protocol == a.GetAPIProtocol() {
+		if base := strings.TrimSpace(a.GetCredential("base_url")); base != "" {
+			return base
+		}
+	}
 	if a.IsAdaptiveAPIProtocol() {
 		if baseURLs, ok := a.Credentials["api_base_urls"].(map[string]any); ok {
 			if baseURL, ok := baseURLs[protocol].(string); ok && strings.TrimSpace(baseURL) != "" {
 				return strings.TrimSpace(baseURL)
 			}
 		}
-		if protocol == APIProtocolChatCompletions || a.IsCommandCode() {
+		if protocol == APIProtocolChatCompletions || a.IsCommandCode() || (a.IsZhipu() && protocol == APIProtocolResponses) {
 			if baseURL := strings.TrimSpace(a.GetCredential("base_url")); baseURL != "" {
+				if a.IsZhipu() && protocol == APIProtocolResponses {
+					// Legacy adaptive accounts stored the default Chat base before
+					// Responses was selectable. Preserve custom bases and the explicit
+					// per-protocol override above, but resolve these old defaults correctly.
+					switch strings.TrimRight(baseURL, "/") {
+					case DefaultZhipuPayGBaseURL, DefaultZhipuCodingBaseURL:
+						return DefaultZhipuResponsesBaseURL
+					}
+				}
 				return baseURL
 			}
 		}
@@ -1598,6 +1626,9 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 		case PlatformDeepseek:
 			return DefaultDeepseekAnthropicBaseURL
 		case PlatformQianwen:
+			if a.IsCodingPlan() {
+				return DefaultQianwenCodingAnthropicBaseURL
+			}
 			return DefaultQianwenAnthropicBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxAnthropicBaseURL
@@ -1624,6 +1655,9 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 			}
 			return DefaultKimiPayGBaseURL
 		case PlatformZhipu:
+			if protocol == APIProtocolResponses {
+				return DefaultZhipuResponsesBaseURL
+			}
 			if a.GetAccountMode() == AccountModeCoding {
 				return DefaultZhipuCodingBaseURL
 			}
@@ -1631,6 +1665,9 @@ func (a *Account) defaultCNProtocolBaseURL(protocol string) string {
 		case PlatformDeepseek:
 			return DefaultDeepseekBaseURL
 		case PlatformQianwen:
+			if a.IsCodingPlan() {
+				return DefaultQianwenCodingBaseURL
+			}
 			return DefaultQianwenBaseURL
 		case PlatformMiniMax:
 			return DefaultMiniMaxBaseURL
@@ -1675,6 +1712,9 @@ func (a *Account) GetAnthropicProtocolBaseURL() string {
 	case PlatformDeepseek:
 		return DefaultDeepseekAnthropicBaseURL
 	case PlatformQianwen:
+		if a.IsCodingPlan() {
+			return DefaultQianwenCodingAnthropicBaseURL
+		}
 		return DefaultQianwenAnthropicBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxAnthropicBaseURL
@@ -1730,6 +1770,9 @@ func (a *Account) GetOpenAIFormatBaseURL() string {
 	case PlatformDeepseek:
 		return DefaultDeepseekBaseURL
 	case PlatformQianwen:
+		if a.IsCodingPlan() {
+			return DefaultQianwenCodingBaseURL
+		}
 		return DefaultQianwenBaseURL
 	case PlatformMiniMax:
 		return DefaultMiniMaxBaseURL

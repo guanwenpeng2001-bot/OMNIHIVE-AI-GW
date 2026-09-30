@@ -636,7 +636,7 @@ func TestGetAPIProtocol(t *testing.T) {
 	require.Equal(t, APIProtocolAdaptive, mk(PlatformMiniMax, APIProtocolAdaptive).GetAPIProtocol())
 	require.Equal(t, APIProtocolAdaptive, mk(PlatformZhipu, APIProtocolAdaptive).GetAPIProtocol())
 	require.Equal(t, APIProtocolAdaptive, mk(PlatformDeepseek, APIProtocolAdaptive).GetAPIProtocol())
-	require.Equal(t, APIProtocolChatCompletions, mk(PlatformZhipu, APIProtocolResponses).GetAPIProtocol(), "zhipu 无 responses 端点")
+	require.Equal(t, APIProtocolResponses, mk(PlatformZhipu, APIProtocolResponses).GetAPIProtocol())
 	require.Equal(t, APIProtocolChatCompletions, mk(PlatformKimi, "bogus").GetAPIProtocol(), "非法值回退默认")
 	require.Equal(t, APIProtocolChatCompletions, (&Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey}).GetAPIProtocol(), "非 CN 供应商恒为默认")
 	require.Equal(t, APIProtocolAdaptive, mk(PlatformOpenCodeGo, "").GetAPIProtocol(), "opencode go 默认 adaptive")
@@ -650,7 +650,7 @@ func TestSupportsNativeCNResponses(t *testing.T) {
 	require.True(t, (&Account{Platform: PlatformKimi, Credentials: map[string]any{"account_mode": AccountModeCoding}}).SupportsNativeCNResponses())
 	require.True(t, (&Account{Platform: PlatformMiniMax}).SupportsNativeCNResponses())
 	require.True(t, (&Account{Platform: PlatformOpenCodeGo}).SupportsNativeCNResponses())
-	require.False(t, (&Account{Platform: PlatformZhipu}).SupportsNativeCNResponses())
+	require.True(t, (&Account{Platform: PlatformZhipu}).SupportsNativeCNResponses())
 	require.False(t, (&Account{Platform: PlatformOpenAI}).SupportsNativeCNResponses())
 }
 
@@ -667,8 +667,8 @@ func TestAdaptiveProtocolBaseURLs(t *testing.T) {
 	}{
 		{"kimi payg", PlatformKimi, AccountModePayG, DefaultKimiPayGBaseURL, DefaultKimiPayGAnthropicBaseURL, DefaultKimiPayGBaseURL},
 		{"kimi coding", PlatformKimi, AccountModeCoding, DefaultKimiCodingBaseURL, DefaultKimiCodingAnthropicBaseURL, DefaultKimiCodingBaseURL},
-		{"zhipu payg", PlatformZhipu, AccountModePayG, DefaultZhipuPayGBaseURL, DefaultZhipuAnthropicBaseURL, DefaultZhipuPayGBaseURL},
-		{"zhipu coding", PlatformZhipu, AccountModeCoding, DefaultZhipuCodingBaseURL, DefaultZhipuAnthropicBaseURL, DefaultZhipuCodingBaseURL},
+		{"zhipu payg", PlatformZhipu, AccountModePayG, DefaultZhipuPayGBaseURL, DefaultZhipuAnthropicBaseURL, DefaultZhipuResponsesBaseURL},
+		{"zhipu coding", PlatformZhipu, AccountModeCoding, DefaultZhipuCodingBaseURL, DefaultZhipuAnthropicBaseURL, DefaultZhipuResponsesBaseURL},
 		{"deepseek", PlatformDeepseek, AccountModePayG, DefaultDeepseekBaseURL, DefaultDeepseekAnthropicBaseURL, DefaultDeepseekBaseURL},
 		{"minimax payg", PlatformMiniMax, AccountModePayG, DefaultMiniMaxBaseURL, DefaultMiniMaxAnthropicBaseURL, DefaultMiniMaxBaseURL},
 		{"minimax coding", PlatformMiniMax, AccountModeCoding, DefaultMiniMaxBaseURL, DefaultMiniMaxAnthropicBaseURL, DefaultMiniMaxBaseURL},

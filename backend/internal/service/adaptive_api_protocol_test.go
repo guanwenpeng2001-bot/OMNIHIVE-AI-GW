@@ -114,15 +114,17 @@ func TestAdaptiveProtocolRoutesResponsesShapedChatToNativeResponses(t *testing.T
 	require.False(t, gjson.GetBytes(upstream.lastBody, "messages").Exists())
 }
 
-func TestAdaptiveProtocolConvertsResponsesShapedChatForChatOnlyProvider(t *testing.T) {
+func TestAdaptiveProtocolConvertsResponsesShapedChatForQianwenCoding(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	body := []byte(`{"model":"glm-4.7","input":"hello","max_output_tokens":32,"stream":false}`)
 	upstream := &httpUpstreamRecorder{err: errors.New("stop after capture")}
 	svc := &OpenAIGatewayService{cfg: rawChatCompletionsTestConfig(), httpUpstream: upstream}
-	account := adaptiveProtocolTestAccount(PlatformZhipu, map[string]any{
+	account := adaptiveProtocolTestAccount(PlatformQianwen, map[string]any{
 		APIProtocolChatCompletions: "http://chat.example",
 		APIProtocolAnthropic:       "http://anthropic.example",
 	})
+
+	account.Credentials["account_mode"] = AccountModeCoding
 
 	_, err := svc.ForwardAsChatCompletions(context.Background(), adaptiveProtocolTestContext("/v1/chat/completions", body), account, body, "", "")
 	require.Error(t, err)

@@ -46,13 +46,13 @@ var platformDescriptors = []PlatformDescriptor{
 	{ID: PlatformAntigravity, ResponsesPOST: EndpointBridge, OAuth: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformGrok, ResponsesCompact: true, ResponsesWS: EndpointBridge, ResponsesPOST: EndpointNative, OAuth: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformKimi, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformZhipu, ResponsesPOST: EndpointBridge, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformZhipu, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformDeepseek, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformMiniMax, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformOpenCodeGo, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformCursor, ResponsesPOST: EndpointBridge, OAuth: true, SchedulingThreshold: true, PassiveMonitor: true, ModelCatalog: true},
 	{ID: PlatformQianwen, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, CNProvider: true, MultiProtocol: true, ActiveProbe: true, PassiveMonitor: true, ModelCatalog: true},
-	{ID: PlatformCommandCode, ResponsesPOST: EndpointBridge, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
+	{ID: PlatformCommandCode, NativeMultiProtocolResponses: true, ResponsesPOST: EndpointNative, MultiProtocol: true, SchedulingThreshold: true, ActiveProbe: true, QuotaMonitor: true, PassiveMonitor: true, ModelCatalog: true},
 	// The late-platform rows keep the protocol facts they were adjudicated with: the
 	// plan (Coding Plan / Token Plan) data planes published by Ark, Qianfan and
 	// TokenHub change an account's default base URL by account_mode, not the

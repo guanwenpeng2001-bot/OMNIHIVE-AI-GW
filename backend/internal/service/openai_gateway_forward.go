@@ -1205,6 +1205,9 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 					!shouldDisable && account.IsPoolMode() && (account.IsPoolModeRetryableStatus(resp.StatusCode) || isOpenAITransientProcessingError(resp.StatusCode, upstreamMsg, respBody)),
 				)
 			}
+			if account.IsCommandCode() && commandCodePlanError(resp.StatusCode, respBody) != "" {
+				return s.handleCompatErrorResponse(resp, c, account, writeChatCompletionsError, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
+			}
 			return s.handleErrorResponse(ctx, resp, c, account, body, resolveOpenAIErrorSchedulingModel(billingModel, upstreamModel))
 		}
 		defer func() { _ = resp.Body.Close() }()
@@ -1378,13 +1381,13 @@ func shouldForwardOpenAIResponsesViaRawChatCompletions(account *Account) bool {
 		return false
 	}
 	if account.IsCNProvider() {
-		// CN 的显式协议配置优先于异步探针 Extra；adaptive 仅 DeepSeek / Kimi
-		// 有原生 Responses，GLM 回退 Chat Completions。
+		// Explicit protocol choices remain authoritative; adaptive resolves native
+		// support for this account mode, including the Coding Plan Chat bridge.
 		switch account.GetAPIProtocol() {
 		case APIProtocolChatCompletions:
 			return true
 		case APIProtocolAdaptive:
-			return !account.SupportsNativeCNResponses()
+			return !account.UsesNativeCNResponses()
 		default:
 			return false
 		}

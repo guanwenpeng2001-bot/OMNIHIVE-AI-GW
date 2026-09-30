@@ -28,18 +28,15 @@ func CommandCodeModelProtocol(model string) string {
 	return APIProtocolChatCompletions
 }
 
-// 官方端点表（2026-09-21）把 Responses 与 Messages 列为两个独立端点。Claude 模型的
-// Messages 端点由内置表选中；Responses 端点由该模型自己的 supported_endpoints 决定，
-// 静态规则证明不了，所以 adaptive 下显式 Responses 规则仍落回该模型被服务的端点，
-// 而不是把非 Responses 模型送到 /responses 换一个 400。
-// 显式 Chat/Messages 固定值是高级覆写；adaptive 规则按完整映射后的模型 ID 匹配，
-// 不剥离供应商前缀。
+// Explicit protocols and matching rules are user choices, including private models.
+// Adaptive selection prefers discovered Responses support, retaining Chat/Claude
+// Messages as the compatible fallback. Callers pass the actual mapped model ID.
 func (a *Account) ResolveCommandCodeUpstreamProtocol(model string) string {
 	if !a.IsCommandCode() {
 		return ""
 	}
 	switch a.GetAPIProtocol() {
-	case APIProtocolChatCompletions, APIProtocolAnthropic:
+	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
 		return a.GetAPIProtocol()
 	}
 	if raw, ok := a.Credentials["protocol_rules"]; ok && raw != nil {
@@ -48,15 +45,44 @@ func (a *Account) ResolveCommandCodeUpstreamProtocol(model string) string {
 				if !modelProtocolPatternMatches(rule.Pattern, normalizeCommandCodeModelID(model)) {
 					continue
 				}
-				if rule.Protocol == APIProtocolResponses {
-					return CommandCodeModelProtocol(model)
-				}
 				return rule.Protocol
 			}
-			return APIProtocolChatCompletions
 		}
 	}
-	return CommandCodeModelProtocol(model)
+	if CommandCodeModelProtocol(model) == APIProtocolAnthropic {
+		return APIProtocolAnthropic
+	}
+	if metadata, ok := a.GetUpstreamModelMetadata(model); ok {
+		for _, method := range metadata.SupportedMethods {
+			if method == APIProtocolResponses {
+				return APIProtocolResponses
+			}
+		}
+	}
+	return APIProtocolChatCompletions
+}
+
+// Normalize only the documented endpoint spellings, never model IDs or arbitrary
+// URL suffixes. Unknown endpoint names remain metadata, not a routing prohibition.
+func commandCodeSupportedMethods(endpoints []string) []string {
+	methods := make([]string, 0, len(endpoints))
+	seen := make(map[string]bool, len(endpoints))
+	for _, endpoint := range endpoints {
+		method := strings.TrimSpace(endpoint)
+		switch method {
+		case "responses", "/responses", "/v1/responses", "/provider/v1/responses":
+			method = APIProtocolResponses
+		case "chat_completions", "chat/completions", "/chat/completions", "/v1/chat/completions", "/provider/v1/chat/completions":
+			method = APIProtocolChatCompletions
+		case "messages", "/messages", "/v1/messages", "/provider/v1/messages":
+			method = "messages"
+		}
+		if method != "" && !seen[method] {
+			methods = append(methods, method)
+			seen[method] = true
+		}
+	}
+	return methods
 }
 
 func modelRoutedNativeProtocol(account *Account, model string) string {

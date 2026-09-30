@@ -82,19 +82,22 @@ data: {"type":"response.completed"}
 	}
 }
 
-func TestAccountTestService_AdaptiveChatOnlyProvidersTestChatAndAnthropicEndpoints(t *testing.T) {
+func TestAccountTestService_AdaptiveZhipuTestsAllNativeEndpoints(t *testing.T) {
 	account := adaptiveCNAccountTestAccount(301, PlatformZhipu)
 	svc, upstream := adaptiveCNAccountTestService(
 		account,
 		adaptiveCNChatTestResponse(),
 		adaptiveCNAnthropicTestResponse(),
+		adaptiveCNResponsesTestResponse(),
 	)
 	c, recorder := newTestContext()
 
 	err := svc.TestAccountConnection(c, account.ID, "glm-4.7", "hello", AccountTestModeDefault)
 
 	require.NoError(t, err)
-	require.Len(t, upstream.requests, 2)
+	require.Len(t, upstream.requests, 3)
+	require.Equal(t, "http://responses.example/v1/responses", upstream.requests[2].URL.String())
+	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[2].Header.Get("Authorization"))
 	require.Equal(t, "http://chat.example/v1/chat/completions", upstream.requests[0].URL.String())
 	require.Equal(t, "http://anthropic.example/v1/messages", upstream.requests[1].URL.String())
 	require.Equal(t, "Bearer sk-adaptive-test", upstream.requests[0].Header.Get("Authorization"))
@@ -289,4 +292,16 @@ func TestAccountTestService_AnthropicProtocol401MarksAccountError(t *testing.T) 
 	require.Contains(t, err.Error(), "Anthropic endpoint returned 401")
 	repo := svc.accountRepo.(*openAIAccountTestRepo)
 	require.Equal(t, account.ID, repo.setErrorID)
+}
+
+func TestAccountTestService_QianwenCodingProbesDocumentedProtocols(t *testing.T) {
+	account := adaptiveCNAccountTestAccount(307, PlatformQianwen)
+	account.Credentials["account_mode"] = AccountModeCoding
+	delete(account.Credentials["api_base_urls"].(map[string]any), APIProtocolResponses)
+	gateway, upstream := adaptiveCNAccountTestService(account, adaptiveCNChatTestResponse(), adaptiveCNAnthropicTestResponse())
+	ctx, recorder := newTestContext()
+	err := gateway.TestAccountConnection(ctx, account.ID, "private/model", "hello", AccountTestModeDefault)
+	require.NoError(t, err)
+	require.Len(t, upstream.requests, 2)
+	require.Contains(t, recorder.Body.String(), `"type":"test_complete"`)
 }

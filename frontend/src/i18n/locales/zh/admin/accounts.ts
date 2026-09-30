@@ -23,9 +23,9 @@ export default {
         "details": "来源、汇率、逐模型价格与原因"
 },
       platformDetails: {
-        "qianwenDescription": "千问AI 仅支持 API Key：原生 OpenAI Chat、Responses 和 Anthropic Messages。模型能力以上游同步目录及已部署网关为准；DashScope 原生多媒体使用独立端点。",
+        "qianwenDescription": "千问使用 API Key。按量付费支持 Chat、Responses 与 Messages；Coding Plan 公布 Chat 和 Messages，自适应 Responses 通过 Chat 转换。DashScope 原生多模态使用按量付费端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
-        "commandcodeDescription": "Command Code 使用 API Key 鉴权。上游 Provider API 为适用模型提供 Chat Completions、Responses 和 Anthropic Messages。网关当前按配置将入站 Responses 转换为 Chat 或 Messages；Claude 使用 Messages。",
+        "commandcodeDescription": "Command Code 使用 API Key。Claude 模型默认走 Messages，其余模型按已发现的支持或您的协议选择走 Chat 或 Responses。缺少模型资料不阻止显式选择。",
         "commandcodeNote": "模型同步为公共接口，不能验证密钥。MODEL_NOT_IN_PLAN 或 upgrade_required 表示套餐/API 权限限制。查询套餐与额度不会变更订阅或账号健康状态。",
         "commandcodeAccountTypeTitle": "API Key 鉴权",
         "commandcodeAccountTypeDescription": "使用 API Key 接入。保存后，账号列表会自动从 Command Code 获取套餐、可用余额和用量窗口。套餐由 Command Code 管理，未获取的资料保持未知。",
@@ -33,7 +33,8 @@ export default {
         "cursorNote": "客户端函数工具经 MCP/deferred 桥接；请使用网关已支持的工具格式，跨请求续传工具结果依赖工具 ID 持久化映射。中转模式能力取决于配置的上游。",
         "localUsage": "本地请求、Token 和成本统计并非上游剩余余额。通用 provider 映射定价同步尚不支持；千问可使用独立的北京区人民币原生定价流程。",
         "pricingUnsupported": "不支持通用 provider 映射定价同步",
-        "tokenPlanWarning": "允许接入 Token Plan（sk-sp-*），但上游条款限制交互式编程/智能体工具用途，可能禁止后端自动化和批量调用。启用流量前请确认用途符合套餐条款。",
+        "qianwenCodingScope": "Coding Plan 使用独立 API Key 与端点，适用于官方支持的交互式工具；使用范围见官方说明。",
+        "qianwenCodingDocs": "Coding Plan 官方说明",
         "apiKeyOnlyAccountTypeDescription": "该平台只有 API Key 一种账号类型（无 OAuth / 云厂商服务账号）；协议与站点在下方选择。"
 },
       noGroupWarning: '未选择分组；账号需要加入分组后才能参与该分组的请求调度。',

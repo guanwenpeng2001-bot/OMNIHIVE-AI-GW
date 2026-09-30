@@ -23,9 +23,9 @@ export default {
         "details": "Source, FX and per-model prices / reasons"
 },
       platformDetails: {
-        "qianwenDescription": "Qianwen supports API keys only: native OpenAI Chat, Responses and Anthropic Messages. Model capabilities depend on the synchronized catalog and deployed gateway; DashScope native multimedia uses separate endpoints.",
+        "qianwenDescription": "Qianwen uses API keys. Pay-as-you-go supports Chat, Responses and Messages; Coding Plan documents Chat and Messages, with adaptive Responses converted through Chat. DashScope native multimedia uses the pay-as-you-go endpoints.",
         "qianwenNote": "Use canonical model IDs from the account catalog. Shared third-party models need explicit composite routes. Token Plan keys carry upstream usage restrictions.",
-        "commandcodeDescription": "Command Code authenticates with an API key. Its Provider API offers Chat Completions, Responses and Anthropic Messages for supported models. The gateway currently converts incoming Responses to the configured Chat or Messages protocol; Claude uses Messages.",
+        "commandcodeDescription": "Command Code supports API keys. Claude models use Messages; other models use Chat or Responses according to discovered support or your protocol choice. Missing model metadata does not block an explicit choice.",
         "commandcodeNote": "Model sync is public and does not validate a key. MODEL_NOT_IN_PLAN or upgrade_required indicates a plan/API permission restriction. Plan and quota queries do not change your subscription or account health.",
         "commandcodeAccountTypeTitle": "API Key authentication",
         "commandcodeAccountTypeDescription": "Connect with an API key. After saving, the account list automatically fetches your plan and available credits and usage windows from Command Code. Your plan is managed by Command Code; missing observations remain unknown.",
@@ -33,7 +33,8 @@ export default {
         "cursorNote": "Client function tools are bridged through MCP/deferred calls. Use gateway-supported tool schemas; tool-result continuation across requests requires persistent tool ID mappings. Relay capabilities depend on the configured upstream.",
         "localUsage": "Local request/token/cost statistics are not upstream remaining balance. Generic provider-mapping pricing sync is unsupported; Qianwen has a separate Beijing-region CNY native pricing workflow.",
         "pricingUnsupported": "Generic provider-mapping pricing sync unsupported",
-        "tokenPlanWarning": "Token Plan (sk-sp-*) is allowed here, but upstream terms restrict use to interactive coding/agent tools and may prohibit backend automation or batch use. Confirm your intended use complies with your plan before enabling traffic.",
+        "qianwenCodingScope": "Coding Plan uses a separate API key and endpoint for supported interactive tools. See the official product scope.",
+        "qianwenCodingDocs": "Coding Plan documentation",
         "apiKeyOnlyAccountTypeDescription": "This platform has a single account type: an API Key (no OAuth or cloud service account); choose the protocol and site below."
 },
       noGroupWarning: 'No group selected. Add the account to a group before it can serve requests for that group.',

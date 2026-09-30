@@ -23,7 +23,7 @@ func TestCommandCodeProtocolAndBases(t *testing.T) {
 	a := commandCodeTestAccount()
 	require.True(t, a.IsOpenAICompatible())
 	require.False(t, a.IsCNProvider())
-	require.False(t, a.SupportsNativeCNResponses())
+	require.True(t, a.SupportsNativeCNResponses())
 	require.Equal(t, APIProtocolAdaptive, a.GetAPIProtocol())
 	require.Equal(t, DefaultCommandCodeBaseURL, a.GetOpenAIBaseURL())
 	require.Equal(t, DefaultCommandCodeBaseURL, a.GetAnthropicProtocolBaseURL())
@@ -35,13 +35,13 @@ func TestCommandCodeProtocolAndBases(t *testing.T) {
 		require.Equal(t, tc.protocol, a.ResolveCommandCodeUpstreamProtocol(tc.model), tc.model)
 	}
 	a.Credentials["api_protocol"] = APIProtocolResponses
-	require.Equal(t, APIProtocolAnthropic, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
+	require.Equal(t, APIProtocolResponses, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
 	a.Credentials["api_protocol"] = APIProtocolChatCompletions
 	require.Equal(t, APIProtocolChatCompletions, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
 	a.Credentials["api_protocol"] = APIProtocolAdaptive
 	a.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "custom/claude-*", "protocol": APIProtocolAnthropic}}
 	require.Equal(t, APIProtocolAnthropic, a.ResolveCommandCodeUpstreamProtocol("custom/claude-test"))
-	require.Equal(t, APIProtocolChatCompletions, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
+	require.Equal(t, APIProtocolAnthropic, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
 	a.Credentials["base_url"] = "https://relay.example/provider/v1"
 	require.Equal(t, "https://relay.example/provider/v1", a.GetAnthropicProtocolBaseURL())
 	a.Credentials["api_base_urls"] = map[string]any{APIProtocolAnthropic: "https://anthropic.example/v1"}
@@ -196,7 +196,7 @@ func TestCommandCodePinnedAnthropicSyncUsesRelay(t *testing.T) {
 	require.Equal(t, "https://relay.example/provider/v1/models", req.URL.String())
 	a.Credentials["api_protocol"] = APIProtocolAdaptive
 	a.Credentials["protocol_rules"] = []any{map[string]any{"pattern": "*", "protocol": APIProtocolResponses}}
-	require.Equal(t, APIProtocolAnthropic, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
+	require.Equal(t, APIProtocolResponses, a.ResolveCommandCodeUpstreamProtocol("claude-sonnet-5"))
 	a.Extra = map[string]any{"anthropic_apikey_auth_scheme": AnthropicAPIKeyAuthSchemeAuthorizationBearer}
 	header := http.Header{}
 	setAnthropicAPIKeyAuthHeader(header, a, "cc-test", a.GetAnthropicProtocolBaseURL())

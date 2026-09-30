@@ -112,7 +112,7 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 		switch platform {
 		case PlatformOpenCodeGo:
 			modes = []string{AccountModeGo, AccountModeZen}
-		case PlatformCommandCode, PlatformMistral, PlatformDeepseek, PlatformQianwen:
+		case PlatformCommandCode, PlatformMistral, PlatformDeepseek:
 			modes = []string{AccountModePayG}
 		}
 		for _, mode := range modes {
@@ -121,7 +121,7 @@ func planBaseURLContract(t *testing.T) []planBaseURLContractEntry {
 				if mode != AccountModeCoding {
 					continue
 				}
-				if protocol == APIProtocolAdaptive {
+				if protocol == APIProtocolAdaptive || (platform == PlatformQianwen && protocol == APIProtocolResponses) {
 					continue
 				}
 				site := "primary"

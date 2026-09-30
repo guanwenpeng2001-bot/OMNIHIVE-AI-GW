@@ -332,7 +332,7 @@ describe('late platform protocol declarations', () => {
   let backendDescriptors: BackendDescriptor[] = []
 
   beforeAll(() => {
-    const output = execFileSync('go', ['test', '-p', '2', '-count=1', '-run', '^TestExportPlatformContract$', '-v', './internal/domain'], {
+    const output = execFileSync('go', ['test', '-mod=readonly', '-p', '1', '-count=1', '-run', '^TestExportPlatformContract$', '-v', './internal/domain'], {
       cwd: resolve(process.cwd(), '../backend'),
       encoding: 'utf8',
       timeout: 120_000
@@ -581,14 +581,14 @@ describe('late platform account mode card', () => {
     wrapper.unmount()
   })
 
-  it('keeps deepseek pay-as-you-go only and qianwen without any account mode card', async () => {
+  it('keeps deepseek pay-as-you-go only and exposes qianwen coding mode', async () => {
     const wrapper = mountModal()
 
     await selectPlatform(wrapper, 'deepseek')
     expect(accountModeCardValues(wrapper)).toEqual(['payg'])
 
     await selectPlatform(wrapper, 'qianwen')
-    expect(accountModeGroup(wrapper)).toBeUndefined()
+    expect(accountModeCardValues(wrapper)).toEqual(['payg', 'coding'])
 
     wrapper.unmount()
   })
@@ -600,7 +600,7 @@ describe('late platform account mode card', () => {
     expect(laterPlatforms.map(showsAccountModeCard)).toEqual([true, true, true, true])
     expect(laterPlatforms.map(isCNProviderPlatform)).toEqual([false, false, false, false])
 
-    expect(showsAccountModeCard('qianwen')).toBe(false)
+    expect(showsAccountModeCard('qianwen')).toBe(true)
     expect(showsCodingPlanMode('deepseek')).toBe(false)
     expect(showsCodingPlanMode('mistral')).toBe(false)
     expect(showsCodingPlanMode('kimi')).toBe(true)
@@ -856,7 +856,7 @@ describe('cross-language plan URL runtime contract', () => {
   beforeAll(async () => {
     // One service-package compilation/export, reused by every assertion. Missing
     // Go, nonzero exit, timeout, invalid JSON and missing/repeated markers fail.
-    backend = parsePlanURLContract(execFileSync('go', ['test', '-p', '2', '-count=1', '-run', '^TestExportPlanBaseURLContract$', '-v', './internal/service'], {
+    backend = parsePlanURLContract(execFileSync('go', ['test', '-mod=readonly', '-p', '1', '-count=1', '-run', '^TestExportPlanBaseURLContract$', '-v', './internal/service'], {
       cwd: resolve(process.cwd(), '../backend'), encoding: 'utf8', timeout: 300_000,
       maxBuffer: 4 * 1024 * 1024
     }))
@@ -917,7 +917,7 @@ describe('cross-language plan URL runtime contract', () => {
     for (const platform of ['zhipu', 'minimax']) {
       expect(defaultCNBaseUrl(platform, 'coding', 'anthropic')).toBe(defaultCNBaseUrl(platform, 'payg', 'anthropic'))
     }
-    for (const platform of ['commandcode', 'mistral', 'deepseek', 'qianwen']) {
+    for (const platform of ['commandcode', 'mistral', 'deepseek']) {
       expect(showsCodingPlanMode(platform), platform).toBe(false)
       expect(backend.filter(entry => entry.platform === platform).every(entry => entry.account_mode === 'payg')).toBe(true)
     }
