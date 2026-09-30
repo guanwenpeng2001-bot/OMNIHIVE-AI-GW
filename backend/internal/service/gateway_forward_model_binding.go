@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -170,7 +171,7 @@ func validateOpenAIForwardRequest(repo AccountRepository, account *Account, requ
 		return nil
 	}
 	if request.GetBody == nil {
-		return ErrAccountModelUnsupported
+		return fmt.Errorf("request body cannot be replayed: GetBody is nil: %w", ErrAccountModelUnsupported)
 	}
 	body, err := request.GetBody()
 	if err != nil {

@@ -22,6 +22,41 @@ const gatewayTransportErrorTempUnschedDuration = 10 * time.Minute
 // failover is ultimately exhausted.
 var gatewayTransportFailoverBody = []byte(`{"type":"error","error":{"type":"upstream_error","message":"Upstream request failed"}}`)
 
+// ModelBindingRejectedReason identifies a local binding failure, not an HTTP
+// response from a provider. Consumers must preserve this distinction on exhaustion.
+const ModelBindingRejectedReason GatewayFailureReason = "model_binding_rejected"
+
+const ModelBindingRejectedClientMessage = "所选账号的模型绑定或权限与本次请求不匹配，请检查模型选择与账号授权"
+
+var gatewayModelBindingRejectedBody = []byte(`{"type":"error","error":{"type":"model_binding_rejected","message":"` + ModelBindingRejectedClientMessage + `"}}`)
+
+// modelBindingRejectedFailover records local diagnostics while keeping another
+// account eligible. It must not penalize an account's network or proxy health.
+func modelBindingRejectedFailover(c *gin.Context, account *Account, err error, event OpsUpstreamErrorEvent, responseBody []byte) error {
+	if c != nil {
+		// A previous attempt may have received a real upstream status.
+		c.Set(OpsUpstreamStatusCodeKey, 0)
+	}
+	detail := sanitizeUpstreamErrorMessage(err.Error())
+	setOpsUpstreamError(c, 0, ModelBindingRejectedClientMessage, detail)
+	event.ProxyID, event.ProxyName = opsUpstreamProxyAttribution(account)
+	event.Platform = account.Platform
+	event.AccountID = account.ID
+	event.AccountName = account.Name
+	event.UpstreamStatusCode = 0
+	event.Kind = string(ModelBindingRejectedReason)
+	event.Message = ModelBindingRejectedClientMessage
+	event.Detail = detail
+	appendOpsUpstreamError(c, event)
+	return &UpstreamFailoverError{
+		StatusCode:       http.StatusUnprocessableEntity,
+		ResponseBody:     responseBody,
+		Reason:           ModelBindingRejectedReason,
+		ClientStatusCode: http.StatusUnprocessableEntity,
+		ClientMessage:    ModelBindingRejectedClientMessage,
+	}
+}
+
 // handleUpstreamTransportError handles a transport-level upstream failure on
 // the Anthropic/Bedrock forward paths (Do/DoWithTLS returned a non-HTTP error:
 // proxy / DNS / TCP / TLS). It:
@@ -40,6 +75,9 @@ var gatewayTransportFailoverBody = []byte(`{"type":"error","error":{"type":"upst
 // It deliberately does NOT write to the response: the handler owns the
 // response (failover, or a protocol-correct error once failover is exhausted).
 func (s *GatewayService) handleUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, event OpsUpstreamErrorEvent) error {
+	if errors.Is(err, ErrAccountModelUnsupported) {
+		return modelBindingRejectedFailover(c, account, err, event, gatewayModelBindingRejectedBody)
+	}
 	if IsAttemptAdmissionError(err) || isClientCanceledTransportError(ctx, err) {
 		return err
 	}

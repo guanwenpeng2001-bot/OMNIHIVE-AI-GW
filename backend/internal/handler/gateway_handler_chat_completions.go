@@ -432,6 +432,14 @@ func (h *GatewayHandler) chatCompletionsErrorResponse(c *gin.Context, status int
 
 // handleCCFailoverExhausted writes a failover-exhausted error in CC format.
 func (h *GatewayHandler) handleCCFailoverExhausted(c *gin.Context, lastErr *service.UpstreamFailoverError, streamStarted bool) {
+	if lastErr != nil && lastErr.Reason == service.ModelBindingRejectedReason {
+		if streamStarted {
+			h.handleStreamingAwareError(c, lastErr.ClientStatusCode, string(service.ModelBindingRejectedReason), lastErr.ClientMessage, true)
+		} else {
+			h.chatCompletionsErrorResponse(c, lastErr.ClientStatusCode, string(service.ModelBindingRejectedReason), lastErr.ClientMessage)
+		}
+		return
+	}
 	if streamStarted {
 		return
 	}
