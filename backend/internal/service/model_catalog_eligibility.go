@@ -313,6 +313,8 @@ type AccountModelBindingOptions struct {
 	MessagesDispatchModel string
 	Compact               bool
 	CredentialAccount     *Account
+	// Passthrough carries the actual Responses WS ingress/forwarding decision.
+	Passthrough bool
 }
 
 type modelCatalogEndpointContextKey struct{}
@@ -366,6 +368,36 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if forward, ok := openAIForwardModelFromContext(ctx); ok {
 		model = forward.model
 		options.Compact = options.Compact || forward.useCompactModelMapping
+	}
+	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && options.FinalModel == "" && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && configuredPassthroughModel(account, model) {
+		options.Passthrough = true
+		options.FinalModel = model
+	}
+	// A passthrough request deliberately does not apply account aliases. Its
+	// exact configured key is therefore a selected wire name, even when the
+	// same mapping has a different value for the ordinary forwarding path.
+	// Keep this projection local to the WS selection/send path, out of ordinary
+	// FinalModel resolution and the shared binding memo.
+	if options.Passthrough && options.Endpoint == CompositeRouteEndpointResponses && options.FinalModel != "" && configuredPassthroughModel(account, options.FinalModel) {
+		binding.UpstreamModel = options.FinalModel
+		binding.IdentityRevision = account.ModelCatalogState().IdentityRevision
+		binding.RulesRevision = account.ModelCatalogState().RulesRevision
+		if options.CredentialAccount != nil {
+			binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
+		}
+		var scope AccountModelAllowlist
+		decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+		if scope.Enabled && !slices.Contains(scope.Models, options.FinalModel) {
+			return binding
+		}
+		// This option is supplied by the installed Responses WS relay itself;
+		// an HTTP Responses probe or missing method metadata is not its adapter.
+		member := AccountCatalogModel{ID: options.FinalModel, Endpoints: []string{CompositeRouteEndpointResponses}, EvidenceKind: ModelEvidenceConfiguredSelection}
+		uncached := *account
+		uncached.modelCatalogReadEvidence = nil
+		binding.Supported = computeAccountBindingEndpoint(&uncached, options.FinalModel, options, 0, member)
+		binding.EvidenceKind = member.EvidenceKind
+		return binding
 	}
 	model, mapped := memoizedAccountBindingModel(ctx, account, model, options)
 	if !mapped {

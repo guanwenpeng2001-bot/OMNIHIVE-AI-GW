@@ -12,6 +12,18 @@ func exactConfiguredModel(model string) bool {
 	return model != "" && model == strings.TrimSpace(model) && !strings.ContainsAny(model, "*?\r\n")
 }
 
+func configuredPassthroughModel(account *Account, wireModel string) bool {
+	if account == nil || account.Platform != PlatformOpenAI || !exactConfiguredModel(wireModel) {
+		return false
+	}
+	for name, target := range configuredModelMapping(account) {
+		if exactConfiguredModel(name) && exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, name) == wireModel {
+			return true
+		}
+	}
+	return false
+}
+
 func configuredSelectionEvidence(account *Account, member AccountCatalogModel) bool {
 	return member.EvidenceKind == ModelEvidenceConfiguredSelection && concreteMappedModel(account, member.ID)
 }

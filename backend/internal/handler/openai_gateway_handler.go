@@ -2535,6 +2535,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 	// 解析渠道级模型映射
 	wsSpec := service.GatewayRequestSpec{WorkspaceID: apiKey.WorkspaceID, UserID: apiKey.UserID, APIKeyID: apiKey.ID, Route: c.Request.URL.Path, Protocol: "responses", Model: reqModel, MaxAccountSwitches: h.maxAccountSwitches}
+	if h.cfg != nil && h.cfg.Gateway.OpenAIWS.ModeRouterV2Enabled {
+		ctx = service.WithOpenAIWebSocketSelection(ctx, h.cfg.Gateway.OpenAIWS.IngressModeDefault)
+	}
 	if apiKey.GroupID != nil {
 		wsSpec.BillingGroupID = *apiKey.GroupID
 	}

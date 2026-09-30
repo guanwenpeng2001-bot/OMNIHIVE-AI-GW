@@ -252,6 +252,50 @@ func TestConfiguredSelectionFinalModelCannotBorrowDiscovery(t *testing.T) {
 	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "admin-public", AccountModelBindingOptions{FinalModel: "selected-other", MessagesDispatchModel: "discovered-only"}))
 }
 
+func TestConfiguredSelectionPassthroughWireBoundary(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI, "discovered-only", "compact-private")
+	account.Credentials["model_mapping"] = map[string]string{"channel-name": "ordinary-target"}
+	account.Credentials["compact_model_mapping"] = map[string]string{"channel-name": "compact-private"}
+	account.Extra["openai_responses_supported"] = true
+	ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "public-alias", Protocol: "responses", Action: "responses"}))
+	require.NoError(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"))
+	require.ErrorIs(t, validateAccountForwardModel(ctx, nil, &account, "channel-name", "responses"), ErrAccountModelUnsupported,
+		"ordinary FinalModel cannot borrow the passthrough exception")
+	for _, unselected := range []string{"discovered-only", "compact-private"} {
+		require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, unselected), ErrAccountModelUnsupported)
+	}
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"ordinary-target"}}
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"channel-name"}}
+	require.NoError(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"))
+	account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true}
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+	delete(account.Extra, UpstreamModelAllowlistExtraKey)
+	account.Credentials["model_mapping"] = map[string]string{"other": "ordinary-target"}
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+	account.Credentials["model_mapping"] = map[string]string{"channel-name": "ordinary-target"}
+	account.Schedulable = false
+	require.ErrorIs(t, validateAccountPassthroughForwardModel(ctx, nil, &account, "channel-name"), ErrAccountModelUnsupported)
+}
+
+func TestConfiguredSelectionWebSocketModeDoesNotBorrowHTTPMetadata(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Credentials["model_mapping"] = map[string]string{"wire-name": "ordinary-target"}
+	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+	account.Extra["openai_responses_supported"] = false
+	ctx := WithOpenAIWebSocketSelection(context.Background(), OpenAIWSIngressModeCtxPool)
+	options := AccountModelBindingOptions{Endpoint: "responses"}
+	ws := ResolveAccountModelBinding(ctx, &account, "wire-name", options)
+	require.True(t, ws.Supported)
+	require.Equal(t, "wire-name", ws.UpstreamModel)
+	ordinary := ResolveAccountModelBinding(context.Background(), &account, "wire-name", options)
+	require.Equal(t, "ordinary-target", ordinary.UpstreamModel, "HTTP still applies the account mapping")
+	account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModeCtxPool
+	pooled := ResolveAccountModelBinding(ctx, &account, "wire-name", options)
+	require.Equal(t, "ordinary-target", pooled.UpstreamModel, "ctx-pool retains its mapped-wire protocol")
+	require.False(t, AccountSupportsResolvedModel(ctx, &account, "wire-name", AccountModelBindingOptions{Endpoint: "responses", FinalModel: "wire-name"}))
+}
+
 func TestConfiguredSelectionMessagesDispatchSurvivesForwardBoundary(t *testing.T) {
 	account := catalogEvidenceAccount(1, PlatformOpenAI, "selected", "dispatched")
 	account.Credentials["model_mapping"] = map[string]any{"alias": "selected"}
