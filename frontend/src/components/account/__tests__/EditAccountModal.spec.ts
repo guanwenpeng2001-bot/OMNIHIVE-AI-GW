@@ -65,7 +65,7 @@ vi.mock('@/api/admin', () => ({
 }))
 
 vi.mock('@/api/admin/accounts', () => ({
-  accountsAPI: { syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: catalogRead, updateModelAllowlist: allowlistWrite, syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
+  accountsAPI: { getById: vi.fn().mockResolvedValue({ id: 1, credentials: {}, extra: {} }), syncUpstreamModels: syncUpstreamModelsMock, getAvailableModels: vi.fn().mockResolvedValue([]), getModelCatalog: catalogRead, updateModelAllowlist: allowlistWrite, syncUpstreamModelsPreview: vi.fn().mockResolvedValue({ candidate_models: ['public-glm'], models: ['public-glm'], discovery_complete: true, complete: true }) },
   getAntigravityDefaultModelMapping: vi.fn()
 }))
 
@@ -81,6 +81,7 @@ vi.mock('vue-i18n', async () => {
 })
 
 import { getPlatformModelPresets } from '@/api/admin/platformModelPresets'
+import { accountsAPI } from '@/api/admin/accounts'
 import EditAccountModal from '../EditAccountModal.vue'
 import CursorKeyFields from '../CursorKeyFields.vue'
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
@@ -366,6 +367,125 @@ function mountModal(account = buildAccount(), renderGroupSelector = false, realC
   })
 }
 
+describe('model selection saves preserve unrelated account drafts', () => {
+  it.each([false, true])('preserves compact and switch drafts with parent echo=%s', async echoToParent => {
+    const account = buildAccount()
+    const savedAccount = {
+      ...account,
+      credentials: { ...account.credentials, model_mapping: { 'public-alias': 'upstream-selected' } },
+      extra: { upstream_model_allowlist: { enabled: false, models: [] } }
+    }
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '7' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '8' })
+    vi.mocked(accountsAPI.getById).mockResolvedValue(savedAccount)
+    updateAccountMock.mockReset().mockResolvedValue(savedAccount)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, false, true)
+    if (echoToParent) {
+      await wrapper.setProps({ onUpdated: updated => {
+        // AccountsView merges runtime fields into a new object before syncing edAcc.
+        void wrapper.setProps({ account: { ...updated, current_concurrency: 2 } })
+      } })
+    }
+    await flushPromises()
+    const compactSection = wrapper.findAll('label').find(label => label.text() === 'admin.accounts.openai.compactModelMapping')!.element.parentElement!
+    const compact = wrapper.findAll('div').find(div => div.element === compactSection)!
+    await compact.get('button').trigger('click')
+    await compact.get('input[placeholder="admin.accounts.fromModel"]').setValue('compact-source')
+    await compact.get('input[placeholder="admin.accounts.toModel"]').setValue('compact-draft-target')
+    const expiryLabel = wrapper.findAll('label').find(label => label.text() === 'admin.accounts.autoPauseOnExpired')!
+    const expiryToggle = wrapper.findAll('button').find(button => button.element === expiryLabel.element.parentElement!.parentElement!.querySelector('button'))!
+    await expiryToggle.trigger('click')
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    expect(selector.props('configurationDirty')).toBe(false)
+    await selector.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenCalledTimes(1)
+    expect(wrapper.emitted('updated')?.[0]).toEqual([savedAccount])
+    expect(selector.props('modelValue')).toEqual([])
+    expect(selector.props('modelMappings')).toEqual([{ from: 'public-alias', to: 'upstream-selected' }])
+    expect(compact.get<HTMLInputElement>('input[placeholder="admin.accounts.toModel"]').element.value).toBe('compact-draft-target')
+    expect(expiryToggle.classes()).toContain('bg-primary-600')
+    if (echoToParent) {
+      expect(wrapper.props('account')).not.toBe(savedAccount)
+      expect(selector.props('modelAllowlist')).toEqual(savedAccount.extra.upstream_model_allowlist)
+    }
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(account.id, expect.objectContaining({
+      auto_pause_on_expired: true,
+      credentials: expect.objectContaining({
+        compact_model_mapping: { 'compact-source': 'compact-draft-target' },
+        model_mapping: { 'public-alias': 'upstream-selected' }
+      })
+    }))
+    wrapper.unmount()
+  })
+
+  it('keeps clear and reselect scope in sync through parent echoes and ordinary saves', async () => {
+    const account = buildAccount()
+    const cleared = { ...account, credentials: { ...account.credentials, model_mapping: {} }, extra: { upstream_model_allowlist: { enabled: true, models: [] } } }
+    const reselected = { ...account, credentials: { ...account.credentials, model_mapping: { 'manual-model': 'manual-model' } }, extra: { upstream_model_allowlist: { enabled: false, models: [] } } }
+    catalogRead.mockResolvedValue({ synced: true, warnings: [], state: { rules_revision: '9007199254740993' } })
+    allowlistWrite.mockReset().mockResolvedValue({ rules_revision: '9007199254740994' })
+    vi.mocked(accountsAPI.getById).mockResolvedValueOnce(cleared).mockResolvedValueOnce(reselected)
+    updateAccountMock.mockReset().mockResolvedValue(cleared)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account, false, true)
+    await wrapper.setProps({ onUpdated: updated => { void wrapper.setProps({ account: { ...updated } }) } })
+    await flushPromises()
+    const selector = wrapper.getComponent(ModelWhitelistSelector)
+    await selector.get('[data-testid="clear-model-selection"]').trigger('click')
+    selector.getComponent(ConfirmDialog).vm.$emit('confirm')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ enabled: true, models: [], model_mapping: {}, expected_rules_revision: '9007199254740993' }))
+    expect(selector.props('modelValue')).toEqual([])
+    expect(selector.props('modelMappings')).toEqual([])
+    expect(selector.find('[data-testid="deny-all"]').exists()).toBe(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls[0][1].credentials.model_mapping ?? {}).toEqual({})
+    expect(updateAccountMock.mock.calls[0][1].extra.upstream_model_allowlist).toEqual({ enabled: true, models: [] })
+
+    await selector.get('input[aria-label="admin.accounts.customModelName"]').setValue('manual-model')
+    await selector.findAll('button').find(button => button.text() === 'admin.accounts.addModel')!.trigger('click')
+    await selector.get('[data-testid="save-model-selection"]').trigger('click')
+    await flushPromises()
+    expect(allowlistWrite).toHaveBeenLastCalledWith(account.id, expect.objectContaining({ enabled: false, models: [], model_mapping: { 'manual-model': 'manual-model' } }))
+    expect(selector.props('modelValue')).toEqual(['manual-model'])
+    expect(selector.find('[data-testid="deny-all"]').exists()).toBe(false)
+    updateAccountMock.mockResolvedValue(reselected)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock.mock.calls.at(-1)![1].credentials.model_mapping).toEqual({ 'manual-model': 'manual-model' })
+    expect(updateAccountMock.mock.calls.at(-1)![1].extra.upstream_model_allowlist).toEqual({ enabled: false, models: [] })
+    await wrapper.get('[data-account-field="editBaseUrl"]').setValue('https://changed.example')
+    expect(selector.props('configurationDirty')).toBe(true)
+    expect(selector.get('[data-testid="save-model-selection"]').attributes('disabled')).toBeDefined()
+    wrapper.unmount()
+  })
+
+  it.each(['switch', 'reopen', 'later refresh'] as const)('fully initializes account settings on %s after a selection save', async action => {
+    const account = buildAccount()
+    const wrapper = mountModal(account, false, true)
+    await flushPromises()
+    const expiryLabel = wrapper.findAll('label').find(label => label.text() === 'admin.accounts.autoPauseOnExpired')!
+    await wrapper.findAll('button').find(button => button.element === expiryLabel.element.parentElement!.parentElement!.querySelector('button'))!.trigger('click')
+    wrapper.getComponent(ModelWhitelistSelector).vm.$emit('selection-saved', account)
+    await flushPromises()
+    const nextAccount = { ...buildAccount(), id: action === 'switch' ? 22 : account.id, name: 'Fresh account' }
+    if (action === 'reopen') await wrapper.setProps({ show: false })
+    await wrapper.setProps({ show: true, account: nextAccount })
+    await flushPromises()
+    updateAccountMock.mockReset().mockResolvedValue(nextAccount)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(updateAccountMock).toHaveBeenCalledWith(nextAccount.id, expect.objectContaining({ name: 'Fresh account', auto_pause_on_expired: false }))
+    wrapper.unmount()
+  })
+})
+
 describe('EditAccountModal', () => {
   it('edits the token limit without changing the concurrency setting', async () => {
     const account = { ...buildAccount(), tpm_limit: 31 }
@@ -417,7 +537,7 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
-  it.each(['editApiKey', 'editApiProtocol', 'editGeminiTier', 'editPlanType', 'capabilityDefaultsJSON'])('invalidates preview on %s changes without fetching on each edit', async field => {
+  it.each(['editApiKey', 'editApiProtocol', 'editGeminiTier', 'editPlanType'])('invalidates preview on %s changes without fetching on each edit', async field => {
     catalogRead.mockResolvedValue({ synced: false, warnings: [], state: { rules_revision: '1' } })
     syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Native'], models: ['Native'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: 1, digest: 'original' } })
     const wrapper = mountModal(buildAccount(), false, true)
@@ -446,50 +566,13 @@ describe('EditAccountModal', () => {
     await panel.get('[data-testid="allowlist-models"]').setValue('NotDiscovered')
     await panel.get('[data-testid="allowlist-reason"]').setValue('restrict account scope')
     await panel.get('[data-testid="save-allowlist"]').trigger('click')
-    expect(allowlistWrite).not.toHaveBeenCalled()
-    expect(panel.text()).toContain('modelSync.allowlistInvalid')
-    await panel.get('[data-testid="allowlist-models"]').setValue('Native')
-    await panel.get('[data-testid="save-allowlist"]').trigger('click')
     await flushPromises()
-    expect(allowlistWrite).toHaveBeenCalledWith(account.id, { enabled: true, models: ['Native'], reason: 'restrict account scope', expected_rules_revision: '9007199254740993' })
+    expect(allowlistWrite).toHaveBeenCalledWith(account.id, { enabled: false, models: ['NotDiscovered'], reason: 'restrict account scope', expected_rules_revision: '9007199254740993' })
     expect(catalogRead).toHaveBeenLastCalledWith(account.id)
     wrapper.unmount()
   })
 
-  it('invalidates a reviewed snapshot on credential changes and saves specifications before a fresh confirmation', async () => {
-    const account = buildAccount()
-    const declaration = { schema_version: 1, reason: 'verified deployment', models: { Private: { supports_function_calling: false } } }
-    const updated = { ...account, extra: { ...account.extra, model_capability_defaults: declaration } }
-    updateAccountMock.mockReset().mockResolvedValue(updated)
-    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
-    syncUpstreamModelsMock.mockReset().mockResolvedValue({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '1', review: { account_id: account.id, digest: 'before' } })
-    const wrapper = mountModal(account, false, true)
-    await flushPromises()
-    const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
-    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await flushPromises()
-    const vm = wrapper.vm as unknown as { editApiKey: string; capabilityDefaultsJSON: string }
-    vm.editApiKey = 'rotated-key'
-    vm.capabilityDefaultsJSON = JSON.stringify(declaration)
-    await flushPromises()
-    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
-    expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeDefined()
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(updateAccountMock).toHaveBeenCalledOnce()
-    expect(updateAccountMock.mock.calls[0][1]).toMatchObject({ credentials: { api_key: 'rotated-key' }, extra: { model_capability_defaults: declaration } })
-    expect(wrapper.emitted('close')).toBeUndefined()
-    expect(panel.get('[data-testid="preview-upstream-models"]').attributes('disabled')).toBeUndefined()
-    const review = { account_id: account.id, digest: 'after-rotation' }
-    syncUpstreamModelsMock.mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], discovery_complete: true, complete: true, rules_revision: '2', review }).mockResolvedValueOnce({ candidate_models: ['Private'], models: ['Private'], applied: true })
-    await panel.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await flushPromises()
-    await panel.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    panel.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(syncUpstreamModelsMock).toHaveBeenLastCalledWith(account.id, true, '2', undefined, review)
-    wrapper.unmount()
-  })
+
 
   it.each([['apikey', 'ai_studio', 'aistudio_free', 'aistudio_paid'], ['oauth', 'google_one', 'google_one_free', 'google_ai_ultra'], ['oauth', 'code_assist', 'gcp_standard', 'gcp_enterprise']])('loads and saves Gemini %s %s tier', async (type, oauthType, initial, selected) => {
     const account = { ...buildAccount(), platform: 'gemini', type, credentials: { tier_id: initial, oauth_type: oauthType, api_key: 'key', access_token: 'token', model_mapping: { 'gemini-2.5-flash': 'gemini-2.5-flash' } } } as any
@@ -2451,11 +2534,11 @@ describe('editor candidate identity and additive discovery', () => {
     const panel = wrapper.findAllComponents(ModelWhitelistSelector).at(0)!
     const add = panel.get('[data-testid="add-preview-models"]')
     expect(add.attributes('disabled')).toBeUndefined()
-    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)
+    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     await add.trigger('click')
     await flushPromises()
     expect(panel.props('modelValue')).toEqual(['gpt-5.2', 'new-native'])
-    expect(panel.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(panel.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('result').discovered_models).toEqual(['new-native'])
     expect(panel.findComponent({ name: 'ModelCatalogDetails' }).props('summary').effective_snapshot).toEqual({
       discovered_models: ['saved-native'], eligible_models: [{ id: 'saved-native' }]
@@ -2622,24 +2705,7 @@ describe('account editor organization', () => {
     wrapper.unmount()
   })
 
-  it('reveals business validation inside a collapsed capabilities editor', async () => {
-    const wrapper = mountModal()
-    await flushPromises()
-    const editor = wrapper.getComponent({ name: 'ModelCapabilityDefaultsEditor' })
-    const details = editor.get<HTMLDetailsElement>('details')
-    expect(details.element.open).toBe(false)
-    await editor.get('textarea').setValue('{invalid JSON')
-    await flushPromises()
-    expect(details.element.open).toBe(true)
-    expect(editor.get('textarea').attributes('aria-invalid')).toBe('true')
-    details.element.open = false
-    updateAccountMock.mockClear()
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(details.element.open).toBe(true)
-    expect(updateAccountMock).not.toHaveBeenCalled()
-    wrapper.unmount()
-  })
+
 })
 
 
@@ -2655,5 +2721,27 @@ it('reveals a folded connection section when an existing submit validator reject
   expect(connection.element.open).toBe(true)
   expect(showErrorMock).toHaveBeenLastCalledWith('admin.accounts.apiKeyIsRequired')
   expect(updateAccountMock).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+
+it('ordinary account save preserves protected deny-all and existing capability declarations', async () => {
+  const account = buildAccount()
+  account.extra = { ...account.extra, upstream_model_allowlist: { enabled: true, models: [] }, model_capability_defaults: { schema_version: 1, reason: 'legacy', models: {} } }
+  updateAccountMock.mockResolvedValue(account)
+  allowlistWrite.mockClear()
+  const wrapper = mountModal(account, false, true)
+  await flushPromises()
+  expect(wrapper.findComponent({ name: 'ModelCapabilityDefaultsEditor' }).exists()).toBe(false)
+  expect(wrapper.findComponent({ name: 'ModelAvailabilityEditor' }).exists()).toBe(false)
+  await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+  await flushPromises()
+  expect(updateAccountMock).toHaveBeenCalled()
+  const payload = updateAccountMock.mock.calls.at(-1)![1]
+  if (payload.extra) {
+    expect(payload.extra.upstream_model_allowlist).toEqual({ enabled: true, models: [] })
+    expect(payload.extra.model_capability_defaults).toEqual(account.extra.model_capability_defaults)
+  }
+  expect(allowlistWrite).not.toHaveBeenCalled()
   wrapper.unmount()
 })

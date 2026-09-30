@@ -497,6 +497,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		account.LoadFactor = input.LoadFactor
 	}
+	NormalizeEmptyAccountModelSelection(account)
 	return account, nil
 }
 

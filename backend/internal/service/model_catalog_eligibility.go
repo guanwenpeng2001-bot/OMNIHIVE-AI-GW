@@ -200,10 +200,13 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 	if account != nil && account.modelCatalogReadEvidence != nil && account.modelCatalogCredentialAccount == credentialAccount {
 		return account.modelCatalogReadEvidence.catalog
 	}
-	if account == nil || account.ModelCatalogState().Result == "credentials_invalid" {
+	if account == nil {
 		return nil
 	}
 	snapshot := account.GetUpstreamModelCatalog()
+	if account.ModelCatalogState().Result == "credentials_invalid" {
+		snapshot = nil
+	}
 	if snapshot != nil && snapshot.IdentityRevision != account.ModelCatalogState().IdentityRevision {
 		legacyRotationEvidence := snapshot.SourceKind == modelEvidenceLegacyMappingUpgrade && snapshot.LegacyMappingFingerprint != "" && legacyModelCatalogValidFor(account, snapshot)
 		if !legacyRotationEvidence {
@@ -219,6 +222,8 @@ func (account *Account) EffectiveUpstreamModelCatalogForCredentialAccount(creden
 		snapshot = nil
 	}
 	snapshot = appendAvailabilityModels(account, credentialAccount, snapshot)
+	snapshot = appendConfiguredSelectionModels(account, credentialAccount, snapshot)
+	snapshot = appendConfiguredCompactSelectionModels(account, credentialAccount, snapshot)
 	if snapshot == nil {
 		return nil
 	}
@@ -308,9 +313,14 @@ type AccountModelBindingOptions struct {
 	MessagesDispatchModel string
 	Compact               bool
 	CredentialAccount     *Account
+	// Passthrough carries the actual Responses WS ingress/forwarding decision.
+	Passthrough bool
 }
 
 type modelCatalogEndpointContextKey struct{}
+
+// Carries the authenticated dispatch configuration without altering catalog retry group reads.
+type accountMessagesDispatchGroupKey struct{}
 
 func ResolveAccountModelBinding(ctx context.Context, account *Account, publicModel string, options AccountModelBindingOptions) AccountModelBinding {
 	if options.Endpoint == "" && ctx != nil {
@@ -324,7 +334,7 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	binding.CredentialAccountID = account.ID
 	if account.IsShadow() {
 		parent := options.CredentialAccount
-		if parent == nil || parent.ID != *account.ParentAccountID || !parent.IsCredentialUsableForShadow() || parent.ModelCatalogState().Result == "credentials_invalid" {
+		if parent == nil || parent.ID != *account.ParentAccountID || !parent.IsCredentialUsableForShadow() {
 			return binding
 		}
 		binding.CredentialAccountID = parent.ID
@@ -342,6 +352,13 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	if !visibleModelPolicyAllows(ctx, binding.PublicModel) || !modelAccessAccountAllows(ctx, account.ID, binding.PublicModel) {
 		return binding
 	}
+	if options.MessagesDispatchModel == "" && account.Platform == PlatformOpenAI {
+		if plan := GatewayRequestPlanFromContext(ctx); plan != nil && plan.Snapshot().Protocol == "anthropic" {
+			if group, ok := ctx.Value(accountMessagesDispatchGroupKey{}).(*Group); ok && group.AllowMessagesDispatch && (group.Platform == PlatformOpenAI || group.Platform == PlatformComposite) {
+				options.MessagesDispatchModel = group.ResolveMessagesDispatchModel(binding.PublicModel)
+			}
+		}
+	}
 	if resolved, ok := ResolvedUpstreamModelFromContext(ctx); ok {
 		model = resolved
 	}
@@ -350,16 +367,63 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	}
 	if forward, ok := openAIForwardModelFromContext(ctx); ok {
 		model = forward.model
-		options.Compact = forward.useCompactModelMapping
+		options.Compact = options.Compact || forward.useCompactModelMapping
 	}
-	model, mapped := memoizedAccountBindingModel(ctx, account, model, options)
+	if defaultMode, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket && options.FinalModel == "" && account.ResolveOpenAIResponsesWebSocketV2Mode(defaultMode) == OpenAIWSIngressModePassthrough && configuredPassthroughModel(account, model) {
+		options.Passthrough = true
+		options.FinalModel = model
+	}
+	// A passthrough request deliberately does not apply account aliases. Its
+	// exact configured key is therefore a selected wire name, even when the
+	// same mapping has a different value for the ordinary forwarding path.
+	// HTTP passthrough also sends the configured key unchanged. Compact targets
+	// still use the ordinary compact membership checks below.
+	httpPassthrough := accountUsesHTTPResponsesPassthrough(ctx, account, options.Endpoint) && !options.Passthrough
+	if httpPassthrough {
+		wireModel := options.FinalModel
+		if wireModel == "" {
+			wireModel, _ = computeAccountBindingModel(ctx, account, model, options)
+		}
+		if configuredPassthroughModel(account, wireModel) {
+			options.FinalModel = wireModel
+		}
+	}
+	if (options.Passthrough && options.Endpoint == CompositeRouteEndpointResponses || httpPassthrough) && options.FinalModel != "" && configuredPassthroughModel(account, options.FinalModel) {
+		binding.UpstreamModel = options.FinalModel
+		binding.IdentityRevision = account.ModelCatalogState().IdentityRevision
+		binding.RulesRevision = account.ModelCatalogState().RulesRevision
+		if options.CredentialAccount != nil {
+			binding.CredentialIdentityRevision = options.CredentialAccount.ModelCatalogState().IdentityRevision
+		}
+		var scope AccountModelAllowlist
+		decodeCatalogExtra(account.Extra, UpstreamModelAllowlistExtraKey, &scope)
+		if scope.Enabled && !slices.Contains(scope.Models, options.FinalModel) {
+			return binding
+		}
+		// The installed WS relay supplies its endpoint directly. HTTP retains
+		// the account's existing adapter endpoint calculation.
+		member := AccountCatalogModel{ID: options.FinalModel, Endpoints: []string{CompositeRouteEndpointResponses}, EvidenceKind: ModelEvidenceConfiguredSelection}
+		if !options.Passthrough {
+			member.Endpoints = configuredSelectionEndpoints(account, options.FinalModel)
+		}
+		uncached := *account
+		uncached.modelCatalogReadEvidence = nil
+		binding.Supported = computeAccountBindingEndpoint(&uncached, options.FinalModel, options, 0, member)
+		binding.EvidenceKind = member.EvidenceKind
+		return binding
+	}
+	var mapped bool
+	if account.IsOpenAIPassthroughEnabled() {
+		// The shared name memo predates transport-specific mapping and omits
+		// protocol/WS mode from its key. Do not publish this local decision there.
+		model, mapped = computeAccountBindingModel(ctx, account, model, options)
+	} else {
+		model, mapped = memoizedAccountBindingModel(ctx, account, model, options)
+	}
 	if !mapped {
 		return binding
 	}
 	binding.UpstreamModel = strings.TrimSpace(model)
-	if !accountSupportsGatewayInput(ctx, account, binding.UpstreamModel) {
-		return binding
-	}
 	snapshot := account.EffectiveUpstreamModelCatalogForCredentialAccount(options.CredentialAccount)
 	if snapshot == nil {
 		return binding
@@ -373,10 +437,19 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 	members := snapshot.EligibleModels
 	if account.modelCatalogReadEvidence != nil {
 		members = account.modelCatalogReadEvidence.members[binding.UpstreamModel]
+		for _, member := range snapshot.EligibleModels {
+			if member.ID != binding.UpstreamModel && normalizeAccountBindingWireModel(account, member.ID) == binding.UpstreamModel && (configuredSelectionEvidence(account, member) || configuredCompactSelectionEvidence(account, member)) {
+				// These protocol-normalized members are indexed by their literal saved ID.
+				members = append(append([]AccountCatalogModel{}, members...), member)
+			}
+		}
 	}
 	for memberIndex, member := range members {
 		legacyEvidence := hasLegacyModelCatalogEvidence(snapshot, member)
 		memberModel := member.ID
+		if configuredSelectionEvidence(account, member) || configuredCompactSelectionEvidence(account, member) {
+			memberModel = normalizeAccountBindingWireModel(account, memberModel)
+		}
 		if legacyEvidence {
 			memberModel = legacyModelCatalogWireModel(account, memberModel)
 		}
@@ -386,10 +459,17 @@ func ResolveAccountModelBinding(ctx context.Context, account *Account, publicMod
 		} else {
 			discovered = slices.Contains(snapshot.DiscoveredModels, member.ID)
 		}
-		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence) {
+		if memberModel != binding.UpstreamModel || member.EvidenceKind == "" || (!discovered && !hasAvailabilityEvidence(account, options.CredentialAccount, member) && !legacyEvidence && !configuredSelectionEvidence(account, member) && !(options.Compact && configuredCompactSelectionEvidence(account, member))) {
 			continue
 		}
-		executable := memoizedAccountBindingEndpoint(ctx, account, binding.UpstreamModel, options, memberIndex, member)
+		executable := false
+		if member.ID != binding.UpstreamModel && (configuredSelectionEvidence(account, member) || configuredCompactSelectionEvidence(account, member)) {
+			normalized := *account
+			normalized.modelCatalogReadEvidence = nil
+			executable = computeAccountBindingEndpoint(&normalized, binding.UpstreamModel, options, memberIndex, member)
+		} else {
+			executable = memoizedAccountBindingEndpoint(ctx, account, binding.UpstreamModel, options, memberIndex, member)
+		}
 		if !executable {
 			continue
 		}
@@ -420,13 +500,69 @@ func catalogEndpointsContain(endpoints []string, endpoint string) bool {
 	return false
 }
 
+// The account flag controls HTTP Responses forwarding only. WS ingress has its
+// own adapter decision, and compatibility endpoints apply account mappings even
+// when their serialized upstream request happens to use /responses.
+func accountUsesHTTPResponsesPassthrough(ctx context.Context, account *Account, endpoint string) bool {
+	if account == nil || !account.IsOpenAIPassthroughEnabled() {
+		return false
+	}
+	// Forward chooses these installed compatibility adapters before inspecting
+	// the passthrough flag. They still send the account mapping's target.
+	if account.IsAnthropicProtocol() || shouldForwardOpenAIResponsesViaRawChatCompletions(account) {
+		return false
+	}
+	if _, websocket := ctx.Value(openAIWebSocketSelectionKey{}).(string); websocket {
+		return false
+	}
+	if plan := GatewayRequestPlanFromContext(ctx); plan != nil {
+		spec := plan.Snapshot()
+		if spec.ExecutionKind == "turn" || spec.Protocol != "" && spec.Protocol != "responses" {
+			return false
+		}
+	}
+	return endpoint == "" || endpoint == CompositeRouteEndpointAny || endpoint == CompositeRouteEndpointResponses || endpoint == "responses/compact"
+}
+
 func computeAccountBindingModel(ctx context.Context, account *Account, model string, options AccountModelBindingOptions) (string, bool) {
 	if options.FinalModel != "" {
+		if len(configuredModelMapping(account)) > 0 {
+			selected := false
+			for _, target := range configuredModelMapping(account) {
+				if exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, target) == options.FinalModel {
+					selected = true
+					break
+				}
+			}
+			if !selected && options.Compact {
+				for _, target := range account.GetCompactModelMapping() {
+					if exactConfiguredModel(target) && normalizeAccountBindingWireModel(account, target) == options.FinalModel {
+						selected = true
+						break
+					}
+				}
+			}
+			if !selected {
+				requestedOptions := options
+				requestedOptions.FinalModel = ""
+				resolved, allowed := computeAccountBindingModel(ctx, account, model, requestedOptions)
+				selected = allowed && resolved == options.FinalModel
+			}
+			if !selected {
+				return "", false
+			}
+		}
 		model = options.FinalModel
 	} else {
 		variant, variantResolved := resolveGeminiThinkingVariantForLevel(account, model, "")
-		_, matched := account.ResolveMappedModel(model)
-		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && !account.IsOpenAIPassthroughEnabled() && options.MessagesDispatchModel == "" {
+		_, matched := resolveRequestedModelInMapping(configuredModelMapping(account), model)
+		if !matched {
+			normalized := normalizeRequestedModelForLookup(account.Platform, model)
+			if normalized != model {
+				_, matched = resolveRequestedModelInMapping(configuredModelMapping(account), normalized)
+			}
+		}
+		if len(configuredModelMapping(account)) > 0 && !matched && !variantResolved && options.MessagesDispatchModel == "" {
 			return "", false
 		}
 		switch {
@@ -446,7 +582,7 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 				model = applyThinkingModelSuffix(model, thinking)
 			}
 		case account.Platform == PlatformOpenAI:
-			if !account.IsOpenAIPassthroughEnabled() {
+			if !accountUsesHTTPResponsesPassthrough(ctx, account, options.Endpoint) {
 				model = resolveOpenAIForwardModel(account, model, options.MessagesDispatchModel)
 			}
 			if options.Compact {
@@ -455,21 +591,27 @@ func computeAccountBindingModel(ctx context.Context, account *Account, model str
 			model = normalizeOpenAIModelForUpstream(account, model)
 		default:
 			model = account.GetMappedModel(model)
-			if account.Platform == PlatformDeepseek {
-				model = normalizeOpenAIModelForUpstream(account, model)
-			}
-			if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
-				model = claude.NormalizeModelID(model)
-				if account.Type == AccountTypeServiceAccount {
-					model = normalizeVertexAnthropicModelID(model)
-				}
-			}
-			if account.IsGemini() {
-				model = strings.TrimPrefix(model, "models/")
-			}
+			model = normalizeAccountBindingWireModel(account, model)
 		}
 	}
 	return model, true
+}
+
+// Use the same protocol normalization for configured members and outbound mapping targets.
+func normalizeAccountBindingWireModel(account *Account, model string) string {
+	if account.Platform == PlatformOpenAI || account.Platform == PlatformDeepseek {
+		return normalizeOpenAIModelForUpstream(account, model)
+	}
+	if account.Platform == PlatformAnthropic && account.Type != AccountTypeAPIKey {
+		model = claude.NormalizeModelID(model)
+		if account.Type == AccountTypeServiceAccount {
+			model = normalizeVertexAnthropicModelID(model)
+		}
+	}
+	if account.IsGemini() {
+		model = strings.TrimPrefix(model, "models/")
+	}
+	return model
 }
 
 func computeAccountBindingEndpoint(account *Account, model string, options AccountModelBindingOptions, memberIndex int, member AccountCatalogModel) bool {

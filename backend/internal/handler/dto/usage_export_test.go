@@ -20,37 +20,37 @@ func usageExportTestAdminLog() *AdminUsageLog {
 	ipAddress := "@10.0.0.1"
 	return &AdminUsageLog{
 		UsageLog: UsageLog{
-			ID:                  7,
-			UserID:              11,
-			APIKeyID:            13,
-			AccountID:           17,
-			RequestID:           "req-1",
-			Model:               "gpt-5.1",
-			ReasoningEffort:     stringPtr("medium"),
-			InboundEndpoint:     stringPtr("/v1/chat/completions"),
-			UpstreamEndpoint:    stringPtr("/v1/responses"),
-			InputTokens:         120,
-			OutputTokens:        30,
-			CacheReadTokens:     5,
-			CacheCreationTokens: 6,
-			InputCost:           0.0000004,
-			OutputCost:          0,
-			TotalCost:           0.00123456,
-			ActualCost:          0.001,
-			RateMultiplier:      0.5,
-			RequestType:         "stream",
-			BillingMode:         stringPtr("token"),
-			FirstTokenMs:        intPtr(120),
-			DurationMs:          intPtr(2400),
-			UserAgent:           &userAgent,
-			CreatedAt:           time.Date(2026, 9, 22, 10, 30, 0, 0, time.UTC),
-			User:                &User{ID: 11, Email: "owner@example.com"},
-			APIKey:              &APIKey{ID: 13, Name: "primary"},
-			Group:               &Group{ID: 3, Name: "pro"},
+			ID:                    7,
+			UserID:                11,
+			APIKeyID:              13,
+			AccountID:             17,
+			RequestID:             "req-1",
+			Model:                 "gpt-5.1",
+			UpstreamResponseModel: &upstreamResponseModel,
+			ReasoningEffort:       stringPtr("medium"),
+			InboundEndpoint:       stringPtr("/v1/chat/completions"),
+			UpstreamEndpoint:      stringPtr("/v1/responses"),
+			InputTokens:           120,
+			OutputTokens:          30,
+			CacheReadTokens:       5,
+			CacheCreationTokens:   6,
+			InputCost:             0.0000004,
+			OutputCost:            0,
+			TotalCost:             0.00123456,
+			ActualCost:            0.001,
+			RateMultiplier:        0.5,
+			RequestType:           "stream",
+			BillingMode:           stringPtr("token"),
+			FirstTokenMs:          intPtr(120),
+			DurationMs:            intPtr(2400),
+			UserAgent:             &userAgent,
+			CreatedAt:             time.Date(2026, 9, 22, 10, 30, 0, 0, time.UTC),
+			User:                  &User{ID: 11, Email: "owner@example.com"},
+			APIKey:                &APIKey{ID: 13, Name: "primary"},
+			Group:                 &Group{ID: 3, Name: "pro"},
 		},
 		UpstreamModel:           &upstreamModel,
 		UpstreamReasoningEffort: &upstreamReasoning,
-		UpstreamResponseModel:   &upstreamResponseModel,
 		UpstreamRequestID:       stringPtr("up-req-1"),
 		AccountRateMultiplier:   floatPtr(1.5),
 		AccountStatsCost:        floatPtr(0.002),
@@ -76,12 +76,12 @@ func TestUsageExportColumnContracts(t *testing.T) {
 
 	self := UsageExportColumns(UsageExportScopeSelf)
 	require.Equal(t, []string{
-		"time", "api_key", "model", "reasoning_effort", "inbound_endpoint",
+		"time", "api_key", "model", "upstream_response_model", "reasoning_effort", "inbound_endpoint",
 		"ip_address", "request_type", "billing_mode", "input_tokens", "output_tokens",
 		"cache_read_tokens", "cache_creation_tokens", "rate_multiplier",
 		"actual_cost", "total_cost", "first_token_ms", "duration_ms",
-	}, self[:17])
-	require.Equal(t, 15, len(self)-17)
+	}, self[:18])
+	require.Equal(t, 15, len(self)-18)
 	require.NotContains(t, self, "account", "the owner export never exposes the account identity")
 	require.NotContains(t, self, "account_billed_cost", "the owner export never exposes account cost")
 	require.NotContains(t, self, "upstream_request_id")
@@ -144,11 +144,20 @@ func TestBuildSelfUsageExportRowHidesAdminColumns(t *testing.T) {
 	require.Len(t, row, len(UsageExportColumns(UsageExportScopeSelf)))
 	require.Equal(t, "primary", row[1])
 	require.Equal(t, "gpt-5.1", row[2])
-	require.Equal(t, "stream", row[6])
-	require.Equal(t, "token", row[7])
-	require.Equal(t, "0.00100000", row[13])
-	require.Equal(t, "0.00123456", row[14])
-	require.Equal(t, usageExportUnknown, row[17])
+	require.Equal(t, "gpt-5.1-2026-01-01", row[3])
+	require.Equal(t, "stream", row[7])
+	require.Equal(t, "token", row[8])
+	require.Equal(t, "0.00100000", row[14])
+	require.Equal(t, "0.00123456", row[15])
+	require.Equal(t, usageExportUnknown, row[18])
+}
+
+func TestBuildSelfUsageExportResponseModelUnknown(t *testing.T) {
+	for _, declared := range []*string{nil, stringPtr(""), stringPtr("  ")} {
+		row := BuildSelfUsageExportRow(&UsageLog{Model: "requested-model", UpstreamResponseModel: declared}, "UTC")
+		require.Equal(t, "requested-model", row[2])
+		require.Equal(t, usageExportUnknown, row[3])
+	}
 }
 
 func TestBuildSelfUsageExportRowDerivesImageBillingMode(t *testing.T) {
@@ -156,11 +165,11 @@ func TestBuildSelfUsageExportRowDerivesImageBillingMode(t *testing.T) {
 	log.BillingMode = nil
 	log.ImageCount = 2
 	row := BuildSelfUsageExportRow(&log.UsageLog, "UTC")
-	require.Equal(t, "image", row[7])
+	require.Equal(t, "image", row[8])
 
 	log.BillingMode = stringPtr("video")
 	row = BuildSelfUsageExportRow(&log.UsageLog, "UTC")
-	require.Equal(t, "video", row[7], "an explicit mode always wins over the image heuristic")
+	require.Equal(t, "video", row[8], "an explicit mode always wins over the image heuristic")
 }
 
 func TestUsageExportCSVWriterEscapesFormulaInjection(t *testing.T) {

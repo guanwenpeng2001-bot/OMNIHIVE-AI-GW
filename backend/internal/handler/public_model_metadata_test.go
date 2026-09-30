@@ -42,6 +42,8 @@ func (repo *publicMetadataRepository) ListModelCatalogAccounts(_ context.Context
 
 func publicMetadataAccount() service.Account {
 	negative := false
+	// The historical alias "denied" is explicitly selected; absent discovery or
+	// metadata for its target must not be mistaken for an authorization denial.
 	account := service.Account{ID: 91, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 		Status: service.StatusActive, Schedulable: true,
 		Credentials: map[string]any{"api_key": "private-key-never-public", "base_url": "https://api.openai.com", "model_mapping": map[string]any{"gpt-alias": "gpt-native", "denied": "absent"}},
@@ -63,10 +65,14 @@ func publicMetadataAccount() service.Account {
 
 func TestPublicModelMetadataProjection(t *testing.T) {
 	negative, positive := false, true
-	facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{
+	observations := []service.UpstreamModelMetadata{
 		{Reasoning: &negative, SupportsVision: &positive, ContextWindow: 1000, ContextLimitKind: "total", EmbeddingDimensions: 1536, InputModalities: []string{"TEXT", "image", "text"}},
 		{Reasoning: &negative, SupportsVision: &negative, ContextWindow: 2000, ContextLimitKind: "total", EmbeddingDimensions: 3072, InputModalities: []string{"image", "text"}},
-	})
+	}
+	for index := range observations {
+		observations[index] = publicMetadataWithEvidence(observations[index], "upstream")
+	}
+	facts := aggregatePublicMetadata(observations)
 	require.Equal(t, int64(1000), *facts.TotalContext.Guaranteed)
 	require.Equal(t, []int64{1536, 3072}, facts.EmbeddingDimensions.Available)
 	require.Nil(t, facts.EmbeddingDimensions.Guaranteed, "fixed dimensions must never be minimized")
@@ -169,4 +175,226 @@ func TestPublicListingDoesNotReapplyStaleAuthenticatedGroupPolicy(t *testing.T) 
 	response := requestModelForTest(handler, &stale, "", "")
 	require.Equal(t, 200, response.Code)
 	require.Contains(t, response.Body.String(), "gpt-alias")
+}
+
+// Mirror native/declaration stamps, including exact model/profile binding.
+func publicMetadataWithEvidence(metadata service.UpstreamModelMetadata, source string) service.UpstreamModelMetadata {
+	if metadata.ID == "" {
+		metadata.ID = "model-native"
+	}
+	metadata.ProviderProfile = "openai"
+	metadata.FieldEvidence = make(map[string]service.ModelCapabilityEvidence)
+	rule := "native_id"
+	if source == "account-declaration" {
+		rule = "identity_bound_exact"
+	}
+	for _, field := range []string{"context_window", "context_limit_kind", "max_output_tokens", "embedding_dimensions", "reasoning", "supports_vision", "supports_function_calling", "supports_prompt_caching", "supports_pdf", "input_modalities", "output_modalities"} {
+		metadata.FieldEvidence[field] = service.ModelCapabilityEvidence{Source: source, ProviderProfile: metadata.ProviderProfile, MatchedModelID: metadata.ID, MatchRule: rule}
+	}
+	return metadata
+}
+
+func TestAggregatePublicMetadataSources(t *testing.T) {
+	positive := true
+	template := service.UpstreamModelMetadata{ContextWindow: 128000, ContextLimitKind: "total", MaxOutputTokens: 4096, EmbeddingDimensions: 1536,
+		Reasoning: &positive, SupportsVision: &positive, SupportsFunctionCalling: &positive, SupportsPromptCaching: &positive, SupportsPDF: &positive,
+		InputModalities: []string{"text", "image"}, OutputModalities: []string{"text"}}
+	for _, source := range []string{"upstream", "account-declaration", "models.dev", "litellm", "openrouter", "cursor-builtin", "heuristic", "derived", "gateway", ""} {
+		t.Run(source, func(t *testing.T) {
+			observation := publicMetadataWithEvidence(template, source)
+			guaranteed := source == "upstream" || source == "account-declaration"
+			for _, mixed := range []bool{false, true} {
+				other := observation
+				if mixed {
+					other = publicMetadataWithEvidence(template, "upstream")
+				}
+				facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{other, observation})
+				require.Equal(t, !guaranteed, facts.TotalContext.Unknown)
+				require.Equal(t, []int64{128000}, facts.TotalContext.Available)
+				require.Equal(t, int64(128000), *facts.TotalContext.ObservedMinimum)
+				require.Equal(t, []int64{4096}, facts.MaxOutputTokens.Available)
+				require.Equal(t, []int64{1536}, facts.EmbeddingDimensions.Available)
+				for _, fact := range []publicFact[bool]{facts.Reasoning, facts.SupportsVision, facts.SupportsFunctionCalling, facts.SupportsPromptCaching, facts.SupportsPDF} {
+					require.Equal(t, []bool{true}, fact.Available)
+					require.Equal(t, !guaranteed, fact.Unknown)
+					require.Equal(t, guaranteed, fact.Guaranteed != nil)
+				}
+				for _, fact := range []publicFact[int64]{facts.TotalContext.publicFact, facts.MaxOutputTokens.publicFact, facts.EmbeddingDimensions} {
+					require.Equal(t, !guaranteed, fact.Unknown)
+					require.Equal(t, guaranteed, fact.Guaranteed != nil)
+				}
+				for _, fact := range []publicModalities{facts.InputModalities, facts.OutputModalities} {
+					require.NotEmpty(t, fact.Available)
+					require.Equal(t, !guaranteed, fact.Unknown)
+					require.Equal(t, guaranteed, fact.Guaranteed != nil)
+				}
+			}
+		})
+	}
+}
+
+func TestAggregatePublicMetadataFieldApplicability(t *testing.T) {
+	positive := true
+	native := publicMetadataWithEvidence(service.UpstreamModelMetadata{Reasoning: &positive, SupportsVision: &positive}, "upstream")
+	cases := []struct {
+		name   string
+		change func(*service.UpstreamModelMetadata)
+	}{
+		{"missing field evidence", func(metadata *service.UpstreamModelMetadata) { delete(metadata.FieldEvidence, "reasoning") }},
+		{"missing value", func(metadata *service.UpstreamModelMetadata) { metadata.Reasoning = nil }},
+		{"missing profile", func(metadata *service.UpstreamModelMetadata) {
+			evidence := metadata.FieldEvidence["reasoning"]
+			evidence.ProviderProfile = ""
+			metadata.FieldEvidence["reasoning"] = evidence
+		}},
+		{"different profile", func(metadata *service.UpstreamModelMetadata) {
+			evidence := metadata.FieldEvidence["reasoning"]
+			evidence.ProviderProfile = "anthropic"
+			metadata.FieldEvidence["reasoning"] = evidence
+		}},
+		{"different model", func(metadata *service.UpstreamModelMetadata) {
+			evidence := metadata.FieldEvidence["reasoning"]
+			evidence.MatchedModelID = "other"
+			metadata.FieldEvidence["reasoning"] = evidence
+		}},
+		{"stale", func(metadata *service.UpstreamModelMetadata) {
+			evidence := metadata.FieldEvidence["reasoning"]
+			evidence.Stale = true
+			metadata.FieldEvidence["reasoning"] = evidence
+		}},
+		{"generic match", func(metadata *service.UpstreamModelMetadata) {
+			evidence := metadata.FieldEvidence["reasoning"]
+			evidence.MatchRule = "account_protocol"
+			metadata.FieldEvidence["reasoning"] = evidence
+		}},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			observation := publicMetadataWithEvidence(native, "upstream")
+			test.change(&observation)
+			before, err := json.Marshal(observation)
+			require.NoError(t, err)
+			facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{native, observation})
+			require.Nil(t, facts.Reasoning.Guaranteed)
+			require.True(t, facts.Reasoning.Unknown)
+			require.Equal(t, []bool{true}, facts.Reasoning.Available)
+			require.NotNil(t, facts.SupportsVision.Guaranteed, "unrelated valid field remains authoritative")
+			after, err := json.Marshal(observation)
+			require.NoError(t, err)
+			require.Equal(t, before, after)
+		})
+	}
+	facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{native, {}})
+	require.True(t, facts.SupportsVision.Unknown)
+	require.Nil(t, facts.SupportsVision.Guaranteed, "unknown account must retain its position")
+}
+
+func TestAggregatePublicMetadataConservativeValues(t *testing.T) {
+	positive, negative := true, false
+	first := publicMetadataWithEvidence(service.UpstreamModelMetadata{ContextWindow: 128000, ContextLimitKind: "input", MaxOutputTokens: 4096, EmbeddingDimensions: 1536, Reasoning: &positive, InputModalities: []string{"TEXT", "image", "text"}, OutputModalities: []string{"text"}}, "upstream")
+	second := publicMetadataWithEvidence(service.UpstreamModelMetadata{ContextWindow: 200000, ContextLimitKind: "input", MaxOutputTokens: 8192, EmbeddingDimensions: 3072, Reasoning: &negative, InputModalities: []string{"text", "audio"}, OutputModalities: []string{}}, "account-declaration")
+	facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{first, second})
+	require.Equal(t, int64(128000), *facts.InputContext.Guaranteed)
+	require.Equal(t, []int64{128000, 200000}, facts.InputContext.Available)
+	require.Equal(t, int64(4096), *facts.MaxOutputTokens.Guaranteed)
+	require.False(t, *facts.Reasoning.Guaranteed)
+	require.False(t, facts.EmbeddingDimensions.Unknown)
+	require.Nil(t, facts.EmbeddingDimensions.Guaranteed)
+	require.Equal(t, []string{"audio", "image", "text"}, facts.InputModalities.Available)
+	require.Equal(t, []string{"text"}, *facts.InputModalities.Guaranteed)
+	require.Equal(t, []string{}, *facts.OutputModalities.Guaranteed)
+	second.FieldEvidence["context_window"] = service.ModelCapabilityEvidence{Source: "models.dev"}
+	facts = aggregatePublicMetadata([]service.UpstreamModelMetadata{first, second})
+	require.Nil(t, facts.InputContext.Guaranteed)
+	require.Equal(t, []int64{128000, 200000}, facts.InputContext.Available)
+	require.Equal(t, int64(128000), *facts.InputContext.ObservedMinimum)
+}
+
+func TestAggregatePublicMetadataContextKindsAndMissingModalities(t *testing.T) {
+	for _, kind := range []string{"input", "total", "unspecified"} {
+		t.Run(kind, func(t *testing.T) {
+			observation := publicMetadataWithEvidence(service.UpstreamModelMetadata{ContextWindow: 1024, ContextLimitKind: kind}, "upstream")
+			facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{observation})
+			limits := map[string]publicLimit{"input": facts.InputContext, "total": facts.TotalContext, "unspecified": facts.UnspecifiedContext}
+			require.Equal(t, int64(1024), *limits[kind].Guaranteed)
+			if kind != "unspecified" {
+				delete(observation.FieldEvidence, "context_limit_kind")
+				facts = aggregatePublicMetadata([]service.UpstreamModelMetadata{observation})
+				limits = map[string]publicLimit{"input": facts.InputContext, "total": facts.TotalContext}
+				require.Nil(t, limits[kind].Guaranteed)
+				require.Equal(t, int64(1024), *limits[kind].ObservedMinimum)
+			}
+		})
+	}
+	for _, modalities := range [][]string{nil, {"unsupported"}} {
+		observation := publicMetadataWithEvidence(service.UpstreamModelMetadata{InputModalities: modalities, ContextWindow: -1, MaxOutputTokens: 0}, "upstream")
+		facts := aggregatePublicMetadata([]service.UpstreamModelMetadata{observation})
+		require.Nil(t, facts.InputModalities.Guaranteed)
+		require.True(t, facts.InputModalities.Unknown)
+		require.Empty(t, facts.InputModalities.Available)
+		require.Nil(t, facts.UnspecifiedContext.ObservedMinimum)
+		require.True(t, facts.MaxOutputTokens.Unknown)
+	}
+	empty := aggregatePublicMetadata(nil)
+	require.True(t, empty.Reasoning.Unknown)
+	require.True(t, empty.InputModalities.Unknown)
+	require.Equal(t, []bool{}, empty.Reasoning.Available)
+}
+
+func TestPublicModelMetadataCatalogMixedAccountSources(t *testing.T) {
+	for _, sources := range [][2]string{{"upstream", "upstream"}, {"upstream", "models.dev"}, {"models.dev", "models.dev"}, {"upstream", ""}} {
+		t.Run(sources[0]+"_"+sources[1], func(t *testing.T) {
+			accounts := []service.Account{publicMetadataAccount(), publicMetadataAccount()}
+			for index := range accounts {
+				accounts[index].ID += int64(index)
+				snapshot := accounts[index].Extra[service.UpstreamModelMetadataExtraKey].(service.UpstreamModelMetadataSnapshot)
+				metadata := snapshot.Models["gpt-native"]
+				metadata.ContextWindow += int64(index) * 72000
+				metadata = publicMetadataWithEvidence(metadata, sources[index])
+				snapshot.Models["gpt-native"] = metadata
+				accounts[index].Extra[service.UpstreamModelMetadataExtraKey] = snapshot
+			}
+			handler := newGatewayModelsHandlerForTest(&publicMetadataRepository{accounts: accounts})
+			group := &service.Group{ID: 31, Platform: service.PlatformOpenAI}
+			recorder := httptest.NewRecorder()
+			ctx, _ := gin.CreateTestContext(recorder)
+			ctx.Request = httptest.NewRequest("GET", "/v1/models/catalog", nil)
+			ctx.Set(string(middleware.ContextKeyAPIKey), &service.APIKey{ID: 17, GroupID: &group.ID, Group: group})
+			handler.ModelCatalog(ctx)
+			require.Equal(t, 200, recorder.Code)
+			var response struct {
+				Data []struct {
+					ID           string              `json:"id"`
+					Capabilities publicModelMetadata `json:"capabilities"`
+				} `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &response))
+			capabilitiesByID := make(map[string]publicModelMetadata)
+			for _, model := range response.Data {
+				require.NotContains(t, capabilitiesByID, model.ID, "public IDs must be unique")
+				capabilitiesByID[model.ID] = model.Capabilities
+			}
+			require.Len(t, response.Data, 2)
+			require.Contains(t, capabilitiesByID, "gpt-alias")
+			require.Contains(t, capabilitiesByID, "denied")
+			unknown := capabilitiesByID["denied"].TotalContext
+			require.True(t, unknown.Unknown)
+			require.Nil(t, unknown.Guaranteed)
+			require.Nil(t, unknown.ObservedMinimum)
+			require.Empty(t, unknown.Available)
+			context := capabilitiesByID["gpt-alias"].TotalContext
+			require.Equal(t, []int64{128000, 200000}, context.Available)
+			require.Equal(t, int64(128000), *context.ObservedMinimum)
+			if sources[0] == "upstream" && sources[1] == "upstream" {
+				require.Equal(t, int64(128000), *context.Guaranteed)
+				require.False(t, context.Unknown)
+			} else {
+				require.Nil(t, context.Guaranteed)
+				require.True(t, context.Unknown)
+			}
+			require.NotContains(t, recorder.Body.String(), "field_evidence")
+			require.NotContains(t, recorder.Body.String(), "gpt-native")
+			require.NotContains(t, recorder.Body.String(), "private")
+		})
+	}
 }

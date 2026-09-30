@@ -76,17 +76,19 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 			}
 			require.EqualValues(test, 2, account.ModelCatalogState().IdentityRevision)
 			require.EqualValues(test, 2, account.ModelCatalogState().RulesRevision)
-			require.ErrorIs(test, repository.CommitAccountModelCatalog(ctx, account.ID, oldBaseline, nil, service.AccountModelCatalogState{}, nil), service.ErrAccountModelCatalogConflict)
+			require.ErrorIs(test, repository.CommitAccountModelCatalog(ctx, account.ID, oldBaseline, nil, service.AccountModelCatalogState{}, nil, false), service.ErrAccountModelCatalogConflict)
 			account.Credentials["model_mapping"] = map[string]string{"changed-alias": "target"}
 			write(account)
 			account = get(test, account.ID)
 			require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
-			require.Nil(test, account.EffectiveUpstreamModelCatalog())
+			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
+			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 			account.Credentials["model_mapping"] = map[string]string{"alias": "target"}
 			write(account)
 			account = get(test, account.ID)
 			require.EqualValues(test, 2, account.ModelCatalogState().LegacyPolicyRevision)
-			require.Nil(test, account.EffectiveUpstreamModelCatalog())
+			require.NotNil(test, account.EffectiveUpstreamModelCatalog())
+			require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 		})
 	}
 	test.Run("stale old seed remains strict", func(test *testing.T) {
@@ -97,24 +99,26 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
 		account = get(test, account.ID)
 		require.Empty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-		require.Nil(test, account.EffectiveUpstreamModelCatalog())
+		require.NotNil(test, account.EffectiveUpstreamModelCatalog())
+		require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 	})
-	test.Run("allowlist and invalid credentials revoke monotonically", func(test *testing.T) {
+	test.Run("allowlist remains deny_all_across_discovery_auth_failure", func(test *testing.T) {
 		account := create(test)
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
 		account = get(test, account.ID)
 		require.NoError(test, repository.UpdateAccountModelAllowlist(ctx, account.ID, account.ModelCatalogBaseline(), service.AccountModelAllowlist{Enabled: true, Models: []string{}}))
 		account = get(test, account.ID)
-		require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
-		require.Empty(test, account.GetUpstreamModelCatalog().EligibleModels)
+		require.Zero(test, account.ModelCatalogState().LegacyPolicyRevision)
+		require.NotEmpty(test, account.GetUpstreamModelCatalog().EligibleModels)
+		require.Empty(test, account.EffectiveUpstreamModelCatalog().EligibleModels)
 		state := account.ModelCatalogState()
 		state.Result = "credentials_invalid"
-		require.NoError(test, repository.CommitAccountModelCatalog(ctx, account.ID, account.ModelCatalogBaseline(), nil, state, nil))
+		require.NoError(test, repository.CommitAccountModelCatalog(ctx, account.ID, account.ModelCatalogBaseline(), nil, state, nil, false))
 		account = get(test, account.ID)
-		require.EqualValues(test, 2, account.ModelCatalogState().LegacyPolicyRevision)
+		require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
 		account.Credentials["access_token"] = "renewed"
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
-		require.Nil(test, get(test, account.ID).EffectiveUpstreamModelCatalog())
+		require.Empty(test, get(test, account.ID).EffectiveUpstreamModelCatalog().EligibleModels)
 	})
 	test.Run("empty discovery remains empty after renewal", func(test *testing.T) {
 		account := create(test)
@@ -122,13 +126,13 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		account = get(test, account.ID)
 		baseline := account.ModelCatalogBaseline()
 		snapshot := &service.AccountModelCatalogSnapshot{Revision: baseline.SnapshotRevision + 1, IdentityRevision: baseline.IdentityRevision, RulesRevision: baseline.RulesRevision, Complete: true, SourceKind: "native_account_catalog", DiscoveredModels: []string{}, EligibleModels: []service.AccountCatalogModel{}}
-		require.NoError(test, repository.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, account.ModelCatalogState(), nil))
+		require.NoError(test, repository.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, account.ModelCatalogState(), nil, false))
 		account.Credentials["access_token"] = "renewed"
 		require.NoError(test, repository.UpdateCredentials(ctx, account.ID, account.Credentials))
 		account = get(test, account.ID)
 		require.Empty(test, account.GetUpstreamModelCatalog().EligibleModels)
 		require.Empty(test, account.GetUpstreamModelCatalog().LegacyMappingFingerprint)
-		require.Nil(test, account.EffectiveUpstreamModelCatalog(), "native discovery retains strict identity guard")
+		require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind, "stale discovery is withheld while the selected model survives")
 	})
 	test.Run("protocol release and bulk mapping changes revoke", func(test *testing.T) {
 		for _, change := range []string{"protocol", "capability release", "bulk mapping", "bulk proxy"} {
@@ -153,7 +157,8 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 				}
 				account = get(test, account.ID)
 				require.EqualValues(test, 1, account.ModelCatalogState().LegacyPolicyRevision)
-				require.Nil(test, account.EffectiveUpstreamModelCatalog())
+				require.NotNil(test, account.EffectiveUpstreamModelCatalog())
+				require.Equal(test, service.ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 			})
 		}
 	})
@@ -185,7 +190,7 @@ func TestLegacyCatalogResiliencePostgres(test *testing.T) {
 		}()
 		go func() {
 			<-start
-			refreshResult <- repository.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, service.AccountModelCatalogState{}, nil)
+			refreshResult <- repository.CommitAccountModelCatalog(ctx, account.ID, baseline, snapshot, service.AccountModelCatalogState{}, nil, false)
 		}()
 		close(start)
 		require.NoError(test, <-renewalResult)

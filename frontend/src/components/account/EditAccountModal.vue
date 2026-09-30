@@ -2387,13 +2387,9 @@
       <p class="input-hint">{{ t('admin.accounts.editSections.independentSaves') }}</p>
       <AccountModelConfigurationSection :candidate-identity="modelCandidateIdentity" :active="show" :account-id="cursorCredentialDraft ? undefined : account.id" :platform="account.platform" :sync-credentials="cursorDraftPreview"
         v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings" :presets="presetMappings"
-        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="[savedModelGeneration, availabilityGeneration]"
-        :capability-defaults-json="capabilityDefaultsJSON" :capability-defaults-dirty="modelConfigurationDirty">
+        :connection-context="modelDiscoveryContext" :configuration-dirty="modelConfigurationDirty" :saved-revision="savedModelGeneration" :model-allowlist="accountModelAllowlist(account)" @selection-saved="handleModelSelectionSaved">
         <template #model-rules>
-      <ModelAvailabilityEditor :account-id="account.id" :active="show" :configuration-dirty="modelConfigurationDirty"
-        :connection-context="modelConnectionContext" :saved-revision="savedModelGeneration" @changed="availabilityGeneration++" />
       <ModelAccessRuleEditor v-if="show" :key="account.id" :path="`/admin/accounts/${account.id}`" />
-      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
         </template>
       </AccountModelConfigurationSection>
       <AccountCredentialSecretSection
@@ -2502,10 +2498,7 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 
-import ModelAvailabilityEditor from './ModelAvailabilityEditor.vue'
-import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
 import AccountCredentialSecretSection from './AccountCredentialSecretSection.vue'
-import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
@@ -2572,7 +2565,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
-import { getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, splitModelMappingObject } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, getPresetMappingsByPlatform, commonErrorCodes, buildModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, splitModelMappingObject } from '@/composables/useModelWhitelist'
 
 interface Props {
   show: boolean
@@ -3584,9 +3577,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
   }
 }
 
-const capabilityDefaultsJSON = ref('')
 const savedModelGeneration = ref(0)
-const availabilityGeneration = ref(0)
 const modelDiscoveryContext = computed(() => JSON.stringify([
   form, editBaseUrl.value, editApiKey.value, cursorKeyMode.value, cursorAutoCredentials.value, cursorClientVersion.value,
   editApiProtocol.value, editAccountMode.value, editOpenCodeAccountMode.value, editGeminiTier.value, editPlanType.value, editAdaptiveBaseUrls.value, editOpenCodeGoProtocolRules.value,
@@ -3594,18 +3585,29 @@ const modelDiscoveryContext = computed(() => JSON.stringify([
   editBedrockRegion.value, editBedrockForceGlobal.value, editBedrockApiKeyValue.value, editVertexProjectId.value, editVertexClientEmail.value, editVertexLocation.value,
   customBaseUrlEnabled.value, customBaseUrl.value, openAIEndpointCapabilities.value, openaiPassthroughEnabled.value, anthropicPassthroughEnabled.value,
   antigravityProjectId.value, headerOverrideEnabled.value, headerOverrideRows.value, grokOAuthBaseUrl.value, anthropicAPIKeyAuthScheme.value,
-  openAIResponsesMode.value, mixedScheduling.value, capabilityDefaultsJSON.value
+  openAIResponsesMode.value, mixedScheduling.value
 ]))
 const modelConnectionContext = computed(() => JSON.stringify([modelDiscoveryContext.value, allowedModels.value, modelMappings.value, openAICompactModelMappings.value, antigravityModelMappings.value]))
-const savedModelConnection = ref('')
-const modelConfigurationDirty = computed(() => modelConnectionContext.value !== savedModelConnection.value)
+const savedModelDiscovery = ref('')
+const modelConfigurationDirty = computed(() => modelDiscoveryContext.value !== savedModelDiscovery.value)
 const markModelConfigurationSaved = () => {
-  savedModelConnection.value = modelConnectionContext.value
+  savedModelDiscovery.value = modelDiscoveryContext.value
   savedModelGeneration.value++
 }
 
+let modelSelectionEchoAccountId: number | null = null
+const handleModelSelectionSaved = (account: Account) => {
+  if (account.id !== props.account?.id || !props.show) return
+  loadModelRestrictionFromMapping(account.credentials?.model_mapping as Record<string, unknown> | undefined)
+  savedModelGeneration.value++
+  // AccountsView synchronously echoes updated as a new object with runtime fields.
+  // Only that update should bypass full initialization of the unrelated drafts.
+  modelSelectionEchoAccountId = account.id
+  emit('updated', account)
+  void nextTick(() => { modelSelectionEchoAccountId = null })
+}
+
 const syncFormFromAccount = (newAccount: Account | null) => {
-  capabilityDefaultsJSON.value = newAccount?.extra?.model_capability_defaults ? JSON.stringify(newAccount.extra.model_capability_defaults, null, 2) : ''
   loadModelRestrictionFromMapping(newAccount?.credentials?.model_mapping as Record<string, unknown> | undefined)
   if (!newAccount) {
     editApiKey.value = ''
@@ -4059,9 +4061,15 @@ watch(
   [() => props.show, () => props.account],
   ([show, newAccount], [wasShow, previousAccount]) => {
     if (!show || !newAccount) {
+      modelSelectionEchoAccountId = null
       syncFormFromAccount(null)
       return
     }
+    if (wasShow && newAccount.id === previousAccount?.id && newAccount.id === modelSelectionEchoAccountId) {
+      modelSelectionEchoAccountId = null
+      return
+    }
+    modelSelectionEchoAccountId = null
     if (!wasShow || newAccount !== previousAccount) {
       syncFormFromAccount(newAccount)
       loadTLSProfiles()
@@ -4536,12 +4544,7 @@ const persistGrokMediaEligibility = async (accountID: number, updatedAccount: Ac
 const submitUpdateAccount = async (accountID: number, updatePayload: Record<string, unknown>, reviewedPayload: string) => {
   submitting.value = true
   try {
-    const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
     const extra = { ...(props.account?.extra ?? {}), ...((updatePayload.extra as Record<string, unknown>) ?? {}) }
-    if (declaration || props.account?.extra?.model_capability_defaults) {
-      extra.model_capability_defaults = declaration
-      updatePayload.extra = extra
-    }
     let updatedAccount: Account
     if (cursorCredentialDraft.value) {
       const pending = cursorCredentialDraft.value

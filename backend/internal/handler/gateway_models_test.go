@@ -312,25 +312,37 @@ func TestGatewayModels_UnmappedOpenAIAccountsSupplementMappedModels(t *testing.T
 		want     []string
 	}{
 		{
-			name:     "unmapped parent and Spark shadow retain defaults and aliases",
+			name:     "unmapped parent permits explicitly selected Spark shadow and alias",
 			accounts: accounts,
-			want:     []string{alias},
+			want:     []string{alias, sparkModel},
 		},
 		{
-			name:     "unmapped API key account also contributes defaults",
+			name:     "missing shadow parent excludes Spark despite its selection",
 			accounts: append([]service.Account{{ID: 4, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey}}, accounts[1:]...),
 			want:     []string{alias},
 		},
 		{
-			name:     "unmapped accounts alone retain default response shape",
+			name:     "unmapped accounts without a catalog contribute no models",
 			accounts: accounts[:1],
 			want:     []string{},
 		},
 		{
-			name:     "custom list can select defaults and aliases",
+			name:     "allowlist retains selected Spark and alias without adding models",
 			accounts: accounts,
 			config:   service.GroupModelAllowlist{Enabled: true, Models: []string{alias, "gpt-5.6-sol", sparkModel, "unknown-model"}},
+			want:     []string{sparkModel, alias},
+		},
+		{
+			name:     "allowlist explicitly excludes selected Spark",
+			accounts: accounts,
+			config:   service.GroupModelAllowlist{Enabled: true, Models: []string{alias}},
 			want:     []string{alias},
+		},
+		{
+			name:     "empty enabled allowlist excludes all selected models",
+			accounts: accounts,
+			config:   service.GroupModelAllowlist{Enabled: true, Models: []string{}},
+			want:     []string{},
 		},
 		{
 			name:     "unavailable custom selection remains empty",

@@ -273,10 +273,12 @@ export interface UpdateModelAllowlistRequest {
   models: string[]
   reason: string
   expected_rules_revision: string | number
+  model_mapping?: Record<string, string>
 }
 
 export interface UpdateModelAllowlistResponse {
   rules_revision: string
+  not_discovered?: string[]
 }
 
 export interface ApplyAccountModelCatalogRequest {

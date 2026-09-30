@@ -102,14 +102,8 @@ func TestGatewayInputAdmissionUsesVisibleEvidenceAndRetainsBody(t *testing.T) {
 		request.Header.Set("Content-Type", "application/json")
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, request)
-		if vision != nil {
-			require.False(t, called)
-			require.Equal(t, http.StatusBadRequest, recorder.Code)
-			require.Contains(t, recorder.Body.String(), "model_input_unsupported")
-		} else {
-			require.True(t, called)
-			require.Equal(t, http.StatusNoContent, recorder.Code)
-		}
+		require.True(t, called)
+		require.Equal(t, http.StatusNoContent, recorder.Code)
 	}
 }
 
@@ -155,10 +149,9 @@ func TestGatewayInputAdmissionResolvesOnlyRequestedModel(t *testing.T) {
 	request.Header.Set("Content-Type", "application/json")
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, request)
-	require.Equal(t, http.StatusBadRequest, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "model_input_unsupported")
-	require.Equal(t, 1, reads, "one account snapshot is sufficient for admission")
-	require.Equal(t, map[string]int{models[0]: queriesPerModel}, ownershipQueries, "unrelated models must never reach endpoint resolution")
+	require.Equal(t, http.StatusNoContent, recorder.Code)
+	require.Zero(t, reads, "metadata admission no longer loads candidate accounts")
+	require.Empty(t, ownershipQueries)
 }
 
 func TestGatewayActionCredentialsDoNotNeedDevelopmentUnlock(t *testing.T) {
@@ -185,5 +178,5 @@ func TestGatewayInputRequirementsRecheckedBeforeRetry(t *testing.T) {
 	require.NoError(t, validateAccountForwardModel(ctx, repo, &account, "private-model", "chat_completions"), "unknown input capability passes")
 	denied := false
 	account.SetUpstreamModelMetadataSnapshot(UpstreamModelMetadataSnapshot{Models: map[string]UpstreamModelMetadata{"private-model": {ProviderProfile: resolveCapabilityProfile(&account), SupportsVision: &denied}}})
-	require.ErrorIs(t, validateAccountForwardModel(ctx, repo, &account, "private-model", "chat_completions"), ErrAccountModelUnsupported, "retry must revalidate current input facts")
+	require.NoError(t, validateAccountForwardModel(ctx, repo, &account, "private-model", "chat_completions"), "metadata false does not deny an implemented action")
 }

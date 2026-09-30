@@ -22,7 +22,7 @@ type catalogFixtureRepository struct {
 	commits  int
 }
 
-func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot) error {
+func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
 	repository.mutex.Lock()
 	defer repository.mutex.Unlock()
 	account := repository.accounts[id]
@@ -37,6 +37,19 @@ func (repository *catalogFixtureRepository) CommitAccountModelCatalog(_ context.
 	}
 	if account.Extra == nil {
 		account.Extra = map[string]any{}
+	}
+	if snapshot != nil && freezeSelectionBaseline {
+		if !AccountModelSelectionNeedsFreeze(account) {
+			return ErrAccountModelCatalogConflict
+		}
+		mapping := FrozenAccountModelSelection(account, baseline)
+		if account.Credentials == nil {
+			account.Credentials = map[string]any{}
+		}
+		account.Credentials["model_mapping"] = mapping
+		NormalizeEmptyAccountModelSelection(account)
+		account.Extra[ModelSelectionBaselineFrozenExtraKey] = true
+		state.RulesRevision++
 	}
 	account.Extra[UpstreamModelCatalogStateExtraKey] = state
 	if snapshot != nil {
@@ -109,11 +122,12 @@ func TestAccountModelCatalogTrustsDiscoveredModelsWithoutConfirmation(t *testing
 			require.Empty(t, snapshot.ExcludedModels)
 			require.Equal(t, []AccountCatalogModel{{ID: "native", Category: "chat", Endpoints: []string{"chat_completions"}, EvidenceKind: "native_account_catalog", EvidenceObservedAt: catalog.ObservedAt}}, snapshot.EligibleModels)
 			require.Equal(t, []string{"native"}, snapshot.DiscoveredModels)
-			require.Equal(t, []string{"alias"}, catalog.InvalidAliases)
+			require.Empty(t, catalog.InvalidAliases)
 			for _, scope := range []string{"provider", "product", "custom", "unknown"} {
 				snapshot.DiscoveryScope = scope
 				account.Extra = map[string]any{UpstreamModelCatalogExtraKey: snapshot}
-				require.Equal(t, snapshot.EligibleModels, account.EffectiveUpstreamModelCatalog().EligibleModels, scope)
+				require.Len(t, account.EffectiveUpstreamModelCatalog().EligibleModels, 2, scope)
+				require.Equal(t, snapshot.EligibleModels[0], account.EffectiveUpstreamModelCatalog().EligibleModels[0])
 			}
 		})
 	}
@@ -139,16 +153,7 @@ func TestAccountModelCatalogProductDiscoveryUsesAccountCredentials(t *testing.T)
 		require.Equal(t, wantModels, catalog.Models)
 		effective := account.EffectiveUpstreamModelCatalog()
 		require.NotNil(t, effective)
-		require.Len(t, effective.EligibleModels, len(wantModels))
-		if len(wantModels) > 0 {
-			require.Equal(t, "native-chat", effective.EligibleModels[0].ID)
-			require.Equal(t, []string{"chat_completions"}, effective.EligibleModels[0].Endpoints)
-			require.Equal(t, "native_account_catalog", effective.EligibleModels[0].EvidenceKind)
-			require.ElementsMatch(t, []ExcludedCatalogModel{{ID: "native-video", Reason: CatalogReasonEndpointUnsupported}, {ID: "qwen1.5-72b-chat", Reason: CatalogReasonRetired}}, catalog.ExcludedModels)
-		} else {
-			require.Equal(t, []string{"native-chat"}, catalog.Diff.Removed)
-			require.Empty(t, account.GetUpstreamModelCatalog().EligibleModels)
-		}
+		require.Empty(t, effective.EligibleModels, "first discovery freezes an empty selection and does not auto-publish")
 	}
 	require.Len(t, upstream.requests, 3)
 	for _, request := range upstream.requests {
@@ -165,7 +170,7 @@ func TestAccountModelCatalogConflictAndRevisionOwnership(t *testing.T) {
 	results := make(chan error, 2)
 	for range 2 {
 		go func() {
-			results <- repository.CommitAccountModelCatalog(context.Background(), 1, baseline, snapshot, AccountModelCatalogState{}, nil)
+			results <- repository.CommitAccountModelCatalog(context.Background(), 1, baseline, snapshot, AccountModelCatalogState{}, nil, false)
 		}()
 	}
 	first, second := <-results, <-results
@@ -218,7 +223,7 @@ func TestAccountModelCatalogResponseContract(t *testing.T) {
 	require.Equal(t, "9007199254740993", response["identity_revision"])
 	require.Equal(t, "9007199254740995", response["rules_revision"])
 	require.Equal(t, "0", response["snapshot_revision"])
-	require.Equal(t, []any{"a-alias", "z-alias"}, response["invalid_aliases"])
+	require.Empty(t, response["invalid_aliases"])
 	require.Equal(t, []any{map[string]any{"model": "unknown", "reason": "metadata_incomplete"}}, response["excluded_models"])
 	// Internal state remains numeric and can still be decoded from account extra.
 	encoded, err = json.Marshal(account.ModelCatalogState())
@@ -260,7 +265,7 @@ func TestAccountModelCatalogPreviewPreservesStoredEvidenceAndCache(t *testing.T)
 			if status == http.StatusOK {
 				require.NoError(t, err)
 				require.Equal(t, []string{"old"}, catalog.Diff.Removed)
-				require.Equal(t, []string{"alias"}, catalog.InvalidAliases)
+				require.Empty(t, catalog.InvalidAliases)
 				require.False(t, catalog.Applied)
 			} else {
 				require.Error(t, err)
@@ -282,14 +287,14 @@ type concurrentCatalogRepository struct {
 	release chan struct{}
 }
 
-func (repository *concurrentCatalogRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot) error {
+func (repository *concurrentCatalogRepository) CommitAccountModelCatalog(ctx context.Context, id int64, baseline AccountModelCatalogBaseline, snapshot *AccountModelCatalogSnapshot, state AccountModelCatalogState, metadata *UpstreamModelMetadataSnapshot, freezeSelectionBaseline bool) error {
 	repository.ready <- struct{}{}
 	select {
 	case <-repository.release:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
-	return repository.catalogFixtureRepository.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata)
+	return repository.catalogFixtureRepository.CommitAccountModelCatalog(ctx, id, baseline, snapshot, state, metadata, freezeSelectionBaseline)
 }
 
 func TestAccountModelCatalogConcurrentApplySameBaselineHasOneWinner(t *testing.T) {
@@ -397,8 +402,15 @@ func TestAccountModelCatalogExclusionReasons(t *testing.T) {
 			account := &Account{Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": tc.baseURL}, Extra: map[string]any{UpstreamModelAllowlistExtraKey: tc.allowlist}}
 			catalog := &UpstreamModelCatalog{Models: []string{"native"}, Metadata: map[string]UpstreamModelMetadata{"native": tc.metadata}}
 			snapshot := projectAccountModelCatalog(account, catalog)
-			require.Empty(t, snapshot.EligibleModels)
-			require.Equal(t, []ExcludedCatalogModel{{ID: "native", Reason: tc.reason}}, catalog.ExcludedModels)
+			if tc.reason == CatalogReasonAccountRestricted {
+				require.Len(t, snapshot.EligibleModels, 1)
+				require.Empty(t, catalog.ExcludedModels)
+				account.Extra[UpstreamModelCatalogExtraKey] = snapshot
+				require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels)
+			} else {
+				require.Empty(t, snapshot.EligibleModels)
+				require.Equal(t, []ExcludedCatalogModel{{ID: "native", Reason: tc.reason}}, catalog.ExcludedModels)
+			}
 		})
 	}
 }

@@ -4,11 +4,144 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
+
+func TestModelAvailabilityDiagnosisExplicitScope(t *testing.T) {
+	groupID := int64(42)
+	for _, gateway := range []string{"generic", "openai"} {
+		for _, scenario := range []struct {
+			name      string
+			mapping   map[string]any
+			requested string
+			scope     AccountModelAllowlist
+			transient bool
+			supported bool
+		}{
+			{"direct selected", map[string]any{"Private-ID": "Private-ID"}, "Private-ID", AccountModelAllowlist{Enabled: true, Models: []string{"Private-ID"}}, false, true},
+			{"direct excluded", map[string]any{"Private-ID": "Private-ID"}, "Private-ID", AccountModelAllowlist{Enabled: true, Models: []string{"other"}}, false, false},
+			{"alias selected by target", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"Private-ID"}}, false, true},
+			{"alias excluded", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"other"}}, false, false},
+			{"public alias is not wire scope", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"alias"}}, false, false},
+			{"deny all selected", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true}, false, false},
+			{"deny all empty mapping", nil, "Private-ID", AccountModelAllowlist{Enabled: true}, false, false},
+			{"disabled filter", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: false, Models: []string{"other"}}, false, true},
+			{"scope cannot expand mapping", map[string]any{"selected": "other"}, "Private-ID", AccountModelAllowlist{Enabled: true, Models: []string{"Private-ID"}}, false, false},
+			{"exact case preserved", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"private-id"}}, false, false},
+			{"wildcard resolves target", map[string]any{"public-*": "Private-ID"}, "public-test", AccountModelAllowlist{Enabled: true, Models: []string{"Private-ID"}}, false, true},
+			{"temporary failures preserve support", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"Private-ID"}}, true, true},
+			{"explicit exclusion wins over temporary failure", map[string]any{"alias": "Private-ID"}, "alias", AccountModelAllowlist{Enabled: true, Models: []string{"other"}}, true, false},
+		} {
+			t.Run(gateway+"/"+scenario.name, func(t *testing.T) {
+				future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
+				account := Account{ID: 91, Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Status: StatusActive, Schedulable: true,
+					AccountGroups: []AccountGroup{{GroupID: groupID}}, Credentials: map[string]any{"model_mapping": scenario.mapping},
+					Extra: map[string]any{UpstreamModelAllowlistExtraKey: scenario.scope}}
+				if scenario.transient {
+					account.RateLimitResetAt, account.OverloadUntil, account.TempUnschedulableUntil, account.ExpiresAt = &future, &future, &future, &past
+					account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{Result: "credentials_invalid"}
+				}
+				// No discovery snapshot or capability facts, including under a real
+				// request-plan context: neither can become a diagnostic admission gate.
+				ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: scenario.requested, Protocol: "openai"}))
+				repo := &mockAccountRepoForPlatform{accounts: []Account{account}}
+				var diagnoser ModelAvailabilityDiagnoser = &GatewayService{accountRepo: repo, cfg: testConfig(), schedulerSnapshot: &SchedulerSnapshotService{}}
+				if gateway == "openai" {
+					diagnoser = &OpenAIGatewayService{accountRepo: repo, cfg: testConfig(), schedulerSnapshot: &SchedulerSnapshotService{}}
+				}
+				diagnosis := diagnoser.DiagnoseModelAvailabilityForPlatform(ctx, &groupID, scenario.requested, PlatformOpenAI)
+				require.True(t, diagnosis.HasAccountsInPool)
+				require.Equal(t, scenario.supported, diagnosis.HasModelSupport)
+			})
+		}
+	}
+}
+
+func TestModelAvailabilityDiagnosisPassthroughWireScope(t *testing.T) {
+	for _, gateway := range []string{"generic", "openai"} {
+		for _, websocket := range []bool{false, true} {
+			for _, scope := range []AccountModelAllowlist{{Enabled: true, Models: []string{"wire-name"}}, {Enabled: true, Models: []string{"mapped-target"}}, {Enabled: true}} {
+				account := catalogEvidenceAccount(1, PlatformOpenAI)
+				account.Credentials["model_mapping"] = map[string]string{"wire-name": "mapped-target"}
+				account.Extra["openai_passthrough"] = !websocket
+				account.Extra["openai_apikey_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+				account.Extra[UpstreamModelAllowlistExtraKey] = scope
+				future, past := time.Now().Add(time.Hour), time.Now().Add(-time.Hour)
+				account.RateLimitResetAt, account.OverloadUntil, account.TempUnschedulableUntil, account.ExpiresAt = &future, &future, &future, &past
+				ctx := WithGatewayRequestPlan(context.Background(), NewGatewayRequestPlan(GatewayRequestSpec{Model: "wire-name", Protocol: "responses", Action: "responses"}))
+				if websocket {
+					ctx = WithOpenAIWebSocketSelection(ctx, OpenAIWSIngressModeCtxPool)
+				}
+				repo := &mockAccountRepoForPlatform{accounts: []Account{account}}
+				var diagnoser ModelAvailabilityDiagnoser = &GatewayService{accountRepo: repo, cfg: testConfig()}
+				if gateway == "openai" {
+					diagnoser = &OpenAIGatewayService{accountRepo: repo, cfg: testConfig()}
+				}
+				diagnosis := diagnoser.DiagnoseModelAvailabilityForPlatform(ctx, nil, "wire-name", PlatformOpenAI)
+				require.True(t, diagnosis.HasAccountsInPool)
+				require.Equal(t, len(scope.Models) > 0 && scope.Models[0] == "wire-name", diagnosis.HasModelSupport)
+			}
+		}
+	}
+}
+
+func TestModelAvailabilityDiagnosisRequestedAliasNormalization(t *testing.T) {
+	for _, platform := range []string{PlatformGemini, PlatformAntigravity} {
+		account := catalogEvidenceAccount(1, platform)
+		account.Credentials["model_mapping"] = map[string]string{"gemini-3.1-pro-preview": "gemini-3.1-pro-preview"}
+		diagnoser := &GatewayService{accountRepo: &mockAccountRepoForPlatform{accounts: []Account{account}}, cfg: testConfig()}
+		require.True(t, diagnoser.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "gemini-3.1-pro-preview-customtools", platform).HasModelSupport)
+		require.False(t, diagnoser.DiagnoseModelAvailabilityForPlatform(context.Background(), nil, "gemini-unselected", platform).HasModelSupport)
+	}
+}
+
+func TestModelAvailabilityDiagnosisWebSocketScopeRemainsLiteral(t *testing.T) {
+	account := catalogEvidenceAccount(1, PlatformOpenAI)
+	account.Type = AccountTypeOAuth
+	account.Credentials["model_mapping"] = map[string]string{"gpt-5.4": "different-target"}
+	account.Extra["openai_oauth_responses_websockets_v2_mode"] = OpenAIWSIngressModePassthrough
+	ctx := WithOpenAIWebSocketSelection(context.Background(), OpenAIWSIngressModePassthrough)
+	for _, allowed := range []string{"gpt-5.4", "gpt-5.4-high"} {
+		account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{allowed}}
+		binding := ResolveAccountModelBinding(ctx, &account, "gpt-5.4", AccountModelBindingOptions{Endpoint: "responses"})
+		require.Equal(t, allowed == "gpt-5.4", binding.Supported)
+		require.Equal(t, binding.Supported, accountModelScopeAllowsDiagnosis(ctx, &account, "gpt-5.4"))
+	}
+}
+
+type modelDiagnosisFailingRepository struct{ AccountRepository }
+
+func (modelDiagnosisFailingRepository) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
+	return nil, errors.New("fixture query unavailable")
+}
+
+func TestModelAvailabilityDiagnosisConservativeFailureAndScopeIsolation(t *testing.T) {
+	groupID := int64(42)
+	for _, gateway := range []string{"generic", "openai"} {
+		for _, scenario := range []struct {
+			name     string
+			repo     AccountRepository
+			expected ModelAvailabilityDiagnosis
+		}{
+			{"query error remains service unavailable", modelDiagnosisFailingRepository{}, ModelAvailabilityDiagnosis{HasAccountsInPool: true, HasModelSupport: true}},
+			{"empty pool remains service unavailable", &mockAccountRepoForPlatform{}, ModelAvailabilityDiagnosis{}},
+			{"foreign group cannot supply support", &mockAccountRepoForPlatform{accounts: []Account{{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, AccountGroups: []AccountGroup{{GroupID: 99}}}}}, ModelAvailabilityDiagnosis{}},
+			{"foreign platform cannot supply support", &mockAccountRepoForPlatform{accounts: []Account{{ID: 1, Platform: PlatformAnthropic, Status: StatusActive, Schedulable: true, AccountGroups: []AccountGroup{{GroupID: groupID}}}}}, ModelAvailabilityDiagnosis{}},
+		} {
+			t.Run(gateway+"/"+scenario.name, func(t *testing.T) {
+				var diagnoser ModelAvailabilityDiagnoser = &GatewayService{accountRepo: scenario.repo, cfg: testConfig()}
+				if gateway == "openai" {
+					diagnoser = &OpenAIGatewayService{accountRepo: scenario.repo, cfg: testConfig()}
+				}
+				require.Equal(t, scenario.expected, diagnoser.DiagnoseModelAvailabilityForPlatform(context.Background(), &groupID, "Private-ID", PlatformOpenAI))
+			})
+		}
+	}
+}
 
 func TestDiagnoseModelAvailabilityForPlatform_NoModel_AlwaysAvailable(t *testing.T) {
 	repo := &mockAccountRepoForPlatform{accounts: nil, accountsByID: map[int64]*Account{}}

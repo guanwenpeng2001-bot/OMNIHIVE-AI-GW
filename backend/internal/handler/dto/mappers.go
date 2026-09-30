@@ -728,7 +728,7 @@ func AccountSummaryFromService(a *service.Account) *AccountSummary {
 }
 
 func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
-	// 普通用户 DTO：严禁包含管理员字段（例如 account_rate_multiplier、account、upstream_model）。
+	// 普通用户 DTO：不含账号详情、账号费率、实际发出模型等管理员字段；请求与上游声明对记录所有者可见。
 	requestType := l.EffectiveRequestType()
 	stream, openAIWSMode := service.ApplyLegacyRequestFields(requestType, l.Stream, l.OpenAIWSMode)
 	requestedModel := l.RequestedModel
@@ -743,6 +743,8 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		AccountID:                 l.AccountID,
 		RequestID:                 l.RequestID,
 		Model:                     requestedModel,
+		UpstreamResponseModel:     l.UpstreamResponseModel,
+		UpstreamModelMismatch:     l.UpstreamModelMismatch,
 		ServiceTier:               l.ServiceTier,
 		ReasoningEffort:           userFacingReasoningEffort(l),
 		InboundEndpoint:           l.InboundEndpoint,
@@ -819,8 +821,6 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		UsageLog:                usageLog,
 		UpstreamModel:           l.UpstreamModel,
 		UpstreamReasoningEffort: adminUpstreamReasoningEffort(l),
-		UpstreamResponseModel:   l.UpstreamResponseModel,
-		UpstreamModelMismatch:   l.UpstreamModelMismatch,
 		ChannelID:               l.ChannelID,
 		ModelMappingChain:       l.ModelMappingChain,
 		UpstreamRequestID:       l.UpstreamRequestID,

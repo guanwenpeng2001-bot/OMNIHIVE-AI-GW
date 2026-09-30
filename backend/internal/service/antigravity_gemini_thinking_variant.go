@@ -130,12 +130,13 @@ func resolveGeminiThinkingVariantForLevel(account *Account, requestedModel strin
 	for _, level := range order {
 		candidate := model + "-" + level
 		target := candidate
-		if mapped, matched := resolveRequestedModelInMapping(mapping, candidate); matched {
+		mapped, matched := resolveRequestedModelInMapping(mapping, candidate)
+		if matched {
 			target = strings.TrimSpace(mapped)
 		}
 		for _, member := range snapshot.EligibleModels {
 			if member.ID == target && member.EvidenceKind != "" && catalogEndpointsContain(member.Endpoints, "generate_content") &&
-				(slices.Contains(snapshot.DiscoveredModels, member.ID) || hasAvailabilityEvidence(account, nil, member)) {
+				(matched || configuredSelectionEvidence(account, member) || hasAvailabilityEvidence(account, nil, member) || (len(mapping) == 0 && slices.Contains(snapshot.DiscoveredModels, member.ID))) {
 				return target, true
 			}
 		}

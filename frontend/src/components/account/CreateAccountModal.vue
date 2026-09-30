@@ -21,7 +21,7 @@
       <p v-else class="input-hint">{{ selectedReviewRequest?.name }}</p>
       <AccountModelConfigurationSection v-model="workflowAllowedModels" v-model:mappings="workflowModelMappings"
         :platform="selectedReviewRequest?.platform" :candidate-identity="modelCandidateIdentity" :presets="presetMappings"
-        :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" :capability-defaults-json="capabilityDefaultsJSON" />
+        :active="show" :sync-credentials="credentialPreview" :connection-context="previewConnectionContext" />
       <p v-if="reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
     </section>
     <div v-show="!createdCatalogAccounts.length && !pendingAccountRequests.length">
@@ -3050,9 +3050,8 @@
         />
       </div>
 
-      <p v-if="form.proxy_id || headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [form.proxy_id ? t('admin.accounts.modelSync.scopeProxy') : '', headerOverrideEnabled ? t('admin.accounts.modelSync.scopeHeaders') : ''].filter(Boolean).join(', ') }) }}</p>
+      <p v-if="headerOverrideEnabled" class="input-hint">{{ t('admin.accounts.modelSync.temporaryScope', { settings: [t('admin.accounts.modelSync.scopeHeaders')].filter(Boolean).join(', ') }) }}</p>
 
-      <ModelCapabilityDefaultsEditor v-model="capabilityDefaultsJSON" />
     </form>
 
     <!-- Step 2: OAuth Authorization -->
@@ -3468,8 +3467,6 @@ import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import ModelCapabilityDefaultsEditor from './ModelCapabilityDefaultsEditor.vue'
-import { parseModelCapabilityDefaults } from './modelCapabilityDefaults'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
@@ -3993,7 +3990,6 @@ const modelMappings = ref<ModelMapping[]>([])
 const openAICompactModelMappings = ref<ModelMapping[]>([])
 const modelRestrictionMode = ref<'whitelist' | 'mapping'>('whitelist')
 const allowedModels = ref<string[]>([])
-const capabilityDefaultsJSON = ref('')
 const createdCatalogAccounts = ref<Array<{ id: number; platform: string }>>([])
 const rememberCatalogAccount = (id: number | undefined, platform: string) => {
   if (id && !createdCatalogAccounts.value.some(account => account.id === id)) createdCatalogAccounts.value.push({ id, platform })
@@ -4883,7 +4879,7 @@ const reviewedRequests = computed<AccountWorkflowRequest[]>(() => pendingAccount
 const credentialPreview = computed(() => {
   const payload = reviewedRequests.value[selectedReviewIndex.value]
   if (!payload) return undefined
-  return { platform: payload.platform, type: payload.type, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
+  return { platform: payload.platform, type: payload.type, proxy_id: payload.proxy_id ?? form.proxy_id ?? null, credentials: payload.credential_draft ? { model_mapping: payload.credentials.model_mapping, ...(payload.credentials.compact_model_mapping ? { compact_model_mapping: payload.credentials.compact_model_mapping } : {}) } : payload.credentials,
     ...(!payload.credential_draft ? {
       base_url: typeof payload.credentials.base_url === 'string' ? payload.credentials.base_url : undefined,
       api_key: typeof payload.credentials.api_key === 'string' ? payload.credentials.api_key : undefined
@@ -4961,8 +4957,6 @@ const createWithOptions = async (payload: CreateAccountRequest) => {
   const generation = reviewGeneration
   const credentials = { ...payload.credentials }
   const extra = { ...payload.extra }
-  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
-  if (declaration) extra.model_capability_defaults = declaration
   if (['openai', 'anthropic', 'grok'].includes(payload.platform) && createSchedulingThreshold.value != null && String(createSchedulingThreshold.value).trim() !== '') {
     const threshold = Number(createSchedulingThreshold.value)
     if (!Number.isInteger(threshold) || threshold < 1 || threshold > 100) throw new Error(t('admin.accounts.accountSchedulingThresholdOverrideHint'))
@@ -5026,7 +5020,6 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 const resetForm = () => {
   createdCatalogAccounts.value = []
-  capabilityDefaultsJSON.value = ''
   cursorAutoCredentials.value = {}
   cursorClientVersion.value = ''
   cursorAuthorizing.value = false
@@ -5229,8 +5222,6 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
 
 const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
   const extra = { ...buildOpenAIExtra() }
-  const declaration = parseModelCapabilityDefaults(capabilityDefaultsJSON.value)
-  if (declaration) extra.model_capability_defaults = declaration
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
   }
@@ -5347,7 +5338,6 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 
 const handleSubmit = async () => {
   if (createdCatalogAccounts.value.length || pendingAccountRequests.value.length || submitting.value) return
-  try { parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } catch { appStore.showError(t('admin.accounts.modelSync.invalidDeclaration')); return }
   const restrictionErrors = validateModelRestrictions('combined', allowedModels.value, modelMappings.value)
   if (restrictionErrors.length) { appStore.showError(translateModelRestrictionErrors(restrictionErrors, t)); return }
   if (form.platform === 'cursor') {
@@ -5900,7 +5890,6 @@ const handleGrokImportSSO = async (ssoInput: string) => {
   try {
     const result = await adminAPI.grok.createFromSSO({
       sso_tokens: ssoTokens,
-      ...(capabilityDefaultsJSON.value.trim() ? { extra: { model_capability_defaults: parseModelCapabilityDefaults(capabilityDefaultsJSON.value) } } : {}),
       name: form.name || undefined,
       notes: form.notes || undefined,
       proxy_id: form.proxy_id,

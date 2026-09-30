@@ -19,27 +19,44 @@ import (
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 )
 
 type attemptFrameConn struct {
 	openaiwsv2.FrameConn
-	accountID int64
-	repo      AccountRepository
-	account   *Account
-	plan      func() *GatewayRequestPlan
+	accountID           int64
+	repo                AccountRepository
+	account             *Account
+	plan                func() *GatewayRequestPlan
+	sentResponseCreates atomic.Int32
 }
 
 func (c *attemptFrameConn) WriteFrame(ctx context.Context, kind coderws.MessageType, payload []byte) error {
 	if c.plan != nil {
 		ctx = WithGatewayRequestPlan(ctx, c.plan())
 	}
-	if gjson.GetBytes(payload, "type").String() == "response.create" {
-		if err := validateAccountForwardModel(ctx, c.repo, c.account, gjson.GetBytes(payload, "model").String(), "responses"); err != nil {
+	isResponseCreate := strings.TrimSpace(gjson.GetBytes(payload, "type").String()) == "response.create"
+	if isResponseCreate {
+		if err := validateAccountPassthroughForwardModel(ctx, c.repo, c.account, gjson.GetBytes(payload, "model").String()); err != nil {
 			return err
 		}
 	}
 
-	return generationWS(ctx, c.accountID, json.RawMessage(payload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
+	// The relay recognizes trimmed event types. Use that same classification
+	// for generation admission, while preserving the actual outgoing frame.
+	admissionPayload := payload
+	if isResponseCreate && gjson.GetBytes(payload, "type").String() != "response.create" {
+		var err error
+		admissionPayload, err = sjson.SetBytes(payload, "type", "response.create")
+		if err != nil {
+			return err
+		}
+	}
+	err := generationWS(ctx, c.accountID, json.RawMessage(admissionPayload), func(ctx context.Context) error { return c.FrameConn.WriteFrame(ctx, kind, payload) })
+	if err == nil && isResponseCreate {
+		c.sentResponseCreates.Add(1)
+	}
+	return err
 }
 
 type openAIWSClientFrameConn struct {
@@ -963,7 +980,8 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if hooks != nil {
 		requestPlan = hooks.RequestPlan
 	}
-	upstreamFrameConn = &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID, repo: s.accountRepo, account: account, plan: requestPlan}
+	checkedUpstream := &attemptFrameConn{FrameConn: upstreamFrameConn, accountID: account.ID, repo: s.accountRepo, account: account, plan: requestPlan}
+	upstreamFrameConn = checkedUpstream
 	relayUpstreamFrameConn := &openAIWSPassthroughFirstOutputFrameConn{
 		inner:             upstreamFrameConn,
 		activeReadTimeout: attemptTimeout(ctx, s.openAIWSPassthroughIdleTimeout()),
@@ -1380,7 +1398,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	})
 	// The relay has joined its upstream reader, so this is a stable snapshot of
 	// the unfinished turn, separate from already settled session totals.
-	if interrupted := relayResult.InterruptedTurn; interrupted != nil && hooks != nil && hooks.AfterTurn != nil {
+	// Model selection is checked before WriteFrame sends any bytes. The relay
+	// has already opened its turn bookkeeping at that point, but no upstream
+	// attempt exists to observe or bill when this check rejects the frame.
+	modelRejectedBeforeSend := relayExit != nil && errors.Is(relayExit.Err, ErrAccountModelUnsupported) && checkedUpstream.sentResponseCreates.Load() == completedTurns.Load()
+	if interrupted := relayResult.InterruptedTurn; interrupted != nil && !modelRejectedBeforeSend && hooks != nil && hooks.AfterTurn != nil {
 		turnNo := int(completedTurns.Load()) + 1
 		turnRequestModel, turnUpstreamModel := usageMeta.turnModels(interrupted.RequestModel)
 		turnErr := context.Cause(ctx)

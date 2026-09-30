@@ -191,8 +191,10 @@ func TestAccountModelCatalogQianwenMissingMetadataRecovery(t *testing.T) {
 
 	account.Extra = map[string]any{UpstreamModelAllowlistExtraKey: AccountModelAllowlist{Enabled: true}}
 	restricted := projectAccountModelCatalog(account, &UpstreamModelCatalog{Models: []string{"qwen-7b-chat"}})
-	require.Empty(t, restricted.EligibleModels)
-	require.Equal(t, []ExcludedCatalogModel{{ID: "qwen-7b-chat", Reason: CatalogReasonAccountRestricted}}, restricted.ExcludedModels)
+	require.Len(t, restricted.EligibleModels, 1)
+	require.Empty(t, restricted.ExcludedModels)
+	account.Extra[UpstreamModelCatalogExtraKey] = restricted
+	require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels)
 }
 
 func TestAccountModelCatalogQianwenUnsupportedAndUnknownTasks(t *testing.T) {

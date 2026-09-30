@@ -55,33 +55,21 @@
         </template>
 
         <template #cell-model="{ row }">
-          <div class="space-y-0.5 text-xs">
-            <div v-if="row.model_mapping_chain && row.model_mapping_chain.includes('→')" class="space-y-0.5">
-              <div v-for="(step, i) in row.model_mapping_chain.split('→')" :key="i"
-                   class="break-all"
-                   :class="i === 0 ? 'font-medium text-gray-900 dark:text-white' : 'text-gray-500 dark:text-gray-400'"
-                   :style="i > 0 ? `padding-left: ${i * 0.75}rem` : ''">
-                <span v-if="i > 0" class="mr-0.5">↳</span>{{ step }}
-              </div>
+          <div data-testid="model-cell" class="max-w-xs space-y-0.5 text-xs">
+            <div data-testid="requested-model" class="flex min-w-0 items-center gap-1 font-medium text-gray-900 dark:text-white" :title="modelAuditTitle(row)">
+              <span class="shrink-0">↑ {{ t('usage.requestedModel') }}:</span>
+              <span class="truncate">{{ row.model }}</span>
             </div>
-            <div v-else-if="row.upstream_model && row.upstream_model !== row.model" class="space-y-0.5">
-              <div class="break-all font-medium text-gray-900 dark:text-white">
-                {{ row.model }}
-              </div>
-              <div class="break-all text-gray-500 dark:text-gray-400">
-                <span class="mr-0.5">↳</span>{{ row.upstream_model }}
-              </div>
-            </div>
-            <span v-else class="font-medium text-gray-900 dark:text-white">{{ row.model }}</span>
             <div
-              v-if="row.upstream_model_mismatch === true && row.upstream_response_model"
-              class="break-all pl-3 text-[11px]"
-              :class="isLikelyModelVariant(row) ? 'text-amber-600 dark:text-amber-400' : 'text-orange-600 dark:text-orange-400'"
+              data-testid="response-model"
+              class="flex min-w-0 items-center gap-1 text-gray-500 dark:text-gray-400"
               :title="modelAuditTitle(row)"
             >
-              <span class="mr-1">↳ {{ t('usage.upstreamResponseModel') }}:</span>{{ row.upstream_response_model }}
+              <span class="shrink-0">↓ {{ t('usage.upstreamResponseModel') }}:</span>
+              <span class="truncate">{{ row.upstream_response_model || t('usage.notCollected') }}</span>
               <span
-                class="ml-1 inline-flex rounded px-1 py-px text-[10px] font-medium ring-1 ring-inset"
+                v-if="row.upstream_model_mismatch === true && row.upstream_response_model"
+                class="inline-flex shrink-0 rounded px-1 py-px text-[10px] font-medium ring-1 ring-inset"
                 :class="isLikelyModelVariant(row)
                   ? 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-300 dark:ring-amber-500/30'
                   : 'bg-orange-50 text-orange-700 ring-orange-200 dark:bg-orange-500/10 dark:text-orange-300 dark:ring-orange-500/30'"
@@ -643,9 +631,10 @@ const isLikelyModelVariant = (row: AdminUsageLog): boolean => {
 
 const modelAuditTitle = (row: AdminUsageLog): string => [
   `${t('usage.requestedModel')}: ${row.model || '-'}`,
-  `${t('usage.sentUpstreamModel')}: ${sentUpstreamModel(row) || '-'}`,
-  `${t('usage.upstreamResponseModel')}: ${row.upstream_response_model || '-'}`,
-].join('\n')
+  row.upstream_model ? `${t('usage.sentUpstreamModel')}: ${row.upstream_model}` : '',
+  row.model_mapping_chain ? `${t('usage.mapping')}: ${row.model_mapping_chain}` : '',
+  `${t('usage.upstreamResponseModel')}: ${row.upstream_response_model || t('usage.notCollected')}`,
+].filter(Boolean).join('\n')
 
 const currentPageIps = computed(() =>
   Array.from(new Set(props.data.map((row) => row.ip_address).filter((ip): ip is string => Boolean(ip))))
