@@ -224,7 +224,8 @@ func TestAccountModelCatalogResponseContract(t *testing.T) {
 	require.Equal(t, "9007199254740995", response["rules_revision"])
 	require.Equal(t, "0", response["snapshot_revision"])
 	require.Empty(t, response["invalid_aliases"])
-	require.Equal(t, []any{map[string]any{"model": "unknown", "reason": "metadata_incomplete"}}, response["excluded_models"])
+	require.Empty(t, response["excluded_models"])
+	require.Equal(t, []any{"unknown"}, response["models"])
 	// Internal state remains numeric and can still be decoded from account extra.
 	encoded, err = json.Marshal(account.ModelCatalogState())
 	require.NoError(t, err)
@@ -393,10 +394,10 @@ func TestAccountModelCatalogExclusionReasons(t *testing.T) {
 		metadata  UpstreamModelMetadata
 		reason    CatalogExclusionReason
 	}{
-		{name: "provider missing endpoint evidence", platform: PlatformQianwen, reason: CatalogReasonMetadataIncomplete},
+		{name: "provider missing endpoint evidence", platform: PlatformQianwen},
 		{name: "provider account restriction", platform: PlatformQianwen, allowlist: AccountModelAllowlist{Enabled: true}, metadata: UpstreamModelMetadata{TaskType: "text_generation"}, reason: CatalogReasonAccountRestricted},
 		{name: "account restriction", platform: PlatformDeepseek, baseURL: "https://api.deepseek.com", allowlist: AccountModelAllowlist{Enabled: true}, reason: CatalogReasonAccountRestricted},
-		{name: "missing endpoint evidence", platform: PlatformOpenAI, baseURL: "https://api.openai.com", reason: CatalogReasonMetadataIncomplete},
+		{name: "missing endpoint evidence", platform: PlatformOpenAI, baseURL: "https://api.openai.com"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			account := &Account{Platform: tc.platform, Type: AccountTypeAPIKey, Credentials: map[string]any{"base_url": tc.baseURL}, Extra: map[string]any{UpstreamModelAllowlistExtraKey: tc.allowlist}}
@@ -407,6 +408,10 @@ func TestAccountModelCatalogExclusionReasons(t *testing.T) {
 				require.Empty(t, catalog.ExcludedModels)
 				account.Extra[UpstreamModelCatalogExtraKey] = snapshot
 				require.Empty(t, account.EffectiveUpstreamModelCatalog().EligibleModels)
+			} else if tc.reason == "" {
+				require.Len(t, snapshot.EligibleModels, 1)
+				require.Contains(t, snapshot.EligibleModels[0].Endpoints, CompositeRouteEndpointChatCompletions)
+				require.Empty(t, catalog.ExcludedModels)
 			} else {
 				require.Empty(t, snapshot.EligibleModels)
 				require.Equal(t, []ExcludedCatalogModel{{ID: "native", Reason: tc.reason}}, catalog.ExcludedModels)

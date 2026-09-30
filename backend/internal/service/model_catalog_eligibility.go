@@ -616,6 +616,40 @@ func normalizeAccountBindingWireModel(account *Account, model string) string {
 
 func computeAccountBindingEndpoint(account *Account, model string, options AccountModelBindingOptions, memberIndex int, member AccountCatalogModel) bool {
 	endpoint := options.Endpoint
+	if options.FinalModel != "" && account.IsMultiProtocolAPIKey() && !account.IsAdaptiveAPIProtocol() && chatOnlyCatalogHasTextMethod([]string{endpoint}) && !catalogEndpointsContain(accountCatalogNativeTextEndpoints(account, model), endpoint) {
+		// At the send boundary this is the actual wire family, not an ingress
+		// that can still be converted by a compatibility adapter.
+		return false
+	}
+	endpointDeclarationChanged := false
+	if concreteMappedModel(account, member.ID) {
+		// Saved manual selections may name private or newly released media
+		// models. Optional task facts cannot remove installed action adapters.
+		member.Endpoints = append(append([]string(nil), member.Endpoints...), adapterBoundCatalogFamilies(account)...)
+		endpointDeclarationChanged = true
+	}
+	if len(member.Endpoints) == 0 {
+		// A previously selected catalog member remains selected when optional
+		// endpoint metadata was absent at discovery time.
+		metadata, _ := account.GetUpstreamModelMetadata(member.ID)
+		member.Endpoints = accountCatalogModelEndpoints(account, member.ID, metadata)
+		endpointDeclarationChanged = true
+	}
+	if account.IsAdaptiveAPIProtocol() && chatOnlyCatalogHasTextMethod(member.Endpoints) {
+		member.Endpoints = append(append([]string(nil), member.Endpoints...), accountCatalogNativeTextEndpoints(account, model)...)
+		endpointDeclarationChanged = true
+	}
+	if account.IsCursor() && account.Type != AccountTypeUpstream {
+		// Older snapshots called the native Cursor text adapter Responses.
+		// Normalize that declaration without changing the stored model selection.
+		member.Endpoints = append([]string(nil), member.Endpoints...)
+		for index, family := range member.Endpoints {
+			if family == CompositeRouteEndpointResponses {
+				member.Endpoints[index] = CompositeRouteEndpointChatCompletions
+			}
+		}
+		endpointDeclarationChanged = true
+	}
 	if endpoint == "realtime" {
 		endpoint = string(OpenAIEndpointCapabilityLive)
 	}
@@ -644,7 +678,7 @@ func computeAccountBindingEndpoint(account *Account, model string, options Accou
 		endpoint = CompositeRouteEndpointMessages
 	}
 	var implemented []string
-	if account.modelCatalogReadEvidence != nil {
+	if account.modelCatalogReadEvidence != nil && !endpointDeclarationChanged {
 		implemented = account.modelCatalogReadEvidence.implemented[model][memberIndex]
 	} else {
 		implemented = accountCatalogModelEndpoints(account, member.ID, UpstreamModelMetadata{SupportedMethods: member.Endpoints})

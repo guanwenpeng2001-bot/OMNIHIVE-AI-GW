@@ -118,7 +118,7 @@ func populateLegacyModelCatalogEndpoints(account *Account, snapshot *AccountMode
 			switch {
 			case account.IsGemini() || account.Platform == PlatformAntigravity:
 				endpoints = []string{"generate_content"}
-			case account.IsOpenAIOAuth() || account.IsCursor():
+			case account.IsOpenAIOAuth() || (account.IsCursor() && account.Type == AccountTypeUpstream):
 				endpoints = []string{CompositeRouteEndpointResponses}
 			default:
 				endpoints = accountCatalogNativeTextEndpoints(account, member.ID)
