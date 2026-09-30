@@ -23,6 +23,7 @@ export default {
         "details": "来源、汇率、逐模型价格与原因"
 },
       platformDetails: {
+        "commandcodeConnectionMethodLabel": "接入方式",
         "qianwenDescription": "千问使用 API Key。按量付费支持 Chat、Responses 与 Messages；Coding Plan 公布 Chat 和 Messages，自适应 Responses 通过 Chat 转换。DashScope 原生多模态使用按量付费端点。",
         "qianwenNote": "请保留账号目录中的完整模型 ID；第三方同名模型需配置显式 Composite 路由。Token Plan 密钥受上游使用条款限制。",
         "commandcodeDescription": "Command Code 使用 API Key。Claude 模型默认走 Messages，其余模型按已发现的支持或您的协议选择走 Chat 或 Responses。缺少模型资料不阻止显式选择。",

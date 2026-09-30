@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net/http"
 	"strings"
@@ -55,6 +56,7 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 		id          int64
 		platform    string
 		protocol    string
+		mode        string
 		wantSupport bool
 		wantMode    string
 	}{
@@ -62,7 +64,11 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 		{name: "deepseek chat clears forced responses", id: 202, platform: PlatformDeepseek, protocol: APIProtocolChatCompletions, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
 		{name: "kimi adaptive supports responses", id: 203, platform: PlatformKimi, protocol: APIProtocolAdaptive, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
 		{name: "kimi responses protocol supports responses", id: 205, platform: PlatformKimi, protocol: APIProtocolResponses, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
-		{name: "zhipu adaptive falls back to chat", id: 204, platform: PlatformZhipu, protocol: APIProtocolAdaptive, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
+		{name: "zhipu payg adaptive supports responses", id: 204, platform: PlatformZhipu, protocol: APIProtocolAdaptive, mode: AccountModePayG, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
+		{name: "zhipu coding adaptive supports responses", id: 206, platform: PlatformZhipu, protocol: APIProtocolAdaptive, mode: AccountModeCoding, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
+		{name: "zhipu explicit responses supports responses", id: 207, platform: PlatformZhipu, protocol: APIProtocolResponses, wantSupport: true, wantMode: string(openai_compat.ResponsesSupportModeForceResponses)},
+		{name: "zhipu explicit chat clears forced responses", id: 208, platform: PlatformZhipu, protocol: APIProtocolChatCompletions, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
+		{name: "zhipu explicit messages clears forced responses", id: 209, platform: PlatformZhipu, protocol: APIProtocolAnthropic, wantSupport: false, wantMode: string(openai_compat.ResponsesSupportModeAuto)},
 	}
 
 	for _, tc := range tests {
@@ -70,7 +76,7 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 			updateCalls := make(chan map[string]any, 1)
 			account := Account{
 				ID: tc.id, Platform: tc.platform, Type: AccountTypeAPIKey,
-				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": tc.protocol},
+				Credentials: map[string]any{"api_key": "sk-test", "api_protocol": tc.protocol, "account_mode": tc.mode},
 				Extra: map[string]any{
 					openai_compat.ExtraKeyResponsesMode: string(openai_compat.ResponsesSupportModeForceResponses),
 				},
@@ -79,10 +85,13 @@ func TestProbeOpenAIAPIKeyResponsesSupportCNProviders(t *testing.T) {
 				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{account}},
 				updateExtraCalls:      updateCalls,
 			}
-			svc := &AccountTestService{accountRepo: repo}
+			upstream := &httpUpstreamRecorder{err: errors.New("unexpected network probe")}
+			svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 
 			svc.ProbeOpenAIAPIKeyResponsesSupport(context.Background(), account.ID)
 
+			require.Empty(t, upstream.requests, "CN support markers follow the configured protocol without network probes")
+			require.Len(t, updateCalls, 1)
 			updates := <-updateCalls
 			require.Equal(t, tc.wantSupport, updates[openai_compat.ExtraKeyResponsesSupported])
 			require.Equal(t, tc.wantMode, updates[openai_compat.ExtraKeyResponsesMode])
