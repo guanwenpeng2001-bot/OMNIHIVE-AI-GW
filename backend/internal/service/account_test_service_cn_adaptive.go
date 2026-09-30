@@ -14,8 +14,8 @@ import (
 )
 
 // testCNProviderAdaptiveConnection verifies every native endpoint used by an
-// adaptive CN-provider account. Zhipu uses Chat Completions plus Anthropic;
-// DeepSeek and Kimi additionally use their native Responses endpoints.
+// adaptive provider account according to its resolved account mode and protocol.
+// Probe native Responses only when forwarding uses that endpoint.
 func (s *AccountTestService) testCNProviderAdaptiveConnection(c *accountProbeContext, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
@@ -40,7 +40,7 @@ func (s *AccountTestService) testCNProviderAdaptiveConnection(c *accountProbeCon
 		return err
 	}
 
-	if account.SupportsNativeCNResponses() {
+	if account.UsesNativeCNResponses() {
 		if err := s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken); err != nil {
 			return err
 		}
