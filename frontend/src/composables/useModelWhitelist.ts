@@ -195,3 +195,11 @@ export function modelSyncErrorKey(error: unknown): string {
   }
   return keys[reason] || 'syncUpstreamModelsFailed'
 }
+
+/** Account filters live in protected extra, unlike group/API-key allowlists. */
+export function accountModelAllowlist(account: { extra?: Record<string, unknown> | null } | null | undefined) {
+  const value = account?.extra?.upstream_model_allowlist
+  if (!value || typeof value !== 'object') return undefined
+  const filter = value as { enabled?: boolean; models?: unknown }
+  return { enabled: filter.enabled === true, models: Array.isArray(filter.models) ? filter.models.filter((id): id is string => typeof id === 'string') : [] }
+}

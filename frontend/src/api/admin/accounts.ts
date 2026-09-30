@@ -663,14 +663,12 @@ export interface UpstreamModelMetadata extends ModelCategoryMetadata {
  * @param id - Account ID
  * @returns Discovery, selectable candidates, routing eligibility and capability status separately.
  */
-export async function syncUpstreamModels(id: number, apply = false, expectedRulesRevision?: string, modelCapabilityDefaults?: Record<string, unknown> | null, review?: AccountModelCatalog['review']): Promise<SyncUpstreamModelsResult> {
-  if (apply && !review) throw new Error('A complete catalog review is required')
-  const body = apply ? { review } : modelCapabilityDefaults === undefined ? undefined : { model_capability_defaults: modelCapabilityDefaults }
-  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, body, { params: { apply, ...(expectedRulesRevision !== undefined ? { expected_rules_revision: expectedRulesRevision } : {}) } })
+export async function syncUpstreamModels(id: number, apply: false = false): Promise<SyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, undefined, { params: { apply } })
   return data
 }
 
-/** Explicit account restriction with optimistic concurrency and an operator reason. */
+/** Explicit account restriction with optimistic concurrency; selection changes are atomic. */
 export async function updateModelAllowlist(id: number, request: UpdateModelAllowlistRequest): Promise<UpdateModelAllowlistResponse> {
   const { data } = await apiClient.put<UpdateModelAllowlistResponse>(`/admin/accounts/${id}/models/allowlist`, request)
   return data
@@ -692,7 +690,7 @@ export interface SyncUpstreamPreviewParams {
   api_key?: string
   credentials?: Record<string, unknown>
   model_mapping?: Record<string, string>
-  model_capability_defaults?: Record<string, unknown> | null
+  proxy_id?: number | null
 }
 
 /**

@@ -16,8 +16,8 @@
       <button
         v-if="canSyncUpstream"
         type="button"
-        @click="syncUpstreamModels(false)"
-        :disabled="isSyncingUpstream || !!previewDisabledReason || !active"
+        @click="syncUpstreamModels()"
+        :disabled="isSyncingUpstream || selectionBusy || !!previewDisabledReason || !active"
         :aria-describedby="previewDisabledReason ? previewReasonId : undefined"
         data-testid="preview-upstream-models"
         class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-600 hover:bg-emerald-50 disabled:cursor-not-allowed disabled:opacity-60 dark:border-emerald-800 dark:text-emerald-400 dark:hover:bg-emerald-900/30"
@@ -32,7 +32,8 @@
       <button
         type="button"
         v-if="!catalogOnly"
-        @click="clearAll"
+        @click="confirmClear = true"
+        data-testid="clear-model-selection" :disabled="selectionBusy || !active || (!!accountId && (configurationDirty || !catalogSummary))"
         class="rounded-lg border border-red-200 px-3 py-1.5 text-sm text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400 dark:hover:bg-red-900/30"
       >
         {{ t('admin.accounts.clearAllModels') }}
@@ -41,7 +42,7 @@
 
     <div v-if="!catalogOnly" class="mb-3 space-y-1">
       <p class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('admin.accounts.selectedModels', { count: selectedModels.length }) }}</p>
-      <p v-if="!modelValue.length" class="text-xs text-secondary">{{ t('admin.accounts.supportsAllModels') }}</p>
+      <p v-if="!modelValue.length && !modelMappings?.length" class="text-xs text-secondary">{{ t('admin.accounts.modelSync.emptySelection') }}</p>
       <p class="text-xs text-secondary">{{ t(accountId ? 'admin.accounts.modelSync.selectionPendingSave' : 'admin.accounts.modelSync.selectionPendingCreate') }}</p>
     </div>
     <p v-if="catalogState === 'idle' && accountId" role="status" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.unknown') }}</p>
@@ -53,7 +54,14 @@
     <p v-if="previewDisabledReason && canSyncUpstream" :id="previewReasonId" class="mb-2 text-sm text-secondary">{{ previewDisabledReason }}</p>
     <p v-if="configurationDirty && accountId" :id="dirtyReasonId" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.saveBeforePreview') }}</p>
 
-    <p v-if="accountId && capabilityDefaultsDirty" class="mb-2 text-sm text-secondary">{{ t('admin.accounts.modelSync.selectionPendingSave') }}</p>
+    <p v-if="denyAll" role="status" data-testid="deny-all">{{ t('admin.accounts.modelSync.denyAll') }}</p>
+    <p v-if="selectionWarning" role="status" data-testid="selection-warning">{{ selectionWarning }}</p>
+    <button v-if="accountId && !catalogOnly" type="button" data-testid="save-model-selection" class="btn btn-secondary"
+      :disabled="!active || configurationDirty || selectionBusy || !catalogSummary || (!modelValue.length && !modelMappings?.length)" @click="saveSelection(false)">
+      {{ t(denyAll ? 'admin.accounts.modelSync.reselect' : 'admin.accounts.modelSync.saveSelection') }}
+    </button>
+    <ConfirmDialog :show="confirmClear" :title="t('admin.accounts.clearAllModels')" :message="t('admin.accounts.modelSync.clearConfirmation')"
+      @confirm="clearAll" @cancel="confirmClear = false" />
 
     <details v-if="!catalogOnly" class="mb-3 space-y-3" data-testid="model-selection">
       <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.selection') }}</summary>
@@ -72,7 +80,7 @@
           >
             <span class="flex min-w-0 items-center gap-1">
               <ModelIcon :model="model" size="14px" />
-              <span class="break-all">{{ model }}<small v-if="capabilitySummary(model)" class="block">{{ capabilitySummary(model) }}</small></span>
+              <span class="break-all">{{ model }}<small class="block">{{ modelSource(model) }}</small></span>
             </span>
             <button
               type="button"
@@ -142,7 +150,7 @@
                   </svg>
                 </span>
                 <ModelIcon :model="model.value" size="18px" />
-                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ model.value }}<small v-if="capabilitySummary(model.value)" class="block text-xs text-secondary">{{ capabilitySummary(model.value) }}</small></span>
+                <span class="min-w-0 break-all text-gray-900 dark:text-white">{{ model.value }}<small class="block text-xs text-secondary">{{ modelSource(model.value) }}</small></span>
               </button>
               <button
                 type="button"
@@ -188,50 +196,41 @@
       </div>
     </div>
     </details>
-    <details v-if="accountId && catalogSummary?.synced" class="mb-3 rounded border p-3" data-testid="catalog-allowlist">
+    <details v-if="accountId && catalogSummary" class="mb-3 rounded border p-3" data-testid="catalog-allowlist">
       <summary>{{ t('admin.accounts.modelSync.allowlistTitle') }}</summary>
       <p class="input-hint">{{ t('admin.accounts.modelSync.allowlistHint') }}</p>
       <label class="flex gap-2"><input v-model="allowlistEnabled" type="checkbox" />{{ t('admin.accounts.modelSync.allowlistEnabled') }}</label>
       <label class="input-label">{{ t('admin.accounts.modelSync.allowlistModels') }}<textarea v-model="allowlistModels" class="input" data-testid="allowlist-models" /></label>
       <label class="input-label">{{ t('admin.accounts.modelSync.allowlistReason') }}<input v-model="allowlistReason" class="input" data-testid="allowlist-reason" /></label>
-      <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :disabled="!active || configurationDirty || allowlistBusy || !allowlistReason.trim() || (allowlistEnabled && !allowlistModels.trim())" @click="saveAllowlist">{{ t('common.save') }}</button>
+      <p v-if="allowlistEnabled && !allowlistModels.trim()" class="input-hint">{{ t('admin.accounts.modelSync.denyAll') }}</p>
+      <button type="button" class="btn btn-secondary" data-testid="save-allowlist" :disabled="!active || configurationDirty || allowlistBusy" @click="saveAllowlist">{{ t('common.save') }}</button>
     </details>
-    <section v-if="syncResult" class="mb-3 space-y-2" data-testid="snapshot-actions">
-      <button v-if="accountId && syncResult && !syncResult.applied" type="button" data-testid="apply-model-snapshot"
-        :disabled="!canApplySnapshot" :aria-describedby="configurationDirty ? dirtyReasonId : undefined" @click="confirmSnapshot = true"
-        class="rounded-lg border border-emerald-200 px-3 py-1.5 text-sm text-emerald-700 dark:text-emerald-300">
-        {{ t('admin.accounts.modelSync.apply') }}
-      </button>
-    </section>
-    <ConfirmDialog :show="confirmSnapshot" :title="t('admin.accounts.modelSync.apply')"
-      :message="t('admin.accounts.modelSync.applyConfirmation')" @confirm="applyModelSnapshot" @cancel="confirmSnapshot = false" />
     <ModelCatalogDetails :display-metadata="displayMetadata" :mapping-targets="[...modelValue, ...(modelMappings ?? []).map(entry => entry.to)]" :creation-context="!accountId" :stale="needsPreview" :result="syncResult" :summary="catalogSummary" :candidate-count="presetCount" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { groupModelsByCategory, filterModelDisplay, limitModelGroups, modelCapabilitySummary, type ModelCategoryMetadata } from '@/utils/modelCategories'
+import { groupModelsByCategory, filterModelDisplay, limitModelGroups, type ModelCategoryMetadata } from '@/utils/modelCategories'
 import { ref, computed, watch, onUnmounted, useId, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { extractApiErrorStatus } from '@/utils/apiError'
 import { platformSupportsModelCatalog } from '@/constants/platforms'
 import { accountsAPI } from '@/api/admin/accounts'
-import { parseModelCapabilityDefaults, modelCapabilityRequestError } from './modelCapabilityDefaults'
 import { usePlatformModelPresets } from '@/composables/usePlatformModelPresets'
-import type { AccountModelCatalogDetails } from '@/types'
+import type { Account, ModelAllowlist, AccountModelCatalogDetails } from '@/types'
 import ModelCatalogDetails from './ModelCatalogDetails.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import type { SyncUpstreamModelsResult, SyncUpstreamPreviewParams } from '@/api/admin/accounts'
 import { useClipboard } from '@/composables/useClipboard'
 import ModelIcon from '@/components/common/ModelIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
-import { validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry, type ModelCandidateIdentity, modelCandidateKey, modelSyncErrorKey } from '@/composables/useModelWhitelist'
+import { accountModelAllowlist, buildModelMappingObject, splitModelMappingObject, validateModelRestrictions, translateModelRestrictionErrors, type ModelMappingEntry, type ModelCandidateIdentity, modelCandidateKey, modelSyncErrorKey } from '@/composables/useModelWhitelist'
 
 const { t } = useI18n()
 
 const props = withDefaults(defineProps<{
-  capabilityDefaultsDirty?: boolean
-  capabilityDefaultsJSON?: string
+  modelAllowlist?: ModelAllowlist
   catalogOnly?: boolean
   catalogSelectionEnabled?: boolean
   discoveryDisabled?: boolean
@@ -253,6 +252,8 @@ const emit = defineEmits<{
   'update:modelValue': [value: string[]]
   'upstream-synced': []
   'catalog-applied': []
+  'selection-saved': [account: Account]
+  'update:modelMappings': [mappings: ModelMappingEntry[]]
 }>()
 
 const appStore = useAppStore()
@@ -313,10 +314,13 @@ const syncResult = ref<SyncUpstreamModelsResult | null>(null)
 const catalogSummary = ref<AccountModelCatalogDetails | null>(null)
 const syncError = ref('')
 const needsPreview = ref(false)
-const confirmSnapshot = ref(false)
-const canApplySnapshot = computed(() => props.active && !isSyncingUpstream.value && syncResult.value?.discovery_complete === true &&
-  !!syncResult.value.review && !needsPreview.value && !props.configurationDirty && !props.capabilityDefaultsDirty)
-watch(canApplySnapshot, valid => { if (!valid) confirmSnapshot.value = false }, { flush: 'sync' })
+const confirmClear = ref(false)
+const selectionBusy = ref(false)
+const selectionWarning = ref('')
+const savedAllowlist = ref(props.modelAllowlist)
+watch(() => props.modelAllowlist, value => { savedAllowlist.value = value }, { deep: true })
+watch(() => [props.accountId, props.active], () => { selectionWarning.value = '' })
+const denyAll = computed(() => savedAllowlist.value?.enabled === true && !savedAllowlist.value.models?.length)
 const catalogState = ref<'idle' | 'loading' | 'failed' | 'empty' | 'stale' | 'ready' | 'unsynced' | 'invalidIdentity'>('idle')
 let generation = 0
 const context = computed(() => {
@@ -331,43 +335,75 @@ const canAddPreview = computed(() => props.active && (!props.catalogOnly || prop
   catalogState.value === 'ready' && previewAdditions.value.length > 0 && !isSyncingUpstream.value)
 watch(selectionContext, () => {
   needsPreview.value = true
-  confirmSnapshot.value = false
-}, { flush: 'sync' })
-// Editing declaration text invalidates the preview without fetching on each keystroke.
-watch(() => props.capabilityDefaultsJSON, () => {
-  generation++
-  isSyncingUpstream.value = false
-  needsPreview.value = true
-  if (syncResult.value || catalogState.value === 'loading') catalogState.value = 'stale'
+  confirmClear.value = false
 }, { flush: 'sync' })
 const allowlistReason = ref('')
 const allowlistModels = ref('')
 const allowlistEnabled = ref(true)
 const allowlistBusy = ref(false)
-const saveAllowlist = async () => {
-  const revision = catalogSummary.value?.state.rules_revision
-  const models = [...new Set(allowlistModels.value.split(/[\s,]+/).filter(Boolean))]
-  const discovered = catalogSummary.value?.effective_snapshot?.discovered_models ?? []
-  if (!props.accountId || !props.active || props.configurationDirty || allowlistBusy.value || revision === undefined ||
-      !allowlistReason.value.trim()) return
-  if (allowlistEnabled.value && (!models.length || models.some(model => !discovered.includes(model)))) {
-    syncError.value = t('admin.accounts.modelSync.allowlistInvalid')
-    return
-  }
-  syncError.value = ''
+// Read the persisted account after every mutation: legacy filter writes can be
+// normalized to deny-all by the server and must never be shown as unrestricted.
+const persistSelection = async (requestBody: Parameters<typeof accountsAPI.updateModelAllowlist>[1]) => {
+  if (!props.accountId || !props.active || props.configurationDirty || selectionBusy.value) return
+  const accountId = props.accountId
   const request = ++generation
-  allowlistBusy.value = true
-  syncResult.value = null
-  needsPreview.value = true
+  let savedDraftContext = selectionContext.value
+  let draftChanged = false
+  selectionBusy.value = true
+  syncError.value = ''
+  selectionWarning.value = ''
   try {
-    await accountsAPI.updateModelAllowlist(props.accountId, { enabled: allowlistEnabled.value, models,
-      reason: allowlistReason.value.trim(), expected_rules_revision: revision })
+    const result = await accountsAPI.updateModelAllowlist(accountId, requestBody)
     if (disposed || request !== generation) return
-    await loadCatalog()
+    draftChanged = selectionContext.value !== savedDraftContext
+    if (requestBody.model_mapping !== undefined && !draftChanged) {
+      const selection = splitModelMappingObject(requestBody.model_mapping)
+      emit('update:modelValue', selection.allowedModels)
+      emit('update:modelMappings', selection.modelMappings)
+    }
+    await nextTick()
+    savedDraftContext = selectionContext.value
+    const account = await accountsAPI.getById(accountId)
+    if (disposed || request !== generation) return
+    savedAllowlist.value = accountModelAllowlist(account)
+    allowlistEnabled.value = savedAllowlist.value?.enabled ?? false
+    allowlistModels.value = savedAllowlist.value?.models?.join('\n') ?? ''
+    if (result.not_discovered?.length) selectionWarning.value = t('admin.accounts.modelSync.notDiscoveredWarning', { models: result.not_discovered.join(', ') })
+    if (requestBody.model_mapping !== undefined && !draftChanged && selectionContext.value === savedDraftContext) {
+      const selection = splitModelMappingObject(account.credentials?.model_mapping as Record<string, unknown>)
+      emit('update:modelValue', selection.allowedModels)
+      emit('update:modelMappings', selection.modelMappings)
+      emit('selection-saved', account)
+    }
     emit('catalog-applied')
+    await loadCatalog()
   } catch (error) {
-    if (!disposed && request === generation) syncError.value = t(`admin.accounts.${modelSyncErrorKey(error)}`)
+    if (disposed || request !== generation) return
+    syncError.value = t(`admin.accounts.${extractApiErrorStatus(error) === 400 ? 'modelSync.invalidSelection' : modelSyncErrorKey(error)}`)
+    // Refresh the CAS token; retain the user's draft and require an explicit retry.
+    await loadCatalog()
+  } finally { selectionBusy.value = false }
+}
+const saveAllowlist = async () => {
+  const revision = catalogSummary.value?.state?.rules_revision
+  if (revision === undefined) return
+  allowlistBusy.value = true
+  try {
+    await persistSelection({ enabled: allowlistEnabled.value, models: [...new Set(allowlistModels.value.split(/[\s,]+/).filter(Boolean))],
+      reason: allowlistReason.value.trim(), expected_rules_revision: revision })
   } finally { allowlistBusy.value = false }
+}
+const saveSelection = async (clear: boolean) => {
+  const revision = catalogSummary.value?.state?.rules_revision
+  if (revision === undefined) return
+  const errors = clear ? [] : validateModelRestrictions('combined', props.modelValue, props.modelMappings ?? [])
+  if (errors.length) { syncError.value = translateModelRestrictionErrors(errors, t); return }
+  const mapping = clear ? {} : buildModelMappingObject('combined', props.modelValue, props.modelMappings ?? []) ?? {}
+  // A normal selection save preserves a configured filter. Reselecting from
+  // deny-all is the sole explicit operation that releases that state.
+  const enabled = clear || (!denyAll.value && savedAllowlist.value?.enabled === true)
+  await persistSelection({ enabled, models: clear || denyAll.value ? [] : savedAllowlist.value?.models ?? [],
+    reason: '', expected_rules_revision: revision, model_mapping: mapping })
 }
 const loadCatalog = async () => {
   if (disposed || !props.accountId || props.active === false || props.configurationDirty) return
@@ -375,7 +411,8 @@ const loadCatalog = async () => {
   const accountId = props.accountId
   catalogState.value = 'loading'
   try {
-    const models = props.catalogOnly ? [] : await accountsAPI.getAvailableModels(accountId)
+    let modelListFailed = false
+    const models = props.catalogOnly ? [] : await accountsAPI.getAvailableModels(accountId).catch(() => { modelListFailed = true; return [] })
     if (disposed || request !== generation) return
     catalogMetadata.value = Object.fromEntries(models.map(model => [model.id, model]))
     catalog.value = models.map(model => model.id)
@@ -384,6 +421,8 @@ const loadCatalog = async () => {
       const summary = await accountsAPI.getModelCatalog(accountId)
       if (disposed || request !== generation) return
       catalogSummary.value = summary
+      catalog.value = [...new Set([...catalog.value, ...(summary.snapshot?.discovered_models ?? [])])]
+      catalogState.value = catalog.value.length ? 'ready' : 'empty'
       catalogMetadata.value = { ...catalogMetadata.value, ...summary.display_metadata }
       if (props.catalogOnly) {
         catalog.value = summary.effective_snapshot?.eligible_models?.map(model => model.id) ?? []
@@ -392,6 +431,7 @@ const loadCatalog = async () => {
       needsPreview.value = summary.warnings?.includes('identity_changed') || !!summary.last_error || summary.staleness === 'stale'
       if (summary.warnings?.includes('identity_changed')) catalogState.value = 'invalidIdentity'
       else if (summary.last_error) catalogState.value = 'stale'
+      else if (modelListFailed) catalogState.value = 'failed'
       else if (!summary.synced) catalogState.value = 'unsynced'
     } catch {
       // Catalog errors are real failures, including 404; never probe another capabilities API.
@@ -407,7 +447,7 @@ const loadCatalog = async () => {
 let catalogLoadScheduled = false
 watch(context, () => {
   generation++
-  confirmSnapshot.value = false
+  confirmClear.value = false
   catalog.value = []
   catalogMetadata.value = {}
   syncResult.value = null
@@ -419,7 +459,8 @@ watch(context, () => {
   showDropdown.value = false
   optionLimit.value = 100
   allowlistReason.value = ''
-  allowlistModels.value = ''
+  allowlistModels.value = props.modelAllowlist?.models?.join('\n') ?? ''
+  allowlistEnabled.value = props.modelAllowlist?.enabled ?? false
   // Invalidate synchronously, but read only after all parent props (including
   // configurationDirty) settle. Vue updates those props one at a time.
   if (!catalogLoadScheduled) {
@@ -457,7 +498,14 @@ const selectedGroups = computed(() => groupModelsByCategory(
   filterModelDisplay(selectedModels.value, '', model => model, model => displayMetadata.value[model]), model => displayMetadata.value[model]))
 const filteredModels = computed(() => filterModelDisplay(availableOptions.value, searchQuery.value, model => model.value, model => displayMetadata.value[model.value]))
 const groupedModels = computed(() => limitModelGroups(groupModelsByCategory(filteredModels.value, model => displayMetadata.value[model.value]), optionLimit.value))
-const capabilitySummary = (id: string) => modelCapabilitySummary(displayMetadata.value[id], t)
+const modelSource = (id: string) => {
+  const sources: string[] = []
+  if (presetModels.value.includes(id)) sources.push(t('admin.accounts.modelSync.platformCandidates'))
+  const discovered = syncResult.value?.discovered_models ?? catalogSummary.value?.snapshot?.discovered_models ?? []
+  if (discovered.includes(id)) sources.push(t('admin.accounts.modelSync.nativeDiscovered'))
+  if (!sources.length) sources.push(t('admin.accounts.modelSync.manualSelection'))
+  return sources.join(' · ')
+}
 const selectFilteredModels = () => emit('update:modelValue', [...new Set([...props.modelValue, ...filteredModels.value.map(model => model.value)])])
 
 const toggleDropdown = () => {
@@ -466,6 +514,7 @@ const toggleDropdown = () => {
 }
 
 const removeModel = (model: string) => {
+  if (props.modelValue.length === 1 && !props.modelMappings?.length) { confirmClear.value = true; return }
   emit('update:modelValue', props.modelValue.filter(m => m !== model))
 }
 
@@ -522,8 +571,8 @@ const addPreviewModels = () => {
   appStore.showInfo(t('admin.accounts.modelSync.previewAdded', { count }))
 }
 
-const syncUpstreamModels = async (apply = false) => {
-  if (isSyncingUpstream.value || !props.active || !canSyncUpstream.value || previewDisabledReason.value) return
+const syncUpstreamModels = async () => {
+  if (isSyncingUpstream.value || selectionBusy.value || !props.active || !canSyncUpstream.value || previewDisabledReason.value) return
   if (!props.accountId && !props.syncCredentials) return
 
   const request = ++generation
@@ -534,13 +583,9 @@ const syncUpstreamModels = async (apply = false) => {
   try {
     let result
     if (props.accountId) {
-      result = apply
-        ? await accountsAPI.syncUpstreamModels(props.accountId, true, syncResult.value?.rules_revision, undefined, syncResult.value?.review)
-        : props.capabilityDefaultsDirty
-          ? await accountsAPI.syncUpstreamModels(props.accountId, false, undefined, parseModelCapabilityDefaults(props.capabilityDefaultsJSON ?? ''))
-          : await accountsAPI.syncUpstreamModels(props.accountId, false)
+      result = await accountsAPI.syncUpstreamModels(props.accountId, false)
     } else if (props.syncCredentials) {
-      result = await accountsAPI.syncUpstreamModelsPreview({ ...props.syncCredentials, ...(props.capabilityDefaultsJSON?.trim() ? { model_capability_defaults: parseModelCapabilityDefaults(props.capabilityDefaultsJSON) } : {}) } as SyncUpstreamPreviewParams)
+      result = await accountsAPI.syncUpstreamModelsPreview(props.syncCredentials)
     } else {
       return
     }
@@ -552,33 +597,28 @@ const syncUpstreamModels = async (apply = false) => {
     catalog.value = upstreamModels
     catalogState.value = upstreamModels.length ? 'ready' : 'empty'
     if (!props.accountId) emit('upstream-synced')
-    if (apply) {
-      isSyncingUpstream.value = false
-      await loadCatalog()
-      if (disposed || !props.active) return
-      emit('catalog-applied')
-    }
 
-    if (result.applied === true) appStore.showInfo(t('admin.accounts.modelSync.synced'))
   } catch (error) {
     if (disposed || request !== generation) return
     catalogState.value = catalog.value.length ? 'stale' : 'failed'
     needsPreview.value = true
-    syncError.value = modelCapabilityRequestError(error, t) || t(`admin.accounts.${modelSyncErrorKey(error)}`)
+    syncError.value = t(`admin.accounts.${modelSyncErrorKey(error)}`)
     appStore.showError(syncError.value)
   } finally {
     if (!disposed && request === generation) isSyncingUpstream.value = false
   }
 }
 
-const applyModelSnapshot = () => {
-  if (!confirmSnapshot.value || !canApplySnapshot.value) return
-  confirmSnapshot.value = false
-  return syncUpstreamModels(true)
-}
+defineExpose({ requestClear: () => { confirmClear.value = true } })
 
-const clearAll = () => {
-  emit('update:modelValue', [])
+const clearAll = async () => {
+  if (!confirmClear.value || !props.active || selectionBusy.value) return
+  confirmClear.value = false
+  if (props.accountId) await saveSelection(true)
+  else {
+    emit('update:modelValue', [])
+    emit('update:modelMappings', [])
+  }
 }
 
 </script>

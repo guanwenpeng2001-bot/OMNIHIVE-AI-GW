@@ -1,6 +1,8 @@
 <script setup lang="ts">
+import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import ModelWhitelistSelector from './ModelWhitelistSelector.vue'
+import type { Account } from '@/types'
 import type { ModelMappingEntry } from '@/composables/useModelWhitelist'
 
 defineOptions({ inheritAttrs: false })
@@ -12,8 +14,14 @@ const props = withDefaults(defineProps<{
 const emit = defineEmits<{
   'update:modelValue': [models: string[]]
   'update:mappings': [mappings: ModelMappingEntry[]]
+  'selection-saved': [account: Account]
 }>()
 const { t } = useI18n()
+const selector = ref<InstanceType<typeof ModelWhitelistSelector>>()
+function removeMapping(index: number) {
+  if (props.mappings.length === 1 && !props.modelValue.length) selector.value?.requestClear()
+  else emit('update:mappings', props.mappings.filter((_, position) => position !== index))
+}
 function updateMapping(index: number, field: keyof ModelMappingEntry, event: Event) {
   const value = (event.target as HTMLInputElement).value
   emit('update:mappings', props.mappings.map((mapping, position) => position === index ? { ...mapping, [field]: value } : mapping))
@@ -27,7 +35,7 @@ function addMapping(mapping: ModelMappingEntry = { from: '', to: '' }) {
 <template>
   <section class="min-w-0 space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600" data-testid="account-model-configuration">
     <h3 class="input-label">{{ t('admin.accounts.editSections.models') }}</h3>
-    <ModelWhitelistSelector v-bind="$attrs" :model-value="modelValue" :model-mappings="mappings" @update:model-value="emit('update:modelValue', $event)" />
+    <ModelWhitelistSelector ref="selector" v-bind="$attrs" :model-value="modelValue" :model-mappings="mappings" @update:model-value="emit('update:modelValue', $event)" @update:model-mappings="emit('update:mappings', $event)" @selection-saved="emit('selection-saved', $event)" />
     <slot name="model-rules" />
     <details class="space-y-3" data-testid="model-mappings">
       <summary class="cursor-pointer py-2 font-medium">{{ t('admin.accounts.editSections.mappings', { count: mappings.length }) }}</summary>
@@ -35,7 +43,7 @@ function addMapping(mapping: ModelMappingEntry = { from: '', to: '' }) {
       <div v-for="(mapping, index) in mappings" :key="index" class="grid min-w-0 grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <input :value="mapping.from" class="input min-w-0" :aria-label="t('admin.accounts.requestModel')" :placeholder="t('admin.accounts.requestModel')" @input="updateMapping(index, 'from', $event)" />
         <input :value="mapping.to" class="input min-w-0" :aria-label="t('admin.accounts.actualModel')" :placeholder="t('admin.accounts.actualModel')" @input="updateMapping(index, 'to', $event)" />
-        <button type="button" class="btn btn-secondary" @click="emit('update:mappings', mappings.filter((_, position) => position !== index))">{{ t('common.delete') }}</button>
+        <button type="button" class="btn btn-secondary" @click="removeMapping(index)">{{ t('common.delete') }}</button>
       </div>
       <button type="button" class="btn btn-secondary" @click="addMapping()">{{ t('admin.accounts.addMapping') }}</button>
       <details v-if="presets.length">

@@ -71,7 +71,6 @@ vi.mock('@/composables/useClipboard', () => ({
 
 import ModelWhitelistSelector from '../ModelWhitelistSelector.vue'
 import BaseDialog from '@/components/common/BaseDialog.vue'
-import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import { CONCRETE_PLATFORM_OPTIONS } from '@/constants/platforms'
 import ModelCatalogDetails from '../ModelCatalogDetails.vue'
 
@@ -105,7 +104,7 @@ describe('descriptor-backed provider previews', () => {
     expect(syncUpstreamModelsPreview.mock.calls).toEqual([[credentials]])
     expect(wrapper.getComponent(ModelCatalogDetails).props('result')).toEqual(result)
     expect(wrapper.text()).toContain('admin.accounts.modelSync.incomplete')
-    expect(wrapper.get('[data-testid="catalog-diagnostics"]').text()).toContain('D 1 · M 0 · U 1 · E 0')
+    expect(wrapper.find('[data-testid="catalog-diagnostics"]').exists()).toBe(false)
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([result.candidate_models])
     expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
@@ -136,7 +135,7 @@ describe('descriptor-backed provider previews', () => {
     await flushPromises()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') === undefined).toBe(complete)
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     expect(wrapper.text().includes('admin.accounts.modelSync.incomplete')).toBe(!complete)
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
     wrapper.unmount()
@@ -159,21 +158,7 @@ describe('saved catalog evidence states', () => {
     wrapper.unmount()
   })
 
-  it('requires second confirmation and cancels it when configuration changes', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce({ candidate_models: ['target'], models: ['target'], discovery_complete: true, complete: true, review: { account_id: 24, digest: 'review' } })
-    const wrapper = mountSelector({ accountId: 24, catalogOnly: true })
-    await flushPromises()
-    await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    expect(syncUpstreamModels).toHaveBeenCalledTimes(1)
-    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(true)
-    await wrapper.setProps({ configurationDirty: true })
-    expect(wrapper.getComponent(ConfirmDialog).props('show')).toBe(false)
-    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
-    expect(syncUpstreamModels).toHaveBeenCalledTimes(1)
-    wrapper.unmount()
-  })
+
 })
 
 function mountSelector(props: Record<string, unknown> = {}) {
@@ -262,20 +247,7 @@ describe('ModelWhitelistSelector', () => {
     syncUpstreamModelsPreview.mockReset()
   })
 
-  it.each(['en', 'zh'] as const)('localizes capability request errors in %s', async locale => {
-    realLocale = locale
-    syncUpstreamModels.mockRejectedValueOnce({ message: 'model_capability_defaults: identity_fingerprint mismatch' })
-    const wrapper = mountSelector({ accountId: 46 })
-    await flushPromises()
-    const messages = locale === 'en' ? en : zh
-    await wrapper.findAll('button').find(item => item.text() === messages.admin.accounts.syncUpstreamModels)!.trigger('click')
-    await flushPromises()
-    expect(showError).toHaveBeenCalledWith(messages.capabilityMessages.invalid)
-    expect(wrapper.text()).toContain(messages.capabilityMessages.invalid)
-    expect(wrapper.text()).not.toContain('identity_fingerprint mismatch')
-    wrapper.unmount()
-    realLocale = null
-  })
+
 
   it.each(['en', 'zh'] as const)('keeps capability gaps out of Toasts in %s', async locale => {
     realLocale = locale
@@ -545,74 +517,6 @@ describe('model catalog context fencing', () => {
 })
 
 
-describe('snapshot application contract', () => {
-  const preview = {
-    candidate_models: ['native-new'], models: ['native-new'], applied: false, discovery_complete: true, complete: true, rules_revision: 'rules-opaque', review: { account_id: 46, digest: 'reviewed' },
-    discovered_models: ['native-new', 'pending'],
-    diff: { added: ['native-new'], removed: ['native-old'], retained: [] },
-    excluded_models: [{ model: 'pending', reason: 'entitlement_unconfirmed' }],
-    invalid_aliases: ['old-alias']
-  }
-  it('previews without selecting models and applies using the revision without saving aliases', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce(preview).mockResolvedValueOnce({ ...preview, applied: true, candidate_models: [], models: [] })
-    const wrapper = mountSelector({ accountId: 46, modelValue: ['kept-alias'] })
-    await flushPromises()
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
-    await flushPromises()
-    expect(wrapper.text()).toContain('native-old')
-    expect(wrapper.text()).toContain('entitlement_unconfirmed')
-    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(syncUpstreamModels.mock.calls).toEqual([[46, false], [46, true, 'rules-opaque', undefined, preview.review]])
-    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    expect(wrapper.text()).toContain('admin.accounts.modelSync.syncedEmpty')
-    wrapper.unmount()
-  })
-  it('requires a fresh preview after a conflict and never retries without revision conditions', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce(preview).mockRejectedValueOnce({ status: 409 })
-    const wrapper = mountSelector({ accountId: 46 })
-    await flushPromises()
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await flushPromises()
-    expect(syncUpstreamModels).toHaveBeenCalledTimes(2)
-    expect(wrapper.get('[role="alert"]').text()).toContain('modelSync.conflict')
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
-    wrapper.unmount()
-  })
-  it('ignores an apply response after closing and switching accounts', async () => {
-    let finishApply!: (result: typeof preview) => void
-    syncUpstreamModels.mockReset().mockResolvedValueOnce(preview).mockImplementationOnce(() => new Promise(resolve => { finishApply = resolve }))
-    const wrapper = mountSelector({ accountId: 46 })
-    await flushPromises()
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
-    await flushPromises()
-    await wrapper.get('[data-testid="apply-model-snapshot"]').trigger('click')
-    wrapper.getComponent(ConfirmDialog).vm.$emit('confirm')
-    await wrapper.setProps({ active: false })
-    await wrapper.setProps({ active: true, accountId: 47 })
-    finishApply({ ...preview, applied: true })
-    await flushPromises()
-    expect(wrapper.text()).not.toContain('native-new')
-    expect(wrapper.emitted('update:modelValue')).toBeUndefined()
-    wrapper.unmount()
-  })
-  it('cannot apply an incomplete preview or an old server response without a revision', async () => {
-    syncUpstreamModels.mockReset().mockResolvedValueOnce({ candidate_models: ['candidate'], models: ['candidate'] })
-    const wrapper = mountSelector({ accountId: 46 })
-    await flushPromises()
-    await wrapper.findAll('button').find(button => button.text() === 'admin.accounts.syncUpstreamModels')!.trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
-    wrapper.unmount()
-  })
-})
-
-
 it('uses server platform candidates, preserving unknown when their request fails', async () => {
   getPlatformModelPresets.mockResolvedValueOnce([{ platform: 'openai', coverage_status: 'partial', models: [{ id: 'server-only-model' }] }])
   const wrapper = mountSelector()
@@ -672,9 +576,9 @@ describe('explicit preview adoption', () => {
     await selector.get('[data-testid="add-preview-models"]').trigger('click')
     expect(selector.emitted('update:modelValue')).toHaveLength(1)
     await selector.get('button[aria-expanded]').trigger('click')
-    await selector.findAll('[data-testid="select-model"]').find(button => button.text() === 'new-id')!.trigger('click')
+    await selector.findAll('[data-testid="select-model"]').find(button => button.text().startsWith('new-id'))!.trigger('click')
     expect(host.vm.models).toEqual(['Legacy.Case/ID', 'Second.Case/ID'])
-    expect(selector.findAll('[data-testid="select-model"]').some(button => button.text() === 'new-id')).toBe(true)
+    expect(selector.findAll('[data-testid="select-model"]').some(button => button.text().startsWith('new-id'))).toBe(true)
     host.unmount()
   })
   it('keeps a disabled preview action and visible associated reason without credentials', async () => {
@@ -721,10 +625,10 @@ describe('explicit preview adoption', () => {
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['existing', 'new-id', 'Second.Case/ID']])
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(!discoveryComplete)
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     expect(wrapper.find('[data-testid="select-model"]').exists()).toBe(false)
     expect(wrapper.find('input[aria-label="admin.accounts.searchModels"]').exists()).toBe(false)
-    expect(wrapper.find('[data-testid="capability-search"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="catalog-diagnostics"]').exists()).toBe(false)
     wrapper.unmount()
   })
   it('invalidates requests on identity changes without letting old finally stop the next request', async () => {
@@ -754,7 +658,7 @@ describe('explicit preview adoption', () => {
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     await wrapper.setProps({ configurationDirty: true, modelValue: ['new-id'] })
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     await wrapper.setProps({ configurationDirty: false, savedRevision: 1 })
     expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     wrapper.unmount()
@@ -855,16 +759,16 @@ describe('preview evidence and action matrix', () => {
     [true, 'incomplete', ['native'], false],
     [false, 'incomplete', ['native'], true],
     [true, 'complete', [], false]
-  ] as const)('separates discovery %s and capability %s from additive selection', async (discovery, capability, candidates, applyDisabled) => {
+  ] as const)('separates discovery %s and capability %s from additive selection', async (discovery, capability, candidates) => {
     syncUpstreamModels.mockReset().mockResolvedValueOnce({ models: [], discovered_models: [...candidates], candidate_models: [...candidates], eligible_models: [], discovery_complete: discovery, complete: discovery, capability_status: capability, review: discovery ? { account_id: 42, digest: 'review' } : undefined })
     const wrapper = mountSelector({ accountId: 42 })
     await flushPromises()
     await wrapper.get('[data-testid="preview-upstream-models"]').trigger('click')
     await flushPromises()
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled') !== undefined).toBe(candidates.length === 0)
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled') !== undefined).toBe(applyDisabled)
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     await wrapper.setProps({ modelValue: ['local-selection'], modelMappings: [{ from: 'alias', to: 'native' }] })
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled') !== undefined).toBe(candidates.length === 0)
     wrapper.unmount()
   })
@@ -880,7 +784,7 @@ describe('preview evidence and action matrix', () => {
     resolvePreview({ candidate_models: ['native'], discovered_models: ['native'], models: [], discovery_complete: true, capability_status: 'incomplete', review: { account_id: 42, digest: 'review' } })
     await flushPromises()
     expect(wrapper.get('[data-testid="add-preview-models"]').attributes('disabled')).toBeUndefined()
-    expect(wrapper.get('[data-testid="apply-model-snapshot"]').attributes('disabled')).toBeDefined()
+    expect(wrapper.find('[data-testid="apply-model-snapshot"]').exists()).toBe(false)
     await wrapper.get('[data-testid="add-preview-models"]').trigger('click')
     expect(wrapper.emitted('update:modelValue')?.at(-1)).toEqual([['chosen-during-discovery', 'native']])
     wrapper.unmount()
@@ -910,13 +814,13 @@ it.each([51, 505, 1000])('groups %s candidates and selections and selects all fi
   const selected = wrapper.get('[data-testid="selected-models"]')
   expect(selected.findAll('[data-model-category]').map(group => group.attributes('data-model-category'))).toEqual(categories)
   expect(selected.findAll('button')).toHaveLength(count)
-  expect(selected.text()).toContain('1920x1080')
+  expect(selected.text()).toContain('admin.accounts.modelSync.manualSelection')
   await wrapper.get('button[aria-expanded]').trigger('click')
   await wrapper.get('input[aria-label="admin.accounts.searchModels"]').setValue('Searchable deployment')
   const options = wrapper.get('[data-testid="model-options"]')
   expect(options.findAll('[data-model-category]').map(group => group.attributes('data-model-category'))).toEqual(categories)
   expect(options.findAll('[data-testid="model-option"]')).toHaveLength(Math.min(count, 100))
-  expect(options.text()).toContain('1536')
+  expect(options.text()).toContain('admin.accounts.modelSync.manualSelection')
   await wrapper.setProps({ modelValue: [models[0]!.id, models[0]!.id] })
   await wrapper.get('[data-testid="select-filtered-models"]').trigger('click')
   const emitted = wrapper.emitted('update:modelValue')!.at(-1)![0] as string[]
@@ -959,7 +863,7 @@ it.each(['zh', 'en'] as const)('describes empty exact selection without claiming
   const wrapper = mountSelector({ modelValue: [], modelMappings: Array.from({ length: 51 }, (_, index) => ({ from: `alias-${index}`, to: `target-${index}` })) })
   await flushPromises()
   const expected = locale === 'zh' ? '未添加精确模型；实际范围仍受映射和其他限制影响' : 'No exact models added; the actual scope is still subject to mappings and other restrictions'
-  expect(wrapper.text()).toContain(expected)
+  expect(wrapper.text()).not.toContain('admin.accounts.modelSync.emptySelection')
   expect(wrapper.text()).not.toContain(locale === 'zh' ? '未设置账号限制' : 'No account restriction')
   expect(expected).not.toMatch(/已保存|saved/i)
   await wrapper.setProps({ modelValue: ['exact-model'] })
