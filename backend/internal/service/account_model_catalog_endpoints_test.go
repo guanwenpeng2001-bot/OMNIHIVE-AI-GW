@@ -55,10 +55,10 @@ func TestAccountModelCatalogCapabilityInference(t *testing.T) {
 		want        []string
 	}{
 		{name: "search task", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "alpha_search"}, want: []string{"alpha_search"}},
-		{name: "search account declaration", platform: PlatformOpenAI, credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: []string{"alpha_search"}}, want: []string{"alpha_search"}},
+		{name: "search account declaration", platform: PlatformOpenAI, credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: []string{"alpha_search"}}, want: []string{"alpha_search", "chat_completions"}},
 		{name: "search supplements chat", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "text_generation"}, credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: map[string]bool{"alpha_search": true}}, want: []string{"alpha_search", "chat_completions"}},
 		{name: "search not inferred from permissive default", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "text_generation"}, want: []string{"chat_completions"}},
-		{name: "search disabled", platform: PlatformOpenAI, credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: map[string]bool{"alpha_search": false}}, want: []string{}},
+		{name: "search disabled", platform: PlatformOpenAI, credentials: map[string]any{openAIEndpointCapabilitiesCredentialKey: map[string]bool{"alpha_search": false}}, want: []string{"chat_completions"}},
 		{name: "imagine image", platform: PlatformGrok, model: "grok-imagine-image", want: []string{"grok_media_generation"}},
 		{name: "imagine video", platform: PlatformGrok, model: "grok-imagine-video", want: []string{"grok_media_generation"}},
 		{name: "qualified imagine", platform: PlatformGrok, model: "xai/grok-imagine-image-quality", want: []string{"grok_media_generation"}},
@@ -68,8 +68,8 @@ func TestAccountModelCatalogCapabilityInference(t *testing.T) {
 		{name: "openai declared video task", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{TaskType: "video_generation", SupportedMethods: []string{"images", "chat_completions"}}, want: []string{"chat_completions", "images"}},
 		{name: "chat not media", platform: PlatformGrok, model: "grok-4.3", metadata: UpstreamModelMetadata{TaskType: "text_generation"}, want: []string{"chat_completions"}},
 		{name: "known grok text without metadata", platform: PlatformGrok, model: "grok-4.5", want: []string{"chat_completions"}},
-		{name: "unknown grok task stays unknown", platform: PlatformGrok, model: "grok-private", want: []string{}},
-		{name: "other platform not grok media", platform: PlatformOpenAI, model: "grok-imagine-image", want: []string{}},
+		{name: "unknown grok task permits text protocol", platform: PlatformGrok, model: "grok-private", want: []string{"chat_completions"}},
+		{name: "other platform not grok media", platform: PlatformOpenAI, model: "grok-imagine-image", want: []string{"chat_completions"}},
 		{name: "unknown method", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{SupportedMethods: []string{"unknown"}}, want: []string{}},
 		{name: "gemini methods deduplicated", platform: PlatformGemini, metadata: UpstreamModelMetadata{SupportedMethods: []string{"generateContent", "streamGenerateContent"}}, want: []string{"generate_content"}},
 		{name: "multiple declared methods", platform: PlatformOpenAI, metadata: UpstreamModelMetadata{SupportedMethods: []string{"responses", "alpha_search", "chat_completions"}}, want: []string{"alpha_search", "chat_completions", "responses"}},
@@ -118,7 +118,7 @@ func TestAccountModelCatalogOpenAIAPIKeyProtocolEvidence(t *testing.T) {
 
 func TestAccountModelCatalogMixedTasksDoNotUseTextFallback(t *testing.T) {
 	for _, platform := range []string{PlatformQianwen, PlatformGrok, PlatformOpenAI, PlatformDeepseek, PlatformAnthropic, PlatformCursor, PlatformAntigravity, PlatformGemini} {
-		for _, task := range []string{"automatic_speech_recognition", "speech_to_text", "text_to_speech", "audio_generation", "rerank", "unknown"} {
+		for _, task := range []string{"automatic_speech_recognition", "speech_to_text", "text_to_speech", "audio_generation", "rerank"} {
 			t.Run(platform+"/"+task, func(t *testing.T) {
 				account := &Account{Platform: platform, Type: AccountTypeAPIKey}
 				require.Empty(t, accountCatalogModelEndpoints(account, "native", UpstreamModelMetadata{TaskType: task, OutputModalities: []string{"text"}}))
@@ -146,7 +146,7 @@ func TestAccountModelCatalogTextPlatformProtocols(t *testing.T) {
 		{"qianwen chat", PlatformQianwen, AccountTypeAPIKey, APIProtocolChatCompletions, []string{"chat_completions"}},
 		{"qianwen anthropic", PlatformQianwen, AccountTypeAPIKey, APIProtocolAnthropic, []string{"messages"}},
 		{"qianwen responses", PlatformQianwen, AccountTypeAPIKey, APIProtocolResponses, []string{"responses"}},
-		{"qianwen adaptive", PlatformQianwen, AccountTypeAPIKey, APIProtocolAdaptive, []string{"chat_completions", "responses"}},
+		{"qianwen adaptive", PlatformQianwen, AccountTypeAPIKey, APIProtocolAdaptive, []string{"chat_completions", "messages", "responses"}},
 		{"grok key", PlatformGrok, AccountTypeAPIKey, "", []string{"chat_completions"}},
 		{"grok oauth", PlatformGrok, AccountTypeOAuth, "", []string{"chat_completions"}},
 		{"openai key", PlatformOpenAI, AccountTypeAPIKey, "", []string{"chat_completions"}},
@@ -183,10 +183,10 @@ func TestAccountModelCatalogQianwenMissingMetadataRecovery(t *testing.T) {
 		require.Equal(t, want, model.Endpoints, model.ID)
 	}
 	require.Nil(t, catalog.Metadata, "endpoint recovery must not fabricate capability specifications")
-	// A discovered private name, display category or unknown declaration does
-	// not establish a task; native task declarations override the bounded IDs.
-	require.Empty(t, accountCatalogModelEndpoints(account, "qwen-private", UpstreamModelMetadata{Category: "chat"}))
-	require.Empty(t, accountCatalogModelEndpoints(account, "qwen-plus", UpstreamModelMetadata{TaskType: "unknown"}))
+	// Missing task facts permit the saved text protocol without inventing a task;
+	// explicit non-text declarations still keep their own endpoint family.
+	require.Equal(t, []string{"chat_completions"}, accountCatalogModelEndpoints(account, "qwen-private", UpstreamModelMetadata{Category: "chat"}))
+	require.Equal(t, []string{"chat_completions"}, accountCatalogModelEndpoints(account, "qwen-plus", UpstreamModelMetadata{TaskType: "unknown"}))
 	require.Equal(t, []string{"embeddings"}, accountCatalogModelEndpoints(account, "qwen-plus", UpstreamModelMetadata{TaskType: "embeddings"}))
 
 	account.Extra = map[string]any{UpstreamModelAllowlistExtraKey: AccountModelAllowlist{Enabled: true}}
@@ -210,7 +210,11 @@ func TestAccountModelCatalogQianwenUnsupportedAndUnknownTasks(t *testing.T) {
 		},
 	}
 	snapshot := projectAccountModelCatalog(account, catalog)
-	require.Empty(t, snapshot.EligibleModels)
+	require.Len(t, snapshot.EligibleModels, 2)
+	for _, member := range snapshot.EligibleModels {
+		require.Contains(t, []string{"qwen-private", "qwen-unknown-task"}, member.ID)
+		require.Equal(t, []string{"chat_completions", "messages", "responses"}, member.Endpoints)
+	}
 	require.Len(t, snapshot.DiscoveredModels, 8)
 	require.ElementsMatch(t, []ExcludedCatalogModel{
 		{ID: "qwen-audio-3.0-asr", Reason: CatalogReasonEndpointUnsupported},
@@ -218,8 +222,6 @@ func TestAccountModelCatalogQianwenUnsupportedAndUnknownTasks(t *testing.T) {
 		{ID: "native-tts", Reason: CatalogReasonEndpointUnsupported},
 		{ID: "native-rerank", Reason: CatalogReasonEndpointUnsupported},
 		{ID: "native-video", Reason: CatalogReasonEndpointUnsupported},
-		{ID: "qwen-private", Reason: CatalogReasonMetadataIncomplete},
-		{ID: "qwen-unknown-task", Reason: CatalogReasonMetadataIncomplete},
 		{ID: "qwen1.5-72b-chat", Reason: CatalogReasonRetired},
 	}, snapshot.ExcludedModels)
 }

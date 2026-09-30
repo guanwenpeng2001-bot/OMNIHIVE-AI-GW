@@ -405,7 +405,15 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 
 	endpoints := []string{}
 	for _, method := range metadata.SupportedMethods {
+		if account.IsCursor() && account.Type != AccountTypeUpstream && method == CompositeRouteEndpointResponses {
+			// Cursor's native text adapter is selected on the chat family.
+			method = CompositeRouteEndpointChatCompletions
+		}
 		switch method {
+		case "speech", "transcriptions", "voice", "rerank":
+			if platformActionAdapterBound(account, chatOnlyCatalogEndpointAction(method)) {
+				endpoints = append(endpoints, method)
+			}
 		case "realtime":
 			endpoints = append(endpoints, string(OpenAIEndpointCapabilityLive))
 		case "images":
@@ -443,10 +451,11 @@ func accountCatalogModelEndpoints(account *Account, modelID string, metadata Ups
 	if len(endpoints) == 0 && (task == "" || task == "text_generation") && len(metadata.SupportedMethods) == 0 {
 		switch {
 		case account.Platform == PlatformQianwen || account.IsGrok() || (account.Platform == PlatformOpenAI && account.Type == AccountTypeAPIKey):
-			// Mixed provider catalogs need text-task evidence before protocol fallback.
-			if task == "text_generation" {
-				endpoints = append(endpoints, accountCatalogNativeTextEndpoints(account, modelID)...)
-			}
+			// Missing task metadata does not negate the account's text protocol.
+			// Known non-text tasks have already taken their own endpoint path.
+			endpoints = append(endpoints, accountCatalogNativeTextEndpoints(account, modelID)...)
+		case account.IsCursor() && account.Type != AccountTypeUpstream:
+			endpoints = append(endpoints, CompositeRouteEndpointChatCompletions)
 		case account.IsOpenAIOAuth() || account.IsCursor():
 			endpoints = append(endpoints, "responses")
 		case account.IsAnthropic():
@@ -602,6 +611,9 @@ func platformActionAdapterBound(account *Account, action string) bool {
 // explicitly declared ASR, reranking or other non-chat task into a conversation.
 func accountCatalogEndpointTask(account *Account, modelID string, metadata UpstreamModelMetadata) string {
 	task := strings.ReplaceAll(strings.ToLower(strings.TrimSpace(metadata.TaskType)), "-", "_")
+	if task == "unknown" {
+		task = ""
+	}
 	// The upstream parser can derive text_generation from a sole text output,
 	// which is also what ASR produces. Known speech families still need their
 	// dedicated endpoint; text output is not evidence of chat compatibility.
@@ -841,13 +853,22 @@ func accountCatalogNativeTextEndpoints(account *Account, model string) []string 
 	if account.IsOpenCodeGo() || account.IsCommandCode() {
 		return []string{catalogProtocolEndpoint(modelRoutedNativeProtocol(account, model))}
 	}
+	if account.IsAdaptiveAPIProtocol() {
+		endpoints := []string{CompositeRouteEndpointChatCompletions}
+		if account.UsesNativeCNResponses() {
+			endpoints = append(endpoints, CompositeRouteEndpointResponses)
+		}
+		// ForwardAsAnthropic dispatches adaptive CN accounts to native Messages;
+		// model-routed platforms above retain their per-model protocol rules.
+		if platformActionAdapterBound(account, "messages") {
+			endpoints = append(endpoints, CompositeRouteEndpointMessages)
+		}
+		return endpoints
+	}
 	if account.IsAnthropicProtocol() {
 		return []string{CompositeRouteEndpointMessages}
 	}
 	if account.UsesNativeCNResponses() {
-		if account.IsAdaptiveAPIProtocol() {
-			return []string{CompositeRouteEndpointChatCompletions, CompositeRouteEndpointResponses}
-		}
 		return []string{CompositeRouteEndpointResponses}
 	}
 	return []string{CompositeRouteEndpointChatCompletions}
@@ -890,7 +911,7 @@ func applyCapabilityEndpointFacts(account *Account, m *UpstreamModelMetadata) {
 	}
 	if m.TaskType == "text_generation" && accountCatalogEndpointTask(account, m.ID, *m) == "text_generation" && !account.IsGemini() && account.Platform != PlatformAntigravity {
 		m.SupportedMethods = accountCatalogNativeTextEndpoints(account, m.ID)
-		if account.IsOpenAIOAuth() || account.IsCursor() {
+		if account.IsOpenAIOAuth() || (account.IsCursor() && account.Type == AccountTypeUpstream) {
 			m.SupportedMethods = []string{CompositeRouteEndpointResponses}
 		}
 		if m.FieldEvidence == nil {

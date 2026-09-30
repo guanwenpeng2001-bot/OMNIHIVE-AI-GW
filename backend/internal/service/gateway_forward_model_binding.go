@@ -61,6 +61,12 @@ func openAICompatiblePlanCatalogEndpoint(ctx context.Context, account *Account) 
 	if plan == nil {
 		return ""
 	}
+	if account != nil && account.IsCursor() && account.Type != AccountTypeUpstream && (plan.Snapshot().Protocol == "chat_completions" || plan.Snapshot().Protocol == "anthropic" || plan.Snapshot().Protocol == "responses") {
+		return CompositeRouteEndpointChatCompletions
+	}
+	if account != nil && account.IsAdaptiveAPIProtocol() && !account.IsOpenCodeGo() && !account.IsCommandCode() && plan.Snapshot().Protocol == "anthropic" {
+		return CompositeRouteEndpointMessages
+	}
 	// Grok accepts native Chat Completions even for OAuth accounts. Its
 	// optional Responses bridge is checked again at the actual send boundary;
 	// requiring Responses here rejects valid chat-only catalog evidence.

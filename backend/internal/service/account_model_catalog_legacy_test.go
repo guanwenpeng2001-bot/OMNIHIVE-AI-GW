@@ -64,32 +64,38 @@ func TestLegacyModelCatalogSeedPreservesNativeTextProtocols(t *testing.T) {
 	}
 }
 
-func TestLegacyModelCatalogSeedCannotBypassRevocation(t *testing.T) {
+func TestLegacyModelCatalogCurrentSelectionAndRevocation(t *testing.T) {
 	for _, scenario := range []struct {
-		name   string
-		change func(*Account)
+		name    string
+		change  func(*Account)
+		allowed bool
 	}{
 		{"identity changed", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{IdentityRevision: 1}
-		}},
+		}, true},
 		{"rules changed", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
-		}},
+		}, true},
 		{"invalid credentials", func(account *Account) {
 			account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{Result: "credentials_invalid"}
-		}},
-		{"copied account", func(account *Account) { account.ID++ }},
-		{"disabled account", func(account *Account) { account.Schedulable = false }},
-		{"expired account", func(account *Account) { account.ExpiresAt = new(time.Now().Add(-time.Hour)) }},
+		}, true},
+		{"copied account retains saved selection", func(account *Account) { account.ID++ }, true},
+		{"disabled account", func(account *Account) { account.Schedulable = false }, false},
+		{"expired account", func(account *Account) { account.ExpiresAt = new(time.Now().Add(-time.Hour)) }, false},
 		{"allowlist restriction", func(account *Account) {
 			account.Extra[UpstreamModelAllowlistExtraKey] = AccountModelAllowlist{Enabled: true, Models: []string{"different-model"}}
-		}},
-		{"new account without migration", func(account *Account) { delete(account.Extra, UpstreamModelCatalogExtraKey) }},
+		}, false},
+		{"new account without migration", func(account *Account) { delete(account.Extra, UpstreamModelCatalogExtraKey) }, true},
+		{"removed selection", func(account *Account) {
+			account.Credentials["model_mapping"] = map[string]string{}
+			NormalizeEmptyAccountModelSelection(account)
+		}, false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			account := legacyCatalogSeedAccount(PlatformAnthropic)
 			scenario.change(&account)
-			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+			require.Equal(t, scenario.allowed, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}))
+			require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "unselected", AccountModelBindingOptions{Endpoint: "messages"}))
 		})
 	}
 }
@@ -101,10 +107,13 @@ func TestLegacyModelCatalogSeedKeepsFactsSeparateFromMembership(t *testing.T) {
 		endpoint string
 		allowed  bool
 	}{
-		{"explicit empty methods", UpstreamModelMetadata{SupportedMethods: []string{}}, "chat_completions", false},
+		{"explicit empty methods keep selected text adapter", UpstreamModelMetadata{SupportedMethods: []string{}}, "chat_completions", true},
 		{"known image task", UpstreamModelMetadata{TaskType: "image_generation"}, "images", true},
-		{"image cannot borrow chat", UpstreamModelMetadata{TaskType: "image_generation"}, "chat_completions", false},
-		{"unknown is not media", UpstreamModelMetadata{}, "images", false},
+		{"task does not override selected text adapter", UpstreamModelMetadata{TaskType: "image_generation"}, "chat_completions", true},
+		{"unknown permits selected media adapter", UpstreamModelMetadata{}, "images", true},
+		{"unknown declaration permits selected media adapter", UpstreamModelMetadata{TaskType: "unknown"}, "images", true},
+		{"known task does not remove selected media adapter", UpstreamModelMetadata{TaskType: "text_generation"}, "images", true},
+		{"unimplemented endpoint remains rejected", UpstreamModelMetadata{}, "unimplemented", false},
 	} {
 		t.Run(scenario.name, func(t *testing.T) {
 			account := legacyCatalogSeedAccount(PlatformOpenAI)
@@ -122,11 +131,15 @@ func TestLegacyModelCatalogSeedReplacementAndCopy(t *testing.T) {
 
 	account = legacyCatalogSeedAccount(PlatformAnthropic)
 	account.Extra[UpstreamModelCatalogStateExtraKey] = AccountModelCatalogState{RulesRevision: 1}
-	require.Nil(t, account.EffectiveUpstreamModelCatalog())
+	require.NotNil(t, account.EffectiveUpstreamModelCatalog(), "current mapping survives discarded stale migration evidence")
+	require.Equal(t, ModelEvidenceConfiguredSelection, account.EffectiveUpstreamModelCatalog().EligibleModels[0].EvidenceKind)
 	require.EqualValues(t, 1, account.ModelCatalogBaseline().SnapshotRevision, "refresh CAS must retain the stale snapshot revision")
 
 	account.Extra = catalogEvidenceAccount(account.ID, account.Platform).Extra
-	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "a later empty discovery revokes the legacy member")
+	require.True(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "empty discovery does not revoke the saved mapping")
+	account.Credentials["model_mapping"] = map[string]string{}
+	NormalizeEmptyAccountModelSelection(&account)
+	require.False(t, AccountSupportsResolvedModel(context.Background(), &account, "public-model", AccountModelBindingOptions{Endpoint: "messages"}), "removing the selection does revoke access")
 }
 
 func TestLegacyModelCatalogBindingRequiresSchedulableAccount(t *testing.T) {
