@@ -100,6 +100,31 @@ func TestCommandCodeResponsesRuleHonorsExplicitChoice(t *testing.T) {
 	require.Equal(t, APIProtocolAnthropic, account.ResolveCommandCodeUpstreamProtocol("private/model"))
 }
 
+func TestCommandCodeCreditDiagnosticMatchesFailoverEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		status int
+		body   string
+		credit bool
+	}{
+		{"observed", 400, `{"error":{"type":"invalid_request_error","message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service."}}`, true},
+		{"trimmed", 400, `{"error":{"message":"  You have insufficient credits to make this request. Please purchase more credits to continue using the service.  "}}`, true},
+		{"echoed", 400, `{"error":{"message":"Invalid request: You have insufficient credits to make this request. Please purchase more credits to continue using the service."}}`, false},
+		{"generic credit text", 400, `{"error":{"message":"insufficient credits"}}`, false},
+		{"malformed", 400, `{"error":{"message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service."}`, false},
+		{"wrong status", 403, `{"error":{"message":"You have insufficient credits to make this request. Please purchase more credits to continue using the service."}}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			kind, classified := commandCodeProviderError(tc.status, []byte(tc.body))
+			require.True(t, classified)
+			require.Equal(t, tc.credit, isCommandCodeCreditExhausted(tc.status, []byte(tc.body)))
+			require.Equal(t, tc.credit, kind.ClientMessage == commandCodeCreditExhaustedMessage)
+			require.False(t, kind.AccountFault, "credit evidence must not invalidate or pause an account")
+			require.False(t, kind.Retryable, "credit exhaustion must not retry the same account")
+		})
+	}
+}
+
 func TestCommandCodeDocumentedErrorContract(t *testing.T) {
 	for _, tc := range []struct {
 		name                          string
