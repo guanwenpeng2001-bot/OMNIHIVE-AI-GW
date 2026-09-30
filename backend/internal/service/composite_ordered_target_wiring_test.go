@@ -119,8 +119,9 @@ func TestOrderedCompositeTargetSelectionContextKeepsRequestModelWithoutUpstream(
 
 	ctx := WithCompositeTargetSelectionContext(base, target)
 
-	_, ok := ResolvedUpstreamModelFromContext(ctx)
-	require.False(t, ok)
+	upstreamModel, ok := ResolvedUpstreamModelFromContext(ctx)
+	require.True(t, ok)
+	require.Equal(t, "public-model", upstreamModel)
 
 	publicModel, ok := RequestedPublicModelFromContext(ctx)
 	require.True(t, ok)

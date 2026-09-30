@@ -203,19 +203,40 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			return
 		}
 		reqLog.Debug("openai_chat_completions.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		attemptPlatform := requestPlatform
+		attemptForwardModel := forwardModel
+		selectContext := c.Request.Context()
+		// Native DashScope keeps its platform-specific operation contract.
+		if native == "" {
+			attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
+				service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(selectContext, failedAccountIDs)), apiKey.GroupID)
+			if targetErr != nil {
+				h.handleStreamingAwareError(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error(), streamStarted)
+				return
+			}
+			if hasAttemptTarget {
+				selectContext = service.WithCompositeTargetSelectionContext(selectContext, attemptTarget)
+				attemptPlatform = attemptTarget.TargetPlatform
+				attemptForwardModel = reqModel
+				if targetModel := strings.TrimSpace(attemptTarget.UpstreamModel); targetModel != "" {
+					attemptForwardModel = targetModel
+				}
+			}
+		}
+		c.Request = c.Request.WithContext(selectContext)
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			selectContext,
 			apiKey.GroupID,
 			"",
 			sessionHash,
-			forwardModel,
+			attemptForwardModel,
 			failedAccountIDs,
 			service.OpenAIUpstreamTransportAny,
 			service.OpenAIEndpointCapabilityChatCompletions,
 			false,
 			false,
 			true,
-			requestPlatform,
+			attemptPlatform,
 		)
 		if err != nil {
 			if failoverClientGone(c) {
@@ -223,7 +244,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 				return
 			}
 			reqLog.Warn("openai_chat_completions.account_select_failed",
-				zap.Error(openAICompatibleSelectionErrorForLog(err, requestPlatform)),
+				zap.Error(openAICompatibleSelectionErrorForLog(err, attemptPlatform)),
 				zap.Int("excluded_account_count", len(failedAccountIDs)),
 			)
 			if len(failedAccountIDs) == 0 {
@@ -276,8 +297,8 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 		forwardStart := time.Now()
 
 		forwardBody := body
-		if channelMapping.Mapped {
-			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+		if attemptForwardModel != reqModel {
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, attemptForwardModel)
 		}
 		writerSizeBeforeForward := c.Writer.Size()
 		result, err := func() (*service.OpenAIForwardResult, error) {
@@ -376,7 +397,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 						return
 					}
 					if failoverErr.ShouldReportAccountScheduleFailure() {
-						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, nil), false, nil, err)
+						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, attemptForwardModel, false, nil), false, nil, err)
 					}
 					if !failoverErr.ShouldRetryNextAccount() {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
@@ -423,7 +444,7 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 					)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, nil), false, nil, err)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, attemptForwardModel, false, nil), false, nil, err)
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -443,9 +464,9 @@ func (h *OpenAIGatewayHandler) chatCompletions(c *gin.Context, native service.Qi
 			}
 		}
 		if result != nil {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, result), true, result.FirstTokenMs)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, attemptForwardModel, false, result), true, result.FirstTokenMs)
 		} else {
-			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, reqModel, false, result), true, nil)
+			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, attemptForwardModel, false, result), true, nil)
 		}
 
 		submitChatUsage(result)

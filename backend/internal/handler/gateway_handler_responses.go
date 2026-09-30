@@ -183,7 +183,19 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		if failoverClientGone(c) {
 			return
 		}
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(requestCtx, apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		selectContext := requestCtx
+		attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
+			service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(selectContext, fs.FailedAccountIDs)), apiKey.GroupID)
+		if targetErr != nil {
+			h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error())
+			return
+		}
+		if hasAttemptTarget {
+			selectContext = service.WithCompositeTargetSelectionContext(selectContext, attemptTarget)
+		}
+		c.Request = c.Request.WithContext(selectContext)
+		requestCtx = selectContext
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(service.WithCompositeTargetAdvancement(selectContext), apiKey.GroupID, sessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("gateway.responses.account_select_aborted_client_disconnected", zap.Error(err))
@@ -217,6 +229,10 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 				}
 				return
 			}
+		}
+		if selection.CompositeTarget != nil {
+			c.Request = c.Request.WithContext(service.WithCompositeTargetSelectionContext(c.Request.Context(), *selection.CompositeTarget))
+			requestCtx = service.WithCompositeTargetSelectionContext(requestCtx, *selection.CompositeTarget)
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -274,6 +290,13 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+		}
+		if selection.CompositeTarget != nil {
+			targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel)
+			if targetModel == "" {
+				targetModel = reqModel
+			}
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, targetModel)
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")

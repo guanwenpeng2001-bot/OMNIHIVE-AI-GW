@@ -174,7 +174,23 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		if failoverClientGone(c) {
 			return
 		}
-		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(c.Request.Context(), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
+		selectContext := c.Request.Context()
+		attemptTarget, hasAttemptTarget, targetErr := h.gatewayService.CompositeTargetForAttempt(
+			service.WithCompositeTargetAdvancement(service.WithCompositeExcludedAccounts(selectContext, fs.FailedAccountIDs)), apiKey.GroupID)
+		if targetErr != nil {
+			h.chatCompletionsErrorResponse(c, http.StatusBadRequest, "invalid_request_error", targetErr.Error())
+			return
+		}
+		if hasAttemptTarget {
+			selectContext = service.WithCompositeTargetSelectionContext(selectContext, attemptTarget)
+			groupPlatform = attemptTarget.TargetPlatform
+			selectionSessionHash = sessionHash
+			if groupPlatform == service.PlatformGemini && selectionSessionHash != "" {
+				selectionSessionHash = "gemini:" + selectionSessionHash
+			}
+		}
+		c.Request = c.Request.WithContext(selectContext)
+		selection, err := h.gatewayService.SelectAccountWithLoadAwareness(service.WithCompositeTargetAdvancement(selectContext), apiKey.GroupID, selectionSessionHash, reqModel, fs.FailedAccountIDs, "", int64(0))
 		if err != nil {
 			if failoverClientGone(c) {
 				reqLog.Info("gateway.cc.account_select_aborted_client_disconnected", zap.Error(err))
@@ -208,6 +224,10 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 				}
 				return
 			}
+		}
+		if selection.CompositeTarget != nil {
+			c.Request = c.Request.WithContext(service.WithCompositeTargetSelectionContext(c.Request.Context(), *selection.CompositeTarget))
+			groupPlatform = selection.CompositeTarget.TargetPlatform
 		}
 		account := selection.Account
 		setOpsSelectedAccount(c, account.ID, account.Platform)
@@ -271,6 +291,13 @@ func (h *GatewayHandler) ChatCompletions(c *gin.Context) {
 		forwardBody := body
 		if channelMapping.Mapped {
 			forwardBody = h.gatewayService.ReplaceModelInBody(body, channelMapping.MappedModel)
+		}
+		if selection.CompositeTarget != nil {
+			targetModel := strings.TrimSpace(selection.CompositeTarget.UpstreamModel)
+			if targetModel == "" {
+				targetModel = reqModel
+			}
+			forwardBody = h.gatewayService.ReplaceModelInBody(body, targetModel)
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")

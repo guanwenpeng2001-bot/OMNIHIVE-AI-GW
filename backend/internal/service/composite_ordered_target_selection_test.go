@@ -67,6 +67,11 @@ func compositeOrderedTargetTestAccount(id int64, platform, accountType string) A
 		Status:      StatusActive,
 		Schedulable: true,
 		Concurrency: 4,
+		Credentials: map[string]any{"model_mapping": map[string]string{
+			"claude-sonnet-4-6": "claude-sonnet-4-6",
+			"gpt-5":             "gpt-5",
+			"gemini-2.5-pro":    "gemini-2.5-pro",
+		}},
 	}
 }
 
