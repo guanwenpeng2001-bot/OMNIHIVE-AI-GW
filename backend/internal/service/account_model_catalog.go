@@ -740,11 +740,23 @@ func (service *AccountTestService) ApplyAccountModelCatalog(ctx context.Context,
 	catalog, err := service.SyncUpstreamModelCatalog(ctx, account)
 	state := account.ModelCatalogState()
 	state.AttemptedAt = time.Now().UTC().Format(time.RFC3339Nano)
+	// A scheduled discovery can finish successfully but be rejected by the
+	// approved catalog version. Record that attempt through the same baseline
+	// CAS as other failures, retaining the published catalog and last success.
+	// Otherwise it remains due and repeats upstream discovery every minute.
+	versionRejected := false
+	if scheduled, _ := ctx.Value(catalogScheduledRefreshKey{}).(bool); scheduled && err == nil {
+		err = ValidateAccountModelCatalogVersion(account.Extra, catalog.snapshot)
+		versionRejected = err != nil
+	}
 	if err != nil {
 		if reviewed {
 			return nil, err
 		}
 		state.Result, state.Error = "failed", "upstream_model_discovery_failed"
+		if versionRejected {
+			state.Error = "upstream_model_catalog_version_rejected"
+		}
 		var syncError *UpstreamModelSyncError
 		if errors.As(err, &syncError) {
 			switch syncError.Kind {
