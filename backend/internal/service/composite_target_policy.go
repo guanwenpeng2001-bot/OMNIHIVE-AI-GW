@@ -203,7 +203,7 @@ func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, 
 		PublicModel:    requestedModel,
 		TargetPlatform: target.TargetPlatform,
 		AccountType:    target.AccountType,
-		UpstreamModel:  target.UpstreamModel,
+		UpstreamModel:  compositeTargetUpstreamModel(target, requestedModel),
 	})
 	accounts, err := s.listSchedulableAccounts(targetCtx, groupID, target.TargetPlatform)
 	if err != nil {
@@ -225,6 +225,10 @@ func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, 
 		if !account.IsSchedulableForModelWithContext(targetCtx, model) {
 			continue
 		}
+		parent, err := loadCatalogCredentialAccount(targetCtx, s.accountRepo, account)
+		if err != nil || !AccountSupportsResolvedModel(targetCtx, account, requestedModel, AccountModelBindingOptions{Endpoint: openAICompatiblePlanCatalogEndpoint(targetCtx, account), CredentialAccount: parent}) {
+			continue
+		}
 		return true
 	}
 	return false
@@ -236,12 +240,13 @@ func (s *OpenAIGatewayService) compositeTargetHasCandidate(ctx context.Context, 
 // exactly that target.
 func WithCompositeTargetSelectionContext(ctx context.Context, target CompositeRouteTarget) context.Context {
 	targets, _ := CompositeRouteTargetsFromContext(ctx)
+	publicModel := compositeRequestPublicModel(ctx, CompositeRouteDecision{})
 	decision := CompositeRouteDecision{
 		Matched:        true,
-		PublicModel:    compositeRequestPublicModel(ctx, CompositeRouteDecision{}),
+		PublicModel:    publicModel,
 		TargetPlatform: target.TargetPlatform,
 		AccountType:    target.AccountType,
-		UpstreamModel:  target.UpstreamModel,
+		UpstreamModel:  compositeTargetUpstreamModel(target, publicModel),
 		Targets:        targets,
 		SelectedTarget: &target,
 	}
@@ -294,7 +299,7 @@ func compositeDecisionForTarget(decision CompositeRouteDecision, target Composit
 // compositeTargetHasCandidate reports whether one target still has an account
 // that is not excluded, satisfies the target constraints and can serve the
 // target model. It reuses the existing schedulable-account listing and model
-// evidence checks instead of building a parallel resolution chain.
+// selection checks instead of building a parallel resolution chain.
 func (s *GatewayService) compositeTargetHasCandidate(ctx context.Context, groupID *int64, decision CompositeRouteDecision, target CompositeRouteTarget, requestedModel string) bool {
 	targetDecision := compositeDecisionForTarget(decision, target, requestedModel)
 	targetCtx := WithCompositeRouteDecision(ctx, targetDecision)
@@ -313,6 +318,10 @@ func (s *GatewayService) compositeTargetHasCandidate(ctx context.Context, groupI
 			continue
 		}
 		if !s.isAccountSchedulableForModelSelection(targetCtx, account, model) {
+			continue
+		}
+		parent, err := loadCatalogCredentialAccount(targetCtx, s.accountRepo, account)
+		if err != nil || !AccountSupportsResolvedModel(targetCtx, account, requestedModel, AccountModelBindingOptions{Endpoint: gatewaySelectionCatalogEndpoint(targetCtx, account), CredentialAccount: parent}) {
 			continue
 		}
 		return true
