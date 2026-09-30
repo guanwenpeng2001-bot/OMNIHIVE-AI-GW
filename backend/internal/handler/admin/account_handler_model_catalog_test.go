@@ -140,7 +140,9 @@ func TestModelCatalogSupportedReturnsAppliedEvidence(t *testing.T) {
 		Data []map[string]string `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &supported))
-	require.Len(t, supported.Data, 1)
+	require.Len(t, supported.Data, 3)
+	require.Equal(t, "configured_selection", supported.Data[1]["evidence_kind"])
+	require.Empty(t, supported.Data[1]["evidence_observed_at"])
 	require.Equal(t, "native_account_catalog", supported.Data[0]["evidence_kind"])
 	require.Equal(t, observed, supported.Data[0]["evidence_observed_at"])
 	recorder = httptest.NewRecorder()
@@ -153,7 +155,7 @@ func TestModelCatalogSupportedReturnsAppliedEvidence(t *testing.T) {
 		} `json:"data"`
 	}
 	require.NoError(t, json.Unmarshal(recorder.Body.Bytes(), &summary))
-	require.Equal(t, []string{"invalid"}, summary.Data.InvalidAliases)
+	require.Empty(t, summary.Data.InvalidAliases)
 	require.Equal(t, observed, summary.Data.EligibleModels[0].EvidenceObservedAt)
 }
 
@@ -237,6 +239,6 @@ func TestModelCatalogDisplayProjection(test *testing.T) {
 	require.NoError(test, json.Unmarshal(recorder.Body.Bytes(), &response))
 	require.Contains(test, response.Data.Display, "private-target")
 	require.False(test, response.Data.Synced)
-	require.Zero(test, response.Data.Count)
+	require.Equal(test, 1, response.Data.Count)
 	require.Empty(test, adminService.account.Extra)
 }

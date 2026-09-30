@@ -1071,9 +1071,9 @@ func (h *AccountHandler) Create(c *gin.Context) {
 	if result != nil && result.Replayed {
 		c.Header("X-Idempotency-Replayed", "true")
 	}
-	// OpenAI APIKey 账号创建后异步探测上游 /v1/responses 能力。
-	// 探测失败不影响账号创建响应。
-	h.scheduleOpenAIResponsesProbe(createdAccount)
+	// 保存后异步补充目录；OpenAI APIKey 同任务探测 /v1/responses。
+	// 探测或发现失败不影响账号创建响应。
+	h.scheduleModelCatalogApply(createdAccount, true)
 	h.scheduleGrokImportProbe(createdAccount)
 	response.Success(c, result.Data)
 }
@@ -1207,11 +1207,9 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		return
 	}
 
-	// OpenAI APIKey: credentials 修改后重新探测上游能力（base_url/api_key 可能变更）。
-	// 异步执行，探测失败不影响账号更新响应。
-	if len(req.Credentials) > 0 {
-		h.scheduleOpenAIResponsesProbe(account)
-	}
+	// 保存后异步补充目录；credentials 变更时同时重探测 Responses 能力。
+	// 发现失败不影响账号更新响应或已保存的模型选择。
+	h.scheduleModelCatalogApply(account, len(req.Credentials) > 0)
 
 	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
 }
@@ -1233,6 +1231,37 @@ func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) 
 	accountID := account.ID
 	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
 		h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
+	})
+}
+
+// Queue discovery with the optional Responses probe as one bounded task: the
+// shared scheduler deduplicates by account ID, so separate tasks would collide.
+// Capture only immutable ownership identifiers, never the request/gin context.
+func (h *AccountHandler) scheduleModelCatalogApply(account *service.Account, probeResponses bool) {
+	if account == nil || h.accountTestService == nil || h.adminService == nil {
+		return
+	}
+	accountID, workspaceID := account.ID, account.WorkspaceID
+	if workspaceID <= 0 {
+		workspaceID = domain.DefaultWorkspaceID
+	}
+	defaultOpenAIImportProbeScheduler.scheduleProbe(accountID, func(ctx context.Context) {
+		ctx = domain.WithWorkspaceScope(ctx, workspaceID)
+		fresh, err := h.adminService.GetAccount(ctx, accountID)
+		if err != nil || fresh == nil || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
+			return
+		}
+		if probeResponses && fresh.Type == service.AccountTypeAPIKey &&
+			(fresh.Platform == service.PlatformOpenAI || service.IsCNProvider(fresh.Platform)) {
+			h.accountTestService.ProbeOpenAIAPIKeyResponsesSupport(ctx, accountID)
+			fresh, err = h.adminService.GetAccount(ctx, accountID)
+			if err != nil || fresh == nil || fresh.ID != accountID || (fresh.WorkspaceID > 0 && fresh.WorkspaceID != workspaceID) {
+				return
+			}
+		}
+		// Apply owns conflict/budget handling and records discovery failures without
+		// replacing model selection. Its result is independent of the save response.
+		_, _ = h.accountTestService.ApplyAccountModelCatalog(ctx, fresh, nil)
 	})
 }
 
@@ -3548,10 +3577,11 @@ func (h *AccountHandler) UpdateModelAllowlist(c *gin.Context) {
 		return
 	}
 	var request struct {
-		Enabled               bool         `json:"enabled"`
-		Models                []string     `json:"models"`
-		Reason                string       `json:"reason"`
-		ExpectedRulesRevision *json.Number `json:"expected_rules_revision"`
+		Enabled               bool               `json:"enabled"`
+		Models                []string           `json:"models"`
+		Reason                string             `json:"reason"`
+		ExpectedRulesRevision *json.Number       `json:"expected_rules_revision"`
+		ModelMapping          *map[string]string `json:"model_mapping"`
 	}
 	if err := c.ShouldBindJSON(&request); err != nil || request.ExpectedRulesRevision == nil {
 		response.BadRequest(c, "Scope and expected_rules_revision are required")
@@ -3571,9 +3601,19 @@ func (h *AccountHandler) UpdateModelAllowlist(c *gin.Context) {
 		response.InternalError(c, "Account test service unavailable")
 		return
 	}
-	if err := h.accountTestService.ConfigureAccountModelAllowlist(c.Request.Context(), account, request.Enabled, request.Models, request.Reason, subject.UserID, expectedRevision); err != nil {
+	notDiscovered, err := h.accountTestService.ConfigureAccountModelAllowlist(c.Request.Context(), account, request.Enabled, request.Models, request.Reason, subject.UserID, expectedRevision, request.ModelMapping)
+	if err != nil {
 		writeUpstreamModelSyncError(c, err)
 		return
 	}
-	response.Success(c, gin.H{"rules_revision": strconv.FormatInt(expectedRevision+1, 10)})
+	fresh, err := h.adminService.GetAccount(c.Request.Context(), id)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{
+		"rules_revision": strconv.FormatInt(fresh.ModelCatalogBaseline().RulesRevision, 10),
+		"not_discovered": notDiscovered,
+		"scope":          fresh.Extra[service.UpstreamModelAllowlistExtraKey],
+	})
 }

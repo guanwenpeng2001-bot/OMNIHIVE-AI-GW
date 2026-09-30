@@ -103,7 +103,7 @@ type discoveryMappingRepo struct {
 	admin *availableModelsAdminService
 }
 
-func (r *discoveryMappingRepo) CommitAccountModelCatalog(_ context.Context, _ int64, _ service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, _ *service.UpstreamModelMetadataSnapshot) error {
+func (r *discoveryMappingRepo) CommitAccountModelCatalog(_ context.Context, _ int64, _ service.AccountModelCatalogBaseline, snapshot *service.AccountModelCatalogSnapshot, state service.AccountModelCatalogState, _ *service.UpstreamModelMetadataSnapshot, _ bool) error {
 	r.admin.commitCalls++
 	if r.admin.updateAccountErr != nil {
 		return r.admin.updateAccountErr
@@ -663,13 +663,13 @@ func TestAccountModelCatalogQianwenNativeCatalogAppliesIndependentSnapshot(t *te
 	require.Equal(t, 1, svc.commitCalls)
 	require.Zero(t, svc.mergeCalls)
 	require.Equal(t, map[string]any{"alias": "qwen-plus", "qwen-plus": "custom-target"}, svc.account.Credentials["model_mapping"])
-	require.Len(t, svc.account.EffectiveUpstreamModelCatalog().EligibleModels, 1)
+	require.Len(t, svc.account.EffectiveUpstreamModelCatalog().EligibleModels, 2)
 	require.Equal(t, "qwen-plus", svc.account.EffectiveUpstreamModelCatalog().EligibleModels[0].ID)
 	require.Len(t, svc.account.GetUpstreamModelCatalog().DiscoveredModels, 3)
 	require.Equal(t, `"1"`, gjson.Get(w.Body.String(), "data.snapshot_revision").Raw)
 	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.identity_revision").Raw)
 	require.Equal(t, `"0"`, gjson.Get(w.Body.String(), "data.rules_revision").Raw)
-	require.Equal(t, `["qwen-plus"]`, gjson.Get(w.Body.String(), "data.invalid_aliases").Raw)
+	require.Equal(t, `[]`, gjson.Get(w.Body.String(), "data.invalid_aliases").Raw)
 	require.Equal(t, `["qwen-plus"]`, gjson.Get(w.Body.String(), "data.models").Raw)
 	for _, excluded := range gjson.Get(w.Body.String(), "data.excluded_models").Array() {
 		require.NotEmpty(t, excluded.Get("model").String())
